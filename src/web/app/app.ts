@@ -26,8 +26,12 @@ import {
   PlaceAdmissionUnavailableError,
   PlaceRoomFullError,
   WebChatroomService,
+  chatroomCapacityTestOverride,
 } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
+import { MapPresenceClient } from '../services/map-presence-client';
+import { MAP_PRESENCE_REFRESH_MS } from '../../shared/map-presence';
+import { publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
@@ -285,6 +289,18 @@ type MailboxSupportQuestionPayload = {
 /** Debounce for automatic same-room catch-up to one peer (link flaps, roster heartbeats). */
 const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
 
+/**
+ * The room protocol baseline. Outside production a local-debug/E2E capacity (`?e2e_capacity=`)
+ * replaces the baseline capacity so the signed Nearby split can be exercised with a few users;
+ * production always uses the bundled manifest's capacity.
+ */
+function baselineRoomCheckpoint(): RoomProtocolCheckpoint {
+  const capacity = chatroomCapacityTestOverride();
+  return capacity === null
+    ? BASELINE_ROOM_PROTOCOL_CHECKPOINT
+    : { ...BASELINE_ROOM_PROTOCOL_CHECKPOINT, chatroomCapacity: capacity };
+}
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -321,6 +337,12 @@ export class IinPublicApp {
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
   private travelNearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
+  private mapPresenceClient: MapPresenceClient | null = null;
+  private mapPresenceTimer: ReturnType<typeof setInterval> | undefined;
+  private mapPresencePublishTimer: ReturnType<typeof setTimeout> | undefined;
+  private mapPresenceShownKey = '';
+  /** Last published home square (hysteresis memory for `publicHomeLocation`). */
+  private lastPublicHomeLocation: PublicLocation | null = null;
   private pendingNearbyTravel: {
     rootAssignment: NearbyRoomAssignment;
     location: GPSCoordinate;
@@ -1097,6 +1119,7 @@ export class IinPublicApp {
         active: false,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
+      this.scheduleMapPresencePublish();
       this.currentChatroomId = CONTACTS_ONLY_SCOPE_ID;
       localStorage.setItem('iinpublic_last_chatroom', CONTACTS_ONLY_SCOPE_ID);
       this.uiManager.setCurrentChatroomId(CONTACTS_ONLY_SCOPE_ID);
@@ -1589,6 +1612,7 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
+    this.startMapPresence();
     if (this.locationConfirmed) {
       void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch(() => {});
     }
@@ -1679,7 +1703,8 @@ export class IinPublicApp {
     if (this.currentUser) this.chatroomService.updateLocalUserLocation(this.currentUser.id, location);
     this.uiManager.setCurrentLocation(location);
     if (this.currentUser) {
-      void this.userService.updateUserLocation(this.currentUser.id, location).catch(() => {});
+      void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch(() => {});
+      this.scheduleMapPresencePublish();
       if (this.initialized) {
         void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch((error) => {
           console.warn('Nearby room refresh after location update failed:', error);
@@ -1694,10 +1719,77 @@ export class IinPublicApp {
    * stamping that on talks made receivers' distance filter reject them as thousands of miles away —
    * seen on hardware with two phones side by side in OPEN-36 offline mode.
    */
-  private confirmedLocationForTalks(): ReturnType<typeof LocationPrivacy.blurCoordinatePair> | undefined {
-    return this.currentLocation && this.locationConfirmed
-      ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
-      : undefined;
+  private confirmedLocationForTalks(): { latitude: number; longitude: number } | undefined {
+    const location = this.publicHomeLocation();
+    return location ? { latitude: location.latitude, longitude: location.longitude } : undefined;
+  }
+
+  /**
+   * The only public form of the home location (users/<id>/location, Talk authorLocation): the
+   * snapped square for the user's privacy setting, or null for Contacts only / Location off.
+   */
+  private publicHomeLocation(): PublicLocation | null {
+    if (!this.currentLocation || !this.locationConfirmed) return null;
+    const next = publicLocationWithHysteresis(
+      this.currentLocation,
+      loadConnectivitySettings().nearbyPrivacyMode,
+      this.lastPublicHomeLocation,
+    );
+    this.lastPublicHomeLocation = next;
+    return next;
+  }
+
+  /** The map dot: the travel point while traveling (same precision as home), else home. */
+  private mapPresenceLocation(): PublicLocation | null {
+    const home = this.publicHomeLocation();
+    const travel = this.travelModeActive ? this.travelNearbyPoint : undefined;
+    if (!travel) return home;
+    const precision = publicLocationPrecisionMeters(loadConnectivitySettings().nearbyPrivacyMode);
+    return precision === null ? null : snapPublicLocation(travel, precision);
+  }
+
+  private startMapPresence(): void {
+    if (this.mapPresenceTimer) return;
+    this.mapPresenceTimer = setInterval(() => { void this.publishMapPresenceNow(); }, MAP_PRESENCE_REFRESH_MS);
+    this.scheduleMapPresencePublish();
+  }
+
+  private stopMapPresence(): void {
+    if (this.mapPresenceTimer) clearInterval(this.mapPresenceTimer);
+    if (this.mapPresencePublishTimer) clearTimeout(this.mapPresencePublishTimer);
+    this.mapPresenceTimer = undefined;
+    this.mapPresencePublishTimer = undefined;
+  }
+
+  /** Coalesce bursts (travel + room change + location) into one signed publish. */
+  private scheduleMapPresencePublish(): void {
+    if (!this.mapPresenceTimer) return;
+    if (this.mapPresencePublishTimer) clearTimeout(this.mapPresencePublishTimer);
+    this.mapPresencePublishTimer = setTimeout(() => {
+      this.mapPresencePublishTimer = undefined;
+      void this.publishMapPresenceNow();
+    }, 500);
+  }
+
+  private async publishMapPresenceNow(): Promise<void> {
+    const user = this.currentUser;
+    const pair = this.gunService.getStoredPair();
+    if (!user || isTechSupportUser(user) || !pair?.pub || !pair.priv) return;
+    this.mapPresenceClient ??= new MapPresenceClient(this.getBackendApiBase());
+    const client = this.mapPresenceClient;
+    const location = this.mapPresenceLocation();
+    try {
+      await client.publish({ userId: user.id, pair, location });
+    } catch (error) {
+      console.warn('Map presence publish failed (non-fatal):', error);
+    }
+    const key = JSON.stringify(location);
+    if (key === this.mapPresenceShownKey) return;
+    this.mapPresenceShownKey = key;
+    this.uiManager.setMapUserDotSource({
+      ...(location ? { selfPoint: location } : {}),
+      load: (bounds) => client.load(bounds),
+    });
   }
 
   /**
@@ -1877,7 +1969,7 @@ export class IinPublicApp {
     // production hub may never send at all — see WebGunService.put's doc comment) used to make
     // every boot pay for a network round trip it didn't actually need to open the app.
     if (this.currentLocation && this.locationConfirmed) {
-      void this.userService.updateUserLocation(this.currentUser.id, this.currentLocation).catch((error) => {
+      void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch((error) => {
         console.warn('Boot-time location publication skipped (non-fatal):', error);
       });
     }
@@ -2203,6 +2295,7 @@ export class IinPublicApp {
         active: true,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
+      this.scheduleMapPresencePublish();
       await this.chatroomService.switchChatroom(this.currentUser.id, this.travelChatroomId, this.currentUser.stageName);
       this.currentChatroomId = this.travelChatroomId;
       localStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
@@ -2226,6 +2319,7 @@ export class IinPublicApp {
         active: this.travelModeActive,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
+      this.scheduleMapPresencePublish();
     }
 
     await this.ensureSupportBootstrapForCurrentUser().catch((error) => {
@@ -2488,7 +2582,7 @@ export class IinPublicApp {
     if (!user?.id || !pair?.pub || !pair.priv) return currentRoomId;
     try {
       const manifestController = await this.ensureProtocolManifestController();
-      const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+      const checkpoint = manifestController.roomCheckpoint(baselineRoomCheckpoint());
       this.microRoomPreAdmissionClient ??= new MicroRoomPreAdmissionClient({
         apiBase: this.getBackendApiBase(),
         storage: localStorage,
@@ -2559,7 +2653,7 @@ export class IinPublicApp {
     if (!user?.id || !location || !pair?.pub || !pair.priv) return rootAssignment.roomId;
     try {
       const manifestController = await this.ensureProtocolManifestController();
-      const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+      const checkpoint = manifestController.roomCheckpoint(baselineRoomCheckpoint());
       this.nearbyPreAdmissionClient ??= new NearbyPreAdmissionClient({
         apiBase: this.getBackendApiBase(),
         storage: localStorage,
@@ -2740,8 +2834,8 @@ export class IinPublicApp {
   }
 
   private currentRoomProtocolCheckpoint(): RoomProtocolCheckpoint {
-    return this.protocolManifestController?.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT)
-      ?? BASELINE_ROOM_PROTOCOL_CHECKPOINT;
+    return this.protocolManifestController?.roomCheckpoint(baselineRoomCheckpoint())
+      ?? baselineRoomCheckpoint();
   }
 
   private scheduleProtocolActivation(): void {
@@ -2765,7 +2859,7 @@ export class IinPublicApp {
       await activeController.transitionTo({
         roomId: active.roomId,
         neighborLimit: active.neighborLimit,
-        ...controller.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT),
+        ...controller.roomCheckpoint(baselineRoomCheckpoint()),
       });
       this.scheduleProtocolActivation();
     } catch (error) {
@@ -2782,7 +2876,7 @@ export class IinPublicApp {
     let checkpoint: RoomProtocolCheckpoint;
     try {
       const manifestController = await this.ensureProtocolManifestController();
-      checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+      checkpoint = manifestController.roomCheckpoint(baselineRoomCheckpoint());
     } catch (error) {
       await this.activeExchangeRoomController?.pause().catch(() => undefined);
       this.uiManager.showNotification(
@@ -2810,6 +2904,8 @@ export class IinPublicApp {
   /** Apply a saved audience choice immediately; no new OS prompt is raised mid-exchange. */
   private async applyNearbyPrivacyMode(settings: ConnectivitySettings): Promise<void> {
     if (!this.currentUser || !this.currentLocation) return;
+    this.scheduleMapPresencePublish();
+    void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch(() => {});
     if (settings.nearbyPrivacyMode === 'contacts-only') {
       const filters = { ...getTalkIntakeFilters(), contactsOnlyTalks: true };
       setTalkIntakeFilters(filters);
@@ -2836,6 +2932,7 @@ export class IinPublicApp {
         this.travelNearbyPoint = undefined;
         this.persistTravelModeStateToStorage();
         this.uiManager.setTravelModeState({ active: false });
+        this.scheduleMapPresencePublish();
       }
       selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
         this.currentLocation,
@@ -3120,7 +3217,7 @@ export class IinPublicApp {
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
       getMaxRoomCandidates: () => this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
-        ?? BASELINE_ROOM_PROTOCOL_CHECKPOINT.chatroomCapacity,
+        ?? baselineRoomCheckpoint().chatroomCapacity,
       authoritativeDirectTalkDelivery: this.p2pRuntimeFlags.p2pDirectTalkDelivery,
       onTalkDeliveryAck: (payload, recipientUserId) => {
         const deliveredTalk = payload.talkData as unknown as Talk;
@@ -5750,6 +5847,7 @@ export class IinPublicApp {
       active: this.travelModeActive,
       ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
     });
+    this.scheduleMapPresencePublish();
   }
 
   private persistTravelModeStateToStorage(): void {
@@ -8953,6 +9051,7 @@ export class IinPublicApp {
       this.travelHomeChatroomId = home;
       this.persistTravelModeStateToStorage();
       this.uiManager.setTravelModeState({ active: false });
+      this.scheduleMapPresencePublish();
       if (this.currentChatroomId !== home) {
         await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
         this.currentChatroomId = home;
@@ -9215,6 +9314,7 @@ export class IinPublicApp {
         active: this.travelModeActive,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
+      this.scheduleMapPresencePublish();
 
       // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
@@ -9380,7 +9480,7 @@ export class IinPublicApp {
 
       if (this.currentUser) {
         this.chatroomService.updateLocalUserLocation(this.currentUser.id, newLocation);
-        await this.userService.updateUserLocation(this.currentUser.id, newLocation);
+        await this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation());
 
         if (this.travelModeActive) {
           this.uiManager.showNotification(this.uiManager.formatTravelLocationHeld(), 'info');
@@ -9547,6 +9647,7 @@ export class IinPublicApp {
   public async manualCleanup(): Promise<void> {
     // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
     console.log('🧹 Manual cleanup called');
+    this.stopMapPresence();
     if (this.incomingApiRefreshTimer) {
       clearTimeout(this.incomingApiRefreshTimer);
       this.incomingApiRefreshTimer = undefined;

@@ -189,6 +189,7 @@ import {
 } from './cohort-traversal-view-model';
 import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
+import type { MapUserDotSource } from './chatroom-map-view';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
   deriveLocalCreatorReplies,
@@ -1126,6 +1127,9 @@ export class UIManager extends EventEmitter {
       syncReturnHomeButton: () => this.syncReturnHomeButton(),
     });
   }
+
+  /** Map user dots: my published point plus a viewport loader; null hides them. */
+  setMapUserDotSource(source: MapUserDotSource | null): void { this.chatroomShell().setMapUserDotSource(source); }
 
   setNearbyMapAssignment(assignment: NearbyRoomAssignment | null): void {
     this.nearbyMapArea = assignment ? nearbyMapArea(assignment) : undefined;

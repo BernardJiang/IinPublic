@@ -15,6 +15,7 @@ import {
   type CohortTraversalViewModel,
 } from './cohort-traversal-view-model';
 
+import { createMapUserDots, type MapUserDotSource } from './chatroom-map-view';
 type ChatroomsViewDeps = Parameters<typeof renderChatrooms>[0];
 
 export type ChatroomShellControllerDeps = {
@@ -63,9 +64,15 @@ export type ChatroomShellController = ReturnType<typeof createChatroomShellContr
 
 export function createChatroomShellController(deps: ChatroomShellControllerDeps) {
   const localCohortTraversal = createLocalCohortTraversalViewModel();
+  /** Set by the app once map presence works; the room roster decides which dots are green. */
+  let mapUserDotSource: MapUserDotSource | undefined;
+  let roomMembers: ReadonlyArray<{ userId: string }> = [];
 
   const viewDeps = (): ChatroomsViewDeps => {
     const nearbyMapArea = deps.getNearbyMapArea?.();
+    const mapUserDots = mapUserDotSource
+      ? createMapUserDots(mapUserDotSource, deps.getCurrentUserId(), roomMembers, deps.t)
+      : undefined;
     return {
       currentChatroom: deps.getCurrentChatroom(),
     chatroomMemberCounts: deps.getChatroomMemberCounts(),
@@ -77,6 +84,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     travelModeActive: deps.getTravelModeActive(),
     cohortTraversal: deps.getCohortTraversalViewModel?.() ?? localCohortTraversal,
       ...(nearbyMapArea ? { nearbyMapArea } : {}),
+      ...(mapUserDots ? { mapUserDots } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
       deps.setCurrentChatroom(chatroomId);
@@ -112,6 +120,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     currentUserId: string,
   ): void => {
     deps.setCurrentUserId(currentUserId);
+    roomMembers = members;
     for (const member of members) {
       if (member.userId && member.stageName) deps.rememberPeerName(member.userId, member.stageName);
     }
@@ -199,8 +208,14 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     }
   };
 
+  const setMapUserDotSource = (source: MapUserDotSource | null): void => {
+    mapUserDotSource = source ?? undefined;
+    if (deps.getChatroomBrowseMode() === 'map') renderChatroomList();
+  };
+
   return {
     handleCreateCustomChatroomClick,
+    setMapUserDotSource,
     renderChatroomList,
     showChatroomDetail,
     showChatroomList,

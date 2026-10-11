@@ -1,6 +1,5 @@
 import {
   User,
-  GPSCoordinate,
   QuestionAnswer,
   KnownPerson,
   RelationshipLabel,
@@ -8,6 +7,7 @@ import {
   type Reputation,
   type Tag,
 } from '../../shared/types';
+import { publicLocationRegion, type PublicLocation } from '../../shared/public-location';
 import { LocationPrivacy } from '../../shared/location';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
@@ -639,11 +639,14 @@ export class WebUserService {
     };
   }
 
-  async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
-    const blurredLocation = LocationPrivacy.blurLocation(location);
+  /**
+   * Publish the public home square (shared/public-location.ts) at the user's privacy setting.
+   * `null` (Contacts only / Location off) clears the public record instead of leaving a stale one.
+   */
+  async updateUserLocation(userId: string, location: PublicLocation | null): Promise<void> {
     await this.gunService.put(
       `users/${userId}/location`,
-      LocationPrivacy.sanitizeBlurredLocation(blurredLocation),
+      LocationPrivacy.sanitizeBlurredLocation({ region: location ? publicLocationRegion(location) : '', chatrooms: [] }),
     );
   }
 

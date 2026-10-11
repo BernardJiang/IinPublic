@@ -80,6 +80,8 @@ import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import { MicroRoomControlStore } from '../services/micro-room-control-store';
 import { NearbyControlStore } from '../services/nearby-control-store';
 import { NearbyPartitionStore } from '../services/nearby-partition-store';
+import { MapPresenceStore } from '../services/map-presence-store';
+import { parseMapBounds } from '../../shared/map-presence';
 import { NearbyCohortStore, NearbyCohortStoreError } from '../services/nearby-cohort-store';
 import {
   FAQ_ENTRIES_ROOT,
@@ -196,6 +198,7 @@ export function registerSystemRoutes(
   const microRoomControlStore = new MicroRoomControlStore();
   const nearbyControlStore = new NearbyControlStore();
   const nearbyPartitionStore = new NearbyPartitionStore();
+  const mapPresenceStore = new MapPresenceStore();
   const nearbyCohortStore = new NearbyCohortStore(new Set(
     nearbyCohortPolicySignerPubs
       ?? String(process.env.IINPUBLIC_NEARBY_COHORT_POLICY_PUBS || '')
@@ -499,6 +502,38 @@ export function registerSystemRoutes(
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
+  });
+
+  // Map user dots (shared/map-presence.ts): signed public snapped points, bounded viewport reads.
+  const relayMapPresence = async (res: express.Response, path: string, method: 'GET' | 'POST', body?: unknown): Promise<boolean> => {
+    if (!hubRelayClient?.forwardNearbyCohort) return false;
+    try {
+      const relayed = await hubRelayClient.forwardNearbyCohort(path, method, body);
+      res.status(relayed.status).json(relayed.body);
+    } catch (error) {
+      res.status(503).json({ error: (error as Error).message });
+    }
+    return true;
+  };
+
+  app.post('/api/map-presence', async (req, res) => {
+    if (await relayMapPresence(res, '/api/map-presence', 'POST', req.body || {})) return;
+    try {
+      res.json(await mapPresenceStore.register(req.body?.presence));
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/map-presence', async (req, res) => {
+    const bounds = parseMapBounds(req.query as Record<string, unknown>);
+    if (!bounds) {
+      res.status(400).json({ error: 'west, south, east and north are required' });
+      return;
+    }
+    const query = new URLSearchParams(Object.entries(bounds).map(([key, value]) => [key, String(value)]));
+    if (await relayMapPresence(res, `/api/map-presence?${query}`, 'GET')) return;
+    res.json(mapPresenceStore.query(bounds));
   });
 
   const cohortError = (res: express.Response, error: unknown): void => {
@@ -1557,6 +1592,7 @@ export function registerSystemRoutes(
           microRoomControlStore.clear();
           nearbyControlStore.clear();
           nearbyPartitionStore.clear();
+          mapPresenceStore.clear();
           clearForTesting?.();
           await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();

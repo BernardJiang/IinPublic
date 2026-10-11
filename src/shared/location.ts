@@ -1,3 +1,4 @@
+import { parsePublicLocationRegion } from './public-location';
 import { GPSCoordinate, BlurredLocation } from './types';
 
 /**
@@ -52,6 +53,11 @@ export class LocationPrivacy {
    * recovering or publishing a device's exact GPS fix.
    */
   static coordinateFromRegion(region: string): GPSCoordinate | null {
+    // Current form (public-location.ts): the exact public square centre and its size.
+    const cell = parsePublicLocationRegion(region);
+    if (cell) {
+      return { latitude: cell.latitude, longitude: cell.longitude, accuracy: cell.precisionMeters, timestamp: new Date(0) };
+    }
     const match = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)$/.exec(String(region || ''));
     if (!match) return null;
     const latitude = Math.round((Number(match[1]) + 0.005) * 1_000_000) / 1_000_000;

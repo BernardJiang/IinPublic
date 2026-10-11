@@ -353,6 +353,38 @@ partition/reconnect convergence, geographic split/coalesce, and `K`-bounded dire
 physical policy experiment remains separate: `498` is still an arbitrary experimental default and
 must not be presented as an empirically optimal capacity.
 
+### 3.4 People and density on the map (product decision 2026-10-11)
+
+The map shows people so users can see where the crowd is:
+
+- **★ me**, larger, drawn at my own public point, so I see exactly what others see of me.
+- **Green dots:** members of my current room roster. I can exchange Talks with them.
+- **Yellow dots:** everyone else in the visible area, outside my Nearby. They are shown from city
+  zoom (10) upward.
+- **Heat layer:** anonymous per-square headcounts, so density shows at every zoom.
+
+**Public point.** The public point (`src/shared/public-location.ts`) is the only form in which a
+location leaves the device. It is the centre of a grid square sized by the user's setting:
+1 km for Close nearby and Neighborhood, 10 km for Citywide, 50 km for Regional. A poor GPS fix
+moves to a coarser square. Contacts only and Location off publish nothing.
+
+Everyone in a square publishes the identical point, so the exact fix cannot be recovered from a
+snapshot. A dot keeps its old square until the device is 15% of a square past the edge, which
+limits the edge-crossing leak. Sparse squares can still single someone out; coarser settings are
+the remedy.
+
+`users/<id>/location` and a Talk's `authorLocation` use the same public point.
+
+**Map presence.** Map presence (`src/shared/map-presence.ts`) is a signed record with a 3-minute
+lifetime, refreshed every 60 s. It carries `{userId, pub, public point}` and no room id. Viewers
+colour a dot green from their own room roster.
+
+The hub index:
+- verifies the signature;
+- rejects any point that is not a grid centre;
+- binds a live userId to its key;
+- returns at most 500 dots per view, plus complete density squares (1/48 of the view per side).
+
 ## 4. Place rooms and map travel
 
 Any user may publish an immutable, signed, content-addressed Place descriptor containing a display

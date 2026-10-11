@@ -2,6 +2,7 @@ import { WebUserService } from '../../web/services/web-user-service';
 import type { GunPair } from '../../web/services/gun-bridge';
 import type { User } from '../../shared/types';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
+import { publicLocationFor } from '../../shared/public-location';
 
 const pair: GunPair = {
   pub: 'pub-key',
@@ -11,13 +12,13 @@ const pair: GunPair = {
 };
 
 describe('WebUserService', () => {
-  it('publishes only the blurred location and leaves room selection to the Nearby service', async () => {
+  it('publishes only the public square and leaves room selection to the Nearby service', async () => {
     const gunService = { put: jest.fn().mockResolvedValue(undefined) };
     const service = new WebUserService(gunService as any);
 
-    await service.updateUserLocation('user-1', {
-      latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: new Date(),
-    });
+    await service.updateUserLocation('user-1', publicLocationFor({
+      latitude: 32.7157, longitude: -117.1611, accuracy: 10,
+    }, 'neighborhood'));
 
     expect(gunService.put).toHaveBeenCalledTimes(1);
     expect(gunService.put).not.toHaveBeenCalledWith(
@@ -25,7 +26,7 @@ describe('WebUserService', () => {
       expect.anything(),
     );
     const publicLocation = gunService.put.mock.calls[0][1];
-    expect(publicLocation).toEqual({ region: 'region_32.71_-117.17', chatrooms: [] });
+    expect(publicLocation).toEqual({ region: expect.stringMatching(/^cell_32\.\d+_-117\.\d+_1000$/), chatrooms: [] });
     expect(JSON.stringify(publicLocation)).not.toContain('latitude');
     expect(JSON.stringify(publicLocation)).not.toContain('longitude');
   });

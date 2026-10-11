@@ -1084,6 +1084,76 @@ button:focus:not(:focus-visible) {
   pointer-events: none;
 }
 
+/* People on the map: ★ me (larger), green = my room (can exchange Talks), yellow = others. */
+.chatroom-map-user-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
+  color: #111827;
+  font: 700 9px/1 system-ui, sans-serif;
+}
+
+.chatroom-map-user-dot[data-count]:not([data-count="1"]) {
+  width: 20px;
+  height: 20px;
+}
+
+.chatroom-map-user-dot-room {
+  background: #16a34a;
+  color: #fff;
+}
+
+.chatroom-map-user-dot-other {
+  background: #facc15;
+}
+
+.chatroom-map-user-dot-self {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: #f59e0b;
+  font-size: 28px;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 1px 3px rgb(0 0 0 / 55%);
+}
+
+.chatroom-map-user-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 30px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--text-primary, #111827);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  font-size: 0.8em;
+  pointer-events: none;
+}
+
+.chatroom-map-user-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chatroom-map-user-legend-swatch.chatroom-map-user-dot-self {
+  width: 14px;
+  height: 14px;
+  font-size: 15px;
+}
+
 /* Tapped tile on the room map: its name and an Enter button, pinned at the tap point. */
 .chatroom-map-tile-card {
   display: flex;

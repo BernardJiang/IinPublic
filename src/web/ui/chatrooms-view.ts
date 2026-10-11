@@ -18,7 +18,7 @@ import {
 } from '../../shared/nearby-rooms';
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
+import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots } from './chatroom-map-view';
 import {
   bindCohortTraversalControls,
   renderCohortTraversalControls,
@@ -53,6 +53,8 @@ type ChatroomsViewDeps = {
   matchedUserIds: Set<string>;
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
   nearbyMapArea?: NearbyMapArea;
+  /** User dots on the map (★ me, green my room, yellow others). */
+  mapUserDots?: MapUserDots;
   travelModeActive: boolean;
   /** Local UI model in Group 1; replaced by the real traversal client in Group 2. */
   cohortTraversal: CohortTraversalViewModel;
@@ -516,6 +518,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       rooms: mapRooms,
       currentChatroom: deps.currentChatroom,
       ...(deps.nearbyMapArea ? { nearbyMapArea: deps.nearbyMapArea } : {}),
+      ...(deps.mapUserDots ? { userDots: deps.mapUserDots } : {}),
       openChatroom: (chatroomId) => showChatroomDetail(deps, chatroomId),
       selectNearbyPoint: (location) => deps.emit('travelNearbyAtPoint', location),
       nearbyPointTitle: deps.text('chatroomNearbyPointTitle'),
