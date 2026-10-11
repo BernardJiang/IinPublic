@@ -106,8 +106,9 @@ its ID.
         remain unchanged. Design section 4.1 fixes audience, convergence, abuse, migration, Gun
         control-path, flat-UI, and implementation acceptance semantics.
     - [ ] **Group 2 — Contract-dependent implementation and verification.** G2.1–G2.4 were implemented
-      after the `OPEN-40-G1.1` contract freeze and pass integrated contract tests. G2.5 runs last and
-      remains open because fewer than three test phones are currently available.
+      after the `OPEN-40-G1.1` contract freeze and pass integrated contract tests. G2.5 runs last;
+      its connected three-phone cohort gate now passes, while the long unplugged/isolated-provider
+      measurements listed below remain open.
       - [x] **OPEN-40-G2.1 — Implement bounded cohort indexing and atomic admission.** Extend the Nearby
       partition index to create and discover crowd cohorts, enforce hard global `C`, and serialize a
       short-lived target reservation followed by stop-old/commit-new/release-old. A full or failed
@@ -160,8 +161,27 @@ its ID.
       delivery, roster/control bytes, duplicate bytes, radio churn, background survival, and battery
       across Internet, LAN, isolated BLE, and Wi-Fi Direct. Record evidence; do not promote `498` from
       an arbitrary default without results.
-        Not run on 2026-10-11: only two phones were visible to ADB, below the three-phone minimum.
-        `498` therefore remains an experimental default, not a measured optimum.
+        Connected-hub/LAN slice passed on 2026-10-11 on Android 7, 10, and 14 using a deliberately
+        small experimental `C=3`: three signed claims shared one upstream index, opened one two-way
+        cohort split in 15.261 s, moved into identity-derived defaults, and completed explicit
+        same-area visits. Ten initialization/handoff samples measured p50 4.742 s / p95 6.881 s;
+        foreground plus post-background Talk delivery measured p50 4.501 s / p95 19.528 s. The
+        sampled control/roster HTTP responses totalled 2,450 bytes, but this is not total network
+        traffic. The run found and fixed two physical-only integration gaps: embedded Android nodes
+        now forward signed cohort control to the shared hub index, and parent→child capacity moves
+        are no longer incorrectly signed as same-level manual visits.
+        Wi-Fi Direct correctly remained idle on the healthy hub/LAN. Duplicate-byte accounting,
+        radio-churn counters, isolated BLE, a cohort-preserving hub-offline/Wi-Fi-Direct transition,
+        and a long unplugged battery run are still required. USB-connected battery snapshots were
+        unchanged but are not drain evidence. `498` remains an experimental default, not a measured
+        optimum.
+        The same build also passed a hub-unreachable Wi-Fi Direct data-plane gate on the two
+        credential-join-capable phones (Android 10 owner, Android 14 client): two directional Talks
+        plus post-background delivery measured p50 18.811 s / p95 19.207 s. The available Android 7
+        phone advertises Wi-Fi Direct hardware support but is intentionally excluded by the current
+        Android-10+ app-chosen-credential protocol, so this device set cannot supply the required
+        three-phone Wi-Fi Direct cohort topology. A prior assertion was corrected to trust durable
+        native owner/client state rather than a transient UI status label.
   - [x] **P0 fixed-cell room protocol (implemented, now migration source rather than target):**
     define versioned Nearby IDs from spatial index, precision, protocol
     epoch, and split generation. Replace identity-first lane allocation with geographic subdivision;
