@@ -44,6 +44,21 @@ export type QuietState =
 export const QUIET_PLACE_RADII = [200, 500, 1_000, 2_000] as const;
 export const DEFAULT_QUIET_RADIUS_METERS = 500;
 export const MAX_QUIET_PLACES = 8;
+/** While the app is open, a Resident with quiet places re-reads GPS this often. */
+export const QUIET_GPS_REFRESH_MS = 5 * 60_000;
+
+/**
+ * Re-read GPS only when it can change the quiet state: a Resident on a real GPS device, with at
+ * least one quiet place, while the app is visible. Everyone else costs no extra battery.
+ */
+export function shouldRefreshQuietGps(input: {
+  resident: boolean;
+  hasRealGps: boolean;
+  quietPlaceCount: number;
+  visible: boolean;
+}): boolean {
+  return input.resident && input.hasRealGps && input.quietPlaceCount > 0 && input.visible;
+}
 
 export function defaultQuietSettings(): QuietSettings {
   return {

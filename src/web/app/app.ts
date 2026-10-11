@@ -31,7 +31,8 @@ import {
 import { WebTalkService } from '../services/web-talk-service';
 import { MapPresenceClient } from '../services/map-presence-client';
 import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
-import { quietStateFor, type QuietState } from '../../shared/quiet-places';
+import { QUIET_GPS_REFRESH_MS, quietStateFor, shouldRefreshQuietGps, type QuietState } from '../../shared/quiet-places';
+import { setCachedLocation } from '../services/location-cache';
 import { MAP_PRESENCE_REFRESH_MS } from '../../shared/map-presence';
 import { publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
@@ -154,7 +155,7 @@ import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirec
 import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
-import { ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import { deviceHasGps, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
@@ -344,6 +345,8 @@ export class IinPublicApp {
   /** Quiet places / schedule / "Quiet now" (shared/quiet-places.ts), re-checked every minute. */
   private quietState: QuietState = { active: false };
   private quietTimer: ReturnType<typeof setInterval> | undefined;
+  private quietGpsTimer: ReturnType<typeof setInterval> | undefined;
+  private quietGpsInFlight = false;
   /** Room members marked as Travelers (for the "Residents only" Talk audience). */
   private roomTravelerIds: ReadonlySet<string> = new Set();
   private mapPresenceTimer: ReturnType<typeof setInterval> | undefined;
@@ -1811,6 +1814,32 @@ export class IinPublicApp {
     this.refreshQuietState();
     this.quietTimer = setInterval(() => this.applyQuietStateIfChanged(), 60_000);
     window.addEventListener(QUIET_SETTINGS_EVENT, () => this.applyQuietStateIfChanged());
+    // Arriving at a quiet place while the app stays open: re-read GPS every few minutes, and
+    // at once when the app returns to the foreground (e.g. unlocked at home).
+    this.quietGpsTimer = setInterval(() => { void this.refreshGpsForQuietPlaces(); }, QUIET_GPS_REFRESH_MS);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void this.refreshGpsForQuietPlaces();
+    });
+  }
+
+  private async refreshGpsForQuietPlaces(): Promise<void> {
+    if (this.quietGpsInFlight || !shouldRefreshQuietGps({
+      resident: !usesSelfDefinedEncounterLocation(),
+      // Only a real phone GPS; dev/test builds keep their injected test location.
+      hasRealGps: deviceHasGps(undefined, false),
+      quietPlaceCount: loadQuietSettings().places.length,
+      visible: document.visibilityState === 'visible',
+    })) return;
+    this.quietGpsInFlight = true;
+    try {
+      const location = await LocationPrivacy.getCurrentLocation();
+      setCachedLocation(location);
+      this.updateCurrentLocation(location);
+    } catch (error) {
+      console.warn('Quiet-place GPS refresh failed (keeping the last fix):', error);
+    } finally {
+      this.quietGpsInFlight = false;
+    }
   }
 
   /** The map dot: the travel point while traveling (same precision as home), else home. */
@@ -9724,6 +9753,10 @@ export class IinPublicApp {
     // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
     console.log('🧹 Manual cleanup called');
     this.stopMapPresence();
+    if (this.quietTimer) clearInterval(this.quietTimer);
+    if (this.quietGpsTimer) clearInterval(this.quietGpsTimer);
+    this.quietTimer = undefined;
+    this.quietGpsTimer = undefined;
     if (this.incomingApiRefreshTimer) {
       clearTimeout(this.incomingApiRefreshTimer);
       this.incomingApiRefreshTimer = undefined;

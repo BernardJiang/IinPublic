@@ -3,6 +3,7 @@ import {
   normalizeQuietSettings,
   quietStateFor,
   scheduleIsActive,
+  shouldRefreshQuietGps,
   type QuietSettings,
 } from '../../shared/quiet-places';
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
@@ -43,6 +44,15 @@ describe('quiet places', () => {
   it('lets Hide win when several reasons apply', () => {
     const settings = withHome({ quietNow: true, quietNowAction: 'hide' });
     expect(quietStateFor(settings, HOME, at('12:00'))).toEqual(expect.objectContaining({ active: true, action: 'hide' }));
+  });
+
+  it('re-reads GPS only for a visible Resident on a real GPS device with quiet places', () => {
+    const base = { resident: true, hasRealGps: true, quietPlaceCount: 1, visible: true };
+    expect(shouldRefreshQuietGps(base)).toBe(true);
+    expect(shouldRefreshQuietGps({ ...base, resident: false })).toBe(false);
+    expect(shouldRefreshQuietGps({ ...base, hasRealGps: false })).toBe(false);
+    expect(shouldRefreshQuietGps({ ...base, quietPlaceCount: 0 })).toBe(false);
+    expect(shouldRefreshQuietGps({ ...base, visible: false })).toBe(false);
   });
 
   it('drops malformed stored values instead of trusting them', () => {

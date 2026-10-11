@@ -423,6 +423,10 @@ such as home or work.
 - **Hide me** leaves Nearby, removes the map dot and stops radio discovery.
 - **Contacts stay reachable** in both cases.
 - **Hide wins** when several triggers apply at once.
+- **GPS refresh:** while the app is open, a Resident with at least one quiet place re-reads GPS every
+  5 minutes, and once more when the app returns to the foreground. That is how arriving at a quiet
+  place is noticed. Nobody else pays the battery cost. There is no background geofence, so a closed
+  app is checked again at its next launch.
 
 Blur is the default because hiding every evening from the same 1 km square outlines the home.
 Settings say plainly that neither action is a guarantee.
