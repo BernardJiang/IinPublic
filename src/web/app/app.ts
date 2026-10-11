@@ -145,6 +145,8 @@ import {
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
 import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
 import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
+import { CONFIG } from '../../shared/config';
+import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
@@ -213,6 +215,9 @@ import {
   outcomeKey as ledgerOutcomeKey,
   retractedKey as ledgerRetractedKey,
 } from '../../shared/talk-ledger';
+
+/** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
+const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
 
 type AttachmentShareMessagePayload = {
   kind: 'ipfs-auto-share-v1';
@@ -346,6 +351,7 @@ export class IinPublicApp {
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private nearbyOfflineService: NearbyOfflineService | null = null;
   private activeRoomRoster: { roomId: string; count: number; pubs: string[] } | null = null;
+  private readonly talkWakeThrottle = new TalkWakeThrottle();
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
   private protocolManifestController: ProtocolManifestController | null = null;
   private protocolActivationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3166,6 +3172,10 @@ export class IinPublicApp {
           ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
         });
       },
+      // OPEN-38: a content-free wake ping for receivers that look asleep; the body stays queued.
+      ...(this.p2pRuntimeFlags.p2pDirectTalkDelivery
+        ? { onDirectDeliveryPending: (recipientUserIds: string[]) => this.postTalkWakeToMailbox(recipientUserIds) }
+        : {}),
       // Mixed-release escape hatch only. The authoritative direct scheduler retains ordinary
       // Talk bodies in the author's encrypted local outbox until the end receiver ACKs.
       ...(!this.p2pRuntimeFlags.p2pDirectTalkDelivery
@@ -3413,7 +3423,10 @@ export class IinPublicApp {
         //   - has `talkData` → talk-body payload from R-a mailbox fallback
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
-        if ((payload as any).kind === 'conversation-message-v1') {
+        if ((payload as any).kind === TALK_WAKE_PAYLOAD_KIND) {
+          // OPEN-38: content-free; its only job (waking this device) is done. The direct
+          // scheduler delivers the queued Talk now that this page is running.
+        } else if ((payload as any).kind === 'conversation-message-v1') {
           await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
         } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
           await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
@@ -3434,6 +3447,38 @@ export class IinPublicApp {
       } catch (err) {
         console.warn('[Mailbox] Failed to drain envelope', envelope.id, '— will retry on next connect:', err);
         // Leave envelope on server for re-delivery.
+      }
+    }
+  }
+
+  /**
+   * OPEN-38: wake receivers whose page is frozen asleep. One content-free encrypted envelope per
+   * receiver per 30 minutes; it reveals only that this sender has something for them.
+   */
+  private async postTalkWakeToMailbox(recipientUserIds: string[]): Promise<void> {
+    const me = this.currentUser?.id;
+    const pair = this.gunService.getStoredPair();
+    if (!me || !pair?.priv || this.mailboxFallbackDisabledForE2e) return;
+    const mailbox = this.ensureMailboxClient();
+    const nowMs = Date.now();
+    for (const recipientId of recipientUserIds) {
+      if (!recipientId || recipientId === me || !this.talkWakeThrottle.shouldWake(recipientId, nowMs)) continue;
+      try {
+        const recipientEpub = await this.resolvePeerEpub(recipientId);
+        if (!recipientEpub) continue;
+        const ciphertext = await mailbox.encryptForRecipient(
+          recipientEpub,
+          pair as import('../sea-gun').GunPair,
+          buildTalkWakePayload(me, new Date(nowMs)),
+        );
+        await mailbox.postEnvelope({
+          id: talkWakeEnvelopeId(me, recipientId, nowMs),
+          recipientId,
+          ciphertext,
+          ttlMs: TALK_WAKE_TTL_MS,
+        });
+      } catch (error) {
+        console.warn('[Mailbox] Failed to post Talk wake ping:', error);
       }
     }
   }
@@ -6457,6 +6502,21 @@ export class IinPublicApp {
     // Same-room UI list is authoritative for stage names when Gun/server snapshots lag after join.
     if (memberIds.length === 0 && uiNameById.size > 0) {
       memberIds = [...uiNameById.keys()];
+    }
+
+    // OPEN-38: keep queueing for members whose phone fell asleep (heartbeat lapsed, never left).
+    // Direct delivery holds the body in the outbox; the wake ping lets their device notice it.
+    // Bounded so the receiver list never exceeds the room capacity.
+    if (this.p2pRuntimeFlags.p2pDirectTalkDelivery) {
+      const lapsed = await this.chatroomService.observeLapsedMemberIds(chatroomId, LAPSED_MEMBER_DELIVERY_MS);
+      const capacity = this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity ?? CONFIG.CHATROOM_MAX_CAPACITY;
+      const known = new Set(memberIds);
+      for (const userId of lapsed) {
+        if (known.size >= capacity - 1) break;
+        if (!userId || userId === me || userId === TECHSUPPORT_ROOT_USER_ID || known.has(userId)) continue;
+        known.add(userId);
+      }
+      memberIds = [...known];
     }
 
     const permittedMemberIds = filterTalkPeersByContactPolicy(

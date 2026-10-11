@@ -1272,6 +1272,20 @@ review capacity is available and the issue is promoted after the website/Android
     - Conclusion: the C10's vendor power layer is the outlier. Remaining option if such devices
       matter: a hub-pushed wake over the embedded node's existing connection (network data can
       wake the device where timers cannot), then the node signals the Android side.
+  - 2026-10-11: closed the gaps that direct-authoritative delivery (2026-10-09) reopened. That change
+    removed the Talk-body mailbox fallback, so a frozen receiver's `MailboxWatcher` had no envelope
+    to notice. And a receiver whose heartbeat had lapsed (> 3 min asleep) was dropped from new
+    sends altogether.
+    - When the author's direct outbox keeps a Talk for a receiver with no fresh presence and no
+      live link, it posts one content-free encrypted wake ping (`src/shared/talk-wake.ts`): no Talk
+      id, title or body; one per receiver per 30 min; 24 h TTL. The receiver drains it as a no-op.
+      The body still waits in the outbox for the direct scheduler.
+    - Members whose record is still active but whose heartbeat lapsed under 12 h ago (asleep,
+      never left) stay in the send list, capped by the room capacity.
+    - Unit-tested (`talk-wake.test.ts`, `peer-mesh-service.test.ts`).
+    - [ ] Device run of `native-app/28` on PH-1/P30/Honor with the current build.
+    - [ ] The direct outbox has no expiry: entries for receivers who never return accumulate. Add
+      a bounded TTL.
 
 - [x] **OPEN-39 — First-run walkthrough animation burns CPU while left open (done 2026-10-07: the orbit now runs 3 loops then rests; reduced-motion already disabled it; guarded by `onboarding-walkthrough.test.ts`).** Its decorative
   `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the

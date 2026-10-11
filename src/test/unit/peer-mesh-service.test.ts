@@ -213,6 +213,38 @@ describe('PeerMeshService', () => {
     carol.leaveRoom();
   });
 
+  it('OPEN-38: queues a Talk for a receiver with no presence and no live link, and asks for one wake ping', async () => {
+    const [alicePair, carolPair, davePair] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const users = { alice: { pub: alicePair.pub }, carol: { pub: carolPair.pub }, dave: { pub: davePair.pub } };
+    const network = createFakeNetwork();
+    const pending: string[][] = [];
+    const alice = new PeerMeshService(mockPrivateGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      maxNeighbors: 1,
+      ackTimeoutMs: 40,
+      authoritativeDirectTalkDelivery: true,
+      createSession: network.createSession,
+      onDirectDeliveryPending: (recipientUserIds) => { pending.push(recipientUserIds); },
+    });
+    // Dave still heartbeats presence (awake, just not scheduled this window); Carol's page is asleep.
+    (alice as any).fetchPresencePubs = async () => new Map([['dave', davePair.pub]]);
+    const members = Object.keys(users).map((userId) => ({ userId, stageName: userId }));
+    await alice.joinRoom('nearby:test', members);
+    for (const userId of ['carol', 'dave']) (alice as any).neighbors.delete(userId);
+    await alice.broadcastTalk({ id: 'wake-talk', authorId: 'alice', title: 'For later', type: 'tag', questions: [] }, {
+      recipientUserIds: ['carol', 'dave'],
+      roomBroadcast: true,
+    });
+    await waitUntil(() => pending.length === 1);
+    expect(pending).toEqual([['carol']]);
+    // The body itself stays in the author's outbox: no mailbox body fallback in direct mode.
+    const queued = await (alice as any).directTalkOutbox.list('nearby:test');
+    expect(queued.map((entry: { recipientUserId: string }) => entry.recipientUserId).sort()).toEqual(['carol', 'dave']);
+    alice.leaveRoom();
+  });
+
   it('synchronizes a complete authenticated manifest chain before exchanging room traffic', async () => {
     const [alicePair, bobPair, k2, k3, k4, recovery] = await Promise.all([
       SEA.pair(),

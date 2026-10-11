@@ -1156,6 +1156,44 @@ export class WebChatroomService {
   }
 
   /**
+   * OPEN-38: members whose record is still marked active but whose heartbeat lapsed less than
+   * `maxLapseMs` ago — typically a phone whose page Android froze while asleep. They never left the
+   * room (an explicit leave clears `isActive`), so a new Talk is still queued for them and a wake
+   * ping lets their device notice it.
+   */
+  async observeLapsedMemberIds(chatroomId: string, maxLapseMs: number, observeMs = 400): Promise<string[]> {
+    if (isLocalOnlyRoomScope(chatroomId)) return [];
+    try {
+      const gun = this.gunService.getGun();
+      const lapsed = new Set<string>();
+      return await new Promise((resolve) => {
+        let settled = false;
+        const off = gun
+          .get('chatrooms')
+          .get(chatroomId)
+          .get('users')
+          .map()
+          .on((memberData: any, userId: string) => {
+            if (userId.startsWith('_') || isTechSupportId(userId)) return;
+            const seenAt = Date.parse(String(memberData?.lastSeen || memberData?.joinedAt || ''));
+            const isLapsed = memberData?.isActive === true && this.isDefinitelyStale(memberData)
+              && Number.isFinite(seenAt) && Date.now() - seenAt <= maxLapseMs;
+            if (isLapsed) lapsed.add(userId);
+            else lapsed.delete(userId);
+          });
+        setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          try { off.off(); } catch { /* Gun peer */ }
+          resolve([...lapsed]);
+        }, observeMs);
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Snapshot active user ids for a room. Uses a short `map().on` observation window so we do not
    * resolve on the first partial replica (e.g. only the sender) before peers replicate — the old
    * `.once` + "resolve as soon as length > 0" path often dropped other members and yielded 0

@@ -114,6 +114,12 @@ type PeerMeshServiceOptions = {
    * The caller posts per-recipient encrypted envelopes via WebMailboxClient.
    */
   onMailboxFallback?: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) => void | Promise<void>;
+  /**
+   * OPEN-38: authoritative direct delivery queued a Talk for receivers that have no fresh presence
+   * and no live direct link (likely asleep). The caller posts a content-free wake ping; the body
+   * stays in the outbox until the direct scheduler delivers it.
+   */
+  onDirectDeliveryPending?: (recipientUserIds: string[]) => void | Promise<void>;
   forwardingSettings?: Partial<ForwardingSettings>;
   getForwardingContext?: (neighborUserId: string) => ForwardingContext;
   protocolManifestController?: ProtocolManifestController;
@@ -740,6 +746,19 @@ export class PeerMeshService {
         this.directTalkOutbox!.enqueue(roomId, recipientUserId, bodyPayload)));
       await this.flushDirectTalkOutbox();
       const remaining = new Set((await this.directTalkOutbox.list(roomId)).map((entry) => entry.key));
+      if (this.opts.onDirectDeliveryPending) {
+        const pending = queued.filter((entry) => remaining.has(entry.key)).map((entry) => entry.recipientUserId);
+        const reachable = new Set(await this.activeExpectedRecipients(pending).catch(() => pending));
+        const asleep = [...new Set(pending.filter((userId) => {
+          const neighbor = this.neighbors.get(userId);
+          return !reachable.has(userId) && !(neighbor && isNeighborLive(neighbor));
+        }))];
+        if (asleep.length > 0) {
+          void Promise.resolve(this.opts.onDirectDeliveryPending(asleep)).catch(
+            (err) => console.warn('[Mesh] wake ping failed:', err),
+          );
+        }
+      }
       return new Set(queued.filter((entry) => !remaining.has(entry.key)).map((entry) => entry.recipientUserId));
     }
     if (opts.skipAcknowledgements) {
