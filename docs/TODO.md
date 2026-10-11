@@ -140,6 +140,11 @@ its ID.
       capabilities and denied permissions disable only the affected provider. Discovery may run in
       parallel, but candidate deduplication and route selection must prevent duplicate logical peers,
       duplicate Talk delivery, or unnecessary Wi-Fi Direct groups.
+    - [x] Product decision (2026-10-10): all four providers use one location/audience definition.
+      The client derives one `ActiveDiscoveryScope` from the active Nearby cell or selected Place;
+      Internet, LAN, BLE, and Wi-Fi Direct advertise/match only that scope. Provider range affects
+      reachability, never room membership. **Radio nearby** is retired as a privacy/audience mode;
+      Bluetooth remains an independent provider switch.
     - [x] Verify the current single-user path. A confirmed exact GPS fix stays device-local; the
       client derives an opaque Nearby room ID and publishes signed expiring room presence, not a
       blurred latitude/longitude record. An ordinary browser at `iinpublic.com` uses hub/Gun room
@@ -148,16 +153,23 @@ its ID.
       BLE switches default on, but those radios start only after the hub is judged unreachable and
       the saved/runtime permission policy permits them. A lone offline phone advertises/scans but
       `no-offline-peers` creates no Wi-Fi Direct group.
-    - [ ] Fix or remove the nonfunctional **Radio nearby** mode. It currently selects
-      `local_radio_nearby_v1`, but `isLocalOnlyRoomScope()` causes `activateRoomExchange()` and
-      `syncPeerMeshRoom()` to return before BLE discovery or Talk exchange starts. The accepted
-      design says this mode is BLE-only discovery without a published map cell.
+    - [ ] Remove the nonfunctional **Radio nearby** audience mode and migrate saved selections to a
+      clearly disclosed Nearby precision (default Neighborhood unless the user had already chosen
+      another precision). It currently selects `local_radio_nearby_v1`, but
+      `isLocalOnlyRoomScope()` causes `activateRoomExchange()` and `syncPeerMeshRoom()` to return
+      before BLE discovery or Talk exchange starts. Keep Bluetooth only as a provider setting.
     - [ ] Implement the provider decision. Add independent Internet and LAN switches alongside the
       existing Wi-Fi Direct and Bluetooth switches; make supported phone providers default on;
       expose unavailable/permission-denied states; and run bounded BLE/Wi-Fi Direct discovery even
       while the hub is reachable. BLE/Wi-Fi Direct may prioritize or connect already room-eligible
       peers but must never expand the active room audience. Wi-Fi Direct group formation remains
       demand-driven and requires at least one eligible peer.
+    - [ ] Introduce one provider-neutral candidate registry keyed first by the scoped rotating
+      discovery ID and canonically by verified SEA identity after handshake. Merge Internet, LAN,
+      BLE, and Wi-Fi Direct sightings into one logical peer; attach route candidates and freshness;
+      deduplicate sessions, Talk delivery, and receipts. Require proof of the full active-room
+      capability before Talk exchange or Wi-Fi Direct group formation because a short radio-token
+      prefix can collide.
     - [ ] Replace the current overlapping offline discovery work with an explicit staged policy and
       bounded timers: room roster/capability first; LAN NSD as the free IP fast path; BLE as scoped
       short-range presence; Wi-Fi Direct group formation only after an eligible same-room peer is
@@ -171,6 +183,15 @@ its ID.
       no empty Wi-Fi Direct group, bounded scan/backoff, and one elected group for 3+ eligible
       phones. Record discovery time, scan duty cycle, group churn, duplicate candidates/bytes, and
       battery before selecting the production policy.
+    - [ ] Decide and test the fixed-grid boundary policy. Two physically adjacent newcomers can
+      derive neighboring cells; movement hysteresis does not make their initial scopes converge.
+      Do not let BLE/Wi-Fi Direct silently override the room boundary. Specify a deterministic,
+      capacity-bounded, privacy-disclosed rule and render it consistently in map view.
+    - [ ] Decide whether hub-down cold discovery for web↔web and web↔phone is required. Ordinary
+      browsers cannot advertise/scan Android LAN NSD, BLE, or Wi-Fi Direct, so today these pairs
+      cannot create a new session without Internet room discovery even if WebRTC could later use a
+      LAN route. Evaluate a bounded DHT/bootstrap or explicit manual rendezvous; do not imply that
+      browser LAN reachability is itself discovery.
     - [ ] Add manual web home-area registration. Settings must offer **Use current location**,
       **Set home area on map**, and **Clear home area**. A manual point stays local, previews/snaps
       to the selected 1 km Neighborhood or 400 m Close-nearby cell, publishes only opaque room

@@ -1,7 +1,7 @@
 # Nearby and place chatrooms
 
-Status: **accepted product design, 2026-10-08**  
-Tracking: `OPEN-40`  
+Status: **accepted product design, revised 2026-10-10**
+Tracking: `OPEN-40`
 Supersedes: `room-tree-routing.md`, the Global-first cascade, visible L1-L4 rooms, and numbered
 `_part_N` rooms  
 Related: Technical Specification §3.3, §6.1, §19.7, §19.14, and §29
@@ -36,10 +36,13 @@ radio range and not per-room settings. Real-device experiments must choose the p
 Settings expose the actual trade-off:
 
 - **Contacts only:** no stranger room or stranger discovery.
-- **Radio nearby:** BLE discovery without publishing a map cell; no remote/map-based nearby reach.
 - **Neighborhood:** an approximately 1 km public cell.
 - **Close nearby:** an approximately 200-500 m public cell, with an explicit home/work warning.
 - **Location off:** saved Contacts and manually selected Places only.
+
+**Radio nearby is not a separate audience or location mode.** Bluetooth is one discovery-provider
+switch, alongside Internet, LAN, and Wi-Fi Direct. Turning a provider on or off changes how the
+device can find and reach eligible peers; it never changes which room those peers must share.
 
 Hashing a predictable cell is obfuscation, not location secrecy. The UI must state the approximate
 area revealed by each mode. Exact coordinates, accuracy, and GPS timestamps are never public.
@@ -64,6 +67,67 @@ chooses LAN, direct Internet, Wi-Fi Direct, or relay without changing room membe
 must never form an empty group and should form a group only when at least one eligible same-room peer
 needs that route. Scanning and advertising use bounded duty cycles/backoff, including a quiet
 singleton state, while remaining discoverable often enough for a newcomer.
+
+### One location scope across every provider
+
+The client derives one `ActiveDiscoveryScope` before starting any provider. It contains the opaque
+active room identifier and capability plus the applicable protocol-manifest/room generation. A
+Nearby scope comes from GPS or a manually selected home area; a Place scope comes from the Place the
+user deliberately joined. Exact coordinates are not part of the scope sent to peers.
+
+Every discovery provider represents that same scope in the form its payload allows:
+
+| Provider | Scope representation | Possible route after discovery |
+| --- | --- | --- |
+| Internet | Full authenticated active-room scope | Direct WebRTC or TURN |
+| LAN | Room-scoped rendezvous token in local service discovery | WebRTC over the existing LAN |
+| BLE | Room-scoped, rotating presence token | Discovery evidence only |
+| Wi-Fi Direct | Room-scoped service token; group credentials derived from the full capability | WebRTC over the Wi-Fi Direct IP link |
+
+Range changes only which provider can observe a peer. It does not change eligibility. Two devices
+in different active scopes ignore each other even when they are on the same LAN or within Bluetooth
+range. Conversely, several observations of the same eligible device become one logical peer: a
+rotating radio identifier may merge early observations, and the authenticated SEA identity becomes
+canonical after the handshake. Internet, LAN, and Wi-Fi Direct are route candidates attached to
+that peer; BLE is short-range evidence, not a Talk-body transport. Talk delivery and receipts are
+deduplicated above the route layer.
+
+The discovery token used in a small radio advertisement is only a prefilter. Before exchanging
+Talks or forming/joining a Wi-Fi Direct group, both sides must prove the full active scope and
+identity. This prevents a truncated-token collision from becoming cross-room access.
+
+### The first user and the second arrival
+
+For one user alone, location produces no immediate match. It still supplies the rendezvous scope
+that a later user must independently derive. An online client publishes one expiring presence. A
+phone also advertises the same scoped presence through its enabled local providers on a bounded,
+quiet-singleton schedule. It creates no connection and no empty Wi-Fi Direct group. A completely
+offline first phone must continue bounded local advertising; otherwise an offline second phone
+cannot find it.
+
+When a second user arrives, the following rules apply:
+
+| First + second user | Available discovery | Result |
+| --- | --- | --- |
+| Web + web, online | Internet room roster | One peer session; WebRTC may select a LAN host path, direct Internet, or TURN. |
+| Web + phone, online | Internet room roster | One peer session. The browser cannot advertise or scan native LAN/BLE/Wi-Fi Direct, but WebRTC may still select a same-LAN path. |
+| Phone + phone, online and on one LAN | Internet, LAN, and possibly BLE/Wi-Fi Direct all observe the same identity | Merge observations; prefer the existing LAN. Do not form a Wi-Fi Direct group merely because it is available. |
+| Phone + phone, online, physically close but not on one LAN | Internet plus BLE/Wi-Fi Direct | Merge observations; policy may choose Wi-Fi Direct as the local/free IP route without creating a second logical session. |
+| Phone + phone, online but far apart | Internet only | Use direct WebRTC or TURN. Local providers find nothing. |
+| Phone + phone, hub unavailable but on one LAN | LAN, and possibly BLE | Discover locally and exchange over the LAN; merge duplicate radio observations. |
+| Phone + phone, hub unavailable, no shared LAN, physically close | BLE/Wi-Fi Direct | Confirm the full same-room scope, elect one group, then exchange over its IP link. |
+| Web + phone, hub unavailable | No common cold-discovery provider in the current architecture | No new session until Internet discovery returns or a future browser-compatible rendezvous path exists. |
+| Web + web, hub unavailable | No cold-discovery provider in the current architecture | No new session until Internet discovery returns or a future bootstrap/manual rendezvous path exists. |
+| Any pair in different Nearby cells, capacity children, Places, or privacy modes | Sightings may occur, but scopes differ | Ignore the sighting; physical proximity never overrides the selected audience. |
+| Any pair deliberately in the same Place | Same Place scope through every supported provider | Apply the same convergence and route-selection rules; home GPS and traveler status do not affect Place eligibility. |
+| Contacts-only user + stranger | Stranger discovery is disabled | No stranger exchange. Existing Contacts use their independent authenticated path. |
+
+The second arrival exposes one unresolved boundary case. Two people may be physically adjacent but
+derive neighboring fixed-grid cells. Strict same-scope enforcement correctly prevents radio paths
+from silently broadening the audience, but it also means those people do not meet. Per-device GPS
+hysteresis prevents movement flapping but cannot make two initial fixes converge. Before release,
+the product must choose and test one deterministic, bounded boundary policy (for example, a
+privacy-declared neighboring-cell rendezvous) rather than letting BLE secretly bypass room logic.
 
 ### Manual web location
 
