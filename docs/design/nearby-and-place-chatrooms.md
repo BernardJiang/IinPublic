@@ -196,6 +196,37 @@ The partition manifest is protocol control data, not a tree of chatrooms. Groups
 user-visible parent, child, level, expandable node, or inherited room attributes. Repartitioning
 replaces flat groups atomically; it does not create a navigation hierarchy.
 
+### 3.1 Implemented flat transition lineage
+
+The v2 runtime represents the manifest as bounded, independently verifiable lineage fragments
+rather than making every phone download every active group:
+
+- Every signed protocol checkpoint derives one opaque worldwide root group. With no replacement
+  transition, every declared location resolves to that same group.
+- A room instance is immutable. A C+1 set of fresh, distinct, signed presences creates a
+  content-addressed `replace-group-with-groups` transition to four compact geographic replacements.
+  Only the overflowing group is replaced.
+- Four active sibling groups may create a `coalesce-adjacent-groups` transition after their complete
+  combined signed roster remains unchanged and no larger than `C` for the global merge dwell. The
+  replacement is a new room instance, so an old cached split cannot create a split/merge loop.
+- A client fetches and caches only transitions that replace its current group. It verifies the
+  checkpoint, transition hash, replacement IDs, signed evidence, capacity, and dwell before moving.
+  The ordinary active-room controller stops the old exchange before starting the new one.
+- Offline startup replays only that cached verified lineage. Wider connectivity may reveal a later
+  transition; reconciliation is eventual and never presented as global instantaneous consensus.
+
+Locations are snapped locally to the selected privacy precision before choosing a geographic
+replacement. Once a partition becomes finer than that disclosure floor, further capacity splits
+use a deterministic SEA-identity lane inside the already disclosed coarse area. The group still has
+one common roster; the lane does not claim more precise GPS. Twenty-four bounded decisions provide
+enough final lanes for the million-person dense-venue test. If the final depth or bounded group index
+is exhausted, admission fails closed instead of allowing a room to exceed `C`.
+
+The rendezvous index aggregates and serves this signed evidence but is not trusted to invent a
+transition: clients re-verify the member signatures and content-derived replacement IDs. As with
+the rest of Nearby control, this proves signed declarations and observed rosters, not honest GPS,
+one-human-one-key identity, or instantaneous knowledge across a network partition.
+
 This restores the defining chatroom property: every member sees the same room identifier, roster,
 capacity, and Talk audience. It also exposes a mathematical trade-off. An exact personalized
 “nearest 498” set cannot be a shared chatroom because neighboring users can have different 498th

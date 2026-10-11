@@ -13,6 +13,7 @@ import { createMicroRoomControlPresence } from '../../shared/micro-room-control-
 import { microRoomControlScopeId } from '../../shared/micro-room-assignment';
 import { createNearbyControlPresence, nearbyControlScopeId } from '../../shared/nearby-control-presence';
 import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
+import { nearbyPartitionAssignment, nearbyPartitionRootGroup } from '../../shared/nearby-partition';
 import type { RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 import { signFaqEntry } from '../../shared/techsupport-faq-entry';
@@ -601,6 +602,55 @@ describe('system routes', () => {
         toRequestedSplitGeneration: 1,
       }),
     ]);
+  });
+
+  it('forms and serves a flat adaptive group-replacement transition at C+1', async () => {
+    const { app } = buildApp('test');
+    const checkpoint: RoomProtocolCheckpoint = {
+      networkId: 'iinpublic-test',
+      protocolEpoch: 1,
+      manifestSequence: 1,
+      manifestHash: '7'.repeat(64),
+      chatroomCapacity: 2,
+    };
+    const location = { latitude: 32.7157, longitude: -117.1611, accuracy: 5, timestamp: new Date() };
+    const root = nearbyPartitionRootGroup(checkpoint);
+    const assignment = nearbyPartitionAssignment({
+      group: root,
+      location,
+      mode: 'neighborhood',
+      checkpoint,
+    });
+    let last: Response | null = null;
+    for (let index = 0; index < 3; index += 1) {
+      const pair = await SEA.pair() as SeaSigningPair;
+      const presence = await createNearbyControlPresence({
+        userId: `adaptive-user-${index}`,
+        pair,
+        rootRoomId: root.roomId,
+        assignment,
+        checkpoint,
+      });
+      last = await request(app).post('/api/nearby-partitions/presence').send({ presence });
+      expect(last.status).toBe(200);
+    }
+    expect(last?.body.transitions).toEqual([
+      expect.objectContaining({
+        kind: 'replace-group-with-groups',
+        fromGroups: [root],
+      }),
+    ]);
+
+    const listed = await request(app).get(
+      `/api/nearby-partitions/${encodeURIComponent(root.roomId)}/transition`
+        + `?networkId=${checkpoint.networkId}`
+        + `&protocolEpoch=${checkpoint.protocolEpoch}`
+        + `&manifestSequence=${checkpoint.manifestSequence}`
+        + `&manifestHash=${checkpoint.manifestHash}`
+        + `&chatroomCapacity=${checkpoint.chatroomCapacity}`,
+    );
+    expect(listed.status).toBe(200);
+    expect(listed.body.transitions).toHaveLength(1);
   });
 
   it('serializes simultaneous Nearby arrivals so only the first C remain on generation zero', async () => {

@@ -10,7 +10,8 @@ export const NEARBY_CLOSE_METERS = 400;
 export const NEARBY_CITYWIDE_METERS = 10_000;
 export const NEARBY_REGIONAL_METERS = 50_000;
 export const NEARBY_BOUNDARY_HYSTERESIS_RATIO = 0.15;
-export const NEARBY_MAX_SPLIT_GENERATION = 20;
+/** 24 levels leave enough privacy-preserving identity lanes for a million-person dense venue. */
+export const NEARBY_MAX_SPLIT_GENERATION = 24;
 /** Experimental sparse-area ceiling: one active cell may grow to 8x the selected base reach. */
 export const NEARBY_MAX_WIDENING_LEVEL = 3;
 export const NEARBY_MAX_IDENTITY_LANES = 1_048_576;
@@ -327,7 +328,9 @@ export function nearbyPublicScope(assignment: NearbyRoomAssignment): NearbyPubli
 }
 
 export function isNearbyRoomId(value: string | null | undefined): boolean {
-  return /^nearby_v1_e\d+_p(?:400|1000|10000|50000)(?:_w[1-3])?_g\d+_[a-f0-9]{24}(?:_l\d+of\d+)?$/.test(String(value || ''));
+  const roomId = String(value || '');
+  return /^nearby_v1_e\d+_p(?:400|1000|10000|50000)(?:_w[1-3])?_g\d+_[a-f0-9]{24}(?:_l\d+of\d+)?$/.test(roomId)
+    || /^nearby_v2_e\d+_[a-f0-9]{24}$/.test(roomId);
 }
 
 export function isLocalOnlyRoomScope(value: string | null | undefined): boolean {

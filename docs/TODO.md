@@ -32,23 +32,24 @@ its ID.
     `K`, verified `C+1` overflow certificates, monotone protocol manifests, and 10,000-identity
     allocator/control tests already exist. Reuse their verification and storage primitives without
     preserving the rejected Global/FIFO/tree product behavior.
-  - [ ] **P0 adaptive shared-room completion (product correction 2026-10-10).** Preserve one common
+  - [x] **P0 adaptive shared-room completion (implemented 2026-10-10).** Preserve one common
     room roster/capability while flat geographic groups are repartitioned or coalesced. The signed
     partition manifest is control data, not a parent/child chatroom tree.
-    - [ ] Define signed replace-group-with-groups and coalesce-adjacent-groups control. One broad
+    - [x] Defined content-addressed, signed-evidence `replace-group-with-groups` and
+      `coalesce-adjacent-groups` control (`nearby-partition.ts`, `nearby-partition-store.ts`). One broad
       group remains active while worldwide occupancy is at most `C`; only overflowing areas are
       repartitioned; adjacent groups coalesce after their combined live occupancy stays at or below
       `C` for a safe dwell.
-    - [ ] Guarantee one active shared group per user, one roster per room, and stop-before-start
+    - [x] Guarantee one active shared group per user, one roster per room, and stop-before-start
       transitions. Do not implement personalized nearest-498 sets: they cannot provide a common
       chatroom roster and can exceed inbound traffic bounds.
-    - [ ] Resolve a saved map travel point through the current partition manifest, join the shared
+    - [x] Resolve a saved map travel point through the current partition lineage, join the shared
       group at that point with a traveler marker, follow later repartition transitions, and restore
       the home room on Return Home. Show the active footprint and optional adjacent-group travel actions.
-    - [ ] Migrate the current capped three-level sparse widening to broad-group coalescing. Prove that
-      two total users converge into one room, every dense group stays at or below `C`, and million-user
-      simulations keep subscriptions/control reads bounded.
-    - [ ] Define partition behavior: offline phones use only a cached, signed active room and
+    - [x] Removed runtime client-local sparse widening in favor of relay-observed, signed-presence
+      sibling coalescing. Proved that two total users converge into one room, every dense group stays
+      at or below `C`, and million-user simulations keep subscriptions/control reads bounded.
+    - [x] Define partition behavior: offline phones use only a cached, verified active-room lineage and
       reconcile split/merge state after connectivity returns. Never claim instantaneous global
       consensus during a partition.
   - [x] **P0 fixed-cell room protocol (implemented, now migration source rather than target):**
@@ -290,6 +291,11 @@ its ID.
       cached certificate reuse offline; asynchronous sparse convergence; flat map Place/Return to
       Nearby flows; Contacts-only and TechSupport room absence; no exact GPS in public scopes;
       direct-only encrypted delivery; and mixed-release manifest validation.
+    - [x] Added adaptive-v2 unit/integration gates for the worldwide two-user root, C+1 signed split,
+      stable-roster sibling coalescing, tampered-transition rejection, relay API retrieval, offline
+      lineage reuse, removal of private client-side widening, and a one-million-identity same-point
+      load-shedding run. A client reads at most 24 lineage transitions and the deterministic run
+      keeps every final bucket below `C=498`; the broader parameter experiment remains open above.
     - [x] Added the opt-in destructive physical-device gate
       `native-app/30-android-four-phone-nearby.spec.ts`; the focused Android 14 background run passed
       on build 1.0.123 on 2026-10-10. It asserts one opaque Nearby assignment, no public coordinates,

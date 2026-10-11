@@ -1,7 +1,11 @@
 import SEA from 'gun/sea';
 import type { RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
 import { createNearbyControlPresence } from '../../shared/nearby-control-presence';
-import { createNearbyOverflowCertificate } from '../../shared/nearby-overflow-certificate';
+import {
+  createNearbyPartitionSplit,
+  nearbyPartitionAssignment,
+  nearbyPartitionRootGroup,
+} from '../../shared/nearby-partition';
 import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { NearbyPreAdmissionClient } from '../../web/services/nearby-pre-admission-client';
@@ -36,30 +40,35 @@ describe('NearbyPreAdmissionClient', () => {
       mode: 'neighborhood',
       identity: pair.pub,
     });
+    const partitionRoot = nearbyPartitionRootGroup(checkpoint);
+    const rootAssignment = nearbyPartitionAssignment({
+      group: partitionRoot,
+      location,
+      mode: 'neighborhood',
+      checkpoint,
+    });
     const witnessPairs = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
     const witnesses = await Promise.all(witnessPairs.map((witnessPair, index) =>
       createNearbyControlPresence({
         userId: `witness-${index}`,
         pair: witnessPair,
-        rootRoomId: root.roomId,
-        assignment: root,
+        rootRoomId: partitionRoot.roomId,
+        assignment: rootAssignment,
         checkpoint,
         now: new Date(),
       })));
-    const certificate = createNearbyOverflowCertificate({
-      rootRoomId: root.roomId,
-      fromRoomId: root.roomId,
-      fromRequestedSplitGeneration: 0,
+    const transition = createNearbyPartitionSplit({
       checkpoint,
+      fromGroup: partitionRoot,
       witnesses,
     });
     let posts = 0;
     const fetchMock = jest.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
         posts += 1;
-        return new Response(JSON.stringify({ certificates: [certificate] }), { status: 200 });
+        return new Response(JSON.stringify({ transitions: posts === 1 ? [transition] : [] }), { status: 200 });
       }
-      return new Response(JSON.stringify({ certificates: [] }), { status: 200 });
+      return new Response(JSON.stringify({ transitions: [] }), { status: 200 });
     });
     const storage = memoryStorage();
     const client = new NearbyPreAdmissionClient({
@@ -77,7 +86,7 @@ describe('NearbyPreAdmissionClient', () => {
     });
     expect(posts).toBe(2);
     expect(online.assignment.requestedSplitGeneration).toBe(1);
-    expect(online.assignment.roomId).not.toBe(root.roomId);
+    expect(online.assignment.roomId).not.toBe(partitionRoot.roomId);
 
     const offlineClient = new NearbyPreAdmissionClient({
       apiBase: 'https://offline.test',

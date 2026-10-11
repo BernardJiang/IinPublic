@@ -58,7 +58,7 @@ import {
   type PeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
-import type { ActiveRoomScope } from '../../shared/active-exchange-room';
+import type { ActiveRoomScope, RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
 import { CONFIG } from '../../shared/config';
 import { TechSupportMessageStore, type TechSupportStoredMessage } from '../services/techsupport-message-store';
 import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
@@ -79,6 +79,7 @@ import {
 import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import { MicroRoomControlStore } from '../services/micro-room-control-store';
 import { NearbyControlStore } from '../services/nearby-control-store';
+import { NearbyPartitionStore } from '../services/nearby-partition-store';
 import {
   FAQ_ENTRIES_ROOT,
   faqEntryRecordPath,
@@ -190,6 +191,7 @@ export function registerSystemRoutes(
   const presenceByUserId = new Map<string, PresenceRecord>();
   const microRoomControlStore = new MicroRoomControlStore();
   const nearbyControlStore = new NearbyControlStore();
+  const nearbyPartitionStore = new NearbyPartitionStore();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -404,7 +406,7 @@ export function registerSystemRoutes(
     if (!roomId || roomId.length > 256
       || !Number.isSafeInteger(requestedSplitGeneration)
       || requestedSplitGeneration < 0
-      || requestedSplitGeneration > 20) {
+      || requestedSplitGeneration > 24) {
       res.status(400).json({ error: 'Nearby room and requested split generation are required' });
       return;
     }
@@ -434,6 +436,54 @@ export function registerSystemRoutes(
         await nearbyControlStore.publishCertificates(req.body.certificates);
       }
       const registration = await nearbyControlStore.register(req.body?.presence);
+      res.json(registration);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  const partitionCheckpointFrom = (value: Record<string, unknown>): RoomProtocolCheckpoint | null => {
+    const checkpoint: RoomProtocolCheckpoint = {
+      networkId: String(value.networkId || ''),
+      protocolEpoch: Number(value.protocolEpoch),
+      manifestSequence: Number(value.manifestSequence),
+      manifestHash: String(value.manifestHash || ''),
+      chatroomCapacity: Number(value.chatroomCapacity),
+    };
+    if (!checkpoint.networkId
+      || !Number.isSafeInteger(checkpoint.protocolEpoch)
+      || checkpoint.protocolEpoch < 1
+      || !Number.isSafeInteger(checkpoint.manifestSequence)
+      || checkpoint.manifestSequence < 1
+      || !/^[a-f0-9]{64}$/.test(checkpoint.manifestHash)
+      || !Number.isSafeInteger(checkpoint.chatroomCapacity)
+      || checkpoint.chatroomCapacity < 1
+      || checkpoint.chatroomCapacity > 4_096) return null;
+    return checkpoint;
+  };
+
+  app.get('/api/nearby-partitions/:roomId/transition', (req, res) => {
+    const parsed = partitionCheckpointFrom(req.query as Record<string, unknown>);
+    if (!parsed) {
+      res.status(400).json({ error: 'valid Nearby partition checkpoint is required' });
+      return;
+    }
+    res.json({
+      transitions: nearbyPartitionStore.transitionFor(parsed, String(req.params.roomId || '')),
+    });
+  });
+
+  app.post('/api/nearby-partitions/presence', async (req, res) => {
+    try {
+      const checkpoint = req.body?.presence?.checkpoint;
+      if (!checkpoint || typeof checkpoint !== 'object') {
+        res.status(400).json({ error: 'Nearby partition checkpoint is required' });
+        return;
+      }
+      if (Array.isArray(req.body?.transitions)) {
+        await nearbyPartitionStore.publishTransitions(checkpoint, req.body.transitions);
+      }
+      const registration = await nearbyPartitionStore.register(req.body?.presence);
       res.json(registration);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -1318,6 +1368,8 @@ export function registerSystemRoutes(
           gun._.graph = {};
           if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
           microRoomControlStore.clear();
+          nearbyControlStore.clear();
+          nearbyPartitionStore.clear();
           clearForTesting?.();
           await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();

@@ -1,7 +1,6 @@
 /** @jest-environment jsdom */
 
 import { IinPublicApp } from '../../web/app/app';
-import { NEARBY_SPARSE_DWELL_MS, initialNearbySparseState } from '../../shared/nearby-sparse-policy';
 import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
 import type { GPSCoordinate } from '../../shared/types';
 
@@ -47,8 +46,7 @@ describe('Nearby sparse-area app wiring', () => {
     expect(localStorage.getItem('iinpublic_last_chatroom')).toBe(root.roomId);
   });
 
-  it('replaces the active root after the sparse dwell without subscribing to a parent', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-10-10T01:00:00.000Z'));
+  it('does not make a private widening decision from one partial roster', () => {
     const root = deriveNearbyRoomAssignment({
       location,
       mode: 'neighborhood',
@@ -59,58 +57,14 @@ describe('Nearby sparse-area app wiring', () => {
     app.currentChatroomId = root.roomId;
     app.nearbyControlRootAssignment = root;
     app.nearbyControlRoutingLocation = location;
-    app.nearbySparseState = {
-      ...initialNearbySparseState(),
-      sparseSinceMs: Date.now() - NEARBY_SPARSE_DWELL_MS,
-    };
-    app.nearbySparseAnchorRoomId = root.roomId;
-    app.nearbySparseTransitionInFlight = false;
     app.chatroomService = {
       getNearbyRoomAssignment: jest.fn(() => root),
       setNearbyRootAssignment: jest.fn(),
       setNearbyRoomAssignment: jest.fn(),
     };
     app.uiManager = { emit: jest.fn(), setNearbyMapAssignment: jest.fn() };
-    app.resolveNearbyBeforeAdmission = jest.fn(async (assignment: { roomId: string }) => assignment.roomId);
-
     app.observeNearbyRoomRoster(root.roomId, [{ userId: 'alice' }]);
-    await Promise.resolve();
-
-    const widened = app.chatroomService.setNearbyRootAssignment.mock.calls[0][0];
-    expect(widened.wideningLevel).toBe(1);
-    expect(widened.roomId).toMatch(/_w1_g0_/);
-    expect(app.uiManager.emit).toHaveBeenCalledWith('chatroomChanged', widened.roomId);
-    // The policy consumes the existing active subscription; it never creates another one.
-    expect(app.chatroomService.subscribeToMembers).toBeUndefined();
-  });
-
-  it('does not widen a capacity-split child even when its own roster is small', () => {
-    const root = deriveNearbyRoomAssignment({ location, mode: 'neighborhood', identity: 'alice' });
-    const child = deriveNearbyRoomAssignment({
-      location,
-      mode: 'neighborhood',
-      identity: 'alice',
-      requestedSplitGeneration: 1,
-    });
-    const app: any = Object.create(IinPublicApp.prototype);
-    app.currentUser = { id: 'alice' };
-    app.currentChatroomId = child.roomId;
-    app.nearbyControlRootAssignment = root;
-    app.nearbyControlRoutingLocation = location;
-    app.nearbySparseState = {
-      ...initialNearbySparseState(),
-      sparseSinceMs: Date.now() - NEARBY_SPARSE_DWELL_MS,
-    };
-    app.nearbySparseAnchorRoomId = root.roomId;
-    app.nearbySparseTransitionInFlight = false;
-    app.chatroomService = {
-      getNearbyRoomAssignment: jest.fn(() => child),
-      setNearbyRootAssignment: jest.fn(),
-    };
-
-    app.observeNearbyRoomRoster(child.roomId, [{ userId: 'alice' }]);
-
     expect(app.chatroomService.setNearbyRootAssignment).not.toHaveBeenCalled();
-    expect(app.nearbySparseState.sparseSinceMs).toBeNull();
+    expect(app.uiManager.emit).not.toHaveBeenCalled();
   });
 });
