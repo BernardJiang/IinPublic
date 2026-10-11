@@ -253,15 +253,6 @@ test.describe('UI navigation and settings shell', () => {
     await expect(firstFaqAnswer).toBeVisible();
     await backToSettingsMenu(p);
 
-    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
-    await p.locator('#settings-max-distance').fill('5');
-    await p.locator('#settings-max-distance').press('Tab');
-    await p.locator('#settings-min-distance').fill('10');
-    await p.locator('#settings-min-distance').press('Tab');
-    await expect(p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' })).toBeVisible();
-    await p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' }).click();
-    await backToSettingsMenu(p);
-
     await openSettingsSection(p, SETTINGS_SECTION.profile);
     await p.locator('#settings-stage-name-input').fill('a');
     await p.locator('#settings-stage-name-input').press('Tab');
@@ -792,15 +783,11 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-custom-blocked')).toHaveValue('alpha, beta');
     await backToSettingsMenu(p);
 
-    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
+    await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-sent-after').fill('2026-05-01T09:30');
     await expect
       .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
       .toContain('2026-05-01T');
-    await p.locator('#settings-min-distance').fill('51');
-    await p.locator('#settings-max-distance').fill('50');
-    await p.locator('#settings-max-distance').blur();
-    await expect(p.locator('#settings-min-distance')).not.toHaveValue('51');
 
     // Home choices are Global, region tiles and the user's own area tile — no country/state rooms.
     await expect(p.locator('#settings-home-room option[value="california"]')).toHaveCount(0);

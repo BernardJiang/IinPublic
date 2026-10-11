@@ -101,8 +101,6 @@ export async function seedMatrixResponders(count: number): Promise<MatrixRespond
       interests: [],
       talkFilters: {
         allowedLanguages: ['en'],
-        minDistanceMiles: 0,
-        maxDistanceMiles: 50,
         requireGoodGrammar: false,
         blockDirtyWords: false,
         allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],

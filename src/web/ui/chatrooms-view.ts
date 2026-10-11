@@ -1,4 +1,5 @@
 import { getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
+import { formatDistance } from './distance-units';
 import { showEncounterLocationPicker } from './encounter-location-picker';
 import { getActiveChatroomHierarchy, getFlatChatroomList, type FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
@@ -496,11 +497,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     const customNote = unmappedCustomCount > 0
       ? ` ${deps.text('chatroomMapCustomRoomsNote').replace('{count}', String(unmappedCustomCount))}`
       : '';
-    const nearbyDistance = deps.nearbyMapArea
-      ? deps.nearbyMapArea.approximateDiameterMeters >= 1_000
-        ? `${(deps.nearbyMapArea.approximateDiameterMeters / 1_000).toFixed(1)} km`
-        : `${deps.nearbyMapArea.approximateDiameterMeters} m`
-      : '';
+    const nearbyDistance = deps.nearbyMapArea ? formatDistance(deps.nearbyMapArea.approximateDiameterMeters) : '';
     const summary = deps.nearbyMapArea
       ? deps.text('chatroomMapNearbySummary')
         .replace('{distance}', nearbyDistance)

@@ -7,25 +7,33 @@ import type { KnownPerson, TalkIntakeFilters } from './types';
  * discovery behavior. Once enabled, a missing or not-yet-loaded contact list is
  * deliberately fail-closed: no Talk data crosses an unverified edge.
  */
+type AudienceFilters = Pick<TalkIntakeFilters, 'contactsOnlyTalks' | 'residentsOnlyTalks'>;
+
+/**
+ * Talk audience: everyone in the room (default), Residents only (no known Travelers ✈), or
+ * Contacts only. Contacts always pass. `travelerIds` are the room members marked as Travelers.
+ */
 export function talkContactPolicyAllowsPeer(
   peerId: string,
-  filters: Pick<TalkIntakeFilters, 'contactsOnlyTalks'> | undefined,
+  filters: AudienceFilters | undefined,
   knownPeople: readonly Pick<KnownPerson, 'userId'>[] | undefined,
+  travelerIds?: ReadonlySet<string>,
 ): boolean {
-  if (filters?.contactsOnlyTalks !== true) return true;
   const normalizedPeerId = String(peerId || '').trim();
-  if (!normalizedPeerId) return false;
-  return (knownPeople || []).some((person) => person.userId === normalizedPeerId);
+  const isContact = !!normalizedPeerId && (knownPeople || []).some((person) => person.userId === normalizedPeerId);
+  if (filters?.contactsOnlyTalks === true) return isContact;
+  if (filters?.residentsOnlyTalks === true && travelerIds?.has(normalizedPeerId)) return isContact;
+  return true;
 }
 
 export function filterTalkPeersByContactPolicy(
   peerIds: readonly string[],
-  filters: Pick<TalkIntakeFilters, 'contactsOnlyTalks'> | undefined,
+  filters: AudienceFilters | undefined,
   knownPeople: readonly Pick<KnownPerson, 'userId'>[] | undefined,
+  travelerIds?: ReadonlySet<string>,
 ): string[] {
-  if (filters?.contactsOnlyTalks !== true) return [...peerIds];
-  const contactIds = new Set((knownPeople || []).map((person) => person.userId));
-  return peerIds.filter((peerId) => contactIds.has(peerId));
+  if (filters?.contactsOnlyTalks !== true && filters?.residentsOnlyTalks !== true) return [...peerIds];
+  return peerIds.filter((peerId) => talkContactPolicyAllowsPeer(peerId, filters, knownPeople, travelerIds));
 }
 
 type IncomingClusterSender = {

@@ -48,30 +48,38 @@ device may place the user, not a promise about physical radio range. The partiti
 coalesce sparse groups into a broader shared group, but it must never publish a location more
 precise than the user's choice.
 
-Settings expose the actual trade-off:
+Every user has exactly one public location (product decision 2026-10-11). There are two kinds:
 
-- **Contacts only:** no stranger audience or stranger discovery.
-- **Location off:** stop automatic location-based Nearby; Contacts and deliberately selected Places
-  remain available.
-- **Regional:** an approximately 50 km public area.
-- **Citywide:** an approximately 10 km public area.
-- **Neighborhood:** an approximately 1 km public cell.
-- **Close nearby:** an approximately 400 m public cell, with an explicit home/work warning.
+- **Resident:** the device's GPS, blurred to the selected area size. This is the default on phones.
+- **Traveler ✈:** a point chosen on the map. GPS is never used. The website has no GPS, so web
+  users are always Travelers. A Resident who travels to a map point is also marked ✈ while away.
 
-Settings must preview the approximate map area before applying a precision. A larger area reduces
-the precision of the disclosure but cannot guarantee anonymity: repeated activity, a sparse room,
-map requests, and network metadata can still reveal patterns. **Location off** is the strong choice
-at a sensitive home or workplace; it stops GPS-derived Nearby presence and its stranger radio
-advertisements rather than merely hiding the map drawing. Citywide and Regional are privacy floors:
-capacity handling must use opaque identity lanes rather than subdivide them into a more precise
-public geographic assignment.
+The Traveler marker is room-roster and map-presence metadata, and it is self-declared.
 
-The setting is global for automatic Nearby. IinPublic does not need to label or store a precise
-home or work address merely to protect it: the user selects Citywide, Regional, or Location off,
-and that disclosure ceiling applies wherever automatic Nearby runs. Settings show whether a local
-location fix is available and the approximate disclosed area, never the latitude/longitude. The
-exact fix may remain in device-local location services/cache; it is not echoed in UI, logs intended
-for sharing, room names, or public records.
+The **area size** applies to either kind:
+- **Close nearby:** about 400 m, used only to pick the room. The public point is still 1 km.
+- **Neighborhood:** about 1 km.
+- **Citywide:** about 10 km.
+- **Regional:** about 50 km.
+
+Settings show the area in the user's distance unit (km or miles, one choice for the whole app).
+
+**Retired choices:**
+- **"Location off"** became Traveler.
+- **"Contacts only"** is not a location decision. It is a Talk audience (§3.5).
+
+A saved retired value migrates once:
+- **Location off** → Traveler; nothing is published until a point is chosen.
+- **Contacts only** → Resident at Neighborhood, with the Contacts-only Talk audience on.
+
+A larger area reduces the precision of the disclosure but cannot guarantee anonymity. Repeated
+activity, a sparse room, map requests and network metadata can still reveal patterns. Citywide and
+Regional are privacy floors: capacity handling must use opaque identity lanes rather than subdivide
+them into a more precise public geographic assignment.
+
+Settings show whether a local location fix is available and the approximate disclosed area, never
+the latitude or longitude. The exact fix may remain in device-local location services or cache. It
+is never echoed in the UI, in logs meant for sharing, in room names, or in public records.
 
 **Radio nearby is not a separate audience or location mode.** Bluetooth is one discovery-provider
 switch, alongside Internet, LAN, and Wi-Fi Direct. Turning a provider on or off changes how the
@@ -384,7 +392,7 @@ The map shows people so users can see where the crowd is:
 **Public point.** The public point (`src/shared/public-location.ts`) is the only form in which a
 location leaves the device. It is the centre of a grid square sized by the user's setting:
 1 km for Close nearby and Neighborhood, 10 km for Citywide, 50 km for Regional. A poor GPS fix
-moves to a coarser square. Contacts only and Location off publish nothing.
+moves to a coarser square. Only a quiet place set to Hide me (§3.5) publishes nothing.
 
 Everyone in a square publishes the identical point, so the exact fix cannot be recovered from a
 snapshot. A dot keeps its old square until the device is 15% of a square past the edge, which
@@ -402,6 +410,39 @@ The hub index:
 - rejects any point that is not a grid centre;
 - binds a live userId to its key;
 - returns at most 500 dots per view, plus complete density squares (1/48 of the view per side).
+
+### 3.5 Quiet places and Talk audience (product decision 2026-10-11)
+
+**Quiet places** let a Resident go quiet automatically where they do not want to be seen precisely,
+such as home or work.
+
+- **Triggers:** a place with a radius (200 m – 2 km) where the device's own GPS fix falls, a daily
+  schedule (for example 22:00 – 07:00), or **Quiet now**. Places apply only to Residents; a
+  Traveler's chosen point is never "at home". The schedule and Quiet now apply to everyone.
+- **Blur me more** (default) keeps the user visible but at the Regional area (about 50 km).
+- **Hide me** leaves Nearby, removes the map dot and stops radio discovery.
+- **Contacts stay reachable** in both cases.
+- **Hide wins** when several triggers apply at once.
+
+Blur is the default because hiding every evening from the same 1 km square outlines the home.
+Settings say plainly that neither action is a guarantee.
+
+Quiet places are stored only on the device. They are never published, synced or sent to the hub.
+They are not encrypted at rest, because the only available key is stored beside them. This is a
+deliberate exception to "IinPublic does not store a home or work address": the place never leaves
+the device.
+
+**Talk audience** (Settings → Talk Behavior) is one choice, independent of location:
+- **Everyone in my room** (default).
+- **Residents only:** no Talk exchange with room members marked ✈.
+- **Contacts only.**
+
+Contacts always pass. The audience applies to Talk offers both ways and to responses. Residents only
+filters honest Travelers only: a spoofed GPS can claim Resident. It also excludes every website
+user.
+
+The **min/max distance Talk filter was removed**. The room already defines who is in range, and its
+default 50-mile maximum hid Talks from members of the user's own room.
 
 ## 4. Place rooms and map travel
 

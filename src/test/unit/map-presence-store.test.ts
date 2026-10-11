@@ -21,7 +21,7 @@ describe('map presence store', () => {
     await store.register(await createMapPresence({ userId: 'u2', pair: await pair(), location: LA, now }), now);
 
     const view = store.query({ west: -117.5, south: 32.5, east: -117, north: 33 }, now);
-    expect(view.dots).toEqual([{ userId: 'u1', ...SD }]);
+    expect(view.dots).toEqual([{ userId: 'u1', traveler: false, ...SD }]);
     expect(view.density).toEqual([expect.objectContaining({ count: 1 })]);
     expect(store.query(SOCAL, now).dots).toHaveLength(2);
     expect(store.query(SOCAL, new Date(now.getTime() + MAP_PRESENCE_TTL_MS + 1)).dots).toEqual([]);
@@ -70,16 +70,16 @@ describe('density cells and dot grouping', () => {
     const groups = groupUserDots(
       { selfUserId: 'me', selfPoint: SD, roomMemberIds: new Set(['me', 'friend-a', 'friend-b']) },
       [
-        { userId: 'me', ...SD },
-        { userId: 'friend-a', ...SD },
-        { userId: 'friend-b', ...SD },
-        { userId: 'stranger', ...LA },
+        { userId: 'me', traveler: false, ...SD },
+        { userId: 'friend-a', traveler: false, ...SD },
+        { userId: 'friend-b', traveler: true, ...SD },
+        { userId: 'stranger', traveler: true, ...LA },
       ],
     );
     expect(groups).toEqual([
-      { kind: 'other', latitude: LA.latitude, longitude: LA.longitude, count: 1 },
-      { kind: 'room', latitude: SD.latitude, longitude: SD.longitude, count: 2 },
-      { kind: 'self', latitude: SD.latitude, longitude: SD.longitude, count: 1 },
+      { kind: 'other', latitude: LA.latitude, longitude: LA.longitude, count: 1, travelers: 1 },
+      { kind: 'room', latitude: SD.latitude, longitude: SD.longitude, count: 2, travelers: 1 },
+      { kind: 'self', latitude: SD.latitude, longitude: SD.longitude, count: 1, travelers: 0 },
     ]);
   });
 });

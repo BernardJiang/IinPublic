@@ -4,10 +4,12 @@ import {
   type Tag,
   type User,
 } from '../../shared/types';
+import { renderLocationSection, renderTalkAudience } from './location-settings';
+import { getDistanceUnit } from './distance-units';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
-import { getEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
+import { deviceHasGps, getEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
 import {
   discoveryProviderAvailability,
   type DiscoveryProviderAvailability,
@@ -380,6 +382,13 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
               `;
             }).join('')}
           </div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:12px;">
+            <span>${deps.t('settingsDistanceUnit')}</span>
+            <select class="form-input" id="settings-distance-unit" data-testid="settings-distance-unit">
+              <option value="km" ${getDistanceUnit() === 'km' ? 'selected' : ''}>${deps.t('settingsDistanceUnitKm')}</option>
+              <option value="mi" ${getDistanceUnit() === 'mi' ? 'selected' : ''}>${deps.t('settingsDistanceUnitMi')}</option>
+            </select>
+          </label>
         `,
         )}
         ${renderSettingsSection(
@@ -490,52 +499,28 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <input type="checkbox" id="settings-keep-old-talk-on-edit" ${getKeepOldTalkOnEdit() ? 'checked' : ''}>
             <span>${deps.t('settingsKeepOldTalkOnEdit')}</span>
           </label>
+          ${renderTalkAudience(deps.t, talkFilters)}
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
+            <span>${deps.t('settingsSentAfter')}</span>
+            <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
+          </label>
         `,
         )}
         ${renderSettingsSection(
           {
             id: 'settings-section-distance-home',
-            title: 'Home & sensitive locations',
-            subtitle: 'Control the approximate area used for automatic Nearby without saving a home or work address.',
+            title: deps.t('locationSectionTitle'),
+            subtitle: deps.t('locationSectionHelp'),
           },
           `
-          ${usesSelfDefinedEncounterLocation() ? renderEncounterLocationBlock(deps.t) : ''}
-          <div style="padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);margin-bottom:14px;">
-            <label style="display:flex;flex-direction:column;gap:7px;font-size:0.9em;">
-              <strong>Automatic Nearby privacy</strong>
-              <select id="settings-nearby-privacy-mode" class="form-input" data-testid="settings-nearby-privacy-mode">
-                <optgroup label="Most private">
-                  <option value="location-off" ${connectivity.nearbyPrivacyMode === 'location-off' ? 'selected' : ''}>Location off — no automatic Nearby</option>
-                  <option value="contacts-only" ${connectivity.nearbyPrivacyMode === 'contacts-only' ? 'selected' : ''}>Contacts only — block all stranger discovery</option>
-                </optgroup>
-                <optgroup label="For a sensitive home or workplace">
-                  <option value="regional" ${connectivity.nearbyPrivacyMode === 'regional' ? 'selected' : ''}>Regional — disclose an approximate 50 km area</option>
-                  <option value="citywide" ${connectivity.nearbyPrivacyMode === 'citywide' ? 'selected' : ''}>Citywide — disclose an approximate 10 km area</option>
-                </optgroup>
-                <optgroup label="General nearby use">
-                  <option value="neighborhood" ${connectivity.nearbyPrivacyMode === 'neighborhood' ? 'selected' : ''}>Neighborhood — disclose an approximate 1 km area</option>
-                  <option value="close-nearby" ${connectivity.nearbyPrivacyMode === 'close-nearby' ? 'selected' : ''}>Close nearby — disclose an approximate 400 m area</option>
-                </optgroup>
-              </select>
-              <small>One setting applies wherever automatic Nearby is active, so IinPublic does not need to store a home or work address. Choose a larger area before using it at a sensitive home or workplace. Larger areas reduce precision but cannot guarantee anonymity.</small>
-            </label>
-            <div style="margin-top:8px;font-size:0.82em;color:var(--text-tertiary);">${escapeHtml(locationText)}</div>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${deps.t('settingsMinDistance')}</span>
-              <input type="number" class="form-input" id="settings-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${deps.t('settingsMaxDistance')}</span>
-              <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
-            </label>
-          </div>
-          <div style="margin-top:10px;font-size:0.84em;color:var(--text-tertiary);">Home means the blurred area computed from the device's current location. Selecting a map Place or point is a visible visit; Return Home recomputes the blurred home area.</div>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
-            <span>${deps.t('settingsSentAfter')}</span>
-            <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
-          </label>
+          ${renderLocationSection({
+            t: deps.t,
+            connectivity,
+            hasGps: deviceHasGps(),
+            traveler: usesSelfDefinedEncounterLocation(),
+            encounterBlock: renderEncounterLocationBlock(deps.t),
+          })}
+          <div style="margin-top:8px;font-size:0.82em;color:var(--text-tertiary);">${escapeHtml(locationText)}</div>
         `,
         )}
         ${renderSettingsSection(
@@ -545,13 +530,6 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: deps.t('settingsContentFiltersHelp'),
           },
           `
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);cursor:pointer;">
-            <input type="checkbox" id="settings-contacts-only-talks" data-testid="settings-contacts-only-talks" ${talkFilters.contactsOnlyTalks ? 'checked' : ''} style="margin-top:3px;">
-            <span>
-              <strong>${deps.t('settingsContactsOnlyTalks')}</strong><br>
-              <small style="color:var(--text-tertiary);">${deps.t('settingsContactsOnlyTalksHelp')}</small>
-            </span>
-          </label>
           <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin:16px 0 8px;">${deps.t('settingsMessageFiltersHeading')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${deps.t('settingsGrammar')}</label>

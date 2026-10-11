@@ -1,4 +1,6 @@
 import { clearEncounterLocation, getEncounterLocation, setEncounterLocation } from '../services/encounter-location';
+import { bindQuietPlaces } from './location-settings';
+import { setDistanceUnit } from './distance-units';
 import { showEncounterLocationPicker } from './encounter-location-picker';
 import {
   type GPSCoordinate,
@@ -10,6 +12,7 @@ import {
 import { escapeHtml } from './ui-formatters';
 import {
   applyConnectivityPreset,
+  loadConnectivitySettings,
   saveConnectivitySettings,
   type ConnectivityPreset,
 } from './connectivity-settings';
@@ -70,6 +73,11 @@ export interface SettingsControlsDeps {
   refreshStorageInspector: () => Promise<void>;
 }
 
+/** Map the Talk audience radio onto the two stored switches. */
+export function talkAudienceFilters(value: string | undefined): Pick<TalkIntakeFilters, 'contactsOnlyTalks' | 'residentsOnlyTalks'> {
+  return { contactsOnlyTalks: value === 'contacts', residentsOnlyTalks: value === 'residents' };
+}
+
 export function bindSettingsControls(deps: SettingsControlsDeps): void {
   document.getElementById('settings-jump-menu')?.addEventListener('click', (event) => {
     const target = (event.target as HTMLElement).closest(
@@ -115,6 +123,10 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     value.nearbyPrivacyMode = ((
       document.getElementById('settings-nearby-privacy-mode') as HTMLSelectElement | null
     )?.value || 'neighborhood') as typeof value.nearbyPrivacyMode;
+    const previousSource = loadConnectivitySettings().locationSource;
+    value.locationSource = ((
+      document.querySelector('input[name="settings-location-source"]:checked') as HTMLInputElement | null
+    )?.value || previousSource) === 'traveler' ? 'traveler' : 'resident';
     value.wifiOnlyForwarding = !!(
       document.getElementById('settings-connectivity-wifi-forwarding') as HTMLInputElement | null
     )?.checked;
@@ -146,9 +158,14 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     );
     saveConnectivitySettings(value);
     deps.emit('connectivitySettingsChanged', value);
+    if (value.locationSource !== previousSource) {
+      // Resident ↔ Traveler: re-read GPS or the chosen point, and show the matching controls.
+      deps.emit('requestLocationUpdate', undefined);
+      if (deps.currentUser) deps.renderSettingsView(deps.currentUser);
+    }
   };
   document
-    .querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select, #settings-nearby-mode, #settings-nearby-privacy-mode')
+    .querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select, #settings-nearby-mode, #settings-nearby-privacy-mode, input[name="settings-location-source"]')
     .forEach((element) => {
       element.addEventListener('change', persistConnectivity);
     });
@@ -175,12 +192,6 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
       .map((el) => el.value.trim().toLowerCase())
       .filter(Boolean);
     const profileLanguages = selectedValues('settings-profile-languages');
-    const minDistanceEl = document.getElementById(
-      'settings-min-distance',
-    ) as HTMLInputElement | null;
-    const maxDistanceEl = document.getElementById(
-      'settings-max-distance',
-    ) as HTMLInputElement | null;
     const sentAfterEl = document.getElementById('settings-sent-after') as HTMLInputElement | null;
     const customBlockedEl = document.getElementById(
       'settings-custom-blocked',
@@ -192,9 +203,10 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
       document.querySelectorAll<HTMLElement>('#dirty-word-chips .dirty-word-chip'),
     );
     const nextFilters: TalkIntakeFilters = {
-      contactsOnlyTalks: !!(
-        document.getElementById('settings-contacts-only-talks') as HTMLInputElement | null
-      )?.checked,
+      // Talk audience: everyone in the room, Residents only, or Contacts only.
+      ...talkAudienceFilters(
+        (document.querySelector('input[name="settings-talk-audience"]:checked') as HTMLInputElement | null)?.value,
+      ),
       allowedLanguages: filterLanguages,
       requireGoodGrammar: !!(
         document.getElementById('settings-grammar-filter') as HTMLInputElement | null
@@ -214,23 +226,7 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     if (nextFilters.allowedLanguages.length === 0) nextFilters.allowedLanguages = ['en'];
     if (nextFilters.allowedTalkTypes.length === 0)
       nextFilters.allowedTalkTypes = ['flow', 'survey', 'tag', 'route'];
-    if (minDistanceEl?.value) nextFilters.minDistanceMiles = Number(minDistanceEl.value);
-    if (maxDistanceEl?.value) nextFilters.maxDistanceMiles = Number(maxDistanceEl.value);
     if (sentAfterEl?.value) nextFilters.sentAfter = new Date(sentAfterEl.value).toISOString();
-    if (
-      typeof nextFilters.minDistanceMiles === 'number' &&
-      typeof nextFilters.maxDistanceMiles === 'number' &&
-      nextFilters.minDistanceMiles > nextFilters.maxDistanceMiles
-    ) {
-      deps.showNotification(deps.t('settingsDistanceInvalid'), 'error');
-      if (deps.currentUser?.talkFilters) {
-        if (minDistanceEl)
-          minDistanceEl.value = String(deps.currentUser.talkFilters.minDistanceMiles ?? '');
-        if (maxDistanceEl)
-          maxDistanceEl.value = String(deps.currentUser.talkFilters.maxDistanceMiles ?? '');
-      }
-      return;
-    }
     setTalkIntakeFilters(nextFilters);
     if (deps.currentUser) setTalkIntakeFiltersOwner(deps.currentUser.id);
     // Message filters changed: re-render any open conversation so toggling a
@@ -275,17 +271,19 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   };
   [
     'settings-profile-languages',
-    'settings-min-distance',
-    'settings-max-distance',
     'settings-sent-after',
-    'settings-contacts-only-talks',
     'settings-grammar-filter',
     'settings-dirty-words-filter',
   ].forEach((id) => {
     document.getElementById(id)?.addEventListener('change', sync);
   });
-  document.querySelectorAll('.settings-filter-language-option').forEach((el) => {
+  document.querySelectorAll('.settings-filter-language-option, input[name="settings-talk-audience"]').forEach((el) => {
     el.addEventListener('change', sync);
+  });
+  bindQuietPlaces({ t: deps.t, rerender: () => { if (deps.currentUser) deps.renderSettingsView(deps.currentUser); } });
+  document.getElementById('settings-distance-unit')?.addEventListener('change', (event) => {
+    setDistanceUnit((event.currentTarget as HTMLSelectElement).value === 'mi' ? 'mi' : 'km');
+    if (deps.currentUser) deps.renderSettingsView(deps.currentUser);
   });
   document.querySelectorAll('.settings-talk-filter-type').forEach((el) => {
     el.addEventListener('change', sync);

@@ -18,11 +18,14 @@ const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolv
 describe('encounter location storage', () => {
   beforeEach(() => localStorage.clear());
 
-  it('phone shells use GPS; the website and desktop use a self-defined location', () => {
-    expect(usesSelfDefinedEncounterLocation('web')).toBe(true);
-    expect(usesSelfDefinedEncounterLocation('electron')).toBe(true);
-    expect(usesSelfDefinedEncounterLocation('android')).toBe(false);
-    expect(usesSelfDefinedEncounterLocation('ios')).toBe(false);
+  it('phone Residents use GPS; the website, desktop and phone Travelers use a chosen point', () => {
+    expect(usesSelfDefinedEncounterLocation('web', 'resident', false)).toBe(true);
+    expect(usesSelfDefinedEncounterLocation('electron', 'resident', false)).toBe(true);
+    expect(usesSelfDefinedEncounterLocation('android', 'resident', false)).toBe(false);
+    expect(usesSelfDefinedEncounterLocation('ios', 'resident', false)).toBe(false);
+    expect(usesSelfDefinedEncounterLocation('android', 'traveler', false)).toBe(true);
+    // Dev/test builds: the injected test location stands in for GPS on the website.
+    expect(usesSelfDefinedEncounterLocation('web', 'resident', true)).toBe(false);
   });
 
   it('persists a deliberate (possibly fictional) point, announces it, and clears it', () => {

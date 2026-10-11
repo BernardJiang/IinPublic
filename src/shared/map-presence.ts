@@ -24,13 +24,15 @@ export type MapPresence = {
   userId: string;
   pub: string;
   location: PublicLocation | null;
+  /** Appears at a chosen point (✈) rather than blurred GPS (Resident). Self-declared. */
+  traveler: boolean;
   observedAt: string;
   expiresAt: string;
   proof: SignedP2PEnvelopeProof;
 };
 
 /** What a map query returns per user: no keys, no proofs. */
-export type MapPresenceDot = PublicLocation & { userId: string };
+export type MapPresenceDot = PublicLocation & { userId: string; traveler: boolean };
 
 /** Anonymous headcount for one density square of the viewed area (heat-map input). */
 export type MapDensityCell = { latitude: number; longitude: number; count: number };
@@ -67,6 +69,7 @@ function signingPayload(record: Omit<MapPresence, 'proof'>): unknown {
     userId: record.userId,
     pub: record.pub,
     location: record.location,
+    traveler: record.traveler,
     observedAt: record.observedAt,
     expiresAt: record.expiresAt,
   };
@@ -76,6 +79,7 @@ export async function createMapPresence(input: {
   userId: string;
   pair: SeaSigningPair;
   location: PublicLocation | null;
+  traveler?: boolean;
   now?: Date;
 }): Promise<MapPresence> {
   const now = input.now ?? new Date();
@@ -85,6 +89,7 @@ export async function createMapPresence(input: {
     userId: String(input.userId || '').trim(),
     pub: String(input.pair.pub || '').trim(),
     location: input.location ? { ...input.location } : null,
+    traveler: input.traveler === true,
     observedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + MAP_PRESENCE_TTL_MS).toISOString(),
   };
@@ -106,6 +111,7 @@ export function parseMapPresence(value: unknown): MapPresence | null {
     || typeof record.userId !== 'string' || record.userId.length < 1 || record.userId.length > 256
     || typeof record.pub !== 'string' || record.pub.length < 1 || record.pub.length > 2_048
     || (record.location !== null && !isPublicLocation(record.location))
+    || typeof record.traveler !== 'boolean'
     || typeof record.observedAt !== 'string' || !Number.isFinite(Date.parse(record.observedAt))
     || typeof record.expiresAt !== 'string' || !Number.isFinite(Date.parse(record.expiresAt))
     || !record.proof

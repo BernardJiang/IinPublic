@@ -150,8 +150,6 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
   await backToSettingsMenu(page);
 
   await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-  await page.fill('#settings-min-distance', '0');
-  await page.fill('#settings-max-distance', '50');
   const homeValue = homeRoom === 'own-grid'
     ? await page.locator('#settings-home-room option[value^="tile_4_"]').first().getAttribute('value')
     : homeRoom;
@@ -204,11 +202,6 @@ test.describe('Stage zero N2N smoke', () => {
         { timeout: 45_000 },
       )
       .toBe('en,zh');
-    await backToSettingsMenu(page);
-
-    await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-    await expect(page.locator('#settings-min-distance')).toHaveValue('0');
-    await expect(page.locator('#settings-max-distance')).toHaveValue('50');
     await backToSettingsMenu(page);
 
     await openSettingsSection(page, SETTINGS_SECTION.contentFilters);

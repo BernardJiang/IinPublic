@@ -32,8 +32,6 @@ async function setFilters(page: FastDmPair['pageA'], filters: MsgFilters): Promi
     const app = (window as any).__iinpublic_app?.getApp?.();
     const full = {
       allowedLanguages: ['en'],
-      minDistanceMiles: 0,
-      maxDistanceMiles: 50,
       requireGoodGrammar: f.requireGoodGrammar,
       blockDirtyWords: f.blockDirtyWords,
       allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],

@@ -13,7 +13,7 @@ export type MapPresenceView = { dots: MapPresenceDot[]; density: MapDensityCell[
 export class MapPresenceClient {
   constructor(private readonly apiBase: string, private readonly fetchFn: typeof fetch = fetch.bind(globalThis)) {}
 
-  async publish(input: { userId: string; pair: SeaSigningPair; location: PublicLocation | null }): Promise<void> {
+  async publish(input: { userId: string; pair: SeaSigningPair; location: PublicLocation | null; traveler: boolean }): Promise<void> {
     const presence = await createMapPresence(input);
     const response = await this.fetchFn(`${this.apiBase}/api/map-presence`, {
       method: 'POST',

@@ -57,6 +57,7 @@ type ChatroomMapOptions = {
 /** What the app supplies: my published point and a viewport loader. */
 export type MapUserDotSource = {
   selfPoint?: PublicLocation;
+  selfTraveler?: boolean;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
 };
 
@@ -76,6 +77,7 @@ export function createMapUserDots(
   return {
     selfUserId,
     ...(source.selfPoint ? { selfPoint: source.selfPoint } : {}),
+    selfTraveler: source.selfTraveler === true,
     roomMemberIds: new Set(roomMembers.map((member) => member.userId)),
     load: source.load,
     selfText: t('mapUserSelf'),
@@ -89,6 +91,7 @@ export type MapUserDots = {
   selfUserId: string;
   /** My own published (snapped) point, so I see exactly what others see of me. */
   selfPoint?: PublicLocation;
+  selfTraveler?: boolean;
   /** Current room roster: these users can exchange Talks with me. */
   roomMemberIds: ReadonlySet<string>;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
@@ -666,7 +669,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
 }
 
 /** Render public room locations. No user coordinates are accepted by this API. */
-type UserDotGroup = { kind: 'self' | 'room' | 'other'; latitude: number; longitude: number; count: number };
+type UserDotGroup = { kind: 'self' | 'room' | 'other'; latitude: number; longitude: number; count: number; travelers: number };
 
 function densityGeoJson(cells: ReadonlyArray<MapDensityCell>) {
   return {
@@ -706,19 +709,25 @@ function scheduleUserDots(maplibre: MapLibre, state: MapState, delayMs = 400): v
 const STRANGER_DOT_MIN_ZOOM = 10;
 
 /** Users sharing one snapped point and one colour become a single dot with a count. */
-export function groupUserDots(source: Pick<MapUserDots, 'selfUserId' | 'selfPoint' | 'roomMemberIds'>, dots: ReadonlyArray<MapPresenceDot>): UserDotGroup[] {
+export function groupUserDots(source: Pick<MapUserDots, 'selfUserId' | 'selfPoint' | 'selfTraveler' | 'roomMemberIds'>, dots: ReadonlyArray<MapPresenceDot>): UserDotGroup[] {
   const groups = new Map<string, UserDotGroup>();
   for (const dot of dots) {
     if (dot.userId === source.selfUserId) continue;
     const kind = source.roomMemberIds.has(dot.userId) ? 'room' : 'other';
     const key = `${kind}:${dot.latitude}:${dot.longitude}`;
     const group = groups.get(key);
-    if (group) group.count += 1;
-    else groups.set(key, { kind, latitude: dot.latitude, longitude: dot.longitude, count: 1 });
+    if (group) {
+      group.count += 1;
+      if (dot.traveler) group.travelers += 1;
+    } else {
+      groups.set(key, { kind, latitude: dot.latitude, longitude: dot.longitude, count: 1, travelers: dot.traveler ? 1 : 0 });
+    }
   }
   // Yellow first, so green dots and my star are drawn on top of them.
   const ordered = [...groups.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'other' ? -1 : 1));
-  if (source.selfPoint) ordered.push({ kind: 'self', latitude: source.selfPoint.latitude, longitude: source.selfPoint.longitude, count: 1 });
+  if (source.selfPoint) {
+    ordered.push({ kind: 'self', latitude: source.selfPoint.latitude, longitude: source.selfPoint.longitude, count: 1, travelers: source.selfTraveler ? 1 : 0 });
+  }
   return ordered;
 }
 
@@ -735,6 +744,14 @@ function userDotElement(source: MapUserDots, group: UserDotGroup): HTMLElement {
   element.setAttribute('aria-label', label);
   element.setAttribute('role', 'img');
   element.textContent = group.kind === 'self' ? '★' : group.count > 1 ? String(group.count) : '';
+  // ✈ badge: everyone at this dot is a Traveler (a chosen point, not blurred GPS).
+  if (group.travelers > 0 && group.travelers === group.count) {
+    element.dataset.traveler = 'true';
+    const badge = document.createElement('span');
+    badge.className = 'chatroom-map-user-dot-traveler';
+    badge.textContent = '✈';
+    element.appendChild(badge);
+  }
   return element;
 }
 

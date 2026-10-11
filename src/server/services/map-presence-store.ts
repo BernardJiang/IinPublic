@@ -57,7 +57,7 @@ export class MapPresenceStore {
     const inView: MapPresenceDot[] = [];
     for (const record of this.byUser.values()) {
       if (!record.location || Date.parse(record.expiresAt) <= now.getTime() || !boundsContain(bounds, record.location)) continue;
-      inView.push({ userId: record.userId, ...record.location });
+      inView.push({ userId: record.userId, traveler: record.traveler, ...record.location });
     }
     const truncated = inView.length > limit;
     return { dots: truncated ? [] : inView, density: densityCells(bounds, inView), truncated };

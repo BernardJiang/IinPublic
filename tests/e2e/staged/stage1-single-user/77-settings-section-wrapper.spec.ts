@@ -136,17 +136,16 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
     );
     await backToSettingsMenu(page);
 
-    // Distance/home: min-distance value round-trips through the same sync() path, and survives
+    // Your location: the area size round-trips through the connectivity save path, and survives
     // a tab-away-and-back (which resets the drill-down to the menu but not the field's state).
     await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-    await page.fill('#settings-min-distance', '5');
-    await page.locator('#settings-min-distance').dispatchEvent('change');
+    await page.selectOption('#settings-nearby-privacy-mode', 'citywide');
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
     await page.click('.nav-btn[data-view="settings"]');
     await waitForTabActive(page, 'settings');
     await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-    await expect(page.locator('#settings-min-distance')).toHaveValue('5');
+    await expect(page.locator('#settings-nearby-privacy-mode')).toHaveValue('citywide');
     await backToSettingsMenu(page);
 
     // Linked devices / Erase device / Storage inspector: action buttons still fire their dialogs.

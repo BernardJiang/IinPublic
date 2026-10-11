@@ -15,8 +15,12 @@ export interface TalkIntakeFilters {
    * Talk exchange. Undefined is treated as false for pre-feature accounts.
    */
   contactsOnlyTalks?: boolean;
-  minDistanceMiles?: number;
-  maxDistanceMiles?: number;
+  /**
+   * "Residents only" Talk audience: no Talk exchange with room members marked as Travelers ✈
+   * (a chosen point, not blurred GPS). Contacts are always allowed. Self-declared, so it filters
+   * honest Travelers only; it also excludes every website user.
+   */
+  residentsOnlyTalks?: boolean;
   sentAfter?: string;
   allowedLanguages: string[];
   requireGoodGrammar: boolean;

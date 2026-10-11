@@ -318,6 +318,7 @@ export class WebUserService {
     // enforcement, so keep it only in the owner-encrypted preference record and linked-device sync.
     const publicTalkFilters = { ...talkFilters };
     delete publicTalkFilters.contactsOnlyTalks;
+    delete publicTalkFilters.residentsOnlyTalks;
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, {
       filtersJson: JSON.stringify(publicTalkFilters),
     });

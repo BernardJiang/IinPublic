@@ -30,6 +30,8 @@ import {
 } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { MapPresenceClient } from '../services/map-presence-client';
+import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
+import { quietStateFor, type QuietState } from '../../shared/quiet-places';
 import { MAP_PRESENCE_REFRESH_MS } from '../../shared/map-presence';
 import { publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
@@ -43,7 +45,7 @@ import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
-import { loadConnectivitySettings, routePreferencesFromSettings, type ConnectivitySettings } from '../ui/connectivity-settings';
+import { loadConnectivitySettings, routePreferencesFromSettings, takeLegacyPrivacyMigration, type ConnectivitySettings } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
@@ -61,6 +63,7 @@ import {
   isNearbyPublicMode,
   isNearbyRoomId,
   type NearbyRoomAssignment,
+  type NearbyPrivacyMode,
 } from '../../shared/nearby-rooms';
 import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import {
@@ -338,6 +341,11 @@ export class IinPublicApp {
   private travelChatroomId: string | undefined = undefined;
   private travelNearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
   private mapPresenceClient: MapPresenceClient | null = null;
+  /** Quiet places / schedule / "Quiet now" (shared/quiet-places.ts), re-checked every minute. */
+  private quietState: QuietState = { active: false };
+  private quietTimer: ReturnType<typeof setInterval> | undefined;
+  /** Room members marked as Travelers (for the "Residents only" Talk audience). */
+  private roomTravelerIds: ReadonlySet<string> = new Set();
   private mapPresenceTimer: ReturnType<typeof setInterval> | undefined;
   private mapPresencePublishTimer: ReturnType<typeof setTimeout> | undefined;
   private mapPresenceShownKey = '';
@@ -593,8 +601,9 @@ export class IinPublicApp {
    * The active room's other members drive the staged discovery policy: LAN NSD stays silent for a
    * lone user, and roster pubs bind rotating radio ids to SEA identities.
    */
-  private observeNearbyRoomRoster(roomId: string, members: Array<{ userId: string; pub?: string }>): void {
+  private observeNearbyRoomRoster(roomId: string, members: Array<{ userId: string; pub?: string; isTraveler?: boolean }>): void {
     if (roomId !== this.currentChatroomId) return;
+    this.roomTravelerIds = new Set(members.filter((member) => member.isTraveler === true).map((member) => member.userId));
     const others = members.filter((member) => !!member.userId && member.userId !== this.currentUser?.id);
     const wasAlone = this.activeRoomRoster?.roomId !== roomId || this.activeRoomRoster.count === 0;
     this.activeRoomRoster = {
@@ -1133,6 +1142,8 @@ export class IinPublicApp {
     // Travel is room-membership metadata, not a private UI decoration: peers in the room must
     // agree that a user deliberately visiting away from their saved home is a traveler.
     this.chatroomService.setMembershipTravelerResolver((chatroomId) => {
+      // A chosen-point user (every website user) is always a Traveler.
+      if (usesSelfDefinedEncounterLocation() && (isNearbyRoomId(chatroomId) || isPlaceRoomId(chatroomId))) return true;
       if (isNearbyRoomId(chatroomId)) {
         return !this.suppressNearbyTravelerMarker && (this.pendingNearbyTravel != null
           || (this.travelModeActive && this.travelChatroomId === chatroomId));
@@ -1612,15 +1623,23 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
+    if (takeLegacyPrivacyMigration() === 'contacts-only' && this.currentUser) {
+      // "Contacts only" moved from the location list to the Talk audience.
+      const filters = { ...getTalkIntakeFilters(), contactsOnlyTalks: true };
+      setTalkIntakeFilters(filters);
+      setTalkIntakeFiltersOwner(this.currentUser.id);
+      this.currentUser.talkFilters = filters;
+    }
+    this.startQuietWatch();
     this.startMapPresence();
     if (this.locationConfirmed) {
       void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch(() => {});
     }
-    if (usesSelfDefinedEncounterLocation()) {
-      window.addEventListener(ENCOUNTER_LOCATION_EVENT, (event) => {
-        this.applyEncounterLocationChange((event as CustomEvent<EncounterLocation | null>).detail ?? null);
-      });
-    }
+    // Registered for everyone: a phone can switch to Traveler later in Settings.
+    window.addEventListener(ENCOUNTER_LOCATION_EVENT, (event) => {
+      if (!usesSelfDefinedEncounterLocation()) return;
+      this.applyEncounterLocationChange((event as CustomEvent<EncounterLocation | null>).detail ?? null);
+    });
     markStartupPhase('initialSyncComplete');
   }
 
@@ -1703,6 +1722,7 @@ export class IinPublicApp {
     if (this.currentUser) this.chatroomService.updateLocalUserLocation(this.currentUser.id, location);
     this.uiManager.setCurrentLocation(location);
     if (this.currentUser) {
+      this.refreshQuietState();
       void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch(() => {});
       this.scheduleMapPresencePublish();
       if (this.initialized) {
@@ -1732,11 +1752,65 @@ export class IinPublicApp {
     if (!this.currentLocation || !this.locationConfirmed) return null;
     const next = publicLocationWithHysteresis(
       this.currentLocation,
-      loadConnectivitySettings().nearbyPrivacyMode,
+      this.effectiveNearbyMode(),
       this.lastPublicHomeLocation,
     );
     this.lastPublicHomeLocation = next;
     return next;
+  }
+
+  private uiText(key: Parameters<typeof uiText>[1]): string {
+    return uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), key);
+  }
+
+  /**
+   * The area size actually used right now: the user's setting, unless a quiet place / schedule /
+   * "Quiet now" applies. Blur → Regional (~50 km). Hide → out of Nearby; Contacts still work.
+   */
+  private effectiveNearbyMode(): NearbyPrivacyMode {
+    const quiet = this.quietState;
+    if (quiet?.active) return quiet.action === 'hide' ? 'contacts-only' : 'regional';
+    return loadConnectivitySettings().nearbyPrivacyMode;
+  }
+
+  /** A Traveler appears at a chosen point (always on the website) or is visiting away from it. */
+  private appearsAsTraveler(): boolean {
+    return usesSelfDefinedEncounterLocation() || this.travelModeActive;
+  }
+
+  /** Quiet places use the device's own GPS, so they only apply to a Resident with a real fix. */
+  private refreshQuietState(): boolean {
+    const residentGps = !usesSelfDefinedEncounterLocation() && this.locationConfirmed && this.currentLocation
+      ? this.currentLocation
+      : null;
+    const next = quietStateFor(loadQuietSettings(), residentGps, new Date());
+    const before = JSON.stringify(this.quietState);
+    this.quietState = next;
+    if (JSON.stringify(next) === before) return false;
+    if (this.initialized) {
+      this.uiManager.showNotification(
+        !next.active
+          ? this.uiText('quietEnded')
+          : next.action === 'hide' ? this.uiText('quietHidden') : this.uiText('quietBlurred'),
+        'info',
+      );
+    }
+    return true;
+  }
+
+  /** Re-apply rooms, the map dot and the public location when the quiet state changes. */
+  private applyQuietStateIfChanged(): void {
+    if (!this.refreshQuietState() || !this.initialized) return;
+    void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch((error) => {
+      console.warn('Applying the quiet state failed (non-fatal):', error);
+    });
+  }
+
+  private startQuietWatch(): void {
+    if (this.quietTimer) return;
+    this.refreshQuietState();
+    this.quietTimer = setInterval(() => this.applyQuietStateIfChanged(), 60_000);
+    window.addEventListener(QUIET_SETTINGS_EVENT, () => this.applyQuietStateIfChanged());
   }
 
   /** The map dot: the travel point while traveling (same precision as home), else home. */
@@ -1744,7 +1818,7 @@ export class IinPublicApp {
     const home = this.publicHomeLocation();
     const travel = this.travelModeActive ? this.travelNearbyPoint : undefined;
     if (!travel) return home;
-    const precision = publicLocationPrecisionMeters(loadConnectivitySettings().nearbyPrivacyMode);
+    const precision = publicLocationPrecisionMeters(this.effectiveNearbyMode());
     return precision === null ? null : snapPublicLocation(travel, precision);
   }
 
@@ -1779,15 +1853,16 @@ export class IinPublicApp {
     const client = this.mapPresenceClient;
     const location = this.mapPresenceLocation();
     try {
-      await client.publish({ userId: user.id, pair, location });
+      await client.publish({ userId: user.id, pair, location, traveler: this.appearsAsTraveler() });
     } catch (error) {
       console.warn('Map presence publish failed (non-fatal):', error);
     }
-    const key = JSON.stringify(location);
+    const key = JSON.stringify({ location, traveler: this.appearsAsTraveler() });
     if (key === this.mapPresenceShownKey) return;
     this.mapPresenceShownKey = key;
     this.uiManager.setMapUserDotSource({
       ...(location ? { selfPoint: location } : {}),
+      selfTraveler: this.appearsAsTraveler(),
       load: (bounds) => client.load(bounds),
     });
   }
@@ -2092,7 +2167,7 @@ export class IinPublicApp {
       this.currentUser.id,
       lastChatroomId,
       this.locationConfirmed,
-      loadConnectivitySettings().nearbyPrivacyMode,
+      this.effectiveNearbyMode(),
     );
     if (isTechSupportUser(this.currentUser)) chatroomId = CONTACTS_ONLY_SCOPE_ID;
 
@@ -2268,7 +2343,7 @@ export class IinPublicApp {
     // A saved Nearby-at-a-pin visit is recomputed from its deliberately public Place point. Never
     // trust a saved opaque room id after protocol/capacity state may have changed.
     if (this.travelModeActive && this.travelNearbyPoint && this.currentUser) {
-      const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
+      const configuredMode = this.effectiveNearbyMode();
       const mode = isNearbyPublicMode(configuredMode) ? configuredMode : 'neighborhood';
       const rootAssignment = deriveNearbyRoomAssignment({
         location: this.travelNearbyPoint,
@@ -2423,7 +2498,7 @@ export class IinPublicApp {
     // checked before any filter so it cannot be re-enabled through intake settings.
     if (!acceptsIncomingTalks(me.id)) return false;
     if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
-    if (!talkContactPolicyAllowsPeer(offer.senderId, getTalkIntakeFilters(), me.knownPeople)) {
+    if (!talkContactPolicyAllowsPeer(offer.senderId, getTalkIntakeFilters(), me.knownPeople, this.roomTravelerIds)) {
       return false;
     }
     const talkData = offer.talkData;
@@ -2902,19 +2977,12 @@ export class IinPublicApp {
   }
 
   /** Apply a saved audience choice immediately; no new OS prompt is raised mid-exchange. */
-  private async applyNearbyPrivacyMode(settings: ConnectivitySettings): Promise<void> {
+  private async applyNearbyPrivacyMode(_settings: ConnectivitySettings): Promise<void> {
     if (!this.currentUser || !this.currentLocation) return;
     this.scheduleMapPresencePublish();
     void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch(() => {});
-    if (settings.nearbyPrivacyMode === 'contacts-only') {
-      const filters = { ...getTalkIntakeFilters(), contactsOnlyTalks: true };
-      setTalkIntakeFilters(filters);
-      setTalkIntakeFiltersOwner(this.currentUser.id);
-      this.currentUser.talkFilters = filters;
-    }
-    const publicNearbyMode = isNearbyPublicMode(settings.nearbyPrivacyMode)
-      ? settings.nearbyPrivacyMode
-      : undefined;
+    const effectiveMode = this.effectiveNearbyMode();
+    const publicNearbyMode = isNearbyPublicMode(effectiveMode) ? effectiveMode : undefined;
     let selectedRoomId: string;
     if (this.travelModeActive && this.travelNearbyPoint && publicNearbyMode) {
       const rootAssignment = deriveNearbyRoomAssignment({
@@ -2939,7 +3007,7 @@ export class IinPublicApp {
         this.currentUser.id,
         this.currentChatroomId,
         this.locationConfirmed,
-        settings.nearbyPrivacyMode,
+        effectiveMode,
       );
     }
     const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
@@ -2947,7 +3015,7 @@ export class IinPublicApp {
       selectedRoomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
     }
     const nextRoomId = isTechSupportUser(this.currentUser) ? CONTACTS_ONLY_SCOPE_ID : selectedRoomId;
-    if (!isNearbyRoomId(nextRoomId) && !isNearbyPublicMode(settings.nearbyPrivacyMode)) {
+    if (!isNearbyRoomId(nextRoomId) && !isNearbyPublicMode(effectiveMode)) {
       this.uiManager.setNearbyMapAssignment(null);
     }
     if (nextRoomId === this.currentChatroomId) return;
@@ -2987,7 +3055,7 @@ export class IinPublicApp {
       this.currentUser.id,
       undefined,
       this.locationConfirmed,
-      loadConnectivitySettings().nearbyPrivacyMode,
+      this.effectiveNearbyMode(),
     );
     const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
     return nearbyRoot && nearbyRoot.roomId === selectedRoomId && isNearbyRoomId(selectedRoomId)
@@ -2998,9 +3066,9 @@ export class IinPublicApp {
   /** Stage a deliberate flat-map Nearby visit without exposing partition ids in the UI. */
   private beginNearbyTravel(location: GPSCoordinate, placeId: string, placeName: string): void {
     if (!this.currentUser) return;
-    const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
+    const configuredMode = this.effectiveNearbyMode();
     if (configuredMode === 'contacts-only') {
-      this.uiManager.showNotification('Contacts only is on. Change Location privacy before joining Nearby.', 'warning');
+      this.uiManager.showNotification(this.uiText('quietHiddenNoTravel'), 'warning');
       return;
     }
     const mode = isNearbyPublicMode(configuredMode) ? configuredMode : 'neighborhood';
@@ -4276,6 +4344,7 @@ export class IinPublicApp {
       payload.responderId,
       getTalkIntakeFilters(),
       this.currentUser.knownPeople,
+      this.roomTravelerIds,
     )) return;
     console.log(`[RESP-INGEST] talk=${String(payload.talkId).slice(-8)} from=${String(payload.responderId).slice(0, 8)} v=${payload.version ?? 1}`);
     const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}::v${payload.version ?? 1}`;
@@ -6467,6 +6536,7 @@ export class IinPublicApp {
       receiverIds,
       getTalkIntakeFilters(),
       me.knownPeople,
+      this.roomTravelerIds,
     );
     if (receiverIds.length === 0) return false;
 
@@ -6676,6 +6746,7 @@ export class IinPublicApp {
       memberIds,
       getTalkIntakeFilters(),
       this.currentUser?.knownPeople,
+      this.roomTravelerIds,
     );
     return permittedMemberIds.map((userId) => ({
       userId,
@@ -6885,6 +6956,7 @@ export class IinPublicApp {
       params.authorId,
       getTalkIntakeFilters(),
       this.currentUser.knownPeople,
+      this.roomTravelerIds,
     )) return;
     // Persist exact-answer memory and provenance privately before any chatbot/manual
     // response can leave this device. Public offers never subscribe to this path.
@@ -6975,6 +7047,7 @@ export class IinPublicApp {
         targetAuthorId,
         getTalkIntakeFilters(),
         this.currentUser?.knownPeople,
+        this.roomTravelerIds,
       )) return;
       const authorEpub = targetEpub ?? this.pairTalkPeerEpubHint(
         targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
@@ -7152,6 +7225,7 @@ export class IinPublicApp {
             senderId,
             getTalkIntakeFilters(),
             this.currentUser.knownPeople,
+            this.roomTravelerIds,
           )) continue;
           const sentResponse = sentResponseByAuthor.get(senderId);
           writeResponderExchangedEntry({
@@ -9472,6 +9546,8 @@ export class IinPublicApp {
       const encounter = !nextLocation && usesSelfDefinedEncounterLocation() ? getEncounterLocation() : null;
       if (!nextLocation && usesSelfDefinedEncounterLocation() && !encounter) {
         this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), 'encounterLocationUnset'), 'info');
+        // A phone that just switched to Traveler must stop using its GPS until a point is chosen.
+        this.applyEncounterLocationChange(null);
         return;
       }
       const newLocation = nextLocation || (encounter ? encounterLocationCoordinate(encounter) : await LocationPrivacy.getCurrentLocation());

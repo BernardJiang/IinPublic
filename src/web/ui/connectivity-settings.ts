@@ -3,16 +3,23 @@ import type { MeteredPermission } from '../../shared/connection-manager';
 import type { RoutePreferences } from '../../shared/connection-manager';
 import type { PathInfo } from '../../shared/connection-manager';
 import type { PeerDiscoveryProviderStatus } from '../../shared/peer-discovery-provider';
-import type { NearbyPrivacyMode } from '../../shared/nearby-rooms';
+import { isNearbyPublicMode, type NearbyPublicMode } from '../../shared/nearby-rooms';
 
 export type ConnectivityPreset = 'automatic' | 'data-saver' | 'fastest' | 'local-event' | 'private' | 'advanced';
 export type NearbyExchangeMode = 'off' | 'while-open' | 'always';
+/**
+ * Every user has one location. A Resident appears at their own blurred GPS area; a Traveler ✈
+ * appears at a point they chose on the map and never shares GPS. Web/desktop has no GPS, so it is
+ * always a Traveler.
+ */
+export type LocationSource = 'resident' | 'traveler';
 export type ConnectivitySettings = {
   version: 2;
   preset: ConnectivityPreset;
   nearbyMode: NearbyExchangeMode;
-  /** Who the automatic room may expose this device to. Exact GPS is never stored here. */
-  nearbyPrivacyMode: NearbyPrivacyMode;
+  /** Area size others see (1 / 10 / 50 km; 400 m only picks the room). Exact GPS is never stored. */
+  nearbyPrivacyMode: NearbyPublicMode;
+  locationSource: LocationSource;
   activeRoomSelection: 'manual';
   wifiOnlyForwarding: boolean;
   identityReveal: 'matches-only' | 'room-presence';
@@ -34,12 +41,22 @@ export type ConnectivityDiagnostics = {
   abuseDrops?: number;
 };
 const KEY = 'iinpublic_connectivity_settings_v1';
-const NEARBY_PRIVACY_MODES: readonly NearbyPrivacyMode[] = [
-  'contacts-only', 'neighborhood', 'close-nearby', 'citywide', 'regional', 'location-off',
-];
+/**
+ * Retired location choices. "Contacts only" is a Talk audience (Talk Behavior), not a location;
+ * "Location off" became "Traveler". A saved retired value is migrated once on load.
+ */
+export type LegacyPrivacyMigration = 'contacts-only' | 'location-off' | null;
+let pendingLegacyMigration: LegacyPrivacyMigration = null;
+
+/** The retired value found on the last load, cleared once the app has applied it. */
+export function takeLegacyPrivacyMigration(): LegacyPrivacyMigration {
+  const value = pendingLegacyMigration;
+  pendingLegacyMigration = null;
+  return value;
+}
 
 export function defaultConnectivitySettings(): ConnectivitySettings {
-  return { version: 2, preset: 'automatic', nearbyMode: 'while-open', nearbyPrivacyMode: 'neighborhood', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS } };
+  return { version: 2, preset: 'automatic', nearbyMode: 'while-open', nearbyPrivacyMode: 'neighborhood', locationSource: 'resident', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS } };
 }
 
 export function applyConnectivityPreset(preset: ConnectivityPreset): ConnectivitySettings {
@@ -47,7 +64,7 @@ export function applyConnectivityPreset(preset: ConnectivityPreset): Connectivit
   if (preset === 'data-saver') return { ...base, preset, meteredPermission: 'wait-for-free', forwarding: { ...base.forwarding, cellularForwarding: false, cellularByteBudget: 0 } };
   if (preset === 'fastest') return { ...base, preset, meteredPermission: 'ask', batteryAware: false };
   if (preset === 'local-event') return { ...base, preset, nearbyPrivacyMode: 'close-nearby' };
-  if (preset === 'private') return { ...base, preset, nearbyPrivacyMode: 'contacts-only', forwarding: { ...base.forwarding, enabled: false } };
+  if (preset === 'private') return { ...base, preset, nearbyPrivacyMode: 'regional', forwarding: { ...base.forwarding, enabled: false } };
   return { ...base, preset };
 }
 
@@ -56,15 +73,26 @@ export function loadConnectivitySettings(): ConnectivitySettings {
     const raw = localStorage.getItem(KEY); if (!raw) return defaultConnectivitySettings();
     const value = JSON.parse(raw) as Partial<ConnectivitySettings>;
     const valid = ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'].includes(String(value.preset));
-    // `radio-nearby` used to be an audience mode. Bluetooth is now an independent provider;
-    // migrate that saved choice to the ordinary privacy-safe Nearby room instead.
-    const savedNearbyPrivacyMode = String(value.nearbyPrivacyMode) === 'radio-nearby'
-      ? 'neighborhood'
-      : value.nearbyPrivacyMode;
-    const nearbyPrivacyMode = NEARBY_PRIVACY_MODES.includes(savedNearbyPrivacyMode as NearbyPrivacyMode)
-      ? savedNearbyPrivacyMode as NearbyPrivacyMode
+    // `radio-nearby` used to be an audience mode; Bluetooth is now an independent provider.
+    const saved = String(value.nearbyPrivacyMode);
+    if (saved === 'contacts-only' || saved === 'location-off') {
+      pendingLegacyMigration = saved;
+      const migrated: ConnectivitySettings = {
+        ...defaultConnectivitySettings(),
+        ...(valid ? value : {}),
+        nearbyPrivacyMode: 'neighborhood',
+        locationSource: saved === 'location-off' ? 'traveler' : 'resident',
+        version: 2,
+      } as ConnectivitySettings;
+      try { saveConnectivitySettings(migrated); } catch { /* storage blocked: migrate again next load */ }
+      value.nearbyPrivacyMode = migrated.nearbyPrivacyMode;
+      value.locationSource = migrated.locationSource;
+    }
+    const nearbyPrivacyMode: NearbyPublicMode = isNearbyPublicMode(value.nearbyPrivacyMode as never)
+      ? value.nearbyPrivacyMode as NearbyPublicMode
       : 'neighborhood';
-    return valid ? { ...defaultConnectivitySettings(), ...value, nearbyPrivacyMode, version: 2, activeRoomSelection: 'manual', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
+    const locationSource: LocationSource = value.locationSource === 'traveler' ? 'traveler' : 'resident';
+    return valid ? { ...defaultConnectivitySettings(), ...value, nearbyPrivacyMode, locationSource, version: 2, activeRoomSelection: 'manual', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
   } catch { return defaultConnectivitySettings(); }
 }
 

@@ -483,7 +483,7 @@ describe('WebUserService', () => {
       requireGoodGrammar: true,
       blockDirtyWords: true,
       allowedTalkTypes: ['tag'],
-      minDistanceMiles: 5,
+      residentsOnlyTalks: true,
     });
 
     expect(gunService.put).toHaveBeenCalledWith(
@@ -494,7 +494,6 @@ describe('WebUserService', () => {
           requireGoodGrammar: true,
           blockDirtyWords: true,
           allowedTalkTypes: ['tag'],
-          minDistanceMiles: 5,
         }),
       }),
     );
@@ -507,7 +506,7 @@ describe('WebUserService', () => {
           requireGoodGrammar: true,
           blockDirtyWords: true,
           allowedTalkTypes: ['tag'],
-          minDistanceMiles: 5,
+          residentsOnlyTalks: true,
         }),
       }),
     );

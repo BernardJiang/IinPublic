@@ -1,5 +1,6 @@
 import type { GPSCoordinate } from '../../shared/types';
 import { readNativeHostInfo } from '../ui/native-host-info';
+import { loadConnectivitySettings, type LocationSource } from '../ui/connectivity-settings';
 
 /**
  * Web/desktop encounter location (TODO OPEN-40 P1). Outside the phone apps, automatic Nearby never
@@ -20,9 +21,34 @@ export type EncounterLocation = {
   setAt: string;
 };
 
-/** Phone shells confirm blurred GPS; every other runtime uses a self-defined encounter location. */
-export function usesSelfDefinedEncounterLocation(platform: string = readNativeHostInfo().platform): boolean {
-  return platform !== 'android' && platform !== 'ios';
+/**
+ * Dev/test builds give the website a fixed test location (`window.__test_location`, default San
+ * Diego) that stands in for GPS; `'none'` simulates a GPS-less device. Production web has no GPS.
+ */
+function simulatedTestGps(): boolean {
+  return process.env.NODE_ENV !== 'production'
+    && typeof window !== 'undefined'
+    && (window as { __test_location?: unknown }).__test_location !== 'none';
+}
+
+/** Only the phone apps can read GPS; production web/desktop always appears at a chosen point. */
+export function deviceHasGps(
+  platform: string = readNativeHostInfo().platform,
+  simulatedGps: boolean = simulatedTestGps(),
+): boolean {
+  return platform === 'android' || platform === 'ios' || simulatedGps;
+}
+
+/**
+ * True when this device appears at a chosen point (a Traveler ✈) rather than its blurred GPS
+ * (a Resident): always on web/desktop, and on a phone whose owner chose "A point I choose".
+ */
+export function usesSelfDefinedEncounterLocation(
+  platform: string = readNativeHostInfo().platform,
+  source: LocationSource = loadConnectivitySettings().locationSource,
+  simulatedGps: boolean = simulatedTestGps(),
+): boolean {
+  return !deviceHasGps(platform, simulatedGps) || source === 'traveler';
 }
 
 function validCoordinate(latitude: unknown, longitude: unknown): boolean {

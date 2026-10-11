@@ -83,13 +83,12 @@ test.describe('TechSupport DM survives maximally restrictive intake filters (doc
     await afterLoad();
     attachE2eBrowserTabLabel(userPage, 'FilterUser');
 
-    // Maximally restrictive: a language nobody sends in, a zero-mile radius, grammar +
+    // Maximally restrictive: a language nobody sends in, Residents-only Talks, grammar +
     // dirty-word gates on, and (implicitly, by never age-verifying) the strictest adult
     // gate too. `talkPassesIntakeFilters` is what these gate — never the support channel.
     await userPage.evaluate(() => {
       const filters = {
-        minDistanceMiles: 0,
-        maxDistanceMiles: 0,
+        residentsOnlyTalks: true,
         allowedLanguages: ['xx'],
         requireGoodGrammar: true,
         blockDirtyWords: true,
@@ -138,7 +137,7 @@ test.describe('TechSupport DM survives maximally restrictive intake filters (doc
     const stillMaxed = await userPage.evaluate(() => {
       const raw = window.localStorage.getItem('iinpublic_talk_intake_filters');
       const filters = raw ? JSON.parse(raw) : null;
-      return filters?.maxDistanceMiles === 0 && filters?.allowedLanguages?.[0] === 'xx';
+      return filters?.residentsOnlyTalks === true && filters?.allowedLanguages?.[0] === 'xx';
     });
     expect(stillMaxed).toBe(true);
 

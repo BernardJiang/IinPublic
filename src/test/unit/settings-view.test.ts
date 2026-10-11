@@ -97,6 +97,9 @@ function controlsDeps(overrides: Partial<SettingsControlsDeps> = {}): SettingsCo
   };
 }
 
+// Tests that simulate a GPS-less website set this; never leak it into the next test.
+afterEach(() => { delete (window as any).__test_location; });
+
 describe('settings view extraction', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -140,16 +143,17 @@ describe('settings view extraction', () => {
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
     expect(document.querySelector<HTMLSelectElement>('#settings-auto-answer-scope')?.value).toBe('whenever');
     const nearbyPrivacy = document.querySelector<HTMLSelectElement>('#settings-nearby-privacy-mode');
+    // Area size only: "Location off" became Traveler and "Contacts only" a Talk audience.
     expect(Array.from(nearbyPrivacy?.options ?? [], (option) => option.value)).toEqual([
-      'location-off',
-      'contacts-only',
-      'regional',
-      'citywide',
-      'neighborhood',
       'close-nearby',
+      'neighborhood',
+      'citywide',
+      'regional',
     ]);
     expect(nearbyPrivacy?.textContent).not.toContain('Radio nearby');
-    expect(nearbyPrivacy?.parentElement?.textContent).toContain('sensitive home or workplace');
+    expect(document.querySelector('[data-testid="settings-location-source"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="settings-quiet-places"]')).not.toBeNull();
+    expect(document.querySelector('#settings-min-distance')).toBeNull();
     expect(document.querySelector('#settings-section-distance-home')?.textContent).toContain(
       'exact GPS stays on this device',
     );
@@ -167,12 +171,11 @@ describe('settings view extraction', () => {
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-languages');
   });
 
-  it('shows contacts-only Talk exchange off by default and checked when enabled', () => {
+  it('shows the Talk audience as Everyone by default and Contacts only when enabled', () => {
+    const checked = () => document.querySelector<HTMLInputElement>('input[name="settings-talk-audience"]:checked')?.value;
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(makeUser(), viewDeps());
-    expect(
-      document.querySelector<HTMLInputElement>('#settings-contacts-only-talks')?.checked,
-    ).toBe(false);
+    expect(checked()).toBe('everyone');
 
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(
@@ -185,9 +188,7 @@ describe('settings view extraction', () => {
       }),
       viewDeps(),
     );
-    expect(
-      document.querySelector<HTMLInputElement>('#settings-contacts-only-talks')?.checked,
-    ).toBe(true);
+    expect(checked()).toBe('contacts');
   });
 
   it('does nothing when the settings root is absent', () => {
@@ -333,6 +334,8 @@ describe('settings view extraction', () => {
   });
 
   it('website: shows the encounter location without echoing the coordinate, and clears it', () => {
+    // Without a test location the website has no GPS, so it is always a Traveler at a chosen point.
+    (window as any).__test_location = 'none';
     localStorage.removeItem('iinpublic_encounter_location_v1');
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(makeUser(), viewDeps());
@@ -386,21 +389,27 @@ describe('settings view extraction', () => {
     expect(getAutoAnswerScope()).toBe('whenever');
   });
 
-  it('persists and emits the contacts-only Talk exchange preference', () => {
+  it('persists and emits the Talk audience (Residents only, then Contacts only)', () => {
     document.body.innerHTML = `
-      <input type="checkbox" id="settings-contacts-only-talks">
+      <input type="radio" name="settings-talk-audience" value="everyone" checked>
+      <input type="radio" name="settings-talk-audience" value="residents">
+      <input type="radio" name="settings-talk-audience" value="contacts">
       <input type="checkbox" id="settings-grammar-filter">
       <input type="checkbox" id="settings-dirty-words-filter">
     `;
     const user = makeUser();
     const deps = controlsDeps({ currentUser: user });
     bindSettingsControls(deps);
+    const choose = (value: string) => {
+      const radio = document.querySelector(`input[name="settings-talk-audience"][value="${value}"]`) as HTMLInputElement;
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change', { bubbles: true }));
+    };
 
-    const checkbox = document.getElementById('settings-contacts-only-talks') as HTMLInputElement;
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-
-    expect(user.talkFilters?.contactsOnlyTalks).toBe(true);
+    choose('residents');
+    expect(user.talkFilters).toEqual(expect.objectContaining({ residentsOnlyTalks: true, contactsOnlyTalks: false }));
+    choose('contacts');
+    expect(user.talkFilters).toEqual(expect.objectContaining({ residentsOnlyTalks: false, contactsOnlyTalks: true }));
     expect(deps.emit).toHaveBeenCalledWith(
       'updateTalkFilters',
       expect.objectContaining({ contactsOnlyTalks: true }),

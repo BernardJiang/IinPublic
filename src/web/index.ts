@@ -10,6 +10,7 @@ import { PASSWORD_FREE_CUSTODY_DATABASE_NAME } from './services/identity-passwor
 import { getCachedLocation, setCachedLocation } from './services/location-cache';
 import { encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation } from './services/encounter-location';
 import { markStartupPhase } from './performance/startup-metrics';
+import { loadConnectivitySettings } from './ui/connectivity-settings';
 
 const STAGE_ZERO_BOOT_KEY = 'iinpublic_stage_zero_boot';
 
@@ -73,7 +74,9 @@ class WebApp {
 
       let location: GPSCoordinate;
       let locationConfirmed = true;
-      if (USE_TEST_LOCATION) {
+      // A user who chose Traveler appears at their chosen point even in dev/test builds.
+      const chosenTraveler = loadConnectivitySettings().locationSource === 'traveler';
+      if (USE_TEST_LOCATION && !chosenTraveler) {
         // Check if test has set a custom location
         const customLocation = (window as any).__test_location;
         if (customLocation === 'none') {

@@ -1,4 +1,5 @@
 import type { UiTranslationKey } from './ui-translations';
+import { talkRadiusOptions } from './distance-units';
 import {
   createSeededTagOppositePairRegistryState,
   getOppositeTagName,
@@ -273,9 +274,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             <label class="form-label">${text('editorLocation', 'Location')}</label>
             <select class="form-input" id="talk-location-radius" aria-label="Location radius">
               <option value="">${text('editorAnywhere', 'Anywhere')}</option>
-              <option value="10">${format('editorMiles', '{count} miles', { count: 10 })}</option>
-              <option value="100">${format('editorMiles', '{count} miles', { count: 100 })}</option>
-              <option value="1000">${format('editorMiles', '{count} miles', { count: 1000 })}</option>
+              ${talkRadiusOptions().map((option) => `<option value="${option.miles}">${option.label}</option>`).join('')}
             </select>
           </div>
           <div class="form-group" id="talk-send-chatroom-group" style="display: ${isEdit ? 'none' : 'block'};">
@@ -437,7 +436,11 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         else expiresSelect.value = '';
       }
       if (locationSelect && existingTalk.locationRadiusMiles != null) {
-        locationSelect.value = String(existingTalk.locationRadiusMiles);
+        // Pick the closest offered radius: a Talk saved in the other unit converts approximately.
+        const saved = Number(existingTalk.locationRadiusMiles);
+        const closest = talkRadiusOptions()
+          .reduce((best, option) => Math.abs(option.miles - saved) < Math.abs(best.miles - saved) ? option : best);
+        locationSelect.value = String(closest.miles);
       }
     }
 

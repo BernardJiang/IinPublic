@@ -1125,6 +1125,19 @@ button:focus:not(:focus-visible) {
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 1px 3px rgb(0 0 0 / 55%);
 }
 
+.chatroom-map-user-dot {
+  position: relative;
+}
+
+.chatroom-map-user-dot-traveler {
+  position: absolute;
+  top: -9px;
+  right: -10px;
+  color: #1e293b;
+  font: 700 11px/1 system-ui, sans-serif;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+}
+
 .chatroom-map-user-legend {
   position: absolute;
   left: 8px;
