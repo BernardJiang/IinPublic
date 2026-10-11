@@ -1345,6 +1345,19 @@ review capacity is available and the issue is promoted after the website/Android
   node hands it to the Android side to post the notification. Measure first whether this vendor
   also drops the node's connection while asleep. Verify with `native-app/28`
   (`NATIVE_APP_ANDROID_SLEEPER=PADC100013000534 E2E_SLEEP_SETTLE_MS=300000 E2E_SLEEP_FORCE_IDLE=0`).
+  - 2026-10-11 implemented (v1.0.124): network-driven wake.
+    - `GET /api/mailbox/<id>/wait` is a long-poll returning ids only. It answers as soon as an
+      envelope newer than `since` exists or arrives, otherwise after 4 min. Embedded nodes forward
+      it to the hub.
+    - The foreground service's `MailboxWatcher` keeps one such request open beside its alarm polls
+      and posts the notification under a short wake lock when it returns `changed`.
+    - Senders under direct delivery post the OPEN-38 wake ping, so a sleeping C10 needs no device
+      timer, only incoming network data.
+    - Server and relay integration tests plus Kotlin unit tests pass.
+    - [ ] Device run of `native-app/28` (C10 sleeper, PH-1/P30 sender). The first attempt on
+      2026-10-11 aborted when the P30 dropped off USB mid-test, before the Talk was sent.
+    - [ ] Still unmeasured: whether the C10's vendor layer also drops the open TCP connection while
+      asleep.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any
