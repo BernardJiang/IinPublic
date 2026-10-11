@@ -1284,8 +1284,8 @@ review capacity is available and the issue is promoted after the website/Android
       never left) stay in the send list, capped by the room capacity.
     - Unit-tested (`talk-wake.test.ts`, `peer-mesh-service.test.ts`).
     - [ ] Device run of `native-app/28` on PH-1/P30/Honor with the current build.
-    - [ ] The direct outbox has no expiry: entries for receivers who never return accumulate. Add
-      a bounded TTL.
+    - [x] Direct outbox bounded (2026-10-11): entries expire 14 days after creation, and the
+      queue keeps at most 5,000 entries, dropping the oldest first.
 
 - [x] **OPEN-39 — First-run walkthrough animation burns CPU while left open (done 2026-10-07: the orbit now runs 3 loops then rests; reduced-motion already disabled it; guarded by `onboarding-walkthrough.test.ts`).** Its decorative
   `walkthrough-float` orbit animation loops forever; on the Honor (Android 7) it kept the

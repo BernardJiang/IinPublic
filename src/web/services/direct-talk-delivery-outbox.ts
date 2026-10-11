@@ -22,6 +22,22 @@ type DirectTalkDeliveryEnvelope = {
 };
 
 const PRIVATE_KEY = 'directTalkDeliveryOutbox';
+/** A receiver who has not come back for this long is not waited on any more. */
+export const DIRECT_TALK_OUTBOX_TTL_MS = 14 * 24 * 60 * 60_000;
+/** Hard bound on the whole queue (it is rewritten as one encrypted record). Oldest go first. */
+export const DIRECT_TALK_OUTBOX_MAX_ENTRIES = 5_000;
+
+/** Drop expired entries and enforce the size bound. */
+function boundedEntries(entries: DirectTalkDeliveryEntry[], nowMs: number): DirectTalkDeliveryEntry[] {
+  const fresh = entries.filter((entry) => {
+    const createdAt = Date.parse(entry.createdAt);
+    return !Number.isFinite(createdAt) || nowMs - createdAt <= DIRECT_TALK_OUTBOX_TTL_MS;
+  });
+  if (fresh.length <= DIRECT_TALK_OUTBOX_MAX_ENTRIES) return fresh;
+  return [...fresh]
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.key.localeCompare(right.key))
+    .slice(fresh.length - DIRECT_TALK_OUTBOX_MAX_ENTRIES);
+}
 const writeQueues = new WeakMap<WebGunService, Promise<void>>();
 
 function deliveryKey(roomId: string, recipientUserId: string, talkId: string, contentHash: string): string {
@@ -51,10 +67,10 @@ function parseEntries(raw: unknown): DirectTalkDeliveryEntry[] {
 
 /** Author-owned encrypted local queue. No Talk body is written to peered Gun. */
 export class DirectTalkDeliveryOutbox {
-  constructor(private readonly gun: WebGunService) {}
+  constructor(private readonly gun: WebGunService, private readonly now: () => number = Date.now) {}
 
   async list(roomId?: string): Promise<DirectTalkDeliveryEntry[]> {
-    const entries = parseEntries(await this.gun.getPrivate(PRIVATE_KEY).catch(() => null));
+    const entries = boundedEntries(parseEntries(await this.gun.getPrivate(PRIVATE_KEY).catch(() => null)), this.now());
     return entries
       .filter((entry) => !roomId || entry.roomId === roomId)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.key.localeCompare(right.key));
@@ -65,7 +81,7 @@ export class DirectTalkDeliveryOutbox {
     recipientUserId: string,
     payload: P2PMeshTalkBodyPayload,
   ): Promise<DirectTalkDeliveryEntry> {
-    const now = new Date().toISOString();
+    const now = new Date(this.now()).toISOString();
     const contentHash = String(payload.contentHash || 'legacy');
     const key = deliveryKey(roomId, recipientUserId, payload.talkId, contentHash);
     let result: DirectTalkDeliveryEntry | null = null;
@@ -126,7 +142,7 @@ export class DirectTalkDeliveryOutbox {
     const previous = writeQueues.get(this.gun) || Promise.resolve();
     const next = previous.catch(() => undefined).then(async () => {
       const current = parseEntries(await this.gun.getPrivate(PRIVATE_KEY).catch(() => null));
-      const entries = update(current);
+      const entries = boundedEntries(update(current), this.now());
       await this.gun.putPrivate(PRIVATE_KEY, {
         version: 1,
         entriesJson: JSON.stringify(entries),
