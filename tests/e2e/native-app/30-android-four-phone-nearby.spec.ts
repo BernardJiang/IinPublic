@@ -31,6 +31,7 @@ import {
 } from './helpers/native-app-android';
 import { findIncomingTalkIdByTitle } from '../helpers/talk-demo-ui';
 import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
+import { isNearbyRoomId } from '../../../src/shared/nearby-rooms';
 
 const execFileAsync = promisify(execFile);
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
@@ -38,6 +39,7 @@ const ANDROID_DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDRO
 const RUN = process.env.E2E_REAL_ANDROID_FOUR_PHONE_NEARBY === '1';
 const BACKGROUND_ONLY = process.env.E2E_FOUR_PHONE_BACKGROUND_ONLY === '1';
 const OFFLINE_WIFI_DIRECT = process.env.E2E_NEARBY_OFFLINE_WIFI_DIRECT === '1';
+const OFFLINE_PHONE_COUNT = Number(process.env.E2E_NEARBY_OFFLINE_PHONE_COUNT || '3');
 const FIXED_LOCATION = {
   latitude: 32.7157,
   longitude: -117.1611,
@@ -160,7 +162,7 @@ async function routeToFixedNearby(peer: Omit<Peer, 'roomId'>): Promise<string> {
     return { roomId, assignment, scope };
   }, FIXED_LOCATION);
 
-  expect(result.roomId).toMatch(/^nearby_v1_/);
+  expect(isNearbyRoomId(result.roomId)).toBe(true);
   expect(result.roomId).not.toBe('global');
   expect(result.assignment?.roomId).toBe(result.roomId);
   expect(result.assignment?.localCell).toBeTruthy();
@@ -306,7 +308,7 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       ready: await isAndroidDeviceReady(device.serial),
     })));
     const available = readiness.filter((entry) => entry.ready).map((entry) => entry.device);
-    const expectedPhoneCount = OFFLINE_WIFI_DIRECT ? 3 : 4;
+    const expectedPhoneCount = OFFLINE_WIFI_DIRECT ? OFFLINE_PHONE_COUNT : 4;
     test.skip(
       available.length !== expectedPhoneCount,
       `This scenario requires exactly ${expectedPhoneCount} connected phones; found ${available.length}.`,
@@ -346,19 +348,18 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
     const roomIds = new Set(peers.map((peer) => peer.roomId));
     expect(roomIds.size).toBe(1);
     const [roomId] = roomIds;
-    expect(roomId).toMatch(/^nearby_v1_/);
+    expect(isNearbyRoomId(roomId)).toBe(true);
 
     if (OFFLINE_WIFI_DIRECT) {
       await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {
         const service = (window as any).__iinpublicNearbyOffline;
-        const status = service?.getStatus?.();
         const diagnostics = service?.getDiagnostics?.();
-        return status?.kind === 'wifi-direct'
+        return diagnostics?.wifiDirectActive === true
           && (diagnostics?.group?.state === 'owner' || diagnostics?.group?.state === 'client');
       }))), {
         timeout: 180_000,
         intervals: [2_000, 3_000, 5_000],
-        message: 'all three phones should form one offline Wi-Fi Direct group',
+        message: `all ${expectedPhoneCount} phones should form one offline Wi-Fi Direct group`,
       }).toEqual(peers.map(() => true));
 
       await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate((expectedIds) => {
@@ -368,7 +369,7 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       }, peers.map((candidate) => candidate.id)))), {
         timeout: 180_000,
         intervals: [2_000, 3_000, 5_000],
-        message: 'all offline peers should converge on the three-person Nearby roster',
+        message: `all offline peers should converge on the ${expectedPhoneCount}-person Nearby roster`,
       }).toEqual(peers.map(() => peers.length));
     } else {
       await expect.poll(async () => {

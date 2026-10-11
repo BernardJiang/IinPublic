@@ -343,6 +343,24 @@ Indexes instead recreate transitions from verified reconciled claims. Transition
 deferred while any reservation at that level remains live, preventing a valid token from losing its
 target between reserve and commit.
 
+Native clients do not bypass their loopback embedded node for this control plane. When an upstream
+hub is reachable, the embedded node forwards `/api/nearby-cohorts/*` metadata to the shared hub
+index and preserves its exact HTTP status (`409` full/conflict and `503` unavailable are protocol
+outcomes). When the hub is unavailable, the local index may continue only from verified cached
+state and later reconcile signed claims; it must not pretend that an isolated local reservation is
+globally authoritative.
+
+Automatic parent→child replacement is not a manual cohort visit. It follows the index's verified
+capacity transition and carries no manual-selection proof; manual proofs remain restricted to
+same-area, same-depth user choices. A three-phone Android 7/10/14 gate confirmed this distinction,
+one shared index, a two-way `C=3` split, stable default placement, explicit visits, and Talk delivery
+after receiver backgrounding.
+
+The current offline Wi-Fi Direct credential join remains an Android 10+ transport. On the same
+build, Android 10 and 14 formed an owner/client group with the hub unreachable and completed
+bidirectional plus post-background Talk delivery; the available Android 7 phone could not join.
+This is not evidence for a three-phone Wi-Fi Direct cohort, isolated BLE, or long-term battery cost.
+
 The flat UI is wired to the real traversal view-model. Runtime activation still requires migration
 to supply a verified v2 default group; until then the existing v1 Nearby path remains authoritative
 and the cohort controls truthfully show that no alternative group is available.
