@@ -731,6 +731,9 @@ export function registerSystemRoutes(
         { cachedAt: lastNonEmptyDelegateRoster.at },
         '[OPEN-32] /api/support/delegate-grants read back completely empty — serving the last known non-empty roster instead of regressing every client to "grant missing"',
       );
+      // Lets the durable root-cause watcher (scripts/monitor-delegate-roster.sh) see the glitch
+      // even though clients keep getting the cached roster.
+      res.setHeader('X-IinPublic-Roster-Source', 'cache');
       res.json({
         grants: Array.from(lastNonEmptyDelegateRoster.grants.values()),
         revocations: Array.from(lastNonEmptyDelegateRoster.revocations.values()),
@@ -740,6 +743,7 @@ export function registerSystemRoutes(
     if (byPub.size > 0 || revocations.size > 0) {
       lastNonEmptyDelegateRoster = { grants: byPub, revocations, at: new Date().toISOString() };
     }
+    res.setHeader('X-IinPublic-Roster-Source', 'fresh');
     res.json({
       grants: Array.from(byPub.values()),
       revocations: Array.from(revocations.values()),
@@ -769,6 +773,17 @@ export function registerSystemRoutes(
         const remote = await hubRelayClient.listDelegateGrants();
         currentCandidates.push(...remote);
       }
+      // OPEN-32: the same transient empty read that once emptied the GET roster could make an
+      // existing grant look absent here and let an older grant overwrite it. The last verified
+      // roster can only ADD rollback protection (a cached grant never authorizes a write), so it
+      // always takes part in this check.
+      if (lastNonEmptyDelegateRoster) {
+        const cached = lastNonEmptyDelegateRoster.grants.get(grant.delegatePub);
+        if (cached) currentCandidates.push(cached);
+        for (const revocation of lastNonEmptyDelegateRoster.revocations.values()) {
+          if (revocation.delegatePub === grant.delegatePub) currentCandidates.push(revocation);
+        }
+      }
       let current: TechSupportDelegateGrant | null = null;
       for (const raw of currentCandidates) {
         const candidate = await verifyTechSupportDelegateGrant(raw);
@@ -785,6 +800,22 @@ export function registerSystemRoutes(
       }
       if (hubRelayClient?.postDelegateGrant) {
         await hubRelayClient.postDelegateGrant(grant);
+      }
+      // Keep the OPEN-32 cache current, so a later empty read never serves a grant this write
+      // superseded (e.g. hides a revocation that was just stored).
+      if (lastNonEmptyDelegateRoster) {
+        lastNonEmptyDelegateRoster.grants.set(grant.delegatePub, grant);
+        if (grant.revokedAt) {
+          lastNonEmptyDelegateRoster.revocations.set(`${grant.delegatePub}|${grant.issuedAt}|${grant.revokedAt}`, grant);
+        }
+      } else {
+        lastNonEmptyDelegateRoster = {
+          grants: new Map([[grant.delegatePub, grant]]),
+          revocations: grant.revokedAt
+            ? new Map([[`${grant.delegatePub}|${grant.issuedAt}|${grant.revokedAt}`, grant]])
+            : new Map(),
+          at: new Date().toISOString(),
+        };
       }
       res.json({ stored: true, delegatePub: grant.delegatePub, revoked: !!grant.revokedAt });
     } catch (error) {

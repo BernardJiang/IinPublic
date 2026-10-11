@@ -829,15 +829,16 @@ phrase complexity into normal use.
     never be masked by this fallback, since revoking a delegate always produces a non-empty read at the moment it happens.
     4 new integration tests (`system-routes.test.ts`): the exact empty-then-recovers sequence, a genuine revocation correctly
     overriding the cache, and a genuinely-empty (never-populated) deployment still returning empty rather than erroring.
-  - **Not done:** the POST route's own internal pre-write existing-grant lookup could hit the same transient-empty-read glitch
-    (would incorrectly treat an existing grant as absent, defeating rollback protection for that one write) — narrower/rarer
-    impact than the GET route (operator-initiated, not continuously polled), left unprotected for now; extend the same pattern
-    there if it's ever observed to matter in practice. The actual root cause is still open — re-establish a DURABLE watcher
-    (systemd timer, not a bare shell loop over an SSH session) if/when actually investigating it further; the impact-mitigating
-    fix above means this is no longer urgent.
-  - **Not yet deployed to production** — committed and pushed to `origin/dev`, pulled onto the VPS's working tree, but
-    `npm run build:production` + `systemctl restart iinpublic` (the actual deploy) was deliberately left as a separate step
-    (same reasoning as every other fix from this session — see the top of this file's recent history).
+  - **2026-10-11: POST route protected too.** Its pre-write existing-grant lookup now also checks the last verified cached
+    roster. The cache only adds rollback protection; it never authorizes a write. Every successful write updates the cache, so a
+    later empty read cannot resurrect a grant that write superseded (for example, hide a just-stored revocation). 2 new
+    integration tests.
+  - **2026-10-11: durable root-cause watcher.** The GET route now sets `X-IinPublic-Roster-Source: fresh|cache`.
+    `scripts/monitor-delegate-roster.sh` logs counts, roster source, RSS and uptime every 2 minutes from a systemd timer,
+    installed per the VPS guide's "Delegate roster watcher" section.
+    - [ ] Deploy (production still runs v1.0.122, started 2026-10-08), install the timer, and read the log after the next
+      multi-day uptime. The root cause stays open until a `cache` line is caught.
+
 - [x] **OPEN-31 — TechSupport FAQ bundle does not scale (found 2026-09-24; IMPLEMENTED 2026-09-24, option 1: per-entry keyed storage).**
   - **Implemented (option 1).** Each answered question is now its own flat, individually signed record
     (`src/shared/techsupport-faq-entry.ts`: `signFaqEntry`/`verifyFaqEntry`/`isFaqEntryRollback`),

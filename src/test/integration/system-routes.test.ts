@@ -960,6 +960,8 @@ describe('system routes', () => {
     const second = await request(app).get('/api/support/delegate-grants');
     expect(second.status).toBe(200);
     expect(second.body.grants).toEqual([active]); // served from cache, not the empty fresh read
+    expect(second.headers['x-iinpublic-roster-source']).toBe('cache');
+    expect(first.headers['x-iinpublic-roster-source']).toBe('fresh');
     expect(second.body.revocations).toEqual([]);
 
     const third = await request(app).get('/api/support/delegate-grants');
@@ -995,6 +997,67 @@ describe('system routes', () => {
     const second = await request(app).get('/api/support/delegate-grants');
     expect(second.body.grants).toEqual([revoked]); // the revocation superseded the cached active grant
     expect(second.body.revocations).toEqual([revoked]);
+  });
+
+  it('OPEN-32: a POST whose pre-write lookup reads back empty still refuses to roll back the cached newer grant', async () => {
+    const newer = {
+      delegatePub: 'delegate-pub',
+      delegateUserId: 'delegate-user',
+      label: 'Support phone',
+      issuedAt: '2026-09-10T00:00:00.000Z',
+      expiresAt: '2026-10-10T00:00:00.000Z',
+      revokedAt: null,
+      masterPub: 'root-pub',
+      signature: 'newer-signature',
+    };
+    const older = { ...newer, issuedAt: '2026-09-01T00:00:00.000Z', signature: 'older-signature' };
+    const gunService = {
+      // GET establishes the cache; the POST's own reads then hit the empty-read glitch.
+      getSet: jest.fn()
+        .mockResolvedValueOnce([newer]).mockResolvedValueOnce([])
+        .mockResolvedValue([]),
+      getPath: jest.fn().mockResolvedValue(undefined),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportDelegateGrant: jest.fn(async (value: any) => value),
+    });
+    await request(app).get('/api/support/delegate-grants');
+    const response = await request(app).post('/api/support/delegate-grants').send(older);
+    expect(response.status).toBe(409);
+    expect(gunService.putPath).not.toHaveBeenCalled();
+  });
+
+  it('OPEN-32: a stored revocation updates the cache, so a later empty read never resurrects the active grant', async () => {
+    const active = {
+      delegatePub: 'delegate-pub',
+      delegateUserId: 'delegate-user',
+      label: 'Support phone',
+      issuedAt: '2026-09-01T00:00:00.000Z',
+      expiresAt: '2026-10-01T00:00:00.000Z',
+      revokedAt: null,
+      masterPub: 'root-pub',
+      signature: 'active-signature',
+    };
+    const revoked = { ...active, revokedAt: '2026-09-21T00:00:00.000Z', signature: 'revocation-signature' };
+    const gunService = {
+      getSet: jest.fn()
+        .mockResolvedValueOnce([active]).mockResolvedValueOnce([])
+        .mockResolvedValue([]),
+      getPath: jest.fn().mockResolvedValue(active),
+      putPath: jest.fn().mockResolvedValue(undefined),
+    };
+    const { app } = buildApp('test', undefined, {
+      gunService,
+      verifyTechSupportDelegateGrant: jest.fn(async (value: any) => value),
+    });
+    await request(app).get('/api/support/delegate-grants');
+    const post = await request(app).post('/api/support/delegate-grants').send(revoked);
+    expect(post.status).toBe(200);
+    const after = await request(app).get('/api/support/delegate-grants'); // empty read → cache
+    expect(after.body.grants).toEqual([revoked]);
+    expect(after.body.revocations).toEqual([revoked]);
   });
 
   it('OPEN-32: a genuinely empty deployment (never had a non-empty roster) still returns empty, not an error', async () => {
