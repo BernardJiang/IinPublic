@@ -163,6 +163,17 @@ export interface EmbeddedHubRelayClientLike {
   postAttestationChallenge?(body: unknown): Promise<{ status: number; body: unknown }>;
   postAttestationVerify?(body: unknown): Promise<{ status: number; body: unknown }>;
   getAttestationVerifierKeys?(): Promise<{ status: number; body: unknown }>;
+  /**
+   * OPEN-40-G2: the browser inside a native app talks to its loopback embedded node. Cohort
+   * admission is shared control metadata, so a connected embedded node must forward it to the
+   * upstream index just like room membership. The exact status is preserved because 409/503 are
+   * meaningful traversal outcomes rather than generic transport failures.
+   */
+  forwardNearbyCohort?(
+    path: string,
+    method: 'GET' | 'POST' | 'DELETE',
+    body?: unknown,
+  ): Promise<{ status: number; body: unknown }>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -485,6 +496,17 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
 
   async getAttestationVerifierKeys(): Promise<{ status: number; body: unknown }> {
     return this.forwardJson('/api/attestation/verifier-keys', 'GET');
+  }
+
+  async forwardNearbyCohort(
+    path: string,
+    method: 'GET' | 'POST' | 'DELETE',
+    body?: unknown,
+  ): Promise<{ status: number; body: unknown }> {
+    if (!/^\/api\/nearby-cohorts(?:\/|\?|$)/.test(path)) {
+      throw new Error(`embedded hub relay refuses non-cohort path "${path}"`);
+    }
+    return this.forwardJson(path, method, body);
   }
 
   /**

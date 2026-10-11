@@ -7,10 +7,14 @@ import {
 import {
   nearbyBasePrecisionMeters,
   projectNearbyCoordinate,
-  type NearbyLocalCell,
   type NearbyPublicMode,
   type NearbyRoomAssignment,
 } from './nearby-rooms';
+import {
+  maximumNearbyPartitionGeographicDepth,
+  nearbyPartitionDisplayGeometry,
+  nearbyPartitionProjectedPrivacyFloorMeters,
+} from './nearby-partition-geometry';
 import { canonicalSerialize } from './p2p-runtime';
 import { portableSha256Hex } from './portable-sha256';
 import type { GPSCoordinate } from './types';
@@ -30,7 +34,6 @@ export const NEARBY_PARTITION_MERGE_DWELL_MS = 3 * 60_000;
 
 const EARTH_RADIUS_METERS = 6_378_137;
 const WORLD_HALF_WIDTH_METERS = Math.PI * EARTH_RADIUS_METERS;
-const WORLD_WIDTH_METERS = WORLD_HALF_WIDTH_METERS * 2;
 const PARTITION_DOMAIN = 'iinpublic:nearby-partition:v1';
 
 export type NearbyPartitionGroup = {
@@ -413,42 +416,13 @@ export async function verifyNearbyPartitionTransition(
 
 function snappedProjectedPoint(location: GPSCoordinate, mode: NearbyPublicMode): { x: number; y: number } {
   const projected = projectNearbyCoordinate(location);
-  const precision = nearbyBasePrecisionMeters(mode);
+  const precision = nearbyPartitionProjectedPrivacyFloorMeters(location, mode);
   const snap = (value: number) => (Math.floor(value / precision) + 0.5) * precision;
   const limit = WORLD_HALF_WIDTH_METERS - 1;
   return {
     x: Math.max(-limit, Math.min(limit, snap(projected.x))),
     y: Math.max(-limit, Math.min(limit, snap(projected.y))),
   };
-}
-
-function cellForPath(path: string): NearbyLocalCell {
-  assertPath(path);
-  let minX = -WORLD_HALF_WIDTH_METERS;
-  let maxX = WORLD_HALF_WIDTH_METERS;
-  let minY = -WORLD_HALF_WIDTH_METERS;
-  let maxY = WORLD_HALF_WIDTH_METERS;
-  let x = 0;
-  let y = 0;
-  for (const quadrant of path) {
-    const midX = (minX + maxX) / 2;
-    const midY = (minY + maxY) / 2;
-    x *= 2;
-    y *= 2;
-    if (quadrant === '1' || quadrant === '3') {
-      minX = midX;
-      x += 1;
-    } else {
-      maxX = midX;
-    }
-    if (quadrant === '2' || quadrant === '3') {
-      minY = midY;
-      y += 1;
-    } else {
-      maxY = midY;
-    }
-  }
-  return { x, y, minX, minY, maxX, maxY };
 }
 
 export function nearbyPartitionSelectorPath(
@@ -459,36 +433,41 @@ export function nearbyPartitionSelectorPath(
 ): string {
   const point = snappedProjectedPoint(location, mode);
   const precision = nearbyBasePrecisionMeters(mode);
-  const geographicDepth = Math.max(0, Math.min(
-    NEARBY_PARTITION_MAX_DEPTH,
-    Math.floor(Math.log2(WORLD_WIDTH_METERS / precision)),
-  ));
-  const identityDigest = portableSha256Hex(canonicalSerialize({
-    domain: `${PARTITION_DOMAIN}:privacy-lane`,
+  const geographicDepth = maximumNearbyPartitionGeographicDepth({
+    location,
     mode,
-    precision,
-    snappedX: point.x,
-    snappedY: point.y,
-    identity,
-  }));
+    maximumDepth: NEARBY_PARTITION_MAX_DEPTH,
+  });
   let minX = -WORLD_HALF_WIDTH_METERS;
   let maxX = WORLD_HALF_WIDTH_METERS;
   let minY = -WORLD_HALF_WIDTH_METERS;
   let maxY = WORLD_HALF_WIDTH_METERS;
   let path = '';
-  for (let index = 0; index < depth; index += 1) {
+  const geographicDecisionCount = Math.min(depth, geographicDepth);
+  for (let index = 0; index < geographicDecisionCount; index += 1) {
     const midX = (minX + maxX) / 2;
     const midY = (minY + maxY) / 2;
-    const laneDigit = index >= geographicDepth
-      ? Number.parseInt(identityDigest[(index - geographicDepth) % identityDigest.length]!, 16) % 4
-      : -1;
-    const east = laneDigit >= 0 ? laneDigit === 1 || laneDigit === 3 : point.x >= midX;
-    const north = laneDigit >= 0 ? laneDigit === 2 || laneDigit === 3 : point.y >= midY;
+    const east = point.x >= midX;
+    const north = point.y >= midY;
     path += north ? (east ? '3' : '2') : (east ? '1' : '0');
     if (east) minX = midX;
     else maxX = midX;
     if (north) minY = midY;
     else maxY = midY;
+  }
+  if (path.length < depth) {
+    // Capacity-only choices bind to the already disclosed area, never to a finer snapped point.
+    const identityDigest = portableSha256Hex(canonicalSerialize({
+      domain: `${PARTITION_DOMAIN}:privacy-lane`,
+      mode,
+      precision,
+      geographicPath: path,
+      identity,
+    }));
+    while (path.length < depth) {
+      const digestIndex = (path.length - geographicDecisionCount) % identityDigest.length;
+      path += String(Number.parseInt(identityDigest[digestIndex]!, 16) % 4);
+    }
   }
   return path;
 }
@@ -499,13 +478,13 @@ export function nearbyPartitionAssignment(input: {
   mode: NearbyPublicMode;
   checkpoint: RoomProtocolCheckpoint;
 }): NearbyRoomAssignment {
-  const cell = cellForPath(input.group.path);
-  const size = WORLD_WIDTH_METERS / 2 ** input.group.path.length;
-  const geographicDepth = Math.max(0, Math.min(
-    NEARBY_PARTITION_MAX_DEPTH,
-    Math.floor(Math.log2(WORLD_WIDTH_METERS / nearbyBasePrecisionMeters(input.mode))),
-  ));
-  const identityDepth = Math.max(0, input.group.path.length - geographicDepth);
+  const geometry = nearbyPartitionDisplayGeometry({
+    path: input.group.path,
+    location: input.location,
+    mode: input.mode,
+    maximumDepth: NEARBY_PARTITION_MAX_DEPTH,
+  });
+  const identityDepth = geometry.cohortDepth;
   const identityLaneCount = Math.min(1_048_576, 4 ** identityDepth);
   const identityLaneIndex = identityDepth > 0
     ? Number.parseInt(portableSha256Hex(`${PARTITION_DOMAIN}:room-lane:${input.group.roomId}`).slice(0, 12), 16)
@@ -520,13 +499,13 @@ export function nearbyPartitionAssignment(input: {
     basePrecisionMeters: nearbyBasePrecisionMeters(input.mode),
     wideningLevel: 0,
     widenedPrecisionMeters: nearbyBasePrecisionMeters(input.mode),
-    splitGeneration: input.group.path.length,
+    splitGeneration: geometry.geographicDepth,
     requestedSplitGeneration: input.group.path.length,
-    cellSizeMeters: size,
-    approximateDiameterMeters: Math.round(Math.sqrt(2) * size),
+    cellSizeMeters: geometry.cellSizeMeters,
+    approximateDiameterMeters: geometry.approximateDiameterMeters,
     identityLaneCount,
     identityLaneIndex,
-    localCell: cell,
+    localCell: geometry.localCell,
   };
 }
 

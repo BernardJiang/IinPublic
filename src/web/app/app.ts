@@ -155,6 +155,12 @@ import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner }
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { MicroRoomPreAdmissionClient } from '../services/micro-room-pre-admission-client';
 import { NearbyPreAdmissionClient } from '../services/nearby-pre-admission-client';
+import {
+  NearbyCohortTraversalClient,
+  type NearbyCohortTraversalContext,
+} from '../services/nearby-cohort-traversal-client';
+import { WebNearbyCohortTraversalApi } from '../services/nearby-cohort-traversal-api';
+import type { NearbyPartitionGroupV2 } from '../../shared/nearby-cohort-protocol';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
@@ -338,6 +344,7 @@ export class IinPublicApp {
   private microRoomRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private microRoomRefreshInFlight = false;
   private nearbyPreAdmissionClient: NearbyPreAdmissionClient | null = null;
+  private nearbyCohortTraversalClient: NearbyCohortTraversalClient | null = null;
   private nearbyControlRootAssignment: NearbyRoomAssignment | null = null;
   private nearbyControlRoutingLocation: GPSCoordinate | null = null;
   private nearbyControlRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -1184,6 +1191,22 @@ export class IinPublicApp {
       void this.deviceSyncService.enqueuePreferencesChange(user.pub || '', user.talkFilters);
     });
     this.uiManager = new UIManager();
+    this.nearbyCohortTraversalClient = new NearbyCohortTraversalClient({
+      api: new WebNearbyCohortTraversalApi({ apiBase: () => this.getBackendApiBase() }),
+      storage: localStorage,
+      handoff: {
+        stopOld: async () => {
+          if (this.activeExchangeRoomController) await this.activeExchangeRoomController.pause();
+          else await this.stopRoomExchangeRuntime();
+        },
+        startTarget: (group) => this.switchNearbyCohortRuntime(group),
+        restoreOld: async () => {
+          if (this.activeExchangeRoomController) await this.activeExchangeRoomController.resume();
+          else if (this.currentChatroomId) await this.activateRoomExchange(this.currentChatroomId);
+        },
+      },
+    });
+    this.uiManager.setCohortTraversalViewModel(this.nearbyCohortTraversalClient);
     this.uiManager.setIdentityLinkHooks({
       createLinkCode: (now) => this.identityLinkService.createLinkCode(now),
       readIncomingRequest: () => this.identityLinkService.readIncomingLinkRequest(),
@@ -2560,6 +2583,38 @@ export class IinPublicApp {
         ? activeRoom
         : CONTACTS_ONLY_SCOPE_ID;
     }
+  }
+
+  /**
+   * Activate the visitable-cohort client only after migration has supplied a verified v2 default.
+   * Legacy v1 assignment never calls this method, so an identity-lane suffix cannot be mistaken
+   * for geography during the mixed-release window.
+   */
+  public async initializeNearbyCohortTraversal(
+    context: NearbyCohortTraversalContext,
+  ): Promise<NearbyPartitionGroupV2> {
+    if (!this.nearbyCohortTraversalClient) throw new Error('Nearby cohort traversal is unavailable');
+    const group = await this.nearbyCohortTraversalClient.initialize(context);
+    this.uiManager.setCohortTraversalViewModel(this.nearbyCohortTraversalClient);
+    return group;
+  }
+
+  /** Complete the runtime half of reserve → stop-old → commit → start-target. */
+  private async switchNearbyCohortRuntime(group: NearbyPartitionGroupV2): Promise<void> {
+    const user = this.currentUser;
+    if (!user) throw new Error('Nearby cohort switch requires an active user');
+    await this.chatroomService.switchChatroom(user.id, group.roomId, user.stageName);
+    this.currentChatroomId = group.roomId;
+    localStorage.setItem('iinpublic_last_chatroom', group.roomId);
+    this.uiManager.setCurrentChatroomId(group.roomId);
+    this.subscribeToMessages(group.roomId);
+    this.chatroomService.subscribeToMembers(group.roomId, (members) => {
+      if (this.currentChatroomId !== group.roomId) return;
+      this.harvestRosterEpubs(members);
+      this.uiManager.updateChatroomMembers(members, user.id);
+      this.syncPeerMeshRoom(group.roomId, members);
+    });
+    await this.activateRoomExchange(group.roomId);
   }
 
   private startNearbyControlHeartbeat(): void {

@@ -3,6 +3,7 @@
 import { renderChatroomList } from '../../web/ui/chatrooms-view';
 import { renderChatroomMap } from '../../web/ui/chatroom-map-view';
 import { uiText } from '../../web/ui/ui-translations';
+import { createLocalCohortTraversalViewModel } from '../../web/ui/cohort-traversal-view-model';
 
 jest.mock('../../web/ui/chatroom-map-view', () => ({ renderChatroomMap: jest.fn() }));
 
@@ -43,6 +44,7 @@ describe('flat chatroom map', () => {
         approximateDiameterMeters: 1_000,
       },
       travelModeActive: false,
+      cohortTraversal: createLocalCohortTraversalViewModel({ groupCount: 6 }),
       setChatroomBrowseMode: jest.fn(),
       setCurrentChatroom: jest.fn(),
       setCurrentChatroomMembers: jest.fn(),
@@ -67,5 +69,17 @@ describe('flat chatroom map', () => {
     options.selectNearbyPoint?.({ latitude: 40.71, longitude: -74.0 });
     expect(emit).toHaveBeenCalledWith('travelNearbyAtPoint', { latitude: 40.71, longitude: -74.0 });
     expect(options).not.toHaveProperty('openTile');
+    expect(options.nearbyMapArea).toEqual({
+      north: 32.72,
+      south: 32.70,
+      east: -117.16,
+      west: -117.18,
+      approximateDiameterMeters: 1_000,
+    });
+    expect(options.rooms).toHaveLength(2);
+    expect(options.nearbyPointAction).toBe('Join as traveler');
+    expect(document.getElementById('chatroom-map-status')?.textContent).toContain(
+      '6 groups share the same shaded area.',
+    );
   });
 });

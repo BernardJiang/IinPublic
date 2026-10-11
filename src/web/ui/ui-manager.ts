@@ -7,7 +7,7 @@ import {
   type Tag,
 } from '../../shared/types';
 import { EventEmitter } from 'events';
-import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
+import { formatLocalizedExpiration, formatLocalizedRelativeTime, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { completeTalk as completeTalkImpl, saveMyTalk as saveMyTalkImpl } from './talk-completion';
 import { renderAppDownloadBanner as renderAppDownloadBannerImpl } from './app-download-banner';
@@ -183,6 +183,10 @@ import { applyAppShellTranslations, renderAppShell } from './app-shell';
 import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
 import { PeerHeadshotCache } from './peer-headshot-cache';
 import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
+import {
+  createLocalCohortTraversalViewModel,
+  type CohortTraversalViewModel,
+} from './cohort-traversal-view-model';
 import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
@@ -297,6 +301,7 @@ export class UIManager extends EventEmitter {
   private peerController?: PeerController;
   private broadcastController?: BroadcastController;
   private chatroomShellController?: ChatroomShellController;
+  private cohortTraversalViewModel: CohortTraversalViewModel = createLocalCohortTraversalViewModel();
   private talkEditorController?: TalkEditorController;
   private supportSettingsController?: SupportSettingsController;
   private supportDelegateInviteHooks?: SupportDelegateInviteHooks;
@@ -343,29 +348,11 @@ export class UIManager extends EventEmitter {
   }
 
   private formatTalkRelativeTime(date: Date): string {
-    if (this.getUiLanguage() !== 'zh') return formatTimeAgo(date);
-    const diffMs = Date.now() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return this.t('talksJustNow');
-    if (diffMins < 60) return this.tf('talksMinutesAgo', { count: diffMins });
-    if (diffHours < 24) return this.tf('talksHoursAgo', { count: diffHours });
-    if (diffDays < 7) return this.tf('talksDaysAgo', { count: diffDays });
-    return date.toLocaleDateString('zh-CN');
+    return formatLocalizedRelativeTime(date, this.getUiLanguage(), (key) => this.t(key), (key, values) => this.tf(key, values));
   }
 
   private formatTalkExpiration(expiresAt: number | null | undefined): string {
-    if (this.getUiLanguage() !== 'zh') return formatExpiration(expiresAt);
-    if (expiresAt == null) return this.t('talksForever');
-    if (Date.now() > expiresAt) return this.t('talksExpired');
-    const oneDay = 24 * 60 * 60 * 1000;
-    const left = expiresAt - Date.now();
-    if (left <= oneDay) return this.tf('talksExpiresIn', { value: '&lt;1 天' });
-    if (left <= 7 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / oneDay)} 天` });
-    if (left <= 30 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / (7 * oneDay))} 周` });
-    if (left <= 365 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / (30 * oneDay))} 个月` });
-    return this.tf('talksExpiresIn', { value: `${Math.floor(left / (365 * oneDay))} 年` });
+    return formatLocalizedExpiration(expiresAt, this.getUiLanguage(), (key) => this.t(key), (key, values) => this.tf(key, values));
   }
 
   private formatTalkLocation(radiusMiles: number | null | undefined): string {
@@ -897,6 +884,7 @@ export class UIManager extends EventEmitter {
         getCustomChatrooms: () => this.customChatrooms,
         getNearbyMapArea: () => this.nearbyMapArea,
         getTravelModeActive: () => this.travelModeActive,
+        getCohortTraversalViewModel: () => this.cohortTraversalViewModel,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
         setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
@@ -927,6 +915,12 @@ export class UIManager extends EventEmitter {
       });
     }
     return this.chatroomShellController;
+  }
+
+  /** Install the verified network-backed Nearby cohort model without exposing allocation IDs. */
+  public setCohortTraversalViewModel(viewModel: CohortTraversalViewModel | undefined): void {
+    this.cohortTraversalViewModel = viewModel ?? createLocalCohortTraversalViewModel();
+    if (document.getElementById('chatroom-list')) this.renderChatroomList();
   }
 
   private talkEditor(): TalkEditorController {

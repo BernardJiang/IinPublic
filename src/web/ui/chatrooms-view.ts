@@ -19,6 +19,11 @@ import {
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom } from './chatroom-map-view';
+import {
+  bindCohortTraversalControls,
+  renderCohortTraversalControls,
+} from './cohort-traversal-controls';
+import type { CohortTraversalViewModel } from './cohort-traversal-view-model';
 
 type ChatroomMember = {
   userId: string;
@@ -49,6 +54,8 @@ type ChatroomsViewDeps = {
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
   nearbyMapArea?: NearbyMapArea;
   travelModeActive: boolean;
+  /** Local UI model in Group 1; replaced by the real traversal client in Group 2. */
+  cohortTraversal: CohortTraversalViewModel;
   setChatroomBrowseMode: (mode: 'list' | 'map') => void;
   setCurrentChatroom: (chatroomId: string) => void;
   setCurrentChatroomMembers: (members: ChatroomMember[]) => void;
@@ -339,6 +346,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   const currentCustom = deps.customChatrooms.find((room) => room.id === deps.currentChatroom);
   const currentTitle = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
   const currentIsNearby = isNearbyRoomId(deps.currentChatroom);
+  const cohortSnapshot = deps.cohortTraversal.getSnapshot();
   const currentIsContactsOnly = deps.currentChatroom === CONTACTS_ONLY_SCOPE_ID;
   const currentNode: FlatChatroomNode | null = deps.currentChatroom
     ? {
@@ -399,6 +407,8 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
             <p>${deps.escapeHtml(deps.text('encounterLocationHelp'))}</p>
             <button type="button" class="btn primary-btn" id="chatroom-encounter-location-set" data-testid="chatroom-encounter-location-set">${deps.escapeHtml(deps.text('encounterLocationSetButton'))}</button>
           </div>`
+        : currentIsNearby
+        ? renderCohortTraversalControls(deps.cohortTraversal, deps.text, deps.escapeHtml)
         : ''}
     </section>
     <section class="chatroom-flat-section" data-testid="places-section">
@@ -416,6 +426,15 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
     });
   });
+
+  if (currentIsNearby) {
+    bindCohortTraversalControls(chatroomList, {
+      viewModel: deps.cohortTraversal,
+      text: deps.text,
+      escapeHtml: deps.escapeHtml,
+      rerender: deps.renderChatroomList,
+    });
+  }
 
   chatroomList.querySelectorAll('.chatroom-item').forEach((item) => {
     item.addEventListener('click', () => {
@@ -485,7 +504,10 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         .replace('{distance}', nearbyDistance)
         .replace('{count}', String(mappedCount))
       : deps.text('chatroomMapSummary').replace('{count}', String(mappedCount));
-    mapStatus.textContent = `${summary}${customNote}`;
+    const cohortSummary = currentIsNearby && (cohortSnapshot.groupCount ?? 0) > 1
+      ? ` ${deps.text('chatroomCohortMapCount').replace('{count}', String(cohortSnapshot.groupCount))}`
+      : '';
+    mapStatus.textContent = `${summary}${cohortSummary}${customNote}`;
     if (!mapContainer.classList.contains('maplibregl-map')) {
       mapContainer.textContent = deps.text('chatroomMapLoading');
     }

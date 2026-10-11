@@ -59,8 +59,8 @@ its ID.
     physical gate, not parallel implementation. Accepted behavior is in design section 3.2: mixed
     privacy floors, a stable default cohort, explicit one-at-a-time cohort visits, no join-time
     allocation, and no map precision below the selected privacy floor.
-    - [ ] **Group 1 — Parallel foundations (start together).**
-      - [ ] **OPEN-40-G1.1 — Version the geographic-versus-cohort protocol contract.** Define shared types
+    - [x] **Group 1 — Parallel foundations (completed 2026-10-10).**
+      - [x] **OPEN-40-G1.1 — Version the geographic-versus-cohort protocol contract.** Define shared types
       and canonical signing payloads that distinguish a four-way geographic replacement from a
       capacity-only cohort split; carry geographic depth separately from cohort depth; derive a
       stable default cohort from checkpoint, immutable transition seed, and SEA public identity;
@@ -70,30 +70,45 @@ its ID.
       migration orchestration. Acceptance: two users with different blur levels verify the same
       transition, stop geographic selection independently at their own floors, and obtain no
       identity-derived location claim.
-      - [ ] **OPEN-40-G1.2 — Correct mixed-blur geometry and map privacy.** Clamp every public/map footprint
+        Implemented in `nearby-cohort-protocol.ts`: v2 separates geographic quadtree and binary
+        cohort paths, derives opaque v3 room IDs and stable default cohorts, signs same-area manual
+        selections, accepts verified v1 controls through an explicit union parser, and rejects
+        unknown, ambiguous, downgraded, or tampered records. Local routing consumes the same
+        latitude/GPS-accuracy-aware privacy depth as map geometry; no coordinate enters the record.
+      - [x] **OPEN-40-G1.2 — Correct mixed-blur geometry and map privacy.** Clamp every public/map footprint
       to the member's Regional, Citywide, Neighborhood, or Close-nearby geographic floor; never feed
       identity/cohort path digits into `localCell`, `cellSizeMeters`, map bounds, approximate diameter,
       logs, or publishable scope. Define and test mixed-mode behavior at boundaries and high latitude.
       Keep Location off out of automatic Nearby. This task owns assignment geometry, map-area helpers,
       and privacy regression tests and can proceed independently of admission using synthetic cohort
       depths.
-      - [ ] **OPEN-40-G1.3 — Add the flat visitable-cohort UI shell.** In **Your current group**, add **Meet
+        Implemented `nearby-partition-geometry.ts` and routed selection/assignment through it.
+        Identity/cohort suffixes no longer shrink `localCell`, displayed diameter, or map shading;
+        high latitude, weak GPS accuracy, mixed modes, boundaries, and Location off are covered.
+      - [x] **OPEN-40-G1.3 — Add the flat visitable-cohort UI shell.** In **Your current group**, add **Meet
       another group** and **Return to my default group**, with pending/full/offline/error states and an
       explanation that location is unchanged. Show one area/bubble with an optional aggregate cohort
       count; never render overlapping cohort pins, a tree, `_part_N`, coordinates, identity-lane IDs,
       or smaller shading. Keep map travel, Return Home, Place entry, and cohort switching visibly
       distinct. This task owns UI/i18n/accessibility/component tests and uses a local mocked traversal
       view-model; wiring the real service belongs to `OPEN-40-G2.2`.
-      - [ ] **OPEN-40-G1.4 — Decide whether Places may contain visitable cohorts.** Keep the current
+        Implemented a typed injection seam and truthful one-group local model, accessible pending/
+        full/offline/error states, English/Chinese text, responsive controls, and aggregate same-area
+        count without additional pins or shading. The real handoff remains disabled until G2.2.
+      - [x] **OPEN-40-G1.4 — Decide whether Places may contain visitable cohorts.** Keep the current
       ownerless first-`C` admission and Nearby-at-the-pin fallback unchanged while independently
       evaluating large restaurants/events. Specify whether one visible Place may contain several
       invisible exchange cohorts, how a visitor changes cohorts, what its Talk audience means, and
       how signed Place seat claims converge. Do not reuse Nearby's implementation until the product
       semantics, abuse implications, migration, and UI wording are accepted.
-    - [ ] **Group 2 — Contract-dependent implementation and verification.** Begin after
-      `OPEN-40-G1.1` is frozen. Tasks G2.1–G2.4 may proceed concurrently with mocks, but each must pass
-      integrated contract tests before completion; G2.5 runs last.
-      - [ ] **OPEN-40-G2.1 — Implement bounded cohort indexing and atomic admission.** Extend the Nearby
+        Accepted as a separate signed v2 global protocol feature: one visible Place may contain
+        invisible visitable cohorts, but current v1 first-`C` admission and Nearby-at-the-pin fallback
+        remain unchanged. Design section 4.1 fixes audience, convergence, abuse, migration, Gun
+        control-path, flat-UI, and implementation acceptance semantics.
+    - [ ] **Group 2 — Contract-dependent implementation and verification.** G2.1–G2.4 were implemented
+      after the `OPEN-40-G1.1` contract freeze and pass integrated contract tests. G2.5 runs last and
+      remains open because fewer than three test phones are currently available.
+      - [x] **OPEN-40-G2.1 — Implement bounded cohort indexing and atomic admission.** Extend the Nearby
       partition index to create and discover crowd cohorts, enforce hard global `C`, and serialize a
       short-lived target reservation followed by stop-old/commit-new/release-old. A full or failed
       target leaves the old group active. Enforce at most one active stranger cohort per stable key;
@@ -101,7 +116,12 @@ its ID.
       and reservation state. Add a signed experimental target-occupancy/headroom policy rather than
       hard-coding spare seats. This task owns server stores/routes and integration tests and consumes
       the `OPEN-40-G1.1` contract.
-      - [ ] **OPEN-40-G2.2 — Implement and wire client cohort traversal.** Add a service that distinguishes
+        Implemented signed occupancy policies and seat-claim chains, bounded summaries/state,
+        serialized reservation/commit/cancel/release, deterministic partition reconciliation,
+        hard-`C` admission, automatic replacement migration, and one-active-key convergence.
+        Pending reservations defer replacement so an issued token cannot lose its target before
+        commit. Raw unsigned transition publication is intentionally not exposed.
+      - [x] **OPEN-40-G2.2 — Implement and wire client cohort traversal.** Add a service that distinguishes
       default cohort from active cohort, obtains bounded eligible-cohort summaries, creates a
       deterministic per-identity repeat-avoiding visit order, stores recent cohort IDs locally,
       performs the atomic handoff, retries another candidate when full, returns to the stable default,
@@ -109,25 +129,39 @@ its ID.
       briefly starting the default room; expired/unverifiable state fails safely to the verified
       default. This task owns client state/services, UI wiring, and unit tests and consumes the
       `OPEN-40-G1.1` contract plus the `OPEN-40-G2.1` API.
-      - [ ] **OPEN-40-G2.3 — Define and implement mixed-release migration.** Specify how v1 stable identity
+        Implemented the real browser API and traversal client, repeat-avoiding order, bounded local
+        history, full-target retry, queued concurrent switches, default return, post-commit runtime
+        retry, restart restoration, and UI/app handoff wiring. Activation requires a verified v2
+        default; a v1 identity-lane suffix is never inferred as v2 geography.
+      - [x] **OPEN-40-G2.3 — Define and implement mixed-release migration.** Specify how v1 stable identity
       lanes and cached lineage coexist with the visitable-cohort protocol; ensure an old client cannot
       exceed `C`, misread a manual selection as geography, or strand a new client. Migrate committed
       local state once, retain rollback-safe parsing for the declared compatibility window, and add
       release-1/release-2/direct-release-3 fixtures. This task owns compatibility adapters, migration
       tests, and retirement criteria, not the new allocator itself.
-      - [ ] **OPEN-40-G2.4 — Build deterministic scale and privacy gates.** Cover 2, 498, 499, 10,000, and
+        Implemented signed-manifest capability gating, explicit legacy retirement, strict record
+        classification, first-`C` legacy bounding, non-translatable identity-lane separation, and a
+        write-ahead one-time migration that retains rollback-readable v1 lineage. Release 1, release
+        2, direct release 1→3, interrupted-write, and tamper fixtures pass.
+      - [x] **OPEN-40-G2.4 — Build deterministic scale and privacy gates.** Cover 2, 498, 499, 10,000, and
       one-million members; mixed Regional/Citywide/Neighborhood/Close choices; geographic-to-cohort
       transition; stable defaults; repeat-avoiding visits; full-target fallback; concurrent switches;
       split/merge and index partition/reconnect; restart; tamper/replay; one-active-room invariants;
       no map/public precision below each member's floor; and `K`-bounded direct scheduling. This task
       owns simulations and cross-layer automated tests and should report defects to the owning task
       rather than silently changing its protocol.
+        Added deterministic 2/498/499/10k/one-million bounds, mixed privacy floors,
+        geographic→cohort display invariants, `K`-bounded symmetric scheduling, concurrent C+1
+        admission, full fallback, queued switches, restart, tamper/replay, partition/reconnect,
+        existing geographic split/coalesce coverage, and a real client/index integration gate.
       - [ ] **OPEN-40-G2.5 — Run the cohort capacity experiment on real devices.** After G1.1–G2.4 pass,
       compare two-way versus four-way cohort splits and candidate values for `C`, target occupancy,
       headroom, and `K`. On at least three phones measure switch latency, discovery time, p50/p95 Talk
       delivery, roster/control bytes, duplicate bytes, radio churn, background survival, and battery
       across Internet, LAN, isolated BLE, and Wi-Fi Direct. Record evidence; do not promote `498` from
       an arbitrary default without results.
+        Not run on 2026-10-11: only two phones were visible to ADB, below the three-phone minimum.
+        `498` therefore remains an experimental default, not a measured optimum.
   - [x] **P0 fixed-cell room protocol (implemented, now migration source rather than target):**
     define versioned Nearby IDs from spatial index, precision, protocol
     epoch, and split generation. Replace identity-first lane allocation with geographic subdivision;
