@@ -13,6 +13,7 @@
 
 #include <jni.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -109,7 +110,12 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
          getenv("IINPUBLIC_DATA_DIR"), port, getenv("IINPUBLIC_HUB_GUN_URL"));
 
     /* ── chdir so Gun radisk writes inside app sandbox ──────────────── */
-    chdir(data_dir);
+    // data_dir was released above; use setenv's own copy. Reading the released JNI buffer
+    // worked by luck until Android 16's tagged heap, where chdir() got garbage and failed.
+    const char* sandbox_dir = getenv("IINPUBLIC_DATA_DIR");
+    if (chdir(sandbox_dir) != 0) {
+        LOGE("[jni] chdir(%s) failed: errno=%d", sandbox_dir, errno);
+    }
 
     // Node's own stdout/stderr (console.log, uncaught-exception stack traces printed
     // right before an early process.exit()) go to whatever fds Zygote gave this process
@@ -119,10 +125,23 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
     // Append across Android process restarts. A sticky/re-delivered foreground service can
     // restart within a second after Node calls process.exit(), and truncating here erased the
     // only copy of the original boot failure before adb could collect it.
-    freopen("node-stdio.log", "a", stdout);
-    freopen("node-stdio.log", "a", stderr);
-    setvbuf(stdout, nullptr, _IONBF, 0);
-    setvbuf(stderr, nullptr, _IONBF, 0);
+    // A failed freopen() closes fd 1/2 outright; the next open() anywhere in the process
+    // (WebView threads included) then lands on a stdio fd and Node aborts in
+    // InitializeOncePerProcess / libuv asserts "fd > STDERR_FILENO". Only swap the fds in
+    // once the log file is actually open.
+    {
+        std::string log_path = std::string(sandbox_dir) + "/node-stdio.log";
+        int log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+        if (log_fd >= 0) {
+            dup2(log_fd, STDOUT_FILENO);
+            dup2(log_fd, STDERR_FILENO);
+            close(log_fd);
+            setvbuf(stdout, nullptr, _IONBF, 0);
+            setvbuf(stderr, nullptr, _IONBF, 0);
+        } else {
+            LOGE("[jni] open(%s) failed: errno=%d — Node stdio left as-is", log_path.c_str(), errno);
+        }
+    }
 
     env->ReleaseStringUTFChars(script_path_j, script_path);
 

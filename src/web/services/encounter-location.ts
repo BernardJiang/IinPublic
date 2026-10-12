@@ -1,6 +1,7 @@
 import type { GPSCoordinate } from '../../shared/types';
 import { readNativeHostInfo } from '../ui/native-host-info';
 import { loadConnectivitySettings, type LocationSource } from '../ui/connectivity-settings';
+import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
 
 /**
  * Web/desktop encounter location (TODO OPEN-40 P1). Outside the phone apps, automatic Nearby never
@@ -19,6 +20,8 @@ export type EncounterLocation = {
   latitude: number;
   longitude: number;
   setAt: string;
+  /** Placed at random because none was chosen yet; the user is asked to pick their own. */
+  auto?: true;
 };
 
 /**
@@ -63,20 +66,51 @@ export function getEncounterLocation(): EncounterLocation | null {
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<EncounterLocation>;
     if (value.version !== 1 || !validCoordinate(value.latitude, value.longitude)) return null;
-    return { version: 1, latitude: value.latitude!, longitude: value.longitude!, setAt: String(value.setAt || '') };
+    return {
+      version: 1,
+      latitude: value.latitude!,
+      longitude: value.longitude!,
+      setAt: String(value.setAt || ''),
+      ...(value.auto === true ? { auto: true as const } : {}),
+    };
   } catch {
     return null;
   }
 }
 
-export function setEncounterLocation(latitude: number, longitude: number, now: Date = new Date()): EncounterLocation {
+export function setEncounterLocation(
+  latitude: number,
+  longitude: number,
+  now: Date = new Date(),
+  options: { auto?: boolean } = {},
+): EncounterLocation {
   if (!validCoordinate(latitude, longitude)) throw new Error('encounter location is invalid');
-  const value: EncounterLocation = { version: 1, latitude, longitude, setAt: now.toISOString() };
+  const value: EncounterLocation = {
+    version: 1,
+    latitude,
+    longitude,
+    setAt: now.toISOString(),
+    ...(options.auto ? { auto: true as const } : {}),
+  };
   try {
     localStorage.setItem(ENCOUNTER_LOCATION_KEY, JSON.stringify(value));
   } catch { /* storage blocked: the choice applies to this session only */ }
   window.dispatchEvent(new CustomEvent(ENCOUNTER_LOCATION_EVENT, { detail: value }));
   return value;
+}
+
+/**
+ * A device without GPS that never chose a point still appears on the map: at a random built-in
+ * city, a few km off its centre, as a Traveler (it is one by construction). Marked `auto` so the
+ * UI keeps asking the person to pick their own.
+ */
+export function assignRandomEncounterLocation(random: () => number = Math.random, now: Date = new Date()): EncounterLocation {
+  const cities = Object.values(CHATROOM_MAP_LOCATIONS);
+  const city = cities[Math.min(cities.length - 1, Math.floor(random() * cities.length))]!;
+  const jitter = () => (random() - 0.5) * 0.1;
+  const latitude = Math.max(-85, Math.min(85, city.latitude + jitter()));
+  const longitude = Math.max(-180, Math.min(180, city.longitude + jitter()));
+  return setEncounterLocation(latitude, longitude, now, { auto: true });
 }
 
 export function clearEncounterLocation(): void {

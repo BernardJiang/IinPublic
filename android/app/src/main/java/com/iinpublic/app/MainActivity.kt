@@ -45,12 +45,20 @@ class MainActivity : AppCompatActivity() {
     // peer node keeps working), but the "peer node running" notification is
     // silently suppressed, which makes the long-running service look like it
     // could be killed by the OS sooner since the user has no visible cue it's
-    // active. We ask once, before starting the service, and proceed either way
+    // active. We ask before starting the service, and proceed either way
     // (the foreground service must start regardless of the answer).
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+    //
+    // Location is asked in the same sheet, ONCE per install (first launch only): Nearby rooms and
+    // the map need a position, but the WebView's own geolocation callback never prompts (see
+    // onGeolocationPermissionsShowPrompt), so without this a fresh Android 13+ install never got
+    // a location and sat in Contacts only with the map on (0, 0).
+    private val startupPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants.any { (permission, granted) -> granted && permission in LOCATION_PERMISSIONS }) {
+                notifyPageLocationGranted()
+            }
             // Granted or denied — either way, start the node now so the app
-            // doesn't block its core function on a notification preference.
+            // doesn't block its core function on a permission preference.
             startNodeService()
             waitForNodeThenLoad()
         }
@@ -249,22 +257,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureNotificationPermissionThenStart() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            // Pre-Android 13: POST_NOTIFICATIONS is a normal (install-time)
-            // permission, nothing to request at runtime.
-            startNodeService()
-            waitForNodeThenLoad()
-            return
+        val missing = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            // Pre-Android 13 POST_NOTIFICATIONS is install-time; nothing to ask.
+            missing += Manifest.permission.POST_NOTIFICATIONS
         }
-        val granted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
+        val prefs = getSharedPreferences(FIRST_LAUNCH_PREFS, MODE_PRIVATE)
+        if (!prefs.getBoolean(LOCATION_ASKED_PREF, false)) {
+            // Recorded up front: asked once, whatever the answer. Automation (no human to answer
+            // the sheet) passes skip_first_launch_location and is treated as already asked.
+            prefs.edit().putBoolean(LOCATION_ASKED_PREF, true).apply()
+            val skip = intent?.getBooleanExtra(SKIP_FIRST_LAUNCH_LOCATION_EXTRA, false) == true
+            if (!skip) {
+                missing += LOCATION_PERMISSIONS.filter {
+                    ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                }
+            }
+        }
+        if (missing.isEmpty()) {
             startNodeService()
             waitForNodeThenLoad()
         } else {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            startupPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
+    /** The page may have booted while the sheet was open; its background fix was denied then. */
+    private fun notifyPageLocationGranted() {
+        if (!::webView.isInitialized) return
+        webView.post {
+            webView.evaluateJavascript("window.dispatchEvent(new Event('iinpublic-location-granted'))", null)
         }
     }
 
@@ -342,6 +365,15 @@ class MainActivity : AppCompatActivity() {
     /** Device testing: `adb shell am start ... --ez wifi_direct_link true|false` toggles the
      *  OPEN-36 Wi-Fi Direct link flag (the web side persists it in localStorage). */
     internal companion object {
+        private const val FIRST_LAUNCH_PREFS = "iinpublic_first_launch_v1"
+        private const val LOCATION_ASKED_PREF = "location_asked"
+        /** Test harness: no human can answer the first-launch location sheet. */
+        const val SKIP_FIRST_LAUNCH_LOCATION_EXTRA = "skip_first_launch_location"
+        // FINE is declared with maxSdkVersion 32 — on 33+ asking for it would be auto-denied.
+        private val LOCATION_PERMISSIONS =
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2)
+                listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            else listOf(Manifest.permission.ACCESS_COARSE_LOCATION)
         private const val WIFI_DIRECT_LINK_EXTRA = "wifi_direct_link"
         private const val DROP_REMOTE_CANDIDATES_EXTRA = "p2p_drop_remote_candidates"
 

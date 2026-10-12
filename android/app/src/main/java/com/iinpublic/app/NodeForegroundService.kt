@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -243,7 +244,7 @@ class NodeForegroundService : Service() {
             }
         }
         persistNearbyState()
-        startForeground(NOTIF_ID, buildNotification())
+        promoteToForeground()
         if (nearbyMode == "always" && !nearbyPaused) restoreNearbyCheckpoint()
         if (!nodeStarted) {
             nodeStarted = true
@@ -260,6 +261,29 @@ class NodeForegroundService : Service() {
         // production hub after a process restart. Redelivery keeps the original hub_gun_url;
         // an ordinary later app launch still sends its own fresh, production-default Intent.
         return START_REDELIVER_INTENT
+    }
+
+    /**
+     * Run as `connectedDevice` only. The two-arg startForeground() claims every manifest type,
+     * including `dataSync`, which Android 15+ caps at 6 h per 24 h: once a day's quota ran out,
+     * Android 16 called onTimeout and killed the app ~10 s after opening it
+     * (ForegroundServiceDidNotStopInTimeException). `connectedDevice` has no time cap, and its
+     * prerequisite (CHANGE_WIFI_STATE, a normal permission) is always granted.
+     */
+    private fun promoteToForeground() {
+        val notification = buildNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val promoted = runCatching {
+                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            }.isSuccess
+            if (promoted) return
+        }
+        startForeground(NOTIF_ID, notification)
+    }
+
+    /** Android 15+: a time-capped FGS type ran out. Stop in time instead of being killed. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopSelf()
     }
 
     override fun onDestroy() {

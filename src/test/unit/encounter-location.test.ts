@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import {
+  assignRandomEncounterLocation,
   clearEncounterLocation,
   ENCOUNTER_LOCATION_EVENT,
   ENCOUNTER_LOCATION_KEY,
@@ -11,6 +12,7 @@ import {
 } from '../../web/services/encounter-location';
 import { showEncounterLocationPicker } from '../../web/ui/encounter-location-picker';
 import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
+import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
 
 const t = (key: string) => key;
 const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
@@ -26,6 +28,23 @@ describe('encounter location storage', () => {
     expect(usesSelfDefinedEncounterLocation('android', 'traveler', false)).toBe(true);
     // Dev/test builds: the injected test location stands in for GPS on the website.
     expect(usesSelfDefinedEncounterLocation('web', 'resident', true)).toBe(false);
+  });
+
+  it('places a location-less device near a built-in city, marked auto until the person picks', () => {
+    const events: unknown[] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener(ENCOUNTER_LOCATION_EVENT, listener);
+    const placed = assignRandomEncounterLocation(() => 0.5, new Date('2026-10-11T00:00:00Z'));
+    window.removeEventListener(ENCOUNTER_LOCATION_EVENT, listener);
+    expect(placed.auto).toBe(true);
+    expect(getEncounterLocation()).toEqual(placed);
+    expect(events).toEqual([placed]);
+    const city = Object.values(CHATROOM_MAP_LOCATIONS).some((c) =>
+      Math.abs(c.latitude - placed.latitude) <= 0.05 && Math.abs(c.longitude - placed.longitude) <= 0.05);
+    expect(city).toBe(true);
+    // A deliberate pick replaces it and drops the auto mark.
+    expect(setEncounterLocation(10, 20).auto).toBeUndefined();
+    expect(getEncounterLocation()?.auto).toBeUndefined();
   });
 
   it('persists a deliberate (possibly fictional) point, announces it, and clears it', () => {

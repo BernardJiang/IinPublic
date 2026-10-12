@@ -432,9 +432,9 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <section class="chatroom-flat-section" data-testid="current-group-section">
       <h2 class="chatroom-flat-heading">${deps.text('chatroomCurrentGroupHeading')}</h2>
       ${currentNode ? renderRoomRow(currentNode, true) : ''}
-      ${currentIsContactsOnly && usesSelfDefinedEncounterLocation() && !getEncounterLocation()
+      ${usesSelfDefinedEncounterLocation() && (currentIsContactsOnly ? !getEncounterLocation() : getEncounterLocation()?.auto)
         ? `<div class="chatroom-flat-empty" data-testid="encounter-location-nudge">
-            <p>${deps.escapeHtml(deps.text('encounterLocationHelp'))}</p>
+            <p>${deps.escapeHtml(deps.text(getEncounterLocation()?.auto ? 'encounterLocationRandomHelp' : 'encounterLocationHelp'))}</p>
             <button type="button" class="btn primary-btn" id="chatroom-encounter-location-set" data-testid="chatroom-encounter-location-set">${deps.escapeHtml(deps.text('encounterLocationSetButton'))}</button>
           </div>`
         : currentIsNearby && cohortStatusLine(cohortSnapshot, deps.text)
@@ -450,9 +450,10 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     </section>`;
 
   document.getElementById('chatroom-encounter-location-set')?.addEventListener('click', () => {
+    const placed = getEncounterLocation();
     showEncounterLocationPicker({
       t: (key) => deps.text(key),
-      initial: null,
+      initial: placed?.auto ? { latitude: placed.latitude, longitude: placed.longitude } : null,
       // The app re-resolves the shared Nearby room on ENCOUNTER_LOCATION_EVENT.
       onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
     });
@@ -566,6 +567,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       nearbyPointTitle: deps.text('chatroomNearbyPointTitle'),
       nearbyPointAction: deps.text('chatroomNearbyPointAction'),
       mapLoadFailedText: deps.text('chatroomMapLoadFailed'),
+      locateSelfText: deps.text('chatroomMapLocateSelf'),
       membersText: (count) => deps.text(count === 1 ? 'chatroomMemberOne' : 'chatroomMembers').replace('{count}', String(count)),
       visitsText: (count) => deps.text(count === 1 ? 'chatroomVisitOne' : 'chatroomVisits').replace('{count}', String(count)),
     });

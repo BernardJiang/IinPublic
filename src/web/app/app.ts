@@ -157,7 +157,8 @@ import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirec
 import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
-import { deviceHasGps, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import { assignRandomEncounterLocation, deviceHasGps, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
@@ -1649,6 +1650,7 @@ export class IinPublicApp {
       if (!usesSelfDefinedEncounterLocation()) return;
       this.applyEncounterLocationChange((event as CustomEvent<EncounterLocation | null>).detail ?? null);
     });
+    this.placeLocationlessDeviceOnMap();
     markStartupPhase('initialSyncComplete');
   }
 
@@ -1723,6 +1725,24 @@ export class IinPublicApp {
         console.warn('Nearby room refresh after clearing the encounter location failed:', error);
       });
     }
+  }
+
+  /**
+   * Website/desktop with no chosen point: everyone shows up on the map, so place this device at a
+   * random city as a Traveler (ENCOUNTER_LOCATION_EVENT above moves it into that Nearby room) and
+   * ask once for a real choice. TechSupport stays Contacts only; a phone Traveler without a point
+   * keeps its own Settings flow.
+   */
+  private placeLocationlessDeviceOnMap(): void {
+    if (!this.currentUser || isTechSupportUser(this.currentUser) || deviceHasGps()) return;
+    if (getEncounterLocation()) return;
+    const placed = assignRandomEncounterLocation();
+    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
+    showEncounterLocationPicker({
+      t: (key) => uiText(language, key),
+      initial: { latitude: placed.latitude, longitude: placed.longitude },
+      onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
+    });
   }
 
   updateCurrentLocation(location: GPSCoordinate): void {
@@ -9169,6 +9189,10 @@ export class IinPublicApp {
 
     this.uiManager.on('requestLocationUpdate', async () => {
       await this.updateLocationAndMaybeSwitch();
+    });
+    // Android: the first-launch location sheet was answered after boot's background fix was denied.
+    window.addEventListener('iinpublic-location-granted', () => {
+      void this.updateLocationAndMaybeSwitch();
     });
 
     this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {

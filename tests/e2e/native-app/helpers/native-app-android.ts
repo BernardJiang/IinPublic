@@ -382,6 +382,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
   await execFileAsync('adb', [
     '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
     '--es', 'hub_gun_url', options.hubGunUrl,
+    '--ez', 'skip_first_launch_location', 'true',
     ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
   ], { timeout: 5_000 });
 
@@ -406,6 +407,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
         await execFileAsync('adb', [
           '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
           '--es', 'hub_gun_url', options.hubGunUrl,
+          '--ez', 'skip_first_launch_location', 'true',
           ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
         ], { timeout: 5_000 }).catch(() => undefined);
       }
@@ -486,6 +488,7 @@ export async function launchAndroidUser(options: LaunchAndroidUserOptions): Prom
     [
       '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
       '--es', 'hub_gun_url', options.hubGunUrl,
+      '--ez', 'skip_first_launch_location', 'true',
       ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
     ],
     { timeout: 5_000 },

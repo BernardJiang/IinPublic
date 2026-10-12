@@ -48,6 +48,8 @@ type ChatroomMapOptions = {
   nearbyMapArea?: NearbyMapArea;
   enterTileText?: string;
   mapLoadFailedText: string;
+  /** Label of the "center on me" button under the zoom buttons. */
+  locateSelfText?: string;
   membersText: (count: number) => string;
   visitsText: (count: number) => string;
   /** People on the map: a star for me, green for my room (Talks), yellow for everyone else. */
@@ -119,6 +121,7 @@ type MapState = {
   markers: MapLibreMarker[];
   selectedTile?: string | undefined;
   selectionMarker?: MapLibreMarker | undefined;
+  /** Room id plus its Nearby area's scale at the last focus. */
   focusedChatroom: string;
   loaded: boolean;
   options: ChatroomMapOptions;
@@ -126,7 +129,14 @@ type MapState = {
   userDotMarkers: MapLibreMarker[];
   userDotTimer?: ReturnType<typeof setTimeout> | undefined;
   userDotRequest: number;
+  /** The room has no place of its own and my position was not known yet when it was focused. */
+  awaitingSelfCenter: boolean;
+  /** Zoom that fits my current room; "center on me" returns to it. */
+  roomZoom?: number | undefined;
 };
+
+/** A room with no area of its own (Contacts only, custom rooms) shows my neighbourhood. */
+const SELF_ZOOM = 12;
 
 const SOURCE_ID = 'iinpublic-chatrooms';
 const CLUSTER_LAYER_ID = 'iinpublic-chatroom-clusters';
@@ -508,22 +518,89 @@ function updateSource(state: MapState): void {
   source?.setData(chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom));
 }
 
+/**
+ * Zoom at which the area's diameter fits the map's shorter side. Never further out than the whole
+ * world across the map's width, so a lone user's world-sized room shows the full world map.
+ */
+function zoomToHoldArea(state: MapState, diameterMeters: number): number {
+  const width = Math.max(1, state.options.container.clientWidth || 512);
+  const height = Math.max(1, state.options.container.clientHeight || 512);
+  // 0.8: a margin, since the map centers on me rather than on the area.
+  const fit = Math.log2((0.8 * Math.min(width, height) * 40_075_016) / (512 * Math.max(1, diameterMeters)));
+  return Math.max(Math.log2(width / 512), Math.min(18, fit));
+}
+
+function selfCenter(state: MapState): [number, number] | undefined {
+  const self = state.options.userDots?.selfPoint;
+  return self ? [self.longitude, self.latitude] : undefined;
+}
+
+function centerOnSelf(state: MapState): void {
+  const center = selfCenter(state);
+  if (!center) return;
+  state.map.easeTo({ center, zoom: state.roomZoom ?? state.map.getZoom() });
+}
+
 function focusCurrentRoom(state: MapState): void {
-  if (state.options.currentChatroom === state.focusedChatroom) return;
-  state.focusedChatroom = state.options.currentChatroom;
+  // Re-fit when the room's area changes scale, not just its id: the area lands a render after
+  // the room id, and a sparse Nearby room grows from a local cell up to the whole world (and
+  // shrinks back once it splits). Rounded to zoom steps so a GPS wobble never moves the camera.
+  const area = isNearbyRoomId(state.options.currentChatroom) ? state.options.nearbyMapArea : undefined;
+  const areaScale = area ? Math.round(Math.log2(Math.max(1, area.approximateDiameterMeters))) : '';
+  const focusKey = `${state.options.currentChatroom}|${areaScale}`;
+  if (focusKey === state.focusedChatroom) {
+    // My position landed after the first paint (first-launch permission, slow fix): go there once.
+    const self = state.awaitingSelfCenter ? selfCenter(state) : undefined;
+    if (self) {
+      state.awaitingSelfCenter = false;
+      state.map.jumpTo({ center: self, zoom: state.roomZoom ?? SELF_ZOOM });
+    }
+    return;
+  }
+  state.focusedChatroom = focusKey;
   const currentRoom = state.options.rooms.find((room) => room.id === state.options.currentChatroom);
   const focus = currentRoom ? roomLocation(currentRoom, state.options.rooms) : undefined;
   const nearby = isNearbyRoomId(state.options.currentChatroom) ? state.options.nearbyMapArea : undefined;
   const nearbyCenter = nearby
     ? [(nearby.west + nearby.east) / 2, (nearby.south + nearby.north) / 2] as [number, number]
     : undefined;
-  const nearbyZoom = nearby
-    ? Math.max(2, Math.min(18, Math.log2(40_075_016 / Math.max(1, nearby.approximateDiameterMeters * 2))))
-    : undefined;
+  const nearbyZoom = nearby ? zoomToHoldArea(state, nearby.approximateDiameterMeters) : undefined;
+  // Zoom to hold my whole room: alone, my Nearby area is the world (anyone on the map can talk
+  // to me); it only shrinks once the room splits past capacity. Center on me inside it — a
+  // world-sized area's own middle is (0, 0), nowhere near me. Rooms with no area of their own
+  // (Contacts only, custom rooms) show my neighbourhood.
+  const self = focus ? undefined : selfCenter(state);
+  state.roomZoom = focus ? zoomForRoom(currentRoom) : nearbyZoom ?? SELF_ZOOM;
+  state.awaitingSelfCenter = !focus && !self;
   state.map.jumpTo({
-    center: focus ? [focus.longitude, focus.latitude] : nearbyCenter ?? [0, 20],
-    zoom: nearbyZoom ?? zoomForRoom(currentRoom),
+    center: focus ? [focus.longitude, focus.latitude] : self ?? nearbyCenter ?? [0, 20],
+    zoom: focus || self ? state.roomZoom : nearbyZoom ?? zoomForRoom(currentRoom),
   });
+}
+
+/** "Center on me" button, styled as MapLibre's own geolocate control, under the zoom buttons. */
+function locateSelfControl(state: MapState): import('maplibre-gl').IControl {
+  const group = document.createElement('div');
+  group.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'maplibregl-ctrl-geolocate chatroom-map-locate-self';
+  const label = state.options.locateSelfText || 'Center on me';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  const icon = document.createElement('span');
+  icon.className = 'maplibregl-ctrl-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  button.appendChild(icon);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    centerOnSelf(state);
+  });
+  group.appendChild(button);
+  return {
+    onAdd: () => group,
+    onRemove: () => group.remove(),
+  };
 }
 
 function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
@@ -559,8 +636,10 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     ready,
     userDotMarkers: [],
     userDotRequest: 0,
+    awaitingSelfCenter: false,
   };
   stateByContainer.set(options.container, state);
+  map.addControl(locateSelfControl(state), 'top-right');
 
   const failBeforeLoad = (event: { error?: unknown }): void => {
     if (!state.loaded) rejectReady(event.error || new Error('MapLibre style failed to load'));
