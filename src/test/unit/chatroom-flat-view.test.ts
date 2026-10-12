@@ -4,9 +4,23 @@ import '@testing-library/jest-dom';
 import { renderChatroomList, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
 import { uiText } from '../../web/ui/ui-translations';
 import { createLocalCohortTraversalViewModel } from '../../web/ui/cohort-traversal-view-model';
+import type { ActiveRoomsView } from '../../shared/active-rooms';
 
 const NEARBY_ID = 'nearby_v1_e1_p1000_g0_0123456789abcdef01234567';
 const PLACE_ID = 'place_32.71_-117.17_abcdefabcdef';
+
+const LA_ID = 'nearby_v2_e1_aaaaaaaaaaaaaaaaaaaaaaaa';
+const FULL_ID = 'nearby_v2_e1_bbbbbbbbbbbbbbbbbbbbbbbb';
+const ROOMS: ActiveRoomsView = {
+  totalOnline: 351,
+  totalRooms: 3,
+  hasMore: false,
+  rooms: [
+    { roomId: NEARBY_ID, kind: 'nearby', memberCount: 302, latitude: 32.72, longitude: -117.16, distanceMeters: 0, bearingDegrees: 0 },
+    { roomId: PLACE_ID, kind: 'place', name: 'Bean There Café', memberCount: 46, latitude: 32.71, longitude: -117.17, distanceMeters: 1_200, bearingDegrees: 225 },
+    { roomId: LA_ID, kind: 'nearby', memberCount: 3, latitude: 34.05, longitude: -118.24, distanceMeters: 179_000, bearingDegrees: 315 },
+  ],
+};
 
 function render(overrides: Record<string, unknown> = {}): void {
   document.body.innerHTML = `
@@ -52,18 +66,22 @@ function render(overrides: Record<string, unknown> = {}): void {
 }
 
 describe('flat Nearby and Places list', () => {
-  it('shows one current Nearby group and flat Place destinations without hierarchy controls', () => {
-    render();
+  it('lists your room first, then every other room with people, with the online total', () => {
+    render({ activeRooms: ROOMS });
 
-    expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Your current group');
+    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('351 online · 3 rooms');
     expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Nearby');
-    expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('342 people · up to 498');
-    expect(document.querySelector('[data-testid="places-section"]')?.textContent).toContain('Bean There Café');
-    expect(document.querySelector('[data-testid="places-section"]')?.textContent).toContain('46 people · up to 498');
+    const rows = Array.from(document.querySelectorAll('[data-testid="room-list-row"]'));
+    expect(rows.map((row) => row.querySelector('.chatroom-name')?.textContent?.trim())).toEqual([
+      'Bean There Café',
+      'Around Los Angeles',
+    ]);
+    expect(rows[0]?.textContent).toContain('46 / 498');
+    expect(rows[1]?.textContent).toMatch(/3 \/ 498 · \d+ (km|mi) NW/);
     expect(document.querySelector('.chatroom-expand-icon')).toBeNull();
     expect(document.querySelector('[data-level]')).toBeNull();
-    expect(document.querySelector('[data-testid="cohort-controls"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="meet-another-group-btn"]')).toBeDisabled();
+    expect(document.querySelector('[data-testid="cohort-controls"]')).toBeNull();
+    expect(document.body.textContent).not.toContain(NEARBY_ID);
   });
 
   it('labels a map-selected Nearby audience as travel without exposing its room id', () => {
@@ -75,24 +93,52 @@ describe('flat Nearby and Places list', () => {
     expect(current?.textContent).not.toContain(NEARBY_ID);
   });
 
-  it('keeps cohort switching distinct from map travel, Return Home, and Place entry', () => {
-    const traversal = createLocalCohortTraversalViewModel({ groupCount: 4, isDefaultGroup: false });
-    render({ cohortTraversal: traversal, travelModeActive: true });
+  it('tapping a room enters it: your own and Places show members; another Nearby group travels there', () => {
+    const emit = jest.fn();
+    render({ activeRooms: ROOMS, emit });
+    document.body.insertAdjacentHTML('beforeend', '<div id="chatroom-members-list"></div><div id="current-chatroom-title"></div>');
 
-    const controls = document.querySelector('[data-testid="cohort-controls"]');
-    expect(controls?.textContent).toContain('Switch groups without changing your Nearby area');
-    expect(controls?.textContent).toContain('Meet another group');
-    expect(controls?.textContent).toContain('Return to my default group');
-    expect(controls?.querySelector('#return-home-btn')).toBeNull();
-    expect(document.querySelector('[data-testid="places-section"] [data-testid="cohort-controls"]')).toBeNull();
-    expect(document.querySelector('[data-room-kind="place"]')?.textContent).toContain('Bean There Café');
-    expect(document.getElementById('return-home-btn')?.textContent).toBe('Return Home');
+    (document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`) as HTMLElement).click();
+    expect(emit).toHaveBeenCalledWith('chatroomChanged', NEARBY_ID);
+
+    (document.querySelector(`.chatroom-item[data-chatroom-id="${PLACE_ID}"]`) as HTMLElement).click();
+    expect(emit).toHaveBeenCalledWith('chatroomChanged', PLACE_ID);
+
+    (document.querySelector(`.chatroom-item[data-chatroom-id="${LA_ID}"]`) as HTMLElement).click();
+    expect(emit).toHaveBeenCalledWith('travelNearbyAtPoint', { latitude: 34.05, longitude: -118.24 });
+    expect(document.getElementById('current-chatroom-title')?.textContent).toBe('Around Los Angeles');
+  });
+
+  it('shows a full room greyed out and does not enter it', () => {
+    const emit = jest.fn();
+    render({ activeRooms: { ...ROOMS, rooms: [...ROOMS.rooms, { roomId: FULL_ID, kind: 'nearby', memberCount: 498, latitude: 36.17, longitude: -115.14, distanceMeters: 400_000, bearingDegrees: 45 }] }, emit });
+    const full = document.querySelector(`.chatroom-item[data-chatroom-id="${FULL_ID}"]`) as HTMLElement;
+    expect(full.getAttribute('aria-disabled')).toBe('true');
+    expect(full.textContent).toContain('Full');
+    full.click();
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it('does not offer Nearby cohort switching while the current group is a Place', () => {
     render({ currentChatroom: PLACE_ID });
 
     expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Bean There Café');
-    expect(document.querySelector('[data-testid="cohort-controls"]')).toBeNull();
+    expect(document.querySelector('[data-testid="cohort-status"]')).toBeNull();
+  });
+});
+
+describe('room list sort', () => {
+  it('re-queries the hub when the sort changes and when more rooms are requested', () => {
+    const emit = jest.fn();
+    render({ activeRooms: { ...ROOMS, hasMore: true }, emit });
+    const select = document.getElementById('room-list-sort') as HTMLSelectElement;
+    expect(select.value).toBe('nearest');
+    select.value = 'busiest';
+    select.dispatchEvent(new Event('change'));
+    expect(localStorage.getItem('iinpublic_room_list_sort')).toBe('busiest');
+    expect(emit).toHaveBeenCalledWith('activeRoomsQueryChanged', {});
+    (document.getElementById('room-list-more') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('activeRoomsQueryChanged', { showMore: true });
+    localStorage.removeItem('iinpublic_room_list_sort');
   });
 });

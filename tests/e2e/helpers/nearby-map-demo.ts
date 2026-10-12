@@ -2,6 +2,8 @@
  * Shared steps for the adaptive-Nearby map demos (stage4 specs 08/09): boot users at fixed points,
  * open the map, caption and capture the shaded Nearby area, and travel by tapping the map.
  */
+import * as fs from 'fs';
+import { PNG } from 'pngjs';
 import { Browser, BrowserContext, Page, TestInfo, chromium } from '@playwright/test';
 import { expect } from './fixtures';
 import { injectIdbClear, gotoWebApp } from './clear-database';
@@ -11,6 +13,9 @@ import { attachE2eBrowserTabLabel } from './e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from './webrtc-chromium';
 
 export type LatLng = { latitude: number; longitude: number };
+/** Which chatroom view the demo watches: the map, or the plain list (no map at all). */
+export type DemoView = 'map' | 'list';
+const GRID_SIZE = { width: 480, height: 640 };
 export type NearbyArea = { west: number; south: number; east: number; north: number; approximateDiameterMeters: number };
 
 /** A few km apart around downtown San Diego. */
@@ -29,12 +34,17 @@ export class NearbyMapDemo {
   readonly contexts: BrowserContext[] = [];
   readonly frames: Array<{ label: string; step: string; diameter: string }> = [];
 
-  constructor(private readonly info: TestInfo, private readonly url: string) {}
+  constructor(private readonly info: TestInfo, private readonly url: string, readonly view: DemoView = 'map') {}
 
   /** `large` users get a big window, the rest small side windows; every window is recorded. */
   async boot(label: string, spot: LatLng, slot: number, large: boolean): Promise<Page> {
-    const size = large ? { width: 900, height: 950 } : { width: 480, height: 650 };
-    const position = large ? `${slot * 120},${slot * 40}` : `${900 + slot * 60},${slot * 60}`;
+    // List view: four equal windows in a 2×2 grid, so every user's list is visible at once.
+    const index = Number(label.slice(1)) - 1;
+    const list = this.view === 'list';
+    const size = list ? GRID_SIZE : large ? { width: 900, height: 950 } : { width: 480, height: 650 };
+    const position = list
+      ? `${(index % 2) * (GRID_SIZE.width + 10)},${Math.floor(index / 2) * (GRID_SIZE.height + 90)}`
+      : large ? `${slot * 120},${slot * 40}` : `${900 + slot * 60},${slot * 60}`;
     const browser = await chromium.launch({
       headless,
       slowMo: headless ? 0 : delay(0, 50),
@@ -79,6 +89,45 @@ export class NearbyMapDemo {
     await this.info.attach(`${name} ${step} (${diameter})`, { body, contentType: 'image/png' });
     this.frames.push({ label, step, diameter });
     console.log(`[map] ${label} ${step}: ${(await roomOf(page)).slice(0, 28)}… area ≈ ${diameter}`);
+  }
+
+  /** Show the demo's chatroom view (map or list) on this page. */
+  async show(page: Page): Promise<void> {
+    if (this.view === 'map') await openMap(page);
+    else await openList(page);
+  }
+
+  /**
+   * List view: caption every user's window, screenshot all four, and save them as one 2×2 image
+   * (U1 U2 / U3 U4) so a single frame shows who is in which group.
+   */
+  async captureGrid(pages: Record<string, Page>, step: string): Promise<void> {
+    const labels = Object.keys(pages).sort();
+    const shots: PNG[] = [];
+    for (const label of labels) {
+      const page = pages[label]!;
+      await caption(page, `${label}: ${step}`);
+      // Below the Places section, so the current-group row stays readable.
+      await page.evaluate(() => {
+        const el = document.getElementById('e2e-map-caption');
+        if (el) { el.style.top = 'auto'; el.style.bottom = '72px'; }
+      });
+    }
+    await pages[labels[0]!]!.waitForTimeout(1_200);
+    for (const label of labels) shots.push(PNG.sync.read(await pages[label]!.screenshot()));
+    const cellW = Math.max(...shots.map((shot) => shot.width));
+    const cellH = Math.max(...shots.map((shot) => shot.height));
+    const grid = new PNG({ width: cellW * 2 + 6, height: cellH * Math.ceil(shots.length / 2) + 6 });
+    grid.data.fill(255);
+    shots.forEach((shot, i) => PNG.bitblt(shot, grid, 0, 0, shot.width, shot.height, (i % 2) * (cellW + 6), Math.floor(i / 2) * (cellH + 6)));
+    const name = `${String(this.frames.length).padStart(2, '0')}-list`;
+    const path = this.info.outputPath(`${name}.png`);
+    const body = PNG.sync.write(grid);
+    fs.writeFileSync(path, body);
+    await this.info.attach(`${name} ${step}`, { body, contentType: 'image/png' });
+    this.frames.push({ label: 'all', step, diameter: '' });
+    const rooms = await Promise.all(labels.map(async (label) => `${label}:${(await roomOf(pages[label]!)).slice(-6)}`));
+    console.log(`[list] ${step}: ${rooms.join('  ')}`);
   }
 
   summary(): string {
@@ -161,6 +210,17 @@ export const areaOf = (page: Page): Promise<NearbyArea | null> =>
 export const isTraveling = (page: Page): Promise<boolean> =>
   page.evaluate(() => !!(window as any).__iinpublic_app?.getApp?.()?.travelModeActive);
 
+export async function openList(page: Page): Promise<void> {
+  await page.locator('.nav-btn[data-view="chatrooms"]').click();
+  await afterNav();
+  if (await page.locator('#back-to-chatrooms').isVisible().catch(() => false)) {
+    await page.locator('#back-to-chatrooms').click();
+    await afterNav();
+  }
+  await page.locator('[data-testid="chatroom-list-view-btn"]').click();
+  await expect(page.locator('[data-testid="current-group-section"]')).toBeVisible({ timeout: 30_000 });
+}
+
 export async function openMap(page: Page): Promise<void> {
   await page.locator('.nav-btn[data-view="chatrooms"]').click();
   await afterNav();
@@ -184,7 +244,7 @@ export const caption = (page: Page, text: string): Promise<void> => page.evaluat
       + 'background:rgba(15,23,42,.85);color:#fff;font:600 15px system-ui;border-radius:8px;pointer-events:none');
     document.body.appendChild(el);
   }
-  el.textContent = value;
+  el.textContent = `🧪 ${value}`; // test annotation only — never part of the app
 }, text);
 
 /**

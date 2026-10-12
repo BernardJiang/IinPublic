@@ -503,6 +503,16 @@ export class ChatroomManager {
     throw new Error('rooms have no owner and cannot be deleted by a participant');
   }
 
+  /** Every room with at least one fresh member, from the in-memory roster (no Gun reads). */
+  listActiveRooms(now = new Date()): Array<{ roomId: string; memberIds: string[] }> {
+    const rooms: Array<{ roomId: string; memberIds: string[] }> = [];
+    for (const roomId of [...this.fastActiveMembers.keys()]) {
+      const memberIds = this.getFastActiveMembers(roomId, now).map((member) => member.userId);
+      if (memberIds.length > 0) rooms.push({ roomId, memberIds });
+    }
+    return rooms;
+  }
+
   async getActiveMembersWithStageName(chatroomId: string): Promise<RoomMemberSummary[]> {
     const fastMembers = this.getFastActiveMembers(chatroomId);
     if (fastMembers.length > 0) return fastMembers;

@@ -82,6 +82,8 @@ import { NearbyControlStore } from '../services/nearby-control-store';
 import { NearbyPartitionStore } from '../services/nearby-partition-store';
 import { MapPresenceStore } from '../services/map-presence-store';
 import { parseMapBounds } from '../../shared/map-presence';
+import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
+import { isPlaceRoomId } from '../../shared/place-rooms';
 import { NearbyCohortStore, NearbyCohortStoreError } from '../services/nearby-cohort-store';
 import {
   FAQ_ENTRIES_ROOT,
@@ -155,6 +157,11 @@ type RegisterSystemRoutesDeps = {
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
   /** S3 explicit relay mode: embedded local nodes mirror relay-only metadata upstream. */
   hubRelayClient?: EmbeddedHubRelayClientLike;
+  /** The room list (shared/active-rooms.ts): live rooms and Place pins from the room manager. */
+  activeRoomSource?: {
+    list: () => Array<{ roomId: string; memberIds: string[] }>;
+    placeOf: (roomId: string) => Promise<{ name: string; latitude?: number; longitude?: number } | undefined>;
+  };
   /** Durable, radisk-backed store for the support message thread — see
    * techsupport-durable-store.ts's doc comment. Falls back to the plain in-memory
    * TechSupportMessageStore when omitted (test callers that don't need real persistence). */
@@ -177,6 +184,7 @@ export function registerSystemRoutes(
     nodeEnv,
     abuseDefenseConfig,
     hubRelayClient,
+    activeRoomSource,
     techSupportStore,
     verifyTechSupportDelegateGrant = verifyDelegateGrant,
     verifyTechSupportRecoveryAnchor = verifyRecoveryAnchor,
@@ -534,6 +542,40 @@ export function registerSystemRoutes(
     const query = new URLSearchParams(Object.entries(bounds).map(([key, value]) => [key, String(value)]));
     if (await relayMapPresence(res, `/api/map-presence?${query}`, 'GET')) return;
     res.json(mapPresenceStore.query(bounds));
+  });
+
+  // Room list: every room with ≥ 1 person, nearest first (or busiest / most room), paged.
+  app.get('/api/active-rooms', async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const passthrough = new URLSearchParams(Object.entries(query)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+    if (await relayMapPresence(res, `/api/active-rooms?${passthrough}`, 'GET')) return;
+    if (!activeRoomSource) {
+      res.json({ totalOnline: 0, totalRooms: 0, rooms: [], hasMore: false });
+      return;
+    }
+    const latitude = Number(query.lat);
+    const longitude = Number(query.lng);
+    const origin = Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+      ? { latitude, longitude }
+      : undefined;
+    const rooms = activeRoomSource.list();
+    const places = new Map<string, { name: string; latitude?: number; longitude?: number }>();
+    await Promise.all(rooms.filter((room) => isPlaceRoomId(room.roomId)).map(async (room) => {
+      const place = await activeRoomSource.placeOf(room.roomId).catch(() => undefined);
+      if (place) places.set(room.roomId, place);
+    }));
+    const currentRoomId = typeof query.current === 'string' ? query.current : undefined;
+    res.json(summarizeActiveRooms({
+      rooms,
+      pointOf: (userId) => mapPresenceStore.pointOf(userId),
+      placeOf: (roomId) => places.get(roomId),
+      ...(origin ? { origin } : {}),
+      ...(currentRoomId ? { currentRoomId } : {}),
+      offset: Number(query.offset) || 0,
+      ...(Number(query.limit) > 0 ? { limit: Number(query.limit) } : {}),
+      ...(isActiveRoomSort(query.sort) ? { sort: query.sort } : {}),
+    }));
   });
 
   const cohortError = (res: express.Response, error: unknown): void => {

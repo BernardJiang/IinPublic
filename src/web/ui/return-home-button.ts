@@ -2,6 +2,8 @@ export type ReturnHomeButtonDeps = {
   getHomeChatroomId: () => string;
   currentChatroom: string;
   resolveChatroomTitle: (chatroomId: string) => string;
+  /** Visiting another group of the same Nearby area: 🏠 returns to the default group. */
+  awayFromDefaultGroup?: boolean;
 };
 
 export function syncReturnHomeButton(deps: ReturnHomeButtonDeps): void {
@@ -19,6 +21,8 @@ export function syncReturnHomeButton(deps: ReturnHomeButtonDeps): void {
   }
   effectiveRoom = effectiveRoom || 'global';
   const away = effectiveRoom !== home;
-  btn.disabled = !away;
-  btn.title = away ? `Return to ${deps.resolveChatroomTitle(home)}` : 'Already in your home room';
+  btn.disabled = !away && !deps.awayFromDefaultGroup;
+  btn.title = away
+    ? `Return to ${deps.resolveChatroomTitle(home)}`
+    : deps.awayFromDefaultGroup ? 'Return to your own group' : 'Already in your home room';
 }

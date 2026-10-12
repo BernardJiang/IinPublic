@@ -448,6 +448,48 @@ user.
 The **min/max distance Talk filter was removed**. The room already defines who is in range, and its
 default 50-mile maximum hid Talks from members of the user's own room.
 
+### 3.6 The room list (product decision 2026-10-11)
+
+The flat room list replaces the retired chatroom tree.
+
+- **Header:** "N online · M rooms". N counts distinct people in any room; TechSupport is a Contact
+  and is never counted.
+- **Your room first,** named after its area ("Around San Diego"). Then every other room with at
+  least one person: Nearby groups and Places, flat, with no hierarchy.
+- **Sort:**
+  - **Nearest** (default): by distance from where you appear (your blurred or chosen point).
+  - **Busiest:** most people first.
+  - **Most room:** fewest people first.
+
+  Distance breaks ties. The list shows 30 rooms at a time, with "Show more rooms".
+- **Rows:**
+  - A Nearby group is named after the nearest named city ("Around La Jolla"). Rooms that would
+    share a name get "· 2", "· 3".
+  - The meta line reads "people / capacity · distance direction" ("1 / 3 · 1.4 mi NE").
+  - Room ids are never shown.
+- **Full rooms** are shown greyed out and cannot be entered, because entering would force a split.
+- **Tap a room** to enter it and see its member list:
+  - Your own room just opens its members.
+  - A Place is entered directly.
+  - Another Nearby group is entered by traveling to its position. You become a Traveler ✈ in
+    the group covering that point; 🏠 returns.
+- **Map:** the same rooms appear as pins with headcounts. Tapping one does the same as tapping
+  its row. Empty Places stay on the map as pins so they can be found and started.
+
+**Where a room is:**
+- A Place is at its public pin.
+- A Nearby group is at the mean of its members' public map points (§3.4).
+
+The hub cannot place a group from its partition path alone, because the hub cannot tell where the
+geographic digits end and the identity-lane digits begin.
+
+**Data source:** the hub serves `GET /api/active-rooms` from its in-memory room roster and the
+map-presence index. Embedded phone nodes relay the request to the hub. The response shows no more
+than the map already does: a position and a headcount per room.
+
+**Known limit:** groups of the same area that differ only by identity lane cannot be targeted by
+travel. Travel lands in your own lane.
+
 ## 4. Place rooms and map travel
 
 Any user may publish an immutable, signed, content-addressed Place descriptor containing a display

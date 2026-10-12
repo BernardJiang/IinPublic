@@ -44,6 +44,13 @@ export class MapPresenceStore {
     return { accepted: true, withdrawn: false };
   }
 
+  /** A user's live public point, if they publish one (room positions for the room list). */
+  pointOf(userId: string, now = new Date()): { latitude: number; longitude: number } | undefined {
+    const record = this.byUser.get(userId);
+    if (!record?.location || Date.parse(record.expiresAt) <= now.getTime()) return undefined;
+    return { latitude: record.location.latitude, longitude: record.location.longitude };
+  }
+
   /**
    * Dots for the view (at most `limit`; none when the view holds more), plus anonymous density
    * squares for every user in it, so the heat map is complete even when dots are not.

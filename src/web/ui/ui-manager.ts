@@ -520,6 +520,7 @@ export class UIManager extends EventEmitter {
       getHomeChatroomId: () => this.getHomeChatroomId(),
       currentChatroom: this.currentChatroom,
       resolveChatroomTitle: (chatroomId) => this.resolveChatroomTitle(chatroomId),
+      awayFromDefaultGroup: !this.cohortTraversalViewModel.getSnapshot().isDefaultGroup,
     });
   }
 
@@ -1130,6 +1131,7 @@ export class UIManager extends EventEmitter {
 
   /** Map user dots: my published point plus a viewport loader; null hides them. */
   setMapUserDotSource(source: MapUserDotSource | null): void { this.chatroomShell().setMapUserDotSource(source); }
+  setActiveRooms(view: Parameters<ChatroomShellController['setActiveRooms']>[0]): void { this.chatroomShell().setActiveRooms(view); }
 
   setNearbyMapAssignment(assignment: NearbyRoomAssignment | null): void {
     this.nearbyMapArea = assignment ? nearbyMapArea(assignment) : undefined;

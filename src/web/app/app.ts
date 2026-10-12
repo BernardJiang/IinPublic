@@ -30,6 +30,8 @@ import {
 } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
 import { MapPresenceClient } from '../services/map-presence-client';
+import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
+import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
 import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
 import { QUIET_GPS_REFRESH_MS, quietStateFor, shouldRefreshQuietGps, type QuietState } from '../../shared/quiet-places';
 import { setCachedLocation } from '../services/location-cache';
@@ -342,6 +344,9 @@ export class IinPublicApp {
   private travelChatroomId: string | undefined = undefined;
   private travelNearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
   private mapPresenceClient: MapPresenceClient | null = null;
+  private activeRoomsTimer: ReturnType<typeof setInterval> | undefined;
+  private activeRoomsLimit = ACTIVE_ROOMS_PAGE;
+  private activeRoomsRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   /** Quiet places / schedule / "Quiet now" (shared/quiet-places.ts), re-checked every minute. */
   private quietState: QuietState = { active: false };
   private quietTimer: ReturnType<typeof setInterval> | undefined;
@@ -1635,6 +1640,7 @@ export class IinPublicApp {
     }
     this.startQuietWatch();
     this.startMapPresence();
+    this.startActiveRooms();
     if (this.locationConfirmed) {
       void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch(() => {});
     }
@@ -1851,6 +1857,38 @@ export class IinPublicApp {
     return precision === null ? null : snapPublicLocation(travel, precision);
   }
 
+  /** Room list: every room with ≥ 1 person, refreshed every 20 s and on demand. */
+  private startActiveRooms(): void {
+    if (this.activeRoomsTimer) return;
+    this.activeRoomsTimer = setInterval(() => { void this.refreshActiveRooms(); }, 20_000);
+    // Coalesce bursts of roster changes (a split moves several people at once).
+    this.uiManager.on('activeRoomsRefresh', () => {
+      if (this.activeRoomsRefreshTimer) clearTimeout(this.activeRoomsRefreshTimer);
+      this.activeRoomsRefreshTimer = setTimeout(() => { void this.refreshActiveRooms(); }, 1_500);
+    });
+    this.uiManager.on('activeRoomsQueryChanged', (change: { showMore?: boolean } | undefined) => {
+      this.activeRoomsLimit = change?.showMore ? this.activeRoomsLimit + ACTIVE_ROOMS_PAGE : ACTIVE_ROOMS_PAGE;
+      void this.refreshActiveRooms();
+    });
+    void this.refreshActiveRooms();
+  }
+
+  private async refreshActiveRooms(): Promise<void> {
+    if (!this.currentUser) return;
+    const origin = this.mapPresenceLocation();
+    try {
+      const view = await fetchActiveRooms(this.getBackendApiBase(), {
+        ...(origin ? { origin: { latitude: origin.latitude, longitude: origin.longitude } } : {}),
+        ...(this.currentChatroomId ? { currentRoomId: this.currentChatroomId } : {}),
+        sort: getRoomListSort(),
+        limit: this.activeRoomsLimit,
+      });
+      this.uiManager.setActiveRooms(view);
+    } catch (error) {
+      console.warn('Room list refresh failed (non-fatal):', error);
+    }
+  }
+
   private startMapPresence(): void {
     if (this.mapPresenceTimer) return;
     this.mapPresenceTimer = setInterval(() => { void this.publishMapPresenceNow(); }, MAP_PRESENCE_REFRESH_MS);
@@ -1886,6 +1924,7 @@ export class IinPublicApp {
     } catch (error) {
       console.warn('Map presence publish failed (non-fatal):', error);
     }
+    void this.refreshActiveRooms(); // distances follow where I now appear
     const key = JSON.stringify({ location, traveler: this.appearsAsTraveler() });
     if (key === this.mapPresenceShownKey) return;
     this.mapPresenceShownKey = key;
@@ -9146,6 +9185,16 @@ export class IinPublicApp {
 
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
+      // Not traveling but visiting another group of the same area: 🏠 returns to the default group.
+      const cohort = this.nearbyCohortTraversalClient;
+      if (!this.travelModeActive && cohort && !cohort.getSnapshot().isDefaultGroup) {
+        await cohort.returnToDefaultGroup().catch((error) => {
+          console.warn('Returning to the default group failed:', error);
+        });
+        // The switch itself re-renders the list and re-syncs 🏠 (setCurrentChatroomId).
+        if (this.currentChatroomId) this.uiManager.setCurrentChatroomId(this.currentChatroomId);
+        return;
+      }
       const home = await this.resolveAutomaticNearbyRoom();
       this.travelModeActive = false;
       this.travelChatroomId = undefined;
@@ -9753,6 +9802,8 @@ export class IinPublicApp {
     // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
     console.log('🧹 Manual cleanup called');
     this.stopMapPresence();
+    if (this.activeRoomsTimer) clearInterval(this.activeRoomsTimer);
+    this.activeRoomsTimer = undefined;
     if (this.quietTimer) clearInterval(this.quietTimer);
     if (this.quietGpsTimer) clearInterval(this.quietGpsTimer);
     this.quietTimer = undefined;

@@ -67,6 +67,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   /** Set by the app once map presence works; the room roster decides which dots are green. */
   let mapUserDotSource: MapUserDotSource | undefined;
   let roomMembers: ReadonlyArray<{ userId: string }> = [];
+  let activeRooms: ChatroomsViewDeps['activeRooms'];
 
   const viewDeps = (): ChatroomsViewDeps => {
     const nearbyMapArea = deps.getNearbyMapArea?.();
@@ -85,6 +86,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     cohortTraversal: deps.getCohortTraversalViewModel?.() ?? localCohortTraversal,
       ...(nearbyMapArea ? { nearbyMapArea } : {}),
       ...(mapUserDots ? { mapUserDots } : {}),
+      ...(activeRooms ? { activeRooms } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
       deps.setCurrentChatroom(chatroomId);
@@ -120,6 +122,9 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     currentUserId: string,
   ): void => {
     deps.setCurrentUserId(currentUserId);
+    // Someone joined or left my room: refresh the room list so every headcount stays current.
+    const memberKey = members.map((member) => member.userId).sort().join(',');
+    if (memberKey !== roomMembers.map((member) => member.userId).sort().join(',')) deps.emit('activeRoomsRefresh', {});
     roomMembers = members;
     for (const member of members) {
       if (member.userId && member.stageName) deps.rememberPeerName(member.userId, member.stageName);
@@ -208,6 +213,12 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     }
   };
 
+  /** The room list from the hub; re-render whichever chatroom view is showing. */
+  const setActiveRooms = (view: NonNullable<ChatroomsViewDeps['activeRooms']>): void => {
+    activeRooms = view;
+    renderChatroomList();
+  };
+
   const setMapUserDotSource = (source: MapUserDotSource | null): void => {
     mapUserDotSource = source ?? undefined;
     if (deps.getChatroomBrowseMode() === 'map') renderChatroomList();
@@ -216,6 +227,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   return {
     handleCreateCustomChatroomClick,
     setMapUserDotSource,
+    setActiveRooms,
     renderChatroomList,
     showChatroomDetail,
     showChatroomList,
