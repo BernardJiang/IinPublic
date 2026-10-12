@@ -34,6 +34,9 @@ export class NearbyMapDemo {
   readonly contexts: BrowserContext[] = [];
   readonly frames: Array<{ label: string; step: string; diameter: string }> = [];
 
+  /** Windows (and frame cells) per row in list/grid mode: 2 for four users, 4 for up to eight. */
+  gridColumns = 2;
+
   constructor(private readonly info: TestInfo, private readonly url: string, readonly view: DemoView = 'map') {}
 
   /** `large` users get a big window, the rest small side windows; every window is recorded. */
@@ -42,8 +45,9 @@ export class NearbyMapDemo {
     const index = Number(label.slice(1)) - 1;
     const list = this.view === 'list';
     const size = list ? GRID_SIZE : large ? { width: 900, height: 950 } : { width: 480, height: 650 };
+    const columns = this.gridColumns;
     const position = list
-      ? `${(index % 2) * (GRID_SIZE.width + 10)},${Math.floor(index / 2) * (GRID_SIZE.height + 90)}`
+      ? `${(index % columns) * (GRID_SIZE.width + 10)},${Math.floor(index / columns) * (GRID_SIZE.height + 90)}`
       : large ? `${slot * 120},${slot * 40}` : `${900 + slot * 60},${slot * 60}`;
     const browser = await chromium.launch({
       headless,
@@ -101,8 +105,9 @@ export class NearbyMapDemo {
    * List view: caption every user's window, screenshot all four, and save them as one 2×2 image
    * (U1 U2 / U3 U4) so a single frame shows who is in which group.
    */
-  async captureGrid(pages: Record<string, Page>, step: string): Promise<void> {
-    const labels = Object.keys(pages).sort();
+  async captureGrid(pages: Record<string, Page>, step: string, suffix = 'list'): Promise<void> {
+    const labels = Object.keys(pages).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    const columns = this.gridColumns;
     const shots: PNG[] = [];
     for (const label of labels) {
       const page = pages[label]!;
@@ -117,10 +122,10 @@ export class NearbyMapDemo {
     for (const label of labels) shots.push(PNG.sync.read(await pages[label]!.screenshot()));
     const cellW = Math.max(...shots.map((shot) => shot.width));
     const cellH = Math.max(...shots.map((shot) => shot.height));
-    const grid = new PNG({ width: cellW * 2 + 6, height: cellH * Math.ceil(shots.length / 2) + 6 });
+    const grid = new PNG({ width: (cellW + 6) * columns, height: (cellH + 6) * Math.ceil(shots.length / columns) });
     grid.data.fill(255);
-    shots.forEach((shot, i) => PNG.bitblt(shot, grid, 0, 0, shot.width, shot.height, (i % 2) * (cellW + 6), Math.floor(i / 2) * (cellH + 6)));
-    const name = `${String(this.frames.length).padStart(2, '0')}-list`;
+    shots.forEach((shot, i) => PNG.bitblt(shot, grid, 0, 0, shot.width, shot.height, (i % columns) * (cellW + 6), Math.floor(i / columns) * (cellH + 6)));
+    const name = `${String(this.frames.length).padStart(2, '0')}-${suffix}`;
     const path = this.info.outputPath(`${name}.png`);
     const body = PNG.sync.write(grid);
     fs.writeFileSync(path, body);

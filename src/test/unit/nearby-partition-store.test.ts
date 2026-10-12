@@ -153,4 +153,37 @@ describe('NearbyPartitionStore', () => {
     expect(joined.transitions).toEqual([]);
     expect(joined.roomWitnessCount).toBe(2);
   });
+
+  it('below the privacy floor, a split divides the witnesses half and half (balanced lanes)', async () => {
+    const store = new NearbyPartitionStore();
+    const cp: RoomProtocolCheckpoint = { ...checkpoint, chatroomCapacity: 3 };
+    const root = nearbyPartitionRootGroup(cp);
+    // An accuracy wider than the world leaves no geographic depth: only lanes can divide them.
+    const vague = { ...location, accuracy: 30_000_000 };
+    const pairs = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const at = new Date('2026-10-10T12:00:00.000Z');
+    let transitions: any[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      transitions = (await store.register(await createNearbyControlPresence({
+        userId: `member-${index}`, pair: pairs[index]!, rootRoomId: root.roomId,
+        assignment: nearbyPartitionAssignment({ group: root, location: vague, mode: 'neighborhood', checkpoint: cp }),
+        checkpoint: cp, now: at,
+      }), at)).transitions;
+    }
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0].laneThreshold).toMatch(/^[a-f0-9]{64}$/);
+    const lanes = await Promise.all(pairs.map(async (pair) => (await applyNearbyPartitionTransitions({
+      location: vague, mode: 'neighborhood', identity: pair.pub, checkpoint: cp, transitions,
+    })).group.path));
+    const counts = lanes.reduce((tally, path) => tally.set(path, (tally.get(path) ?? 0) + 1), new Map<string, number>());
+    expect([...counts.values()].sort()).toEqual([2, 2]);
+    expect([...counts.keys()].sort()).toEqual(['0', '1']);
+
+    // A threshold that does not match the witnesses is rejected by every client.
+    const tampered = { ...transitions[0], laneThreshold: '0'.repeat(64) };
+    const result = await applyNearbyPartitionTransitions({
+      location: vague, mode: 'neighborhood', identity: pairs[0]!.pub, checkpoint: cp, transitions: [tampered],
+    });
+    expect(result.group.roomId).toBe(root.roomId);
+  });
 });

@@ -52,7 +52,20 @@ type ChatroomMapOptions = {
   visitsText: (count: number) => string;
   /** People on the map: a star for me, green for my room (Talks), yellow for everyone else. */
   userDots?: MapUserDots;
+  /** Every other room's square, each in its own colour (my own room stays the green shading). */
+  otherRoomAreas?: ReadonlyArray<OtherRoomArea>;
 };
+
+export type OtherRoomArea = { id: string; west: number; south: number; east: number; north: number; color: string };
+
+/** Distinct, stable colours for other rooms (never my room's green). Same room → same colour for everyone. */
+const OTHER_ROOM_COLORS = ['#2563eb', '#9333ea', '#ea580c', '#db2777', '#0891b2', '#ca8a04', '#7c3aed', '#dc2626', '#0d9488', '#4f46e5'];
+
+export function otherRoomColor(roomId: string): string {
+  let hash = 0;
+  for (let i = 0; i < roomId.length; i++) hash = (hash * 31 + roomId.charCodeAt(i)) >>> 0;
+  return OTHER_ROOM_COLORS[hash % OTHER_ROOM_COLORS.length]!;
+}
 
 /** What the app supplies: my published point and a viewport loader. */
 export type MapUserDotSource = {
@@ -123,6 +136,29 @@ const CURRENT_TILE_SOURCE_ID = 'iinpublic-tile-current';
 const SELECTED_TILE_SOURCE_ID = 'iinpublic-tile-selected';
 const NEARBY_AREA_SOURCE_ID = 'iinpublic-nearby-area';
 const USER_DENSITY_SOURCE_ID = 'iinpublic-user-density';
+const OTHER_ROOMS_SOURCE_ID = 'iinpublic-other-rooms';
+
+function otherRoomsGeoJson(areas: ReadonlyArray<OtherRoomArea> | undefined) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: (areas ?? []).map((area) => ({
+      type: 'Feature' as const,
+      properties: { color: area.color, roomId: area.id },
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [[
+          [area.west, area.south], [area.east, area.south], [area.east, area.north], [area.west, area.north], [area.west, area.south],
+        ]],
+      },
+    })),
+  };
+}
+
+function updateOtherRoomAreas(state: MapState): void {
+  const source = state.map.getSource(OTHER_ROOMS_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
+  source?.setData(otherRoomsGeoJson(state.options.otherRoomAreas) as never);
+  state.options.container.dataset.otherRoomAreas = String(state.options.otherRoomAreas?.length ?? 0);
+}
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
 let mapLibrePromise: Promise<MapLibre> | undefined;
 
@@ -350,6 +386,8 @@ function roomMarkerElement(options: ChatroomMapOptions, room: ChatroomMapRoom): 
   marker.className = `chatroom-map-marker${room.id === options.currentChatroom ? ' current-room' : ''}`;
   marker.dataset.chatroomId = room.id;
   marker.title = room.name;
+  // A Nearby room's pin matches its square's colour.
+  if (room.id !== options.currentChatroom && isNearbyRoomId(room.id)) marker.style.background = otherRoomColor(room.id);
   marker.setAttribute(
     'aria-label',
     `${room.name}. ${options.membersText(room.memberCount)}. ${options.visitsText(room.visitCount)}`,
@@ -569,6 +607,20 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
     map.on('moveend', () => scheduleUserDots(maplibre, state));
+    // Other rooms first, so my own (green) area is drawn on top of them.
+    map.addSource(OTHER_ROOMS_SOURCE_ID, { type: 'geojson', data: otherRoomsGeoJson(state.options.otherRoomAreas) as never });
+    map.addLayer({
+      id: 'iinpublic-other-rooms-fill',
+      type: 'fill',
+      source: OTHER_ROOMS_SOURCE_ID,
+      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.12 },
+    });
+    map.addLayer({
+      id: 'iinpublic-other-rooms-line',
+      type: 'line',
+      source: OTHER_ROOMS_SOURCE_ID,
+      paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.85, 'line-dasharray': [3, 2] },
+    });
     map.addSource(NEARBY_AREA_SOURCE_ID, {
       type: 'geojson',
       data: nearbyAreaGeoJson(state.options.nearbyMapArea) as never,
@@ -824,6 +876,7 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
     updateSource(state);
     updateCurrentTile(state);
     updateNearbyArea(state);
+    updateOtherRoomAreas(state);
     focusCurrentRoom(state);
     updateTileGrid(state);
     scheduleUserDots(maplibre, state, 0);

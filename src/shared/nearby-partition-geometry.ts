@@ -121,6 +121,28 @@ export function nearbyPartitionTargetPoint(input: {
 }
 
 /**
+ * The map square of the group at `path` as a member with this setting would see it (geographic
+ * digits only; lanes share their parent's square). Used to draw other rooms on the map.
+ */
+export function nearbyPartitionCellBounds(input: {
+  path: string;
+  mode: NearbyPublicMode;
+  near: { latitude: number; longitude: number };
+}): { west: number; south: number; east: number; north: number } {
+  assertPartitionPath(input.path);
+  const depth = maximumNearbyPartitionGeographicDepth({ location: { ...input.near, accuracy: 0, timestamp: new Date() }, mode: input.mode, maximumDepth: 24 });
+  const cell = cellForGeographicPath(input.path.slice(0, Math.min(depth, input.path.length)));
+  const southwest = unprojectNearbyCoordinate({ x: cell.minX, y: cell.minY });
+  const northeast = unprojectNearbyCoordinate({ x: cell.maxX, y: cell.maxY });
+  return {
+    west: Math.max(-180, southwest.longitude),
+    south: Math.max(-85.05112878, southwest.latitude),
+    east: Math.min(180, northeast.longitude),
+    north: Math.min(85.05112878, northeast.latitude),
+  };
+}
+
+/**
  * Resolve map/display geometry from the geographic prefix only. Callers may supply a protocol's
  * explicit geographic depth; legacy paths infer the greatest depth allowed by this member's floor.
  */

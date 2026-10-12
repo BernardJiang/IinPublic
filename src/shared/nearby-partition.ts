@@ -65,6 +65,13 @@ export type NearbyPartitionTransition = {
   fromGroups: NearbyPartitionGroup[];
   toGroups: NearbyPartitionGroup[];
   evidence: NearbyPartitionSplitEvidence | NearbyPartitionCoalesceEvidence;
+  /**
+   * Balanced identity lanes (splits only). Below a member's privacy floor, location cannot divide the
+   * group, so members split by a lane hash: below this threshold → child "0", otherwise → "1".
+   * It is the median hash over the split's own witnesses, so the witnesses divide about half and half
+   * and anyone can re-derive it from the evidence. Absent on older splits (legacy 1-in-4 lanes).
+   */
+  laneThreshold?: string;
   transitionId: string;
 };
 
@@ -118,8 +125,20 @@ function childPaths(path: string): string[] {
   return ['0', '1', '2', '3'].map((quadrant) => `${path}${quadrant}`);
 }
 
+/** A member's lane hash at one group: fresh per group path, so each lane split rebalances. */
+export function nearbyPartitionLaneKey(identity: string, groupPath: string): string {
+  return portableSha256Hex(`${PARTITION_DOMAIN}:balanced-lane:${groupPath}:${identity}`);
+}
+
+/** Median lane hash of the witnesses: the lower half goes to lane "0", the rest to lane "1". */
+export function balancedLaneThreshold(witnessPubs: readonly string[], groupPath: string): string {
+  const keys = [...new Set(witnessPubs)].map((pub) => nearbyPartitionLaneKey(pub, groupPath)).sort();
+  return keys[Math.floor(keys.length / 2)] ?? 'f'.repeat(64);
+}
+
 function transitionPayload(transition: Omit<NearbyPartitionTransition, 'transitionId'>): unknown {
   return {
+    ...(transition.laneThreshold ? { laneThreshold: transition.laneThreshold } : {}),
     type: 'iinpublic-nearby-partition-transition-v1',
     version: transition.version,
     kind: transition.kind,
@@ -182,6 +201,7 @@ export function createNearbyPartitionSplit(input: {
       roomId: groupRoomId(input.checkpoint, path, replacementSeed),
     })),
     evidence,
+    laneThreshold: balancedLaneThreshold(input.witnesses.map((witness) => witness.pub), input.fromGroup.path),
   };
   return { ...unsigned, transitionId: transitionIdFor(unsigned) };
 }
@@ -256,7 +276,9 @@ export function parseNearbyPartitionTransition(value: unknown): NearbyPartitionT
     || !Array.isArray(record.toGroups)
     || !record.evidence
     || typeof record.transitionId !== 'string'
-    || !/^[a-f0-9]{64}$/.test(record.transitionId)) return null;
+    || !/^[a-f0-9]{64}$/.test(record.transitionId)
+    || (record.laneThreshold !== undefined
+      && (typeof record.laneThreshold !== 'string' || !/^[a-f0-9]{64}$/.test(record.laneThreshold)))) return null;
   const fromGroups = record.fromGroups.map(parseGroup);
   const toGroups = record.toGroups.map(parseGroup);
   if (fromGroups.some((group) => !group) || toGroups.some((group) => !group)) return null;
@@ -315,6 +337,7 @@ export async function verifyNearbyPartitionTransition(
     fromGroups: transition.fromGroups,
     toGroups: transition.toGroups,
     evidence: transition.evidence,
+    ...(transition.laneThreshold ? { laneThreshold: transition.laneThreshold } : {}),
   };
   if (transition.transitionId !== transitionIdFor(unsigned)) {
     return { ok: false, reason: 'Nearby partition transition hash mismatch' };
@@ -335,6 +358,13 @@ export async function verifyNearbyPartitionTransition(
       || transition.fromGroups.length !== 1
       || transition.toGroups.length !== 4) {
       return { ok: false, reason: 'invalid Nearby split shape' };
+    }
+    if (transition.laneThreshold !== undefined
+      && transition.laneThreshold !== balancedLaneThreshold(
+        transition.evidence.witnesses.map((witness) => witness.pub),
+        transition.fromGroups[0]!.path,
+      )) {
+      return { ok: false, reason: 'Nearby split lane threshold does not match its witnesses' };
     }
     const from = transition.fromGroups[0]!;
     const expectedPaths = childPaths(from.path);
@@ -472,6 +502,28 @@ export function nearbyPartitionSelectorPath(
   return path;
 }
 
+/**
+ * Which child of a split this member follows. Above the privacy floor: the geographic quadrant of
+ * the declared location. Below it: the balanced lane (hash vs the split's threshold); a legacy split
+ * without a threshold keeps the old 1-in-4 identity digit.
+ */
+function nextSplitPath(
+  parentPath: string,
+  transition: NearbyPartitionTransition,
+  input: { location: GPSCoordinate; mode: NearbyPublicMode; identity?: string },
+): string {
+  const identity = String(input.identity || '');
+  const geographicDepth = maximumNearbyPartitionGeographicDepth({
+    location: input.location,
+    mode: input.mode,
+    maximumDepth: NEARBY_PARTITION_MAX_DEPTH,
+  });
+  if (parentPath.length >= geographicDepth && transition.laneThreshold) {
+    return `${parentPath}${nearbyPartitionLaneKey(identity, parentPath) < transition.laneThreshold ? '0' : '1'}`;
+  }
+  return nearbyPartitionSelectorPath(input.location, input.mode, parentPath.length + 1, identity);
+}
+
 export function nearbyPartitionAssignment(input: {
   group: NearbyPartitionGroup;
   location: GPSCoordinate;
@@ -571,12 +623,7 @@ export async function applyNearbyPartitionTransitions(input: {
     if (next.kind === 'coalesce-adjacent-groups') {
       group = next.toGroups[0]!;
     } else {
-      const wantedPath = nearbyPartitionSelectorPath(
-        input.location,
-        input.mode,
-        next.toGroups[0]!.path.length,
-        String(input.identity || ''),
-      );
+      const wantedPath = nextSplitPath(group.path, next, input);
       const replacement = next.toGroups.find((candidate) => candidate.path === wantedPath);
       if (!replacement) throw new Error('Nearby split does not cover the declared location');
       group = replacement;

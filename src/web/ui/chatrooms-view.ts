@@ -1,5 +1,5 @@
 import { getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
-import { nearbyPartitionTargetPoint } from '../../shared/nearby-partition-geometry';
+import { nearbyPartitionCellBounds, nearbyPartitionTargetPoint } from '../../shared/nearby-partition-geometry';
 import { loadConnectivitySettings } from './connectivity-settings';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { nearbyRoomName, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
@@ -24,7 +24,7 @@ import {
 } from '../../shared/nearby-rooms';
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots } from './chatroom-map-view';
+import { otherRoomColor, renderChatroomMap, type ChatroomMapRoom, type MapUserDots } from './chatroom-map-view';
 import { cohortStatusLine } from './cohort-traversal-controls';
 import type { CohortTraversalViewModel } from './cohort-traversal-view-model';
 
@@ -551,6 +551,17 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       ...(deps.nearbyMapArea ? { nearbyMapArea: deps.nearbyMapArea } : {}),
       ...(deps.mapUserDots ? { userDots: deps.mapUserDots } : {}),
       openChatroom: (chatroomId) => enterRoom(deps, chatroomId, roomRows.find((row) => row.roomId === chatroomId)),
+      otherRoomAreas: roomRows
+        .filter((row) => row.kind === 'nearby' && row.partitionPath !== undefined && row.latitude !== undefined && row.longitude !== undefined)
+        .map((row) => ({
+          id: row.roomId,
+          color: otherRoomColor(row.roomId),
+          ...nearbyPartitionCellBounds({
+            path: row.partitionPath!,
+            mode: loadConnectivitySettings().nearbyPrivacyMode,
+            near: { latitude: row.latitude!, longitude: row.longitude! },
+          }),
+        })),
       selectNearbyPoint: (location) => deps.emit('travelNearbyAtPoint', location),
       nearbyPointTitle: deps.text('chatroomNearbyPointTitle'),
       nearbyPointAction: deps.text('chatroomNearbyPointAction'),

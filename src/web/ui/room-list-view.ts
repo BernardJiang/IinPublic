@@ -3,6 +3,7 @@ import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { metersBetween, type ActiveRoomSort, type ActiveRoomSummary, type ActiveRoomsView } from '../../shared/active-rooms';
 import type { UiTranslationKey } from './ui-translations';
 import { formatDistance } from './distance-units';
+import { otherRoomColor } from './chatroom-map-view';
 
 /**
  * A room row in the flat list (and a pin on the map). A Nearby group is named by where it is from
@@ -108,7 +109,9 @@ export function renderRoomListHeader(view: ActiveRoomsView | undefined, sort: Ac
 
 /** One row; full rooms are shown but cannot be entered. */
 export function renderRoomListRow(row: RoomListRow, capacity: number, t: T, escapeHtml: (value: string) => string): string {
-  return `<div class="chatroom-item room-list-row ${row.full ? 'room-list-full' : ''}"
+  // Same colour as the room's square on the map, so list and map line up.
+  const stripe = row.kind === 'nearby' ? ` style="border-left: 5px solid ${otherRoomColor(row.roomId)}"` : '';
+  return `<div class="chatroom-item room-list-row ${row.full ? 'room-list-full' : ''}"${stripe}
        data-chatroom-id="${escapeHtml(row.roomId)}"
        data-room-kind="${row.kind === 'place' ? 'place' : 'nearby-other'}"
        data-testid="room-list-row"

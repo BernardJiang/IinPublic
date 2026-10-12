@@ -292,3 +292,90 @@ export async function runMinimumSplitSwitchDemo(info: TestInfo): Promise<NearbyM
   console.log(`[summary]\n${demo.summary()}`);
   return demo;
 }
+
+/**
+ * More than four users (spec stage4 14). U1–U3 stand in one smallest square, so with C = 3 they
+ * fit in the single worldwide room. Then newcomers arrive, each closer than the last; every arrival
+ * makes 4 in the trio's room, which splits until the newcomer separates. The last newcomer stands
+ * inside the trio's own smallest square: 4 people in a region that cannot be divided by location.
+ * After each step every user looks at the list view, then the map view (one frame each).
+ */
+export const PROGRESSIVE_NEWCOMERS: Array<{ label: string; where: string; latitude: number; longitude: number }> = [
+  { label: 'U4', where: 'New York (~3,900 km)', latitude: 40.7128, longitude: -74.006 },
+  { label: 'U5', where: 'Los Angeles (~180 km)', latitude: 34.0522, longitude: -118.2437 },
+  { label: 'U6', where: 'La Jolla (~17 km)', latitude: 32.8328, longitude: -117.2713 },
+  { label: 'U7', where: 'the next smallest square (~1.4 km)', ...MINIMUM_SPLIT_SPOTS[3]! },
+  { label: 'U8', where: "inside the trio's own smallest square", latitude: 32.7132, longitude: -117.1641 },
+];
+
+export async function runProgressiveSplitDemo(info: TestInfo): Promise<NearbyMapDemo> {
+  const demo = new NearbyMapDemo(info, `/?e2e_capacity=${CAPACITY}`, 'list');
+  demo.gridColumns = 4;
+  const pages: Record<string, Page> = {};
+  const rejections: string[] = [];
+  const boot = async (label: string, spot: { latitude: number; longitude: number }) => {
+    const page = await demo.boot(label, spot, Number(label.slice(1)) - 1, false);
+    page.on('console', (message) => {
+      if (/cannot be subdivided|bounded group limit/.test(message.text())) rejections.push(`${label}: ${message.text()}`);
+    });
+    await demo.show(page);
+    pages[label] = page;
+  };
+  /** Every user checks the list, then the map; one frame of all screens for each view. */
+  const lookBothWays = async (step: string) => {
+    for (const page of Object.values(pages)) await openList(page);
+    await demo.captureGrid(pages, `${step} — list`, 'list');
+    for (const page of Object.values(pages)) await openMap(page);
+    await Object.values(pages)[0]!.waitForTimeout(1_500); // map tiles + dots
+    await demo.captureGrid(pages, `${step} — map`, 'map');
+    for (const page of Object.values(pages)) await openList(page);
+  };
+  const log: string[] = [];
+  const record = async (step: string) => {
+    const rooms = await occupancy(pages);
+    const areas = await Promise.all(Object.keys(pages).map(async (label) => {
+      const area = await areaOf(pages[label]!);
+      return `${label}:${area ? formatDiameter(area.approximateDiameterMeters) : '?'}`;
+    }));
+    const line = `${step}: ${describeOccupancy(rooms)} | areas ${areas.join(' ')}`;
+    log.push(line);
+    console.log(`[step] ${line}`);
+    for (const [room, labels] of rooms) expect(labels.length, `${room} holds ${labels.join(',')}`).toBeLessThanOrEqual(CAPACITY);
+    return rooms;
+  };
+
+  // The trio: three people, capacity three — one worldwide room, no split.
+  for (let i = 0; i < 3; i++) await boot(`U${i + 1}`, MINIMUM_SPLIT_SPOTS[i]!);
+  await waitUntilSettled(pages, 20_000, 120_000);
+  const start = await record('U1–U3 in one smallest square');
+  expect(start.size, 'three users fit in the single worldwide room').toBe(1);
+  await lookBothWays('U1–U3: one worldwide room (3 / 3)');
+
+  for (const newcomer of PROGRESSIVE_NEWCOMERS) {
+    await boot(newcomer.label, newcomer);
+    await caption(pages.U1!, `${newcomer.label} joined from ${newcomer.where}`);
+    await waitUntilSettled(pages, QUIET_MS, 900_000);
+    const rooms = await record(`${newcomer.label} joined from ${newcomer.where}`);
+    const trioRoom = await roomOf(pages.U1!);
+    await lookBothWays(`${newcomer.label} from ${newcomer.where}: ${rooms.size} rooms`);
+    if (newcomer.label !== 'U8') {
+      // The newcomer always ends up apart from the trio, who stay together.
+      expect([await roomOf(pages.U2!), await roomOf(pages.U3!)]).toEqual([trioRoom, trioRoom]);
+      expect(await roomOf(pages[newcomer.label]!), `${newcomer.label} separates from the trio`).not.toBe(trioRoom);
+    }
+  }
+
+  // Four people in one smallest region: location cannot divide them any further.
+  const smallest = await Promise.all(['U1', 'U2', 'U3', 'U8'].map(async (label) => ({ label, room: await roomOf(pages[label]!), area: await areaOf(pages[label]!) })));
+  const sameArea = new Set(smallest.map((entry) => `${entry.area?.west},${entry.area?.south}`)).size === 1;
+  const lanes = new Map<string, string[]>();
+  for (const entry of smallest) lanes.set(entry.room, [...(lanes.get(entry.room) ?? []), entry.label]);
+  const outcome = rejections.length > 0
+    ? `rejected: ${rejections.join('; ')}`
+    : `split by identity lanes into ${lanes.size} groups (${[...lanes.values()].map((l) => l.join('+')).join(' / ')}), ${sameArea ? 'all on the same map square' : 'on different squares'}`;
+  console.log(`[outcome] 4 users in one smallest region → ${outcome}`);
+  expect(sameArea, 'the four share the smallest region on the map').toBe(true);
+  expect(rejections.length > 0 || lanes.size > 1, 'either the index rejects the 4th user or lanes divide them').toBe(true);
+  console.log(`[log]\n  ${log.join('\n  ')}`);
+  return demo;
+}

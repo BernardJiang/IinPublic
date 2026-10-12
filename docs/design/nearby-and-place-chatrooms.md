@@ -494,6 +494,17 @@ geographic digits end and the identity-lane digits begin.
 map-presence index. Embedded phone nodes relay the request to the hub. The response shows no more
 than the map already does: a position and a headcount per room.
 
+**Map colours:** every other Nearby room is drawn as a dashed square in its own colour, with a
+matching pin and a matching stripe on its list row. The colour is derived from the room id, so
+everyone sees the same colour for the same room. Your own room keeps the solid green shading.
+
+**Balanced lanes:** below a member's privacy floor, a split divides people by a lane hash rather
+than by location. Each split carries a `laneThreshold`: the median lane hash of its own C + 1
+signed witnesses. Members below the threshold take child "0" and the rest take "1", so the split
+is roughly half and half (2 / 2 for C = 3) and less likely to split again. Every client
+re-derives the threshold from the evidence and rejects a split whose threshold does not match.
+Older splits without a threshold keep the legacy 1-in-4 identity digit.
+
 **Known limit:** groups of the same area that differ only by identity lane cannot be targeted by
 travel. Travel lands in your own lane.
 
