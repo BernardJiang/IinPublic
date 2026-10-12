@@ -2,6 +2,7 @@ import {
   encodeBlePresence,
   encodeNearbyTxt,
   deriveOfflineGroupCredentials,
+  OFFLINE_GROUP_NAME_PREFIX,
   lanGunPeerUrl,
   NEARBY_LAN_TTL_MS,
   NEARBY_RECORD_TTL_MS,
@@ -69,12 +70,13 @@ export type NearbyStatus =
 export type NearbyReadinessGap = 'permission' | 'wifi' | 'location' | 'bluetooth';
 
 export type NearbyOfflineEvent =
-  | { type: 'lan-peer'; id: string; url: string }
+  | { type: 'lan-peer'; url: string }
   | { type: 'wd-record'; id: string; hosting: boolean; via: 'ble' | 'dns-sd' }
   | { type: 'plan'; plan: OfflineGroupPlan }
   | { type: 'fallback'; plan: WifiOnlyPlan }
   | { type: 'group'; state: WifiDirectNativeState['state']; localIp?: string; ownerIp?: string }
   | { type: 'wifi-direct'; active: boolean; reason?: string }
+  | { type: 'stale-group-left'; networkName: string }
   | { type: 'stage'; stage: DiscoveryStage; lanNsd: boolean; bleScan: boolean; wifiDirectDiscovery: boolean };
 
 export type NearbyOfflineServiceOptions = {
@@ -149,6 +151,10 @@ export class NearbyOfflineService {
   private lanAllowed: boolean;
   private bleState = '';
   private readonly peeredUrls = new Set<string>();
+  /** LAN phones seen over NSD. Gun-peered only while the hub is unreachable (see `peerLanPhones`). */
+  private readonly lanUrls = new Set<string>();
+  /** Hub reachability from the last tick; null before the first. */
+  private hubOnline: boolean | null = null;
   private wifiDirectActive = false;
   private permissionDenied = false;
   private reportedGaps = new Set<NearbyReadinessGap>();
@@ -194,11 +200,25 @@ export class NearbyOfflineService {
       || !roomToken.startsWith(advertisedRoomPrefix)
       || peerId === this.id || peerId.endsWith(`-${this.id}`)) return;
     this.registry.observe({ source: 'lan', discoveryId: peerId.slice(-12), seenAt: this.now(), roomVerified: false, route: url });
-    if (this.peeredUrls.has(url)) return;
-    this.peeredUrls.add(url);
-    this.opts.addGunPeer(url);
-    this.opts.onEvent?.({ type: 'lan-peer', id: peerId, url });
+    this.lanUrls.add(url);
+    this.peerLanPhones();
   };
+
+  /**
+   * Direct Gun links to LAN phones only while the hub is unreachable. Online, every LAN phone is
+   * already reached through the hub, and a full LAN mesh on top floods each write between every
+   * pair: on four phones it slowed Talk delivery from ~12 s to minutes and lost the backgrounded
+   * receiver's Talk (native-app/30, 2026-10-11). NSD keeps running online as proximity evidence.
+   */
+  private peerLanPhones(): void {
+    if (this.hubOnline !== false) return;
+    for (const url of this.lanUrls) {
+      if (this.peeredUrls.has(url)) continue;
+      this.peeredUrls.add(url);
+      this.opts.addGunPeer(url);
+      this.opts.onEvent?.({ type: 'lan-peer', url });
+    }
+  }
 
   private readonly serviceEvent = (event: Event): void => {
     const detail = (event as CustomEvent<{ txt?: unknown; deviceAddress?: unknown }>).detail;
@@ -306,7 +326,7 @@ export class NearbyOfflineService {
   /** Plain-language state for the Settings screen. */
   getStatus(): NearbyStatus {
     const state = this.opts.native.getState();
-    const lanPhones = this.peeredUrls.size === 0 ? 0 : [...this.peeredUrls].filter((url) => !url.includes('192.168.49.')).length;
+    const lanPhones = this.lanUrls.size;
     if ((state.state === 'owner' || state.state === 'client') && state.networkName === this.currentCredentials()?.networkName) {
       return {
         kind: 'wifi-direct',
@@ -411,8 +431,19 @@ export class NearbyOfflineService {
       const state = this.opts.native.getState();
       const inGroup = state.state === 'owner' || state.state === 'client';
       const ourGroup = inGroup && state.networkName === this.currentCredentials()?.networkName;
+      // A room group from an earlier room token or app process (the OS keeps a Wi-Fi Direct group
+      // after the app is killed or its data cleared) is never ours: leave it, or it blocks hosting
+      // and joining the current room's group forever. Other apps' groups are left alone.
+      if (inGroup && !ourGroup && state.networkName?.startsWith(OFFLINE_GROUP_NAME_PREFIX)) {
+        this.ownsGroup = false;
+        this.opts.onEvent?.({ type: 'stale-group-left', networkName: state.networkName });
+        this.opts.native.leaveGroup();
+        return;
+      }
       const offline = !(await this.opts.hubReachable().catch(() => false));
       if (this.disposed) return;
+      this.hubOnline = !offline;
+      this.peerLanPhones();
       const now = this.now();
       // Online, the beacon runs only with an already-granted permission: no OS prompt mid-exchange.
       const bleAvailable = discoveryProviderAvailability('bluetooth', this.blePresence, env);
@@ -736,6 +767,8 @@ export class NearbyOfflineService {
       : null;
     for (const url of this.peeredUrls) {
       if (url.includes('://192.168.49.') && url !== ownerUrl) continue;
+      // LAN phones only while offline (see `peerLanPhones`); a link made offline lapses online.
+      if (this.hubOnline !== false && this.lanUrls.has(url)) continue;
       this.opts.addGunPeer(url);
     }
     if (ownerUrl && !this.peeredUrls.has(ownerUrl)) {

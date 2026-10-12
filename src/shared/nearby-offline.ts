@@ -25,10 +25,13 @@ import type { ActiveRoomScope } from './active-exchange-room';
  */
 
 /** Per-room/session credentials. There is intentionally no app-wide fallback credential. */
+/** Every room group's SSID starts with this; any other Wi-Fi Direct group is not the app's. */
+export const OFFLINE_GROUP_NAME_PREFIX = 'DIRECT-iP-';
+
 export function deriveOfflineGroupCredentials(scope: ActiveRoomScope): WifiDirectGroupCredentials {
   const digest = portableSha256Hex(`iinpublic:wifi-direct-room:v1:${scope.roomToken}`);
   return {
-    networkName: `DIRECT-iP-${digest.slice(0, 16)}`,
+    networkName: `${OFFLINE_GROUP_NAME_PREFIX}${digest.slice(0, 16)}`,
     passphrase: digest.slice(0, 32),
   };
 }

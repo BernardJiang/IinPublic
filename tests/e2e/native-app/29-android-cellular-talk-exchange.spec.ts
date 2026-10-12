@@ -32,6 +32,8 @@ const RUN = process.env.E2E_REAL_ANDROID_CELLULAR === '1';
 const HUB = process.env.NATIVE_APP_CELLULAR_HUB?.trim() || 'https://www.iinpublic.com/gun';
 const CELLULAR_SERIAL = process.env.NATIVE_APP_ANDROID_CELLULAR?.trim() || '';
 const WIFI_SERIAL = process.env.NATIVE_APP_ANDROID_WIFI_PEER?.trim() || '';
+/** Diagnostic: keep Wi-Fi on the SIM phone too, to tell a cellular-path failure from a hub one. */
+const BOTH_WIFI = process.env.E2E_CELLULAR_BOTH_WIFI === '1';
 
 type Peer = { name: string; serial: string; user: AndroidUser; id: string };
 
@@ -107,11 +109,13 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
     test.setTimeout(600_000);
 
     for (const serial of [CELLULAR_SERIAL, WIFI_SERIAL]) await wakeAndUnlock(serial);
-    await setWifi(CELLULAR_SERIAL, false);
-    await expect.poll(() => onCellularOnly(CELLULAR_SERIAL), {
-      timeout: 30_000,
-      message: 'cellular phone should be on mobile data only',
-    }).toBe(true);
+    if (!BOTH_WIFI) {
+      await setWifi(CELLULAR_SERIAL, false);
+      await expect.poll(() => onCellularOnly(CELLULAR_SERIAL), {
+        timeout: 30_000,
+        message: 'cellular phone should be on mobile data only',
+      }).toBe(true);
+    }
 
     await Promise.all([resetAndroidAppData(CELLULAR_SERIAL), resetAndroidAppData(WIFI_SERIAL)]);
     for (const [name, serial] of [['cellular', CELLULAR_SERIAL], ['wifi', WIFI_SERIAL]] as const) {
@@ -126,7 +130,7 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
     }
     const [cell, wifi] = peers;
     expect(await hubReachableFromPhone(CELLULAR_SERIAL)).toBe(true);
-    expect(await onCellularOnly(CELLULAR_SERIAL)).toBe(true);
+    if (!BOTH_WIFI) expect(await onCellularOnly(CELLULAR_SERIAL)).toBe(true);
 
     const runId = `cellular-${Date.now()}`;
     await Promise.all(peers.map((peer) => forceJoinRoom(peer.user.window, runId)));

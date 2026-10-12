@@ -641,6 +641,13 @@ phrase complexity into normal use.
     and loopback origins (tested), so converting them is a separate, much larger refactor with no
     corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
+- [ ] **OPEN-50 — A backgrounded phone misses a Talk while LAN NSD is running (found 2026-10-11,
+  1.0.127).** `native-app/30` LAN leg (P30, PH-1, C10, FRD): discovery and the Talk ring now pass, but
+  the Talk sent to the backgrounded C10 never arrives after it returns to the foreground. The same run
+  with LAN discovery off (`E2E_NEARBY_LAN_OFF=1`) passes, and so did the first run, where the sender
+  was not on the LAN. Also: every phone logs "Updating member count" two to three times a second for
+  a 4-person room, which floods logcat and may be related. Find why, fix, and rerun the LAN leg.
+
 - [ ] **OPEN-29 — Add an independent emergency recovery authority.** Single offline recovery key
   (product owner decision 2026-09-22 — a solo-operator deployment doesn't yet justify an M-of-N
   threshold; the anchor-list-based design extends to one later without breaking clients). A real

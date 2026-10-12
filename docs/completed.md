@@ -1,6 +1,35 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
+
+## 2026-10-11 — Phone discovery matrix: LAN, Wi-Fi Direct, cellular fixes (OPEN-47, OPEN-48, OPEN-49)
+
+Found by running the discovery transports on five physical phones (HONOR FCP-AN10 with SIM, P30,
+PH-1, C10, HONOR FRD on Android 7), version 1.0.127.
+
+- **OPEN-47 — LAN NSD.** (1) `forceJoinRoom` (`tests/e2e/native-app/helpers/native-app.ts`) replaced
+  the app's room-member callback with one that never fed the Nearby roster, so the phone that joined
+  first stayed `online-singleton` with NSD off. The helper now runs the same roster updates as the
+  app. (2) Android ≤ 13 phones can share one mDNS hostname (`Android-2.local` answered by PH-1 and
+  FRD), so a resolver took its own address and dropped the peer. Each phone now publishes its LAN
+  IPv4 in the NSD TXT record (`a=`) and resolvers prefer it (`NearbyConnectivityManager.kt`).
+  (3) Online, LAN phones are no longer Gun-peered: the full LAN mesh on top of the hub flooded every
+  write between every pair and slowed a Talk to the Android 7 phone from ~12 s to 68–113 s. Direct
+  LAN links are made only while the hub is unreachable (`NearbyOfflineService.peerLanPhones`).
+  Verified: `native-app/30` LAN leg now asserts every phone runs NSD and sees the other three; ring
+  Talks 15–24 s.
+- **OPEN-48 — offline Wi-Fi Direct.** Android keeps a Wi-Fi Direct group after the app is killed or
+  its data cleared. A leftover `DIRECT-iP-…` group from an earlier room token was "in a group, not
+  ours", so the phone neither left it nor formed the current one. The service now leaves any room
+  group whose name does not match the current credentials (other apps' groups are untouched), with
+  unit tests. `native-app/30` also drops a leftover group (Wi-Fi toggle) before a run, because a
+  cleared app has no permission to see it. Verified: P30, PH-1 and C10 form one offline group and
+  exchange Talks in a ring (19 s, 10 s, 11 s).
+- **OPEN-49 — cellular.** Not a cellular problem: `forceJoinRoom` never activated the room's
+  exchange, so since the active-room traffic partition every Talk body was rejected as outside the
+  receiver's active room. The helper now calls `activateRoomExchange` like a manual room selection.
+  Verified: `native-app/29` against iinpublic.com, HONOR on LTE ↔ C10 on Wi-Fi: Talks 11 s / 15 s,
+  match 0.6 s, DMs 7 s / 2 s.
 
 ## 2026-10-10 — Current Nearby capacity and verification simulations replace retired micro-rooms
 

@@ -211,6 +211,7 @@ import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-ge
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
 import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
+import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -312,7 +313,7 @@ export class UIManager extends EventEmitter {
   private lastNotifiedMessageIdByConversation: Map<string, string> = new Map();
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
-  private chatroomBrowseMode: 'list' | 'map' = 'list';
+  private chatroomBrowseMode: ChatroomBrowseMode = initialChatroomBrowseMode();
   private nearbyMapArea: NearbyMapArea | undefined;
   private expandedChatrooms = new Set<string>();
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
@@ -889,7 +890,7 @@ export class UIManager extends EventEmitter {
         getCohortTraversalViewModel: () => this.cohortTraversalViewModel,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
-        setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
+        setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; saveChatroomBrowseMode(mode); },
         setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
         setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
         setChatroomsDetailRoomId: (chatroomId) => { this.chatroomsDetailRoomId = chatroomId; },

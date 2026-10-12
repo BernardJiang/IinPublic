@@ -16,10 +16,26 @@ describe('startup chatroom first paint', () => {
 
     expect(document.querySelector('#chatroom-list')?.textContent).toContain('Contacts only');
     expect(document.querySelector('#status-bar-text')?.textContent).toBe('Connecting...');
-    expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('true');
-    expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-pressed')).toBe('false');
+    // Rooms open on the map by default.
+    expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.querySelector('#chatroom-list-view-btn')?.closest('#app-bar-actions')).not.toBeNull();
     expect(document.querySelector('.chatroom-view-toolbar')).toBeNull();
+    expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(false);
+  });
+
+  it('remembers the list view once the user switches to it', () => {
+    const ui = new UIManager();
+    ui.initialize();
+    ui.showStartupInterface();
+    (document.querySelector('#chatroom-list-view-btn') as HTMLButtonElement).click();
+    expect(localStorage.getItem('iinpublic_chatroom_browse_mode')).toBe('list');
+
+    document.body.innerHTML = '<div id="app"></div>';
+    const reopened = new UIManager();
+    reopened.initialize();
+    reopened.showStartupInterface();
+    expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('true');
     expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(true);
   });
 

@@ -380,16 +380,24 @@ export async function forceJoinRoom(page: Page, roomId: string): Promise<void> {
     app.uiManager?.setCurrentChatroomId?.(nextRoomId);
     app.chatroomService?.subscribeToMembers?.(nextRoomId, (members: Array<{ userId: string; stageName: string }>) => {
       if (app.currentChatroomId !== nextRoomId) return;
+      // Same per-update work as the app's own room callbacks: this one replaces them (single slot),
+      // and without the roster the Nearby discovery policy keeps a phone that joined first alone.
+      app.harvestRosterEpubs?.(members);
+      app.observeNearbyRoomRoster?.(nextRoomId, members);
       app.uiManager?.updateChatroomMembers?.(members, user.id);
       app.syncPeerMeshRoom?.(nextRoomId, members);
     });
+    // Manual room selection ends by activating the room's exchange (app.ts `chatroomChanged`);
+    // without it the receiver rejects every Talk body as outside its active room.
+    await app.activateRoomExchange?.(nextRoomId);
   }, roomId);
   await expect.poll(
     () => page.evaluate((expectedRoomId) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       return app?.currentChatroomId === expectedRoomId
         && app?.chatroomService?.getCurrentChatroomId?.() === expectedRoomId
-        && app?.peerMeshService?.getDiagnostics?.()?.roomId === expectedRoomId;
+        && app?.peerMeshService?.getDiagnostics?.()?.roomId === expectedRoomId
+        && app?.activeExchangeRoomController?.getActiveRoom?.()?.roomId === expectedRoomId;
     }, roomId),
     { timeout: 30_000, message: `native user should activate room ${roomId}` },
   ).toBe(true);

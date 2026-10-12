@@ -39,6 +39,8 @@ const ANDROID_DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDRO
 const RUN = process.env.E2E_REAL_ANDROID_FOUR_PHONE_NEARBY === '1';
 const BACKGROUND_ONLY = process.env.E2E_FOUR_PHONE_BACKGROUND_ONLY === '1';
 const OFFLINE_WIFI_DIRECT = process.env.E2E_NEARBY_OFFLINE_WIFI_DIRECT === '1';
+/** Diagnostic: hub path only, LAN NSD off (isolates LAN-peer effects on delivery). */
+const LAN_OFF = process.env.E2E_NEARBY_LAN_OFF === '1';
 const OFFLINE_PHONE_COUNT = Number(process.env.E2E_NEARBY_OFFLINE_PHONE_COUNT || '3');
 const FIXED_LOCATION = {
   latitude: 32.7157,
@@ -88,6 +90,26 @@ async function wakeAndUnlock(serial: string): Promise<void> {
   await adb(serial, 'wm', 'dismiss-keyguard').catch(() => '');
   await adb(serial, 'input', 'keyevent', 'KEYCODE_BACK').catch(() => '');
   await adb(serial, 'cmd', 'statusbar', 'collapse').catch(() => '');
+}
+
+/**
+ * Android keeps a Wi-Fi Direct group after the app that formed it is killed or its data cleared, and
+ * a cleared app has no permission left to see or remove it. A leftover group from an earlier offline
+ * run splits the radio between the access point and the group channel, so drop it with a Wi-Fi
+ * toggle before this run starts.
+ */
+async function dropLeftoverWifiDirectGroup(serial: string): Promise<void> {
+  const p2p = await adb(serial, 'dumpsys', 'wifip2p').catch(() => '');
+  if (!/groupFormed: true/.test(p2p)) return;
+  console.log(`[four-phone-nearby] ${serial}: dropping a leftover Wi-Fi Direct group`);
+  await adb(serial, 'svc', 'wifi', 'disable');
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  await adb(serial, 'svc', 'wifi', 'enable');
+  await expect.poll(async () => /inet \d/.test(await adb(serial, 'ip', '-4', 'addr', 'show', 'wlan0').catch(() => '')), {
+    timeout: 45_000,
+    intervals: [1_000, 2_000],
+    message: `${serial} should reconnect to Wi-Fi after dropping its Wi-Fi Direct group`,
+  }).toBe(true);
 }
 
 async function grantOfflineNearbyPermissions(serial: string, sdk: number): Promise<void> {
@@ -261,7 +283,15 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       const batteryAfter = await readBattery(peer.device.serial);
       const nearby = await peer.user.window.evaluate(() => {
         const service = (window as any).__iinpublicNearbyOffline;
-        return service ? { status: service.getStatus?.(), diagnostics: service.getDiagnostics?.() } : null;
+        const scope = (window as any).__iinpublic_app?.getApp?.()?.activeExchangeRoomController?.getScope?.();
+        return service ? {
+          status: service.getStatus?.(),
+          diagnostics: service.getDiagnostics?.(),
+          // Which group this phone considers its own right now (the name is broadcast over the air anyway).
+          expectedGroupName: service.currentCredentials?.()?.networkName ?? null,
+          scopeRoomId: scope?.roomId ?? null,
+          roomTokenPrefix: typeof scope?.roomToken === 'string' ? scope.roomToken.slice(0, 8) : null,
+        } : null;
       }).catch(() => null);
       diagnostics[peer.device.name] = {
         serial: peer.device.serial,
@@ -319,6 +349,7 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
 
     for (const device of available) {
       await wakeAndUnlock(device.serial);
+      await dropLeftoverWifiDirectGroup(device.serial);
       batteryBefore[device.serial] = await readBattery(device.serial);
     }
     console.log(`[four-phone-nearby] clearing only ${available.length} IinPublic app sandboxes`);
@@ -332,7 +363,7 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       const user = await launchAndroidUserViaAdb({
         hubGunUrl: hubUrl,
         deviceSerial: device.serial,
-        disableLanDiscovery: OFFLINE_WIFI_DIRECT,
+        disableLanDiscovery: OFFLINE_WIFI_DIRECT || LAN_OFF,
       });
       const id = await bootstrapNativeWindow(user.window, `Nearby ${index + 1}`, {
         waitForSupportGreeting: false,
@@ -381,6 +412,17 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
         intervals: [1_000, 2_000, 3_000],
         message: 'hub roster should contain all four Nearby users',
       }).toBe(4);
+
+      // Talks can travel over the hub alone; this proves every phone also found every other over LAN NSD.
+      if (!LAN_OFF) await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {
+        const diagnostics = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.();
+        const onLan = (diagnostics?.peers || []).filter((entry: { onLan?: boolean }) => entry.onLan).length;
+        return diagnostics?.lanNsd === true ? onLan : -1;
+      }))), {
+        timeout: 120_000,
+        intervals: [2_000, 3_000, 5_000],
+        message: 'every phone should run LAN NSD and see the other three phones on the LAN',
+      }).toEqual(peers.map(() => peers.length - 1));
     }
 
     const runId = `open40-nearby-${Date.now()}`;

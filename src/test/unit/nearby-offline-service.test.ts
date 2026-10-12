@@ -105,8 +105,32 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
 }
 
 describe('NearbyOfflineService', () => {
-  it('starts LAN discovery with the rotating id and peers Gun with each LAN phone once', async () => {
-    const t = setup({ hubReachable: true });
+  it('leaves a room group from an earlier room token so the current group can form', async () => {
+    const t = setup();
+    // The OS keeps a Wi-Fi Direct group after the app is killed or its data cleared.
+    t.native.set({ state: 'owner', networkName: 'DIRECT-iP-364d6efa71ae0ea9', clientCount: 1 });
+    await t.service.start();
+    expect(t.native.left).toBe(1);
+    expect(t.native.state.state).toBe('idle');
+    t.service.dispose();
+  });
+
+  it('keeps the current room group and other apps\' Wi-Fi Direct groups', async () => {
+    const ours = setup();
+    ours.native.set({ state: 'owner', networkName: TEST_GROUP_CREDENTIALS.networkName, clientCount: 1 });
+    await ours.service.start();
+    expect(ours.native.left).toBe(0);
+    ours.service.dispose();
+
+    const foreign = setup();
+    foreign.native.set({ state: 'client', networkName: 'DIRECT-xy-ScreenMirror' });
+    await foreign.service.start();
+    expect(foreign.native.left).toBe(0);
+    foreign.service.dispose();
+  });
+
+  it('starts LAN discovery with the rotating id and, offline, peers Gun with each LAN phone once', async () => {
+    const t = setup();
     await t.service.start();
     const id = await rotatingNearbyId('local-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
     expect(t.calls).toContain(`lan:8088:${id}:${TEST_ROOM_SCOPE.roomToken.slice(0, 8)}`);
@@ -428,8 +452,26 @@ describe('NearbyOfflineService join retry', () => {
 });
 
 describe('NearbyOfflineService keeps Gun peers alive', () => {
-  it('re-asserts LAN peers and the group owner every tick, but not a stale group URL', async () => {
+  it('online, sees LAN phones but leaves their Gun links to the hub until the hub is lost', async () => {
     const t = setup({ hubReachable: true });
+    await t.service.start();
+    t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
+    expect(t.service.getStatus()).toEqual({ kind: 'standby', lanPhones: 1 });
+    await t.tick();
+    expect(t.gunPeers).toEqual([]);
+    t.setHub(false);
+    await t.tick();
+    expect(t.gunPeers).toEqual(['http://192.168.10.71:8088/gun']);
+    t.setHub(true);
+    await t.tick();
+    t.gunPeers.length = 0;
+    await t.tick();
+    expect(t.gunPeers).toEqual([]);
+    t.service.dispose();
+  });
+
+  it('re-asserts LAN peers and the group owner every tick, but not a stale group URL', async () => {
+    const t = setup();
     await t.service.start();
     t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
     t.native.set({ state: 'client', localIp: '192.168.49.185', ownerIp: '192.168.49.1', ...TEST_GROUP_CREDENTIALS });

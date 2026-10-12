@@ -115,6 +115,9 @@ class NearbyConnectivityManager(
             serviceName = "$SERVICE_NAME-$suffix"; serviceType = NSD_TYPE; setPort(port)
             if (nearbyId.isNotEmpty()) setAttribute("id", nearbyId)
             if (roomTokenPrefix.matches(Regex("^[0-9a-f]{8}$"))) setAttribute("r", roomTokenPrefix)
+            // Our own LAN address: Android <= 13 phones can share one mDNS hostname (`Android-2.local`
+            // answered by two phones), so a resolver cannot trust the hostname's address alone.
+            localLanIpv4()?.let { setAttribute("a", it.hostAddress) }
             setAttribute("v", "1")
         }
         nsdRegisteredName = registration.serviceName
@@ -138,6 +141,23 @@ class NearbyConnectivityManager(
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = listener.onStatus("android-nsd", "failed", "stop:$errorCode")
         }.also { manager.discoverServices(NSD_TYPE, NsdManager.PROTOCOL_DNS_SD, it) }
     }
+
+    /** The `a` TXT attribute: the peer's own private IPv4 (numeric only, never a DNS lookup). */
+    private fun advertisedAddress(info: NsdServiceInfo): Inet4Address? {
+        val text = runCatching { info.attributes["a"]?.decodeToString().orEmpty() }.getOrDefault("")
+        if (!text.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))) return null
+        val address = runCatching { java.net.InetAddress.getByName(text) as? Inet4Address }.getOrNull() ?: return null
+        return address.takeIf { it.isSiteLocalAddress }
+    }
+
+    /** This phone's Wi-Fi LAN IPv4 (never a Wi-Fi Direct `p2p` group address). */
+    private fun localLanIpv4(): Inet4Address? = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .filter { it.isUp && !it.isLoopback && !it.name.startsWith("p2p") }
+            .sortedByDescending { it.name.startsWith("wlan") }
+            .flatMap { it.inetAddresses.toList() }
+            .firstOrNull { it is Inet4Address && it.isSiteLocalAddress } as? Inet4Address
+    }.getOrNull()
 
     private fun isOwnAddress(address: Inet4Address): Boolean = runCatching {
         java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
@@ -171,8 +191,11 @@ class NearbyConnectivityManager(
             }
             override fun onServiceResolved(info: NsdServiceInfo) { handler.post {
                 resolving = false
-                val address = (info.host as? Inet4Address)
-                    ?: if (Build.VERSION.SDK_INT >= 34) info.hostAddresses.firstOrNull { it is Inet4Address } as? Inet4Address else null
+                // The advertised address is authoritative; the hostname's may belong to another phone
+                // sharing the name (or to us), so only a non-own hostname address is a fallback.
+                val address = advertisedAddress(info)
+                    ?: (info.host as? Inet4Address)?.takeUnless { isOwnAddress(it) }
+                    ?: if (Build.VERSION.SDK_INT >= 34) info.hostAddresses.firstOrNull { it is Inet4Address && !isOwnAddress(it) } as? Inet4Address else null
                 // Never ourselves: a registration from an earlier process of this app (older rotating
                 // id, same address) lingers in the mDNS cache after a restart or reinstall.
                 if (address != null && !isOwnAddress(address)) {
