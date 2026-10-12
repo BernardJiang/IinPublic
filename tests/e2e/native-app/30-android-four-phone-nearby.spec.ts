@@ -14,6 +14,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { execFile } from 'child_process';
+import * as fs from 'fs';
 import * as http from 'http';
 import * as os from 'os';
 import { promisify } from 'util';
@@ -271,6 +272,8 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
   const peers: Peer[] = [];
   const batteryBefore: Record<string, BatterySnapshot> = {};
   const deliveryMs: number[] = [];
+  // WebView console per phone, attached to every run: logcat is chatty-collapsed on Huawei/Honor.
+  const consoleLines: Record<string, string[]> = {};
 
   test.afterAll(async () => {
     for (const peer of peers) await clearAndroidE2ETestProjections(peer.user).catch(() => {});
@@ -322,6 +325,12 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       contentType: 'application/json',
     });
 
+    for (const peer of peers) {
+      const consolePath = testInfo.outputPath(`${peer.device.name}-webview-console.txt`);
+      fs.writeFileSync(consolePath, (consoleLines[peer.device.name] ?? []).join('\n'));
+      await testInfo.attach(`${peer.device.name}-webview-console.txt`, { path: consolePath, contentType: 'text/plain' });
+    }
+
     if (testInfo.status !== testInfo.expectedStatus) {
       for (const peer of peers) {
         const failure = await collectAndroidDiagnostics(peer.device.serial);
@@ -364,6 +373,10 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
         hubGunUrl: hubUrl,
         deviceSerial: device.serial,
         disableLanDiscovery: OFFLINE_WIFI_DIRECT || LAN_OFF,
+      });
+      const lines: string[] = consoleLines[device.name] = [];
+      user.window.on('console', (message) => {
+        if (lines.length < 20_000) lines.push(`${new Date().toISOString()} ${message.type()} ${message.text()}`);
       });
       const id = await bootstrapNativeWindow(user.window, `Nearby ${index + 1}`, {
         waitForSupportGreeting: false,

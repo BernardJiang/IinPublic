@@ -94,6 +94,8 @@ export type EdgeCounter = {
   sentToday: number;
   weekBucketStartMs: number;
   sentThisWeek: number;
+  /** Talks already debited in the current day bucket: a resend of one (catch-up, retry) is free. */
+  talkIdsToday?: string[];
 };
 
 /** (D) Retraction tombstone — step 10; key: `${talkId}::${authorId}`. */
@@ -300,14 +302,21 @@ export function applyEdgeGate(
   doc: TalkLedgerDoc,
   peerId: string,
   nowMs: number,
+  talkId?: string,
 ): { ok: boolean; rejectedBy: string[] } {
   if (talkLedgerQuotaUnlimited) {
-    touchEdge(doc, peerId, nowMs);
+    touchEdge(doc, peerId, nowMs, talkId);
     return { ok: true, rejectedBy: [] };
   }
 
   const rejectedBy: string[] = [];
   const edge = doc.edges[peerId];
+
+  // The quota counts distinct Talks per peer per day, not delivery attempts (OPEN-50: one Talk's
+  // repeated catch-up sends used up a peer's daily quota and silently dropped the next new Talk).
+  if (talkId && edge && edge.dayBucketStartMs === getUtcDayStartMs(nowMs) && edge.talkIdsToday?.includes(talkId)) {
+    return { ok: true, rejectedBy: [] };
+  }
 
   // Cooldown check
   if (TALK_EDGE_COOLDOWN_MS > 0 && edge) {
@@ -340,12 +349,12 @@ export function applyEdgeGate(
     return { ok: false, rejectedBy };
   }
 
-  touchEdge(doc, peerId, nowMs);
+  touchEdge(doc, peerId, nowMs, talkId);
   return { ok: true, rejectedBy: [] };
 }
 
 /** Debit edge counters in-place after a successful gate check. */
-function touchEdge(doc: TalkLedgerDoc, peerId: string, nowMs: number): void {
+function touchEdge(doc: TalkLedgerDoc, peerId: string, nowMs: number, talkId?: string): void {
   const dayStartMs = getUtcDayStartMs(nowMs);
   const weekStartMs = getUtcWeekStartMs(nowMs);
 
@@ -357,6 +366,7 @@ function touchEdge(doc: TalkLedgerDoc, peerId: string, nowMs: number): void {
       sentToday: 1,
       weekBucketStartMs: weekStartMs,
       sentThisWeek: 1,
+      ...(talkId ? { talkIdsToday: [talkId] } : {}),
     };
     return;
   }
@@ -366,6 +376,7 @@ function touchEdge(doc: TalkLedgerDoc, peerId: string, nowMs: number): void {
   if (existing.dayBucketStartMs !== dayStartMs) {
     existing.dayBucketStartMs = dayStartMs;
     existing.sentToday = 0;
+    existing.talkIdsToday = [];
   }
   if (existing.weekBucketStartMs !== weekStartMs) {
     existing.weekBucketStartMs = weekStartMs;
@@ -373,6 +384,7 @@ function touchEdge(doc: TalkLedgerDoc, peerId: string, nowMs: number): void {
   }
   if (TALK_SEND_DAILY > 0) existing.sentToday += 1;
   if (TALK_SEND_WEEKLY > 0) existing.sentThisWeek += 1;
+  if (talkId) existing.talkIdsToday = [...(existing.talkIdsToday ?? []), talkId];
 }
 
 // ─── applyEvent ───────────────────────────────────────────────────────────────

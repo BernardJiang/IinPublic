@@ -2,6 +2,34 @@
 
 Last updated: 2026-10-11
 
+## 2026-10-12 — LAN discovery and Talk delivery fixes on four phones (OPEN-50)
+
+Found on P30, PH-1, FRD (Android 7) and C10 with WebView console capture added to `native-app/30`
+(every run now saves `<phone>-webview-console.txt`). Version 1.0.136.
+
+- **OPEN-50 — the backgrounded receiver's missing Talk was the per-peer daily quota.** The author's
+  log showed `Edge gate rejected deliver …: daily_talk_send_rate_limit`. Two bugs spent the quota:
+  (1) a catch-up to one newly linked peer went to the whole room, because `resolveBroadcastReceivers`
+  takes receivers from the server roster and the passed members only for names; LAN reconnects fire
+  catch-ups often, so one ring Talk went out ~10 times to every phone. Catch-up now sends only to the
+  linked peer (`app.ts`). (2) `applyEdgeGate` debited every delivery attempt; it now counts distinct
+  Talks per peer per day, and a resend of a Talk already debited today is free
+  (`src/shared/talk-ledger.ts`, unit tests). A rejected send still returns `true` silently.
+- **LAN NSD stalled on Android ≤ 13.** A departed phone's cached mDNS record (older rotating id from a
+  killed process) is resolved and never answers; Android < 14 allows one resolve per client and the
+  queue had no timeout, so every live phone behind it stayed undiscovered (PH-1 log: one resolve open
+  for 3 min). Resolves now time out after 10 s; Android 14+ stops the resolution, older versions
+  abandon the client and continue on a fresh `NsdManager`; a name that times out twice is skipped for
+  10 min (`NearbyConnectivityManager.kt`).
+- **Stale LAN alias counted as a fifth phone.** Such a record can also resolve to a live phone's
+  address. `NearbyCandidateRegistry.list` hides an unbound, LAN-only sighting whose address a
+  roster-bound peer uses (unit test).
+- Verified on 1.0.136: `native-app/30` LAN leg 4/4 (before: 1 of 7 runs), Talks 11–20 s, no quota
+  rejections; offline Wi-Fi Direct (3 phones) and `native-app/29` through iinpublic.com (both phones on
+  Wi-Fi, no SIM connected) still pass.
+- Still open: roster churn and repeated catch-ups (OPEN-51); spec 11 is blocked by the Mac Keychain
+  prompt.
+
 ## 2026-10-11 — Phone discovery matrix: LAN, Wi-Fi Direct, cellular fixes (OPEN-47, OPEN-48, OPEN-49)
 
 Found by running the discovery transports on five physical phones (HONOR FCP-AN10 with SIM, P30,

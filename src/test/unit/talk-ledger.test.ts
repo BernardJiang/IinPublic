@@ -444,6 +444,35 @@ describe('applyEdgeGate', () => {
     expect(r.rejectedBy).toContain('daily_talk_send_rate_limit');
   });
 
+  it('does not debit a resend of the same Talk on the same day (OPEN-50)', () => {
+    const doc = emptyTalkLedgerDoc();
+    const nowMs = Date.now();
+    for (let i = 0; i < TALK_SEND_DAILY * 2; i++) {
+      expect(applyEdgeGate(doc, 'jerry', nowMs + i, 'talk-a').ok).toBe(true);
+    }
+    expect(doc.edges['jerry']!.sentToday).toBe(1);
+    expect(applyEdgeGate(doc, 'jerry', nowMs + 100, 'talk-b').ok).toBe(true);
+    expect(doc.edges['jerry']!.sentToday).toBe(2);
+  });
+
+  it('still rejects the eleventh distinct Talk while resends of debited ones pass', () => {
+    const doc = emptyTalkLedgerDoc();
+    const nowMs = Date.now();
+    for (let i = 0; i < TALK_SEND_DAILY; i++) applyEdgeGate(doc, 'jerry', nowMs + i, `talk-${i}`);
+    expect(applyEdgeGate(doc, 'jerry', nowMs + 50, 'talk-0').ok).toBe(true);
+    const r = applyEdgeGate(doc, 'jerry', nowMs + 51, 'talk-new');
+    expect(r.ok).toBe(false);
+    expect(r.rejectedBy).toContain('daily_talk_send_rate_limit');
+  });
+
+  it('debits a Talk again after the UTC day rolls over', () => {
+    const doc = emptyTalkLedgerDoc();
+    applyEdgeGate(doc, 'jerry', new Date('2024-01-01T23:59:00.000Z').getTime(), 'talk-a');
+    applyEdgeGate(doc, 'jerry', new Date('2024-01-02T00:01:00.000Z').getTime(), 'talk-a');
+    expect(doc.edges['jerry']!.sentToday).toBe(1);
+    expect(doc.edges['jerry']!.talkIdsToday).toEqual(['talk-a']);
+  });
+
   it('resets daily counter after UTC day rollover', () => {
     const doc = emptyTalkLedgerDoc();
     const day1Ms = new Date('2024-01-01T23:59:00.000Z').getTime();

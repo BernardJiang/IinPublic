@@ -6674,7 +6674,7 @@ export class IinPublicApp {
       }
 
       // Step 8.3: client per-edge cooldown/quota gate.
-      const gate = applyEdgeGateForPeer(recipientId, nowMs);
+      const gate = applyEdgeGateForPeer(recipientId, nowMs, talkId);
       if (!gate.ok) {
         console.debug(`[Ledger] Edge gate rejected deliver to ${recipientId}: ${gate.rejectedBy.join(',')}`);
         continue;
@@ -8612,7 +8612,12 @@ export class IinPublicApp {
           // as "nothing happened," and the user taps Broadcast again.
           if (!data.catchUp) this.uiManager.showNotification(this.uiManager.formatBroadcastInProgress(), 'info');
 
-          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          // A catch-up is owed only to the peer that just linked; the room roster would re-send the
+          // same Talk to everyone on every reconnect (OPEN-50).
+          const receivers = data.catchUp
+            ? (data.members ?? []).filter((member) =>
+              !!member.userId && member.userId !== this.currentUser!.id && member.userId !== TECHSUPPORT_ROOT_USER_ID)
+            : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (targetCount === 0) {

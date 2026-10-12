@@ -55,6 +55,10 @@ class NearbyConnectivityManager(
     companion object {
         const val SERVICE_NAME = "iinpublic-v1"
         const val NSD_TYPE = "_iinpublic._tcp."
+        /** A resolve of a departed phone's cached record never calls back (OPEN-50). */
+        private const val RESOLVE_TIMEOUT_MS = 10_000L
+        private const val MAX_RESOLVE_TIMEOUTS = 2
+        private const val RESOLVE_TIMEOUT_QUARANTINE_MS = 10 * 60_000L
         val BLE_SERVICE_UUID: UUID = UUID.fromString("7db78a2e-30f4-4e86-9fb7-33a318ea7e81")
     }
 
@@ -65,6 +69,14 @@ class NearbyConnectivityManager(
     private var nsdRegisteredName: String? = null
     private val resolveQueue = ArrayDeque<NsdServiceInfo>()
     private var resolving = false
+    /** Resolves only. Android < 14 allows one resolve per client and cannot cancel it, so a hung
+     *  resolve is abandoned with its client and the next resolve goes to a fresh one. */
+    private var resolveManager: NsdManager? = null
+    private var resolveGeneration = 0
+    private var resolveTimeout: Runnable? = null
+    private var activeResolve: Pair<NsdManager, NsdManager.ResolveListener>? = null
+    /** Service name -> (timeouts, last timeout at); survives NSD restarts so a stale record is not retried forever. */
+    private val resolveTimeouts = mutableMapOf<String, Pair<Int, Long>>()
     private val wifiDirect = WifiDirectGroupController(
         context,
         emitState = { listener.onWifiDirectState(it) },
@@ -133,7 +145,7 @@ class NearbyConnectivityManager(
             override fun onServiceFound(service: NsdServiceInfo) {
                 if (!service.serviceType.startsWith("_iinpublic._tcp")) return
                 if (!service.serviceName.startsWith(SERVICE_NAME) || service.serviceName == nsdRegisteredName) return
-                handler.post { enqueueResolve(manager, service) }
+                handler.post { enqueueResolve(service) }
             }
             override fun onServiceLost(service: NsdServiceInfo) = Unit
             override fun onDiscoveryStopped(serviceType: String) = listener.onStatus("android-nsd", "stopped")
@@ -168,29 +180,57 @@ class NearbyConnectivityManager(
         val manager = context.getSystemService(NsdManager::class.java)
         nsdListener?.let { runCatching { manager.stopServiceDiscovery(it) } }; nsdListener = null
         nsdRegistration?.let { runCatching { manager.unregisterService(it) } }; nsdRegistration = null
-        resolveQueue.clear(); resolving = false
+        resolveQueue.clear()
+        // A resolve still in flight would keep an Android < 14 client busy for the next session.
+        if (resolving) abandonActiveResolve()
+        resolving = false
     }
 
-    private fun enqueueResolve(manager: NsdManager, service: NsdServiceInfo) {
+    private fun enqueueResolve(service: NsdServiceInfo) {
+        val timedOut = resolveTimeouts[service.serviceName]
+        if (timedOut != null && timedOut.first >= MAX_RESOLVE_TIMEOUTS &&
+            System.currentTimeMillis() - timedOut.second < RESOLVE_TIMEOUT_QUARANTINE_MS) return
         if (resolveQueue.none { it.serviceName == service.serviceName }) resolveQueue.addLast(service)
-        resolveNext(manager)
+        resolveNext()
     }
 
-    private fun resolveNext(manager: NsdManager) {
+    private fun currentResolveManager(): NsdManager =
+        resolveManager ?: context.getSystemService(NsdManager::class.java).also { resolveManager = it }
+
+    /** Stop waiting for the in-flight resolve; late callbacks are ignored by generation. */
+    private fun abandonActiveResolve() {
+        resolveTimeout?.let { handler.removeCallbacks(it) }; resolveTimeout = null
+        resolveGeneration += 1
+        val (manager, resolveListener) = activeResolve ?: return
+        activeResolve = null
+        if (Build.VERSION.SDK_INT >= 34) {
+            runCatching { manager.stopServiceResolution(resolveListener) }
+        } else {
+            // A fresh Context has its own service cache, hence its own NsdManager client.
+            resolveManager = context.createConfigurationContext(context.resources.configuration)
+                .getSystemService(NsdManager::class.java)
+        }
+    }
+
+    private fun resolveNext() {
         if (resolving) return
         val next = resolveQueue.removeFirstOrNull() ?: return
         resolving = true
-        @Suppress("DEPRECATION")
-        manager.resolveService(next, object : NsdManager.ResolveListener {
+        val generation = ++resolveGeneration
+        val manager = currentResolveManager()
+        val resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
                 handler.post {
-                    resolving = false
+                    if (generation != resolveGeneration) return@post
+                    finishResolve()
                     listener.onStatus("android-nsd", "degraded", "resolve:$errorCode")
-                    resolveNext(manager)
+                    resolveNext()
                 }
             }
             override fun onServiceResolved(info: NsdServiceInfo) { handler.post {
-                resolving = false
+                if (generation != resolveGeneration) return@post
+                finishResolve()
+                resolveTimeouts.remove(info.serviceName)
                 // The advertised address is authoritative; the hostname's may belong to another phone
                 // sharing the name (or to us), so only a non-own hostname address is a fallback.
                 val address = advertisedAddress(info)
@@ -210,9 +250,31 @@ class NearbyConnectivityManager(
                     if (roomPrefix.matches(Regex("^[0-9a-f]{8}$"))) capabilities += "room-token:$roomPrefix"
                     listener.onCandidate("mdns", id, "http://${address.hostAddress}:${info.port}/gun", capabilities)
                 }
-                resolveNext(manager)
+                resolveNext()
             } }
-        })
+        }
+        activeResolve = manager to resolveListener
+        val timeout = Runnable {
+            if (generation != resolveGeneration) return@Runnable
+            abandonActiveResolve()
+            resolving = false
+            val previous = resolveTimeouts[next.serviceName]?.first ?: 0
+            resolveTimeouts[next.serviceName] = (previous + 1) to System.currentTimeMillis()
+            // A slow live phone gets one more turn at the back of the queue; a departed one is dropped.
+            if (previous + 1 < MAX_RESOLVE_TIMEOUTS) resolveQueue.addLast(next)
+            listener.onStatus("android-nsd", "degraded", "resolve-timeout")
+            resolveNext()
+        }
+        resolveTimeout = timeout
+        handler.postDelayed(timeout, RESOLVE_TIMEOUT_MS)
+        @Suppress("DEPRECATION")
+        manager.resolveService(next, resolveListener)
+    }
+
+    private fun finishResolve() {
+        resolveTimeout?.let { handler.removeCallbacks(it) }; resolveTimeout = null
+        activeResolve = null
+        resolving = false
     }
 
     fun startWifiAware() {

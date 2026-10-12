@@ -373,7 +373,14 @@ export class NearbyCandidateRegistry {
   }
 
   list(now: number): NearbyLogicalPeer[] {
-    return [...this.peers.values()].map((entry) => this.view(entry, now));
+    const views = [...this.peers.values()].map((entry) => this.view(entry, now));
+    // A departed process's cached mDNS record (an older rotating id) can resolve to a live phone's
+    // address. An unbound, LAN-only sighting at an address a roster-bound peer uses is that alias.
+    const lanRoutes = (peer: NearbyLogicalPeer) => peer.routes.filter((route) => route.source === 'lan').map((route) => route.value);
+    const boundLanRoutes = new Set(views.filter((peer) => peer.seaPub && peer.onLan).flatMap(lanRoutes));
+    if (boundLanRoutes.size === 0) return views;
+    return views.filter((peer) => peer.seaPub || peer.sources.some((source) => source !== 'lan')
+      || !lanRoutes(peer).some((route) => boundLanRoutes.has(route)));
   }
 
   /** Discovery ids that are reachable over the LAN, across every id the same logical peer used. */

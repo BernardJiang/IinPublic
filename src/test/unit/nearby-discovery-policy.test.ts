@@ -216,6 +216,21 @@ describe('NearbyCandidateRegistry', () => {
     expect(r.lanIds(T0).has(newId)).toBe(true);
   });
 
+  it('hides a stale unbound LAN id that resolves to a roster-bound phone address (OPEN-50)', async () => {
+    const r = registry();
+    const liveId = await rotatingNearbyId('peer-pub', T0, ROOM);
+    const route = 'http://192.168.1.5:8088/gun';
+    // A killed earlier process left `999999999999` in the mDNS cache; it resolves to the same phone.
+    r.observe({ source: 'lan', discoveryId: '999999999999', seenAt: T0, roomVerified: false, route });
+    r.observe({ source: 'lan', discoveryId: liveId, seenAt: T0, roomVerified: false, route });
+    r.observe({ source: 'lan', discoveryId: '888888888888', seenAt: T0, roomVerified: false, route: 'http://192.168.1.9:8088/gun' });
+    expect(r.list(T0)).toHaveLength(3);
+    r.bindRoster(['peer-pub'], ROOM, T0);
+    const ids = r.list(T0).map((peer) => peer.discoveryIds[0]);
+    expect(ids.sort()).toEqual(['888888888888', liveId].sort());
+    expect(r.lanIds(T0).has('999999999999')).toBe(false);
+  });
+
   it('a prefix-only (legacy) sighting of an unknown phone is never eligible for a group', () => {
     const r = registry();
     r.observe({ source: 'ble', discoveryId: 'dddddddddddd', seenAt: T0, roomVerified: false, record: rec('dddddddddddd') });
