@@ -96,6 +96,15 @@ export class NearbyPartitionStore {
     this.registrationTails.clear();
   }
 
+  /** The quadtree path of an active group (public signed control data), for room-list targeting. */
+  pathOf(roomId: string): string | undefined {
+    for (const state of this.states.values()) {
+      const group = state.activeByRoom.get(roomId);
+      if (group) return group.path;
+    }
+    return undefined;
+  }
+
   transitionFor(checkpoint: RoomProtocolCheckpoint, roomId: string): NearbyPartitionTransition[] {
     const state = this.states.get(checkpointKey(checkpoint));
     if (!state) return [];
@@ -169,6 +178,12 @@ export class NearbyPartitionStore {
       throw new Error('Nearby partition presence targets an inactive group');
     }
 
+    // One live presence per person: a member who moved to this group no longer counts toward the
+    // group they left. Otherwise a quick switch counted them twice for the 45 s presence lifetime and
+    // pushed the old group to C + 1 — a false split.
+    for (const [otherRoomId, otherRoom] of state.presenceByRoom) {
+      if (otherRoomId !== record.roomId) otherRoom.delete(record.pub);
+    }
     let room = state.presenceByRoom.get(record.roomId);
     if (!room) {
       room = new Map();

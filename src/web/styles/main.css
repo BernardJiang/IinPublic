@@ -552,6 +552,43 @@ button:focus:not(:focus-visible) {
   display: none;
 }
 
+/* Room status: name on line 1, "N users · M matches" on line 2; tap to read it all wrapped. */
+#status-bar-text {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+#status-bar-text .status-bar-name,
+#status-bar-text .status-bar-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#status-bar-text .status-bar-meta {
+  font-size: 0.78em;
+  font-weight: 500;
+  color: var(--text-secondary, #4b5563);
+}
+
+#status-bar-text .status-bar-sep {
+  display: none;
+}
+
+#status-bar-text.status-bar-expanded .status-bar-name,
+#status-bar-text.status-bar-expanded .status-bar-meta {
+  white-space: normal;
+}
+
+/* While a room's member list is open, its own heading names the room: show only the counts. */
+body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
+  display: none;
+}
+
 /* View Container */
 .view-container {
   flex: 1;

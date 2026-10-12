@@ -19,6 +19,8 @@ export type ActiveRoomSummary = {
   distanceMeters?: number;
   /** Compass bearing from the viewer, 0 = north, clockwise. */
   bearingDegrees?: number;
+  /** Nearby group's partition path (public signed control data): where a tap should travel. */
+  partitionPath?: string;
 };
 
 export type ActiveRoomsView = {
@@ -68,6 +70,8 @@ export function summarizeActiveRooms(input: {
   pointOf: (userId: string) => { latitude: number; longitude: number } | undefined;
   /** A Place's public pin and name. */
   placeOf: (roomId: string) => { name: string; latitude?: number; longitude?: number } | undefined;
+  /** A Nearby group's partition path, when the index knows it. */
+  pathOf?: (roomId: string) => string | undefined;
   origin?: { latitude: number; longitude: number };
   offset?: number;
   limit?: number;
@@ -91,6 +95,8 @@ export function summarizeActiveRooms(input: {
         summary.longitude = place!.longitude!;
       }
     } else {
+      const path = input.pathOf?.(room.roomId);
+      if (path !== undefined) summary.partitionPath = path;
       const points = memberIds.map(input.pointOf).filter((point): point is { latitude: number; longitude: number } => !!point);
       if (points.length > 0) {
         summary.latitude = points.reduce((sum, point) => sum + point.latitude, 0) / points.length;

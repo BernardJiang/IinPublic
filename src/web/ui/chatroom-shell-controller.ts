@@ -174,6 +174,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     }
     const headerTitle = document.getElementById('header-title');
     if (headerTitle) headerTitle.textContent = '';
+    delete document.body.dataset.chatroomDetail;
     renderChatroomList();
     deps.syncReturnHomeButton();
   };

@@ -569,6 +569,7 @@ export function registerSystemRoutes(
     res.json(summarizeActiveRooms({
       rooms,
       pointOf: (userId) => mapPresenceStore.pointOf(userId),
+      pathOf: (roomId) => nearbyPartitionStore.pathOf(roomId),
       placeOf: (roomId) => places.get(roomId),
       ...(origin ? { origin } : {}),
       ...(currentRoomId ? { currentRoomId } : {}),

@@ -198,3 +198,97 @@ export async function runTravelResplitDemo(info: TestInfo, view: DemoView): Prom
   console.log(`[summary]\n${demo.summary()}`);
   return demo;
 }
+
+/**
+ * Down to the smallest region, then switch rooms by tapping list rows (spec stage4 13).
+ *
+ * U1–U3 stand inside one smallest Neighborhood square (~1 km, depth 15 at San Diego); U4 stands
+ * ~1.4 km west, in the neighbouring square — the four share every larger region. So the cascade
+ * cannot stop early: it splits all the way to the smallest region, where U4 finally separates
+ * (A = 3, B = 1). Then:
+ *   1. U4 taps A ("3 / 3 · Full", greyed) — nothing happens; a full room cannot be entered.
+ *   2. U3 taps B — enters B's member list (A = 2, B = 2).
+ *   3. U4 taps A (now 2 / 3) — enters A (A = 3, B = 1).
+ */
+export const MINIMUM_SPLIT_SPOTS: Array<{ latitude: number; longitude: number }> = [
+  { latitude: 32.7157, longitude: -117.1611 },
+  { latitude: 32.7132, longitude: -117.1646 },
+  { latitude: 32.7132, longitude: -117.1636 },
+  { latitude: 32.7132, longitude: -117.1756 },
+];
+
+export async function runMinimumSplitSwitchDemo(info: TestInfo): Promise<NearbyMapDemo> {
+  const demo = new NearbyMapDemo(info, `/?e2e_capacity=${CAPACITY}`, 'list');
+  const pages: Record<string, Page> = {};
+  for (let i = 0; i < 4; i++) {
+    const label = `U${i + 1}`;
+    pages[label] = await demo.boot(label, MINIMUM_SPLIT_SPOTS[i]!, i, false);
+    await demo.show(pages[label]!);
+  }
+  await demo.captureGrid(pages, 'four users joined: 4 > 3, splitting');
+
+  let splits = 0;
+  await waitUntilSettled(pages, QUIET_MS, 900_000, async (label) => {
+    if (label !== 'U1') return;
+    splits++;
+    await demo.captureGrid(pages, `split ${splits}`);
+  });
+  const rooms = await occupancy(pages);
+  console.log(`[settled after ${splits} splits] ${describeOccupancy(rooms)}`);
+  const roomA = [...rooms.entries()].find(([, labels]) => labels.length === 3)?.[0];
+  const roomB = [...rooms.entries()].find(([, labels]) => labels.length === 1)?.[0];
+  expect(roomA && roomB, 'the cascade should end with U1–U3 together and U4 alone').toBeTruthy();
+  expect(rooms.get(roomB!)).toEqual(['U4']);
+  const area = (await areaOf(pages.U1!))!;
+  console.log(`[smallest region] U1's Nearby ≈ ${formatDiameter(area.approximateDiameterMeters)} across`);
+  expect(area.approximateDiameterMeters, 'the split should reach the smallest (~1.5 km) region').toBeLessThan(2_000);
+  await demo.captureGrid(pages, `smallest region reached: A = U1, U2, U3 (full) · B = U4`);
+
+  const row = (label: string, roomId: string) =>
+    pages[label]!.locator(`[data-testid="room-list-row"][data-chatroom-id="${roomId}"]`);
+  const tapInto = async (label: string, roomId: string, step: string) => {
+    await expect(row(label, roomId), `${label} should list the room`).toBeVisible({ timeout: 45_000 });
+    if (process.env.ROOM_TAP_DEBUG) {
+      const info = await pages[label]!.evaluate(async (target) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        const base = app?.getBackendApiBase?.() || '';
+        const list = await fetch(`${base}/api/active-rooms?limit=50`).then((r) => r.json());
+        return { target: list.rooms.find((r: any) => r.roomId === target), all: list.rooms.map((r: any) => `${r.roomId.slice(-6)}:${r.memberCount}:${r.partitionPath}`) };
+      }, roomId);
+      console.log(`[debug ${label}→${roomId.slice(-6)}] ${JSON.stringify(info)}`);
+    }
+    await row(label, roomId).click();
+    if (process.env.ROOM_TAP_DEBUG) {
+      await pages[label]!.waitForTimeout(500);
+      console.log(`[debug ${label} travel point] ${JSON.stringify(await pages[label]!.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.pendingNearbyTravel?.location || (window as any).__iinpublic_app?.getApp?.()?.travelNearbyPoint))}`);
+    }
+    await expect(pages[label]!.locator('#chatroom-detail-container')).toBeVisible();
+    await expect.poll(() => roomOf(pages[label]!), { timeout: 60_000 }).toBe(roomId);
+    await pages[label]!.waitForTimeout(2_500); // let the members arrive in the member list
+    await demo.captureGrid(pages, step);
+    await openList(pages[label]!);
+  };
+
+  // 1. A full room is shown, greyed, and cannot be entered.
+  await expect(row('U4', roomA!)).toHaveAttribute('aria-disabled', 'true', { timeout: 45_000 });
+  await row('U4', roomA!).click();
+  await pages.U4!.waitForTimeout(1_500);
+  expect(await roomOf(pages.U4!), 'U4 must stay in B').toBe(roomB);
+  await demo.captureGrid(pages, 'U4 taps A: "Full" — stays in B');
+
+  // 2. U3 switches into B by tapping it: A = 2, B = 2.
+  await tapInto('U3', roomB!, 'U3 tapped B: entered its member list (A = 2, B = 2)');
+  // 3. A has room again; U4 switches into A: A = 3, B = 1.
+  await expect(row('U4', roomA!)).not.toHaveAttribute('aria-disabled', 'true', { timeout: 45_000 });
+  await tapInto('U4', roomA!, 'U4 tapped A: entered its member list (A = 3, B = 1)');
+
+  await waitUntilSettled(pages, 20_000, 120_000);
+  const final = await occupancy(pages);
+  console.log(`[final] ${describeOccupancy(final)}`);
+  for (const [room, labels] of final) expect(labels.length, `${room} over capacity`).toBeLessThanOrEqual(CAPACITY);
+  expect(final.get(roomA!)?.sort()).toEqual(['U1', 'U2', 'U4']);
+  expect(final.get(roomB!)).toEqual(['U3']);
+  await demo.captureGrid(pages, 'final: A = U1, U2, U4 · B = U3');
+  console.log(`[summary]\n${demo.summary()}`);
+  return demo;
+}

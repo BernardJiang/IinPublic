@@ -130,7 +130,7 @@ export function projectNearbyCoordinate(
   };
 }
 
-function unprojectNearbyCoordinate(point: { x: number; y: number }): {
+export function unprojectNearbyCoordinate(point: { x: number; y: number }): {
   latitude: number;
   longitude: number;
 } {

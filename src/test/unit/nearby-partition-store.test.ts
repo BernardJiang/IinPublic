@@ -127,4 +127,30 @@ describe('NearbyPartitionStore', () => {
       .toBe(right.transitionFor(checkpoint, root.roomId)[0]?.transitionId);
     expect(left.transitionFor(checkpoint, root.roomId)[0]?.transitionId).toBe(earlier.transitionId);
   });
+
+  it('a member who moves to another group stops counting toward the old one (no false split)', async () => {
+    const store = new NearbyPartitionStore();
+    const root = nearbyPartitionRootGroup(checkpoint);
+    const assign = (group: { roomId: string; path: string }) =>
+      nearbyPartitionAssignment({ group, location, mode: 'neighborhood', checkpoint });
+    const pairs = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const at = new Date('2026-10-10T12:00:00.000Z');
+    const presence = (index: number, group: { roomId: string; path: string }, now = at) => createNearbyControlPresence({
+      userId: `member-${index}`, pair: pairs[index]!, rootRoomId: root.roomId, assignment: assign(group), checkpoint, now,
+    });
+    let transitions: any[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      transitions = (await store.register(await presence(index, root), at)).transitions;
+    }
+    const [child, sibling] = transitions[0].toGroups as Array<{ roomId: string; path: string }>;
+    const later = new Date(at.getTime() + 1_000);
+    // member-0 and member-1 fill `child` (C = 2); member-0 then moves to `sibling`.
+    expect((await store.register(await presence(0, child!, later), later)).transitions).toEqual([]);
+    expect((await store.register(await presence(1, child!, later), later)).transitions).toEqual([]);
+    expect((await store.register(await presence(0, sibling!, later), later)).transitions).toEqual([]);
+    // member-2 joins `child`: it now holds member-1 and member-2 only — at capacity, not over it.
+    const joined = await store.register(await presence(2, child!, later), later);
+    expect(joined.transitions).toEqual([]);
+    expect(joined.roomWitnessCount).toBe(2);
+  });
 });

@@ -1,6 +1,7 @@
 import {
   nearbyBasePrecisionMeters,
   projectNearbyCoordinate,
+  unprojectNearbyCoordinate,
   type NearbyLocalCell,
   type NearbyPublicMode,
 } from './nearby-rooms';
@@ -97,6 +98,26 @@ function cellForGeographicPath(path: string): NearbyLocalCell {
     }
   }
   return { x, y, minX, minY, maxX, maxY };
+}
+
+/**
+ * A point that routes into the group at `path` for a member with this privacy setting: the centre
+ * of the path's square, using only the geographic digits that setting allows. (Room-list taps aim
+ * here, never at the members' average, which can fall just across a partition edge.) Snapping to
+ * the privacy grid moves a point less than half a square, so it stays inside.
+ */
+export function nearbyPartitionTargetPoint(input: {
+  path: string;
+  mode: NearbyPublicMode;
+  near: { latitude: number; longitude: number };
+}): { latitude: number; longitude: number; laneLimited: boolean } {
+  assertPartitionPath(input.path);
+  const depth = maximumNearbyPartitionGeographicDepth({ location: { ...input.near, accuracy: 0, timestamp: new Date() }, mode: input.mode, maximumDepth: 24 });
+  const geographic = input.path.slice(0, Math.min(depth, input.path.length));
+  const cell = cellForGeographicPath(geographic);
+  const centre = unprojectNearbyCoordinate({ x: (cell.minX + cell.maxX) / 2, y: (cell.minY + cell.maxY) / 2 });
+  // Deeper digits are identity lanes: a traveler lands in their own lane, not necessarily this one.
+  return { ...centre, laneLimited: input.path.length > geographic.length };
 }
 
 /**

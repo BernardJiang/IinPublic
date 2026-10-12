@@ -4,15 +4,29 @@ import { metersBetween, type ActiveRoomSort, type ActiveRoomSummary, type Active
 import type { UiTranslationKey } from './ui-translations';
 import { formatDistance } from './distance-units';
 
-/** A room row in the flat list (and a pin on the map), with its display name and meta line. */
-export type RoomListRow = ActiveRoomSummary & { displayName: string; icon: string; full: boolean };
+/**
+ * A room row in the flat list (and a pin on the map). A Nearby group is named by where it is from
+ * you ("0.6 mi W"), with the nearest big city as context; a Place by its own name.
+ */
+export type RoomListRow = ActiveRoomSummary & {
+  displayName: string;
+  /** Second line: "near San Diego" for a Nearby group, "Place · 0.6 mi W" for a Place. */
+  context: string;
+  /** Places keep their type icon (🏪 / 💬); Nearby rows have none — it would carry no meaning. */
+  icon: string;
+  full: boolean;
+};
 
 type T = (key: UiTranslationKey) => string;
 
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const CITY_RADIUS_METERS = 150_000;
 
-/** "Around San Diego": the named city nearest the room's position, else its rounded coordinates. */
+/**
+ * "near San Diego": the nearest city in the app's built-in city table (src/shared/chatroom-hierarchy.ts)
+ * within 150 km of the room's position; otherwise the rounded coordinates. Big cities only — it is
+ * context, not a room name.
+ */
 export function nearbyRoomName(latitude: number, longitude: number, t: T): string {
   let best: { name: string; distance: number } | null = null;
   for (const node of getFlatChatroomList()) {
@@ -22,49 +36,55 @@ export function nearbyRoomName(latitude: number, longitude: number, t: T): strin
     const distance = metersBetween({ latitude, longitude }, at);
     if (distance <= CITY_RADIUS_METERS && (!best || distance < best.distance)) best = { name: node.name, distance };
   }
-  if (best) return t('roomListAround').replace('{place}', best.name);
-  const coords = `${Math.abs(latitude).toFixed(1)}°${latitude >= 0 ? 'N' : 'S'} ${Math.abs(longitude).toFixed(1)}°${longitude >= 0 ? 'E' : 'W'}`;
-  return t('roomListAround').replace('{place}', coords);
+  const place = best?.name
+    ?? `${Math.abs(latitude).toFixed(1)}°${latitude >= 0 ? 'N' : 'S'} ${Math.abs(longitude).toFixed(1)}°${longitude >= 0 ? 'E' : 'W'}`;
+  return t('roomListAround').replace('{place}', place);
+}
+
+/** "0.6 mi W" from the viewer, or "Here" within 500 m. */
+export function relativeRoomLabel(room: Pick<ActiveRoomSummary, 'distanceMeters' | 'bearingDegrees'>, t: T): string | undefined {
+  if (room.distanceMeters === undefined) return undefined;
+  if (room.distanceMeters < 500) return t('roomListHere');
+  return `${formatDistance(room.distanceMeters)} ${COMPASS[Math.round((room.bearingDegrees ?? 0) / 45) % 8]}`;
 }
 
 /**
- * Name every room and mark full ones. Rooms that would share a name get " · 2", " · 3"… in list
- * order, so two groups of the same area are told apart without exposing any room id.
+ * Name every room and mark full ones. Two rows that would read the same get " · 2", " · 3"… so
+ * they can be told apart without exposing any room id.
  */
 export function roomListRows(
   view: ActiveRoomsView,
-  input: { t: T; capacity: number; currentRoomId: string; currentName: string },
+  input: { t: T; capacity: number; currentRoomId: string; currentName: string; placeIcon?: (roomId: string) => string },
 ): RoomListRow[] {
   const seen = new Map<string, number>();
   return view.rooms.map((room) => {
+    const relative = relativeRoomLabel(room, input.t);
+    const city = room.latitude !== undefined && room.longitude !== undefined
+      ? nearbyRoomName(room.latitude, room.longitude, input.t)
+      : '';
     const base = room.roomId === input.currentRoomId
       ? input.currentName
       : room.kind === 'place'
         ? room.name || input.t('roomListPlaceFallback')
-        : room.latitude !== undefined && room.longitude !== undefined
-          ? nearbyRoomName(room.latitude, room.longitude, input.t)
-          : input.t('roomListNearbyFallback');
+        : relative || input.t('roomListNearbyFallback');
     const count = (seen.get(base) ?? 0) + 1;
     seen.set(base, count);
     return {
       ...room,
       displayName: count > 1 ? `${base} · ${count}` : base,
-      icon: room.kind === 'place' ? '📌' : '📍',
+      context: room.kind === 'place'
+        ? [input.t('roomListPlaceTag'), relative].filter(Boolean).join(' · ')
+        : city,
+      icon: room.kind === 'place' ? input.placeIcon?.(room.roomId) ?? '💬' : '',
       full: room.memberCount >= input.capacity,
     };
   });
 }
 
-/** "2 / 3 · 4 km NE" (or "2 / 3 · here"). */
+/** "1 / 3 people" (· "Full"). */
 export function roomMetaText(row: RoomListRow, capacity: number, t: T): string {
-  const parts = [`${row.memberCount} / ${capacity}`];
-  if (row.distanceMeters !== undefined) {
-    parts.push(row.distanceMeters < 500
-      ? t('roomListHere')
-      : `${formatDistance(row.distanceMeters)} ${COMPASS[Math.round((row.bearingDegrees ?? 0) / 45) % 8]}`);
-  }
-  if (row.full) parts.push(t('roomListFull'));
-  return parts.join(' · ');
+  const people = t('roomListPeople').replace('{count}', String(row.memberCount)).replace('{capacity}', String(capacity));
+  return row.full ? `${people} · ${t('roomListFull')}` : people;
 }
 
 /** Header: everyone online, how many rooms, and the sort choice. */
@@ -94,9 +114,10 @@ export function renderRoomListRow(row: RoomListRow, capacity: number, t: T, esca
        data-testid="room-list-row"
        ${row.latitude !== undefined ? `data-lat="${row.latitude}" data-lng="${row.longitude}"` : ''}
        ${row.full ? 'aria-disabled="true"' : 'role="button" tabindex="0"'}>
-      <div class="chatroom-icon">${row.icon}</div>
+      ${row.icon ? `<div class="chatroom-icon">${row.icon}</div>` : ''}
       <div class="chatroom-info">
         <div class="chatroom-name">${escapeHtml(row.displayName)}</div>
+        ${row.context ? `<div class="chatroom-description">${escapeHtml(row.context)}</div>` : ''}
         <div class="chatroom-flat-metrics"><span class="chatroom-headcount">${escapeHtml(roomMetaText(row, capacity, t))}</span></div>
       </div>
       <div class="chatroom-arrow">${row.full ? '' : '›'}</div>

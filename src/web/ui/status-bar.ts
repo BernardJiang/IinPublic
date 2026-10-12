@@ -32,7 +32,31 @@ export function updateStatusBar(
     );
     text += ` · ${matchText}`;
   }
-  statusBarText.textContent = text;
+  renderStatusBar(statusBarText, text);
+}
+
+/**
+ * Two short lines that always fit between the app-bar buttons: the room name (bold), then
+ * "N users · M matches" (small). The full line stays in the element's text (" · " separator kept
+ * for screen readers and tests) and in its tooltip; tapping toggles a wrapped, fully readable view.
+ */
+function renderStatusBar(element: HTMLElement, text: string): void {
+  const [name = '', ...rest] = text.split(' · ');
+  const nameEl = document.createElement('span');
+  nameEl.className = 'status-bar-name';
+  nameEl.textContent = name;
+  const sep = document.createElement('span');
+  sep.className = 'status-bar-sep';
+  sep.textContent = ' · ';
+  const metaEl = document.createElement('span');
+  metaEl.className = 'status-bar-meta';
+  metaEl.textContent = rest.join(' · ');
+  element.replaceChildren(nameEl, ...(rest.length > 0 ? [sep, metaEl] : []));
+  element.title = text;
+  if (!element.dataset.expandBound) {
+    element.dataset.expandBound = 'true';
+    element.addEventListener('click', () => element.classList.toggle('status-bar-expanded'));
+  }
 }
 
 /**
@@ -54,8 +78,8 @@ export function syncStatusBarMatchCount(deps: UpdateStatusBarDeps): void {
       totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
       { count: totalMatches },
     );
-    statusBarText.textContent = `${base} · ${matchText}`;
+    renderStatusBar(statusBarText, `${base} · ${matchText}`);
   } else {
-    statusBarText.textContent = base;
+    renderStatusBar(statusBarText, base);
   }
 }

@@ -1,4 +1,6 @@
 import { getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
+import { nearbyPartitionTargetPoint } from '../../shared/nearby-partition-geometry';
+import { loadConnectivitySettings } from './connectivity-settings';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { nearbyRoomName, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
 import { getRoomListSort, setRoomListSort } from '../services/active-rooms-client';
@@ -371,10 +373,14 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     [...(currentNode ? [currentNode] : []), ...customNodes].map((room) => [room.id, room]),
   ).values());
   const capacity = CONFIG.CHATROOM_MAX_CAPACITY;
-  // Name my own Nearby group the same way as every other row ("Around San Diego").
+  // My own Nearby group: "Your room", with the same city context as the other rows; no pin icon.
   const myRoom = deps.activeRooms?.rooms.find((room) => room.roomId === deps.currentChatroom);
-  if (currentNode && currentIsNearby && myRoom?.latitude !== undefined && myRoom.longitude !== undefined) {
-    currentNode.description = `${nearbyRoomName(myRoom.latitude, myRoom.longitude, deps.text)} · ${currentNode.description || ''}`;
+  if (currentNode && currentIsNearby) {
+    currentNode.name = deps.text('roomListYourRoom');
+    currentNode.icon = '';
+    if (myRoom?.latitude !== undefined && myRoom.longitude !== undefined) {
+      currentNode.description = `${nearbyRoomName(myRoom.latitude, myRoom.longitude, deps.text)} · ${currentNode.description || ''}`;
+    }
   }
   const roomRows = deps.activeRooms
     ? roomListRows(deps.activeRooms, {
@@ -382,6 +388,10 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         capacity,
         currentRoomId: deps.currentChatroom,
         currentName: currentNode?.name || '',
+        placeIcon: (roomId) => {
+          const place = deps.customChatrooms.find((candidate) => candidate.id === roomId);
+          return place ? customRoomIcon(place.type) : '💬';
+        },
       }).filter((row) => row.roomId !== deps.currentChatroom && row.memberCount > 0)
     : [];
   const sort = getRoomListSort();
@@ -397,7 +407,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         <div class="chatroom-item ${isCurrentRoom ? 'current-room' : ''}" 
              data-chatroom-id="${room.id}" 
              data-room-kind="${isPlaceRoomId(room.id) ? 'place' : 'current'}">
-          <div class="chatroom-icon">${room.icon}</div>
+          ${room.icon ? `<div class="chatroom-icon">${room.icon}</div>` : ''}
           <div class="chatroom-info">
             <div class="chatroom-name">
               ${deps.escapeHtml(room.name)}
@@ -406,7 +416,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
             </div>
             <div class="chatroom-description">${deps.escapeHtml(room.description || '')}</div>
             <div class="chatroom-flat-metrics">
-              ${showCapacity ? `<span class="chatroom-headcount">${deps.text('chatroomCapacitySummary')
+              ${showCapacity ? `<span class="chatroom-headcount">${deps.text('roomListPeople')
                 .replace('{count}', String(memberCount))
                 .replace('{capacity}', String(CONFIG.CHATROOM_MAX_CAPACITY))}</span>` : ''}
               ${isPlaceRoomId(room.id) ? `<span class="chatroom-visitcount">${deps.text('chatroomVisits').replace('{count}', String(visitCounts.visitCount))}</span>` : ''}
@@ -485,6 +495,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     if (detailContainer) detailContainer.style.display = 'none';
     const backButton = document.getElementById('back-to-chatrooms') as HTMLElement | null;
     if (backButton) backButton.style.display = 'none';
+    delete document.body.dataset.chatroomDetail;
     deps.setChatroomBrowseMode(mode);
     deps.renderChatroomList();
   };
@@ -568,7 +579,15 @@ function enterRoom(deps: ChatroomsViewDeps, chatroomId: string, row: RoomListRow
   if (row?.full) return;
   if (row && row.kind === 'nearby' && chatroomId !== deps.currentChatroom
     && row.latitude !== undefined && row.longitude !== undefined) {
-    deps.emit('travelNearbyAtPoint', { latitude: row.latitude, longitude: row.longitude });
+    // Aim at the group's own partition square (the members' average can sit across an edge).
+    const target = row.partitionPath !== undefined
+      ? nearbyPartitionTargetPoint({
+          path: row.partitionPath,
+          mode: loadConnectivitySettings().nearbyPrivacyMode,
+          near: { latitude: row.latitude, longitude: row.longitude },
+        })
+      : { latitude: row.latitude, longitude: row.longitude };
+    deps.emit('travelNearbyAtPoint', { latitude: target.latitude, longitude: target.longitude });
     openRoomDetailShell(deps, row.displayName);
     return;
   }
@@ -581,6 +600,7 @@ function openRoomDetailShell(deps: ChatroomsViewDeps, title: string): void {
   const detailContainer = document.getElementById('chatroom-detail-container');
   if (listContainer) listContainer.style.display = 'none';
   if (detailContainer) detailContainer.style.display = 'flex';
+  document.body.dataset.chatroomDetail = 'open';
   const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
   const chatroomTitle = document.getElementById('current-chatroom-title');
@@ -600,6 +620,7 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   if (listContainer) listContainer.style.display = 'none';
   // Keep flex column layout from CSS (#chatroom-detail-container) so #chatroom-members-list can scroll.
   if (detailContainer) detailContainer.style.display = 'flex';
+  document.body.dataset.chatroomDetail = 'open';
   const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';
   deps.onChatroomDetailOpened?.(chatroomId);

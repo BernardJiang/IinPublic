@@ -463,10 +463,17 @@ The flat room list replaces the retired chatroom tree.
 
   Distance breaks ties. The list shows 30 rooms at a time, with "Show more rooms".
 - **Rows:**
-  - A Nearby group is named after the nearest named city ("Around La Jolla"). Rooms that would
-    share a name get "· 2", "· 3".
-  - The meta line reads "people / capacity · distance direction" ("1 / 3 · 1.4 mi NE").
-  - Room ids are never shown.
+  - A Nearby group is named by where it is from you ("0.6 mi W", or "Here" within 500 m). The
+    nearest big city from the app's built-in city table is shown underneath as context
+    ("near San Diego"). That table only knows major cities, so it is never used as the name.
+  - A Place shows its own name, its type icon, and "Place · 0.6 mi W".
+  - Nearby rows have no icon: a pin on every row carried no meaning.
+  - Your own row is "Your room · near San Diego".
+  - Rows that would read the same get "· 2", "· 3". Room ids are never shown.
+  - The headcount reads "1 / 3 people", plus "· Full" when the room is full.
+- **Title:** two lines, the room name, then "N users · M matches". Tap it to see the full text.
+  While a room's member list is open, the title shows only the counts, because that screen has
+  its own heading.
 - **Full rooms** are shown greyed out and cannot be entered, because entering would force a split.
 - **Tap a room** to enter it and see its member list:
   - Your own room just opens its members.

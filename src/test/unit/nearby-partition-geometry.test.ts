@@ -166,3 +166,32 @@ describe('adaptive Nearby partition display geometry', () => {
     })).toThrow('cannot participate in automatic Nearby');
   });
 });
+
+describe('room-list tap target', () => {
+  it('a tap on a group lands in that exact group, even when members sit near its edge', () => {
+    const { nearbyPartitionTargetPoint } = jest.requireActual('../../shared/nearby-partition-geometry');
+    const { nearbyPartitionSelectorPath } = jest.requireActual('../../shared/nearby-partition');
+    for (const spot of [
+      { latitude: 32.7132, longitude: -117.1756 },
+      { latitude: 32.7157, longitude: -117.1611 },
+      { latitude: 51.5007, longitude: -0.1246 },
+      { latitude: -33.8568, longitude: 151.2153 },
+    ]) {
+      const at = { ...spot, accuracy: 25, timestamp: new Date() };
+      for (const depth of [4, 9, 12, 15]) {
+        const path = nearbyPartitionSelectorPath(at, 'neighborhood', depth, 'someone');
+        const target = nearbyPartitionTargetPoint({ path, mode: 'neighborhood', near: spot });
+        const back = nearbyPartitionSelectorPath({ ...target, accuracy: 0, timestamp: new Date() }, 'neighborhood', depth, 'traveler');
+        const geographic = maximumNearbyPartitionGeographicDepth({ location: at, mode: 'neighborhood', maximumDepth: 24 });
+        if (depth <= geographic) {
+          expect(target.laneLimited).toBe(false);
+          expect(back).toBe(path);
+        } else {
+          // Below the privacy floor the digits are identity lanes: the area matches, the lane is the traveler's own.
+          expect(target.laneLimited).toBe(true);
+          expect(back.slice(0, geographic)).toBe(path.slice(0, geographic));
+        }
+      }
+    }
+  });
+});

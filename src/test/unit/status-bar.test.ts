@@ -86,3 +86,17 @@ describe('syncStatusBarMatchCount', () => {
     expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3) · statusBarMatch(1)');
   });
 });
+
+describe('two-line status title', () => {
+  it('shows the room name and the counts on separate lines, with the full text kept and expandable', () => {
+    document.body.innerHTML = '<span id="status-bar-text"></span>';
+    updateStatusBar('📍 Nearby', 3, 2, { tf: (key, vars) => `${vars.count} ${key === 'statusBarUsers' ? 'users' : 'matches'}`, getTotalMatches: () => 0 });
+    const bar = document.getElementById('status-bar-text')!;
+    expect(bar.querySelector('.status-bar-name')?.textContent).toBe('📍 Nearby');
+    expect(bar.querySelector('.status-bar-meta')?.textContent).toBe('3 users · 2 matches');
+    expect(bar.textContent).toBe('📍 Nearby · 3 users · 2 matches');
+    expect(bar.title).toBe('📍 Nearby · 3 users · 2 matches');
+    bar.click();
+    expect(bar.classList.contains('status-bar-expanded')).toBe(true);
+  });
+});

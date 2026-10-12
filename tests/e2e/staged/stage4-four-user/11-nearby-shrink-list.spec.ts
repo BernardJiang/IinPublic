@@ -1,6 +1,6 @@
 /**
  * List-view twin of 08-nearby-shrink-map (no map at all): four users, capacity 3. Every step saves
- * one 2×2 frame of all four users' chatroom lists (U1 U2 / U3 U4). "Nearby · N people · up to 3"
+ * one 2×2 frame of all four users' chatroom lists (U1 U2 / U3 U4). "N / 3 people"
  * in each list shows the worldwide group filling, then splitting until every group holds ≤ 3.
  */
 import { test } from '../../helpers/fixtures';

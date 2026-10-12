@@ -70,14 +70,22 @@ describe('flat Nearby and Places list', () => {
     render({ activeRooms: ROOMS });
 
     expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('351 online · 3 rooms');
-    expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Nearby');
+    const current = document.querySelector('[data-testid="current-group-section"]');
+    expect(current?.textContent).toContain('Your room');
+    expect(current?.textContent).toContain('near San Diego');
+    expect(current?.querySelector('.chatroom-icon')).toBeNull(); // no meaningless pin
     const rows = Array.from(document.querySelectorAll('[data-testid="room-list-row"]'));
+    // A Place by its name; a Nearby group by where it is from you, with the big city as context.
     expect(rows.map((row) => row.querySelector('.chatroom-name')?.textContent?.trim())).toEqual([
       'Bean There Café',
-      'Around Los Angeles',
+      expect.stringMatching(/^\d+ (km|mi) NW$/),
     ]);
-    expect(rows[0]?.textContent).toContain('46 / 498');
-    expect(rows[1]?.textContent).toMatch(/3 \/ 498 · \d+ (km|mi) NW/);
+    expect(rows[0]?.textContent).toContain('46 / 498 people');
+    expect(rows[0]?.querySelector('.chatroom-description')?.textContent).toMatch(/^Place · [\d.]+ (km|mi) SW$/);
+    expect(rows[0]?.querySelector('.chatroom-icon')).not.toBeNull();
+    expect(rows[1]?.querySelector('.chatroom-description')?.textContent).toBe('near Los Angeles');
+    expect(rows[1]?.textContent).toContain('3 / 498 people');
+    expect(rows[1]?.querySelector('.chatroom-icon')).toBeNull();
     expect(document.querySelector('.chatroom-expand-icon')).toBeNull();
     expect(document.querySelector('[data-level]')).toBeNull();
     expect(document.querySelector('[data-testid="cohort-controls"]')).toBeNull();
@@ -106,7 +114,7 @@ describe('flat Nearby and Places list', () => {
 
     (document.querySelector(`.chatroom-item[data-chatroom-id="${LA_ID}"]`) as HTMLElement).click();
     expect(emit).toHaveBeenCalledWith('travelNearbyAtPoint', { latitude: 34.05, longitude: -118.24 });
-    expect(document.getElementById('current-chatroom-title')?.textContent).toBe('Around Los Angeles');
+    expect(document.getElementById('current-chatroom-title')?.textContent).toMatch(/^\d+ (km|mi) NW$/);
   });
 
   it('shows a full room greyed out and does not enter it', () => {
