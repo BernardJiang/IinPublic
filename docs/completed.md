@@ -1,6 +1,27 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
+
+## 2026-10-12 — Dedicated forward protocol-release key chain provisioned
+
+- Preserved the already-shipped genesis trust checkpoint and used its historical TechSupport
+  announcement key only to sign a no-policy-change `M2` bridge (`protocolEpoch=1`, `C=498`). `M2`
+  commits a new dedicated `K3`, so existing installations can authenticate the transition instead
+  of being stranded by a replaced compiled root.
+- Generated encrypted, sequence-bound `K3` and `K4` protocol-release vaults and independent
+  mode-600 passphrase files under the gitignored `secrets/` target. Their envelope type cannot be
+  mistaken for a TechSupport vault. Private keys are absent from the committed manifest history.
+- Added the offline `protocol:manifest` operator tool for generation, inspection, signing,
+  rotation, chain status, and production verification. It enforces `MN` signer and `K(N+1)`
+  sequence binding, full-chain verification, authorized signers, immutable previous hashes,
+  explicit activation timestamps, and rejection of private fields in public history.
+- Production builds now fail unless the complete signed history verifies from genesis and ends in
+  a dedicated ordinary successor key rather than the legacy announcement or recovery key. Runtime
+  mixed-release gossip continues to let a sequence-1 peer receive and verify `M2` before ordinary
+  room traffic.
+- Verified the server/web/embedded-mobile build gates, TypeScript, lint, the full unit suite
+  (319 suites, 3,050 passed, 12 skipped), 43 focused manifest/mesh tests, and 6 operator
+  custody/tool tests. Cold-storage backup of the local encrypted vaults remains an operator action.
 
 ## 2026-10-11 — Phone discovery matrix: LAN, Wi-Fi Direct, cellular fixes (OPEN-47, OPEN-48, OPEN-49)
 

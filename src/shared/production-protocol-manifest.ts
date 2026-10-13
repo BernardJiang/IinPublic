@@ -11,12 +11,14 @@ import {
   currentTechSupportAnnouncementPub,
   currentTechSupportRecoveryPub,
 } from './techsupport';
+import bundledProtocolManifestHistory from './protocol-manifest-history.signed.json';
 
 /**
- * Release-1 trust root. Only public keys are compiled into the application. The corresponding
- * private keys remain in the existing separate announcement/operator and recovery vaults; the
- * manifest signing domain prevents a signature for another protocol from being replayed here.
- * Future releases rotate both roles through the signed manifest chain.
+ * Historical release-1 trust root. Manifest-aware builds already shipped with the TechSupport
+ * announcement public key in this checkpoint, so it cannot be replaced without stranding those
+ * clients. The first bundled manifest uses that key exactly once to bridge into a dedicated,
+ * one-time protocol-release key. Later manifests rotate only dedicated protocol-release keys.
+ * The signing domain prevents an announcement signature from being replayed as a manifest.
  */
 export const PRODUCTION_PROTOCOL_MANIFEST_ANCHOR: ProtocolManifestTrustState = Object.freeze({
   networkId: BASELINE_ROOM_PROTOCOL_CHECKPOINT.networkId,
@@ -44,7 +46,10 @@ export const PRODUCTION_PROTOCOL_MANIFEST_RUNTIME: ProtocolManifestRuntimePolicy
 });
 
 /**
- * Each release appends its verified public manifests here. Release 1 has no successor manifest
- * yet, so this deliberately starts empty; private signing keys must never be added to this file.
+ * Public signed history bundled into every distribution. The operator-only manifest tool appends
+ * to the JSON artifact after verifying the entire chain from the historical anchor. Private keys
+ * and passphrases remain in ignored offline vaults and must never be added here.
  */
-export const BUNDLED_PROTOCOL_MANIFEST_HISTORY: readonly SignedProtocolManifest[] = Object.freeze([]);
+export const BUNDLED_PROTOCOL_MANIFEST_HISTORY: readonly SignedProtocolManifest[] = Object.freeze(
+  bundledProtocolManifestHistory as readonly SignedProtocolManifest[],
+);
