@@ -374,6 +374,8 @@ export class IinPublicApp {
   private supportBootstrapChecked = false;
   /** `${roomId}|${peerId}` → last automatic catch-up send (see catchUpPeerInActiveRoom). */
   private readonly roomCatchupSentAt = new Map<string, number>();
+  /** Talk id → deliberate broadcasts still resolving receivers/delivering; catch-up waits for them. */
+  private readonly talkBroadcastsInFlight = new Map<string, number>();
   /** When this session rendered the welcome greeting; null until then. */
   private supportGreetingTimestamp: string | null = null;
   private supportGreetingRendered: string | null = null;
@@ -3548,6 +3550,25 @@ export class IinPublicApp {
    * Talks this device deliberately broadcast in THIS room that it has not received yet. The
    * per-peer delivery ledger keeps this idempotent; Talks never follow the user to another room.
    */
+  /**
+   * Mark Talks whose deliberate room broadcast is still resolving receivers or delivering (~10 s on
+   * a phone). Catch-up skips them, so a roster change meanwhile does not send the same Talk in
+   * parallel (OPEN-51). Returns the release to call when that broadcast settles.
+   */
+  private markTalkBroadcastsInFlight(talkIds: readonly string[]): () => void {
+    for (const talkId of talkIds) this.talkBroadcastsInFlight.set(talkId, (this.talkBroadcastsInFlight.get(talkId) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const talkId of talkIds) {
+        const remaining = (this.talkBroadcastsInFlight.get(talkId) ?? 1) - 1;
+        if (remaining > 0) this.talkBroadcastsInFlight.set(talkId, remaining);
+        else this.talkBroadcastsInFlight.delete(talkId);
+      }
+    };
+  }
+
   private catchUpPeerInActiveRoom(userId: string, roomId: string, stageName?: string): void {
     const peerId = String(userId || '').trim();
     if (!peerId || !this.currentUser || isTechSupportUser(this.currentUser) || peerId === this.currentUser.id) return;
@@ -3558,7 +3579,11 @@ export class IinPublicApp {
     const now = Date.now();
     if (now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
     const broadcastHere = talksBroadcastInRoom(roomId);
-    const talkIds = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) => broadcastHere.has(talkId));
+    // A Talk already queued for this peer is retried by the outbox itself (OPEN-51).
+    const talkIds = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) =>
+      broadcastHere.has(talkId)
+      && !this.talkBroadcastsInFlight.has(talkId)
+      && !this.peerMeshService?.hasQueuedDirectTalk(peerId, talkId));
     if (talkIds.length === 0) return;
     this.roomCatchupSentAt.set(key, now);
     this.uiManager.emit('broadcastTalk', {
@@ -7536,55 +7561,60 @@ export class IinPublicApp {
     }
     // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
     recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
-    let sent = 0;
-    const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
-    for (const talkId of broadcastableIds) {
-      let talk = this.uiManager.getBroadcastTalkPayload(talkId);
-      if (!talk) {
-        talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
+    const releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
+    try {
+      let sent = 0;
+      const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
+      for (const talkId of broadcastableIds) {
+        let talk = this.uiManager.getBroadcastTalkPayload(talkId);
+        if (!talk) {
+          talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
+        }
+        if (!talk) continue;
+        const tid = String(talk.id || talkId);
+        talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser.id };
+        if (this.isTalkExpiredForDelivery(talk)) continue;
+        talkPayloads.push({ tid, talk: talk as Talk });
       }
-      if (!talk) continue;
-      const tid = String(talk.id || talkId);
-      talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser.id };
-      if (this.isTalkExpiredForDelivery(talk)) continue;
-      talkPayloads.push({ tid, talk: talk as Talk });
+      if (talkPayloads.length === 0) {
+        throw new Error('no talk payloads for E2E broadcast delivery');
+      }
+      if (receivers.length === 0) {
+        const attempted = talkPayloads
+          .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
+          .length;
+        this.uiManager.setBroadcastBulkAck(attempted, 0);
+        return { talksSent: attempted, receivers: 0 };
+      }
+      // Mesh delivery fans out to resolved receivers directly; no server preview needed.
+      const previews: BroadcastAudiencePreview[] = [];
+      const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
+      const REGISTER_BATCH = 5;
+      for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
+        const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
+        const batchResults = await Promise.all(
+          batch.map(async ({ tid, talk }) => {
+            const preview = previewByTalkId.get(tid);
+            const eligibleIds =
+              usesMeshTalkDelivery(this.p2pRuntimeFlags) || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
+                ? undefined
+                : preview.eligibleReceiverIds;
+            return this.deliverTalkToReceiversOverMesh(
+              tid,
+              talk,
+              receivers,
+              eligibleIds,
+              { skipAcknowledgements: opts.skipDeliveryAcks === true },
+            );
+          }),
+        );
+        sent += batchResults.filter(Boolean).length;
+      }
+      this.uiManager.setBroadcastBulkAck(sent, targetCount);
+      return { talksSent: sent, receivers: targetCount };
+    } finally {
+      releaseInFlight();
     }
-    if (talkPayloads.length === 0) {
-      throw new Error('no talk payloads for E2E broadcast delivery');
-    }
-    if (receivers.length === 0) {
-      const attempted = talkPayloads
-        .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
-        .length;
-      this.uiManager.setBroadcastBulkAck(attempted, 0);
-      return { talksSent: attempted, receivers: 0 };
-    }
-    // Mesh delivery fans out to resolved receivers directly; no server preview needed.
-    const previews: BroadcastAudiencePreview[] = [];
-    const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
-    const REGISTER_BATCH = 5;
-    for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
-      const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
-      const batchResults = await Promise.all(
-        batch.map(async ({ tid, talk }) => {
-          const preview = previewByTalkId.get(tid);
-          const eligibleIds =
-            usesMeshTalkDelivery(this.p2pRuntimeFlags) || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
-              ? undefined
-              : preview.eligibleReceiverIds;
-          return this.deliverTalkToReceiversOverMesh(
-            tid,
-            talk,
-            receivers,
-            eligibleIds,
-            { skipAcknowledgements: opts.skipDeliveryAcks === true },
-          );
-        }),
-      );
-      sent += batchResults.filter(Boolean).length;
-    }
-    this.uiManager.setBroadcastBulkAck(sent, targetCount);
-    return { talksSent: sent, receivers: targetCount };
   }
 
   /**
@@ -8472,6 +8502,7 @@ export class IinPublicApp {
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId && wantSendToChatroom) {
           recordTalksBroadcastInRoom(chatroomId, [talk.id], Object.keys(getMyTalks()));
+          const releaseInFlight = this.markTalkBroadcastsInFlight([talk.id]);
           void (async () => {
             const receivers = await this.resolveBroadcastReceivers(
               chatroomId,
@@ -8481,7 +8512,7 @@ export class IinPublicApp {
             console.log('📢 Talk broadcasted to chatroom:', chatroomId);
           })().catch((error) => {
             console.warn('Background talk broadcast failed (non-fatal — talk is already saved):', error);
-          });
+          }).finally(releaseInFlight);
         }
 
         let createdMode: 'sent' | 'saved-only' | 'needs-room' = 'sent';
@@ -8565,6 +8596,7 @@ export class IinPublicApp {
         /** Background catch-up to a newly linked same-room peer: no toasts, no bulk-ack change. */
         catchUp?: boolean;
       }) => {
+        let releaseInFlight = (): void => {};
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
           if (!chatroomId || !this.currentUser) {
@@ -8605,6 +8637,7 @@ export class IinPublicApp {
           // (A plain Broadcast tap arrives as `automatic` — it only skips the confirm dialog.)
           if (!data.catchUp) {
             recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
+            releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
           }
 
           // Immediate feedback before the slow work below (resolving receivers, fetching
@@ -8702,6 +8735,8 @@ export class IinPublicApp {
         } catch (error) {
           console.error('Broadcast talks failed:', error);
           this.uiManager.showNotification(this.uiManager.formatBroadcastFailed((error as Error).message), 'error');
+        } finally {
+          releaseInFlight();
         }
       },
     );

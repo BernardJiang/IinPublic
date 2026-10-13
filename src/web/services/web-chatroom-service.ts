@@ -80,6 +80,26 @@ type ChatroomMember = {
 };
 
 /**
+ * What a roster listener reacts to: who is here, their names and keys, and restarts (epoch).
+ * Heartbeats only move `lastSeen`, so they leave this unchanged (OPEN-51: four phones re-emitted
+ * an identical roster 2–3 times a second, and every emit re-ran mesh join, discovery and catch-up).
+ */
+export function memberRosterSignature(members: readonly ChatroomMember[]): string {
+  return members
+    .map((member) => [
+      member.userId,
+      member.stageName,
+      member.isTraveler === true ? 't' : '',
+      member.joinedAt instanceof Date ? member.joinedAt.toISOString() : member.joinedAt || '',
+      member.epub || '',
+      member.pub || '',
+      member.epoch || '',
+    ].join('\u0001'))
+    .sort()
+    .join('\u0002');
+}
+
+/**
  * Identifies this app run in the room roster. When a peer's epoch changes it restarted, and any
  * WebRTC session to it is dead even though the transport may still report "connected" for the
  * ~30–40 s it takes to notice — on hardware that stalled re-linking a restarted phone for minutes.
@@ -1271,9 +1291,16 @@ export class WebChatroomService {
       this.serverMembersPollTimer = null;
     }
 
+    let emittedSignature: string | null = null;
+    let emittedTo: ((members: ChatroomMember[]) => void) | null = null;
     const emitMembers = () => {
       if (chatroomId !== this.membersListenerRoomId || !this.membersListCallback) return;
-      this.membersListCallback(Array.from(this.activeMembersForList.values()));
+      const members = Array.from(this.activeMembersForList.values());
+      const signature = memberRosterSignature(members);
+      if (signature === emittedSignature && emittedTo === this.membersListCallback) return;
+      emittedSignature = signature;
+      emittedTo = this.membersListCallback;
+      this.membersListCallback(members);
     };
 
     // The hub REST roster is the cross-runtime convergence point. In particular, embedded phones

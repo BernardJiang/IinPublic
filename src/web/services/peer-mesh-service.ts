@@ -284,6 +284,8 @@ export class PeerMeshService {
   private readonly directTalkOutbox: DirectTalkDeliveryOutbox | null;
   private directOutboxFlush: Promise<Set<string>> | null = null;
   private readonly directOfferMsgIds = new Map<string, string>();
+  /** `${recipientUserId}|${talkId}` still queued in the outbox for the current room (in-memory mirror). */
+  private readonly queuedDirectTalks = new Set<string>();
 
   constructor(
     private readonly gunService: WebGunService,
@@ -394,6 +396,15 @@ export class PeerMeshService {
     // TODO step ≥2: swap body for scoreP2PNeighbor-based ranking (spec §23.7)
   }
 
+  /**
+   * True while this Talk sits in the direct-delivery outbox for that peer in the current room. The
+   * outbox already retries it on its own schedule (and on every neighbor link), so room catch-up
+   * should not send it again (OPEN-51).
+   */
+  hasQueuedDirectTalk(recipientUserId: string, talkId: string): boolean {
+    return this.queuedDirectTalks.has(`${recipientUserId}|${talkId}`);
+  }
+
   async joinRoom(roomId: string, members: RoomMember[]): Promise<void> {
     const wasInactive = this.currentRoomId === null;
     const roomChanged = this.currentRoomId !== null && this.currentRoomId !== roomId;
@@ -404,6 +415,7 @@ export class PeerMeshService {
       this.currentRoomMemberIds.clear();
       this.manifestReadyPeerIds.clear();
       this.manifestRejectedPeerIds.clear();
+      this.queuedDirectTalks.clear();
     }
     this.currentRoomId = roomId;
     const remoteMembers = members.filter(
@@ -636,6 +648,7 @@ export class PeerMeshService {
     this.directOfferMsgIds.clear();
     this.manifestReadyPeerIds.clear();
     this.manifestRejectedPeerIds.clear();
+    this.queuedDirectTalks.clear();
   }
 
   /**
@@ -744,6 +757,9 @@ export class PeerMeshService {
       )];
       const queued = await Promise.all(recipients.map((recipientUserId) =>
         this.directTalkOutbox!.enqueue(roomId, recipientUserId, bodyPayload)));
+      if (roomId === this.currentRoomId) {
+        for (const entry of queued) this.queuedDirectTalks.add(`${entry.recipientUserId}|${entry.talkId}`);
+      }
       await this.flushDirectTalkOutbox();
       const remaining = new Set((await this.directTalkOutbox.list(roomId)).map((entry) => entry.key));
       if (this.opts.onDirectDeliveryPending) {
@@ -1659,7 +1675,12 @@ export class PeerMeshService {
     const roomId = this.currentRoomId;
     if (!outbox || !roomId) return new Set();
     const now = this.opts.now?.() ?? Date.now();
-    const entries = (await outbox.list(roomId)).filter((entry) => {
+    const queuedEntries = await outbox.list(roomId);
+    if (roomId === this.currentRoomId) {
+      this.queuedDirectTalks.clear();
+      for (const entry of queuedEntries) this.queuedDirectTalks.add(`${entry.recipientUserId}|${entry.talkId}`);
+    }
+    const entries = queuedEntries.filter((entry) => {
       const neighbor = this.neighbors.get(entry.recipientUserId);
       if (!neighbor || !isNeighborLive(neighbor)) return false;
       if (this.protocolManifestController && !this.manifestReadyPeerIds.has(entry.recipientUserId)) return false;
@@ -1705,6 +1726,7 @@ export class PeerMeshService {
       ...(payload.contentHash ? { contentHash: payload.contentHash } : {}),
     });
     for (const entry of removed) {
+      if (entry.roomId === this.currentRoomId) this.queuedDirectTalks.delete(`${entry.recipientUserId}|${entry.talkId}`);
       const offerMsgId = this.directOfferMsgIds.get(entry.key);
       if (offerMsgId) this.recordAck(offerMsgId, recipientUserId);
       await this.opts.onTalkDeliveryAck?.(entry.payload, recipientUserId);

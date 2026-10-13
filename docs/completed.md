@@ -2,6 +2,28 @@
 
 Last updated: 2026-10-11
 
+## 2026-10-12 — Room roster churn and redundant catch-ups (OPEN-51)
+
+Measured with `native-app/30` WebView consoles on P30, PH-1, FRD and C10. Versions 1.0.137–1.0.140.
+
+- **The roster listener re-emitted an unchanged roster 2–3 times a second.** `subscribeToMembers`
+  (`web-chatroom-service.ts`) called back on every Gun heartbeat (only `lastSeen` moves) and every
+  5 s server poll. Each call re-rendered the member list and ran `syncPeerMeshRoom`: mesh
+  `joinRoom` + neighbor reconcile + full outbox flush, a libp2p provide/findProviders, catch-up for
+  every member and a mailbox drain. It now emits only when `memberRosterSignature` changes (ids,
+  names, traveler flag, joinedAt, keys, epoch). Per-phone roster callbacks per run: 124–230 → 5–21.
+- **Catch-up re-sent Talks that were already on their way.** The ledger marks a Talk sent only on the
+  receiver's ack, so every roster callback re-sent it (at most every 10 s per peer). Catch-up now
+  skips Talks still queued for that peer in the direct-delivery outbox (`PeerMeshService.hasQueuedDirectTalk`,
+  an in-memory mirror; the outbox retries on its own) and Talks whose deliberate room broadcast is still
+  resolving receivers (`markTalkBroadcastsInFlight` on the Broadcast button, create-and-send and the
+  E2E delivery helper). Catch-ups per run: 3–8 per phone → 0; Talk announcements 4–10 → 1–2.
+- Ring times moved from 19–20/11–15/16–18/13–16 s (1.0.136) to 19–21/10–15/10–15/10–14 s.
+- Native-app helper: `--use-mock-keychain` for the desktop app (no Keychain click needed) and the
+  production bundle's one-time location picker is cancelled during bootstrap. Spec 11 passes.
+- Real cellular `native-app/29` passed with the Honor FCP-AN10 on its SIM.
+- Follow-up: OPEN-52 (neighbor "connected" logged twice).
+
 ## 2026-10-12 — LAN discovery and Talk delivery fixes on four phones (OPEN-50)
 
 Found on P30, PH-1, FRD (Android 7) and C10 with WebView console capture added to `native-app/30`

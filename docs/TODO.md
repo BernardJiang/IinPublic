@@ -641,11 +641,11 @@ phrase complexity into normal use.
     and loopback origins (tested), so converting them is a separate, much larger refactor with no
     corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
-- [ ] **OPEN-51 — Room roster churn on phones (found 2026-10-12, 1.0.136).** In a 4-phone Nearby
-  room every phone logs "Updating member count" 2–3 times a second and re-renders the member list,
-  and one broadcast Talk still triggers ~6 catch-up sends per phone (one per neighbor reconnect;
-  single-peer and quota-free since OPEN-50). Find what re-fires the member callback and the mesh
-  reconnects, and stop redundant work when the roster has not changed.
+- [ ] **OPEN-52 — Mesh neighbor logs "connected" twice (found 2026-10-12, 1.0.140).** On every phone each
+  neighbor's first connect is followed 0–100 ms later by a second "connected (0 ms this attempt)". A
+  transient non-connected session state (or a failed first send) clears `neighbor.connected`, and the
+  next reconcile reconnects instantly and fires `onNeighborConnected` again. Harmless since OPEN-51
+  (catch-up skips queued and in-flight Talks), but find why the state flaps right after connect.
 
 - [ ] **OPEN-29 — Add an independent emergency recovery authority.** Single offline recovery key
   (product owner decision 2026-09-22 — a solo-operator deployment doesn't yet justify an M-of-N

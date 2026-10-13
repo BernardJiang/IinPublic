@@ -88,7 +88,9 @@ export async function launchNativeUser(options: LaunchNativeUserOptions): Promis
   const electronLogPath = path.join(options.userDataDir, 'electron.log');
   const app = await electron.launch({
     executablePath: target.executablePath,
-    args: [...target.args, '--enable-logging=file', `--log-file=${electronLogPath}`],
+    // --use-mock-keychain keeps safeStorage off the login Keychain: the ad-hoc-signed app
+    // otherwise blocks on a macOS "IinPublic Safe Storage" prompt at boot until someone clicks.
+    args: [...target.args, '--use-mock-keychain', '--enable-logging=file', `--log-file=${electronLogPath}`],
     ...(target.cwd ? { cwd: target.cwd } : {}),
     env: {
       ...process.env,
@@ -168,6 +170,17 @@ async function dismissAutomaticWalkthroughForBootstrap(page: Page): Promise<void
   await expect(modal).toHaveCount(0);
 }
 
+/**
+ * Production bundles (build:embedded) have no simulated GPS, so web and desktop users get a random
+ * city plus a one-time "choose your location" picker that covers the nav. Cancel keeps the random point.
+ */
+async function dismissLocationPickerForBootstrap(page: Page): Promise<void> {
+  const picker = page.locator('[data-testid="encounter-location-modal"]');
+  if (!(await picker.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false))) return;
+  await page.locator('#encounter-location-cancel').click();
+  await expect(picker).toHaveCount(0);
+}
+
 export async function bootstrapNativeWindow(
   page: Page,
   stageName: string,
@@ -182,6 +195,7 @@ export async function bootstrapNativeWindow(
   await expect(page.locator('body')).not.toContainText('Connecting to IinPublic network...', { timeout: readinessTimeoutMs });
   await waitForAppReady(page, readinessTimeoutMs);
   await dismissAutomaticWalkthroughForBootstrap(page);
+  await dismissLocationPickerForBootstrap(page);
   if (options.updateStageName !== false) {
     await page.evaluate(() => {
       document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();
@@ -281,6 +295,7 @@ export async function bootstrapBrowserUserOnOrigin(
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
   await dismissAutomaticWalkthroughForBootstrap(page);
+  await dismissLocationPickerForBootstrap(page);
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
   await openSettingsSection(page, 'settings-section-profile');
