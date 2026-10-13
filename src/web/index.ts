@@ -7,7 +7,10 @@ import { LocationPrivacy } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
 import { PASSWORD_FREE_CUSTODY_DATABASE_NAME } from './services/identity-password-free-custody-store';
-import { getCachedLocation, setCachedLocation } from './services/location-cache';
+import { getCachedLocation } from './services/location-cache';
+
+/** How long a first-run phone waits for its GPS fix before appearing at a random Traveler point. */
+const GPS_FIX_FALLBACK_MS = 15_000;
 import { encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation } from './services/encounter-location';
 import { markStartupPhase } from './performance/startup-metrics';
 import { loadConnectivitySettings } from './ui/connectivity-settings';
@@ -160,14 +163,19 @@ class WebApp {
    * something this non-essential to using the app.
    */
   private resolveRealLocationInBackground(): void {
+    // OPEN-53: no real fix (denied, failed, or a permission sheet still open) → Traveler at a random
+    // point after a short wait instead of Contacts only; a fix that lands later still replaces it.
+    const fallback = setTimeout(() => this.app.handleGpsFixUnavailable(), GPS_FIX_FALLBACK_MS);
     void LocationPrivacy.getCurrentLocation()
       .then((location) => {
-        setCachedLocation(location);
+        clearTimeout(fallback);
         console.log('📍 Real location resolved:', location.latitude.toFixed(3), location.longitude.toFixed(3));
-        this.app.updateCurrentLocation(location);
+        this.app.applyRealGpsFix(location);
       })
       .catch((error) => {
-        console.warn('📍 Could not resolve real location (keeping cached/placeholder):', error);
+        clearTimeout(fallback);
+        console.warn('📍 Could not resolve real location (keeping cached, else a random Traveler point):', error);
+        this.app.handleGpsFixUnavailable();
       });
   }
 

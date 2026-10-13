@@ -42,16 +42,33 @@ export function deviceHasGps(
   return platform === 'android' || platform === 'ios' || simulatedGps;
 }
 
+let gpsFixUnavailable = false;
+
+/**
+ * OPEN-53: a GPS-capable device whose fix was denied, failed or never arrived is a Traveler at its
+ * encounter point (random until the person picks one) instead of dropping to Contacts only. A later
+ * real fix clears this and the device becomes a Resident again.
+ */
+export function setGpsFixUnavailable(value: boolean): void {
+  gpsFixUnavailable = value;
+}
+
+export function isGpsFixUnavailable(): boolean {
+  return gpsFixUnavailable;
+}
+
 /**
  * True when this device appears at a chosen point (a Traveler ✈) rather than its blurred GPS
- * (a Resident): always on web/desktop, and on a phone whose owner chose "A point I choose".
+ * (a Resident): always on web/desktop, on a phone whose owner chose "A point I choose", and on a
+ * phone that has no real GPS fix.
  */
 export function usesSelfDefinedEncounterLocation(
   platform: string = readNativeHostInfo().platform,
   source: LocationSource = loadConnectivitySettings().locationSource,
   simulatedGps: boolean = simulatedTestGps(),
+  noGpsFix: boolean = gpsFixUnavailable,
 ): boolean {
-  return !deviceHasGps(platform, simulatedGps) || source === 'traveler';
+  return !deviceHasGps(platform, simulatedGps) || source === 'traveler' || noGpsFix;
 }
 
 function validCoordinate(latitude: unknown, longitude: unknown): boolean {

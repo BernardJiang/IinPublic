@@ -9,6 +9,8 @@ import {
   getEncounterLocation,
   setEncounterLocation,
   usesSelfDefinedEncounterLocation,
+  isGpsFixUnavailable,
+  setGpsFixUnavailable,
 } from '../../web/services/encounter-location';
 import { showEncounterLocationPicker } from '../../web/ui/encounter-location-picker';
 import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
@@ -28,6 +30,18 @@ describe('encounter location storage', () => {
     expect(usesSelfDefinedEncounterLocation('android', 'traveler', false)).toBe(true);
     // Dev/test builds: the injected test location stands in for GPS on the website.
     expect(usesSelfDefinedEncounterLocation('web', 'resident', true)).toBe(false);
+  });
+
+  it('a phone Resident without a GPS fix is a Traveler until a real fix clears the flag (OPEN-53)', () => {
+    expect(usesSelfDefinedEncounterLocation('android', 'resident', false, true)).toBe(true);
+    setGpsFixUnavailable(true);
+    try {
+      expect(isGpsFixUnavailable()).toBe(true);
+      expect(usesSelfDefinedEncounterLocation('android', 'resident', false)).toBe(true);
+    } finally {
+      setGpsFixUnavailable(false);
+    }
+    expect(usesSelfDefinedEncounterLocation('android', 'resident', false)).toBe(false);
   });
 
   it('places a location-less device near a built-in city, marked auto until the person picks', () => {

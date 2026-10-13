@@ -662,6 +662,10 @@ phrase complexity into normal use.
     and loopback origins (tested), so converting them is a separate, much larger refactor with no
     corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
+- [ ] **OPEN-56 — `talks-matching/01-mesh-ping-overlay` fails about half the time (found 2026-10-13).**
+  Same rate with and without the OPEN-53 change (2 of 4 runs alone on the unchanged tree): with Tom
+  capped at one neighbor, Jerry or Bob never sees the relayed ping. Like spec 06, it probably sends
+  before the single link is manifest-ready; check that first.
 - [ ] **OPEN-55 — Dealmaker Pair-tag veto test fails intermittently after the positive test (found 2026-10-13).**
   `stage4/04-dealmaker-chatbot-match` "byte-identical criteria do NOT match" saw two 'buy' talks match
   in two full runs and once when run right after the positive test in the same file; it passes on its
@@ -675,13 +679,27 @@ phrase complexity into normal use.
   `pm grant` fixed them. Needs an in-app "Use my location" action that re-requests (or opens app
   settings once Android stops showing the dialog). On Android 13+ only coarse location is declared
   (fine is capped at SDK 32), which is enough for Nearby.
-- [ ] **OPEN-53 — A web user can drop to Contacts only under load and not return (found 2026-10-12).**
-  `stage3/24-profile-privacy-visibility` failed in two consecutive `test:all` runs (passes alone and
-  in smaller batches): a viewer that was already in the shared Nearby room later reported
-  `local_contacts_only_v1` for 90 s. Suspect the room re-selection on a slow location/pre-admission
-  resolution (`applyNearbyPrivacyMode` → `findOptimalChatroomHierarchical` /
-  `resolveNearbyBeforeAdmission` fallback) with no later retry back to Nearby. Reproduce under load
-  with a room-switch log before changing anything.
+  2026-10-13: since OPEN-53 such a phone is a random-point Traveler on the map instead of stuck; what
+  remains is a button to re-ask the OS for location (Refresh already retries GPS once granted).
+- [x] **OPEN-53 — Nobody drops to Contacts only for lack of location (found 2026-10-12, fixed 2026-10-13, 1.0.144).**
+  Product owner rule: every user is on the map; anything without real GPS is a ✈ Traveler.
+  - A failed/overloaded Nearby pre-admission resolution (the `stage3/24` symptom) no longer falls back
+    to `local_contacts_only_v1`: it keeps the current Nearby/Place room or joins the locally derived
+    root cell, and the control heartbeat keeps retrying (`resolveNearbyBeforeAdmission`).
+  - A phone whose GPS fix is denied, fails, or does not arrive within 15 s (`GPS_FIX_FALLBACK_MS`,
+    `index.ts`) becomes a Traveler at its encounter point (`setGpsFixUnavailable`), random near a
+    built-in city when none was chosen, with a notification and the picker. A later real fix (OS
+    grant, `iinpublic-location-granted`, Refresh) turns it back into a Resident unless the person
+    picked a point, which switches the location source to Traveler so it sticks.
+  - Website/desktop and phone Travelers without a point get the same random placement.
+  - The actual `stage3/24` cause: every user boots for a moment in Contacts only, and a tap on that
+    still-rendered row emitted `chatroomChanged(local_contacts_only_v1)`, which switched a user who had
+    meanwhile reached Nearby back out of it (the UI then kept showing an empty Contacts-only page). A
+    request for Contacts only no longer leaves a real room; it re-opens the current room instead.
+  - Still Contacts only by design: TechSupport, and a person who chose the Contacts-only / Location-off
+    audience.
+  - Verified on PH-1 (Android 10): revoked location + no cache → random Traveler point + picker →
+    Nearby; grant → Resident at the real fix, picker closed.
 - [ ] **OPEN-52 — Mesh neighbor logs "connected" twice (found 2026-10-12, 1.0.140).** On every phone each
   neighbor's first connect is followed 0–100 ms later by a second "connected (0 ms this attempt)". A
   transient non-connected session state (or a failed first send) clears `neighbor.connected`, and the

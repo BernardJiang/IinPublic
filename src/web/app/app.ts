@@ -48,7 +48,7 @@ import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
-import { loadConnectivitySettings, routePreferencesFromSettings, takeLegacyPrivacyMigration, type ConnectivitySettings } from '../ui/connectivity-settings';
+import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
@@ -157,7 +157,7 @@ import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirec
 import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
-import { assignRandomEncounterLocation, deviceHasGps, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import { assignRandomEncounterLocation, deviceHasGps, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
@@ -1698,7 +1698,12 @@ export class IinPublicApp {
     // Registered for everyone: a phone can switch to Traveler later in Settings.
     window.addEventListener(ENCOUNTER_LOCATION_EVENT, (event) => {
       if (!usesSelfDefinedEncounterLocation()) return;
-      this.applyEncounterLocationChange((event as CustomEvent<EncounterLocation | null>).detail ?? null);
+      const detail = (event as CustomEvent<EncounterLocation | null>).detail ?? null;
+      // A phone without a GPS fix whose owner picks a point keeps it: a later fix must not move them.
+      if (detail && !detail.auto && isGpsFixUnavailable() && loadConnectivitySettings().locationSource !== 'traveler') {
+        saveConnectivitySettings({ ...loadConnectivitySettings(), locationSource: 'traveler' });
+      }
+      this.applyEncounterLocationChange(detail);
     });
     this.placeLocationlessDeviceOnMap();
     markStartupPhase('initialSyncComplete');
@@ -1778,21 +1783,47 @@ export class IinPublicApp {
   }
 
   /**
-   * Website/desktop with no chosen point: everyone shows up on the map, so place this device at a
-   * random city as a Traveler (ENCOUNTER_LOCATION_EVENT above moves it into that Nearby room) and
-   * ask once for a real choice. TechSupport stays Contacts only; a phone Traveler without a point
-   * keeps its own Settings flow.
+   * Everyone shows up on the map (OPEN-53). A device without real GPS — website/desktop, a phone
+   * Traveler, or a phone whose fix was denied or never came — appears at its chosen point as a
+   * Traveler; with no point yet it is placed at a random city (ENCOUNTER_LOCATION_EVENT above moves
+   * it into that Nearby room), told so, and asked to pick its own. TechSupport stays Contacts only.
    */
   private placeLocationlessDeviceOnMap(): void {
-    if (!this.currentUser || isTechSupportUser(this.currentUser) || deviceHasGps()) return;
-    if (getEncounterLocation()) return;
+    if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
+    if (!usesSelfDefinedEncounterLocation()) return;
+    const existing = getEncounterLocation();
+    if (existing) {
+      if (!this.locationConfirmed) this.applyEncounterLocationChange(existing);
+      if (existing.auto) this.uiManager.showNotification(this.uiText('encounterLocationRandomHelp'), 'info');
+      return;
+    }
     const placed = assignRandomEncounterLocation();
-    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
+    this.uiManager.showNotification(this.uiText('encounterLocationRandomHelp'), 'info');
     showEncounterLocationPicker({
-      t: (key) => uiText(language, key),
+      t: (key) => this.uiText(key),
       initial: { latitude: placed.latitude, longitude: placed.longitude },
       onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
     });
+  }
+
+  /**
+   * A phone's GPS fix was denied, failed or timed out (index.ts). Unless a real fix is already in
+   * hand, the device becomes a Traveler at its encounter point instead of staying in Contacts only.
+   */
+  public handleGpsFixUnavailable(): void {
+    if (this.locationConfirmed && !isGpsFixUnavailable()) return;
+    setGpsFixUnavailable(true);
+    // Before initialize() finishes, its own placeLocationlessDeviceOnMap() call picks this up.
+    if (this.initialized) this.placeLocationlessDeviceOnMap();
+  }
+
+  /** A real GPS fix arrived: a phone that was a Traveler only for lack of GPS becomes a Resident. */
+  public applyRealGpsFix(location: GPSCoordinate): void {
+    setCachedLocation(location);
+    setGpsFixUnavailable(false);
+    if (usesSelfDefinedEncounterLocation()) return;
+    document.getElementById('encounter-location-modal')?.remove();
+    this.updateCurrentLocation(location);
   }
 
   updateCurrentLocation(location: GPSCoordinate): void {
@@ -2890,10 +2921,13 @@ export class IinPublicApp {
       return result.assignment.roomId;
     } catch (error) {
       console.warn('Nearby pre-admission resolution failed; retaining the last safe room:', error);
+      // OPEN-53: never drop to Contacts only on a failed (e.g. overloaded) resolution. Without a
+      // safe room yet, use the locally derived root cell; the control heartbeat retries from there.
       const activeRoom = this.currentChatroomId;
+      this.startNearbyControlHeartbeat();
       return activeRoom && (isNearbyRoomId(activeRoom) || isPlaceRoomId(activeRoom))
         ? activeRoom
-        : CONTACTS_ONLY_SCOPE_ID;
+        : rootAssignment.roomId;
     }
   }
 
@@ -9313,7 +9347,9 @@ export class IinPublicApp {
     });
     // Android: the first-launch location sheet was answered after boot's background fix was denied.
     window.addEventListener('iinpublic-location-granted', () => {
-      void this.updateLocationAndMaybeSwitch();
+      void LocationPrivacy.getCurrentLocation()
+        .then((fix) => this.applyRealGpsFix(fix))
+        .catch(() => this.handleGpsFixUnavailable());
     });
 
     this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {
@@ -9493,6 +9529,14 @@ export class IinPublicApp {
         : automaticBaseGrid && requestedChatroomId === automaticBaseGrid
           ? await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, requestedChatroomId)
           : requestedChatroomId;
+      // Contacts only is a fallback, never a room a tap enters (OPEN-53): a click on the row
+      // rendered before Nearby resolved must not pull the user back out of their real room.
+      if (chatroomId === CONTACTS_ONLY_SCOPE_ID
+        && this.currentChatroomId
+        && this.currentChatroomId !== CONTACTS_ONLY_SCOPE_ID) {
+        this.uiManager.showChatroomDetail(this.currentChatroomId);
+        return;
+      }
       const previousChatroomId = this.currentChatroomId;
       const isSameRoom = previousChatroomId === chatroomId;
       if (isSameRoom && nearbyTravelRequest) {
@@ -9766,6 +9810,14 @@ export class IinPublicApp {
 
   public async updateLocationAndMaybeSwitch(nextLocation?: GPSCoordinate): Promise<void> {
     try {
+      // A phone that is a Traveler only for lack of GPS tries the real fix again first.
+      if (!nextLocation && isGpsFixUnavailable() && deviceHasGps()) {
+        const fix = await LocationPrivacy.getCurrentLocation().catch(() => null);
+        if (fix) {
+          this.applyRealGpsFix(fix);
+          return;
+        }
+      }
       // Website/desktop never reads GPS: a refresh re-applies the self-defined encounter location.
       const encounter = !nextLocation && usesSelfDefinedEncounterLocation() ? getEncounterLocation() : null;
       if (!nextLocation && usesSelfDefinedEncounterLocation() && !encounter) {
