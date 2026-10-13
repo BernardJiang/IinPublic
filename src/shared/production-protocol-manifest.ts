@@ -51,5 +51,7 @@ export const PRODUCTION_PROTOCOL_MANIFEST_RUNTIME: ProtocolManifestRuntimePolicy
  * and passphrases remain in ignored offline vaults and must never be added here.
  */
 export const BUNDLED_PROTOCOL_MANIFEST_HISTORY: readonly SignedProtocolManifest[] = Object.freeze(
-  bundledProtocolManifestHistory as readonly SignedProtocolManifest[],
+  (process.env.IINPUBLIC_E2E_PROTOCOL_RELEASE1 === '1'
+    ? []
+    : bundledProtocolManifestHistory) as readonly SignedProtocolManifest[],
 );

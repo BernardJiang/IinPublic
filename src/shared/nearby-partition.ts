@@ -97,8 +97,18 @@ function checkpointKey(checkpoint: RoomProtocolCheckpoint): string {
   ].join(':');
 }
 
+/**
+ * The root is a rendezvous point where compatible releases can exchange a newer signed manifest.
+ * Binding it to manifestSequence/manifestHash creates a chicken-and-egg split: the old release
+ * cannot meet the new release to learn the very manifest that would make their checkpoints equal.
+ * Child transitions remain bound to the complete checkpoint through checkpointKey().
+ */
+function rootRendezvousKey(checkpoint: RoomProtocolCheckpoint): string {
+  return [checkpoint.networkId, checkpoint.protocolEpoch].join(':');
+}
+
 export function nearbyPartitionRootGroup(checkpoint: RoomProtocolCheckpoint): NearbyPartitionGroup {
-  const digest = portableSha256Hex(`${PARTITION_DOMAIN}:root:${checkpointKey(checkpoint)}`).slice(0, 24);
+  const digest = portableSha256Hex(`${PARTITION_DOMAIN}:root:${rootRendezvousKey(checkpoint)}`).slice(0, 24);
   return {
     roomId: `nearby_v2_e${checkpoint.protocolEpoch}_${digest}`,
     path: '',

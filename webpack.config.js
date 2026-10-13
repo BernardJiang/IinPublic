@@ -62,6 +62,9 @@ const BUNDLED_ENV_KEYS = [
   // (app.ts's handoffAckTimeoutMs) — shrunk for E2E so a real send→ack round trip
   // doesn't wait the full production timeout.
   'IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS',
+  // Physical mixed-release gate: build the release-1 fixture with the same manifest engine but
+  // without bundled successor manifests. Never set for an ordinary distribution.
+  'IINPUBLIC_E2E_PROTOCOL_RELEASE1',
 ];
 
 module.exports = {
@@ -140,6 +143,9 @@ module.exports = {
     // block below), so every real build — dev, production, the VPS — shows the real version.
     new webpack.DefinePlugin({
       'process.env.IINPUBLIC_APP_VERSION': JSON.stringify(require('./package.json').version),
+      'process.env.IINPUBLIC_E2E_PROTOCOL_RELEASE1': JSON.stringify(
+        process.env.IINPUBLIC_E2E_PROTOCOL_RELEASE1 || '',
+      ),
     }),
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
