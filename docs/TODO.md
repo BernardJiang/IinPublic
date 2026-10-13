@@ -662,6 +662,11 @@ phrase complexity into normal use.
     and loopback origins (tested), so converting them is a separate, much larger refactor with no
     corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
+- [ ] **OPEN-55 — Dealmaker Pair-tag veto test fails intermittently after the positive test (found 2026-10-13).**
+  `stage4/04-dealmaker-chatbot-match` "byte-identical criteria do NOT match" saw two 'buy' talks match
+  in two full runs and once when run right after the positive test in the same file; it passes on its
+  own. Check whether chatbot memory or a match from the positive test leaks into the second pair
+  before trusting the veto.
 - [ ] **OPEN-54 — Android with location denied (or never asked) is stuck in "Contacts only" with no way back
   (found 2026-10-12, 1.0.141).** `MainActivity` asks for location once on first launch and never again
   (`location_asked` pref); a denial, or a harness launch with `skip_first_launch_location`, leaves the app
