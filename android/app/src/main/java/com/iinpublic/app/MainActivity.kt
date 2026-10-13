@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.res.Configuration
+import android.widget.FrameLayout
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -16,6 +18,9 @@ import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -201,10 +206,31 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(nearbyBridge, "IinPublicNearby")
         webView.addJavascriptInterface(NativeCustodyBridge(this), "IinPublicCustody")
         webView.addJavascriptInterface(NativeAttestationBridge(this), "IinPublicAttestation")
-        setContentView(webView)
+        // targetSdk 35+ forces edge-to-edge on Android 15+: without this the top bar sits under
+        // the status bar / camera cutout and the bottom nav under the gesture bar. Pad a container
+        // by the system-bar + cutout insets (and the keyboard, which adjustResize no longer
+        // handles edge-to-edge) so the WebView only gets the safe area.
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(if (isNightMode()) 0xFF121212.toInt() else 0xFFFFFFFF.toInt())
+            addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+            WindowInsetsCompat.CONSUMED
+        }
+        setContentView(root)
+        WindowCompat.getInsetsController(window, root).apply {
+            isAppearanceLightStatusBars = !isNightMode()
+            isAppearanceLightNavigationBars = !isNightMode()
+        }
 
         ensureNotificationPermissionThenStart()
     }
+
+    private fun isNightMode(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
     fun requestNearbyPermissions() {
         val permissions = mutableListOf<String>()
