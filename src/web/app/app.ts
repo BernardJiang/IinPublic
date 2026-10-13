@@ -172,6 +172,8 @@ import {
 } from '../services/nearby-cohort-traversal-client';
 import { WebNearbyCohortTraversalApi } from '../services/nearby-cohort-traversal-api';
 import type { NearbyPartitionGroupV2 } from '../../shared/nearby-cohort-protocol';
+import type { NearbyCohortSeatClaim } from '../../shared/nearby-cohort-admission';
+import { NearbyCohortPeerSyncController } from '../services/nearby-cohort-peer-sync-controller';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
@@ -384,6 +386,8 @@ export class IinPublicApp {
   private microRoomRefreshInFlight = false;
   private nearbyPreAdmissionClient: NearbyPreAdmissionClient | null = null;
   private nearbyCohortTraversalClient: NearbyCohortTraversalClient | null = null;
+  private nearbyCohortPeerSync: NearbyCohortPeerSyncController | null = null;
+  private lastNearbyCohortClaim: NearbyCohortSeatClaim | null = null;
   private nearbyControlRootAssignment: NearbyRoomAssignment | null = null;
   private nearbyControlRoutingLocation: GPSCoordinate | null = null;
   private nearbyControlRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -1235,7 +1239,13 @@ export class IinPublicApp {
     });
     this.uiManager = new UIManager();
     this.nearbyCohortTraversalClient = new NearbyCohortTraversalClient({
-      api: new WebNearbyCohortTraversalApi({ apiBase: () => this.getBackendApiBase() }),
+      api: new WebNearbyCohortTraversalApi({
+        apiBase: () => this.getBackendApiBase(),
+        onVerifiedLocalClaim: async (claim) => {
+          this.lastNearbyCohortClaim = claim;
+          await this.nearbyCohortPeerSync?.updateLocalClaim(claim);
+        },
+      }),
       storage: localStorage,
       handoff: {
         stopOld: async () => {
@@ -1247,6 +1257,30 @@ export class IinPublicApp {
           if (this.activeExchangeRoomController) await this.activeExchangeRoomController.resume();
           else if (this.currentChatroomId) await this.activateRoomExchange(this.currentChatroomId);
         },
+      },
+    });
+    this.nearbyCohortPeerSync = new NearbyCohortPeerSyncController({
+      send: async (payload, recipientUserId) => {
+        const mesh = this.ensurePeerMeshService();
+        if (mesh) await mesh.sendNearbyCohortPeerSync(payload, recipientUserId);
+      },
+      reconcileWithIndex: async (payload) => {
+        const response = await fetch(`${this.getBackendApiBase()}/api/nearby-cohorts/peer-reconcile`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            checkpoint: payload.checkpoint,
+            claims: payload.claims,
+            artifacts: payload.artifacts,
+          }),
+        });
+        if (!response.ok) throw new Error(`Nearby peer reconciliation failed (${response.status})`);
+      },
+      applyAutomaticTransition: async ({ fromGroup, targetGroup, claim }) => {
+        if (!this.nearbyCohortTraversalClient) return;
+        await this.nearbyCohortTraversalClient.applyPeerCapacityTransition(fromGroup, targetGroup);
+        this.lastNearbyCohortClaim = claim;
+        this.uiManager.setCohortTraversalViewModel(this.nearbyCohortTraversalClient);
       },
     });
     this.uiManager.setCohortTraversalViewModel(this.nearbyCohortTraversalClient);
@@ -2852,6 +2886,7 @@ export class IinPublicApp {
   ): Promise<NearbyPartitionGroupV2> {
     if (!this.nearbyCohortTraversalClient) throw new Error('Nearby cohort traversal is unavailable');
     const group = await this.nearbyCohortTraversalClient.initialize(context);
+    await this.nearbyCohortPeerSync?.activate(context, group, this.lastNearbyCohortClaim);
     this.uiManager.setCohortTraversalViewModel(this.nearbyCohortTraversalClient);
     return group;
   }
@@ -3368,7 +3403,13 @@ export class IinPublicApp {
       apiBase: this.getBackendApiBase(),
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
-      onNeighborConnected: (userId, roomId) => this.catchUpPeerInActiveRoom(userId, roomId),
+      onNeighborConnected: (userId, roomId) => {
+        this.catchUpPeerInActiveRoom(userId, roomId);
+        void this.nearbyCohortPeerSync?.syncToPeer(userId).catch((error) => {
+          console.warn('[Nearby cohort] peer snapshot failed:', error);
+        });
+      },
+      onNearbyCohortPeerSync: (payload) => this.nearbyCohortPeerSync?.ingest(payload),
       ...(this.protocolManifestController
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
@@ -9628,6 +9669,7 @@ export class IinPublicApp {
 
   public async logout(): Promise<void> {
     if (this.currentUser) {
+      this.nearbyCohortPeerSync?.deactivate();
       await this.userService.setUserStatus(this.currentUser.id, 'offline');
       localStorage.removeItem('iinpublic_user_id');
       this.currentUser = undefined as any; // Type assertion for now

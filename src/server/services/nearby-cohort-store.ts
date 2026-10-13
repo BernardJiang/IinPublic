@@ -23,6 +23,10 @@ import {
 } from '../../shared/nearby-cohort-protocol';
 import { canonicalSerialize } from '../../shared/p2p-runtime';
 import { portableSha256Hex } from '../../shared/portable-sha256';
+import {
+  verifyNearbyCohortCapacityArtifact,
+  type NearbyCohortCapacityArtifact,
+} from '../../shared/nearby-cohort-peer-sync';
 
 const MAX_STATES = 16;
 const MAX_TRANSITIONS = 16_384;
@@ -498,6 +502,120 @@ export class NearbyCohortStore {
           && !state.reconciliationLosers.has(claim.claimHash))
           .slice(0, MAX_RECONCILE_CLAIMS),
         transitions,
+      };
+    });
+  }
+
+  /**
+   * Import a portable phone-to-phone split. Unlike the deliberately absent bare-transition route,
+   * every artifact includes the C+1 signed claims needed to reproduce its content-addressed split.
+   */
+  async reconcilePeer(input: {
+    checkpoint: RoomProtocolCheckpoint;
+    artifacts: unknown[];
+    claims: unknown[];
+    now?: Date;
+  }): Promise<{
+    acceptedArtifacts: number;
+    rejectedArtifacts: number;
+    acceptedClaims: number;
+    rejectedClaims: number;
+    active: NearbyCohortSeatClaim[];
+    transitions: NearbyPartitionTransitionV2[];
+  }> {
+    const now = input.now ?? new Date();
+    return this.serialized(checkpointKey(input.checkpoint), async () => {
+      const state = this.getOrCreateState(input.checkpoint, now.getTime());
+      this.prune(state, now.getTime());
+      let acceptedArtifacts = 0;
+      let rejectedArtifacts = 0;
+      const acceptedArtifactValues: NearbyCohortCapacityArtifact[] = [];
+      for (const value of input.artifacts.slice(0, 32)) {
+        const checked = await verifyNearbyCohortCapacityArtifact(value, state.checkpoint, now);
+        if (!checked.ok) {
+          rejectedArtifacts += 1;
+          continue;
+        }
+        acceptedArtifactValues.push(checked.artifact);
+        if (!state.transitionsById.has(checked.artifact.transition.transitionId)) {
+          state.transitionsById.set(
+            checked.artifact.transition.transitionId,
+            { ...checked.artifact.transition, __verifiedNearbyPartitionTransitionV2: true },
+          );
+          acceptedArtifacts += 1;
+        }
+      }
+
+      // Import proof claims while their source group is active, apply the verified transitions,
+      // then accept only descendants that name one of the resulting active groups.
+      const evidenceValues = acceptedArtifactValues.flatMap((artifact) => artifact.evidenceClaims);
+      const verifiedEvidence: VerifiedNearbyCohortSeatClaim[] = [];
+      let rejectedClaims = 0;
+      for (const value of evidenceValues) {
+        const parsed = value as { observedAt?: unknown } | null;
+        const observedAt = typeof parsed?.observedAt === 'string' ? new Date(parsed.observedAt) : now;
+        const checked = await verifyNearbyCohortSeatClaim(value, {
+          expectedCheckpoint: state.checkpoint,
+          // Historical artifact claims are checked at their signed observation; ordinary current
+          // claims are subsequently bounded by prune(now).
+          now: observedAt,
+        });
+        if (checked.ok) verifiedEvidence.push(checked.claim);
+        else rejectedClaims += 1;
+      }
+      verifiedEvidence.sort((left, right) => left.generation - right.generation
+        || left.claimHash.localeCompare(right.claimHash));
+      let acceptedClaims = 0;
+      for (const claim of verifiedEvidence) {
+        if (state.claimsByHash.has(claim.claimHash)) continue;
+        const activeSource = state.activeByRoom.get(claim.group.roomId);
+        if (!activeSource
+          || canonicalSerialize(activeSource) !== canonicalSerialize(claim.group)
+          || state.claimsByHash.size >= MAX_CLAIMS) {
+          rejectedClaims += 1;
+          continue;
+        }
+        this.acceptClaim(state, claim);
+        acceptedClaims += 1;
+      }
+      this.rebuildActiveGroups(state);
+
+      const verifiedDescendants: VerifiedNearbyCohortSeatClaim[] = [];
+      for (const value of input.claims.slice(0, MAX_RECONCILE_CLAIMS)) {
+        const checked = await verifyNearbyCohortSeatClaim(value, {
+          expectedCheckpoint: state.checkpoint,
+          now,
+        });
+        if (checked.ok) verifiedDescendants.push(checked.claim);
+        else rejectedClaims += 1;
+      }
+      verifiedDescendants.sort((left, right) => left.generation - right.generation
+        || left.claimHash.localeCompare(right.claimHash));
+      for (const claim of verifiedDescendants) {
+        if (state.claimsByHash.has(claim.claimHash)) continue;
+        const activeTarget = state.activeByRoom.get(claim.group.roomId);
+        if ((claim.status === 'active'
+            && (!activeTarget || canonicalSerialize(activeTarget) !== canonicalSerialize(claim.group)))
+          || !this.hasValidLink(state, claim)
+          || state.claimsByHash.size >= MAX_CLAIMS) {
+          rejectedClaims += 1;
+          continue;
+        }
+        this.acceptClaim(state, claim);
+        acceptedClaims += 1;
+      }
+      this.rebuildClaims(state, now.getTime());
+      state.touchedAt = now.getTime();
+      return {
+        acceptedArtifacts,
+        rejectedArtifacts: rejectedArtifacts + Math.max(0, input.artifacts.length - 32),
+        acceptedClaims,
+        rejectedClaims: rejectedClaims + Math.max(0, input.claims.length - MAX_RECONCILE_CLAIMS),
+        active: [...state.canonicalByPub.values()]
+          .filter((claim) => claim.status === 'active'
+            && !state.reconciliationLosers.has(claim.claimHash))
+          .slice(0, MAX_RECONCILE_CLAIMS),
+        transitions: [...state.transitionsById.values()].slice(-MAX_RECONCILE_CLAIMS),
       };
     });
   }
