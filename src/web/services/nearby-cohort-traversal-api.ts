@@ -28,6 +28,7 @@ export class WebNearbyCohortTraversalApi implements NearbyCohortTraversalApi {
     apiBase: () => string;
     fetch?: FetchLike;
     now?: () => Date;
+    onVerifiedLocalClaim?: (claim: NearbyCohortSeatClaim) => void | Promise<void>;
   }) {}
 
   async summaries(input: Parameters<NearbyCohortTraversalApi['summaries']>[0]): Promise<NearbyCohortSummaryPage> {
@@ -104,8 +105,8 @@ export class WebNearbyCohortTraversalApi implements NearbyCohortTraversalApi {
         fromGroup: input.fromGroup,
         targetGroup: input.targetGroup,
         visitOrdinal: input.visitOrdinal,
-        now,
-      });
+      now,
+    });
     const response = await this.request('/api/nearby-cohorts/reservations', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -138,6 +139,7 @@ export class WebNearbyCohortTraversalApi implements NearbyCohortTraversalApi {
     if (response.activeRoomId !== input.reservation.targetGroup.roomId) {
       throw apiError(409, 'active-conflict', 'Nearby cohort commit selected another group');
     }
+    await this.options.onVerifiedLocalClaim?.(input.reservation.claim);
     return { activeGroup: input.reservation.targetGroup };
   }
 
@@ -162,6 +164,7 @@ export class WebNearbyCohortTraversalApi implements NearbyCohortTraversalApi {
     if (!verified.ok || verified.claim.pub !== context.pair.pub || verified.claim.userId !== context.userId) {
       throw apiError(409, 'invalid', verified.ok ? 'Nearby active claim identity mismatch' : verified.reason);
     }
+    await this.options.onVerifiedLocalClaim?.(verified.claim);
     return verified.claim;
   }
 

@@ -3,7 +3,7 @@ import { configuredMeshSyncCapabilities, CURRENT_MESH_SYNC_CAPABILITIES, MESH_FR
 describe('PeerMesh frame narrowing and mixed versions', () => {
   test('classifies every current frame kind', () => {
     expect(Object.keys(MESH_FRAME_INVENTORY).sort()).toEqual([
-      'ack', 'mesh-ping', 'mesh-pong', 'protocol-manifest-chain', 'protocol-manifest-request',
+      'ack', 'mesh-ping', 'mesh-pong', 'nearby-cohort-peer-sync', 'protocol-manifest-chain', 'protocol-manifest-request',
       'protocol-manifest-summary', 'talk-announce', 'talk-body', 'talk-body-request',
       'talk-response', 'talk-retracted',
     ]);

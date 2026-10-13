@@ -704,6 +704,24 @@ export function registerSystemRoutes(
     }
   });
 
+  app.post('/api/nearby-cohorts/peer-reconcile', async (req, res) => {
+    if (await relayCohort(res, '/api/nearby-cohorts/peer-reconcile', 'POST', req.body || {})) return;
+    try {
+      const checkpoint = req.body?.checkpoint;
+      if (!checkpoint || typeof checkpoint !== 'object') {
+        res.status(400).json({ error: 'Nearby peer reconciliation checkpoint is required' });
+        return;
+      }
+      res.json(await nearbyCohortStore.reconcilePeer({
+        checkpoint,
+        artifacts: Array.isArray(req.body?.artifacts) ? req.body.artifacts : [],
+        claims: Array.isArray(req.body?.claims) ? req.body.claims : [],
+      }));
+    } catch (error) {
+      cohortError(res, error);
+    }
+  });
+
   app.get('/api/nearby-cohorts/active/:pub', (req, res) => {
     if (hubRelayClient?.forwardNearbyCohort) {
       const activeQuery = new URLSearchParams(Object.entries(req.query)

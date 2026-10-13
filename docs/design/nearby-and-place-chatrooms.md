@@ -358,6 +358,23 @@ outcomes). When the hub is unavailable, the local index may continue only from v
 state and later reconcile signed claims; it must not pretend that an isolated local reservation is
 globally authoritative.
 
+When the hub is unreachable but same-room phones retain a direct authenticated mesh link, no phone
+becomes the allocator. Each phone emits its own short-lived signed seat claim in bounded control
+chunks. Receivers verify and re-originate only newly learned inner claims, so this reconciliation
+does not depend on optional third-person Talk forwarding or on the Wi-Fi Direct group owner. Once a
+phone has the same earliest `C+1` claims, it independently creates the same content-addressed
+two-way cohort transition and selects its own replacement from the transition seed plus its stable
+public identity. A portable capacity artifact carries those exact `C+1` signatures; a receiver
+must reproduce the transition before applying it. Claim refresh keeps long-lived offline rooms
+observable, and newly connected peers receive bounded snapshots.
+
+On hub recovery, `/api/nearby-cohorts/peer-reconcile` accepts the portable artifact and descendant
+claim chains, never a bare transition. The index verifies the historical claims at the decision
+time, reconstructs the transition, applies its normal deterministic conflict ordering, and then
+imports current descendants. Completely disconnected network components can still make temporary
+different decisions; no implementation can promise instantaneous global capacity without shared
+communication. Later signed-artifact reconciliation is the convergence boundary.
+
 Automatic parent→child replacement is not a manual cohort visit. It follows the index's verified
 capacity transition and carries no manual-selection proof; manual proofs remain restricted to
 same-area, same-depth user choices. A three-phone Android 7/10/14 gate confirmed this distinction,
@@ -368,6 +385,8 @@ The current offline Wi-Fi Direct credential join remains an Android 10+ transpor
 build, Android 10 and 14 formed an owner/client group with the hub unreachable and completed
 bidirectional plus post-background Talk delivery; the available Android 7 phone could not join.
 This is not evidence for a three-phone Wi-Fi Direct cohort, isolated BLE, or long-term battery cost.
+The deterministic four-controller no-server flow, tamper rejection, bounded peer payloads, and
+post-outage index import are automated; physical multi-phone validation remains required.
 
 The flat UI is wired to the real traversal view-model. Runtime activation still requires migration
 to supply a verified v2 default group; until then the existing v1 Nearby path remains authoritative

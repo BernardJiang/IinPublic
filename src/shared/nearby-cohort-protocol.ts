@@ -411,6 +411,33 @@ function hashBits(value: unknown, length: number): string {
 }
 
 /**
+ * Select the capacity lane for a member without disclosing coordinates. Capacity transitions do
+ * not change the geographic area, so the stable public identity and the transition seed are the
+ * only inputs required. Every peer that verifies the same transition therefore reaches the same
+ * result; a Wi-Fi Direct owner or relay cannot choose another member's lane.
+ */
+export function selectNearbyCohortReplacementV2(
+  transition: NearbyPartitionTransitionV2,
+  identity: string,
+): NearbyPartitionGroupV2 {
+  if (transition.axis !== 'cohort' || !identity || transition.toGroups.length !== 2) {
+    throw new Error('Nearby cohort replacement input is invalid');
+  }
+  const nextDepth = transition.fromGroup.address.cohortPath.length + 1;
+  const bits = hashBits({
+    domain: `${COHORT_DOMAIN}:default-route`,
+    checkpoint: checkpointKey(transition.checkpoint),
+    transitionSeed: transition.transitionSeed,
+    identity,
+    geographicPath: transition.fromGroup.address.geographicPath,
+  }, nextDepth);
+  const wantedPath = `${transition.fromGroup.address.cohortPath}${bits.slice(-1)}`;
+  const selected = transition.toGroups.find((group) => group.address.cohortPath === wantedPath);
+  if (!selected) throw new Error('Nearby cohort replacement is missing');
+  return selected;
+}
+
+/**
  * Convert requested spatial decisions beyond this member's privacy floor into opaque cohort bits.
  * The result exposes no coordinate below the selected floor and is stable across reconnects.
  */

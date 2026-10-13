@@ -405,6 +405,48 @@ export class NearbyCohortTraversalClient implements CohortTraversalViewModel {
     });
   }
 
+  /**
+   * Apply a self-verifying peer capacity transition while the shared index is unavailable. The
+   * caller has already verified C+1 signed claims and signed our replacement claim. No server
+   * commit is involved; that claim is reconciled with an index when one becomes reachable again.
+   */
+  applyPeerCapacityTransition(
+    fromGroup: NearbyPartitionGroupV2,
+    targetGroup: NearbyPartitionGroupV2,
+  ): Promise<void> {
+    const run = this.enqueue('visiting', async () => {
+      const context = this.requireContext();
+      const source = this.activeGroup ?? context.defaultGroup;
+      if (!sameGroup(source, fromGroup)) return;
+      const previousSelection = this.committedSelection;
+      let stopped = false;
+      try {
+        await this.options.handoff.stopOld(source);
+        stopped = true;
+        this.activeGroup = targetGroup;
+        this.committedSelection = undefined;
+        this.remember(source.roomId);
+        this.remember(targetGroup.roomId);
+        this.persist(context);
+        await this.options.handoff.startTarget(targetGroup);
+      } catch (error) {
+        this.activeGroup = source;
+        this.committedSelection = previousSelection;
+        this.persist(context);
+        if (stopped) await this.options.handoff.restoreOld(source).catch(() => undefined);
+        throw error;
+      }
+    });
+    return run.then(() => {
+      if (!this.activeGroup || !sameGroup(this.activeGroup, targetGroup)) {
+        throw new NearbyCohortTraversalError(
+          'error',
+          this.lastError || 'Nearby peer capacity handoff did not reach its target',
+        );
+      }
+    });
+  }
+
   private enqueue(pending: 'visiting' | 'returning', operation: () => Promise<void>): Promise<void> {
     this.status = pending;
     const run = this.operation.then(operation, operation)

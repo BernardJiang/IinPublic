@@ -10,6 +10,7 @@ import {
   isP2PMeshTalkBodyPayload,
   isP2PMeshTalkResponsePayload,
   isP2PMeshTalkRetractedPayload,
+  isP2PNearbyCohortPeerSyncPayload,
   isProtocolManifestControlKind,
   p2pMeshFrameSigningPayload,
   type P2PMeshFrame,
@@ -23,6 +24,7 @@ import {
   type P2PMeshTalkResponsePayload,
   type P2PMeshTalkRetractedPayload,
 } from '../../shared/p2p-mesh-protocol';
+import type { NearbyCohortPeerSyncPayload } from '../../shared/nearby-cohort-peer-sync';
 import type { ProtocolManifestCompatibility } from '../../shared/protocol-manifest';
 import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import type { Talk } from '../../shared/types';
@@ -129,6 +131,11 @@ type PeerMeshServiceOptions = {
   ) => void | Promise<void>;
   /** A direct link to a room neighbor just came up (WebRTC over LAN, Wi-Fi Direct or relay). */
   onNeighborConnected?: (userId: string, roomId: string) => void;
+  /** Signed, content-free occupancy evidence used when no shared cohort index is reachable. */
+  onNearbyCohortPeerSync?: (
+    payload: NearbyCohortPeerSyncPayload,
+    sourceUserId: string,
+  ) => void | Promise<void>;
   /** OPEN-40 direct baseline: rotate bounded direct pairs and keep Talk bodies in a local outbox. */
   authoritativeDirectTalkDelivery?: boolean;
   directRotationIntervalMs?: number;
@@ -726,6 +733,22 @@ export class PeerMeshService {
     const frame = await this.buildFrame('mesh-ping', { text }, { ttlHops: 8 });
     await this.rememberAndFanout(frame);
     return frame.msgId;
+  }
+
+  async sendNearbyCohortPeerSync(
+    payload: NearbyCohortPeerSyncPayload,
+    recipientUserId?: string,
+  ): Promise<void> {
+    if (!isP2PNearbyCohortPeerSyncPayload(payload)) {
+      throw new Error('Nearby cohort peer-sync payload is invalid');
+    }
+    const frame = await this.buildFrame('nearby-cohort-peer-sync', payload, {
+      ...(recipientUserId ? { recipientUserId } : {}),
+      // Each receiver re-originates only newly verified signed claims. This keeps the transport
+      // independent of the optional third-person Talk-forwarding setting.
+      ttlHops: 1,
+    });
+    await this.rememberAndFanout(frame);
   }
 
   async broadcastTalk(
@@ -1357,6 +1380,12 @@ export class PeerMeshService {
     if (frame.kind === 'ack') {
       const acknowledgedMsgId = String((frame.payload as { msgId?: unknown }).msgId || '');
       if (acknowledgedMsgId) this.recordAck(acknowledgedMsgId, frame.originUserId);
+      return;
+    }
+
+    if (frame.kind === 'nearby-cohort-peer-sync'
+      && isP2PNearbyCohortPeerSyncPayload(frame.payload)) {
+      await this.opts.onNearbyCohortPeerSync?.(frame.payload, frame.originUserId);
       return;
     }
 

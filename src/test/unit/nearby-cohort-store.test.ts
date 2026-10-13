@@ -8,8 +8,10 @@ import {
 import {
   createNearbyManualCohortSelection,
   nearbyCohortRootGroup,
+  selectNearbyCohortReplacementV2,
   type NearbyPartitionGroupV2,
 } from '../../shared/nearby-cohort-protocol';
+import { deriveNearbyCohortCapacityArtifact } from '../../shared/nearby-cohort-peer-sync';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import {
   NearbyCohortStore,
@@ -70,6 +72,47 @@ async function splitRoot(store: NearbyCohortStore): Promise<NearbyPartitionGroup
 }
 
 describe('NearbyCohortStore bounded admission', () => {
+  it('imports a self-verifying phone split after a long hub outage', async () => {
+    const store = new NearbyCohortStore();
+    const root = nearbyCohortRootGroup(checkpoint);
+    const users = await Promise.all([pair(), pair(), pair()]);
+    const rootClaims = await Promise.all(users.map((entry, index) => claim({
+      pair: entry,
+      userId: `offline-${index}`,
+      group: root,
+      generation: 3,
+      previousClaimHash: String(index + 1).repeat(64),
+      at: new Date(now.getTime() + index),
+    })));
+    const artifact = await deriveNearbyCohortCapacityArtifact({
+      checkpoint,
+      fromGroup: root,
+      claims: rootClaims,
+      now,
+    });
+    expect(artifact).not.toBeNull();
+    const reconnectedAt = new Date(now.getTime() + 60_000);
+    const childClaims = await Promise.all(users.map((entry, index) => claim({
+      pair: entry,
+      userId: `offline-${index}`,
+      group: selectNearbyCohortReplacementV2(artifact!.transition, entry.pub),
+      generation: 4,
+      previousClaimHash: rootClaims[index]!.claimHash,
+      at: reconnectedAt,
+    })));
+    const result = await store.reconcilePeer({
+      checkpoint,
+      artifacts: [artifact],
+      claims: childClaims,
+      now: reconnectedAt,
+    });
+    expect(result.rejectedArtifacts).toBe(0);
+    expect(result.acceptedArtifacts).toBe(1);
+    expect(result.acceptedClaims).toBe(6);
+    expect(result.active.length).toBeGreaterThanOrEqual(2);
+    expect(result.active.every((entry) => entry.group.roomId !== root.roomId)).toBe(true);
+  });
+
   it('uses a trusted signed occupancy policy and opens a two-way cohort transition at target', async () => {
     const authority = await pair();
     const store = new NearbyCohortStore(new Set([authority.pub]));

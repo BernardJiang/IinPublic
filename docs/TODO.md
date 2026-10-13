@@ -181,8 +181,13 @@ its ID.
         now forward signed cohort control to the shared hub index, and parent→child capacity moves
         are no longer incorrectly signed as same-level manual visits.
         Wi-Fi Direct correctly remained idle on the healthy hub/LAN. Duplicate-byte accounting,
-        radio-churn counters, isolated BLE, a cohort-preserving hub-offline/Wi-Fi-Direct transition,
-        and a long unplugged battery run are still required. USB-connected battery snapshots were
+        radio-churn counters, isolated BLE, physical validation of the now-implemented
+        cohort-preserving hub-offline/Wi-Fi-Direct transition, and a long unplugged battery run are
+        still required. The serverless controller exchanges bounded signed claims, independently
+        derives a self-verifying `C+1` capacity artifact on every phone, applies deterministic
+        identity lanes without electing the Wi-Fi Direct owner, and imports the proof/descendant
+        chains into the shared index after recovery. Four independent controller tests, tamper
+        rejection, and a 60-second hub-outage reconciliation test pass. USB-connected battery snapshots were
         unchanged but are not drain evidence. `498` remains an experimental default, not a measured
         optimum.
         The same build also passed a hub-unreachable Wi-Fi Direct data-plane gate on the two
