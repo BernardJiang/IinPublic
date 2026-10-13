@@ -308,6 +308,17 @@ function baselineRoomCheckpoint(): RoomProtocolCheckpoint {
     : { ...BASELINE_ROOM_PROTOCOL_CHECKPOINT, chatroomCapacity: capacity };
 }
 
+/**
+ * The checkpoint actually used for rooms. An activated bundled manifest supplies its own capacity
+ * (498) and would silently replace the local-debug/E2E capacity, so a test capacity is re-applied
+ * on top. `chatroomCapacityTestOverride()` is always null in production.
+ */
+function manifestRoomCheckpoint(controller: { roomCheckpoint(baseline: RoomProtocolCheckpoint): RoomProtocolCheckpoint }): RoomProtocolCheckpoint {
+  const checkpoint = controller.roomCheckpoint(baselineRoomCheckpoint());
+  const capacity = chatroomCapacityTestOverride();
+  return capacity === null ? checkpoint : { ...checkpoint, chatroomCapacity: capacity };
+}
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -2750,7 +2761,7 @@ export class IinPublicApp {
     if (!user?.id || !pair?.pub || !pair.priv) return currentRoomId;
     try {
       const manifestController = await this.ensureProtocolManifestController();
-      const checkpoint = manifestController.roomCheckpoint(baselineRoomCheckpoint());
+      const checkpoint = manifestRoomCheckpoint(manifestController);
       this.microRoomPreAdmissionClient ??= new MicroRoomPreAdmissionClient({
         apiBase: this.getBackendApiBase(),
         storage: localStorage,
@@ -2826,7 +2837,7 @@ export class IinPublicApp {
     if (!user?.id || !location || !pair?.pub || !pair.priv) return rootAssignment.roomId;
     try {
       const manifestController = await this.ensureProtocolManifestController();
-      const checkpoint = manifestController.roomCheckpoint(baselineRoomCheckpoint());
+      const checkpoint = manifestRoomCheckpoint(manifestController);
       this.nearbyPreAdmissionClient ??= new NearbyPreAdmissionClient({
         apiBase: this.getBackendApiBase(),
         storage: localStorage,
@@ -3007,8 +3018,9 @@ export class IinPublicApp {
   }
 
   private currentRoomProtocolCheckpoint(): RoomProtocolCheckpoint {
-    return this.protocolManifestController?.roomCheckpoint(baselineRoomCheckpoint())
-      ?? baselineRoomCheckpoint();
+    return this.protocolManifestController
+      ? manifestRoomCheckpoint(this.protocolManifestController)
+      : baselineRoomCheckpoint();
   }
 
   private scheduleProtocolActivation(): void {
@@ -3032,7 +3044,7 @@ export class IinPublicApp {
       await activeController.transitionTo({
         roomId: active.roomId,
         neighborLimit: active.neighborLimit,
-        ...controller.roomCheckpoint(baselineRoomCheckpoint()),
+        ...manifestRoomCheckpoint(controller),
       });
       this.scheduleProtocolActivation();
     } catch (error) {
@@ -3049,7 +3061,7 @@ export class IinPublicApp {
     let checkpoint: RoomProtocolCheckpoint;
     try {
       const manifestController = await this.ensureProtocolManifestController();
-      checkpoint = manifestController.roomCheckpoint(baselineRoomCheckpoint());
+      checkpoint = manifestRoomCheckpoint(manifestController);
     } catch (error) {
       await this.activeExchangeRoomController?.pause().catch(() => undefined);
       this.uiManager.showNotification(
