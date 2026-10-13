@@ -657,6 +657,14 @@ phrase complexity into normal use.
     and loopback origins (tested), so converting them is a separate, much larger refactor with no
     corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
+- [ ] **OPEN-54 — Android with location denied (or never asked) is stuck in "Contacts only" with no way back
+  (found 2026-10-12, 1.0.141).** `MainActivity` asks for location once on first launch and never again
+  (`location_asked` pref); a denial, or a harness launch with `skip_first_launch_location`, leaves the app
+  on the placeholder fix: "Contacts only · 0 users", the map on Africa, nobody on it, and no prompt or
+  Settings button to grant location. All five test phones hit this after tonight's harness reinstalls;
+  `pm grant` fixed them. Needs an in-app "Use my location" action that re-requests (or opens app
+  settings once Android stops showing the dialog). On Android 13+ only coarse location is declared
+  (fine is capped at SDK 32), which is enough for Nearby.
 - [ ] **OPEN-53 — A web user can drop to Contacts only under load and not return (found 2026-10-12).**
   `stage3/24-profile-privacy-visibility` failed in two consecutive `test:all` runs (passes alone and
   in smaller batches): a viewer that was already in the shared Nearby room later reported
