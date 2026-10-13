@@ -24,7 +24,7 @@ import {
 } from '../../shared/nearby-rooms';
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import { otherRoomColor, renderChatroomMap, type ChatroomMapRoom, type MapUserDots } from './chatroom-map-view';
+import { otherRoomColor, renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
 import { cohortStatusLine } from './cohort-traversal-controls';
 import type { CohortTraversalViewModel } from './cohort-traversal-view-model';
 
@@ -58,6 +58,8 @@ type ChatroomsViewDeps = {
   nearbyMapArea?: NearbyMapArea;
   /** User dots on the map (★ me, green my room, yellow others). */
   mapUserDots?: MapUserDots;
+  /** Tap a green dot: brief profile card with Message (DM) and Profile. */
+  roomMemberCard?: RoomMemberCardSource;
   /** The room list: every room with ≥ 1 person, nearest first (shared/active-rooms.ts). */
   activeRooms?: ActiveRoomsView;
   travelModeActive: boolean;
@@ -551,6 +553,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       currentChatroom: deps.currentChatroom,
       ...(deps.nearbyMapArea ? { nearbyMapArea: deps.nearbyMapArea } : {}),
       ...(deps.mapUserDots ? { userDots: deps.mapUserDots } : {}),
+      ...(deps.roomMemberCard ? { roomMemberCard: deps.roomMemberCard } : {}),
       openChatroom: (chatroomId) => enterRoom(deps, chatroomId, roomRows.find((row) => row.roomId === chatroomId)),
       otherRoomAreas: roomRows
         .filter((row) => row.kind === 'nearby' && row.partitionPath !== undefined && row.latitude !== undefined && row.longitude !== undefined)

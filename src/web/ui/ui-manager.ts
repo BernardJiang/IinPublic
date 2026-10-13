@@ -900,6 +900,8 @@ export class UIManager extends EventEmitter {
         syncReturnHomeButton: () => this.syncReturnHomeButton(),
         syncAppBarOverflow: () => this.syncAppBarOverflow(),
         openPeerDetail: (userId, stageName) => this.openUserConversationFirst(userId, stageName),
+        openPeerProfile: (userId, stageName) => this.openPeerDetailForUser(userId, stageName),
+        getPublicProfileFoundation: (userId) => this.publicProfileFoundationReader?.(userId) ?? Promise.resolve(null),
         rememberPeerName: (userId, stageName) => this.rememberPeerName(userId, stageName),
         showCreateCustomChatroomDialog: () => this.showCreateCustomChatroomDialog(),
         // Custom rooms are local: anchored to the creator's blurred ~1 km cell (confirmed GPS only).
@@ -1073,7 +1075,6 @@ export class UIManager extends EventEmitter {
   private showDetailsPopupFor(detailsEl: HTMLElement, originalParent: HTMLElement): void {
     renderItemDetailsPopup(detailsEl, originalParent, this.t.bind(this));
   }
-
 
   /**
    * TODO §Q "Talk -> people I've separately exchanged this with" edge (build-order item 17).
@@ -1938,7 +1939,6 @@ export class UIManager extends EventEmitter {
   public formatChatroomCreated(name: string): string {
     return this.tf('chatroomCreated', { name });
   }
-
 
   public formatTalkCreateSyncSlow(): string {
     return this.t('talksCreateSyncSlow');

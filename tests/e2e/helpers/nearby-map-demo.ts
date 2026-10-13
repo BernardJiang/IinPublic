@@ -274,14 +274,18 @@ async function mapPixelFor(page: Page, point: LatLng): Promise<{ x: number; y: n
   return { x: box.x + box.width / 2 + (target.x - center.x), y: box.y + box.height / 2 + (target.y - center.y) };
 }
 
-/** Tap `point` on the map and press "Join as traveler" on the card that opens there. */
+/**
+ * Tap `point` on the map to travel there. Inside my own room the tap opens a "Join as traveler"
+ * card that has to be pressed; outside it the tap itself moves me.
+ */
 export async function travelByMapTap(page: Page, point: LatLng): Promise<void> {
   const { x, y } = await mapPixelFor(page, point);
   await page.mouse.click(x, y);
   const enter = page.locator('[data-testid="map-nearby-point-enter"]');
-  await expect(enter).toBeVisible({ timeout: 10_000 });
-  await page.waitForTimeout(800); // let the viewer see the card before it is used
-  await enter.click();
+  if (await enter.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await page.waitForTimeout(800); // let the viewer see the card before it is used
+    await enter.click();
+  }
   await expect.poll(() => isTraveling(page), { timeout: 30_000 }).toBe(true);
 }
 

@@ -56,6 +56,31 @@ type ChatroomMapOptions = {
   userDots?: MapUserDots;
   /** Every other room's square, each in its own colour (my own room stays the green shading). */
   otherRoomAreas?: ReadonlyArray<OtherRoomArea>;
+  /** Tap a green dot (someone in my room): a brief profile card with Message and Profile. */
+  roomMemberCard?: RoomMemberCardSource;
+};
+
+/** Brief profile shown on the map for a member of my room. */
+export type RoomMemberSummary = {
+  stageName: string;
+  online: boolean;
+  matched: boolean;
+  traveler: boolean;
+};
+
+export type RoomMemberProfile = {
+  headshot?: string | null;
+  languages: string[];
+  /** Public profile lines ("Q: A"), already filtered to what any viewer may see. */
+  highlights: string[];
+};
+
+export type RoomMemberCardSource = {
+  describe: (userId: string) => RoomMemberSummary;
+  loadProfile?: (userId: string) => Promise<RoomMemberProfile | null>;
+  message: (userId: string, stageName: string) => void;
+  profile: (userId: string, stageName: string) => void;
+  text: { message: string; profile: string; online: string; away: string; matched: string; traveler: string };
 };
 
 export type OtherRoomArea = { id: string; west: number; south: number; east: number; north: number; color: string };
@@ -316,6 +341,132 @@ function clearTileSelection(state: MapState): void {
   delete state.options.container.dataset.selectedTile;
   const source = state.map.getSource(SELECTED_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
   source?.setData(tileSquares([]) as never);
+}
+
+function areaContains(area: { west: number; south: number; east: number; north: number }, latitude: number, longitude: number): boolean {
+  return latitude >= area.south && latitude <= area.north && longitude >= area.west && longitude <= area.east;
+}
+
+/**
+ * A tap outside my room means "move there": into the other room whose square holds the point
+ * (smallest square wins), or as a traveler to that point. Inside my own room the point card stays,
+ * so a lone user (whose room is the whole world) can still travel deliberately.
+ */
+export function routeMapTap(
+  options: Pick<ChatroomMapOptions, 'currentChatroom' | 'nearbyMapArea' | 'otherRoomAreas'>,
+  latitude: number,
+  longitude: number,
+): { kind: 'inside-own-room' } | { kind: 'enter-room'; roomId: string } | { kind: 'travel' } {
+  const own = isNearbyRoomId(options.currentChatroom) ? options.nearbyMapArea : undefined;
+  if (own && areaContains(own, latitude, longitude)) return { kind: 'inside-own-room' };
+  const hits = (options.otherRoomAreas ?? [])
+    .filter((area) => area.id !== options.currentChatroom && areaContains(area, latitude, longitude))
+    .sort((a, b) => (a.east - a.west) * (a.north - a.south) - (b.east - b.west) * (b.north - b.south));
+  if (hits[0]) return { kind: 'enter-room', roomId: hits[0].id };
+  return { kind: 'travel' };
+}
+
+function handleMapTap(maplibre: MapLibre, state: MapState, latitude: number, longitude: number): void {
+  clearTileSelection(state);
+  if (state.options.selectNearbyPoint) {
+    const route = routeMapTap(state.options, latitude, longitude);
+    if (route.kind === 'enter-room') {
+      state.options.openChatroom(route.roomId);
+      return;
+    }
+    if (route.kind === 'travel') {
+      state.options.selectNearbyPoint({ latitude, longitude });
+      return;
+    }
+    selectNearbyPoint(maplibre, state, { latitude, longitude });
+    return;
+  }
+  if (state.options.openTile) {
+    selectTile(maplibre, state, tileAtTap(latitude, longitude, state.map.getZoom()), [longitude, latitude]);
+  }
+}
+
+/** Brief profile card for the member(s) at a green dot, with Message and Profile actions. */
+function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotGroup): void {
+  const source = state.options.roomMemberCard;
+  if (!source) return;
+  clearTileSelection(state);
+  const card = document.createElement('div');
+  card.className = 'chatroom-map-tile-card chatroom-map-member-card';
+  card.setAttribute('data-testid', 'map-member-card');
+  card.addEventListener('click', (event) => event.stopPropagation());
+  for (const userId of group.userIds) {
+    const summary = source.describe(userId);
+    const row = document.createElement('div');
+    row.className = 'chatroom-map-member';
+    row.setAttribute('data-testid', 'map-member');
+    row.dataset.userId = userId;
+    const avatar = document.createElement('div');
+    avatar.className = 'chatroom-map-member-avatar';
+    avatar.textContent = summary.stageName.charAt(0).toUpperCase();
+    const info = document.createElement('div');
+    info.className = 'chatroom-map-member-info';
+    const name = document.createElement('strong');
+    name.textContent = summary.stageName;
+    const status = document.createElement('span');
+    status.className = 'chatroom-map-member-status';
+    status.textContent = [
+      summary.online ? source.text.online : source.text.away,
+      summary.matched ? source.text.matched : '',
+      summary.traveler ? `✈ ${source.text.traveler}` : '',
+    ].filter(Boolean).join(' · ');
+    const details = document.createElement('div');
+    details.className = 'chatroom-map-member-details';
+    details.setAttribute('data-testid', 'map-member-details');
+    info.append(name, status, details);
+    const actions = document.createElement('div');
+    actions.className = 'chatroom-map-member-actions';
+    const message = document.createElement('button');
+    message.type = 'button';
+    message.className = 'chatroom-map-tile-enter';
+    message.setAttribute('data-testid', 'map-member-message');
+    message.textContent = `💬 ${source.text.message}`;
+    message.addEventListener('click', (event) => {
+      event.stopPropagation();
+      clearTileSelection(state);
+      source.message(userId, summary.stageName);
+    });
+    const profile = document.createElement('button');
+    profile.type = 'button';
+    profile.className = 'chatroom-map-member-profile';
+    profile.setAttribute('data-testid', 'map-member-profile');
+    profile.textContent = `👤 ${source.text.profile}`;
+    profile.addEventListener('click', (event) => {
+      event.stopPropagation();
+      clearTileSelection(state);
+      source.profile(userId, summary.stageName);
+    });
+    actions.append(message, profile);
+    row.append(avatar, info, actions);
+    card.appendChild(row);
+    void source.loadProfile?.(userId).then((loaded) => {
+      if (!loaded || !row.isConnected) return;
+      if (loaded.headshot) {
+        const image = document.createElement('img');
+        image.src = loaded.headshot;
+        image.alt = '';
+        avatar.textContent = '';
+        avatar.appendChild(image);
+      }
+      const lines = [
+        loaded.languages.length ? `🗣 ${loaded.languages.join(', ')}` : '',
+        ...loaded.highlights.slice(0, 3),
+      ].filter(Boolean);
+      for (const line of lines) {
+        const item = document.createElement('span');
+        item.textContent = line;
+        details.appendChild(item);
+      }
+    }).catch(() => undefined);
+  }
+  state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom', offset: [0, -14] })
+    .setLngLat([group.longitude, group.latitude])
+    .addTo(state.map);
 }
 
 /** Preview a map point as a flat Nearby destination; no internal tile or room id is exposed. */
@@ -646,17 +797,8 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
   };
   map.once('error', failBeforeLoad);
   map.on('click', (event) => {
-    // Room/cluster markers stop propagation, so this only fires on open map.
-    if (state.options.selectNearbyPoint) {
-      selectNearbyPoint(maplibre, state, {
-        latitude: event.lngLat.lat,
-        longitude: event.lngLat.lng,
-      });
-      return;
-    }
-    if (state.options.openTile) {
-      selectTile(maplibre, state, tileAtTap(event.lngLat.lat, event.lngLat.lng, map.getZoom()), [event.lngLat.lng, event.lngLat.lat]);
-    }
+    // Room/cluster markers and user dots stop propagation, so this only fires on open map.
+    handleMapTap(maplibre, state, event.lngLat.lat, event.lngLat.lng);
   });
   map.once('load', () => {
     state.loaded = true;
@@ -800,7 +942,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
 }
 
 /** Render public room locations. No user coordinates are accepted by this API. */
-type UserDotGroup = { kind: 'self' | 'room' | 'other'; latitude: number; longitude: number; count: number; travelers: number };
+type UserDotGroup = { kind: 'self' | 'room' | 'other'; latitude: number; longitude: number; count: number; travelers: number; userIds: string[] };
 
 function densityGeoJson(cells: ReadonlyArray<MapDensityCell>) {
   return {
@@ -849,20 +991,21 @@ export function groupUserDots(source: Pick<MapUserDots, 'selfUserId' | 'selfPoin
     const group = groups.get(key);
     if (group) {
       group.count += 1;
+      group.userIds.push(dot.userId);
       if (dot.traveler) group.travelers += 1;
     } else {
-      groups.set(key, { kind, latitude: dot.latitude, longitude: dot.longitude, count: 1, travelers: dot.traveler ? 1 : 0 });
+      groups.set(key, { kind, latitude: dot.latitude, longitude: dot.longitude, count: 1, travelers: dot.traveler ? 1 : 0, userIds: [dot.userId] });
     }
   }
   // Yellow first, so green dots and my star are drawn on top of them.
   const ordered = [...groups.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'other' ? -1 : 1));
   if (source.selfPoint) {
-    ordered.push({ kind: 'self', latitude: source.selfPoint.latitude, longitude: source.selfPoint.longitude, count: 1, travelers: source.selfTraveler ? 1 : 0 });
+    ordered.push({ kind: 'self', latitude: source.selfPoint.latitude, longitude: source.selfPoint.longitude, count: 1, travelers: source.selfTraveler ? 1 : 0, userIds: [source.selfUserId] });
   }
   return ordered;
 }
 
-function userDotElement(source: MapUserDots, group: UserDotGroup): HTMLElement {
+function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => void): HTMLElement {
   const element = document.createElement('div');
   element.className = `chatroom-map-user-dot chatroom-map-user-dot-${group.kind}`;
   element.dataset.testid = `map-user-dot-${group.kind}`;
@@ -873,7 +1016,14 @@ function userDotElement(source: MapUserDots, group: UserDotGroup): HTMLElement {
     : group.kind === 'room' ? source.roomText(group.count) : source.otherText(group.count);
   element.title = label;
   element.setAttribute('aria-label', label);
-  element.setAttribute('role', 'img');
+  element.setAttribute('role', onTap ? 'button' : 'img');
+  if (onTap) {
+    element.tabIndex = 0;
+    element.addEventListener('click', (event) => {
+      event.stopPropagation();
+      onTap();
+    });
+  }
   element.textContent = group.kind === 'self' ? '★' : group.count > 1 ? String(group.count) : '';
   // ✈ badge: everyone at this dot is a Traveler (a chosen point, not blurred GPS).
   if (group.travelers > 0 && group.travelers === group.count) {
@@ -923,8 +1073,14 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
   if (request !== state.userDotRequest || stateByContainer.get(state.options.container) !== state) return;
   state.userDotMarkers.forEach((marker) => marker.remove());
   const showStrangers = state.map.getZoom() >= STRANGER_DOT_MIN_ZOOM;
+  // Green dot: who is it (card). Yellow dot: they are outside my room, so it is a tap on that point.
+  const onTap = (group: UserDotGroup): (() => void) | undefined => {
+    if (group.kind === 'room' && state.options.roomMemberCard) return () => showRoomMemberCard(maplibre, state, group);
+    if (group.kind === 'other') return () => handleMapTap(maplibre, state, group.latitude, group.longitude);
+    return undefined;
+  };
   state.userDotMarkers = groupUserDots(source, dots).filter((group) => showStrangers || group.kind !== 'other').map((group) =>
-    new maplibre.Marker({ element: userDotElement(source, group) })
+    new maplibre.Marker({ element: userDotElement(source, group, onTap(group)) })
       .setLngLat([group.longitude, group.latitude])
       .addTo(state.map));
   (state.map.getSource(USER_DENSITY_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)

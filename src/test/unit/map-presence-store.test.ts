@@ -77,9 +77,9 @@ describe('density cells and dot grouping', () => {
       ],
     );
     expect(groups).toEqual([
-      { kind: 'other', latitude: LA.latitude, longitude: LA.longitude, count: 1, travelers: 1 },
-      { kind: 'room', latitude: SD.latitude, longitude: SD.longitude, count: 2, travelers: 1 },
-      { kind: 'self', latitude: SD.latitude, longitude: SD.longitude, count: 1, travelers: 0 },
+      { kind: 'other', latitude: LA.latitude, longitude: LA.longitude, count: 1, travelers: 1, userIds: ['stranger'] },
+      { kind: 'room', latitude: SD.latitude, longitude: SD.longitude, count: 2, travelers: 1, userIds: ['friend-a', 'friend-b'] },
+      { kind: 'self', latitude: SD.latitude, longitude: SD.longitude, count: 1, travelers: 0, userIds: ['me'] },
     ]);
   });
 });

@@ -1262,6 +1262,111 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   white-space: nowrap;
 }
 
+.chatroom-map-member-card {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(280px, 80vw);
+  max-width: none;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 8px;
+  cursor: default;
+}
+
+.chatroom-map-member {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 4px 10px;
+  align-items: start;
+}
+
+.chatroom-map-member + .chatroom-map-member {
+  padding-top: 8px;
+  border-top: 1px solid var(--border, rgb(0 0 0 / 10%));
+}
+
+.chatroom-map-member-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #16803c;
+  color: #fff;
+  font-weight: 600;
+}
+
+.chatroom-map-member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chatroom-map-member-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chatroom-map-member-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatroom-map-member-status,
+.chatroom-map-member-details span {
+  color: var(--text-secondary, #4b5563);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.chatroom-map-member-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.chatroom-map-member-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
+.chatroom-map-member-actions button {
+  flex: 1;
+}
+
+.chatroom-map-member-profile {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--border, rgb(0 0 0 / 15%));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chatroom-map-user-dot[role="button"] {
+  cursor: pointer;
+}
+
+/* My own star is not tappable; let taps reach a roommate's dot drawn under it. */
+.chatroom-map-user-dot-self {
+  pointer-events: none;
+}
+
+/* A 14 px dot is a hard tap target on a phone: widen the hit area without changing the dot. */
+.chatroom-map-user-dot[role="button"]::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+}
+
 .chatroom-map-tile-enter {
   flex: none;
   min-height: 32px;

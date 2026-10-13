@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-12
 
+## 2026-10-12 — Map view reaches people again (member card, tap to move)
+
+- A green dot (someone in my room) opens a card with photo, name, presence, match/traveler badges,
+  languages and up to three public profile lines; **Message** opens the ordinary DM (as from the
+  member list), **Profile** opens the peer page. A dot holding several people lists each of them.
+- A tap outside my room moves me: into the group whose square holds the point, otherwise as a
+  traveler to that point. Inside my own room the "Join as traveler" card stays. A yellow dot counts
+  as a tap on its point. My own ★ no longer swallows taps meant for a roommate's dot; tappable dots
+  get a wider hit area.
+- Spec `stage4/15-map-member-card-and-room-tap`; unit `chatroom-map-tap.test.ts`.
+
 ## 2026-10-12 — Browser E2E suite back to green after the Nearby migration
 
 `test:all` had 106 failures in the light phase alone; about 90 specs still clicked the retired

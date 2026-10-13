@@ -15,7 +15,9 @@ import {
   type CohortTraversalViewModel,
 } from './cohort-traversal-view-model';
 
-import { createMapUserDots, type MapUserDotSource } from './chatroom-map-view';
+import { createMapUserDots, type MapUserDotSource, type RoomMemberCardSource } from './chatroom-map-view';
+import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
+import type { QuestionAnswer } from '../../shared/types';
 type ChatroomsViewDeps = Parameters<typeof renderChatrooms>[0];
 
 export type ChatroomShellControllerDeps = {
@@ -45,6 +47,10 @@ export type ChatroomShellControllerDeps = {
   syncReturnHomeButton: () => void;
   syncAppBarOverflow: () => void;
   openPeerDetail: (userId: string, stageName: string) => void;
+  /** The peer's profile page (the map card's Profile button); Message uses openPeerDetail. */
+  openPeerProfile?: (userId: string, stageName: string) => void;
+  /** Public profile foundation (photo, languages, profile rows) for the map member card. */
+  getPublicProfileFoundation?: (userId: string) => Promise<{ headshot?: string | null; languagesJson?: string; profileJson?: string } | null>;
   rememberPeerName: (userId: string, stageName: string) => void;
   showCreateCustomChatroomDialog: () => Promise<CustomChatroomDraft | null>;
   /** The creator's blurred ~1 km cell (`region_<lat>_<lng>`), or null without a confirmed GPS fix. */
@@ -66,7 +72,53 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   const localCohortTraversal = createLocalCohortTraversalViewModel();
   /** Set by the app once map presence works; the room roster decides which dots are green. */
   let mapUserDotSource: MapUserDotSource | undefined;
-  let roomMembers: ReadonlyArray<{ userId: string }> = [];
+  let roomMembers: ReadonlyArray<{ userId: string; stageName?: string; isTraveler?: boolean }> = [];
+
+  const parseList = <T>(json: string | undefined): T[] => {
+    try {
+      const parsed = JSON.parse(json || '[]');
+      return Array.isArray(parsed) ? parsed as T[] : [];
+    } catch {
+      return [];
+    }
+  };
+
+  /** Green dot → who is it: name, presence, match, then photo/languages/public profile lines. */
+  const roomMemberCard = (): RoomMemberCardSource => ({
+    describe: (userId) => {
+      const member = roomMembers.find((candidate) => candidate.userId === userId);
+      return {
+        stageName: member?.stageName || userId.slice(0, 8),
+        online: deps.isUserOnline(userId),
+        matched: deps.getMatchedUserIds().has(userId),
+        traveler: member?.isTraveler === true,
+      };
+    },
+    loadProfile: async (userId) => {
+      const foundation = await deps.getPublicProfileFoundation?.(userId).catch(() => null);
+      const headshot = foundation?.headshot ?? (await deps.resolvePeerHeadshot?.(userId).catch(() => null)) ?? null;
+      if (!foundation && !headshot) return null;
+      // Only rows any viewer may see; contacts-only and private rows never reach the map.
+      const rows = filterProfileAttributesForViewer(parseList<QuestionAnswer>(foundation?.profileJson), { viewerIsContact: false });
+      return {
+        headshot,
+        languages: parseList<string>(foundation?.languagesJson).filter((language) => typeof language === 'string'),
+        highlights: rows
+          .filter((row) => row && typeof row.question === 'string' && typeof row.answer === 'string' && row.answer.trim())
+          .map((row) => `${row.question.trim()}: ${row.answer.trim()}`),
+      };
+    },
+    message: deps.openPeerDetail,
+    profile: (userId, stageName) => (deps.openPeerProfile ?? deps.openPeerDetail)(userId, stageName),
+    text: {
+      message: deps.t('mapMemberMessage'),
+      profile: deps.t('mapMemberProfile'),
+      online: deps.t('presenceOnline'),
+      away: deps.t('presenceAway'),
+      matched: deps.t('mapMemberMatched'),
+      traveler: deps.t('chatroomTraveler'),
+    },
+  });
   let activeRooms: ChatroomsViewDeps['activeRooms'];
 
   const viewDeps = (): ChatroomsViewDeps => {
@@ -85,7 +137,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     travelModeActive: deps.getTravelModeActive(),
     cohortTraversal: deps.getCohortTraversalViewModel?.() ?? localCohortTraversal,
       ...(nearbyMapArea ? { nearbyMapArea } : {}),
-      ...(mapUserDots ? { mapUserDots } : {}),
+      ...(mapUserDots ? { mapUserDots, roomMemberCard: roomMemberCard() } : {}),
       ...(activeRooms ? { activeRooms } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
