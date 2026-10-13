@@ -157,6 +157,26 @@ was pinned by release `N`. That manifest commits the public key for release `N+2
 relay the public manifest chain; relaying it grants no authority because every recipient verifies
 the signatures and hashes locally.
 
+#### Production bootstrap completed 2026-10-12
+
+Manifest-aware builds had already shipped with the TechSupport announcement public key in the
+genesis checkpoint before dedicated protocol-release vaults existed. Replacing that compiled root
+would have made those installations unable to authenticate any successor. Production therefore
+uses one explicit compatibility bridge:
+
+- genesis sequence 1 continues to name the historical announcement key as its authorized signer;
+- signed `M2` makes no behavior change (`protocolEpoch=1`, `C=498`) and commits dedicated `K3`;
+- `K3` and `K4` are separate encrypted, sequence-bound protocol-release vaults under the ignored
+  operator `secrets/` directory; they are not TechSupport or package-signing keys;
+- `M3` must be signed by `K3` and commit `K4`; every later manifest follows the same `KN → K(N+1)`
+  rule. The legacy announcement key is rejected by tooling after the one-time `M2` bridge.
+
+The committed public history is `src/shared/protocol-manifest-history.signed.json`. Every server,
+web, desktop, and Android production build verifies the complete history from the immutable
+genesis checkpoint and fails if the bridge is missing, invalid, contains private fields, rolls
+back, forks, or leaves a legacy/recovery key authorized as the next ordinary signer. Operator
+commands and the cold-storage procedure are documented in the production deployment guide.
+
 A release bundles the public signed manifests needed to reach it from the oldest release it still
 expects to encounter. It does not bundle historical private keys. For example, release 3 can send
 `M2` and `M3` to release 1: release 1 verifies `M2` with its pinned `K2.public`, learns
@@ -223,7 +243,7 @@ already-isolated client aware of that cutoff until an authenticated chain reache
 
 Clients persist the highest accepted sequence and manifest hash, reject rollback, and fail closed
 on two different valid manifests for the same sequence instead of choosing whichever number is
-higher. The normal next-release key should be one-time and rotated in every manifest. Because one
+higher. The normal next-release key is one-time and rotated in every manifest. Because one
 lost or compromised next key must not permanently strand the network, each release also pins a
 separate threshold recovery policy (for example, two of three offline recovery public keys) that
 can revoke/replace the next key. Ordinary release signing and recovery keys must be stored

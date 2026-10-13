@@ -118,6 +118,11 @@ function checkpointKey(checkpoint: RoomProtocolCheckpoint): string {
   ].join(':');
 }
 
+/** Stable control-plane rendezvous across manifest rotations within one room protocol epoch. */
+function rootRendezvousKey(checkpoint: RoomProtocolCheckpoint): string {
+  return [checkpoint.networkId, checkpoint.protocolEpoch].join(':');
+}
+
 function validCheckpoint(checkpoint: RoomProtocolCheckpoint | undefined): checkpoint is RoomProtocolCheckpoint {
   return !!checkpoint
     && typeof checkpoint.networkId === 'string'
@@ -172,13 +177,15 @@ export function nearbyCohortRootGroup(
   checkpoint: RoomProtocolCheckpoint,
 ): NearbyPartitionGroupV2 {
   const address = { geographicPath: '', cohortPath: '' };
+  const rendezvousKey = rootRendezvousKey(checkpoint);
+  const digest = portableSha256Hex(canonicalSerialize({
+    domain: `${COHORT_DOMAIN}:root-room`,
+    rendezvousKey,
+    address,
+  })).slice(0, 24);
   return {
     address,
-    roomId: roomIdFor(
-      checkpoint,
-      address,
-      portableSha256Hex(`${COHORT_DOMAIN}:root:${checkpointKey(checkpoint)}`),
-    ),
+    roomId: `nearby_v${NEARBY_COHORT_ROOM_SCHEMA_VERSION}_e${checkpoint.protocolEpoch}_${digest}`,
   };
 }
 

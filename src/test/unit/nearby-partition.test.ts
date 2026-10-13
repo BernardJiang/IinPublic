@@ -38,6 +38,19 @@ describe('flat adaptive Nearby partition transitions', () => {
     expect(left.assignment.roomId).toBe(nearbyPartitionRootGroup(checkpoint).roomId);
   });
 
+  it('keeps the root rendezvous stable across manifests in one protocol epoch', () => {
+    const successor = {
+      ...checkpoint,
+      manifestSequence: 2,
+      manifestHash: 'b'.repeat(64),
+      chatroomCapacity: 498,
+    };
+    expect(nearbyPartitionRootGroup(successor).roomId)
+      .toBe(nearbyPartitionRootGroup(checkpoint).roomId);
+    expect(nearbyPartitionRootGroup({ ...successor, protocolEpoch: 2 }).roomId)
+      .not.toBe(nearbyPartitionRootGroup(checkpoint).roomId);
+  });
+
   it('verifies C+1 signed evidence and replaces only the overflowing group', async () => {
     const root = nearbyPartitionRootGroup(checkpoint);
     const rootAssignment = nearbyPartitionAssignment({

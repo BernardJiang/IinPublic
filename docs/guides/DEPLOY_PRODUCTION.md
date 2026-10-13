@@ -88,6 +88,56 @@ override this; without it some vendor installers reject the APK with "The
 installation package does not contain any certificates" even though it
 verifies fine with `adb install`/Google Play — found 2026-09-26).
 
+### Protocol-manifest forward keys
+
+These keys authenticate decentralized protocol-policy transitions between releases; they are
+separate from Android/desktop package signing and do not attest the exact binary running on a
+remote peer.
+
+The one-time production bootstrap is complete: committed `M2` is signed by the historical key
+already pinned by installed clients, changes no behavior, and commits dedicated `K3`. Encrypted
+`K3` and `K4` vaults plus their separate mode-600 passphrase files currently exist under
+`secrets/` and must be backed up to offline/cold storage before relying on them operationally.
+Never copy a private vault or passphrase into source, build assets, CI logs, or a release package.
+
+Read-only checks require no secret:
+
+```bash
+npm run protocol:manifest -- status
+npm run protocol:manifest:verify
+```
+
+Every production build runs the second check automatically. To create `M3`, retrieve `K3` and its
+passphrase from cold storage, generate `K4` ahead of time if it does not already exist, then append
+the reviewed transition:
+
+```bash
+npm run protocol:manifest -- append \
+  --expected-sequence 3 \
+  --signing-key secrets/protocol-release-k3.key.json \
+  --signing-passphrase-file secrets/protocol-release-k3.passphrase \
+  --next-key secrets/protocol-release-k4.key.json \
+  --effective-at 2027-01-01T00:00:00.000Z
+```
+
+Policy-changing options include `--capacity`, `--protocol-epoch`, `--minimum-engine`,
+`--minimum-room-protocol`, comma-separated capability lists, and retirement fields. Omit them for
+a pure key rotation. The tool derives the next sequence and previous hash from the fully verified
+committed chain, refuses the wrong signer/next-key sequence, signs offline, verifies the entire
+result before replacing the public history, and never prints private material. Generate the next
+vault with:
+
+```bash
+npm run protocol:manifest -- generate \
+  --sequence 5 \
+  --out secrets/protocol-release-k5.key.json \
+  --passphrase-out secrets/protocol-release-k5.passphrase
+```
+
+Keep at least the current signing vault and already-generated successor vault in separate durable
+offline backups. The recovery key remains a distinct emergency authorization path and must not be
+used as the ordinary next-release key.
+
 ### Google Play submission (Android App Bundle)
 
 Play Console requires an `.aab` (Android App Bundle) upload, not the sideload

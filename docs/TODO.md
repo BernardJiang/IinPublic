@@ -32,6 +32,16 @@ its ID.
     `K`, verified `C+1` overflow certificates, monotone protocol manifests, and 10,000-identity
     allocator/control tests already exist. Reuse their verification and storage primitives without
     preserving the rejected Global/FIFO/tree product behavior.
+  - [x] **P0 forward protocol-release key chain (implemented 2026-10-12).** Preserved the
+    already-shipped genesis trust root, signed a no-policy-change `M2` compatibility bridge with its
+    historical authorized key, and committed dedicated `K3.public`. Added sequence-bound encrypted
+    protocol vault custody, offline generation/sign/rotation tooling, a verified public manifest
+    history, mixed-release gossip, and a production build gate. Generated distinct encrypted K3 and
+    K4 vaults under the ignored local `secrets/` target; no private field enters the public history.
+    - [ ] Operator action: place the K3 and K4 vault/passphrase pairs in separate durable offline
+      backups, verify restoration, and remove the working copies from the regular development
+      machine when the release ceremony no longer needs them. Do not mark custody production-ready
+      merely because the local encrypted files exist.
   - [x] **P0 adaptive shared-room completion (implemented 2026-10-10).** Preserve one common
     room roster/capability while flat geographic groups are repartitioned or coalesced. The signed
     partition manifest is control data, not a parent/child chatroom tree.

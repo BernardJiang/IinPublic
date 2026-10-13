@@ -63,6 +63,19 @@ describe('Nearby visitable-cohort v2 contract', () => {
       .resolves.toMatchObject({ ok: true });
   });
 
+  it('keeps the cohort root stable while compatible releases exchange manifests', () => {
+    const successor = {
+      ...checkpoint,
+      manifestSequence: 2,
+      manifestHash: 'b'.repeat(64),
+      chatroomCapacity: 498,
+    };
+    expect(nearbyCohortRootGroup(successor).roomId)
+      .toBe(nearbyCohortRootGroup(checkpoint).roomId);
+    expect(nearbyCohortRootGroup({ ...successor, protocolEpoch: 2 }).roomId)
+      .not.toBe(nearbyCohortRootGroup(checkpoint).roomId);
+  });
+
   it('stops two privacy modes independently and converts excess geography to stable cohort bits', () => {
     const geographicSelectorPath = '012301230123012301230123';
     const regional = deriveNearbyMemberRouteV2({
