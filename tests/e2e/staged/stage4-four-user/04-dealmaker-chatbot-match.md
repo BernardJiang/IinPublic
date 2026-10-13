@@ -16,7 +16,7 @@ covers: SPEC-12.3
 3. **Bob** (buyer, role "request") creates a similar-looking flow talk, but every question is worded differently from Adam/Eve's (different model, price, location, time frame).
 4. **Alice** (seller, role "offer") creates a similar-looking flow talk too, worded differently again — from Adam/Eve's **and** from Bob's.
 
-Only then do all four join the "Global" chatroom, turn on the chatbot (auto-reply), and broadcast the talks they already created. From this point on, nobody manually answers anything.
+Only then do all four join the shared Nearby room, turn on the chatbot (auto-reply), and broadcast the talks they already created. From this point on, nobody manually answers anything.
 
 - Because Adam's and Eve's questions are textually identical, each of them recorded "yes" as their own answer to every question when they created their own talk, and their roles are complementary (one "request", one "offer"), the chatbot on each side recognizes the other's incoming talk purely from that self-answer history and answers it automatically — Adam and Eve end up matched into one deal.
 - Because Bob's and Alice's talks use wording nobody else (including each other) ever answered before, the chatbot never has enough history to auto-answer them. Neither of them matches anyone — not each other, and not Adam or Eve.

@@ -41,7 +41,7 @@ test.describe('X1: cross-platform presence and headcount', () => {
     await afterSync();
 
     const headcountOf = (page: typeof a.page) =>
-      page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
+      page.locator('.chatroom-item.current-room .chatroom-headcount');
 
     // Both users + the TechSupport baseline ⇒ at least 2 non-support members visible.
     for (const { page } of [a, b]) {

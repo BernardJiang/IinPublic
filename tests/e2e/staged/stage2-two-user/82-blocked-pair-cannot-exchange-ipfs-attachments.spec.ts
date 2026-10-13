@@ -63,9 +63,9 @@ test.describe('Blocked pair cannot exchange IPFS attachments', () => {
     contextBob = bob.context;
     pageBob = bob.page;
 
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterSync();
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
     await afterSync();
 
     const aliceUserId = await pageAlice.evaluate(

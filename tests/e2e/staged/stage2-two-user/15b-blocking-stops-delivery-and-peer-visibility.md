@@ -8,7 +8,7 @@ covers: SPEC-3.8, SPEC-7.9, SPEC-7.5  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Tom and Jerry join Global.**
+1. **Tom and Jerry join the shared Nearby room.**
 2. **Warm-up match:** Tom broadcasts a talk and Jerry matches, so they appear in contacts.
 3. **Tom blocks Jerry** in the Contacts relationship modal.
 4. **Server confirmation:** Tom's block list contains Jerry.

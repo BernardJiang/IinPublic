@@ -2,10 +2,28 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { waitForGunApiReady } from '../../helpers/clear-database';
 import { gunBaseURL } from '../../helpers/ports';
+import SEA from 'gun/sea';
+import { LocationPrivacy } from '../../../../src/shared/location';
+import { parseAnchorCell } from '../../../../src/shared/place-rooms';
+import { createSignedPlaceDescriptor } from '../../../../src/shared/place-descriptor';
+import { createPlaceAdmissionClaim } from '../../../../src/shared/place-admission-evidence';
 
-// Rooms are ownerless and the relay assigns the id (chatroom-manager.ts createChatroom); a
-// client-supplied id is ignored outside unit tests.
-const SERVER_ROOM_ID = /^room_[0-9a-f]{40}$/;
+// Rooms are ownerless, content-addressed Places: the creator signs a descriptor and the room id
+// is the descriptor's CID (chatroom-manager.ts createChatroom); unsigned creates are refused.
+const SERVER_ROOM_ID = /^place_b[a-z2-7]+$/;
+// A local room is anchored to its creator's blurred ~1 km cell (San Diego here).
+const ANCHOR_CELL = LocationPrivacy.blurLocation({ latitude: 32.7157, longitude: -117.1611 }).region;
+
+async function signedDescriptor(name: string, placeType: 'business' | 'custom', description?: string) {
+  const anchor = parseAnchorCell(ANCHOR_CELL)!;
+  return createSignedPlaceDescriptor({
+    name,
+    placeType,
+    ...(description !== undefined ? { description } : {}),
+    location: { latitude: anchor.latitude, longitude: anchor.longitude },
+    pair: await SEA.pair(),
+  });
+}
 
 test.describe('Chatroom custom/business API scripts', () => {
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
@@ -33,9 +51,11 @@ test.describe('Chatroom custom/business API scripts', () => {
       data: {
         name: 'Neighborhood Buy/Sell',
         type: 'custom',
+        anchorCell: ANCHOR_CELL,
         createdBy,
         description: 'Local custom room',
         capacity: 120,
+        descriptor: await signedDescriptor('Neighborhood Buy/Sell', 'custom', 'Local custom room'),
       },
     });
     expect(createRes.ok(), await createRes.text()).toBeTruthy();
@@ -61,6 +81,8 @@ test.describe('Chatroom custom/business API scripts', () => {
       data: {
         name: 'Coffee Shop Live',
         type: 'business',
+        anchorCell: ANCHOR_CELL,
+        descriptor: await signedDescriptor('Coffee Shop Live', 'business'),
         createdBy: ownerId,
         businessInfo: {
           brandName: 'Coffee Shop',
@@ -96,7 +118,13 @@ test.describe('Chatroom custom/business API scripts', () => {
     const base = gunBaseURL();
 
     const createRes = await request.post(`${base}/api/chatrooms`, {
-      data: { name: 'Members Room', type: 'custom', createdBy: 'owner_members_1' },
+      data: {
+        name: 'Members Room',
+        type: 'custom',
+        createdBy: 'owner_members_1',
+        anchorCell: ANCHOR_CELL,
+        descriptor: await signedDescriptor('Members Room', 'custom'),
+      },
     });
     expect(createRes.ok(), await createRes.text()).toBeTruthy();
     const { id } = (await createRes.json()) as { id: string };
@@ -106,8 +134,22 @@ test.describe('Chatroom custom/business API scripts', () => {
     });
     expect(invalidAdd.status()).toBe(400);
 
+    // A Place seat is two steps: a signed admission claim reserves it, the token then joins.
+    const admissionClaim = await createPlaceAdmissionClaim({
+      roomId: id,
+      userId: 'member_user_1',
+      pair: await SEA.pair(),
+      capacity: 50, // CHATROOM_MAX_CAPACITY of the E2E hub (playwright.config.ts)
+    });
+    const reserveRes = await request.post(`${base}/api/chatrooms/${encodeURIComponent(id)}/members`, {
+      data: { userId: 'member_user_1', stageName: 'MemberOne', reserveOnly: true, admissionClaim },
+    });
+    expect(reserveRes.ok(), await reserveRes.text()).toBeTruthy();
+    const { reservationToken } = (await reserveRes.json()) as { reservationToken: string };
+    expect(reservationToken).toBeTruthy();
+
     const addRes = await request.post(`${base}/api/chatrooms/${encodeURIComponent(id)}/members`, {
-      data: { userId: 'member_user_1', stageName: 'MemberOne' },
+      data: { userId: 'member_user_1', stageName: 'MemberOne', reservationToken },
     });
     expect(addRes.ok(), await addRes.text()).toBeTruthy();
 

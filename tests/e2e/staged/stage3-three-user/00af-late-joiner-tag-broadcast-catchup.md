@@ -9,9 +9,9 @@
 
 Regression test for a manually-reported bug: a tag talk already broadcast to the room did not reach a member who joined later.
 
-1. **Setup:** Tom and Jerry join Global. Tom creates and broadcasts a tag talk ("Late Joiner Tag Catchup") to Jerry, who is already in the room.
+1. **Setup:** Tom and Jerry join the shared Nearby room. Tom creates and broadcasts a tag talk ("Late Joiner Tag Catchup") to Jerry, who is already in the room.
 2. **Confirm the normal case works:** poll until Jerry's incoming-talk clusters contain the tag talk title.
-3. **Kate joins late:** only now does Kate bootstrap and join Global — after Tom's broadcast to Jerry already completed. Tom stays on the chatroom tab throughout, so the roster-change callback that drives automatic catch-up (`syncPeerMeshRoom` → `broadcastPendingTalksToMembers`) fires while he is actually viewing the room.
+3. **Kate joins late:** only now does Kate bootstrap and join the shared Nearby room — after Tom's broadcast to Jerry already completed. Tom stays on the chatroom tab throughout, so the roster-change callback that drives automatic catch-up (`syncPeerMeshRoom` → `broadcastPendingTalksToMembers`) fires while he is actually viewing the room.
 4. **Assert catch-up:** poll until Kate's incoming-talk clusters contain the tag talk title, with no manual re-broadcast action from Tom.
 
 > **Why this matters:** two real bugs were found and fixed while chasing the manual report:

@@ -179,7 +179,7 @@ test.describe('Find similar people', () => {
         const { context, page } = await bootstrapUser(browser, `Sim${idx}`, `Sim User ${idx}`, 30_000);
         contexts.push(context);
         pages.push(page);
-        await page.locator('.chatroom-item:has-text("Global")').first().click();
+        await page.locator('.chatroom-item.current-room').first().click();
         await afterSync();
         return { page, idx };
       }),
@@ -257,7 +257,7 @@ test.describe('Find similar people', () => {
           .poll(() => page.evaluate(() => localStorage.getItem('chatbotEnabled')), { timeout: 15_000 })
           .toBe('true');
         await ensureChatroomList(page);
-        await page.locator('.chatroom-item:has-text("Global")').first().click();
+        await page.locator('.chatroom-item.current-room').first().click();
         await afterSync();
       }),
     );

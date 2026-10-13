@@ -19,15 +19,13 @@ import { gunBaseURL } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { readVisitCounterState, visitTotals } from '../../../../src/shared/visit-counter';
 
-const ROOM_ID = 'global';
-
 /** Read the room's G-Counter slots straight out of the server graph. */
-async function readRoomVisitTotals(): Promise<{ visitCount: number; uniqueVisitorCount: number }> {
+async function readRoomVisitTotals(roomId: string): Promise<{ visitCount: number; uniqueVisitorCount: number }> {
   const res = await fetch(`${gunBaseURL()}/api/test/export-snapshot`);
   expect(res.ok).toBeTruthy();
   const snapshot = (await res.json()) as { gunGraph?: Record<string, any> };
   const graph = snapshot.gunGraph || {};
-  const prefix = `chatrooms/${ROOM_ID}/visitCounter/`;
+  const prefix = `chatrooms/${roomId}/visitCounter/`;
   const slots: Record<string, unknown> = {};
   for (const [soul, node] of Object.entries(graph)) {
     if (!soul.startsWith(prefix)) continue;
@@ -43,6 +41,10 @@ test.describe('Room visit counter: concurrent joins', () => {
   let contextBob: BrowserContext;
   let pageAlice: Page;
   let pageBob: Page;
+  /** The automatic Nearby room both users share (Global is retired); empty until they boot. */
+  let roomId = '';
+  const currentRoomOf = (page: Page) =>
+    page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''));
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
@@ -67,7 +69,8 @@ test.describe('Room visit counter: concurrent joins', () => {
   });
 
   test('two simultaneous joins are both counted, unique = 2', async () => {
-    const before = await readRoomVisitTotals();
+    // The hub graph was cleared in beforeAll, so the shared room starts with no visits.
+    const before = { visitCount: 0, uniqueVisitorCount: 0 };
 
     // Launch both joins together — this is the interleaving that lost an increment
     // under the old shared-scalar counter.
@@ -84,12 +87,15 @@ test.describe('Room visit counter: concurrent joins', () => {
 
     await afterLoad();
     await afterSync();
+    roomId = await currentRoomOf(pageAlice);
+    expect(roomId).toMatch(/^nearby_/);
+    await expect.poll(() => currentRoomOf(pageBob)).toBe(roomId);
 
     await expect
-      .poll(async () => (await readRoomVisitTotals()).uniqueVisitorCount, { timeout: 20_000 })
+      .poll(async () => (await readRoomVisitTotals(roomId)).uniqueVisitorCount, { timeout: 20_000 })
       .toBeGreaterThanOrEqual(before.uniqueVisitorCount + 2);
 
-    const after = await readRoomVisitTotals();
+    const after = await readRoomVisitTotals(roomId);
     // Both visits survived — the old counter would report +1 here on an unlucky interleave.
     expect(after.visitCount).toBeGreaterThanOrEqual(before.visitCount + 2);
     // Two distinct users, so exactly two new slots regardless of how many times each joined.
@@ -97,17 +103,18 @@ test.describe('Room visit counter: concurrent joins', () => {
   });
 
   test('a repeat visit by the same user raises visits but not unique visitors', async () => {
-    const before = await readRoomVisitTotals();
+    expect(roomId).toMatch(/^nearby_/);
+    const before = await readRoomVisitTotals(roomId);
 
     await pageAlice.reload();
     await afterLoad();
     await afterSync();
 
     await expect
-      .poll(async () => (await readRoomVisitTotals()).visitCount, { timeout: 20_000 })
+      .poll(async () => (await readRoomVisitTotals(roomId)).visitCount, { timeout: 20_000 })
       .toBeGreaterThan(before.visitCount);
 
-    const after = await readRoomVisitTotals();
+    const after = await readRoomVisitTotals(roomId);
     expect(after.uniqueVisitorCount).toBe(before.uniqueVisitorCount);
   });
 });

@@ -9,9 +9,9 @@ covers: SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Two users (Tom sends, Jerry receives) in Global chatroom. Jerry navigates to Settings and toggles grammar + dirty-words moderation filters. The test verifies the full pipeline: UI checkbox → localStorage → current user object → Gun persistence.
+Two users (Tom sends, Jerry receives) in the shared Nearby room. Jerry navigates to Settings and toggles grammar + dirty-words moderation filters. The test verifies the full pipeline: UI checkbox → localStorage → current user object → Gun persistence.
 
-1. **Setup:** Tom + Jerry bootstrapped and joined Global chatroom.
+1. **Setup:** Tom + Jerry bootstrapped and joined the shared Nearby room.
 2. **Check defaults:** Both `settings-grammar-filter` and `settings-dirty-words-filter` checkboxes are checked by default. Confirmation text explains what each filter does (sentence length for grammar, English+Chinese profanity lists for dirty words).
 3. **Disable both filters:** Jerry unchecks both → localStorage `requireGoodGrammar: false`, `blockDirtyWords: false`. Navigating to Talks then back to Settings confirms disabled state persists across tab switches.
 4. **Push to Gun graph:** Jerry's filters object is rebuilt from localStorage and pushed via `updateTalkFilters(userId, filters)`. Polls Gun with exponential backoff (`[200, 500, 1000]`) to confirm `user-talk-filters/{userId}` reflects `[false, false]`.

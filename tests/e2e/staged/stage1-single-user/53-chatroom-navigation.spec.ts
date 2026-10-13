@@ -50,7 +50,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
       await back.click();
       await afterNav();
     }
-    await p.locator('[data-testid="chatroom-tree-view-btn"]').click();
+    await p.locator('[data-testid="chatroom-list-view-btn"]').click();
   }
 
   const currentRoomId = (p: Page) => p.evaluate(() =>
@@ -63,7 +63,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
 
     await expect(back).toBeHidden();
     const nearbyId = await openCurrentChatroom(p);
-    expect(nearbyId).toMatch(/^nearby_v1_/);
+    expect(nearbyId).toMatch(/^nearby_v\d+_/);
     await expect(back).toBeVisible();
     await expect(back).toHaveText('‹');
     await expect(p.locator('#chatroom-detail-container')).toBeVisible();
@@ -81,7 +81,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     await toChatroomList(page!);
     const p = page!;
     const nearbyId = await currentRoomId(p);
-    expect(nearbyId).toMatch(/^nearby_v1_/);
+    expect(nearbyId).toMatch(/^nearby_v\d+_/);
 
     const rows = p.locator('.chatroom-item');
     expect(await rows.count()).toBeGreaterThan(0);
@@ -96,7 +96,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
   test('list/map toggle shades Nearby and an open-map tap does not invent a grid room', async () => {
     await toChatroomList(page!);
     const p = page!;
-    const listButton = p.locator('[data-testid="chatroom-tree-view-btn"]');
+    const listButton = p.locator('[data-testid="chatroom-list-view-btn"]');
     const mapButton = p.locator('[data-testid="chatroom-map-view-btn"]');
     const list = p.locator('#chatroom-list');
     const map = p.locator('[data-testid="chatroom-map"]');
@@ -170,8 +170,9 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     const row = p.locator(`.chatroom-item[data-chatroom-id="${createdPlaceId}"]`);
     await expect(row).toBeVisible();
     await expect(row).toContainText(createdPlaceName);
-    await expect(row).toHaveAttribute('data-level', '0');
-    await expect(row).toHaveAttribute('data-has-children', 'false');
+    // Flat list: a Place row carries its kind, no tree level/children attributes.
+    await expect(row).toHaveAttribute('data-room-kind', 'place');
+    await expect(row).not.toHaveAttribute('data-level', /.*/);
 
     await p.locator('[data-testid="chatroom-map-view-btn"]').click();
     await expect(p.locator('#chatroom-map-status')).toContainText('Showing 1 Places');
@@ -193,7 +194,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
 
     await home.click();
     await afterNav();
-    await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby_v1_/);
+    await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby_v\d+_/);
     await expect(home).toBeDisabled();
 
     await p.locator(`.chatroom-item[data-chatroom-id="${createdPlaceId}"]`).click();

@@ -53,9 +53,9 @@ test.describe('Blocklist persists after browser restart', () => {
     pageBob = bob.page;
 
     // Both enter Global chatroom to establish some connection context
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterSync();
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
     await afterSync();
 
     // Get user IDs for verification

@@ -170,7 +170,7 @@ test.describe('Copy then edit transfers authorship', () => {
       return myTalks[tid as string]?.fullTalk;
     }, newTalkId);
     expect(newFullTalk.authorId).toBe(tomId);
-    expect(newFullTalk.originalAuthorId).toBe(TECHSUPPORT_ROOT_USER_ID);
+    expect(newFullTalk.originalAuthorId).toBe(originalAuthorId);
     expect(newFullTalk.supersedesTalkId).toBe(copiedTalkId);
     expect(newTalkId).not.toBe(copiedTalkId);
 

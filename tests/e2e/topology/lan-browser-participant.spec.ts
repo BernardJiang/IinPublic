@@ -36,7 +36,7 @@ async function fetchJson(url: string): Promise<any> {
   return res.json();
 }
 
-async function seedTechSupportGlobalMember(): Promise<void> {
+async function seedTechSupportUser(): Promise<void> {
   await fetch(`${gunBaseURL()}/api/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -47,15 +47,7 @@ async function seedTechSupportGlobalMember(): Promise<void> {
       languages: ['en'],
       profile: [],
       interests: [],
-      location: { region: 'global', chatrooms: ['global'] },
-    }),
-  });
-  await fetch(`${gunBaseURL()}/api/chatrooms/global/members`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      userId: TECHSUPPORT_ROOT_USER_ID,
-      stageName: TECHSUPPORT_STAGE_NAME,
+      location: { region: 'global', chatrooms: [] },
     }),
   });
 }
@@ -103,11 +95,11 @@ async function bootstrapUserOnUrl(
   return { context, page, userId, stageName };
 }
 
-async function enterGlobalChatroom(page: Page): Promise<void> {
+async function enterNearbyChatroom(page: Page): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await page.waitForSelector('#chatroom-list-container', { state: 'visible' });
-  await page.click('.chatroom-item[data-chatroom-id="global"]');
+  await page.click('.chatroom-item.current-room');
   await afterSync();
 }
 
@@ -194,7 +186,7 @@ test.describe('LAN browser development topology', () => {
 
   test.beforeAll(async ({ e2eWorkerSlot: _slot }) => {
     await clearGunForStage2Spec();
-    await seedTechSupportGlobalMember();
+    await seedTechSupportUser();
     localBrowser = await chromium.launch({
       headless,
       args: CHROMIUM_TOPOLOGY_FLAGS,
@@ -213,7 +205,7 @@ test.describe('LAN browser development topology', () => {
     await clearGunForStage2Spec();
   });
 
-  test('LAN-hostname browser joins Global with local browser users and exchanges a direct message', async () => {
+  test('LAN-hostname browser joins the Nearby room with local browser users and exchanges a direct message', async () => {
     test.setTimeout(180_000);
     const localA = await bootstrapUserOnUrl(localBrowser!, webAppURLStableChatroom(), 'Local A', 'LocalLANA');
     const localB = await bootstrapUserOnUrl(localBrowser!, webAppURLStableChatroom(), 'Local B', 'LocalLANB');
@@ -237,9 +229,9 @@ test.describe('LAN browser development topology', () => {
     });
 
     await Promise.all([
-      enterGlobalChatroom(localA.page),
-      enterGlobalChatroom(localB.page),
-      enterGlobalChatroom(lanUser.page),
+      enterNearbyChatroom(localA.page),
+      enterNearbyChatroom(localB.page),
+      enterNearbyChatroom(lanUser.page),
     ]);
     await Promise.all([
       publishCurrentPublicUser(localA.page),
@@ -247,10 +239,19 @@ test.describe('LAN browser development topology', () => {
       publishCurrentPublicUser(lanUser.page),
     ]);
 
+    // Global is retired: all three share the automatic Nearby room, which never holds
+    // TechSupport (contacts-only).
+    const currentRoomOf = (page: Page) =>
+      page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''));
+    const roomId = await currentRoomOf(localA.page);
+    expect(roomId).toMatch(/^nearby_/);
+    await expect.poll(() => currentRoomOf(localB.page)).toBe(roomId);
+    await expect.poll(() => currentRoomOf(lanUser.page)).toBe(roomId);
+
     await expect
       .poll(
         async () => {
-          const members = await fetchJson(`${gunBaseURL()}/api/chatrooms/global/members`);
+          const members = await fetchJson(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members`);
           const ids = new Set(members.map((member: { userId?: string }) => member.userId));
           return {
             techSupport: ids.has(TECHSUPPORT_ROOT_USER_ID),
@@ -261,7 +262,7 @@ test.describe('LAN browser development topology', () => {
         },
         { timeout: 30_000, intervals: [1000, 1500, 2000] },
       )
-      .toEqual({ techSupport: true, localA: true, localB: true, lanUser: true });
+      .toEqual({ techSupport: false, localA: true, localB: true, lanUser: true });
 
     const lanConversationId = await createLocalDirectConversation(
       lanUser.page,

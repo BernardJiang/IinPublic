@@ -8,7 +8,7 @@ covers: SPEC-3.8 <!-- shares the block-relationship area with 15a/15b/61; refine
 
 ## What this test does (in plain English):
 
-1. **Alice and Bob are bootstrapped** and both enter the Global chatroom.
+1. **Alice and Bob are bootstrapped** and both enter the shared Nearby room.
 2. **Bob blocks Alice.**
 3. **`resolveBlockStatusEitherWay` (the shared gate)** is polled and confirmed to report the block for this pair — the single dependency all four Part C call sites rely on.
 4. **A mailbox-delivered attachment-share payload from Alice is fed directly into `ingestAttachmentShareFromMailbox`** on Bob's side. It never marks the message as processed — proving no conversation message record was created for a blocked sender's share.

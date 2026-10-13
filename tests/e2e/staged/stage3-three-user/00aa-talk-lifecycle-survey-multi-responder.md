@@ -9,7 +9,7 @@ covers: SPEC-3.9, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users: Tom, Jerry, and Bob, all in the "Global" chatroom.
+Three users: Tom, Jerry, and Bob, all in the shared Nearby room.
 
 1. **Tom creates a survey talk** using `makeSurveyTalk(RUN_ID)` with title `E2E FourTypes Survey 900401` via the company page.
 2. **Tom broadcasts** the survey talk to everyone in the room, waiting for bulk ACK after confirming 2 distinct Gun peers online.

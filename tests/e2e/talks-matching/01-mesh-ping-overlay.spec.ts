@@ -15,7 +15,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../helpers/talks-matching-browsers';
-import { bootstrapUser, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
+import { bootstrapUser, enableMeshForwarding, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
@@ -130,6 +130,8 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
     // --- Sub-case 1: actively warm mesh links until ≥1 connected neighbor on each peer ---
     // ensureMeshNeighbors re-issues warmMeshConnectionToPeer while polling, so a
     // timed-out first WebRTC cycle under parallel load recovers instead of flaking.
+    // Pings relay through a third peer; that forwarding is opt-in (off by default).
+    await enableMeshForwarding([pageTom, pageJerry, pageBob]);
     await ensureMeshNeighbors([
       { label: 'Tom', page: pageTom, otherIds: [jerryId, bobId] },
       { label: 'Jerry', page: pageJerry, otherIds: [tomId, bobId] },
@@ -207,34 +209,25 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
     }
 
     // Tom polls pongedOrigins — proves round-trip reachability from both peers
+    // Pongs are addressed to Tom, and authoritative direct delivery never relays a
+    // recipient-addressed frame through a third peer (forwardFrame). So Tom hears a pong from each
+    // peer it is directly linked to; the relayed ping above already proves multi-hop reach.
     await expect
       .poll(
         () =>
-          pageTom.evaluate((jId: string) => {
+          pageTom.evaluate(() => {
             const app = (window as any).__iinpublic_app?.getApp?.() as any;
+            const mesh = app?.peerMeshService as any;
             const diag = app?.meshPingDiagnostics as MeshPingDiagnostics | undefined;
-            return diag?.pongedOrigins?.includes(jId) ?? false;
-          }, jerryId),
+            const linked = [...(mesh?.neighbors?.values?.() ?? [])]
+              .filter((neighbor: any) => neighbor.connected)
+              .map((neighbor: any) => String(neighbor.userId));
+            return linked.length > 0 && linked.every((userId) => diag?.pongedOrigins?.includes(userId));
+          }),
         {
           timeout: MESH_E2E_TIMEOUT_MS,
           intervals: [200, 400, 800],
-          message: 'Tom: no pong from Jerry',
-        },
-      )
-      .toBe(true);
-
-    await expect
-      .poll(
-        () =>
-          pageTom.evaluate((bId: string) => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            const diag = app?.meshPingDiagnostics as MeshPingDiagnostics | undefined;
-            return diag?.pongedOrigins?.includes(bId) ?? false;
-          }, bobId),
-        {
-          timeout: MESH_E2E_TIMEOUT_MS,
-          intervals: [200, 400, 800],
-          message: 'Tom: no pong from Bob',
+          message: 'Tom: no pong from a directly linked peer',
         },
       )
       .toBe(true);

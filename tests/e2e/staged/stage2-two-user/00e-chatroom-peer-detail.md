@@ -11,7 +11,7 @@ This spec contains **5 sub-tests**, each with fresh database setup (`beforeEach`
 
 ## Sub-test 1: Member list shows "Stranger" status for unknown user
 
-1. **Setup:** Tom (TomS) and Jerry (JerryS) both log in and enter the Global chatroom.
+1. **Setup:** Tom (TomS) and Jerry (JerryS) both log in and enter the shared Nearby room.
 
 2. **Tom waits for Jerry to appear** in the member list.
 
@@ -23,7 +23,7 @@ This spec contains **5 sub-tests**, each with fresh database setup (`beforeEach`
 
 ## Sub-test 2: Clicking a chatroom member opens the peer detail overlay
 
-1. **Setup:** Tom (TomOv) and Jerry (JerryOv) both enter Global chatroom.
+1. **Setup:** Tom (TomOv) and Jerry (JerryOv) both enter the shared Nearby room.
 
 2. **Tom waits for Jerry to appear** in the member list, then clicks on Jerry's name.
 
@@ -37,7 +37,7 @@ This spec contains **5 sub-tests**, each with fresh database setup (`beforeEach`
 
 ## Sub-test 3: Peer detail shows talk history after a talk exchange
 
-1. **Setup:** Tom (TomTH) and Jerry (JerryTH) both enter Global chatroom.
+1. **Setup:** Tom (TomTH) and Jerry (JerryTH) both enter the shared Nearby room.
 
 2. **Tom creates and broadcasts a talk** titled "Tennis Peer Test" with the question "Peer detail test: want to play tennis?" (match: "Yes, lets play.", ignore: "No thanks.").
 
@@ -53,7 +53,7 @@ This spec contains **5 sub-tests**, each with fresh database setup (`beforeEach`
 
 ## Sub-test 4: Send My Talks — auto mode sends unsent talks to peer
 
-1. **Setup:** Tom (TomSend) and Jerry (JerrySend) both enter Global chatroom.
+1. **Setup:** Tom (TomSend) and Jerry (JerrySend) both enter the shared Nearby room.
 
 2. **Tom creates a talk** titled "Send Test Talk" (not yet sent to Jerry — no broadcast).
 
@@ -69,7 +69,7 @@ This spec contains **5 sub-tests**, each with fresh database setup (`beforeEach`
 
 ## Sub-test 5: Send My Talks — manual mode shows picker modal
 
-1. **Setup:** Tom (TomMan) and Jerry (JerryMan) both enter Global chatroom.
+1. **Setup:** Tom (TomMan) and Jerry (JerryMan) both enter the shared Nearby room.
 
 2. **Tom creates a talk** titled "Manual Mode Talk".
 

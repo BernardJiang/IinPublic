@@ -62,13 +62,13 @@ test.describe('Talks matching — answered incoming remains in IN history', () =
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
     // This scenario covers the read-only answered-IN ledger, not the separate
     // auto-copy-to-OUT feature (which is enabled by default for new users).

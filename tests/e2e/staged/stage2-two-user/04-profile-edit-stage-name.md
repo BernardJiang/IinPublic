@@ -20,7 +20,7 @@ covers: SPEC-3.5, SPEC-3.2, SPEC-3.1  <!-- auto-seeded; refine by hand -->
 
 4. **Verification — Profile displays on Tom's own page:** The profile section shows languages, Q&A entries, and the emoji avatar. The server API is polled to confirm the user object has `languages: [en, zh]` and `profile` array with 2 entries.
 
-5. **Jerry (peer) logs in, navigates to Global chatroom with Tom:** Jerry clicks on Tom's name in the chatroom member list. Tom's profile detail overlay opens for Jerry.
+5. **Jerry (peer) logs in, opens the shared Nearby room with Tom:** Jerry clicks on Tom's name in the chatroom member list. Tom's profile detail overlay opens for Jerry.
 
 6. **Verification — Jerry sees Tom's complete profile:** Jerry can see "Public Profile", "Languages: en, zh", "Favorite drink: Coffee", "Usual city: San Francisco", and the 😎 emoji avatar.
 

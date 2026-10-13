@@ -1,7 +1,9 @@
 /**
  * Location-based chatroom auto-assignment after an explicit location refresh.
- * Rooms are geometric tiles (docs/design/room-tree-routing.md), never country/state rooms, so an
- * explicit refresh lands in the user's area room: the bottom-layer (~78 km) tile at their position.
+ * The active room is the automatic Nearby group (Global and the tile tree are retired). Nearby is an
+ * adaptive partition (src/shared/nearby-partition.ts): one world-wide root group that splits by
+ * location only once it overflows capacity. A lone user therefore stays in that same root group
+ * after a refresh to a far-away fix, and never falls back to a Global or tile room.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -9,7 +11,6 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { tileIdAt } from '../../../../src/shared/room-tiles';
 
 test.describe('Location-based chatroom assignment', () => {
   let context: BrowserContext | undefined;
@@ -54,9 +55,11 @@ test.describe('Location-based chatroom assignment', () => {
     await clearGunForStage1Spec();
   });
 
-  test('explicit location refresh moves the user to their area room (bottom-layer tile)', async () => {
+  test('explicit location refresh keeps a lone user in the unsplit Nearby root group', async () => {
     const p = page!;
-    await expect.poll(async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '')).toBe('global');
+    const currentRoom = () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '');
+    await expect.poll(currentRoom).toMatch(/^nearby_/);
+    const before = await currentRoom();
 
     await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
@@ -67,12 +70,9 @@ test.describe('Location-based chatroom assignment', () => {
         timestamp: new Date(),
       });
     });
+    await afterSync();
 
-    await expect
-      .poll(
-        async () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || ''),
-        { timeout: 30_000, intervals: [300, 600, 1000] },
-      )
-      .toBe(tileIdAt(4, 40.7128, -74.006));
+    expect(await currentRoom()).toBe(before);
+    expect(before).not.toMatch(/^(global|tile_)/);
   });
 });

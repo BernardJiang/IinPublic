@@ -30,11 +30,11 @@ test.describe('Room membership TTL cleanup', () => {
     await clearGunForStage2Spec();
   });
 
-  test('stale active member is pruned from the visible Global headcount after disappearance', async () => {
-    const globalHeadcount = (page: Page) =>
-      page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
-    const readGlobalHeadcount = async (page: Page) => {
-      const text = await globalHeadcount(page).textContent();
+  test('stale active member is pruned from the visible Nearby headcount after disappearance', async () => {
+    const roomHeadcount = (page: Page) =>
+      page.locator('.chatroom-item.current-room .chatroom-headcount');
+    const readRoomHeadcount = async (page: Page) => {
+      const text = await roomHeadcount(page).textContent();
       return Number(text?.match(/\d+/)?.[0] || '0');
     };
 
@@ -46,9 +46,14 @@ test.describe('Room membership TTL cleanup', () => {
     pageB = bob.page;
 
     const initialHeadcount = await expect
-      .poll(() => readGlobalHeadcount(pageA!), { timeout: 20_000 })
-      .toBeGreaterThanOrEqual(3)
-      .then(() => readGlobalHeadcount(pageA!));
+      .poll(() => readRoomHeadcount(pageA!), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(2)
+      .then(() => readRoomHeadcount(pageA!));
+    // Both users share the automatic Nearby room (Global is retired); its headcount excludes TechSupport.
+    const roomId = await pageA.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
+    );
+    expect(roomId).toMatch(/^nearby_/);
 
     const bobId = await pageB.evaluate(
       () => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
@@ -61,14 +66,14 @@ test.describe('Room membership TTL cleanup', () => {
     pageB = undefined;
 
     const staleIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const touchRes = await fetch(`${gunBaseURL()}/api/chatrooms/global/members/${encodeURIComponent(bobId)}`, {
+    const touchRes = await fetch(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(bobId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stageName: 'TTL Bob', lastSeen: staleIso }),
     });
     expect(touchRes.ok).toBe(true);
 
-    const res = await fetch(`${gunBaseURL()}/api/chatrooms/global/members`, {
+    const res = await fetch(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members`, {
       headers: { 'Cache-Control': 'no-cache' },
     });
     expect(res.ok).toBe(true);
@@ -79,6 +84,6 @@ test.describe('Room membership TTL cleanup', () => {
     // (OPEN-43), so run the sweep now; the wait below then only covers propagation to Alice.
     const sweepRes = await fetch(`${gunBaseURL()}/api/test/chatrooms/sweep`, { method: 'POST' });
     expect(sweepRes.ok).toBe(true);
-    await expect(globalHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 35_000 });
+    await expect(roomHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 35_000 });
   });
 });

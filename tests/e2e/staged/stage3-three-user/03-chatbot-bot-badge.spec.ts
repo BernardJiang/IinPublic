@@ -173,21 +173,21 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
     const jerryUserId = await getCurrentUserId(pageJerry);
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
     const bobUserId = await getCurrentUserId(pageBob);
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
     await afterSync();
 
     await pageTom.click('#create-talk-btn');

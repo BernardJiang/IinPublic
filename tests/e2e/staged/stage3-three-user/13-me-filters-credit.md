@@ -9,7 +9,7 @@ covers: SPEC-3.8, SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Setup:** Three browsers (Tom, Jerry, Bob) launched. Tom and Jerry join Global chatroom.
+1. **Setup:** Three browsers (Tom, Jerry, Bob) launched. Tom and Jerry join the shared Nearby room.
 
 2. **Jerry adjusts Me tab settings:** Unchecks the "survey" talk type filter (so Jerry won't receive surveys) and unchecks "credit visibility" (hiding public credit). Navigates back and forth — settings persist.
 

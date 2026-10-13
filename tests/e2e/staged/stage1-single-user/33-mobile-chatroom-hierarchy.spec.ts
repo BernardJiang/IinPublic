@@ -1,8 +1,8 @@
 /**
- * Mobile chatroom hierarchy navigation.
- * On a 390x844 phone viewport, the user enters Global → Europe → UK → London
- * (returning to the list between rooms) while the bottom nav stays visible
- * inside the viewport and hierarchy items stay clickable.
+ * Mobile chatroom navigation.
+ * On a 390x844 phone viewport, the user opens their Nearby room from the flat list, returns, and
+ * repeats it, while the bottom nav stays inside the viewport and the row stays clickable. (The
+ * Global → region tile tree this used to walk is retired.)
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -15,7 +15,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
 const VIEWPORT = { width: 390, height: 844 };
 
-test.describe('Mobile chatroom hierarchy navigation', () => {
+test.describe('Mobile chatroom navigation', () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
@@ -36,7 +36,7 @@ test.describe('Mobile chatroom hierarchy navigation', () => {
     await clearGunForStage1Spec();
   });
 
-  test('enter Europe, UK, London rooms on phone viewport with bottom nav visible', async () => {
+  test('open and leave the Nearby room on a phone viewport with the bottom nav visible', async () => {
     context = await browser.newContext({
       viewport: VIEWPORT,
       deviceScaleFactor: 2,
@@ -48,10 +48,9 @@ test.describe('Mobile chatroom hierarchy navigation', () => {
     await injectIdbClear(page);
     await gotoWebApp(page, webBaseURL());
     await afterLoad();
-    attachE2eBrowserTabLabel(page, 'MobileHierarchy');
+    attachE2eBrowserTabLabel(page, 'MobileNav');
     await afterSync();
 
-    const statusBar = page.locator('#status-bar-text');
     const bottomNav = page.locator('.bottom-nav');
 
     const expectBottomNavInsideViewport = async (): Promise<void> => {
@@ -65,19 +64,16 @@ test.describe('Mobile chatroom hierarchy navigation', () => {
       }
     };
 
-    const enterRoomAndReturn = async (roomId: string, expectedStatusText: string): Promise<void> => {
-      const item = page.locator(`.chatroom-item[data-chatroom-id="${roomId}"]`);
-      // The hierarchy list is fully re-rendered (innerHTML replace) on every live
-      // member/visit-count update from sibling rooms (ui-manager.ts's
-      // setChatroomMemberCount/setChatroomVisitCounts), which can detach this
-      // exact node mid-scroll. Retry a couple of times against fresh DOM instead
-      // of failing on that unrelated race — the locator re-resolves each attempt.
+    const enterRoomAndReturn = async (): Promise<void> => {
+      // Live member counts re-render the list (innerHTML replace) and can detach the row mid-click;
+      // retry against fresh DOM instead of failing on that unrelated race.
+      const item = page.locator('.chatroom-item.current-room');
       let lastError: unknown;
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
           await expect(item).toBeVisible({ timeout: 15000 });
           await item.scrollIntoViewIfNeeded();
-          // A successful click proves the item is not covered by the bottom nav.
+          // A successful click proves the row is not covered by the bottom nav.
           await item.click();
           lastError = undefined;
           break;
@@ -89,31 +85,29 @@ test.describe('Mobile chatroom hierarchy navigation', () => {
       }
       if (lastError) throw lastError;
       await afterSync();
-      await expect(statusBar).toContainText(expectedStatusText, { timeout: 15000 });
+      await expect(page.locator('#chatroom-detail-container')).toBeVisible({ timeout: 15000 });
       await expectBottomNavInsideViewport();
       const backBtn = page.locator('#back-to-chatrooms');
       await expect(backBtn).toBeVisible({ timeout: 15000 });
       await backBtn.click();
       await afterNav();
+      await expect(page.locator('#chatroom-list-container')).toBeVisible({ timeout: 15000 });
     };
 
-    // Chatrooms tab is the default view; hierarchy list shows Global level.
-    await expect(page.locator('.chatroom-item[data-chatroom-id="global"]')).toBeVisible({ timeout: 20000 });
+    // Chatrooms tab is the default view: the flat list with the user's own Nearby room.
+    await expect(page.locator('.chatroom-item.current-room')).toBeVisible({ timeout: 20000 });
     await expectBottomNavInsideViewport();
 
-    // Region rooms are L1 tiles labeled by continent (no country/state/city rooms). The last one
-    // sits at the bottom of the list, proving rows scroll clear of the bottom nav.
-    await enterRoomAndReturn('tile_1_3_3', 'Europe · North Atlantic');
-    await enterRoomAndReturn('tile_1_2_6', 'Asia · East & Southeast');
-    await enterRoomAndReturn('tile_1_1_7', 'Oceania · East');
+    await enterRoomAndReturn();
+    await enterRoomAndReturn();
 
-    // Bottom nav still works after hierarchy traversal: switch to Me tab and back.
+    // Bottom nav still works after room navigation: switch to Me tab and back.
     await page.click('.nav-btn[data-view="me"]');
     await afterNav();
     await expect(page.locator('#me-view.active')).toBeAttached({ timeout: 15000 });
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await expect(page.locator('.chatroom-item[data-chatroom-id="global"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.chatroom-item.current-room')).toBeVisible({ timeout: 15000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
   });

@@ -9,7 +9,6 @@ import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { version as APP_VERSION } from '../../../../package.json';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { AREA_PLACES, areaRoomIdAt, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('UI navigation and settings shell', () => {
   test.describe.configure({ retries: 0 });
@@ -57,16 +56,19 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#top-header #broadcast-talk-btn')).toBeVisible();
     await expect(p.locator('#broadcast-talk-btn .app-bar-btn-icon')).toHaveText('📣');
     await expect(p.locator('body')).not.toContainText('Uses talks from Talks OUT');
-    await expect(p.locator('#return-home-btn')).toBeEnabled();
+    // A fresh user boots straight into their own automatic Nearby room (Global is retired), so
+    // 🏠 has nowhere to return to yet; it enables only inside a Place.
+    await expect(p.locator('#return-home-btn')).toBeDisabled();
     await expect(p.locator('#chatrooms-stats-strip')).toHaveCount(0);
     const duplicateVisitCheck = await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const read = () => app.uiManager.chatroomVisitCounts.get('global')?.visitCount || 0;
+      const roomId = app.currentChatroomId;
+      const read = () => app.uiManager.chatroomVisitCounts.get(roomId)?.visitCount || 0;
       const before = read();
-      await app.chatroomService.switchChatroom(app.currentUser.id, 'global', app.currentUser.stageName);
+      await app.chatroomService.switchChatroom(app.currentUser.id, roomId, app.currentUser.stageName);
       await new Promise((resolve) => setTimeout(resolve, 400));
       const mid = read();
-      await app.chatroomService.switchChatroom(app.currentUser.id, 'global', app.currentUser.stageName);
+      await app.chatroomService.switchChatroom(app.currentUser.id, roomId, app.currentUser.stageName);
       await new Promise((resolve) => setTimeout(resolve, 400));
       return { before, mid, after: read() };
     });
@@ -85,21 +87,6 @@ test.describe('UI navigation and settings shell', () => {
         });
       })
       .toEqual({ compact: true, sameRow: true });
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
-    await p.locator('#back-to-chatrooms').click();
-    await afterNav();
-    await expect
-      .poll(async () => {
-        return p.locator('.chatroom-item[data-chatroom-id="global"]').evaluate((row) => {
-          const style = window.getComputedStyle(row);
-          return {
-            active: row.classList.contains('current-room'),
-            background: style.backgroundImage === 'none' ? style.backgroundColor : style.backgroundImage,
-          };
-        });
-      })
-      .toEqual({ active: false, background: 'rgb(255, 255, 255)' });
-    await expect(p.locator(`.chatroom-item.current-room[data-chatroom-id="${areaRoomIdAt(AREA_PLACES.tokyo)}"]`)).toBeVisible();
 
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
@@ -170,11 +157,13 @@ test.describe('UI navigation and settings shell', () => {
     await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await expect(p.locator('#settings-copy-talk-autosave')).toBeVisible();
     await expect(p.locator('#settings-chatbot-enabled')).toBeVisible();
+    await expect(p.locator('#settings-sent-after')).toBeVisible();
     await backToSettingsMenu(p);
 
+    // Location replaced the home-room picker (Nearby and Places model).
     await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
-    await expect(p.locator('#settings-home-room')).toBeVisible();
-    await expect(p.locator('#settings-sent-after')).toBeVisible();
+    await expect(p.locator('[data-testid="settings-location-source"]')).toBeVisible();
+    await expect(p.locator('#settings-nearby-privacy-mode')).toBeVisible();
     await backToSettingsMenu(p);
 
     await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
@@ -789,24 +778,6 @@ test.describe('UI navigation and settings shell', () => {
       .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
       .toContain('2026-05-01T');
 
-    // Home choices are Global, region tiles and the user's own area tile — no country/state rooms.
-    await expect(p.locator('#settings-home-room option[value="california"]')).toHaveCount(0);
-    const gridHome = await p.locator('#settings-home-room option[value^="tile_4_"]').first().getAttribute('value');
-    expect(gridHome).toBeTruthy();
-    await p.locator('#settings-home-room').selectOption(gridHome!);
-    await expect
-      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_travel_home')))
-      .toBe(gridHome);
-    await expect(p.locator('#return-home-btn')).toBeEnabled();
-
-    await p.locator('#settings-home-room').selectOption('global');
-    await expect
-      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_travel_home')))
-      .toBe('global');
-    await p.locator('.nav-btn[data-view="chatrooms"]').click();
-    await afterNav();
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
-    await expect(p.locator('#return-home-btn')).toBeEnabled();
   });
 
   test('Settings menu shows the running app version', async () => {

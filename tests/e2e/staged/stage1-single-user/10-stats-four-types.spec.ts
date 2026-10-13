@@ -58,7 +58,7 @@ test.describe('Talks matching — local stats aggregation across four talk types
     // --- Bootstrap Tom (creator) ---
     const tom = await bootstrapUser(browsers[0]!, 'Tom', 'Tom');
     sessions.push({ label: 'Tom', context: tom.context, page: tom.page });
-    await tom.page.click('.chatroom-item:has-text("Global")');
+    await tom.page.click('.chatroom-item.current-room');
     await waitForTabActive(tom.page, 'chatrooms');
 
     // --- Tom creates all 4 talk types ---

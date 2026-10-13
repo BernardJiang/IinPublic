@@ -376,6 +376,8 @@ export class IinPublicApp {
   private readonly roomCatchupSentAt = new Map<string, number>();
   /** Talk id → deliberate broadcasts still resolving receivers/delivering; catch-up waits for them. */
   private readonly talkBroadcastsInFlight = new Map<string, number>();
+  /** Peers whose catch-up skipped an in-flight Talk; re-checked when that broadcast settles. */
+  private readonly catchUpDeferredByInFlight = new Map<string, { roomId: string; stageName?: string }>();
   /** When this session rendered the welcome greeting; null until then. */
   private supportGreetingTimestamp: string | null = null;
   private supportGreetingRendered: string | null = null;
@@ -1323,7 +1325,8 @@ export class IinPublicApp {
     setP2PContactIdentityResolver(async (localUserId, otherUserId) => {
       if (this.currentUser?.id !== localUserId) return undefined;
       const user = await this.userService.getUser(localUserId).catch(() => this.currentUser!);
-      return user.knownPeople?.find((known) => known.userId === otherUserId)?.identityPub;
+      const knownPeople = Array.isArray(user.knownPeople) ? user.knownPeople : this.currentUser.knownPeople;
+      return (Array.isArray(knownPeople) ? knownPeople : []).find((known) => known.userId === otherUserId)?.identityPub;
     });
   }
 
@@ -2807,7 +2810,12 @@ export class IinPublicApp {
     rootAssignment: NearbyRoomAssignment,
     routingLocation: GPSCoordinate = this.currentLocation!,
   ): Promise<string> {
-    this.uiManager.setNearbyMapAssignment(rootAssignment);
+    // A refresh of the same root (the 15 s control heartbeat) keeps showing the resolved area until
+    // the new resolution lands: flashing the provisional root cell re-fit the map camera twice per
+    // tick (≈1 km cell, then the world-sized group) and threw away the user's own zoom.
+    const refreshingSameRoot = this.nearbyControlRootAssignment?.roomId === rootAssignment.roomId
+      && !!this.chatroomService.getNearbyRoomAssignment();
+    if (!refreshingSameRoot) this.uiManager.setNearbyMapAssignment(rootAssignment);
     this.chatroomService.setNearbyRoomAssignment(rootAssignment);
     this.nearbyControlRootAssignment = rootAssignment;
     this.nearbyControlRoutingLocation = routingLocation;
@@ -3566,10 +3574,23 @@ export class IinPublicApp {
         if (remaining > 0) this.talkBroadcastsInFlight.set(talkId, remaining);
         else this.talkBroadcastsInFlight.delete(talkId);
       }
+      // A peer that connected mid-broadcast was skipped above; the broadcast's own flood may have
+      // gone out before that link was live. Re-check it now: the per-peer ledger only still lists
+      // the Talk if the broadcast did not reach that peer.
+      const deferred = [...this.catchUpDeferredByInFlight.entries()];
+      this.catchUpDeferredByInFlight.clear();
+      for (const [peerId, { roomId, stageName }] of deferred) {
+        this.catchUpPeerInActiveRoom(peerId, roomId, stageName, { ignoreInterval: true });
+      }
     };
   }
 
-  private catchUpPeerInActiveRoom(userId: string, roomId: string, stageName?: string): void {
+  private catchUpPeerInActiveRoom(
+    userId: string,
+    roomId: string,
+    stageName?: string,
+    options: { ignoreInterval?: boolean } = {},
+  ): void {
     const peerId = String(userId || '').trim();
     if (!peerId || !this.currentUser || isTechSupportUser(this.currentUser) || peerId === this.currentUser.id) return;
     if (peerId === TECHSUPPORT_ROOT_USER_ID) return;
@@ -3577,13 +3598,16 @@ export class IinPublicApp {
     if (!scope || scope.roomId !== roomId || this.currentChatroomId !== roomId) return;
     const key = `${roomId}|${peerId}`;
     const now = Date.now();
-    if (now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
+    if (!options.ignoreInterval && now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
     const broadcastHere = talksBroadcastInRoom(roomId);
     // A Talk already queued for this peer is retried by the outbox itself (OPEN-51).
-    const talkIds = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) =>
-      broadcastHere.has(talkId)
-      && !this.talkBroadcastsInFlight.has(talkId)
-      && !this.peerMeshService?.hasQueuedDirectTalk(peerId, talkId));
+    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) =>
+      broadcastHere.has(talkId) && !this.peerMeshService?.hasQueuedDirectTalk(peerId, talkId));
+    // A Talk still being broadcast is left to that broadcast; re-check this peer when it settles.
+    if (candidates.some((talkId) => this.talkBroadcastsInFlight.has(talkId))) {
+      this.catchUpDeferredByInFlight.set(peerId, { roomId, ...(stageName ? { stageName } : {}) });
+    }
+    const talkIds = candidates.filter((talkId) => !this.talkBroadcastsInFlight.has(talkId));
     if (talkIds.length === 0) return;
     this.roomCatchupSentAt.set(key, now);
     this.uiManager.emit('broadcastTalk', {
@@ -4057,6 +4081,9 @@ export class IinPublicApp {
       status: 'pending',
     };
     gun.get('techsupport-inbox').get(payload.questionKey).put(entry);
+    // The operator answers in the ordinary DM overlay, which needs the conversation record; since
+    // TechSupport is Contacts-only it never meets the asker through a room member list.
+    if (payload.askedBy && payload.askedBy !== TECHSUPPORT_ROOT_USER_ID) this.ensureSupportConversationRecord(payload.askedBy);
     console.log('[Support] Ingested pending question', payload.questionKey, 'from', payload.askedBy);
   }
 
@@ -4370,8 +4397,9 @@ export class IinPublicApp {
     // session). A receiver opening a talk moments after it mesh-delivered would frequently lose
     // this race and surface "Could not load this talk yet" even though the data was genuinely
     // still in flight, not actually missing. 12 x 300ms (3.6s) gives real local Gun propagation
-    // a realistic chance without hanging the UI indefinitely.
-    return this.talkService.getTalkWithRetry(talkId, { attempts: 12, gapMs: 300 });
+    // a realistic chance without hanging the UI indefinitely. The deadline keeps that budget now
+    // that each local miss itself takes ~0.5 s (12 attempts alone stretched to ~11 s).
+    return this.talkService.getTalkWithRetry(talkId, { attempts: 12, gapMs: 300, deadlineMs: 4_000 });
   }
 
   private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {

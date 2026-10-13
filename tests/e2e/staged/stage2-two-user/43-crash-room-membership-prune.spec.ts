@@ -32,11 +32,11 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
     await clearGunForStage2Spec();
   });
 
-  test('SIGKILLed member is removed from visible Global headcount after membership TTL expiry', async () => {
-    const globalHeadcount = (page: Page) =>
-      page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount');
-    const readGlobalHeadcount = async (page: Page) => {
-      const text = await globalHeadcount(page).textContent();
+  test('SIGKILLed member is removed from visible Nearby headcount after membership TTL expiry', async () => {
+    const roomHeadcount = (page: Page) =>
+      page.locator('.chatroom-item.current-room .chatroom-headcount');
+    const readRoomHeadcount = async (page: Page) => {
+      const text = await roomHeadcount(page).textContent();
       return Number(text?.match(/\d+/)?.[0] || '0');
     };
 
@@ -51,9 +51,14 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
     expect(bobId).toBeTruthy();
 
     const initialHeadcount = await expect
-      .poll(() => readGlobalHeadcount(pageA!), { timeout: 20_000 })
-      .toBeGreaterThanOrEqual(3)
-      .then(() => readGlobalHeadcount(pageA!));
+      .poll(() => readRoomHeadcount(pageA!), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(2)
+      .then(() => readRoomHeadcount(pageA!));
+    // Both users share the automatic Nearby room (Global is retired); its headcount excludes TechSupport.
+    const roomId = await pageA.evaluate(
+      () => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
+    );
+    expect(roomId).toMatch(/^nearby_/);
 
     let bClosed = false;
     contextB.on('close', () => { bClosed = true; });
@@ -65,7 +70,7 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
 
     // Fast-forward Bob's server-visible room-membership heartbeat past the TTL.
     const expiredIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const touchRes = await fetch(`${gunBaseURL()}/api/chatrooms/global/members/${encodeURIComponent(bobId)}`, {
+    const touchRes = await fetch(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(bobId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stageName: 'Crash Room Bob', lastSeen: expiredIso }),
@@ -75,7 +80,7 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
     await expect
       .poll(
         async () => {
-          const membersRes = await fetch(`${gunBaseURL()}/api/chatrooms/global/members`, {
+          const membersRes = await fetch(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members`, {
             headers: { 'Cache-Control': 'no-cache' },
           });
           if (!membersRes.ok) return ['__members_request_failed__'];
@@ -87,6 +92,6 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
       .not.toContain(bobId);
 
     await afterSync();
-    await expect(globalHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 20_000 });
+    await expect(roomHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 20_000 });
   });
 });

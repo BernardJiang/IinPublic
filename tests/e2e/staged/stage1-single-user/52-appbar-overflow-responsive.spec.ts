@@ -38,7 +38,7 @@ test.describe('AppBar overflow responsive', () => {
     for (const width of [1024, 768]) {
       await p.setViewportSize({ width, height: 800 });
       await afterAction();
-      for (const id of ['chatroom-tree-view-btn', 'chatroom-map-view-btn', 'create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']) {
+      for (const id of ['chatroom-list-view-btn', 'chatroom-map-view-btn', 'create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']) {
         await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
       }
       await expect(p.locator('#app-bar-overflow-menu')).toBeHidden();
@@ -47,7 +47,7 @@ test.describe('AppBar overflow responsive', () => {
     // 390: the view controls and create-talk action remain inline; secondary actions overflow.
     await p.setViewportSize({ width: 390, height: 844 });
     await afterAction();
-    for (const id of ['chatroom-tree-view-btn', 'chatroom-map-view-btn', 'create-talk-btn']) {
+    for (const id of ['chatroom-list-view-btn', 'chatroom-map-view-btn', 'create-talk-btn']) {
       await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
     }
     await expect(p.locator('#app-bar-overflow-menu')).toBeVisible();
@@ -55,7 +55,7 @@ test.describe('AppBar overflow responsive', () => {
     // 320: Tree stays inline; Map and the remaining actions collapse into ⋯ in priority order.
     await p.setViewportSize({ width: 320, height: 700 });
     await afterAction();
-    await expect(p.locator('#app-bar-actions #chatroom-tree-view-btn')).toBeVisible();
+    await expect(p.locator('#app-bar-actions #chatroom-list-view-btn')).toBeVisible();
     await expect(p.locator('#app-bar-overflow-menu')).toBeVisible();
     const panelOrder = await p.locator('#app-bar-overflow-panel .app-bar-action-btn').evaluateAll((els) => els.map((el) => el.id));
     expect(panelOrder).toEqual(['chatroom-map-view-btn', 'create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']);

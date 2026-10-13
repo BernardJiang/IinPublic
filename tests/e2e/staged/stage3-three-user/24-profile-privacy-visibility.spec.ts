@@ -87,8 +87,8 @@ test.describe('Profile privacy visibility', () => {
       .toBe(true);
   }
 
-  /** Viewers default to GPS home (San Diego); switch into Global detail before member lookup. */
-  async function ensureGlobalRoomDetail(page: Page): Promise<void> {
+  /** Every viewer shares the automatic Nearby room (Global is retired); open its detail before member lookup. */
+  async function ensureNearbyRoomDetail(page: Page): Promise<void> {
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
 
@@ -98,21 +98,21 @@ test.describe('Profile privacy visibility', () => {
       await afterNav();
     }
 
-    const globalRoom = page.locator('.chatroom-item[data-chatroom-id="global"]').first();
-    await expect(globalRoom).toBeVisible({ timeout: 60_000 });
-    await globalRoom.click();
+    const nearbyRoom = page.locator('.chatroom-item.current-room').first();
+    await expect(nearbyRoom).toBeVisible({ timeout: 60_000 });
+    await nearbyRoom.click();
     await afterNav();
     await expect(page.locator('#chatroom-detail-container')).toBeVisible({ timeout: 20_000 });
     await expect
-      .poll(async () => (await page.locator('#status-bar-text').innerText()).includes('Global'), {
+      .poll(async () => page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || '')), {
         timeout: 90_000,
         intervals: [500, 1000, 2000],
       })
-      .toBe(true);
+      .toMatch(/^nearby_/);
   }
 
   async function openPeerDetail(page: Page, peerUserId: string, _peerStageName: string): Promise<void> {
-    await ensureGlobalRoomDetail(page);
+    await ensureNearbyRoomDetail(page);
 
     const member = page.locator(`.chatroom-member-item[data-user-id="${peerUserId}"]`);
     await expect(member).toBeVisible({ timeout: 90_000 });
@@ -289,14 +289,14 @@ test.describe('Profile privacy visibility', () => {
       hidden: [],
     });
 
-    await ensureGlobalRoomDetail(pageTom);
+    await ensureNearbyRoomDetail(pageTom);
 
     // Viewer 1: Jerry (not in Tom's known-people list)
     const jNon = await bootstrapUser(browser, 'JerryNonContact');
     contextJerryNonContact = jNon.context;
     pageJerryNonContact = jNon.page;
     attachFilteredConsoleLog(pageJerryNonContact, 'JerryNonContact');
-    await ensureGlobalRoomDetail(pageJerryNonContact);
+    await ensureNearbyRoomDetail(pageJerryNonContact);
     const jNonContactId = await getCurrentUserId(pageJerryNonContact);
     expect(jNonContactId).toBeTruthy();
 
@@ -305,7 +305,7 @@ test.describe('Profile privacy visibility', () => {
     contextJerryContact = jContact.context;
     pageJerryContact = jContact.page;
     attachFilteredConsoleLog(pageJerryContact, 'JerryContact');
-    await ensureGlobalRoomDetail(pageJerryContact);
+    await ensureNearbyRoomDetail(pageJerryContact);
 
     const jContactId = await getCurrentUserId(pageJerryContact);
     expect(jContactId).toBeTruthy();

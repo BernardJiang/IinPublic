@@ -111,7 +111,7 @@ async function prepareGlobalBroadcast(page: Page): Promise<void> {
   await afterSync();
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
-    await page.locator('.chatroom-item:has-text("Global")').first().click();
+    await page.locator('.chatroom-item.current-room').first().click();
     await afterSync();
   }
 

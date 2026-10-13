@@ -123,7 +123,7 @@ test.describe('Chatroom peer detail views', () => {
   /** Navigate to chatroom list (unhides list, hides detail) then click Global to enter detail. */
   async function enterGlobalChatroom(page: Page): Promise<void> {
     await ensureChatroomList(page);
-    await page.click('.chatroom-item[data-chatroom-id="global"]');
+    await page.click('.chatroom-item.current-room');
     await afterSync();
   }
 

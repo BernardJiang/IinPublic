@@ -8,7 +8,7 @@ covers: SPEC-3.8 <!-- shares the block-relationship area with 21a; refine by han
 
 ## What this test does (in plain English):
 
-1. **Alice and Victor are bootstrapped** and both enter the Global chatroom (establishes presence for epub resolution).
+1. **Alice and Victor are bootstrapped** and both enter the shared Nearby room (establishes presence for epub resolution).
 2. **Alice adds Victor as a known contact.**
 3. **Alice blocks a synthetic target identity** and fans out a real, SEA-encrypted block signal to her contacts (Victor).
 4. **Victor's mailbox poll drains and decrypts** the signal, recording it against the target identity — proven by polling his local `receivedBlockSignals` tally, which reaches `1`.

@@ -104,14 +104,14 @@ test.describe('Talk Response: option paths', () => {
     const a = await boot(browserAlice, 'Alice');
     ctxA = a.context;
     pageAlice = a.page;
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterSync();
     mark('bootAlice');
 
     const t = await boot(browserTom, 'Tom');
     ctxT = t.context;
     pageTom = t.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
     mark('bootTom');
 

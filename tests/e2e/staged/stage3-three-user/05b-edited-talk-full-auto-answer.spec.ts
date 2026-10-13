@@ -154,7 +154,7 @@ test.describe('Edited talk is answered fully automatically', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
@@ -165,7 +165,7 @@ test.describe('Edited talk is answered fully automatically', () => {
       const text = m.text();
       if (text.includes('Chatbot auto-reply')) autoReplyLogs.push(text);
     });
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     // 1. Talk A (Sunday): Jerry answers all three with Auto.
@@ -230,12 +230,12 @@ test.describe('Edited talk is answered fully automatically', () => {
       const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
       contextTom = tom.context;
       pageTom = tom.page;
-      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
       await afterSync();
       const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
       contextJerry = jerry.context;
       pageJerry = jerry.page;
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
 
       await create(pageTom, titleA, [Q1, Q2, Q3_OLD]);
@@ -296,12 +296,12 @@ test.describe('Edited talk is answered fully automatically', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     await fillThreeQuestionFlow(pageTom, title, Q3_OLD);

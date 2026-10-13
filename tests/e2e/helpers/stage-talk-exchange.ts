@@ -27,7 +27,7 @@ export async function createSimpleFlowTalkAndBroadcast(
   await afterSync();
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterAction();
-  await page.click('.chatroom-item[data-chatroom-id="global"]');
+  await page.click('.chatroom-item.current-room');
   await afterNav();
   await waitForBroadcastableTalkIds(page, 120_000);
   await waitForDistinctGunPeersExcludingSelf(page, 1, 240_000);

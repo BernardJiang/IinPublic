@@ -74,7 +74,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     // --- Bootstrap Tom, Jerry, Sam ---
     const tom = await bootstrapUser(browsers[0]!, 'Tom', 'Tom');
     sessions.push({ label: 'Tom', context: tom.context, page: tom.page });
-    await tom.page.click('.chatroom-item:has-text("Global")');
+    await tom.page.click('.chatroom-item.current-room');
     await waitForTabActive(tom.page, 'chatrooms');
     await afterSync();
 
@@ -84,7 +84,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
       String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
     );
     expect(jerryId).toBeTruthy();
-    await jerry.page.click('.chatroom-item:has-text("Global")');
+    await jerry.page.click('.chatroom-item.current-room');
     await waitForTabActive(jerry.page, 'chatrooms');
     await afterSync();
 
@@ -174,7 +174,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     });
     expect(samIdentity.id).toBeTruthy();
     expect(samIdentity.epub).toBeTruthy();
-    await sam.page.click('.chatroom-item:has-text("Global")');
+    await sam.page.click('.chatroom-item.current-room');
     await waitForTabActive(sam.page, 'chatrooms');
     await afterSync();
 

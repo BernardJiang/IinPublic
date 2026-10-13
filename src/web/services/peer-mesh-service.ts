@@ -590,6 +590,20 @@ export class PeerMeshService {
     if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
   }
 
+  /**
+   * Talk frames go only to manifest-ready neighbors, and readiness usually lands a moment after the
+   * link connects. A broadcast in that window reached no one, and catch-up only ran on connect, so
+   * the Talk was never re-sent. Treat "newly ready" as connected for exchange purposes.
+   */
+  private markManifestReady(userId: string): void {
+    if (this.manifestReadyPeerIds.has(userId)) return;
+    this.manifestReadyPeerIds.add(userId);
+    const neighbor = this.neighbors.get(userId);
+    if (!neighbor || !isNeighborLive(neighbor)) return;
+    this.notifyNeighborConnected(userId);
+    if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
+  }
+
   private notifyNeighborConnected(userId: string): void {
     const roomId = this.currentRoomId;
     if (!roomId) return;
@@ -1483,7 +1497,7 @@ export class PeerMeshService {
     if (remote.sequence === local.sequence) {
       if (remote.manifestHash === local.manifestHash) {
         this.manifestRejectedPeerIds.delete(fromUserId);
-        this.manifestReadyPeerIds.add(fromUserId);
+        this.markManifestReady(fromUserId);
       } else {
         const firstRejection = !this.manifestRejectedPeerIds.has(fromUserId);
         this.manifestRejectedPeerIds.add(fromUserId);
@@ -1558,7 +1572,7 @@ export class PeerMeshService {
     }
     this.manifestReadyPeerIds.clear();
     this.manifestRejectedPeerIds.delete(fromUserId);
-    this.manifestReadyPeerIds.add(fromUserId);
+    this.markManifestReady(fromUserId);
     const compatibility = controller.currentCompatibility();
     await this.opts.onProtocolManifestCompatibility?.(compatibility, fromUserId);
     await Promise.all([...this.neighbors.values()].map((neighbor) => this.sendProtocolManifestSummary(neighbor)));

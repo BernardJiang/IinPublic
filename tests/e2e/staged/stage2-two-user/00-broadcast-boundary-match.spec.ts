@@ -61,8 +61,8 @@ test.describe('Broadcast — chatroom boundary matching', () => {
     expect(jerryUserId).toBeTruthy();
 
     try {
-      await pageTom.click('.chatroom-item:has-text("Global")');
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
 
       await createSimpleFlowTalk(pageTom, talkTitle, MATCH_ANSWER, IGNORE_ANSWER, {
@@ -70,7 +70,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
       });
 
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
       await afterSync();
       await waitForBroadcastableTalkIds(pageTom, 15_000);
       await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 20_000);

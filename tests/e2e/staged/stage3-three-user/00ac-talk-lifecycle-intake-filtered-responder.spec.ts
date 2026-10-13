@@ -82,19 +82,19 @@ test.describe('Talk lifecycle — intake-filtered responder matrix (D4)', () => 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Filtered Matrix');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Filtered Matrix');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob Filtered Matrix');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
     await afterSync();
 
     // --- Bob disables flow talks in intake filter settings ---

@@ -116,7 +116,7 @@ test.describe('M5 full-layout screenshot tour', () => {
         await shot(page, 'Chatrooms', 'chatrooms-hierarchy-expanded', 'Region node expanded in place — children render inline, no separate screen.');
       }
 
-      await page.locator('.chatroom-item:has-text("Global")').first().click();
+      await page.locator('.chatroom-item.current-room').first().click();
       await afterSync();
       // Give the sender's join time to propagate over Gun before the room-detail shot —
       // otherwise the member list can still show just the heavy user + TechSupport.

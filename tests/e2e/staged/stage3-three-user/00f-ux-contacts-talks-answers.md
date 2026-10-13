@@ -9,7 +9,7 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-7.9  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Setup:** Three browsers (Tom, Jerry, Bob) launched via `launchThreeBrowsers`. Tom and Jerry join Global chatroom.
+1. **Setup:** Three browsers (Tom, Jerry, Bob) launched via `launchThreeBrowsers`. Tom and Jerry join the shared Nearby room.
 
 2. **Tom creates "Tom Out Talk"**, **Jerry creates "Jerry Out Talk"**. Both broadcast their respective talks.
 
@@ -17,7 +17,7 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-7.9  <!-- auto-seeded; refine by hand -->
 
 4. **Verification — Tom's contacts tab:** Shows Jerry as a contact (even though there was no *match* — contacts include mismatched peers). The contact item says "2 talks". Clicking Jerry shows the "Tom Out Talk" in Jerry's contact detail.
 
-5. **Verification — Chatroom peer detail:** Tom enters the Global chatroom, clicks Jerry's name — the same peer detail overlay opens with Jerry's name (contacts and chatroom show the same detail view).
+5. **Verification — Chatroom peer detail:** Tom enters the shared Nearby room, clicks Jerry's name — the same peer detail overlay opens with Jerry's name (contacts and chatroom show the same detail view).
 
 6. **Verification — Talks tab IN/OUT split:** Tom's Talks tab shows both IN and OUT tabs. "Back" shows all talks, "IN" shows only Jerry's talk (incoming), "OUT" shows only Tom's own talk (outgoing). "Back" shows both again.
 

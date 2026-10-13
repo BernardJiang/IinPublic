@@ -3054,11 +3054,11 @@ export class UIManager extends EventEmitter {
   }
 
   /** Optimistic local update after a `confirmDeal` write — refreshes the deal bar without
-   *  waiting on a Gun round-trip. Re-renders the open thread if it's the one that changed. */
+   *  waiting on a Gun round-trip. Re-renders the open thread only on a real change (closes the gallery). */
   applyDealConfirmedBy(conversationId: string, dealConfirmedBy: string[]): void {
     const conversations = this.getMyConversations();
     const c = conversations[conversationId];
-    if (!c) return;
+    if (!c || (c.dealConfirmedByJson ?? '[]') === JSON.stringify(dealConfirmedBy)) return;
     c.dealConfirmedByJson = JSON.stringify(dealConfirmedBy);
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     if (this.currentConversationId === conversationId) {

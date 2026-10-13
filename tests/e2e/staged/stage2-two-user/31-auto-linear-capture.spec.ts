@@ -99,7 +99,7 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     const tomUserId = await pageTom.evaluate(
       () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
     );
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
@@ -108,7 +108,7 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     const jerryUserId = await pageJerry.evaluate(
       () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
     );
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     // ── Tom and Jerry must match on a talk before a P2P conversation exists ───────────
@@ -129,7 +129,7 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     await afterSync();
 
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);

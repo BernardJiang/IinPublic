@@ -61,12 +61,12 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     const alice = await bootstrapUser(browserAlice, 'Alice', 'AliceBuyStuff');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'BobBuyStuff');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
 
     const [aliceId, bobId] = await Promise.all([
       pageAlice.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || '')),
@@ -85,7 +85,7 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     await openSettingsSection(pageBob, SETTINGS_SECTION.contentFilters);
     await pageBob.locator('#settings-grammar-filter').uncheck();
     await ensureChatroomList(pageBob);
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
 
     // ── Alice builds "buy stuff" through the real route editor ─────────────────────────
     const title = `buy stuff ${Date.now()}`;
@@ -132,7 +132,7 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
 
     // ── Bob receives it and walks every branch to a match ───────────────────────────────
     await ensureChatroomList(pageAlice);
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await clickBroadcastUntilBulkAck(pageAlice);
 
     const chooseAndContinue = async (answerText: string): Promise<void> => {

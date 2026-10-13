@@ -62,9 +62,9 @@ test.describe('Friend-circle block signal — threshold-gated warning', () => {
     pageVictor = victor.page;
 
     // Presence for resolvePeerEpub's primary lookup path (Gun getPublicUser is the fallback).
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterSync();
-    await pageVictor.click('.chatroom-item:has-text("Global")');
+    await pageVictor.click('.chatroom-item.current-room');
     await afterSync();
 
     const aliceUserId = await pageAlice.evaluate(

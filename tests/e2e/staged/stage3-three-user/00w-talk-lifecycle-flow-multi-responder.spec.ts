@@ -81,19 +81,19 @@ test.describe('Talk lifecycle — flow multi-responder matrix (D4)', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Matrix');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Matrix');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob Matrix');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
     await afterSync();
 
     const created = await createFlowTalkForLifecycle(pageTom, FLOW_TITLE, {

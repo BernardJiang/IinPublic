@@ -714,6 +714,20 @@ export async function openIncomingTalkModalWithAutoAnswers(
 }
 
 /**
+ * Third-party mesh forwarding (relaying frames between two other peers) is an explicit opt-in
+ * since Nearby became the active model (DEFAULT_FORWARDING_SETTINGS in
+ * src/shared/mesh-forwarding-policy.ts). Specs that assert multi-hop relay turn it on per page.
+ */
+export async function enableMeshForwarding(pages: Page[]): Promise<void> {
+  await Promise.all(pages.map((page) => page.evaluate(() => {
+    (window as any).__iinpublic_app?.getApp?.()?.peerMeshService?.updateForwardingSettings?.({
+      enabled: true,
+      wifiForwarding: true,
+    });
+  })));
+}
+
+/**
  * Actively establish ≥1 connected mesh neighbor on every page, re-warming while waiting.
  *
  * A single warm pass followed by a passive `expect.poll` flakes under parallel load

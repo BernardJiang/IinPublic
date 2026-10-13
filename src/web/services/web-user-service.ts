@@ -628,7 +628,9 @@ export class WebUserService {
     // synced); never let its Gun metadata or a missing id leak out — callers merge, not replace.
     const raw = ((await this.gunService.get(`users/${userId}`)) ?? {}) as User & { _?: unknown };
     const { _: _gunMeta, ...rest } = raw;
-    const user = { ...rest, id: userId } as User;
+    // Contacts are private-only: the public record's `knownPeople: []` comes back from Gun as a
+    // node reference object, which must never stand in for the list when there is no private data.
+    const user = { ...rest, id: userId, knownPeople: Array.isArray(rest.knownPeople) ? rest.knownPeople : [] } as User;
     const reputation = await this.readReputationSubNode(userId);
     const publicProfile = await this.mergePublicProfileFoundation({ ...user, reputation });
     const merged = await this.mergePrivateUserData(publicProfile.user);

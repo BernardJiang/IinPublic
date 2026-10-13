@@ -22,7 +22,6 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   return page.evaluate((needle) => {
@@ -123,7 +122,8 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await clearGunForStage3Spec();
   });
 
-  test('chatroom headcounts keep updating across room switches and Return Home refreshes the open detail view', async () => {
+  test('chatroom headcounts keep updating as members come and go, in the list and the open detail view', async () => {
+    // Nearby headcounts exclude TechSupport; area-room travel (the old London hop) is retired.
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Headcount');
     contextTom = tom.context;
     pageTom = tom.page;
@@ -131,27 +131,21 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     contextJerry = jerry.context;
     pageJerry = jerry.page;
 
-    await expect(pageTom.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('3', {
+    await expect(pageTom.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('2', {
       timeout: 30_000,
     });
 
-    await openAreaRoomAt(pageTom, AREA_PLACES.london);
-    await afterSync();
-    await pageTom.click('#back-to-chatrooms');
-    await afterSync();
-    await expect(pageTom.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('2', {
-      timeout: 30_000,
-    });
-
-    await openAreaRoomAt(pageTom, AREA_PLACES.london);
-    await afterSync();
-    await pageTom.click('#return-home-btn');
-    await afterSync();
-    await expect(pageTom.locator('#current-chatroom-title')).toContainText('San Diego', { timeout: 45_000 });
-    await expect(pageTom.locator('#current-chatroom-status')).toContainText(/1 member total/, { timeout: 45_000 });
+    await pageTom.click('.chatroom-item.current-room');
+    await expect(pageTom.locator('#current-chatroom-status')).toContainText(/2 members total/, { timeout: 45_000 });
 
     await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.());
     await expect(pageTom.locator('#current-chatroom-status')).toContainText(/1 member total/, { timeout: 45_000 });
+
+    await pageTom.click('#back-to-chatrooms');
+    await afterSync();
+    await expect(pageTom.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('1', {
+      timeout: 30_000,
+    });
   });
 
   test('first Chatrooms screen hydrates existing room headcounts before entering detail', async () => {
@@ -167,12 +161,12 @@ test.describe('Chatrooms and Talks UI regressions', () => {
 
     await expect(pageBob.locator('#chatroom-list-container')).toBeVisible();
     await expect(pageBob.locator('#chatroom-detail-container')).toBeHidden();
-    await expect(pageBob.locator('.chatroom-item:has-text("Global") .chatroom-headcount')).toContainText('4', {
+    await expect(pageBob.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('3', {
       timeout: 45_000,
     });
 
-    await pageBob.click('.chatroom-item:has-text("Global")');
-    await expect(pageBob.locator('#current-chatroom-status')).toContainText(/4 members total/, {
+    await pageBob.click('.chatroom-item.current-room');
+    await expect(pageBob.locator('#current-chatroom-status')).toContainText(/3 members total/, {
       timeout: 45_000,
     });
   });

@@ -404,6 +404,12 @@ its ID.
     - [x] Converted the stage1 navigation and tree/map scenarios to assert flat Nearby, local shaded
       bounds, no Global/L1-L4/`_part_N` rows, no map-tap travel into retired grid rooms, immutable
       content-addressed Place creation, no owner controls, and Return to Nearby.
+    - [x] Moved the rest of the browser E2E suite off Global (2026-10-12): about 90 specs clicked the
+      retired Global row and now open the user's own Nearby room (`.chatroom-item.current-room`);
+      headcounts no longer count TechSupport. Specs that only tested the retired tile tree were
+      deleted: stage1 `18-travel-mode-single-room`, stage4 `03-capacity-eviction` and
+      `07-two-way-room-routing`, stage5 `00k-capacity-regional-spread` and `00m-tile-cascade-experiment`.
+      The adaptive Nearby partition is covered by stage4 `08`–`14`.
     - [ ] Remove the mixed-release legacy FIFO controller and obsolete hierarchy fixtures after the
       compatibility window.
   - [ ] **Capacity experiment:** treat `C=498`, initial Nearby scales, and `K` as release-wide

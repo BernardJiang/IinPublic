@@ -76,13 +76,13 @@ test.describe('Incoming talk type intake filtering', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Type Sender');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Type Receiver');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     await pageJerry.click('.nav-btn[data-view="settings"]');

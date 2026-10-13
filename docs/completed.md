@@ -1,6 +1,41 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
+
+## 2026-10-12 — Browser E2E suite back to green after the Nearby migration
+
+`test:all` had 106 failures in the light phase alone; about 90 specs still clicked the retired
+Global room row. Fixing the suite surfaced seven real app bugs:
+
+- **Encrypted P2P handshake could stall forever.** The contact-pin lookup threw when `knownPeople`
+  was the public record's Gun reference object instead of a list. The throw was unhandled, so the
+  session stayed "connected" with no session key and every send waited out the 10 s handshake
+  timeout; the mesh then logged "neighbor connected" about once a second. `getUser` now never takes
+  `knownPeople` from the public record, the resolver only accepts a list, and a failed lookup fails
+  the handshake closed (`p2p-webrtc-session.ts`).
+- **A Talk broadcast just after a link connected was lost.** Talk frames go only to manifest-ready
+  neighbors, readiness lands a moment after connect, and catch-up only ran on connect. A peer that
+  becomes manifest-ready now counts as newly connected (catch-up + outbox flush). Catch-up that skips
+  an in-flight broadcast (OPEN-51) re-checks that peer when the broadcast settles.
+- **Deal confirmations could be lost.** An incoming conversation-control snapshot replaced
+  `dealConfirmedBy` (last write wins). It is now a grow-only merge, and a peer can only add its own
+  confirmation (`mergeRemoteDealConfirmations`, unit-tested).
+- **The map camera jumped every 15 s.** The Nearby control heartbeat briefly published the
+  provisional root assignment (≈1 km cell) before the resolved one (the world-sized group), so the
+  map re-fit twice per tick and threw away the user's zoom.
+- **Any conversation-record sync closed the Shared-media gallery**, because the deal-state update
+  re-rendered the open thread even when nothing changed.
+- **TechSupport could not open an asker's conversation from the inbox.** Since TechSupport became
+  Contacts-only it never meets askers in a room, so it had no conversation record for them; ingesting
+  a support question now creates it (`ensureSupportConversationRecord`).
+- **The Me-tab dead-end retry toast took ~11 s.** Each lookup of a missing Talk now costs ~0.5 s, so
+  12 attempts overran their intended ~3.6 s; the lookup has a 4 s deadline.
+
+Test changes: Global row → `.chatroom-item.current-room`; Nearby headcounts exclude TechSupport;
+`injectIdbClear` clears IndexedDB once per browser context (a reload wiped the now device-only
+private data); greeting/IPFS specs read the local encrypted history; P2P protocol `v2`; Place
+creation via signed descriptors and admission claims; multi-hop ping specs opt in to forwarding
+(off by default). Retired tile-tree specs were deleted (see `docs/TODO.md`, P1 legacy migration).
 
 ## 2026-10-12 — Room roster churn and redundant catch-ups (OPEN-51)
 

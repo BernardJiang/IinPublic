@@ -6,7 +6,7 @@ covers: SPEC-3.7  <!-- auto-seeded; refine by hand -->
 
 ## Scenario
 
-Six users join the Global chatroom. Talk creation, rejection responses, sorting, and
+Six users join the shared Nearby room. Talk creation, rejection responses, sorting, and
 relationship editing use the UI; a batched E2E seed hook creates deterministic non-interest
 incoming rows after the real broadcast, while matching, chatbot, ranking, persistence, and
 percentage logic remain in the app.
@@ -16,7 +16,7 @@ percentage logic remain in the app.
    user's own match answer and the app records it as the chatbot's preference for that
    keyword.
 2. **Enable the chatbot** in Settings (before broadcasting).
-3. **Broadcast** every tag to the Global chatroom. Delivery uses the app E2E
+3. **Broadcast** every tag to the shared Nearby room. Delivery uses the app E2E
    broadcast path with the audience preview skipped (`deliverPendingBroadcastTalksForE2e(n, { skipAudiencePreview: true })`):
    the preview is a per-talk server HTTP round-trip that is unused for direct
    delivery and does not scale to 6 users x 20 tags. Peer offers + the chatroom

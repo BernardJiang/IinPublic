@@ -46,19 +46,19 @@ test.describe('Nearby and Places list/map views', () => {
       await page!.locator('#back-to-chatrooms').click();
       await afterNav();
     }
-    await page!.locator('[data-testid="chatroom-tree-view-btn"]').click();
+    await page!.locator('[data-testid="chatroom-list-view-btn"]').click();
   };
 
   test('list exposes one Nearby audience and no Global/tree/capacity shards', async () => {
     await openList();
     const currentRoomId = await page!.evaluate(() =>
       (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '');
-    expect(currentRoomId).toMatch(/^nearby_v1_/);
+    expect(currentRoomId).toMatch(/^nearby_v\d+_/);
 
     const current = page!.locator(`.chatroom-item[data-chatroom-id="${currentRoomId}"]`);
     await expect(current).toBeVisible();
     await expect(current).toHaveClass(/current-room/);
-    await expect(current).toContainText('Nearby');
+    await expect(current).toContainText('Your room');
     await expect(page!.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id*="_part_"]')).toHaveCount(0);

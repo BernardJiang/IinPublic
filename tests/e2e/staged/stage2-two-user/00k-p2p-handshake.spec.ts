@@ -3,7 +3,7 @@
  *
  * Acceptance criteria:
  * 1. After two peers connect via WebRTC, getHandshakeDiagnostics() returns
- *    handshakeState:'ok' and selectedProtocol:'iinpublic-p2p-v1'.
+ *    handshakeState:'ok' and selectedProtocol:'iinpublic-p2p-v2'.
  * 2. In-browser negotiation with an incompatible protocol list produces
  *    handshakeState:'failed' (exercised via page.evaluate in the live bundle).
  */
@@ -51,7 +51,7 @@ test.describe('P2P-Q handshake E2E', () => {
     await clearGunForStage2Spec().catch(() => {});
   });
 
-  test('handshakeState is ok and selectedProtocol is iinpublic-p2p-v1 after peers connect', async () => {
+  test('handshakeState is ok and selectedProtocol is iinpublic-p2p-v2 after peers connect', async () => {
     test.setTimeout(300_000);
     const title = `Handshake test ${Date.now()}`;
 
@@ -62,8 +62,8 @@ test.describe('P2P-Q handshake E2E', () => {
 
     try {
       // Join the same chatroom so broadcast can be received
-      await pageTom.click('.chatroom-item:has-text("Global")');
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
 
       // Tom creates and broadcasts a simple flow talk
@@ -71,7 +71,7 @@ test.describe('P2P-Q handshake E2E', () => {
         sendToChatroom: false,
       });
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
       await afterSync();
 
       // Wait for both browsers to see each other as Gun peers before broadcasting
@@ -114,12 +114,12 @@ test.describe('P2P-Q handshake E2E', () => {
 
       expect(diagTom).toMatchObject({
         handshakeState: 'ok',
-        selectedProtocol: 'iinpublic-p2p-v1',
+        selectedProtocol: 'iinpublic-p2p-v2',
         failureReason: null,
       });
       expect(diagJerry).toMatchObject({
         handshakeState: 'ok',
-        selectedProtocol: 'iinpublic-p2p-v1',
+        selectedProtocol: 'iinpublic-p2p-v2',
         failureReason: null,
       });
       expect(diagTom?.remoteAppVersion).toBeTruthy();

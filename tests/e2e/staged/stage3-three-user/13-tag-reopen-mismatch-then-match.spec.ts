@@ -65,13 +65,13 @@ test.describe('Talks matching — tag answer retained in IN history', () => {
     const alice = await bootstrapUser(browserAlice, 'Alice', 'Alice');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterSync();
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
     // Keep this assertion focused on answered IN history rather than the
     // independent auto-copy-to-OUT preference.

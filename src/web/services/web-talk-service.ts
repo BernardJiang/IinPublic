@@ -316,10 +316,13 @@ export class WebTalkService {
   /** Server is authoritative for complete talk data; Gun is used as a low-latency cache. */
   async getTalkWithRetry(
     talkId: string,
-    opts?: { attempts?: number; gapMs?: number },
+    opts?: { attempts?: number; gapMs?: number; deadlineMs?: number },
   ): Promise<Talk | null> {
     const attempts = opts?.attempts ?? 20;
     const gapMs = opts?.gapMs ?? 250;
+    // Each local read of a missing talk costs ~0.5 s (two private-store misses + the Gun read),
+    // so attempts × gap alone no longer bounds the wait; a caller with a UI waiting sets a deadline.
+    const deadline = opts?.deadlineMs !== undefined ? Date.now() + opts.deadlineMs : Infinity;
     const looksComplete = (t: Talk | null): boolean => {
       if (!t) return false;
       // Tag talks have no questions; treat them as complete if they have a title and authorId
@@ -359,7 +362,7 @@ export class WebTalkService {
     }
 
     // 3. Retry Gun (P0: mesh/local only — no server fallback).
-    for (let i = 0; i < attempts; i++) {
+    for (let i = 0; i < attempts && Date.now() < deadline; i++) {
       await new Promise((r) => setTimeout(r, gapMs));
       const t = await this.getTalk(talkId);
       if (looksComplete(t)) return t as Talk;

@@ -224,12 +224,12 @@ test.describe('Profile foundation', () => {
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item:has-text("Global")');
+    await page.click('.chatroom-item.current-room');
     await afterNav();
 
     await peerPage.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await peerPage.click('.chatroom-item:has-text("Global")');
+    await peerPage.click('.chatroom-item.current-room');
     await afterNav();
 
     const tomMember = peerPage.locator(`.chatroom-member-item[data-user-id="${tomUserId}"]`).filter({ hasText: 'Tom' }).first();

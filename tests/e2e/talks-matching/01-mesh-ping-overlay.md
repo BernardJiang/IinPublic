@@ -11,7 +11,8 @@ Gun writes**.
 
 ## Flow
 
-1. Tom, Jerry, and Bob bootstrap in the Global chatroom with `e2e_mesh_talks=1`.
+1. Tom, Jerry, and Bob bootstrap in the shared Nearby room with `e2e_mesh_talks=1`, then opt in
+   to third-party mesh forwarding (off by default since Nearby became the active model).
 2. Presence settles; the app calls `syncPeerMeshRoom`, each peer connects to ≤ K neighbors.
 3. **Full-mesh sub-case (default K=3):** each peer has at least 1 connected neighbor.
 4. **Sparse path sub-case (K=1):** Tom re-joins with `maxNeighbors:1`; graph becomes a path
@@ -20,7 +21,9 @@ Gun writes**.
 6. **Durable assertions (not toasts):** poll `getApp().meshPingDiagnostics` (populated by
    `onPing`/`onPong` callbacks) — no transient UI notifications.
    - Jerry and Bob: `lastPingFrom` contains Tom's userId.
-   - Tom: `pongedOrigins` contains both Jerry's and Bob's userIds.
+   - Tom: `pongedOrigins` contains every peer Tom is directly linked to. Pongs are addressed to
+     Tom, and authoritative direct delivery never relays an addressed frame through a third peer,
+     so the relayed ping (not a relayed pong) is what proves multi-hop reach.
 7. **Invariant assertion:** each browser reads local Gun and asserts `peerTalkOffers` and `talks`
    subtrees are empty — proves the ping path never touches forbidden Gun paths.
 8. Cleanup: `finalCleanupPages` + `shutdownThreeBrowsers`.

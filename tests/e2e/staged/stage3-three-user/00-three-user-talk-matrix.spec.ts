@@ -91,7 +91,7 @@ test.describe('Three-user complete talk matrix', () => {
         localStorage.setItem('copyTalkAutoSave', 'false');
         (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true);
       });
-      await user.page.click('.chatroom-item:has-text("Global")');
+      await user.page.click('.chatroom-item.current-room');
     }
 
     for (const user of users) {

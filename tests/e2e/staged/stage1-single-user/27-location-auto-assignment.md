@@ -4,12 +4,14 @@ covers: SPEC-6.3  <!-- auto-seeded; refine by hand -->
 
 **File:** `27-location-auto-assignment.spec.ts`
 
-**Features tested:** GPS mock support, explicit location refresh, area-room (L4 tile) assignment
+**Features tested:** GPS mock support, explicit location refresh, automatic Nearby group assignment
 
 ## What this test does
 
-1. Starts the app with the default test location, which places the new user in Global.
-2. Mocks browser geolocation to New York City.
-3. Triggers the app's location-refresh event.
-4. Verifies the current chatroom changes to New York's area room: the bottom-layer (~78 km) tile
-   `tileIdAt(4, 40.7128, -74.006)` — never a country/state room or a 1 km cell.
+1. Starts the app with the default test location, which places the new user in the automatic
+   Nearby group (a `nearby_…` room).
+2. Mocks browser geolocation to New York City and triggers the app's location refresh.
+3. Verifies the user stays in the same Nearby group. Nearby is an adaptive partition
+   (`src/shared/nearby-partition.ts`): one world-wide root group that splits by location only once
+   it overflows capacity, so a lone user is not moved. The room is never Global or a `tile_…` room
+   (both retired with the tile tree).

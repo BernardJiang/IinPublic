@@ -9,7 +9,7 @@ covers: SPEC-3.2, SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Setup:** Two browsers — Tom and Jerry — both log in and join "Global" chatroom.
+1. **Setup:** Two browsers — Tom and Jerry — both log in and join the shared Nearby room.
 
 2. **Tom creates and broadcasts a talk** titled "E2E Unread Badge Tennis" with the same tennis question pattern. Jerry receives it and matches. Conversation entries are created for both.
 

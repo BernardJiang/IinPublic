@@ -62,21 +62,21 @@ test.describe('Survey analytics dashboard', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await waitForTabActive(pageTom, 'chatrooms');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await waitForTabActive(pageJerry, 'chatrooms');
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
     await waitForTabActive(pageBob, 'chatrooms');
     await afterSync();
 

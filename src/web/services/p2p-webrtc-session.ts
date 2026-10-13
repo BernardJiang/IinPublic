@@ -979,7 +979,14 @@ export class P2PConversationSession {
     ) {
       return this.failSecureHandshake('handshake identity does not match the signed DataChannel peer');
     }
-    const pinnedPub = await contactIdentityResolver?.(this.config.localUserId, this.config.otherUserId);
+    let pinnedPub: string | undefined;
+    try {
+      pinnedPub = await contactIdentityResolver?.(this.config.localUserId, this.config.otherUserId);
+    } catch {
+      // Fail closed and visibly: an unhandled throw here used to leave the session "connected"
+      // with no encrypted key, so every send waited out the handshake timeout forever.
+      return this.failSecureHandshake('contact identity lookup failed');
+    }
     if (!pinnedIdentityAccepts(pinnedPub, remote.publicKey)) {
       return this.failSecureHandshake('contact identity key changed');
     }

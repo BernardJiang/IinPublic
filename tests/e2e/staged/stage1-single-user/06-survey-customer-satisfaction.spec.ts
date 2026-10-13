@@ -47,7 +47,7 @@ test.describe('Talks matching — survey customer satisfaction (multi-browser)',
     const company = await bootstrapUser(companyBrowser, 'Company', 'Survey Co');
     sessions.push({ label: 'Company', context: company.context, page: company.page });
     const { page: co } = company;
-    await co.click('.chatroom-item:has-text("Global")');
+    await co.click('.chatroom-item.current-room');
     await waitForTabActive(co, 'chatrooms');
 
     const original = makeSurveyTalk('E2ECo');
