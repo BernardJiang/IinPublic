@@ -68,6 +68,8 @@
     "test:e2e:android-three-phone-nearby-wifi-direct": "npm run build:embedded && E2E_REAL_ANDROID_FOUR_PHONE_NEARBY=1 E2E_NEARBY_OFFLINE_WIFI_DIRECT=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/30-android-four-phone-nearby.spec.ts",
     "test:e2e:android-three-phone-cohorts": "npm run build:embedded && E2E_REAL_ANDROID_THREE_PHONE_COHORTS=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/31-android-three-phone-cohort-traversal.spec.ts",
     "test:e2e:android-protocol-manifest": "node scripts/run-android-protocol-manifest-e2e.mjs",
+    "test:e2e:android-sweep": "node scripts/run-android-phone-e2e-sweep.mjs",
+    "test:e2e:android-sweep:plan": "node scripts/run-android-phone-e2e-sweep.mjs --plan",
     "test:e2e:android-cellular": "E2E_REAL_ANDROID_CELLULAR=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/29-android-cellular-talk-exchange.spec.ts",
     "test:e2e:ubuntu-live-peer": "npm run build:embedded && E2E_REAL_UBUNTU_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/14-ubuntu-cross-host-live-peer.spec.ts",
     "test:e2e:windows-live-peer": "npm run build:embedded && E2E_REAL_WINDOWS_LIVE_PEER=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/15-windows-cross-host-live-peer.spec.ts",
