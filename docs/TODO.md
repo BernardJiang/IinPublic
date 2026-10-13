@@ -692,6 +692,13 @@ phrase complexity into normal use.
     grant, `iinpublic-location-granted`, Refresh) turns it back into a Resident unless the person
     picked a point, which switches the location source to Traveler so it sticks.
   - Website/desktop and phone Travelers without a point get the same random placement.
+  - 2026-10-13 (product owner): the website and desktop app ask for the device location too. A
+    production browser counts as location-capable (`deviceHasGps`), so first launch shows the browser
+    prompt: granted → Resident; denied/unanswered → random-point Traveler. Settings → "Where you appear"
+    is now shown there, so location can be granted later. Dev/test bundles keep the injected test
+    location. A point picked on the website before this change is kept once as a Traveler choice
+    (`keepEarlierBrowserEncounterChoice`); a random one is not, so that device is asked. Switching to
+    Traveler in Settings without a point now gives a random point plus the picker, not Contacts only.
   - The actual `stage3/24` cause: every user boots for a moment in Contacts only, and a tap on that
     still-rendered row emitted `chatroomChanged(local_contacts_only_v1)`, which switched a user who had
     meanwhile reached Nearby back out of it (the UI then kept showing an empty Contacts-only page). A

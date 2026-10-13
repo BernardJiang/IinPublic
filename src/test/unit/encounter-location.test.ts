@@ -11,7 +11,10 @@ import {
   usesSelfDefinedEncounterLocation,
   isGpsFixUnavailable,
   setGpsFixUnavailable,
+  deviceHasGps,
+  keepEarlierBrowserEncounterChoice,
 } from '../../web/services/encounter-location';
+import { loadConnectivitySettings } from '../../web/ui/connectivity-settings';
 import { showEncounterLocationPicker } from '../../web/ui/encounter-location-picker';
 import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
 import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
@@ -42,6 +45,31 @@ describe('encounter location storage', () => {
       setGpsFixUnavailable(false);
     }
     expect(usesSelfDefinedEncounterLocation('android', 'resident', false)).toBe(false);
+  });
+
+  it('a production browser or desktop can ask for location; without geolocation it cannot', () => {
+    expect(deviceHasGps('web', false, true)).toBe(true);
+    expect(deviceHasGps('electron', false, true)).toBe(true);
+    expect(deviceHasGps('web', false, false)).toBe(false);
+    expect(usesSelfDefinedEncounterLocation('web', 'resident', false, false)).toBe(true);
+  });
+
+  it('keeps a point picked before browsers could share location as a Traveler choice, once', () => {
+    localStorage.clear();
+    setEncounterLocation(48.85, 2.35);
+    keepEarlierBrowserEncounterChoice('web');
+    expect(loadConnectivitySettings().locationSource).toBe('traveler');
+  });
+
+  it('asks again when the earlier point was random, and never touches phones', () => {
+    localStorage.clear();
+    assignRandomEncounterLocation(() => 0.5);
+    keepEarlierBrowserEncounterChoice('web');
+    expect(loadConnectivitySettings().locationSource).toBe('resident');
+    localStorage.clear();
+    setEncounterLocation(48.85, 2.35);
+    keepEarlierBrowserEncounterChoice('android');
+    expect(loadConnectivitySettings().locationSource).toBe('resident');
   });
 
   it('places a location-less device near a built-in city, marked auto until the person picks', () => {

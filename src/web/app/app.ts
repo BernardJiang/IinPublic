@@ -1788,7 +1788,7 @@ export class IinPublicApp {
    * Traveler; with no point yet it is placed at a random city (ENCOUNTER_LOCATION_EVENT above moves
    * it into that Nearby room), told so, and asked to pick its own. TechSupport stays Contacts only.
    */
-  private placeLocationlessDeviceOnMap(): void {
+  private placeLocationlessDeviceOnMap(options: { askToPick?: boolean } = {}): void {
     if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
     if (!usesSelfDefinedEncounterLocation()) return;
     const existing = getEncounterLocation();
@@ -1799,6 +1799,7 @@ export class IinPublicApp {
     }
     const placed = assignRandomEncounterLocation();
     this.uiManager.showNotification(this.uiText('encounterLocationRandomHelp'), 'info');
+    if (options.askToPick === false) return;
     showEncounterLocationPicker({
       t: (key) => this.uiText(key),
       initial: { latitude: placed.latitude, longitude: placed.longitude },
@@ -1810,14 +1811,26 @@ export class IinPublicApp {
    * A phone's GPS fix was denied, failed or timed out (index.ts). Unless a real fix is already in
    * hand, the device becomes a Traveler at its encounter point instead of staying in Contacts only.
    */
-  public handleGpsFixUnavailable(): void {
-    if (this.locationConfirmed && !isGpsFixUnavailable()) return;
+  public handleGpsFixUnavailable(options: { askToPick?: boolean; force?: boolean } = {}): void {
+    if (this.locationConfirmed && !isGpsFixUnavailable() && !options.force) return;
     setGpsFixUnavailable(true);
     // Before initialize() finishes, its own placeLocationlessDeviceOnMap() call picks this up.
-    if (this.initialized) this.placeLocationlessDeviceOnMap();
+    if (!this.initialized) return;
+    const existing = getEncounterLocation();
+    if (options.force && existing) this.applyEncounterLocationChange(existing);
+    this.placeLocationlessDeviceOnMap(options);
   }
 
-  /** A real GPS fix arrived: a phone that was a Traveler only for lack of GPS becomes a Resident. */
+  /** True when the current location is a real device fix, not an encounter point. */
+  private hasRealGpsFix(): boolean {
+    if (!this.locationConfirmed || !this.currentLocation) return false;
+    const encounter = getEncounterLocation();
+    return !encounter
+      || encounter.latitude !== this.currentLocation.latitude
+      || encounter.longitude !== this.currentLocation.longitude;
+  }
+
+  /** A real GPS fix arrived: a device that was a Traveler only for lack of GPS becomes a Resident. */
   public applyRealGpsFix(location: GPSCoordinate): void {
     setCachedLocation(location);
     setGpsFixUnavailable(false);
@@ -9818,15 +9831,28 @@ export class IinPublicApp {
           return;
         }
       }
-      // Website/desktop never reads GPS: a refresh re-applies the self-defined encounter location.
+      // A Traveler (by choice or for lack of GPS): a refresh re-applies the encounter location.
       const encounter = !nextLocation && usesSelfDefinedEncounterLocation() ? getEncounterLocation() : null;
       if (!nextLocation && usesSelfDefinedEncounterLocation() && !encounter) {
-        this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), 'encounterLocationUnset'), 'info');
-        // A phone that just switched to Traveler must stop using its GPS until a point is chosen.
-        this.applyEncounterLocationChange(null);
+        // Just switched to Traveler without a point: stop using GPS and appear at a random point
+        // (with the picker) until one is chosen — never off the map (OPEN-53).
+        this.locationConfirmed = false;
+        this.placeLocationlessDeviceOnMap();
         return;
       }
-      const newLocation = nextLocation || (encounter ? encounterLocationCoordinate(encounter) : await LocationPrivacy.getCurrentLocation());
+      let gpsFix: GPSCoordinate | null = null;
+      if (!nextLocation && !encounter) {
+        gpsFix = await LocationPrivacy.getCurrentLocation().catch(() => null);
+        if (!gpsFix) {
+          // Location refused or unavailable (e.g. the browser prompt was denied): a Resident with
+          // no fix in hand appears as a Traveler at their encounter point instead.
+          this.uiManager.showNotification(this.uiText('locationPermissionUnavailable'), 'warning');
+          if (!isGpsFixUnavailable()) this.handleGpsFixUnavailable({ force: !this.hasRealGpsFix() });
+          return;
+        }
+        setCachedLocation(gpsFix);
+      }
+      const newLocation = nextLocation || (encounter ? encounterLocationCoordinate(encounter) : gpsFix!);
       this.currentLocation = newLocation;
       this.locationConfirmed = true;
 

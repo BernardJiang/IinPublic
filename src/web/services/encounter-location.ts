@@ -1,14 +1,14 @@
 import type { GPSCoordinate } from '../../shared/types';
 import { readNativeHostInfo } from '../ui/native-host-info';
-import { loadConnectivitySettings, type LocationSource } from '../ui/connectivity-settings';
+import { loadConnectivitySettings, saveConnectivitySettings, type LocationSource } from '../ui/connectivity-settings';
 import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
 
 /**
- * Web/desktop encounter location (TODO OPEN-40 P1). Outside the phone apps, automatic Nearby never
- * reads GPS: the user deliberately chooses a point on the map, and that point (which may be
- * fictional) is the only location stranger discovery uses. It stays on this device; only the
- * Nearby room derived from it — a blurred, signed presence — is ever published. Clearing it puts
- * the device back in Contacts only.
+ * Encounter location (TODO OPEN-40 P1): the point a Traveler ✈ appears at — chosen on the map (it
+ * may be fictional) or, until then, random. It stays on this device; only the Nearby room derived
+ * from it — a blurred, signed presence — is ever published. Every device asks for its real location
+ * first (phones via the OS, the website and desktop app via the browser prompt); without it the
+ * device is a Traveler at this point (OPEN-53).
  */
 export const ENCOUNTER_LOCATION_KEY = 'iinpublic_encounter_location_v1';
 export const ENCOUNTER_LOCATION_EVENT = 'iinpublic-encounter-location-changed';
@@ -34,12 +34,23 @@ function simulatedTestGps(): boolean {
     && (window as { __test_location?: unknown }).__test_location !== 'none';
 }
 
-/** Only the phone apps can read GPS; production web/desktop always appears at a chosen point. */
+/**
+ * Production website/desktop builds can ask the browser for the device location; the person grants
+ * or denies it. Dev/test builds keep the injected test location instead (simulatedTestGps).
+ */
+function productionBrowserGeolocation(): boolean {
+  return process.env.NODE_ENV === 'production'
+    && typeof navigator !== 'undefined'
+    && 'geolocation' in navigator;
+}
+
+/** Phones read GPS; a production browser/desktop asks for location; dev/test builds simulate it. */
 export function deviceHasGps(
   platform: string = readNativeHostInfo().platform,
   simulatedGps: boolean = simulatedTestGps(),
+  browserGeolocation: boolean = productionBrowserGeolocation(),
 ): boolean {
-  return platform === 'android' || platform === 'ios' || simulatedGps;
+  return platform === 'android' || platform === 'ios' || simulatedGps || browserGeolocation;
 }
 
 let gpsFixUnavailable = false;
@@ -59,8 +70,8 @@ export function isGpsFixUnavailable(): boolean {
 
 /**
  * True when this device appears at a chosen point (a Traveler ✈) rather than its blurred GPS
- * (a Resident): always on web/desktop, on a phone whose owner chose "A point I choose", and on a
- * phone that has no real GPS fix.
+ * (a Resident): on a device that cannot read location, when its owner chose "A point I choose",
+ * and when no real fix is available (denied, failed or still pending).
  */
 export function usesSelfDefinedEncounterLocation(
   platform: string = readNativeHostInfo().platform,
@@ -128,6 +139,25 @@ export function assignRandomEncounterLocation(random: () => number = Math.random
   const latitude = Math.max(-85, Math.min(85, city.latitude + jitter()));
   const longitude = Math.max(-180, Math.min(180, city.longitude + jitter()));
   return setEncounterLocation(latitude, longitude, now, { auto: true });
+}
+
+const BROWSER_LOCATION_ASK_MIGRATION_KEY = 'iinpublic_browser_location_ask_v1';
+
+/**
+ * Before the website and desktop app could ask for location, a point picked there was the person's
+ * only option. Run once: keep such a deliberate point as a Traveler choice instead of re-asking. A
+ * random (auto) point is not a choice, so that device is asked for its location like a new one.
+ */
+export function keepEarlierBrowserEncounterChoice(platform: string = readNativeHostInfo().platform): void {
+  try {
+    if (localStorage.getItem(BROWSER_LOCATION_ASK_MIGRATION_KEY)) return;
+    localStorage.setItem(BROWSER_LOCATION_ASK_MIGRATION_KEY, '1');
+    if (platform === 'android' || platform === 'ios') return;
+    const chosen = getEncounterLocation();
+    if (!chosen || chosen.auto) return;
+    const settings = loadConnectivitySettings();
+    if (settings.locationSource !== 'traveler') saveConnectivitySettings({ ...settings, locationSource: 'traveler' });
+  } catch { /* storage blocked: nothing to migrate */ }
 }
 
 export function clearEncounterLocation(): void {

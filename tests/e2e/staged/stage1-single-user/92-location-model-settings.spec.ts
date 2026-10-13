@@ -68,14 +68,19 @@ test.describe('Location model settings', () => {
     await backToSettingsMenu(page);
   });
 
-  test('Traveler ✈: no GPS until a point is chosen, then Nearby at that point', async () => {
+  test('Traveler ✈: no GPS; a random point (still on the map) until one is chosen, then Nearby there', async () => {
     await openLocation();
     await page.locator('[data-testid="settings-location-source-traveler"]').check();
     await expect(page.locator('[data-testid="settings-encounter-location"]')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-testid="settings-quiet-places"]')).toHaveCount(0);
-    await expect.poll(roomOf, { timeout: 30_000 }).toBe(CONTACTS_SCOPE);
+    // No point yet: placed at random as a Traveler (never Contacts only), and asked to pick one.
+    await expect(page.locator('[data-testid="encounter-location-modal"]')).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_encounter_location_v1') || '{}').auto))
+      .toBe(true);
+    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby_/);
+    expect(await roomOf()).not.toBe(CONTACTS_SCOPE);
+    expect(await traveler()).toBe(true);
 
-    await page.locator('#settings-encounter-location-set').click();
     await page.locator('[data-testid="encounter-location-lat"]').fill('51.50135');
     await page.locator('[data-testid="encounter-location-lng"]').fill('-0.14189');
     await page.locator('[data-testid="encounter-location-confirm"]').click();

@@ -11,7 +11,7 @@ import { getCachedLocation } from './services/location-cache';
 
 /** How long a first-run phone waits for its GPS fix before appearing at a random Traveler point. */
 const GPS_FIX_FALLBACK_MS = 15_000;
-import { encounterLocationCoordinate, getEncounterLocation, usesSelfDefinedEncounterLocation } from './services/encounter-location';
+import { encounterLocationCoordinate, getEncounterLocation, keepEarlierBrowserEncounterChoice, usesSelfDefinedEncounterLocation } from './services/encounter-location';
 import { markStartupPhase } from './performance/startup-metrics';
 import { loadConnectivitySettings } from './ui/connectivity-settings';
 
@@ -78,6 +78,7 @@ class WebApp {
       let location: GPSCoordinate;
       let locationConfirmed = true;
       // A user who chose Traveler appears at their chosen point even in dev/test builds.
+      keepEarlierBrowserEncounterChoice();
       const chosenTraveler = loadConnectivitySettings().locationSource === 'traveler';
       if (USE_TEST_LOCATION && !chosenTraveler) {
         // Check if test has set a custom location
@@ -107,9 +108,9 @@ class WebApp {
           console.log('🧪 Using default TEST location:', location.latitude, location.longitude);
         }
       } else if (usesSelfDefinedEncounterLocation()) {
-        // Website/desktop (OPEN-40 P1): automatic Nearby never reads GPS here. The person's
-        // self-defined encounter location (Settings → Set encounter location on map) is the only
-        // location; without one the device stays in Contacts only.
+        // A Traveler ✈ (by choice, or a device that cannot read location): the encounter location
+        // (Settings → Set encounter location on map) is the only location. Without one, the app
+        // places the device at a random point after boot (placeLocationlessDeviceOnMap).
         const encounter = getEncounterLocation();
         location = encounter ? encounterLocationCoordinate(encounter) : LocationPrivacy.getMockLocation();
         locationConfirmed = encounter !== null;
@@ -165,7 +166,8 @@ class WebApp {
   private resolveRealLocationInBackground(): void {
     // OPEN-53: no real fix (denied, failed, or a permission sheet still open) → Traveler at a random
     // point after a short wait instead of Contacts only; a fix that lands later still replaces it.
-    const fallback = setTimeout(() => this.app.handleGpsFixUnavailable(), GPS_FIX_FALLBACK_MS);
+    // On timeout the browser/OS prompt may still be open, so place the device without the picker.
+    const fallback = setTimeout(() => this.app.handleGpsFixUnavailable({ askToPick: false }), GPS_FIX_FALLBACK_MS);
     void LocationPrivacy.getCurrentLocation()
       .then((location) => {
         clearTimeout(fallback);
