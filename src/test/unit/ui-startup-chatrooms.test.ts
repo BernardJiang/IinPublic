@@ -4,9 +4,17 @@ import { UIManager } from '../../web/ui/ui-manager';
 import type { User } from '../../shared/types';
 
 describe('startup chatroom first paint', () => {
+  // test:all exports DISABLE_HMR=true for the E2E web build, which makes the list the default;
+  // these tests describe the shipped default (map).
+  const savedDisableHmr = process.env.DISABLE_HMR;
   beforeEach(() => {
+    delete process.env.DISABLE_HMR;
     document.body.innerHTML = '<div id="app"></div>';
     localStorage.clear();
+  });
+  afterAll(() => {
+    if (savedDisableHmr === undefined) delete process.env.DISABLE_HMR;
+    else process.env.DISABLE_HMR = savedDisableHmr;
   });
 
   it('renders a safe local scope before identity or live member counts are available', () => {

@@ -657,6 +657,13 @@ phrase complexity into normal use.
     and loopback origins (tested), so converting them is a separate, much larger refactor with no
     corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
+- [ ] **OPEN-53 — A web user can drop to Contacts only under load and not return (found 2026-10-12).**
+  `stage3/24-profile-privacy-visibility` failed in two consecutive `test:all` runs (passes alone and
+  in smaller batches): a viewer that was already in the shared Nearby room later reported
+  `local_contacts_only_v1` for 90 s. Suspect the room re-selection on a slow location/pre-admission
+  resolution (`applyNearbyPrivacyMode` → `findOptimalChatroomHierarchical` /
+  `resolveNearbyBeforeAdmission` fallback) with no later retry back to Nearby. Reproduce under load
+  with a room-switch log before changing anything.
 - [ ] **OPEN-52 — Mesh neighbor logs "connected" twice (found 2026-10-12, 1.0.140).** On every phone each
   neighbor's first connect is followed 0–100 ms later by a second "connected (0 ms this attempt)". A
   transient non-connected session state (or a failed first send) clears `neighbor.connected`, and the
