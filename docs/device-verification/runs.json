@@ -161,12 +161,12 @@
       "networkType": "same Wi-Fi LAN with local hub reachable; Wi-Fi Direct correctly idle",
       "direction": "Huawei P30 Pro to backgrounded C10 tablet",
       "lifecycleState": "receiver sent to HOME, then explicitly foregrounded",
-      "result": "pass",
+      "result": "unsupported",
       "metrics": {
         "latencyMs": 19216,
         "forwardingBytes": 0
       },
-      "notes": "All four fresh app sandboxes independently derived nearby_v1_e1_p1000_g0_7687df4a5167333068f71903 from the same 10 m-accuracy test location; no coordinates appeared in the shared active scope and the server roster converged to four. The directed Talk reached the Android 14 receiver after foreground resume and the author's encrypted direct outbox cleared only after the end-recipient ACK. This validates the new native onResume signal and bounded WebRTC transport refresh. It does not claim BLE, Wi-Fi Direct, Internet-path, or statistically meaningful battery coverage. Playwright native-app/30 background-only: 1/1 passed in 2.7 min."
+      "notes": "Targeted functional assertion passed, but this is not a complete route-qualification run: throughput, battery drain and reconnect time were not measured. All four fresh app sandboxes independently derived nearby_v1_e1_p1000_g0_7687df4a5167333068f71903 from the same 10 m-accuracy test location; no coordinates appeared in the shared active scope and the server roster converged to four. The directed Talk reached the Android 14 receiver after foreground resume and the author's encrypted direct outbox cleared only after the end-recipient ACK. This validates the new native onResume signal and bounded WebRTC transport refresh. It does not claim BLE, Wi-Fi Direct, Internet-path, or statistically meaningful battery coverage. Playwright native-app/30 background-only: 1/1 passed in 2.7 min."
     },
     {
       "id": "open40-nearby-offline-wifi-direct-three-phone-1.0.123",
@@ -180,14 +180,52 @@
       "networkType": "configured hub unreachable and LAN discovery disabled; one native Wi-Fi Direct group",
       "direction": "three-phone ring plus Huawei P30 Pro to post-background C10 tablet",
       "lifecycleState": "foreground ring; Android 14 receiver sent to HOME and explicitly foregrounded",
-      "result": "pass",
+      "result": "unsupported",
       "metrics": {
         "latencyMs": 10216,
         "p50DeliveryMs": 10216,
         "p95DeliveryMs": 18314,
         "forwardingBytes": 0
       },
-      "notes": "All three fresh sandboxes independently derived the same opaque Nearby room and converged on its three-person roster without the hub. Native state proved one owner with two clients, 192.168.49.x group links, and zero LAN peers. Ring delivery times were 18314, 10216, and 10506 ms; the Android 14 post-background delivery was 9587 ms and cleared the author's encrypted outbox only after its ACK. BLE presence was enabled and scoped peer records were observed, but this run did not isolate BLE from Wi-Fi Direct DNS-SD/peer-scan fallback. Short battery snapshots are not a drain measurement. Playwright native-app/30 offline mode: 1/1 passed in 2.5 min."
+      "notes": "Targeted functional assertion passed, but this is not a complete route-qualification run: throughput, battery drain and reconnect time were not measured. All three fresh sandboxes independently derived the same opaque Nearby room and converged on its three-person roster without the hub. Native state proved one owner with two clients, 192.168.49.x group links, and zero LAN peers. Ring delivery times were 18314, 10216, and 10506 ms; the Android 14 post-background delivery was 9587 ms and cleared the author's encrypted outbox only after its ACK. BLE presence was enabled and scoped peer records were observed, but this run did not isolate BLE from Wi-Fi Direct DNS-SD/peer-scan fallback. Short battery snapshots are not a drain measurement. Playwright native-app/30 offline mode: 1/1 passed in 2.5 min."
+    },
+    {
+      "id": "open38-mailbox-wake-ph1-p30-1.0.145",
+      "recordedAt": "2026-10-13",
+      "level": "physical",
+      "deviceModel": "Essential PH-1 sender → Huawei P30 Pro (VOG-L29) sleeper",
+      "os": "Android 10 / Android 10",
+      "appBuild": "1.0.145 (b27d56e2)",
+      "route": "internet-hub-mailbox-wake",
+      "batteryState": "USB-connected; drain not measured",
+      "networkType": "same Wi-Fi LAN with local test hub reachable",
+      "direction": "PH-1 → P30",
+      "lifecycleState": "receiver screen off for 5 min; ordinary idle, not forced Doze",
+      "result": "unsupported",
+      "metrics": {
+        "notificationLatencyMs": 22000,
+        "forwardingBytes": 0
+      },
+      "notes": "Targeted OPEN-38 functional assertion passed, but this is not a complete route-qualification run: throughput, battery drain and reconnect time were not measured. The sender queued one Talk after the receiver heartbeat had lapsed. MailboxWatcher posted the generic new-activity notification 22 s later while the P30 remained asleep; after wake, the direct scheduler delivered the Talk and it appeared in IN. Playwright native-app/28: 1/1 passed in 6.7 min."
+    },
+    {
+      "id": "open44-mailbox-wake-p30-c10-1.0.145",
+      "recordedAt": "2026-10-13",
+      "level": "physical",
+      "deviceModel": "Huawei P30 Pro (VOG-L29) sender → C10 tablet sleeper",
+      "os": "Android 10 / Android 14",
+      "appBuild": "1.0.145 (b27d56e2)",
+      "route": "internet-hub-mailbox-wake",
+      "batteryState": "USB-connected; drain not measured",
+      "networkType": "same Wi-Fi LAN with local test hub reachable",
+      "direction": "P30 → C10",
+      "lifecycleState": "receiver screen off for 5 min; ordinary idle, not forced Doze",
+      "result": "fail",
+      "metrics": {
+        "notificationTimeoutMs": 240000,
+        "forwardingBytes": 0
+      },
+      "notes": "The sender queued one Talk, but no notification appeared during the four-minute assertion window. POST_NOTIFICATIONS was granted. Android logcat shows system_server force-stopping com.iinpublic.app about 90 s after screen-off, killing the foreground service, embedded node, alarm receiver and long-poll together. An in-process wake path cannot survive this OEM policy."
     }
   ]
 }

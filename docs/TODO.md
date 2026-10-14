@@ -1443,7 +1443,12 @@ review capacity is available and the issue is promoted after the website/Android
     - Members whose record is still active but whose heartbeat lapsed under 12 h ago (asleep,
       never left) stay in the send list, capped by the room capacity.
     - Unit-tested (`talk-wake.test.ts`, `peer-mesh-service.test.ts`).
-    - [ ] Device run of `native-app/28` on PH-1/P30/Honor with the current build.
+    - [x] Device run of `native-app/28` on the current build (2026-10-13, v1.0.145,
+      `b27d56e2`): PH-1 sender → P30 Android 10 sleeper, normal screen-off for 5 min. The
+      content-free wake path posted the notification 22 s after broadcast and the Talk appeared
+      after wake (1/1 passed in 6.7 min). The same run first exposed and fixed a native bootstrap
+      ordering regression: the newer location picker sat above the walkthrough and intercepted its
+      close button.
     - [x] Direct outbox bounded (2026-10-11): entries expire 14 days after creation, and the
       queue keeps at most 5,000 entries, dropping the oldest first.
 
@@ -1514,10 +1519,17 @@ review capacity is available and the issue is promoted after the website/Android
     - Senders under direct delivery post the OPEN-38 wake ping, so a sleeping C10 needs no device
       timer, only incoming network data.
     - Server and relay integration tests plus Kotlin unit tests pass.
-    - [ ] Device run of `native-app/28` (C10 sleeper, PH-1/P30 sender). The first attempt on
-      2026-10-11 aborted when the P30 dropped off USB mid-test, before the Talk was sent.
-    - [ ] Still unmeasured: whether the C10's vendor layer also drops the open TCP connection while
-      asleep.
+    - [x] Device run of `native-app/28` (2026-10-13, v1.0.145, `b27d56e2`; P30 sender → C10
+      sleeper): FAIL after a real 5 min screen-off interval and a further 240 s notification wait.
+      The sender queued one Talk for the receiver, and notification permission was granted, but
+      Android's log shows system_server force-stopping `com.iinpublic.app` about 90 s after
+      screen-off. That ends the foreground service, embedded node, alarms and long-poll together.
+    - [x] Measured: this C10 vendor layer does not merely drop the TCP connection; it force-stops
+      the entire app process while asleep. No in-process retry can survive that state.
+    - [ ] Decide whether to add a content-free OS push wake (for example FCM when a hub is
+      reachable) or explicitly scope sleeping notifications to devices that preserve the
+      foreground service. Offline P2P cannot wake a force-stopped phone, and a permanent partial
+      wake lock is not an acceptable default because of battery cost.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular
   peer forwarding and BLE discovery/data transport before either is enabled by default. Track any

@@ -75,6 +75,14 @@ beforeEach(() => {
 });
 
 describe('bindAppShellControls', () => {
+  it('opens the message inbox without requiring a selected person', () => {
+    const showDmInboxPicker = jest.fn();
+    bindAppShellControls(deps({ showDmInboxPicker }));
+
+    document.getElementById('dm-inbox-btn')?.click();
+    expect(showDmInboxPicker).toHaveBeenCalledTimes(1);
+  });
+
   it('sends trimmed messages and preserves blocked composer text', () => {
     const emit = jest.fn();
     const allowOutgoingMessage = jest.fn((message: string) => message !== 'blocked');

@@ -27,6 +27,7 @@ import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { otherRoomColor, renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
 import { cohortStatusLine } from './cohort-traversal-controls';
 import type { CohortTraversalViewModel } from './cohort-traversal-view-model';
+import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
 
 type ChatroomMember = {
   userId: string;
@@ -483,11 +484,17 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   if (!listButton || !mapButton || !mapContainer || !mapStatus || !listContainer) return;
 
   const isMap = deps.chatroomBrowseMode === 'map';
+  const previousBrowseMode = listContainer.dataset.chatroomBrowseMode;
+  const startedMapVisit = isMap && previousBrowseMode !== 'map';
+  const priorHintSession = Number(listContainer.dataset.mapHintSession || '0');
+  const mapHintSession = priorHintSession + (startedMapVisit ? 1 : 0);
+  listContainer.dataset.chatroomBrowseMode = deps.chatroomBrowseMode;
+  listContainer.dataset.mapHintSession = String(mapHintSession);
   listButton.setAttribute('aria-pressed', String(!isMap));
   mapButton.setAttribute('aria-pressed', String(isMap));
   chatroomList.hidden = isMap;
   mapContainer.hidden = !isMap;
-  mapStatus.hidden = !isMap;
+  if (!isMap) hideTransientMapHint(mapStatus);
   listContainer.classList.toggle('map-mode', isMap);
 
   const activateBrowseMode = (mode: 'list' | 'map'): void => {
@@ -544,6 +551,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       ? ` ${deps.text('chatroomCohortMapCount').replace('{count}', String(cohortSnapshot.groupCount))}`
       : '';
     mapStatus.textContent = `${summary}${cohortSummary}${customNote}`;
+    if (startedMapVisit) showTransientMapHint(mapStatus);
     if (!mapContainer.classList.contains('maplibregl-map')) {
       mapContainer.textContent = deps.text('chatroomMapLoading');
     }
@@ -554,6 +562,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       ...(deps.nearbyMapArea ? { nearbyMapArea: deps.nearbyMapArea } : {}),
       ...(deps.mapUserDots ? { userDots: deps.mapUserDots } : {}),
       ...(deps.roomMemberCard ? { roomMemberCard: deps.roomMemberCard } : {}),
+      userLegendHintSession: mapHintSession,
       openChatroom: (chatroomId) => enterRoom(deps, chatroomId, roomRows.find((row) => row.roomId === chatroomId)),
       otherRoomAreas: roomRows
         .filter((row) => row.kind === 'nearby' && row.partitionPath !== undefined && row.latitude !== undefined && row.longitude !== undefined)

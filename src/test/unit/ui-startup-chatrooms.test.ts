@@ -28,6 +28,12 @@ describe('startup chatroom first paint', () => {
     expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('false');
     expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.querySelector('#chatroom-list-view-btn')?.closest('#app-bar-actions')).not.toBeNull();
+    expect(
+      Array.from(document.querySelectorAll<HTMLElement>('#app-bar-actions .chatroom-view-mode-btn'))
+        .map((button) => button.id),
+    ).toEqual(['chatroom-map-view-btn', 'chatroom-list-view-btn']);
+    expect(document.querySelector('#header-actions')?.lastElementChild?.id).toBe('dm-inbox-btn');
+    expect(document.querySelector('#broadcast-talk-btn')?.classList.contains('status-broadcast-btn')).toBe(false);
     expect(document.querySelector('.chatroom-view-toolbar')).toBeNull();
     expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(false);
   });
@@ -45,6 +51,26 @@ describe('startup chatroom first paint', () => {
     reopened.showStartupInterface();
     expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('true');
     expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(true);
+  });
+
+  it('keeps selection-independent header tools working in both map and list views', () => {
+    const ui = new UIManager();
+    ui.initialize();
+    ui.showStartupInterface();
+
+    (document.getElementById('create-talk-btn') as HTMLButtonElement).click();
+    expect(document.getElementById('talk-editor-modal')).not.toBeNull();
+    (document.getElementById('cancel-talk-btn') as HTMLButtonElement).click();
+
+    (document.getElementById('chatroom-list-view-btn') as HTMLButtonElement).click();
+    expect((document.getElementById('chatroom-list') as HTMLElement).hidden).toBe(false);
+    (document.getElementById('create-talk-btn') as HTMLButtonElement).click();
+    expect(document.getElementById('talk-editor-modal')).not.toBeNull();
+    (document.getElementById('cancel-talk-btn') as HTMLButtonElement).click();
+
+    // Direct messages opens its picker with no room member/contact selected first.
+    (document.getElementById('dm-inbox-btn') as HTMLButtonElement).click();
+    expect(document.getElementById('dm-inbox-modal')).not.toBeNull();
   });
 
   it('keeps the first-paint room list when identity hydration completes', () => {

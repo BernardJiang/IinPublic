@@ -4,6 +4,7 @@ import { renderChatroomList } from '../../web/ui/chatrooms-view';
 import { renderChatroomMap } from '../../web/ui/chatroom-map-view';
 import { uiText } from '../../web/ui/ui-translations';
 import { createLocalCohortTraversalViewModel } from '../../web/ui/cohort-traversal-view-model';
+import { MAP_HINT_VISIBLE_MS } from '../../web/ui/transient-map-hint';
 
 jest.mock('../../web/ui/chatroom-map-view', () => ({ renderChatroomMap: jest.fn() }));
 
@@ -13,6 +14,7 @@ const PLACE_ID = 'place_32.71_-117.17_abcdefabcdef';
 
 describe('flat chatroom map', () => {
   it('renders only the current group plus Place pins and emits deliberate point travel', () => {
+    jest.useFakeTimers();
     document.body.innerHTML = `
       <button id="chatroom-list-view-btn"></button>
       <button id="chatroom-map-view-btn"></button>
@@ -81,5 +83,10 @@ describe('flat chatroom map', () => {
     expect(document.getElementById('chatroom-map-status')?.textContent).toContain(
       '6 groups share the same shaded area.',
     );
+    const status = document.getElementById('chatroom-map-status') as HTMLElement;
+    expect(status.hidden).toBe(false);
+    jest.advanceTimersByTime(MAP_HINT_VISIBLE_MS);
+    expect(status.hidden).toBe(true);
+    jest.useRealTimers();
   });
 });
