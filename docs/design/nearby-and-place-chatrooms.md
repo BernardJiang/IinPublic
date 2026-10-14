@@ -475,6 +475,8 @@ The flat room list replaces the retired chatroom tree.
   and is never counted.
 - **Your room first,** named after its area ("Around San Diego"). Then every other room with at
   least one person: Nearby groups and Places, flat, with no hierarchy.
+- **Places near you:** below that, the nearest few live Places that are empty right now (§4.2), so
+  an empty Place can still be found and entered from the list.
 - **Sort:**
   - **Nearest** (default): by distance from where you appear (your blurred or chosen point).
   - **Busiest:** most people first.
@@ -532,8 +534,9 @@ travel. Travel lands in your own lane.
 Any user may publish an immutable, signed, content-addressed Place descriptor containing a display
 name, type, description, public map point, creator public key, and creation time. The signature
 proves provenance only. It does not prove a trademark or business claim and grants no ownership,
-moderation, reserved seat, rename, deletion, or admission power. Duplicate display names are
-allowed and the UI labels these rooms **Community-created**.
+moderation, reserved seat, rename, deletion, or admission power. The UI labels these rooms
+**Community-created**. Who may create one, how many may exist, and when an unused one disappears
+are in §4.2.
 
 A community pin is snapped to the selected public cell unless the creator deliberately confirms a
 precise public business address. The application must never silently copy exact GPS into a Place.
@@ -753,6 +756,38 @@ the user as a traveler. **Return Home** recomputes the current blurred home area
 boundaries may affect the shaded group footprint, but no partition node is rendered as a pin or
 navigable room. Global, TechSupport, country/state layers, raw coordinate IDs, and room hierarchy
 remain absent.
+
+### 4.2 Place lifecycle and creation limits (product decision 2026-10-13)
+
+An empty Place must stay reachable, but anyone can create one, so unused Places must not pile up.
+
+- **Live Places.** A Place is *live* while someone is in it or someone entered it in the last
+  30 days (`PLACE_LIVE_WINDOW_MS`). Its `lastActiveAt` starts when the hub accepts it (the signed
+  creation time is the creator's own claim, so a backdated one cannot dodge the limits) and moves
+  forward on each entry or heartbeat the hub sees, written at most once an hour per Place. Only live Places
+  are listed and drawn. An expired Place is not deleted: its creator still sees it, a direct link
+  still opens it, and entering it makes it live again.
+- **Map.** The map draws every live Place in view. An empty one is dimmed with "0" and is drawn only
+  from city zoom (about 9) inward; farther out, Places group into clusters as before.
+- **List.** Rooms with people come first (§3.6); then **Places near you** lists the nearest five
+  empty live Places.
+- **Who may create.** A user needs at least 100 Contacts (`PLACE_CREATE_MIN_CONTACTS`; 3 in local
+  debug builds and Android debug APKs) before **New Room** opens the form. Contacts are private and
+  SEA-encrypted, so only the user's own app can count them; this is an app-side rule, not one the
+  hub can enforce.
+- **How many.** The hub refuses a new Place when:
+  - the creator's key already has a live Place (one per person) — `PLACE_CREATOR_LIMIT`;
+  - a live Place with the same name (ignoring case and spacing) is in the same ~1 km cell — the
+    app offers to join that one instead — `PLACE_NAME_TAKEN`;
+  - the cell already has five live Places (`MAX_LIVE_PLACES_PER_CELL`) — `PLACE_CELL_FULL`.
+
+  A device-wide limit is not enforced: the hub cannot tell devices apart.
+- **Trademarks.** The creation form reminds the user that names and descriptions must respect
+  trademark and other laws, and that a Place grants no business claim.
+- **After creating.** The creator enters the new Place at once, so it starts with one person.
+- **Phones.** An embedded phone server publishes the new Place at the hub first and saves it locally
+  only after the hub accepts it; if the hub is unreachable, creation fails. Phones list the hub's
+  Places together with their own.
 
 ## 5. Gun.js boundary
 

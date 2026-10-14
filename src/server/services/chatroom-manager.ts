@@ -1,4 +1,9 @@
-import { parseAnchorCell, placeRoomId } from '../../shared/place-rooms';
+import { isPlaceRoomId, parseAnchorCell, placeRoomId } from '../../shared/place-rooms';
+import {
+  findPlaceCreationConflict,
+  PLACE_ACTIVITY_WRITE_INTERVAL_MS,
+  PlaceCreationConflictError,
+} from '../../shared/place-lifecycle';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { randomBytes } from 'crypto';
 import { portableSha256Hex } from '../../shared/portable-sha256';
@@ -369,9 +374,32 @@ export class ChatroomManager {
         isActive: meta?.isActive !== false,
         businessInfo: meta?.businessInfo,
         location: meta?.location,
+        ...(meta?.anchorCell ? { anchorCell: meta.anchorCell } : {}),
+        ...(meta?.creatorPub ? { creatorPub: meta.creatorPub } : {}),
+        ...(meta?.lastActiveAt ? { lastActiveAt: meta.lastActiveAt } : {}),
       });
     }
     return list;
+  }
+
+  /**
+   * Keeps a Place live (docs/design/nearby-and-place-chatrooms.md §4.2): an entry or heartbeat
+   * moves its `lastActiveAt` forward, written at most once an hour per Place.
+   */
+  private async markPlaceActive(chatroomId: string): Promise<void> {
+    if (!isPlaceRoomId(chatroomId)) return;
+    const meta = this.roomMetaCache.get(chatroomId)
+      ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 1, 50);
+    if (!meta || typeof meta !== 'object' || meta['#'] != null) return;
+    const nowMs = Date.now();
+    const last = Date.parse(String(meta.lastActiveAt || meta.createdAt || ''));
+    if (Number.isFinite(last) && nowMs - last < PLACE_ACTIVITY_WRITE_INTERVAL_MS) return;
+    const lastActiveAt = new Date(nowMs).toISOString();
+    this.roomMetaCache.set(chatroomId, { ...meta, lastActiveAt });
+    await Promise.all([
+      this.gunService.putPath(['chatroomMeta', chatroomId, 'lastActiveAt'], lastActiveAt),
+      this.gunService.putPath(['chatrooms', chatroomId, 'meta', 'lastActiveAt'], lastActiveAt),
+    ]);
   }
 
   async getChatroom(chatroomId: string): Promise<any | null> {
@@ -462,10 +490,22 @@ export class ChatroomManager {
         : anchor ? { location: { latitude: anchor.latitude, longitude: anchor.longitude } } : {}),
       createdAt: signedDescriptor?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      // The hub's own receipt time starts the 30-day live window: the signed createdAt is the
+      // creator's claim and a backdated one must not dodge the creation limits.
+      lastActiveAt: new Date().toISOString(),
       isActive: true,
     };
     if (!room.name) {
       throw new Error('chatroom name is required');
+    }
+    if (signedDescriptor && anchor && !requestedTestId) {
+      const existing = (await this.getAllChatrooms()).filter((row) => isPlaceRoomId(row.id) && row.id !== id);
+      const conflict = findPlaceCreationConflict(existing, {
+        creatorPub: signedDescriptor.creatorPub,
+        anchorCell: anchor.cellId,
+        name: room.name,
+      });
+      if (conflict) throw new PlaceCreationConflictError(conflict);
     }
     this.roomMetaCache.set(id, room);
     await this.gunService.putPath(['chatrooms', id, 'meta'], room);
@@ -769,6 +809,9 @@ export class ChatroomManager {
     void this.publishRoomMemberCount(chatroomId).catch(() => {
       /* best-effort public badge; never blocks membership writes */
     });
+    void this.markPlaceActive(chatroomId).catch(() => {
+      /* best-effort liveness; never blocks membership writes */
+    });
   }
 
   async touchMemberFast(
@@ -778,6 +821,9 @@ export class ChatroomManager {
   ): Promise<void> {
     if (isTechSupportId(userId)) return;
     const now = new Date().toISOString();
+    void this.markPlaceActive(chatroomId).catch(() => {
+      /* best-effort liveness; never blocks heartbeats */
+    });
     // This is the read behind the membership-heartbeat PATCH every connected client sends every
     // ~10-30s (web-chatroom-service.ts's startMembershipHeartbeat) — getPath's 2000ms/3000ms
     // defaults exist for letting a slow peer's write settle before trusting a read, which this

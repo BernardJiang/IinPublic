@@ -3,6 +3,7 @@ import { parseTileId } from '../../shared/room-tiles';
 import type { FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { CONFIG } from '../../shared/config';
 import { isNearbyRoomId, type NearbyMapArea } from '../../shared/nearby-rooms';
+import { isPlaceRoomId } from '../../shared/place-rooms';
 import {
   chatroomsToGeoJson,
   type ChatroomMapFeatureProperties,
@@ -546,10 +547,18 @@ function tooltipElement(options: ChatroomMapOptions, room: ChatroomMapRoom): HTM
   return tooltip;
 }
 
+/** Zoom (about city level) from which empty Places are drawn. */
+export const EMPTY_PLACE_MIN_ZOOM = 9;
+
+function isEmptyPlace(room: ChatroomMapRoom): boolean {
+  return isPlaceRoomId(room.id) && room.memberCount === 0;
+}
+
 function roomMarkerElement(options: ChatroomMapOptions, room: ChatroomMapRoom): HTMLButtonElement {
   const marker = document.createElement('button');
   marker.type = 'button';
-  marker.className = `chatroom-map-marker${room.id === options.currentChatroom ? ' current-room' : ''}`;
+  marker.className = `chatroom-map-marker${room.id === options.currentChatroom ? ' current-room' : ''}`
+    + (room.id !== options.currentChatroom && isEmptyPlace(room) ? ' empty-place' : '');
   marker.dataset.chatroomId = room.id;
   marker.title = room.name;
   // A Nearby room's pin matches its square's colour.
@@ -659,6 +668,8 @@ function rebuildHtmlMarkers(maplibre: MapLibre, state: MapState): number {
     const key = `room:${chatroomId}`;
     const room = roomsById.get(chatroomId);
     if (!room || seen.has(key)) continue;
+    // An empty Place is drawn only from city zoom in (docs/design/nearby-and-place-chatrooms.md §4.2).
+    if (isEmptyPlace(room) && state.map.getZoom() < EMPTY_PLACE_MIN_ZOOM) continue;
     seen.add(key);
     const element = roomMarkerElement(state.options, room);
     state.markers.push(new maplibre.Marker({ element }).setLngLat(coordinates).addTo(state.map));

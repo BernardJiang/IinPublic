@@ -370,6 +370,8 @@ class MainActivity : AppCompatActivity() {
                         webView.loadUrl(
                             "http://127.0.0.1:$port/?native_platform=android" +
                                 "&app_version=${BuildConfig.VERSION_NAME}" +
+                                // Debug APKs use the small debug Place-creation threshold (CONFIG).
+                                (if (BuildConfig.DEBUG) "&app_debug=1" else "") +
                                 "&perf_process_launch_ms=$activityLaunchEpochMs" +
                                 "&perf_node_health_ready_ms=$nodeHealthReadyEpochMs" +
                                 wifiDirectLinkQuery()

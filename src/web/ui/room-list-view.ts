@@ -1,6 +1,6 @@
 import { getFlatChatroomList } from '../../shared/chatroom-hierarchy';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import { metersBetween, type ActiveRoomSort, type ActiveRoomSummary, type ActiveRoomsView } from '../../shared/active-rooms';
+import { bearingDegrees, metersBetween, type ActiveRoomSort, type ActiveRoomSummary, type ActiveRoomsView } from '../../shared/active-rooms';
 import type { UiTranslationKey } from './ui-translations';
 import { formatDistance } from './distance-units';
 import { otherRoomColor } from './chatroom-map-view';
@@ -80,6 +80,50 @@ export function roomListRows(
       full: room.memberCount >= input.capacity,
     };
   });
+}
+
+/** How many empty Places "Places near you" lists (docs/design/nearby-and-place-chatrooms.md §4.2). */
+export const EMPTY_PLACES_NEAR_LIMIT = 5;
+
+/**
+ * "Places near you": the nearest live Places nobody is in right now, so an empty Place can still be
+ * entered from the list. The hub lists only live Places, so every row here is live.
+ */
+export function emptyPlaceRows(
+  places: ReadonlyArray<{ id: string; name: string; type?: string; location?: { latitude: number; longitude: number } }>,
+  input: {
+    t: T;
+    origin?: { latitude: number; longitude: number };
+    /** Rooms already shown (the current room and rooms with people). */
+    excludeIds: ReadonlySet<string>;
+    memberCount: (roomId: string) => number;
+    placeIcon: (type: string | undefined) => string;
+  },
+): RoomListRow[] {
+  const rows = places
+    .filter((place) => place.location && !input.excludeIds.has(place.id) && input.memberCount(place.id) === 0)
+    .map((place) => {
+      const at = place.location!;
+      const distanceMeters = input.origin ? metersBetween(input.origin, at) : undefined;
+      const summary: ActiveRoomSummary = {
+        roomId: place.id,
+        kind: 'place',
+        memberCount: 0,
+        latitude: at.latitude,
+        longitude: at.longitude,
+        name: place.name,
+        ...(distanceMeters !== undefined ? { distanceMeters, bearingDegrees: bearingDegrees(input.origin!, at) } : {}),
+      };
+      return {
+        ...summary,
+        displayName: place.name || input.t('roomListPlaceFallback'),
+        context: [input.t('roomListPlaceTag'), relativeRoomLabel(summary, input.t)].filter(Boolean).join(' · '),
+        icon: input.placeIcon(place.type),
+        full: false,
+      };
+    });
+  rows.sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
+  return rows.slice(0, EMPTY_PLACES_NEAR_LIMIT);
 }
 
 /** "1 / 3 people" (· "Full"). */

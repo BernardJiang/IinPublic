@@ -1,5 +1,6 @@
 import type { User } from '../../shared/types';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { CONFIG } from '../../shared/config';
 import { escapeHtml } from './ui-formatters';
 import { avatarInnerHtml } from './profile-avatar';
 import {
@@ -191,6 +192,16 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     const anchorCell = deps.getAnchorCell?.() ?? null;
     if (!anchorCell) {
       deps.showNotification(deps.t('chatroomCreateNeedsLocation'), 'error');
+      return;
+    }
+    // Only established users may create a Place (docs/design/nearby-and-place-chatrooms.md §4.2).
+    const contactCount = (deps.getCurrentUser()?.knownPeople || [])
+      .filter((person) => person?.userId && !isTechSupportId(person.userId)).length;
+    if (contactCount < CONFIG.PLACE_CREATE_MIN_CONTACTS) {
+      deps.showNotification(deps.tf('chatroomCreateNeedsContacts', {
+        required: CONFIG.PLACE_CREATE_MIN_CONTACTS,
+        count: contactCount,
+      }), 'error');
       return;
     }
     const payload = await deps.showCreateCustomChatroomDialog();

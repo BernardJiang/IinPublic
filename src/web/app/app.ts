@@ -57,6 +57,7 @@ import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
+import { MAX_LIVE_PLACES_PER_CELL } from '../../shared/place-lifecycle';
 import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
 import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
 import {
@@ -2053,10 +2054,41 @@ export class IinPublicApp {
    * Subscribe to member count updates for all chatrooms in the UI list
    * This allows showing real-time headcount badges that update when users join/leave
    */
+  /** A refused Place creation (docs/design/nearby-and-place-chatrooms.md §4.2), in words. */
+  private showPlaceCreateRefusal(status: number, text: string): void {
+    let body: { error?: string; code?: string; existingId?: string; existingName?: string } = {};
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      body = {};
+    }
+    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
+    const name = String(body.existingName || '');
+    if (status === 409 && body.code === 'PLACE_NAME_TAKEN' && body.existingId) {
+      this.uiManager.showNotification(uiText(language, 'chatroomCreateNameTaken').replace('{name}', name), 'info');
+      void this.refreshCustomChatroomsFromServer().then(() => this.uiManager.showChatroomDetail(body.existingId!));
+      return;
+    }
+    if (status === 409 && body.code === 'PLACE_CREATOR_LIMIT') {
+      this.uiManager.showNotification(uiText(language, 'chatroomCreateCreatorLimit').replace('{name}', name), 'error');
+      return;
+    }
+    if (status === 409 && body.code === 'PLACE_CELL_FULL') {
+      this.uiManager.showNotification(
+        uiText(language, 'chatroomCreateCellFull').replace('{count}', String(MAX_LIVE_PLACES_PER_CELL)),
+        'error',
+      );
+      return;
+    }
+    this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed(body.error || undefined), 'error');
+  }
+
   private async refreshCustomChatroomsFromServer(): Promise<void> {
     try {
       const base = this.getBackendApiBase();
-      const res = await fetch(`${base}/api/chatrooms`);
+      // Our own key keeps our expired Place listed for us.
+      const creatorPub = this.gunService.getStoredPair()?.pub;
+      const res = await fetch(`${base}/api/chatrooms${creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : ''}`);
       if (!res.ok) return;
       const rows = (await res.json()) as Array<{
         id: string;
@@ -9493,7 +9525,7 @@ export class IinPublicApp {
             }
           }
           if (!res.ok) {
-            this.uiManager.showNotification(text || this.uiManager.formatChatroomCreateFailed(), 'error');
+            this.showPlaceCreateRefusal(res.status, text);
             return;
           }
           const createdId = String(created?.id || '').trim();

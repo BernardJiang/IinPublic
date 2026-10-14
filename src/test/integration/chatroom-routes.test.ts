@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import SEA from 'gun/sea';
 import { registerChatroomRoutes } from '../../server/routes/chatroom-routes';
+import { PlaceCreationConflictError } from '../../shared/place-lifecycle';
 import { createPlaceAdmissionClaim, type PlaceAdmissionClaim } from '../../shared/place-admission-evidence';
 import {
   EmbeddedHubRelayRequestError,
@@ -334,6 +335,111 @@ describe('chatroom routes', () => {
     expect(response.status).toBe(409);
     expect(response.body).toEqual(expect.objectContaining({ code: 'PLACE_RECONCILED_OUT', capacity: 2 }));
     expect(manager.touchMemberFast).not.toHaveBeenCalledWith(placeRoomId, 'u1', expect.anything());
+  });
+
+  function placeRelayDouble(overrides: Partial<EmbeddedHubRelayClientLike>): EmbeddedHubRelayClientLike {
+    return {
+      listMembers: jest.fn().mockResolvedValue([]),
+      addMember: jest.fn().mockResolvedValue(undefined),
+      touchMember: jest.fn().mockResolvedValue(undefined),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+      listSignalingFrames: jest.fn().mockResolvedValue([]),
+      postSignalingFrame: jest.fn().mockResolvedValue(undefined),
+      getPublicUser: jest.fn().mockResolvedValue(null),
+      upsertPublicUser: jest.fn().mockResolvedValue(undefined),
+      getTurnCredentials: jest.fn().mockResolvedValue({ username: '', credential: '', ttl: 0, urls: [] }),
+      listSupportMessages: jest.fn().mockResolvedValue([]),
+      postSupportMessage: jest.fn().mockResolvedValue(undefined),
+      postDelegateRequest: jest.fn().mockResolvedValue(undefined),
+      listDelegateGrants: jest.fn().mockResolvedValue([]),
+      getFaqBundle: jest.fn().mockResolvedValue(null),
+      postFaqBundle: jest.fn().mockResolvedValue(undefined),
+      postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
+      listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
+      getGraphBlob: jest.fn().mockResolvedValue(null),
+      putGraphBlob: jest.fn().mockResolvedValue(undefined),
+      ...overrides,
+    };
+  }
+
+  const placeBody = {
+    name: 'Bean There',
+    type: 'business',
+    createdBy: 'user_1',
+    anchorCell: 'region_-22.85_-43.07',
+  };
+
+  it('an embedded node publishes a new room at the hub before saving it locally', async () => {
+    const publishChatroom = jest.fn().mockResolvedValue({ status: 201, body: { id: 'place_bx' } });
+    const { app, manager } = buildApp({ hubRelayClient: placeRelayDouble({ publishChatroom }) });
+    const res = await request(app).post('/api/chatrooms').send(placeBody);
+    expect(res.status).toBe(201);
+    expect(publishChatroom).toHaveBeenCalledWith(placeBody);
+    expect(manager.createChatroom).toHaveBeenCalledTimes(1);
+  });
+
+  it('an embedded node keeps no local-only room when the hub rejects or is unreachable', async () => {
+    const rejected = buildApp({
+      hubRelayClient: placeRelayDouble({
+        publishChatroom: jest.fn().mockResolvedValue({ status: 400, body: { error: 'invalid place signature' } }),
+      }),
+    });
+    const rejectedRes = await request(rejected.app).post('/api/chatrooms').send(placeBody);
+    expect(rejectedRes.status).toBe(400);
+    expect(rejectedRes.body).toEqual({ error: 'invalid place signature' });
+    expect(rejected.manager.createChatroom).not.toHaveBeenCalled();
+
+    const offline = buildApp({
+      hubRelayClient: placeRelayDouble({ publishChatroom: jest.fn().mockRejectedValue(new Error('aborted')) }),
+    });
+    const offlineRes = await request(offline.app).post('/api/chatrooms').send(placeBody);
+    expect(offlineRes.status).toBe(503);
+    expect(offline.manager.createChatroom).not.toHaveBeenCalled();
+  });
+
+  it('an embedded node lists the hub rooms along with its own', async () => {
+    const { app, manager } = buildApp({
+      hubRelayClient: placeRelayDouble({
+        listChatrooms: jest.fn().mockResolvedValue([{ id: 'place_a', name: 'Hub copy' }, { id: 'place_b', name: 'B' }]),
+      }),
+    });
+    manager.getAllChatrooms.mockResolvedValue([{ id: 'place_a', name: 'Local' }]);
+    const res = await request(app).get('/api/chatrooms');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ id: 'place_a', name: 'Local' }, { id: 'place_b', name: 'B' }]);
+
+    const offline = buildApp({
+      hubRelayClient: placeRelayDouble({ listChatrooms: jest.fn().mockRejectedValue(new Error('aborted')) }),
+    });
+    offline.manager.getAllChatrooms.mockResolvedValue([{ id: 'place_a', name: 'Local' }]);
+    expect((await request(offline.app).get('/api/chatrooms')).body).toEqual([{ id: 'place_a', name: 'Local' }]);
+  });
+
+  it('answers a refused Place creation with 409 and the reason', async () => {
+    const { app, manager } = buildApp();
+    manager.createChatroom.mockRejectedValue(new PlaceCreationConflictError({
+      code: 'PLACE_NAME_TAKEN', existingId: 'place_bexisting', existingName: 'Bean There',
+    }));
+    const res = await request(app).post('/api/chatrooms').send(placeBody);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'PLACE_NAME_TAKEN', existingId: 'place_bexisting', existingName: 'Bean There' });
+  });
+
+  it('lists only live Places, plus the caller\'s own expired Place', async () => {
+    const { app, manager } = buildApp();
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const fresh = new Date().toISOString();
+    const placeId = (n: number) => `place_b${String(n).repeat(55)}`;
+    manager.getAllChatrooms.mockResolvedValue([
+      { id: placeId(1), name: 'Live', createdAt: fresh, creatorPub: 'pubA' },
+      { id: placeId(2), name: 'Expired', createdAt: old, creatorPub: 'pubA' },
+      { id: placeId(3), name: 'Revived', createdAt: old, lastActiveAt: fresh, creatorPub: 'pubB' },
+      { id: placeId(4), name: 'Mine', createdAt: old, creatorPub: 'pubMe' },
+    ]);
+    const anyone = await request(app).get('/api/chatrooms');
+    expect(anyone.body.map((room: { name: string }) => room.name)).toEqual(['Live', 'Revived']);
+    const creator = await request(app).get('/api/chatrooms').query({ creatorPub: 'pubMe' });
+    expect(creator.body.map((room: { name: string }) => room.name)).toEqual(['Live', 'Revived', 'Mine']);
   });
 
   it('mirrors local membership writes to the explicit hub relay', async () => {

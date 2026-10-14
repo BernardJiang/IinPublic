@@ -2,7 +2,7 @@ import { getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLoc
 import { nearbyPartitionCellBounds, nearbyPartitionTargetPoint } from '../../shared/nearby-partition-geometry';
 import { loadConnectivitySettings } from './connectivity-settings';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
-import { nearbyRoomName, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
+import { emptyPlaceRows, nearbyRoomName, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
 import { getRoomListSort, setRoomListSort } from '../services/active-rooms-client';
 import { formatDistance } from './distance-units';
 import { showEncounterLocationPicker } from './encounter-location-picker';
@@ -397,6 +397,16 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         },
       }).filter((row) => row.roomId !== deps.currentChatroom && row.memberCount > 0)
     : [];
+  const placedPoint = getEncounterLocation();
+  const emptyPlaces = emptyPlaceRows(deps.customChatrooms, {
+    t: deps.text,
+    ...(myRoom?.latitude !== undefined && myRoom.longitude !== undefined
+      ? { origin: { latitude: myRoom.latitude, longitude: myRoom.longitude } }
+      : placedPoint ? { origin: { latitude: placedPoint.latitude, longitude: placedPoint.longitude } } : {}),
+    excludeIds: new Set([deps.currentChatroom, ...roomRows.map((row) => row.roomId)]),
+    memberCount: (roomId) => deps.chatroomMemberCounts.get(roomId) || 0,
+    placeIcon: (type) => customRoomIcon(type === 'business' ? 'business' : 'custom'),
+  });
   const sort = getRoomListSort();
 
   const chatroomList = document.getElementById('chatroom-list');
@@ -450,7 +460,11 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         ? roomRows.map((row) => renderRoomListRow(row, capacity, deps.text, deps.escapeHtml)).join('')
         : `<p class="chatroom-flat-empty">${deps.text(deps.activeRooms ? 'roomListEmpty' : 'roomListLoading')}</p>`}
       ${deps.activeRooms?.hasMore ? `<button type="button" class="btn" id="room-list-more" data-testid="room-list-more">${deps.text('roomListShowMore')}</button>` : ''}
-    </section>`;
+    </section>
+    ${emptyPlaces.length ? `<section class="chatroom-flat-section" data-testid="places-near-you-section">
+      <h2 class="chatroom-flat-heading">${deps.text('roomListPlacesNearHeading')}</h2>
+      ${emptyPlaces.map((row) => renderRoomListRow(row, capacity, deps.text, deps.escapeHtml)).join('')}
+    </section>` : ''}`;
 
   document.getElementById('chatroom-encounter-location-set')?.addEventListener('click', () => {
     const placed = getEncounterLocation();
@@ -472,7 +486,9 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   chatroomList.querySelectorAll<HTMLElement>('.chatroom-item').forEach((item) => {
     item.addEventListener('click', () => {
       const chatroomId = item.getAttribute('data-chatroom-id');
-      if (chatroomId) enterRoom(deps, chatroomId, roomRows.find((row) => row.roomId === chatroomId));
+      if (chatroomId) {
+        enterRoom(deps, chatroomId, [...roomRows, ...emptyPlaces].find((row) => row.roomId === chatroomId));
+      }
     });
   });
 

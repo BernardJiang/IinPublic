@@ -1067,6 +1067,10 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   appearance: none;
 }
 
+.chatroom-map-marker.empty-place {
+  opacity: 0.55;
+}
+
 .chatroom-map-marker.current-room {
   background: #16803c;
   box-shadow: 0 0 0 4px rgb(22 128 60 / 30%), 0 2px 8px rgb(0 0 0 / 35%);

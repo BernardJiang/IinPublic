@@ -237,6 +237,53 @@ describe('ChatroomManager visit accounting', () => {
     })).rejects.toThrow('anchor cell');
   });
 
+  it('refuses a second live Place per creator and a same-name Place in one cell', async () => {
+    // Backdating the signed createdAt cannot dodge the limit (the hub's receipt time counts).
+    const backdated = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const manager = buildManager();
+    const place = async (pair: Awaited<ReturnType<typeof SEA.pair>>, name: string) => {
+      const descriptor = await createSignedPlaceDescriptor({
+        name, placeType: 'business', location: { latitude: 32.71, longitude: -117.17 }, pair, createdAt: backdated,
+      });
+      return manager.createChatroom({
+        name, type: 'business', createdBy: 'creator', anchorCell: 'region_32.71_-117.17', descriptor,
+      });
+    };
+    const alice = await SEA.pair();
+    const bob = await SEA.pair();
+    await place(alice, 'Bean There');
+    await expect(place(alice, 'Second Shop')).rejects.toMatchObject({
+      conflict: { code: 'PLACE_CREATOR_LIMIT', existingName: 'Bean There' },
+    });
+    await expect(place(bob, '  bean THERE ')).rejects.toMatchObject({
+      conflict: { code: 'PLACE_NAME_TAKEN', existingName: 'Bean There' },
+    });
+    await expect(place(bob, 'Other Shop')).resolves.toMatchObject({ name: 'Other Shop' });
+  });
+
+  it('an entry moves a quiet Place\'s lastActiveAt forward so it stays listed', async () => {
+    const manager = buildManager();
+    const pair = await SEA.pair();
+    const createdAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const descriptor = await createSignedPlaceDescriptor({
+      name: 'Old Shop', placeType: 'business', location: { latitude: 32.71, longitude: -117.17 }, pair, createdAt,
+    });
+    const room = await manager.createChatroom({
+      name: 'Old Shop', type: 'business', createdBy: 'creator', anchorCell: 'region_32.71_-117.17', descriptor,
+    });
+    // A backdated signed createdAt does not expire a new Place: the hub's receipt time counts.
+    const fresh = (await manager.getAllChatrooms()).find((row) => row.id === room.id);
+    expect(Date.now() - Date.parse(fresh?.lastActiveAt)).toBeLessThan(60_000);
+    // Age it, then an entry moves it forward again.
+    const meta = (manager as any).roomMetaCache.get(room.id);
+    (manager as any).roomMetaCache.set(room.id, { ...meta, lastActiveAt: createdAt });
+    expect((await manager.getAllChatrooms()).find((row) => row.id === room.id)?.lastActiveAt).toBe(createdAt);
+    await manager.addMemberFast(room.id, 'visitor', 'Visitor');
+    await new Promise((resolve) => setImmediate(resolve));
+    const listed = (await manager.getAllChatrooms()).find((row) => row.id === room.id);
+    expect(Date.now() - Date.parse(listed?.lastActiveAt)).toBeLessThan(60_000);
+  });
+
   it('retains visitor history because participants cannot delete an immutable room', async () => {
     const manager = buildManager();
     await manager.createChatroom({ id: 'room_2', name: 'Retired Room', type: 'custom', createdBy: 'owner' });

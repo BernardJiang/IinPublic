@@ -48,6 +48,7 @@ export function showCreateCustomChatroomDialog(
             <label class="form-label">${escapeHtml(text('chatroomDescriptionOptional'))}</label>
             <textarea class="form-input" id="custom-room-description" rows="2" maxlength="500"></textarea>
           </div>
+          <p class="form-hint" data-testid="custom-room-trademark-notice" style="color:var(--text-tertiary);font-size:0.85em;">${escapeHtml(text('chatroomTrademarkNotice'))}</p>
           <div class="modal-actions">
             <button type="button" class="btn" id="cancel-custom-room-btn" style="background:var(--text-tertiary);">${escapeHtml(text('chatroomCancel'))}</button>
             <button type="submit" class="btn primary-btn" data-testid="custom-room-submit-btn">${escapeHtml(text('chatroomCreate'))}</button>

@@ -44,6 +44,17 @@ export const CONFIG = {
   CHATROOM_PROMOTE_DWELL_MS: parseInt(e2eUrlParam('e2e_promote_ms') || '180000', 10),
   CHATROOM_PROMOTE_JITTER_MS: e2eUrlParam('e2e_promote_ms') ? 0 : 60_000,
   CHATROOM_EVICTION_COOLDOWN_MS: parseInt(e2eUrlParam('e2e_cooldown_ms') || '900000', 10),
+  /**
+   * Contacts a user needs before creating a Place (docs/design/nearby-and-place-chatrooms.md §4.2):
+   * 100 in release; 3 in local debug (webpack dev builds bake it) and in Android debug APKs
+   * (`?app_debug=1`). E2E bundles bake 0 unless a spec passes `?e2e_place_min_contacts=`.
+   */
+  PLACE_CREATE_MIN_CONTACTS: parseInt(
+    e2eUrlParam('e2e_place_min_contacts')
+      || process.env.PLACE_CREATE_MIN_CONTACTS
+      || (e2eUrlParam('app_debug') === '1' ? '3' : '100'),
+    10,
+  ),
   GLOBAL_CHATROOM_ID: 'global',
   /** Non-geographic overflow family for Global participants who have no confirmed location. */
   GLOBAL_UNKNOWN_CHATROOM_ID: 'global-unknown',

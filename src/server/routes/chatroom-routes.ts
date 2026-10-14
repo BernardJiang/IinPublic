@@ -1,3 +1,4 @@
+import { isPlaceLive, PlaceCreationConflictError, type PlaceLifecycleRow } from '../../shared/place-lifecycle';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
 import { CONFIG } from '../../shared/config';
 import { randomUUID } from 'crypto';
@@ -170,10 +171,34 @@ export function registerChatroomRoutes(
     }
   };
 
-  app.get('/api/chatrooms', async (_req, res) => {
+  app.get('/api/chatrooms', async (req, res) => {
     try {
-      const chatrooms = await chatroomManager.getAllChatrooms();
-      res.json(chatrooms);
+      // Only live Places are listed (docs/design/nearby-and-place-chatrooms.md §4.2); a creator
+      // passing their own key still sees their expired Place.
+      const creatorPub = typeof req.query.creatorPub === 'string' ? req.query.creatorPub : '';
+      const nowMs = Date.now();
+      const listed = (room: unknown): boolean => {
+        if (!room || typeof room !== 'object') return false;
+        const row = room as PlaceLifecycleRow;
+        if (!isPlaceRoomId(String(row.id || ''))) return true;
+        return isPlaceLive(row, nowMs) || (!!creatorPub && row.creatorPub === creatorPub);
+      };
+      const chatrooms = (await chatroomManager.getAllChatrooms()).filter(listed);
+      // An embedded node also lists the hub's Places, so a phone sees rooms other people created.
+      let remote: unknown[] = [];
+      if (hubRelayClient?.listChatrooms) {
+        try {
+          remote = (await hubRelayClient.listChatrooms(creatorPub || undefined)).filter(listed);
+        } catch {
+          remote = [];
+        }
+      }
+      const byId = new Map<string, unknown>();
+      for (const room of [...chatrooms, ...remote]) {
+        const id = room && typeof room === 'object' ? String((room as { id?: unknown }).id || '') : '';
+        if (id && !byId.has(id)) byId.set(id, room);
+      }
+      res.json(remote.length > 0 ? Array.from(byId.values()) : chatrooms);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -266,9 +291,28 @@ export function registerChatroomRoutes(
       if (businessInfo != null) createPayload.businessInfo = businessInfo;
       if (location != null) createPayload.location = location;
       if (descriptor != null) createPayload.descriptor = descriptor;
+      // An embedded node publishes at the hub first (the hub verifies the signed descriptor), so
+      // the room is never left existing only on this phone.
+      if (hubRelayClient?.publishChatroom) {
+        let upstream: { status: number; body: unknown };
+        try {
+          upstream = await hubRelayClient.publishChatroom(req.body);
+        } catch {
+          res.status(503).json({ error: 'could not reach the network to publish the room; try again' });
+          return;
+        }
+        if (upstream.status < 200 || upstream.status >= 300) {
+          res.status(upstream.status).json(upstream.body);
+          return;
+        }
+      }
       const created = await chatroomManager.createChatroom(createPayload);
       res.status(201).json(created);
     } catch (error) {
+      if (error instanceof PlaceCreationConflictError) {
+        res.status(409).json({ error: error.conflict.code, ...error.conflict });
+        return;
+      }
       res.status(400).json({ error: (error as Error).message });
     }
   });
