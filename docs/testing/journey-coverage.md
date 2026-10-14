@@ -53,13 +53,13 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-ROOM-02 | A full room splits, people move down, and come back up when it thins | ✅ `stage4/08`–`14` | — | ✅ `native-app/31` |
 | J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | — | — |
 | **Places** | | | | |
-| J-PLACE-01 | Create a Place; the creator stands in it | ✅ `stage1/54-place-creation-rules` | ✅ `phone-path/01` | ⏳ `native-app/33` |
-| J-PLACE-02 | The hub has the Place and lists it as a room with people | — | ✅ `phone-path/01` | ⏳ `native-app/33` |
-| J-PLACE-03 | Another user (another phone) finds it in their list and enters | — | ✅ `phone-path/01` | ⏳ `native-app/33` |
-| J-PLACE-04 | Both see each other in the Place | — | ✅ `phone-path/01` | ⏳ `native-app/33` |
-| J-PLACE-05 | Everyone leaves; the empty Place is still listed for others | ◐ `stage1/54` (creator only) | ✅ `phone-path/01` | ⏳ `native-app/33` |
+| J-PLACE-01 | Create a Place; the creator stands in it | ✅ `stage1/54-place-creation-rules` | ✅ `phone-path/01` | ✅ `native-app/33` |
+| J-PLACE-02 | The hub has the Place and lists it as a room with people | — | ✅ `phone-path/01` | ✅ `native-app/33` |
+| J-PLACE-03 | Another user (another phone) finds it in their list and enters | — | ✅ `phone-path/01` | ✅ `native-app/33` |
+| J-PLACE-04 | Both see each other in the Place | — | ✅ `phone-path/01` | ✅ `native-app/33` |
+| J-PLACE-05 | Everyone leaves; the empty Place is still listed for others | ◐ `stage1/54` (creator only) | ✅ `phone-path/01` | ✅ `native-app/33` |
 | J-PLACE-06 | A plain web user sees a Place made on a phone | — | ✅ `phone-path/01` | — |
-| J-PLACE-07 | An empty Place can be entered again | ◐ `stage1/54` | ✅ `phone-path/01` | ⏳ `native-app/33` |
+| J-PLACE-07 | An empty Place can be entered again | ◐ `stage1/54` | ✅ `phone-path/01` | ✅ `native-app/33` |
 | J-PLACE-08 | Refusals: too few contacts, one live Place per person | ✅ `stage1/54` | — | — |
 | J-PLACE-09 | Refusals: same name in the cell, cell full | ◐ unit + integration only | — | — |
 | J-PLACE-10 | Hub unreachable while creating → clear error, nothing kept locally | ◐ integration only | — | — |
@@ -85,7 +85,6 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 2. **J-TALK-04/05 and J-ROOM-03 on the phone path.** Mismatch, block and leave are where two
    people's views must agree.
 3. **J-START-02/04 on the phone path.** Restarting the phone node with the same data dir.
-4. **Run `native-app/33` on two phones** with the next debug build (see below).
 
 ## Rules for new tests
 
@@ -152,6 +151,9 @@ What was slow, and what fixed it:
 - Every join and leave read-modify-wrote `chatrooms/<id>/headcount`, which nothing reads (~2.5 s).
 - A room move waited for the leave's server DELETE; it now runs in the background, and a later
   reserve or join of the same room waits for it.
+
+On two real phones (P30 + PH-1, 1.0.150, LAN test hub, `native-app/33`): create → inside 9.1 s,
+enter 6.1 s, return home 2.2 s, re-enter the empty Place 8.2 s.
 
 The journeys allow 60 s per move so they test correctness; the timings are recorded on every run
 so a regression shows up as a number.

@@ -72,19 +72,22 @@ test.describe('Native app: Android authoritative Talk commit', () => {
 
     const title = `android-authoritative-${ANDROID_SERIAL}-${Date.now()}`;
     const created = await createTagTalkViaEditor(user.window, { title, timeoutMs: 90_000 });
+    // Talks are stored SEA-encrypted in the owner's private space at `talks/<id>`
+    // (GunTalkRepository.authoredSoul, since 627e04ab), not the old public `users/<pub>/talks/<id>`.
     const record = await user.window.evaluate(async (talkId) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       const ownerSeaPub = String(app?.gunService?.getStoredPair?.()?.pub || '');
       if (!ownerSeaPub) throw new Error('No SEA public key for repository verification');
-      const soul = `users/${encodeURIComponent(ownerSeaPub)}/talks/${encodeURIComponent(talkId)}`;
-      const raw = await app.gunService.get(soul);
+      const raw = await app.gunService.getPrivate(`talks/${encodeURIComponent(talkId)}`);
       return {
         version: raw?.version,
+        role: raw?.role,
+        ownerMatches: raw?.ownerSeaPub === ownerSeaPub,
         talkId: raw?.talkId,
         parsedTalkId: raw?.talkJson ? JSON.parse(raw.talkJson)?.id : '',
       };
     }, created.talkId);
 
-    expect(record).toEqual({ version: 1, talkId: created.talkId, parsedTalkId: created.talkId });
+    expect(record).toEqual({ version: 2, role: 'authored', ownerMatches: true, talkId: created.talkId, parsedTalkId: created.talkId });
   });
 });

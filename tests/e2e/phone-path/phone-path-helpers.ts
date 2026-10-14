@@ -96,8 +96,8 @@ export async function openRoomList(page: Page): Promise<void> {
   const back = page.locator('#back-to-chatrooms');
   if (await back.isVisible().catch(() => false)) await back.click();
   const listBtn = page.locator('#chatroom-list-view-btn');
-  if (await listBtn.isVisible().catch(() => false) && (await listBtn.getAttribute('aria-pressed')) !== 'true') {
-    await listBtn.click();
+  if ((await listBtn.count()) > 0 && (await listBtn.getAttribute('aria-pressed')) !== 'true') {
+    await clickAppBarAction(page, '#chatroom-list-view-btn');
   }
   await expect(page.locator('#chatroom-list')).toBeVisible();
 }
@@ -117,9 +117,20 @@ function recordTiming(what: string, startedAt: number): void {
 }
 
 /** Create a Place through the New Room dialog and wait until the creator stands in it. */
+/** Click an app-bar action. On a phone-width screen the bar moves lower-priority actions (New
+ *  Room, Return Home) into the "…" overflow panel, so open it first when the button is hidden. */
+export async function clickAppBarAction(page: Page, selector: string): Promise<void> {
+  const button = page.locator(selector);
+  if (!(await button.isVisible().catch(() => false))) {
+    await page.locator('#app-bar-overflow-btn').click();
+    await expect(page.locator('#app-bar-overflow-panel')).toHaveClass(/\bopen\b/);
+  }
+  await button.click();
+}
+
 export async function createPlace(page: Page, name: string): Promise<string> {
   await page.locator('.nav-btn[data-view="chatrooms"]').click();
-  await page.locator('#create-custom-chatroom-btn').click();
+  await clickAppBarAction(page, '#create-custom-chatroom-btn');
   await page.locator('[data-testid="custom-room-name-input"]').fill(name);
   const startedAt = Date.now();
   await page.locator('[data-testid="custom-room-submit-btn"]').click();
@@ -156,7 +167,7 @@ export async function returnHome(page: Page): Promise<void> {
   const back = page.locator('#back-to-chatrooms');
   if (await back.isVisible().catch(() => false)) await back.click();
   const startedAt = Date.now();
-  await page.locator('#return-home-btn').click();
+  await clickAppBarAction(page, '#return-home-btn');
   await expect.poll(() => currentRoomId(page), { timeout: ROOM_MOVE_TIMEOUT_MS }).not.toMatch(/^place_/);
   recordTiming('return home', startedAt);
 }

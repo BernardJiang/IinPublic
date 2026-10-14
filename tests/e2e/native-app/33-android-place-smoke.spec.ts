@@ -70,11 +70,17 @@ async function waitForHub(): Promise<void> {
  *  contact minimum lifted (a fresh install has no contacts; the gate has its own spec). */
 async function prepare(user: AndroidUser, label: string): Promise<void> {
   await bootstrapNativeWindow(user.window, label, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000, pinStableLocation: false });
-  await user.window.evaluate(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('e2e_place_min_contacts', '0');
-    window.location.replace(url.toString());
-  });
+  // Wait for the reload itself before probing the page: a probe during the navigation throws
+  // "Execution context was destroyed", which ends the poll instead of retrying it.
+  await Promise.all([
+    user.window.waitForURL(/e2e_place_min_contacts=0/, { timeout: 60_000 }),
+    user.window.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('e2e_place_min_contacts', '0');
+      window.location.replace(url.toString());
+    }).catch(() => undefined),
+  ]);
+  await user.window.waitForLoadState('domcontentloaded');
   await waitForAppReady(user.window, 150_000);
   await user.window.evaluate(async (location) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
