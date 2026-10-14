@@ -3,7 +3,7 @@
 covers: SPEC-3.3, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 **File:** 00l-chatroom-talks-ui-regressions.spec.ts  
-**Features tested:** Five regression tests protecting chatroom headcount updates as members come and go, first-screen hydration of existing headcounts, talks row states (new/copied/broadcast toggle), auto-copy toggle behavior, and ignored-talk non-copying.
+**Features tested:** Five regression tests protecting chatroom headcount updates as members come and go, first-screen hydration of existing headcounts, talks row states (new/copied/broadcast toggle), copy-by-choice (📋) behavior, and ignored-talk non-copying.
 
 ---
 
@@ -18,10 +18,10 @@ Tom and Jerry share the automatic Nearby room; Tom's current-room row shows 2 (N
 Bob logs in as the third user and lands directly on the Chatrooms list. His current Nearby row should show headcount "3" *before* he clicks it (TechSupport is not counted). After opening the room, the status bar confirms "3 members total". Proves presence data is loaded on first render without requiring a manual refresh.
 
 ### Test 3 — Talks Rows Show States Without Redundant Controls
-Jerry receives Tom's broadcast → incoming row has `talk-incoming-new` class. Jerry answers with match path → copied OUT row appears with `talk-broadcast-enabled` class and toggle shows "Broadcast On". No redundant edit badge in the row. Long-press on toggle flips to "Broadcast Off" (disabled class), back again to "On". Clicking the row opens editor modal (cancelable).
+Jerry receives Tom's broadcast → incoming row has `talk-incoming-new` class. Jerry taps the row's 📋 toggle, then answers with match path → copied OUT row appears with `talk-broadcast-enabled` class and toggle shows "Broadcast On". No redundant edit badge in the row. Long-press on toggle flips to "Broadcast Off" (disabled class), back again to "On". Clicking the row opens editor modal (cancelable).
 
-### Test 4 — Auto-Copy Toggle Controls Durably
-Jerry has auto-copy disabled, answers "match" for talk A → role = "answered", no copy to OUT. Jerry enables auto-copy in Settings, answers "match" for talk B → talk B appears as `data-role="copied"` in OUT list, talk A still absent from copied list (past behavior unchanged). Both talks appear in answer history.
+### Test 4 — Flow Talks Are Copied Only By Choice
+Auto-save stays on (it only applies to tags). Jerry answers "match" for Flow talk A → role = "answered", no copy in OUT. On talk B's incoming row Jerry taps 📋 → copied (✓); taps again → the copy is dropped; taps again and answers → talk B is `data-role="copied"` in OUT, talk A still absent. Both talks appear in answer history.
 
 ### Test 5 — Ignored Talks Don't Copy
 Jerry ignores a talk using an ignore answer → NOT copied to OUT list. In Me/Answers tab, the title appears but WITHOUT the edit-talk button (only creators can edit).

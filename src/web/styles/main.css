@@ -2037,6 +2037,28 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   opacity: 1;
 }
 
+.list-pin-button.talk-copy-button.is-copied {
+  position: relative;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  opacity: 1;
+}
+
+.list-pin-button.talk-copy-button.is-copied::after {
+  content: '✓';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--success);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
 .answer-question-item {
   position: relative;
 }

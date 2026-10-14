@@ -30,6 +30,7 @@ Only then do all four join the shared Nearby room, turn on the chatbot (auto-rep
 - ✅ Bob has no conversations at all; Alice has no conversations at all.
 - ✅ All of the above happens without a single manual click on an answer/response — the chatbot resolves everything from creation-time self-answers.
 - ✅ Two buyers with byte-identical criteria text never match each other, even though the old (pre-role) matching mechanism would have matched them.
+- ✅ Neither buyer ends up in a conversation with any buyer — including Adam from Test 1, whose page is still in the room (OPEN-55). Adam answered Eve's sell talk; if that answer had been auto-saved as a broadcastable copy, Adam would re-announce the sell talk under his own id, the buyers would "match" him, and then pass it on to each other. Matching Eve herself is fine.
 
 > **Why this matters:** Exercises the chatbot's exact-question-text memory (`src/shared/exact-chatbot-memory.ts`) across four independently-authored talks with no prior contact between any of the users — a scenario existing chatbot specs don't cover, since they all reuse the same talk re-announced to a second user rather than two textually-mirrored but separately-authored talks. Test 2 specifically guards against text-only matching silently pairing up two people on the *same* side of a deal.
 

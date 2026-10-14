@@ -1,4 +1,4 @@
-import { quickIgnoreIncomingTalk, quickCopyIncomingTalk } from '../../web/ui/quick-incoming-talk-actions';
+import { quickIgnoreIncomingTalk, quickCopyIncomingTalk, uncopyIncomingTalk } from '../../web/ui/quick-incoming-talk-actions';
 
 const t = (key: string): string => key;
 
@@ -158,5 +158,36 @@ describe('quickCopyIncomingTalk', () => {
     callback(null);
     expect(d.showNotification).toHaveBeenCalledWith('talksCouldNotLoad', 'error');
     expect(d.saveMyTalk).not.toHaveBeenCalled();
+  });
+});
+
+describe('uncopyIncomingTalk', () => {
+  const deps = () => ({ showNotification: jest.fn(), t, refreshTalksList: jest.fn() });
+  const stored = () => JSON.parse(localStorage.getItem('myTalks') || '{}');
+  beforeEach(() => localStorage.clear());
+
+  it('turns an answered copy back into answered history, keeping its answers', () => {
+    localStorage.setItem('myTalks', JSON.stringify({ t1: { talkId: 't1', role: 'copied', completedAnswers: [{ questionId: 'q1', answerId: 'yes' }] } }));
+    const d = deps();
+    uncopyIncomingTalk('t1', d);
+    expect(stored().t1.role).toBe('answered');
+    expect(stored().t1.completedAnswers).toHaveLength(1);
+    expect(d.refreshTalksList).toHaveBeenCalled();
+  });
+
+  it('drops a copy made before answering', () => {
+    localStorage.setItem('myTalks', JSON.stringify({ t1: { talkId: 't1', role: 'copied' } }));
+    uncopyIncomingTalk('t1', deps());
+    expect(stored()).toEqual({});
+  });
+
+  it('leaves created and answered rows alone', () => {
+    for (const role of ['created', 'answered']) {
+      localStorage.setItem('myTalks', JSON.stringify({ t1: { talkId: 't1', role } }));
+      const d = deps();
+      uncopyIncomingTalk('t1', d);
+      expect(stored().t1.role).toBe(role);
+      expect(d.refreshTalksList).not.toHaveBeenCalled();
+    }
   });
 });

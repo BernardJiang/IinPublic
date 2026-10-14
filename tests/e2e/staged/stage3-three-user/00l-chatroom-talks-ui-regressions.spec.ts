@@ -21,7 +21,6 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
-import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 
 async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   return page.evaluate((needle) => {
@@ -190,6 +189,9 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     const incomingCopied = pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: copiedTitle }).first();
     await expect(incomingCopied).toBeVisible({ timeout: 30_000 });
     await expect(incomingCopied).toHaveClass(/talk-incoming-new/);
+    // A Flow talk is copied only by choice: the row's 📋 toggle.
+    await incomingCopied.locator('[data-testid="talk-copy-toggle"]').click();
+    await expect(incomingCopied.locator('[data-testid="talk-copy-toggle"]')).toHaveAttribute('aria-pressed', 'true');
 
     await openIncomingTalkModal(pageJerry, copiedTitle);
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes copy me"][data-mode="manual"]').first().click();
@@ -230,9 +232,9 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await pageJerry.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
   });
 
-  test('auto-copy toggle changes durable state for talks received from another user', async () => {
-    const disabledTitle = 'Delivered Auto Copy Disabled';
-    const enabledTitle = 'Delivered Auto Copy Enabled';
+  test('answering a Flow talk never copies it; the row 📋 toggle does, and undoes it', async () => {
+    const answeredTitle = 'Delivered Flow Answered Only';
+    const copiedTitle = 'Delivered Flow Copied By Choice';
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Auto Copy Sender');
     contextTom = tom.context;
@@ -240,57 +242,56 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Auto Copy Receiver');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
+    // Auto-save stays on (its default): it only ever applies to tags.
+    expect(await pageJerry.evaluate(() => localStorage.getItem('copyTalkAutoSave'))).not.toBe('false');
 
-    await pageJerry.click('.nav-btn[data-view="settings"]');
-    await afterSync();
-    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
-    await pageJerry.locator('#settings-copy-talk-autosave').uncheck();
-    await expect.poll(() => pageJerry!.evaluate(() => localStorage.getItem('copyTalkAutoSave'))).toBe('false');
-
-    await createSimpleFlowTalk(pageTom, disabledTitle, 'Match without copy', 'Skip without copy', {
+    await createSimpleFlowTalk(pageTom, answeredTitle, 'Match without copy', 'Skip without copy', {
       sendToChatroom: false,
     });
-    await createSimpleFlowTalk(pageTom, enabledTitle, 'Match with copy', 'Skip with copy', { sendToChatroom: false });
+    await createSimpleFlowTalk(pageTom, copiedTitle, 'Match with copy', 'Skip with copy', { sendToChatroom: false });
     await broadcastFromChatroom(pageTom, 2);
 
-    await openIncomingTalkModal(pageJerry, disabledTitle);
+    const roleOf = (title: string) => pageJerry!.evaluate((t) => {
+      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      return (Object.values(talks).find((talk: any) => talk?.title === t) as any)?.role || '';
+    }, title);
+
+    await openIncomingTalkModal(pageJerry, answeredTitle);
     await pageJerry.locator('input.choice-radio[data-answer-text="Match without copy"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
-    expect(
-      await pageJerry.evaluate((title) => {
-        const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-        return Object.values(talks).find((talk: any) => talk?.title === title)?.role || '';
-      }, disabledTitle),
-    ).toBe('answered');
+    expect(await roleOf(answeredTitle)).toBe('answered');
 
-    await pageJerry.click('.nav-btn[data-view="settings"]');
-    await afterSync();
-    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
-    await pageJerry.locator('#settings-copy-talk-autosave').check();
-    await expect.poll(() => pageJerry!.evaluate(() => localStorage.getItem('copyTalkAutoSave'))).toBe('true');
+    await pageJerry.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(pageJerry, 'talks');
+    const incomingCopy = pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: copiedTitle }).first();
+    await expect(incomingCopy).toBeVisible({ timeout: 30_000 });
+    const toggle = incomingCopy.locator('[data-testid="talk-copy-toggle"]');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(await roleOf(copiedTitle)).toBe('copied');
+    // Undo before answering drops the copy; copying again and answering keeps it.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(await roleOf(copiedTitle)).toBe('');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
-    await openIncomingTalkModal(pageJerry, enabledTitle);
+    await openIncomingTalkModal(pageJerry, copiedTitle);
     await pageJerry.locator('input.choice-radio[data-answer-text="Match with copy"][data-mode="manual"]').first().click();
     await waitForResponseModalClosed(pageJerry);
     await afterSync();
 
     await pageJerry.locator('#talks-filter-incoming').uncheck();
     await afterSync();
-    await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: disabledTitle })).toHaveCount(0);
-    await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: enabledTitle })).toBeVisible({
+    await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: answeredTitle })).toHaveCount(0);
+    await expect(pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: copiedTitle })).toBeVisible({
       timeout: 30_000,
     });
-    const storedOutcome = await pageJerry.evaluate((titles) => {
-      const talks = Object.values(JSON.parse(localStorage.getItem('myTalks') || '{}')) as any[];
-      const history = Object.values(JSON.parse(localStorage.getItem('myAnswerHistory') || '{}')) as any[];
-      return {
-        enabledRole: talks.find((talk) => talk?.title === titles.enabled)?.role || '',
-        historyTitles: history.map((record) => record?.title || ''),
-      };
-    }, { disabled: disabledTitle, enabled: enabledTitle });
-    expect(storedOutcome.enabledRole).toBe('copied');
-    expect(storedOutcome.historyTitles).toEqual(expect.arrayContaining([disabledTitle, enabledTitle]));
+    expect(await roleOf(copiedTitle)).toBe('copied');
+    const historyTitles = await pageJerry.evaluate(() =>
+      (Object.values(JSON.parse(localStorage.getItem('myAnswerHistory') || '{}')) as any[]).map((record) => record?.title || ''));
+    expect(historyTitles).toEqual(expect.arrayContaining([answeredTitle, copiedTitle]));
   });
 
   // Since 8c89d9d4 only the dedicated Ignore gesture (swipe; covered by stage1/83) marks a talk

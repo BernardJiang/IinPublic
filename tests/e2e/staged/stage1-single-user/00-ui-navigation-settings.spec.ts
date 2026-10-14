@@ -842,7 +842,7 @@ test.describe('UI navigation and settings shell', () => {
       .toEqual({ description, headline });
   });
 
-  test('auto-copy keeps answered talks in OUT and stores flat answer history', async () => {
+  test('answering stores flat history; auto-save copies only accepted tags into OUT', async () => {
     const p = page!;
 
     await p.locator('.nav-btn[data-view="settings"]').click();
@@ -884,7 +884,8 @@ test.describe('UI navigation and settings shell', () => {
       };
     });
 
-    expect(result.role).toBe('copied');
+    // Auto-save is on, but a Flow talk is copied only by the user's choice (row 📋, OPEN-55).
+    expect(result.role).toBe('answered');
     expect(result.outTitle).toBe('Flat History Incoming Talk');
     expect(result.historyCount).toBe(1);
     expect(result.record.title).toBe('Flat History Incoming Talk');
@@ -901,38 +902,37 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
-    await expect(p.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'Flat History Incoming Talk' })).toBeVisible();
+    await expect(p.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'Flat History Incoming Talk' })).toHaveCount(0);
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
     await expect(p.locator('#answers-content')).toContainText('Preferred campus food?');
     await expect(p.locator('#answers-content')).toContainText('Tacos');
 
+    const answerTag = (id: string, title: string) => p.evaluate(({ talkId, talkTitle }) => {
+      const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
+      const talk = {
+        id: talkId,
+        title: talkTitle,
+        type: 'tag',
+        authorId: 'sender-tag',
+        questions: [{ id: 'q2', text: talkTitle, answers: [{ id: 'a2', text: talkTitle, isMatch: true }] }],
+      };
+      ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: talkTitle, mode: 'manual' }], 'match');
+      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      return {
+        copiedRole: myTalks[talkId]?.role,
+        historyTitles: Object.values(history).map((record: any) => record.title),
+      };
+    }, { talkId: id, talkTitle: title });
+    expect((await answerTag('incoming_tag_copy_1', 'hiking')).copiedRole).toBe('copied');
+
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
     await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-copy-talk-autosave').uncheck();
-    const disabledCopyResult = await p.evaluate(() => {
-      const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
-      const talk = {
-        id: 'incoming_no_copy_2',
-        title: 'History Only Incoming Talk',
-        type: 'flow',
-        authorId: 'sender-history-only',
-        questions: [{
-          id: 'q2',
-          text: 'Keep in history only?',
-          answers: [{ id: 'a2', text: 'Yes', isMatch: true }],
-        }],
-      };
-      ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: 'Yes', mode: 'manual' }], 'match');
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
-      return {
-        copiedRole: myTalks.incoming_no_copy_2?.role,
-        historyTitles: Object.values(history).map((record: any) => record.title),
-      };
-    });
+    const disabledCopyResult = await answerTag('incoming_no_copy_2', 'History Only Incoming Talk');
     expect(disabledCopyResult.copiedRole).toBe('answered');
     expect(disabledCopyResult.historyTitles).toContain('History Only Incoming Talk');
     await p.locator('.nav-btn[data-view="talks"]').click();

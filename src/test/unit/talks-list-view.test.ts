@@ -190,7 +190,7 @@ describe('displayTalksList', () => {
     expect(row?.querySelector('.talk-add-to-my-talks-btn')).toBeNull();
   });
 
-  it('retains an auto-saved copied talk in Answered incoming history', () => {
+  it('retains a copied answered talk in Answered incoming history', () => {
     localStorage.setItem('myTalks', JSON.stringify({
       copied: {
         talkId: 'copied', title: 'Answered and auto-saved', type: 'flow', role: 'copied',
@@ -364,5 +364,50 @@ describe('displayTalksList', () => {
 
     expect(document.querySelectorAll('.talk-list-item[data-role="incoming"]')).toHaveLength(3);
     expect(document.querySelector('.talk-add-to-my-talks-btn')).toBeNull();
+  });
+
+  it('copies an incoming Flow talk from the row 📋 toggle without opening it', () => {
+    installTalksDom();
+    const quickCopyIncomingTalk = jest.fn();
+    const showTalkDetail = jest.fn();
+    renderFresh(makeDeps({
+      quickCopyIncomingTalk,
+      showTalkDetail,
+      incomingTalkClusters: [{
+        identityKey: 'qa_flow_one', latestTalkId: 'incoming-flow', title: 'Sell notebook', type: 'flow',
+        language: 'en', latestTalk: { id: 'incoming-flow', title: 'Sell notebook', type: 'flow', questions: [] },
+        senders: { sender: { senderId: 'sender', senderName: 'Alice' } }, updatedAt: '2026-09-12T00:00:00.000Z',
+      }],
+    }));
+
+    const toggle = document.querySelector<HTMLButtonElement>('[data-testid="talk-copy-toggle"]');
+    expect(toggle?.getAttribute('aria-pressed')).toBe('false');
+    expect(toggle?.title).toBe('talksCopyToMyTalks');
+    toggle?.click();
+    expect(quickCopyIncomingTalk).toHaveBeenCalledWith('incoming-flow', 'qa_flow_one');
+    expect(showTalkDetail).not.toHaveBeenCalled();
+  });
+
+  it('shows ✓ on a copied answered talk and un-copies it from the same toggle', () => {
+    localStorage.setItem('myTalks', JSON.stringify({
+      copied: {
+        talkId: 'copied', title: 'Answered and copied', type: 'flow', role: 'copied',
+        lastInteraction: '2026-09-12T00:00:00.000Z', senders: ['alice'], outcome: 'match',
+        completedAnswers: [{ questionId: 'q1', answerId: 'yes' }],
+        fullTalk: { id: 'copied', title: 'Answered and copied', type: 'flow', authorId: 'alice', questions: [] },
+      },
+    }));
+    installTalksDom();
+    const showNotification = jest.fn();
+    renderFresh(makeDeps({ talksCompletionFilter: 'answered', showNotification }));
+
+    const toggleSelector = '.talk-list-item[data-role="incoming"] [data-testid="talk-copy-toggle"]';
+    const toggle = document.querySelector<HTMLButtonElement>(toggleSelector);
+    expect(toggle?.classList.contains('is-copied')).toBe(true);
+    expect(toggle?.getAttribute('aria-pressed')).toBe('true');
+    toggle?.click();
+    expect(JSON.parse(localStorage.getItem('myTalks') || '{}').copied.role).toBe('answered');
+    expect(showNotification).toHaveBeenCalledWith('talksRemovedFromList', 'success');
+    expect(document.querySelector(toggleSelector)?.getAttribute('aria-pressed')).toBe('false');
   });
 });

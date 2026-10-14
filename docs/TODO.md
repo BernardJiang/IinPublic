@@ -666,11 +666,31 @@ phrase complexity into normal use.
   Same rate with and without the OPEN-53 change (2 of 4 runs alone on the unchanged tree): with Tom
   capped at one neighbor, Jerry or Bob never sees the relayed ping. Like spec 06, it probably sends
   before the single link is manifest-ready; check that first.
-- [ ] **OPEN-55 — Dealmaker Pair-tag veto test fails intermittently after the positive test (found 2026-10-13).**
-  `stage4/04-dealmaker-chatbot-match` "byte-identical criteria do NOT match" saw two 'buy' talks match
-  in two full runs and once when run right after the positive test in the same file; it passes on its
-  own. Check whether chatbot memory or a match from the positive test leaks into the second pair
-  before trusting the veto.
+- [ ] **OPEN-57 — `stage2/82-copy-then-edit-transfers-authorship` fails when run on its own (found 2026-10-13).**
+  After Tom drag-copies the incoming talk, clicking its title never opens `#talk-response-modal`
+  (25 s timeout, line 119). Same failure on `65c3cab5`, so it predates the OPEN-53/55 work; not yet
+  checked whether it also fails inside the stage2 phase of `test:all`.
+- [x] **OPEN-55 — Buyers matched buyers through re-broadcast copies (found 2026-10-13, fixed 2026-10-13).**
+  `stage4/04-dealmaker-chatbot-match` "byte-identical criteria do NOT match" sometimes saw the two
+  buyers match. The Pair-tag veto itself was fine. Cause: answering ANY talk auto-saved it as a
+  `copied` row (`copyTalkAutoSave`, default on), copied rows are broadcastable, and a broadcast always
+  carries the broadcaster's id (`PeerMeshService.broadcastTalk`; replies are encrypted to the
+  broadcaster). Test 1's Adam (a buyer, still in the room) had answered Eve's sell talk, so he
+  re-announced it as his own; both buyers' chatbots matched "seller" Adam, copied it in turn, and
+  whichever re-announced first was matched by the other. Every run leaked buyer↔Adam; only the
+  buyer↔buyer hop was intermittent.
+  Fix — product rule (product owner, 2026-10-13): answering auto-copies only a tag talk (tags, or a
+  tag pair with no further questions); every other talk is copied only by the user's choice.
+  - `talk-completion.ts` `autoCopiesOnAnswer`: auto-save applies to `type: 'tag'` only; the Settings
+    label now reads "Keep a copy of tags I accept".
+  - New copy GUI: a 📋 toggle on each incoming/answered non-tag row, styled like 📌 (faded until
+    used; accent ring + green ✓ once copied). Tap copies; tap again un-copies (`uncopyIncomingTalk`:
+    an answered copy goes back to answered history, a copy made before answering is dropped).
+    Drag-down still copies. The old big "Add to My Talks" button stays gone.
+  - Spec 04 now fails on any buyer↔buyer conversation (verified: fails every run without the fix);
+    `00l` test 4 and `00-ui-navigation-settings` cover the new rule and the toggle.
+  Not migrated: non-tag talks already auto-copied on existing devices stay broadcastable until the
+  user un-copies them (📋).
 - [ ] **OPEN-54 — Android with location denied (or never asked) is stuck in "Contacts only" with no way back
   (found 2026-10-12, 1.0.141).** `MainActivity` asks for location once on first launch and never again
   (`location_asked` pref); a denial, or a harness launch with `skip_first_launch_location`, leaves the app
@@ -785,6 +805,20 @@ phrase complexity into normal use.
     `.env.local` and skip without it; both passed (27 on PM1LHMA7A2707315). Remaining for
     production readiness is the user action above: move the recovery private key to cold
     storage.
+  - [x] **Custody tooling (2026-10-13).** `npm run techsupport:recovery -- verify --key <vault>`
+    decrypts a vault offline and confirms it holds a pinned recovery key (only the pub and
+    fingerprint are printed); `custody-check` lists recovery material still on this machine (a
+    `role: recovery` vault or recovery file under `secrets/`, recovery settings in `.env*` files —
+    names only) and exits 1 while any remain. Specs 91 and native 27 can now sign from the cold
+    copy via `TECHSUPPORT_RECOVERY_KEY_FILE` + `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE` set on
+    the command line, so the plaintext `.env.local` pair is no longer needed for them. On
+    2026-10-13 custody-check found 3 items: `secrets/techsupport-recovery.key.json`, its
+    `.passphrase` file next to it, and `TECHSUPPORT_RECOVERY_SEA_PAIR_JSON` in `.env.local`.
+  - [ ] **Move the key to cold storage (product owner, physical step).** Copy the vault to one
+    offline medium and the passphrase to a different one (paper or a second drive); run `verify
+    --key` against the copy; delete the three local items; `custody-check` must report nothing.
+    Afterwards a drill is: attach the media, `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE=<p> npm run
+    techsupport:recovery -- verify --key <vault>`, detach.
   - [x] **Master-operator recovery banner (2026-09-27).** `techsupport-recovery-banner-view.ts`
     renders a warning banner (reason, issued date, revoked-key count) at the top of the master's
     own Settings, above the Delegates section — only for a session logged in as

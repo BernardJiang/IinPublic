@@ -5,6 +5,7 @@ import { getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
 import { getMyTalks } from './my-talks-storage';
+import { uncopyIncomingTalk } from './quick-incoming-talk-actions';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderListProgressively } from './render-list-progressively';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
@@ -112,6 +113,13 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     // compact rows deliberately have none of (37/79 specs assert its count is 0). Gesture
     // exclusion for this button goes through `.talk-pin-button` instead (talks-row-gestures.ts).
     return `<button type="button" class="list-pin-button talk-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${escapeHtml(pinKey)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${pinned}">📌</button>`;
+  };
+  // A non-tag talk is copied into My Talks (and so re-broadcast) only by the user's own choice:
+  // this toggle, or dragging the row down. Same look as the pin; ✓ once copied.
+  const copyButtonHtml = (talkId: string, identityKey: string): string => {
+    const copied = myTalks[talkId]?.role === 'copied';
+    const label = deps.t(copied ? 'talksRemoveCopy' : 'talksCopyToMyTalks');
+    return `<button type="button" class="list-pin-button talk-copy-button ${copied ? 'is-copied' : ''}" data-testid="talk-copy-toggle" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${copied}">📋</button>`;
   };
 
   // One-time delegation on body: use mousedown so we run before any re-render can replace the DOM (click fires later and target can be gone)
@@ -639,7 +647,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     `;
               }
               // Row is a single tap target (opens the talk to answer, with the details below
-              // already visible rather than a separate popup). Drag down retains it in My Talks,
+              // already visible rather than a separate popup). 📋 or drag down retains it in My Talks,
               // either horizontal direction ignores this content.
               // Long-press still reaches the exact
               // same .talk-item-details/showDetailsPopupFor content the ℹ️ button used to
@@ -672,6 +680,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           <span class="talk-icon-badge" title="${escapeHtml(deps.formatTalkType(String(cluster?.type || 'flow')))}" aria-hidden="true">📥 ${typeIcon}</span>
           ${chatbotBadge}
           <button type="button" class="talk-item-title view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="${titleStyle}background:none;border:none;padding:0;text-align:left;cursor:pointer;font:inherit;">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
+          ${copyButtonHtml(talkId, identityKey)}
           ${pinButtonHtml(pinKey)}
           <span class="talk-item-chevron" aria-hidden="true">›</span>
         </div>
@@ -781,6 +790,22 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           return;
         }
 
+        const copyButton = target.closest('.talk-copy-button') as HTMLElement | null;
+        if (copyButton) {
+          e.preventDefault();
+          e.stopPropagation();
+          const talkId = copyButton.dataset.talkId || '';
+          if (getMyTalks()[talkId]?.role === 'copied') {
+            uncopyIncomingTalk(talkId, {
+              showNotification: (message, type) => currentDeps.showNotification(message, type),
+              t: currentDeps.t,
+              refreshTalksList: () => displayTalksList(currentDeps),
+            });
+          }
+          else currentDeps.quickCopyIncomingTalk(talkId, copyButton.dataset.identityKey || undefined);
+          return;
+        }
+
         const pinButton = target.closest('.talk-pin-button') as HTMLElement | null;
         if (pinButton) {
           e.preventDefault();
@@ -825,7 +850,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
 
         // Row click opens edit/detail only when not clicking an action button (handled
         // in the mousedown-capture delegation above).
-        if (target.closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
+        if (target.closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-copy-button, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
         const item = target.closest('.talk-list-item') as HTMLElement | null;
         if (!item) return;
         const talkId = item.dataset.talkId || '';

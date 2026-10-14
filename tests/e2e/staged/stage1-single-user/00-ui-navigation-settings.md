@@ -29,7 +29,7 @@ A single-user sweep of the entire app shell, verifying each tab and all settings
 - ✅ Me tab merged into Talks — no separate Answers tab; answer history with mode filters visible
 - ✅ Settings controls full surface area: distance bounds, stage name length, photo MIME validation
 - ✅ UI language switch to Chinese propagates to nav labels, persistently stored in localStorage
-- ✅ Copy-talk autosave toggle controls whether answered talks appear in Talks OUT list
+- ✅ Answering a Flow talk never copies it into Talks OUT; the copy-talk autosave toggle controls whether accepted tags are copied
 - ✅ Legacy profile with string-valued fields tolerated and migrated gracefully
 - ✅ Broadcast repeat-sender guard suppresses unchanged talk re-sends
 
