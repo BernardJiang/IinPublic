@@ -7,6 +7,8 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   clearPrivateFields,
+  findLocalRecoveryMaterial,
+  main,
   normalizeApiBase,
   parseOptions,
   publish,
@@ -162,4 +164,73 @@ test('clearPrivateFields drops both private fields from the short-lived pair obj
   clearPrivateFields(pair);
   assert.equal(pair.priv, '');
   assert.equal(pair.epriv, '');
+});
+
+test('custody-check finds a recovery vault, its passphrase and .env recovery settings, never their values', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-recovery-custody-'));
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    const vault = { format: 'iinpublic-techsupport-key-v1', role: 'recovery', pub: 'p', cipher: { ciphertext: 'secret-bytes' } };
+    fs.writeFileSync(path.join(root, 'secrets', 'techsupport-recovery.key.json'), JSON.stringify(vault));
+    fs.writeFileSync(path.join(root, 'secrets', 'techsupport-recovery.key.passphrase'), 'pass-value');
+    // A DM vault and unrelated secrets are not recovery material.
+    fs.writeFileSync(path.join(root, 'secrets', 'techsupport-master.key.json'), JSON.stringify({ ...vault, role: 'unified' }));
+    fs.writeFileSync(path.join(root, 'secrets', 'android-release.keystore.passphrase'), 'x');
+    fs.writeFileSync(path.join(root, '.env.local'), [
+      'TECHSUPPORT_SEA_PAIR_JSON={"pub":"dm"}',
+      'export TECHSUPPORT_RECOVERY_SEA_PAIR_JSON={"priv":"recovery-private"}',
+      '# TECHSUPPORT_RECOVERY_KEY_PASSPHRASE=commented-out',
+      'TECHSUPPORT_RECOVERY_KEY_PASSPHRASE=',
+    ].join('\n'));
+
+    const findings = findLocalRecoveryMaterial(root);
+    assert.deepEqual(findings.map((finding) => finding.location), [
+      path.join('secrets', 'techsupport-recovery.key.json'),
+      path.join('secrets', 'techsupport-recovery.key.passphrase'),
+      '.env.local: TECHSUPPORT_RECOVERY_SEA_PAIR_JSON',
+    ]);
+    const printed = JSON.stringify(findings);
+    for (const value of ['secret-bytes', 'pass-value', 'recovery-private']) assert.equal(printed.includes(value), false);
+  } finally {
+    fs.rmSync(root, { recursive: true });
+  }
+});
+
+test('custody-check reports a clean machine and leaves the exit code alone', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-recovery-custody-'));
+  const previousExitCode = process.exitCode;
+  try {
+    assert.deepEqual(await main(['custody-check'], { root }), []);
+    assert.equal(process.exitCode, previousExitCode);
+  } finally {
+    fs.rmSync(root, { recursive: true });
+  }
+});
+
+test('verify accepts only a pinned recovery key and wipes the private fields either way', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-recovery-verify-'));
+  const keyFile = path.join(root, 'vault.json');
+  fs.writeFileSync(keyFile, JSON.stringify({
+    format: 'iinpublic-techsupport-key-v1', version: 1, role: 'recovery', pub: 'pinned', epub: 'e', createdAt: '2026-10-13T00:00:00.000Z',
+    kdf: { name: 'scrypt', N: 32768, r: 8, p: 1, keyLength: 32, salt: 'c2FsdA==' },
+    cipher: { name: 'aes-256-gcm', iv: 'aXY=', tag: 'dGFn', ciphertext: 'Y3Q=' },
+  }), { mode: 0o600 });
+  const techsupport = {
+    currentTechSupportRecoveryPub: () => 'pinned',
+    isTrustedTechSupportRecoveryPub: (pub) => pub === 'pinned',
+  };
+  const modules = { techsupport, recovery: {} };
+  try {
+    const good = { pub: 'pinned', epub: 'e', priv: 'private', epriv: 'eprivate' };
+    const result = await main(['verify', '--key', keyFile], { modules, pair: good });
+    assert.equal(result.pub, 'pinned');
+    assert.equal(good.priv, '');
+    assert.equal(good.epriv, '');
+
+    const stranger = { pub: 'other', epub: 'e', priv: 'private', epriv: 'eprivate' };
+    await assert.rejects(main(['verify', '--key', keyFile], { modules, pair: stranger }), /not a trusted recovery anchor/);
+    assert.equal(stranger.priv, '');
+  } finally {
+    fs.rmSync(root, { recursive: true });
+  }
 });

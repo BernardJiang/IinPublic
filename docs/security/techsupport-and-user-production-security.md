@@ -176,9 +176,9 @@ purpose and lifetime, and retaining traceability:
   threshold), a signed revocation/next-anchor record (`RecoveryAnchorRecord`) every client
   verifies independently of the DM/announcement anchors, and `npm run techsupport:recovery` to
   publish one during an incident. Still needs: the generated key's private half moved off this
-  dev machine to genuine offline/cold storage before relying on it, and a real (non-dry-run) HTTP
-  publish proven against a real deployment — see `docs/TODO.md`'s OPEN-29 entry for exactly
-  what's verified versus outstanding.
+  dev machine to genuine offline/cold storage before relying on it — `techsupport:recovery --
+  verify --key <copy>` checks the cold copy, and `custody-check` stays red until no recovery
+  material is left on the machine (procedure in `docs/TODO.md`'s OPEN-29 entry).
 - ~~Tighten CSP, remove `unsafe-eval` where feasible~~ — done (OPEN-30): CSP's `scriptSrc` no
   longer allows `unsafe-eval` anywhere (verified against the current dependency set, including a
   live MapLibre GL map-view render under the tightened policy).

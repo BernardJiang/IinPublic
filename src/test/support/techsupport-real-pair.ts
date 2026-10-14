@@ -1,4 +1,5 @@
 import type { TechSupportSeaPair } from '../../shared/techsupport';
+import { loadTechSupportPairSync } from '../../server/security/techsupport-key-custody';
 
 /**
  * Loads the real TechSupport signing key from this machine's own `.env.local`
@@ -46,11 +47,24 @@ export function describeWithRealTechSupportPair(
 }
 
 /**
- * OPEN-29: the recovery authority's own key, loaded from a SEPARATE `.env.local` setting
- * (`TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`) — deliberately never the same variable as the DM key's,
- * matching the real deployment's genuinely separate offline custody for this key.
+ * OPEN-29: the recovery authority's own key, loaded from a SEPARATE setting — deliberately never
+ * the same variable as the DM key's, matching the real deployment's genuinely separate offline
+ * custody for this key. Preferred: `TECHSUPPORT_RECOVERY_KEY_FILE` naming the encrypted vault on
+ * attached cold storage, unlocked with `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE` (or
+ * `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE`) — set them on the command line for a drill, never in
+ * `.env.local`. Legacy: the plaintext `TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`.
  */
 export function loadRealTechSupportRecoveryPair(): TechSupportSeaPair | null {
+  const keyFile = process.env.TECHSUPPORT_RECOVERY_KEY_FILE;
+  if (keyFile) {
+    return loadTechSupportPairSync({
+      keyFile,
+      env: {
+        TECHSUPPORT_KEY_PASSPHRASE_FILE: process.env.TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE,
+        TECHSUPPORT_KEY_PASSPHRASE: process.env.TECHSUPPORT_RECOVERY_KEY_PASSPHRASE,
+      },
+    }) as TechSupportSeaPair;
+  }
   const raw = process.env.TECHSUPPORT_RECOVERY_SEA_PAIR_JSON;
   if (!raw) return null;
   try {
@@ -69,7 +83,7 @@ export function describeWithRealTechSupportRecoveryPair(
 ): void {
   const pair = loadRealTechSupportRecoveryPair();
   if (!pair) {
-    describe.skip(`${name} (skipped: no TECHSUPPORT_RECOVERY_SEA_PAIR_JSON in .env.local)`, () => {
+    describe.skip(`${name} (skipped: no TECHSUPPORT_RECOVERY_KEY_FILE or TECHSUPPORT_RECOVERY_SEA_PAIR_JSON)`, () => {
       it('is skipped', () => {});
     });
     return;

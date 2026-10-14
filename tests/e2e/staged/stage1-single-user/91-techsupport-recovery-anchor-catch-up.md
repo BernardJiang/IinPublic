@@ -1,7 +1,8 @@
 # 91 — TechSupport recovery anchor: stale-cache catch-up (OPEN-29)
 
-Signs real recovery-anchor records in the test process (key from `.env.local`,
-`TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`; the spec skips without it) and checks the browser cache
+Signs real recovery-anchor records in the test process (key from the cold-storage vault named by
+`TECHSUPPORT_RECOVERY_KEY_FILE` plus `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE`, or the legacy
+`TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`; the spec skips without either) and checks the browser cache
 `iinpublic_techsupport_recovery_anchor_v1` end to end:
 
 1. The relay holds a record stamped "now". A browser that boots with an hour-older record in its

@@ -7,8 +7,9 @@
  * browser boot path end to end (the live Gun subscription plus the 5 s HTTP relay poll in
  * `app.ts`, which is the only path an embedded native node has) against a real server.
  *
- * Records are signed in this Node test process with the real recovery key from `.env.local`
- * (`TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`); the spec skips without it. Only records stamped "now"
+ * Records are signed in this Node test process with the real recovery key — its vault via
+ * `TECHSUPPORT_RECOVERY_KEY_FILE` (cold storage attached) or the legacy plaintext
+ * `TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`; the spec skips without either. Only records stamped "now"
  * are posted to the relay — older/future records live only in an injected browser cache — so the
  * relay's durable store stays monotonic across reruns. Posted records carry no revocations, so
  * they never change which keys any other spec trusts.
@@ -59,7 +60,7 @@ async function cachedIssuedAt(page: Page): Promise<string | null> {
 }
 
 test.describe('OPEN-29 recovery anchor: cross-client stale-cache catch-up (real browser + relay)', () => {
-  test.skip(!RECOVERY_PAIR, 'Set TECHSUPPORT_RECOVERY_SEA_PAIR_JSON in .env.local to run this recovery-anchor spec.');
+  test.skip(!RECOVERY_PAIR, 'Set TECHSUPPORT_RECOVERY_KEY_FILE (+ its passphrase file) or TECHSUPPORT_RECOVERY_SEA_PAIR_JSON to run this recovery-anchor spec.');
 
   let browser: Browser;
   const contexts: BrowserContext[] = [];
