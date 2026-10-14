@@ -186,6 +186,9 @@ const DEFAULT_PROJECT_TEST_IGNORE = [
   // `chromium` project (and testIgnore-based explicit-path runs) never try to pick
   // it up — run it via `npm run test:e2e:embedded-node`.
   /embedded-node\//,
+  // Phone-path journeys run the same user journeys through phone-like embedded nodes
+  // (tests/e2e/phone-path/playwright.config.ts); run them via `npm run test:e2e:phone-path`.
+  /phone-path\//,
   // Native app E2E launches Electron and owns its own app-local ports/profile
   // directories; run it via `npm run test:e2e:native-app`.
   /native-app\//,

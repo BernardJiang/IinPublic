@@ -44,6 +44,7 @@ platforms/ios/*.bak
 
 # Test artifacts
 playwright-report/
+playwright-report-phone-path/
 blob-report/
 blob-merged/
 test-results/

@@ -44,7 +44,15 @@ PW_WORKERS=4 npm run test:e2e
 npm run test:e2e:parallel
 # Slow-motion for human watching:
 PW_SLOW_MO=500 npm run test:e2e
+# Journeys through phone-like embedded nodes (the Android route: relay, no WebCrypto):
+npm run test:e2e:phone-path            # :slow-hub adds 400 ms per hub call
+# Pre-upload smoke on two real phones (clears their app data — name them):
+NATIVE_APP_ANDROID_SERIALS=<s1>,<s2> npm run test:android:release-smoke
 ```
+
+Use-case coverage (web / phone path / real phone) and the rules for new tests — assert on the
+other user's side; every bug found on a device gets a unit test plus a journey — live in
+`docs/testing/journey-coverage.md`.
 
 `npm run test:e2e` always runs `build:server` first — the Playwright config starts `dist/server/server/index.js`, not `src/`. After server changes, the build must happen before running E2E.
 

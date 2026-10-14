@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import Gun from 'gun';
 import { logger } from '../logger';
 import { requestLogger } from '../middleware/request-logger';
+import { createE2eLatencyMiddleware, resolveE2eLatencyConfig } from '../middleware/e2e-latency';
 import { isLoopbackEmbeddedNode, isPlaintextHttpAllowed } from '../tls-mode';
 import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
@@ -123,6 +124,11 @@ export function configureHttpMiddleware(app: express.Application): void {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(requestLogger);
+  const e2eLatency = resolveE2eLatencyConfig(process.env);
+  if (e2eLatency) {
+    logger.warn({ delayMs: e2eLatency.delayMs, paths: String(e2eLatency.pathPattern) }, 'E2E API latency enabled');
+    app.use(createE2eLatencyMiddleware(e2eLatency));
+  }
 
   // S3 embedded-node: serve the prebuilt web SPA so the WebView/renderer can
   // reuse 100% of the browser UI from this local node (loopback origin).

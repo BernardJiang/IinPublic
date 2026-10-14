@@ -419,3 +419,21 @@ describe('ChatroomManager durable-presence reconciliation vs. renames', () => {
     (manager as any).staleMemberCountSweepTimer && clearInterval((manager as any).staleMemberCountSweepTimer);
   });
 });
+
+describe('ChatroomManager.getChatroomMeta (room list lookups)', () => {
+  it('returns name and location without reading the visit counters', async () => {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    await manager.createChatroom({ id: 'room_meta', name: 'Bean There', type: 'custom', createdBy: 'owner' });
+    const reads: string[][] = [];
+    const getPath = gun.getPath.bind(gun);
+    gun.getPath = async (path: string[]) => {
+      reads.push(path);
+      return getPath(path);
+    };
+    const meta = await manager.getChatroomMeta('room_meta');
+    expect(meta?.name).toBe('Bean There');
+    const counterPaths = [visitCounterMapPath('room_meta'), prunedVisitAggregatePath('room_meta')].map((p) => p.join('/'));
+    expect(reads.map((p) => p.join('/')).filter((p) => counterPaths.includes(p))).toEqual([]);
+  });
+});

@@ -253,7 +253,7 @@ class IinPublicServer {
       activeRoomSource: {
         list: () => this.chatroomManager.listActiveRooms(),
         placeOf: async (roomId) => {
-          const meta = await this.chatroomManager.getChatroom(roomId);
+          const meta = await this.chatroomManager.getChatroomMeta(roomId);
           if (!meta) return undefined;
           const location = meta.location as { latitude?: number; longitude?: number } | undefined;
           return {

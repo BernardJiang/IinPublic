@@ -402,6 +402,20 @@ export class ChatroomManager {
     ]);
   }
 
+  /**
+   * A room's stored metadata (name, location, …) without the visit totals `getChatroom` adds. The
+   * room list (`/api/active-rooms`) needs only the name and location; `getChatroom`'s two counter
+   * reads cost ~2–3 s, longer than a phone's 2.5 s hub relay timeout, so every phone's room list
+   * failed with 503 as soon as one Place had people in it (phone-path E2E, 2026-10-14).
+   */
+  async getChatroomMeta(chatroomId: string): Promise<Record<string, unknown> | null> {
+    const meta = this.roomMetaCache.get(chatroomId)
+      ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
+    if (!meta || typeof meta !== 'object') return null;
+    if (!this.roomMetaCache.has(chatroomId)) this.roomMetaCache.set(chatroomId, meta);
+    return meta as Record<string, unknown>;
+  }
+
   async getChatroom(chatroomId: string): Promise<any | null> {
     // In-process cache is authoritative; the Gun mirror covers restarts.
     const meta = this.roomMetaCache.get(chatroomId)

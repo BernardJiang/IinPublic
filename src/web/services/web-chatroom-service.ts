@@ -120,6 +120,16 @@ export function chatroomCapacityTestOverride(
   return Number.isSafeInteger(configured) && configured > 0 && configured !== releaseDefault ? configured : null;
 }
 
+/**
+ * Place seat reserve/commit wait for an answer, and on a phone each goes WebView → embedded node →
+ * hub: the node reads the hub's member list, then reserves there, each relay call allowed
+ * `ROOM_MEMBERSHIP_TIMEOUT_MS` (8 s, src/node-app/embedded-hub-relay-client.ts). The hub's
+ * empty-room read alone takes ~2.6 s, so a 4 s browser timeout aborted every phone Place entry
+ * (found by tests/e2e/phone-path/01-place-journey.spec.ts, 2026-10-14). Keep this above two relay
+ * calls; src/test/unit/place-admission-timeouts.test.ts enforces it.
+ */
+export const PLACE_ADMISSION_REQUEST_TIMEOUT_MS = 20_000;
+
 const EVICTION_HISTORY_KEY = 'iinpublic_room_eviction_history';
 const ROOM_ARRIVAL_KEY = 'iinpublic_room_arrival';
 const PLACE_ADMISSION_STAYS_KEY = 'iinpublic_place_admission_stays_v1';
@@ -767,7 +777,7 @@ export class WebChatroomService {
         );
     }
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4_000);
+    const timeoutId = setTimeout(() => controller.abort(), PLACE_ADMISSION_REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
@@ -860,7 +870,7 @@ export class WebChatroomService {
     reservationToken: string,
   ): Promise<void> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4_000);
+    const timeoutId = setTimeout(() => controller.abort(), PLACE_ADMISSION_REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,

@@ -59,6 +59,8 @@
     "smoke:embedded-node": "npm run build:embedded && node scripts/smoke-embedded-node.js",
     "smoke:embedded-node-mobile": "npm run mobile:stage && node scripts/smoke-embedded-node-mobile.js",
     "test:e2e:embedded-node": "npm run build:embedded && E2E_GUN_MEMORY_ONLY=1 playwright test --config tests/e2e/embedded-node/playwright.config.ts",
+    "test:e2e:phone-path": "npm run build:embedded && playwright test --config tests/e2e/phone-path/playwright.config.ts",
+    "test:e2e:phone-path:slow-hub": "npm run build:embedded && E2E_HUB_API_DELAY_MS=400 playwright test --config tests/e2e/phone-path/playwright.config.ts",
     "test:e2e:native-app": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts",
     "test:e2e:real-device-matrix": "npm run build:embedded && E2E_REAL_DEVICE_MATRIX=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/06-seven-client-real-device-matrix.spec.ts",
     "test:e2e:android-directional-pairs": "npm run build:embedded && E2E_REAL_ANDROID_DIRECTIONAL_PAIRS=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/11-android-cross-engine-directional-pairs.spec.ts",
@@ -164,6 +166,7 @@
     "android:build:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew assembleRelease || gradle assembleRelease; }",
     "android:bundle:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew bundleRelease || gradle bundleRelease; }",
     "android:install": "cd android && { [ -x ./gradlew ] && ./gradlew installDebug || gradle installDebug; }",
+    "test:android:release-smoke": "node scripts/run-android-release-smoke.mjs",
     "android:install:matrix": "node scripts/install-android-matrix.mjs",
     "android:run": "npm run android:build && npm run android:install",
     "test:e2e:live-scenario": "npm run build:embedded && playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/23-live-peer-scenarios.spec.ts --workers=1"

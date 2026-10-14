@@ -57,6 +57,16 @@ export type PresenceMember = {
  * here applies the same TTL on read so a durable record from a peer that quietly vanished
  * (killed app, cleared storage) doesn't get reasserted into the ephemeral graph forever.
  */
+/**
+ * Gun rejects `Date` values ("Invalid data: Date"). Callers pass `joinedAt` read back through
+ * GunService.getPath, which turns ISO strings into Dates, so every heartbeat's durable write
+ * failed on embedded nodes (found by the phone-path E2E suite, 2026-10-14). Store ISO strings.
+ */
+export function toGunPresenceRow(member: PresenceMember): PresenceMember {
+  const iso = (value: unknown): string => (value instanceof Date ? value.toISOString() : String(value ?? ''));
+  return { ...member, joinedAt: iso(member.joinedAt), lastSeen: iso(member.lastSeen) };
+}
+
 export class PresenceDurableStore {
   private gun: any;
   private readonly dataDir: string;
@@ -79,7 +89,7 @@ export class PresenceDurableStore {
   }
 
   async upsertMember(chatroomId: string, member: PresenceMember): Promise<void> {
-    await this.put(['chatrooms', chatroomId, 'users', member.userId], member);
+    await this.put(['chatrooms', chatroomId, 'users', member.userId], toGunPresenceRow(member));
   }
 
   async markLeft(chatroomId: string, userId: string, leftAt: string): Promise<void> {

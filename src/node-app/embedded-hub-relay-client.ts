@@ -198,7 +198,7 @@ export function assertRelayMetadataPath(path: string[] | string): void {
  * Room membership calls get longer than the default timeout: the hub answers an empty room only
  * after its storage reads time out (~2.6 s), so the first person entering a new Place timed out.
  */
-const ROOM_MEMBERSHIP_TIMEOUT_MS = 8_000;
+export const ROOM_MEMBERSHIP_TIMEOUT_MS = 8_000;
 
 export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
   private readonly baseUrl: string;
