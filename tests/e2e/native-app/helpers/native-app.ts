@@ -194,8 +194,11 @@ export async function bootstrapNativeWindow(
   const readinessTimeoutMs = options.readinessTimeoutMs ?? 45_000;
   await expect(page.locator('body')).not.toContainText('Connecting to IinPublic network...', { timeout: readinessTimeoutMs });
   await waitForAppReady(page, readinessTimeoutMs);
-  await dismissAutomaticWalkthroughForBootstrap(page);
+  // The first-run location picker is appended after the walkthrough and therefore sits above it.
+  // Dismiss the topmost modal first; otherwise its map canvas intercepts the walkthrough's close
+  // button and every fresh-install native test stalls before it reaches its actual scenario.
   await dismissLocationPickerForBootstrap(page);
+  await dismissAutomaticWalkthroughForBootstrap(page);
   if (options.updateStageName !== false) {
     await page.evaluate(() => {
       document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();

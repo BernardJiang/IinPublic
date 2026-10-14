@@ -367,6 +367,26 @@ No implementation can guarantee uninterrupted background radio access: the user 
 permission, disable a radio, force-stop the app, or the operating system can stop work. Every
 exchange therefore persists its outbox, checkpoint, and receipt state and resumes idempotently.
 
+Background capability is intentionally described in three levels:
+
+- While the WebView remains runnable, it can receive and decrypt Talks, run the local chatbot,
+  determine a match, send the response, and post a specific Talk/chatbot notification.
+- If Android freezes the WebView but preserves IinPublic's foreground service, the embedded node
+  and `MailboxWatcher` can receive a content-free wake ping and post only a generic **new
+  activity** notification. They cannot inspect the encrypted Talk or determine that it is a match.
+  Opening IinPublic resumes the direct scheduler, decrypts the Talk locally, runs the chatbot, and
+  then reports any match.
+- If Android or an OEM force-stops the process, no in-process foreground service, alarm, LAN,
+  Wi-Fi Direct, BLE, or open long-poll can run. The sender keeps the encrypted Talk in its bounded
+  direct outbox and retries when the phone returns. A notification during that state requires an
+  operating-system-managed push transport (content-free FCM on Android, for example), which is not
+  currently implemented and would only work when a reachable push/hub path exists. Fully offline
+  delivery cannot wake a force-stopped phone.
+
+`Always` means that native discovery and the embedded node keep trying under a visible persistent
+notification; it does not promise that Android will keep the WebView or even the process alive.
+`While IinPublic is open` remains the battery-friendly default.
+
 ## User experience
 
 The Chatrooms tab and persistent nearby status must show exactly one active audience, for example:
