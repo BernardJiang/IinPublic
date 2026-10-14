@@ -733,13 +733,11 @@ phrase complexity into normal use.
   next reconcile reconnects instantly and fires `onNeighborConnected` again. Harmless since OPEN-51
   (catch-up skips queued and in-flight Talks), but find why the state flaps right after connect.
 
-- [ ] **OPEN-29 — Add an independent emergency recovery authority.** Single offline recovery key
+- [x] **OPEN-29 — Add an independent emergency recovery authority.** (Done 2026-10-13: the private key is now in offline storage.) Single offline recovery key
   (product owner decision 2026-09-22 — a solo-operator deployment doesn't yet justify an M-of-N
   threshold; the anchor-list-based design extends to one later without breaking clients). A real
   recovery keypair is generated and pinned (`techsupport-trust-anchors.json`'s `recovery`
-  section) — its private half must still be moved to genuinely offline/cold storage before this
-  is production-ready; it currently sits in this dev machine's `secrets/` (gitignored) for
-  testing.
+  section); its private half is now in offline storage (2026-10-13).
   - [x] `src/shared/techsupport-recovery.ts`: `RecoveryAnchorRecord` (revoked dm/announcement
     pubs + a next dm/announcement pub, one global record, no expiry — trust changes only by a
     newer signed record), sign/verify, and `isRecoveryAnchorRollback` (strictly-newer-only,
@@ -807,16 +805,17 @@ phrase complexity into normal use.
     storage.
   - [x] **Custody tooling (2026-10-13).** `npm run techsupport:recovery -- verify --key <vault>`
     decrypts a vault offline and confirms it holds a pinned recovery key (only the pub and
-    fingerprint are printed); `custody-check` lists recovery material still on this machine (a
+    fingerprint are printed); `custody-check` lists recovery material still in its checkout (a
     `role: recovery` vault or recovery file under `secrets/`, recovery settings in `.env*` files —
     names only) and exits 1 while any remain. Specs 91 and native 27 can now sign from the cold
     copy via `TECHSUPPORT_RECOVERY_KEY_FILE` + `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE` set on
     the command line, so the plaintext `.env.local` pair is no longer needed for them. On
     2026-10-13 custody-check found 3 items: `secrets/techsupport-recovery.key.json`, its
     `.passphrase` file next to it, and `TECHSUPPORT_RECOVERY_SEA_PAIR_JSON` in `.env.local`.
-  - [ ] **Move the key to cold storage (product owner, physical step).** Copy the vault to one
-    offline medium and the passphrase to a different one (paper or a second drive); run `verify
-    --key` against the copy; delete the three local items; `custody-check` must report nothing.
+  - [x] **Move the key to cold storage (product owner, physical step, done 2026-10-13).** The
+    vault went to one offline medium and the passphrase to another; `verify --key` passed against
+    the copy; the local items (plus identical copies in the IinPublic.codex checkout's `secrets/`)
+    were deleted; `custody-check` reports nothing in either checkout.
     Afterwards a drill is: attach the media, `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE=<p> npm run
     techsupport:recovery -- verify --key <vault>`, detach.
   - [x] **Master-operator recovery banner (2026-09-27).** `techsupport-recovery-banner-view.ts`

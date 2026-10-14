@@ -287,10 +287,10 @@ function findLocalRecoveryMaterial(root = ROOT) {
 function custodyCheck(root = ROOT) {
   const findings = findLocalRecoveryMaterial(root);
   if (findings.length === 0) {
-    console.log('No recovery key material found on this machine.');
+    console.log('No recovery key material found in this checkout.');
     return findings;
   }
-  console.log('Recovery key material is still on this machine:');
+  console.log('Recovery key material is still in this checkout:');
   for (const finding of findings) console.log(`  ${finding.location} — ${finding.kind}`);
   console.log('');
   console.log('Copy the vault and its passphrase to offline storage, check that copy with');
