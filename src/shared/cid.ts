@@ -16,9 +16,11 @@
  * The resulting CIDv1 is base32-lower-case encoded (multibase prefix 'b') which
  * is the canonical string form used everywhere in the ledger.
  *
- * Uses globalThis.crypto.subtle (Web Crypto API) — available in Node 18+ and all
- * modern browsers without any additional dependencies.
+ * Hashes with pure-JS SHA-256 (@noble/hashes), not WebCrypto: the Android embedded Node
+ * has no global `crypto`, and its server verifies place descriptors, FAQ bundles and
+ * announcements by CID (same reason as portable-sha256.ts).
  */
+import { sha256 } from '@noble/hashes/sha256';
 
 // ─── Multicodec / Multihash constants ────────────────────────────────────────
 
@@ -101,7 +103,7 @@ function sortedReplace(val: unknown): unknown {
  * Compute a CIDv1 (dag-json, sha2-256) for the given object.
  *
  * The object is first canonically serialized with `canonicalSerialize`, then
- * hashed with SHA-256 via the Web Crypto API.
+ * hashed with SHA-256.
  *
  * Returns the CIDv1 as a base32-lower-case multibase string (prefix 'b').
  *
@@ -113,8 +115,7 @@ export async function computeCIDv1(obj: unknown): Promise<string> {
   const canonical = canonicalSerialize(obj);
   const encoded = new TextEncoder().encode(canonical);
 
-  const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', encoded);
-  const digest = new Uint8Array(hashBuffer);
+  const digest = sha256(encoded);
 
   // Multihash: <hash-fn varint> <digest-len varint> <digest>
   const multihash = new Uint8Array([
