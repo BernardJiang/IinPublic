@@ -4,6 +4,7 @@ import { bearingDegrees, metersBetween, type ActiveRoomSort, type ActiveRoomSumm
 import type { UiTranslationKey } from './ui-translations';
 import { formatDistance } from './distance-units';
 import { otherRoomColor } from './chatroom-map-view';
+import { isPlaceRoomId } from '../../shared/place-rooms';
 
 /**
  * A room row in the flat list (and a pin on the map). A Nearby group is named by where it is from
@@ -80,6 +81,20 @@ export function roomListRows(
       full: room.memberCount >= input.capacity,
     };
   });
+}
+
+/**
+ * Places in the room list that the local catalogue does not know yet and have not already
+ * triggered a refresh. The catalogue loads at boot; without this, a Place someone else made later
+ * vanishes from "Places near you" once it empties (found by tests/e2e/phone-path/01).
+ */
+export function placesMissingFromCatalogue(
+  listedRoomIds: Iterable<string>,
+  catalogueIds: ReadonlySet<string>,
+  alreadyRefreshedFor: ReadonlySet<string>,
+): string[] {
+  return [...listedRoomIds].filter((roomId) =>
+    isPlaceRoomId(roomId) && !catalogueIds.has(roomId) && !alreadyRefreshedFor.has(roomId));
 }
 
 /** How many empty Places "Places near you" lists (docs/design/nearby-and-place-chatrooms.md §4.2). */

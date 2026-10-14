@@ -131,17 +131,34 @@ The phone WebView can be driven over CDP (debug builds; `adb forward tcp:<port>
 localabstract:webview_devtools_remote_<pid>`). Keep the session's log in
 `docs/testing/exploratory/<date>-<phone>.md`.
 
-## Known slowness found by the phone path (OPEN-58)
+## Room-move timings on the phone path (OPEN-58)
 
-Measured on the phone path with a local hub (the `[timing]` lines and test annotations):
+Measured on the phone path with a local hub (the `[timing]` lines and test annotations); in
+brackets, with 400 ms added to every hub call:
 
-| Step | Time |
-|---|---|
-| Create Place → creator inside | ~31 s (34 s with 400 ms hub latency) |
-| Enter a Place from the list | 7–16 s (10–19 s) |
-| Return home | 5–6 s (6–7 s) |
+| Step | Before (2026-10-14) | After the OPEN-58 fixes |
+|---|---|---|
+| Create Place → creator inside | ~31 s (34 s) | ~9 s (12 s) |
+| Enter a Place from the list | 7–16 s (10–19 s) | 4–7 s (7–10 s) |
+| Return home | 5–6 s (6–7 s) | ~2 s (3 s) |
 
-Each Place entry relays four hub calls (create; reserve = member read + reserve; commit = member
-read + commit) and each empty-room member read costs the hub ~2.6 s waiting on Gun timeouts;
-leaving the old room also blocks up to 4 s. The journeys allow 60 s per move so they test
-correctness; the timings are recorded on every run so a fix shows up as a number.
+What was slow, and what fixed it:
+- The room catalogue (`GET /api/chatrooms`, used by the one-Place-per-person check before a
+  create) read Gun with the default 2 s wait / 3 s timeout, twice: 6 s on the hub, 10 s through a
+  phone. Now short waits, and the phone reads its own and the hub's list in parallel.
+- An empty room's member read ran three Gun reads one after another (~2.6 s), twice per Place
+  entry. Now one parallel read (~0.6 s).
+- The phone node also read its own member list during reserve and commit, then ignored it.
+- Every join and leave read-modify-wrote `chatrooms/<id>/headcount`, which nothing reads (~2.5 s).
+- A room move waited for the leave's server DELETE; it now runs in the background, and a later
+  reserve or join of the same room waits for it.
+
+The journeys allow 60 s per move so they test correctness; the timings are recorded on every run
+so a regression shows up as a number.
+
+The faster moves also exposed two real bugs, both fixed:
+- A phone node never dropped hub members who had left, so an empty Place kept a phantom
+  headcount (`ChatroomManager.dropRelayedMembers`).
+- The app loaded the Place catalogue only at boot and after its own create, so a Place someone
+  else made later dropped out of the list once it emptied (`placesMissingFromCatalogue`). The old
+  ~10 s catalogue fetch had hidden this.

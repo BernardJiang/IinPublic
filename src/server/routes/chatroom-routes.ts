@@ -85,9 +85,18 @@ export function registerChatroomRoutes(
     return Array.from(byUser.values());
   };
 
+  // Who each room's last hub roster contained, so members who leave at the hub can be dropped
+  // here. Members who joined through this node and never reached the hub are left alone.
+  const relayedMemberIds = new Map<string, Set<string>>();
   const syncMembersFromRelay = async (chatroomId: string): Promise<RelayRoomMember[]> => {
     if (!hubRelayClient) return [];
     const remoteMembers = await hubRelayClient.listMembers(chatroomId);
+    const remoteIds = new Set(remoteMembers.map((member) => member.userId));
+    const previousIds = relayedMemberIds.get(chatroomId);
+    if (previousIds) {
+      await chatroomManager.dropRelayedMembers(chatroomId, [...previousIds].filter((id) => !remoteIds.has(id)));
+    }
+    relayedMemberIds.set(chatroomId, remoteIds);
     await Promise.all(
       remoteMembers.map((member) =>
         chatroomManager.touchMemberFast(chatroomId, member.userId, {
@@ -183,16 +192,16 @@ export function registerChatroomRoutes(
         if (!isPlaceRoomId(String(row.id || ''))) return true;
         return isPlaceLive(row, nowMs) || (!!creatorPub && row.creatorPub === creatorPub);
       };
-      const chatrooms = (await chatroomManager.getAllChatrooms()).filter(listed);
       // An embedded node also lists the hub's Places, so a phone sees rooms other people created.
-      let remote: unknown[] = [];
-      if (hubRelayClient?.listChatrooms) {
-        try {
-          remote = (await hubRelayClient.listChatrooms(creatorPub || undefined)).filter(listed);
-        } catch {
-          remote = [];
-        }
-      }
+      // Both lists are read at once.
+      const [local, remoteRooms] = await Promise.all([
+        chatroomManager.getAllChatrooms(),
+        hubRelayClient?.listChatrooms
+          ? hubRelayClient.listChatrooms(creatorPub || undefined).catch(() => [] as unknown[])
+          : Promise.resolve([] as unknown[]),
+      ]);
+      const chatrooms = local.filter(listed);
+      const remote = remoteRooms.filter(listed);
       const byId = new Map<string, unknown>();
       for (const room of [...chatrooms, ...remote]) {
         const id = room && typeof room === 'object' ? String((room as { id?: unknown }).id || '') : '';
@@ -384,8 +393,11 @@ export function registerChatroomRoutes(
                 return { status: 'unavailable' as const };
               }
             }
-            const localMembers = await chatroomManager.getActiveMembersWithStageName(chatroomId);
-            const activeMembers = hubRelayClient ? remoteMembers : localMembers;
+            // A relayed node decides from the hub's set only; its own read is ~2.6 s on an empty
+            // room (OPEN-58), so skip it.
+            const activeMembers = hubRelayClient
+              ? remoteMembers
+              : await chatroomManager.getActiveMembersWithStageName(chatroomId);
             const alreadyPresent = activeMembers.some((member) => member.userId === userId);
             const reservations = livePlaceReservations(chatroomId);
             const existing = reservations.get(userId);
@@ -480,8 +492,9 @@ export function registerChatroomRoutes(
               return 'unavailable' as const;
             }
           }
-          const localMembers = await chatroomManager.getActiveMembersWithStageName(chatroomId);
-          const activeMembers = hubRelayClient ? remoteMembers : localMembers;
+          const activeMembers = hubRelayClient
+            ? remoteMembers
+            : await chatroomManager.getActiveMembersWithStageName(chatroomId);
           const alreadyPresent = activeMembers.some((member) => member.userId === userId);
           const reservation = livePlaceReservations(chatroomId).get(userId);
           if (!alreadyPresent && (!reservation || reservation.token !== reservationToken)) {

@@ -31,6 +31,7 @@ import {
 import { WebTalkService } from '../services/web-talk-service';
 import { MapPresenceClient } from '../services/map-presence-client';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
+import { placesMissingFromCatalogue } from '../ui/room-list-view';
 import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
 import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
 import { QUIET_GPS_REFRESH_MS, quietStateFor, shouldRefreshQuietGps, type QuietState } from '../../shared/quiet-places';
@@ -361,6 +362,8 @@ export class IinPublicApp {
   private mapPresenceClient: MapPresenceClient | null = null;
   private activeRoomsTimer: ReturnType<typeof setInterval> | undefined;
   private activeRoomsLimit = ACTIVE_ROOMS_PAGE;
+  /** Places seen in the room list that already triggered a catalogue refresh (one try each). */
+  private catalogueRefreshedForPlaces = new Set<string>();
   private activeRoomsRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   /** Quiet places / schedule / "Quiet now" (shared/quiet-places.ts), re-checked every minute. */
   private quietState: QuietState = { active: false };
@@ -1999,6 +2002,18 @@ export class IinPublicApp {
         limit: this.activeRoomsLimit,
       });
       this.uiManager.setActiveRooms(view);
+      // The Place catalogue loads at boot and after our own create. A Place someone else made
+      // since then reaches us first in this list, while it has people; fetch the catalogue
+      // then, so it stays under "Places near you" once it empties (J-PLACE-05).
+      const unknownPlaces = placesMissingFromCatalogue(
+        view.rooms.map((room) => room.roomId),
+        new Set(this.uiManager.getCustomChatroomIds()),
+        this.catalogueRefreshedForPlaces,
+      );
+      if (unknownPlaces.length > 0) {
+        unknownPlaces.forEach((roomId) => this.catalogueRefreshedForPlaces.add(roomId));
+        void this.refreshCustomChatroomsFromServer().then(() => this.subscribeToAllChatroomMemberCounts());
+      }
     } catch (error) {
       console.warn('Room list refresh failed (non-fatal):', error);
     }

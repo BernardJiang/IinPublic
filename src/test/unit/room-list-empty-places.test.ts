@@ -1,4 +1,4 @@
-import { EMPTY_PLACES_NEAR_LIMIT, emptyPlaceRows } from '../../web/ui/room-list-view';
+import { EMPTY_PLACES_NEAR_LIMIT, emptyPlaceRows, placesMissingFromCatalogue } from '../../web/ui/room-list-view';
 
 describe('Places near you', () => {
   const t = (key: string) => ({ roomListPlaceTag: 'Place', roomListHere: 'Here', roomListPlaceFallback: 'Place' } as Record<string, string>)[key] ?? key;
@@ -25,5 +25,13 @@ describe('Places near you', () => {
     const rows = emptyPlaceRows(places, { t: t as never, origin, excludeIds: new Set(), memberCount: () => 0, placeIcon: () => '💬' });
     expect(rows).toHaveLength(EMPTY_PLACES_NEAR_LIMIT);
     expect(rows[0].roomId).toBe('p0');
+  });
+});
+
+describe('placesMissingFromCatalogue (catalogue refresh for Places made after boot)', () => {
+  it('names only Places the catalogue lacks, once each', () => {
+    const place = (tail: string) => `place_baguqeera${tail.padEnd(51, 'a')}`;
+    const listed = ['nearby_v2_e1_abc', place('known'), place('new'), place('tried')];
+    expect(placesMissingFromCatalogue(listed, new Set([place('known')]), new Set([place('tried')]))).toEqual([place('new')]);
   });
 });

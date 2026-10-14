@@ -437,3 +437,62 @@ describe('ChatroomManager.getChatroomMeta (room list lookups)', () => {
     expect(reads.map((p) => p.join('/')).filter((p) => counterPaths.includes(p))).toEqual([]);
   });
 });
+
+describe('ChatroomManager.getActiveMembersWithStageName (Gun fallback, OPEN-58)', () => {
+  function build(): { gun: MemoryGunService; manager: ChatroomManager } {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    clearInterval((manager as any).staleMemberCountSweepTimer);
+    return { gun, manager };
+  }
+
+  it('reads both rosters at once, so an empty room costs one map window, not three', async () => {
+    const { manager } = build();
+    const startedAt = Date.now();
+    await expect(manager.getActiveMembersWithStageName('place_empty')).resolves.toEqual([]);
+    // One 500 ms map window plus one retry gap; the old sequential read took about 1.3 s here.
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it('drops and marks stale members, and falls back to API joins when the browser roster is empty', async () => {
+    const { gun, manager } = build();
+    const now = new Date().toISOString();
+    const old = new Date(Date.now() - (ROOM_MEMBERSHIP_TTL_SECONDS + 60) * 1000).toISOString();
+    await gun.putPath(['chatroomMembers', 'room_a', 'fresh'], { isActive: true, stageName: 'Fresh', lastSeen: now });
+    await gun.putPath(['chatroomMembers', 'room_a', 'ghost'], { isActive: true, stageName: 'Ghost', lastSeen: old });
+    await expect(manager.getActiveMembersWithStageName('room_a')).resolves.toEqual([{ userId: 'fresh', stageName: 'Fresh' }]);
+    expect((await gun.getPath(['chatroomMembers', 'room_a', 'ghost'])).isActive).toBe(false);
+  });
+});
+
+describe('ChatroomManager.dropRelayedMembers (phone node mirror of the hub roster)', () => {
+  it('drops members who left at the hub and republishes the room count', async () => {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    clearInterval((manager as any).staleMemberCountSweepTimer);
+    await manager.touchMemberFast('place_x', 'alice', { stageName: 'Alice', lastSeen: new Date().toISOString() });
+    await manager.dropRelayedMembers('place_x', ['alice']);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(manager.listActiveRooms().map((room) => room.roomId)).not.toContain('place_x');
+    expect((await gun.getPath(['public', 'room-member-counts', 'place_x']))?.count).toBe(0);
+  });
+});
+
+describe('ChatroomManager.getAllChatrooms (room list read budget, OPEN-58)', () => {
+  it('reads the chatroomMeta mirror with short waits, not the 2 s / 3 s defaults', async () => {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    clearInterval((manager as any).staleMemberCountSweepTimer);
+    const waits: Array<{ path: string; waitMs: number | undefined; timeoutMs: number | undefined }> = [];
+    gun.getPath = async (path: string[], waitMs?: number, timeoutMs?: number) => {
+      waits.push({ path: path.join('/'), waitMs, timeoutMs });
+      return undefined;
+    };
+    await expect(manager.getAllChatrooms()).resolves.toEqual([]);
+    expect(waits.length).toBeGreaterThan(0);
+    for (const call of waits) {
+      expect(call.waitMs).toBeLessThanOrEqual(300);
+      expect(call.timeoutMs).toBeLessThanOrEqual(500);
+    }
+  });
+});

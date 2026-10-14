@@ -662,18 +662,12 @@ phrase complexity into normal use.
     and loopback origins (tested), so converting them is a separate, much larger refactor with no
     corresponding production-risk reduction — worth doing eventually for hygiene, not blocking.
 
-- [ ] **OPEN-58 — Room moves on phones are slow: ~31 s to create and enter a Place (found 2026-10-14).**
-  Measured by `tests/e2e/phone-path/01-place-journey` (local hub): create → inside 31 s, enter from
-  the list 7–16 s, return home 5–6 s. A phone's Place entry relays four hub calls (create; reserve =
-  member read + reserve; commit = member read + commit) and each empty-room member read
-  (`ChatroomManager.getActiveMembersWithStageName` with an empty fast index) waits ~2.6 s on Gun
-  timeouts; `leaveChatroom` also blocks up to 4 s on `syncLeaveWithServer`. Ideas: let the phone
-  node skip its own member read before relaying reserve/commit (the hub re-checks), treat an empty
-  fast index as authoritative for rooms created since the hub started, and do not await the leave
-  sync during a move. The journeys record `[timing]` on every run, so a fix shows up as a number.
-  Same run also found and fixed three phone-only bugs (4 s browser timeout on Place reserve/commit;
-  `/api/active-rooms` 503 on phones once a Place had people; `Invalid data: Date` in the durable
-  presence store) — see `docs/testing/journey-coverage.md`.
+- [x] **OPEN-58 — Room moves on phones were slow: ~31 s to create and enter a Place (found and
+  fixed 2026-10-14).** Measured by `tests/e2e/phone-path/01-place-journey`: create → inside
+  31 s → 9 s, enter 7–16 s → 4–7 s, return home 5–6 s → 2 s. Causes and fixes, plus two bugs the
+  faster moves exposed (phantom headcount on phone nodes; Place catalogue never refreshed after
+  boot), are in `docs/testing/journey-coverage.md` ("Room-move timings"). Create → inside (~9 s)
+  is still the slowest move and has not been broken down further.
 - [ ] **OPEN-56 — `talks-matching/01-mesh-ping-overlay` fails about half the time (found 2026-10-13).**
   Same rate with and without the OPEN-53 change (2 of 4 runs alone on the unchanged tree): with Tom
   capped at one neighbor, Jerry or Bob never sees the relayed ping. Like spec 06, it probably sends

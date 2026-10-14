@@ -212,6 +212,9 @@ export class WebChatroomService {
    * turn) so an eviction that has not started yet always sees it and stands down: manual wins.
    */
   private moveQueue: Promise<unknown> = Promise.resolve();
+  /** Server leave syncs still in flight, by room. A move does not wait for its leave (OPEN-58);
+   *  a later reserve or join of the same room does, so the DELETE cannot land after it. */
+  private pendingLeaveSyncs = new Map<string, Promise<void>>();
   private manualMovesPending = 0;
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
   private activeRoomInput: ((roomId: string) => ActivateRoomInput) | null = null;
@@ -435,6 +438,7 @@ export class WebChatroomService {
     onMoved?: (newChatroomId: string) => void,
     placeReservationToken?: string,
   ): Promise<void> {
+    await this.pendingLeaveSyncs.get(chatroomId);
     if (isLocalOnlyRoomScope(chatroomId)) {
       this.currentChatroomId = chatroomId;
       this.stopMembershipHeartbeat();
@@ -764,6 +768,7 @@ export class WebChatroomService {
     stageName: string,
     isTraveler: boolean,
   ): Promise<string> {
+    await this.pendingLeaveSyncs.get(chatroomId);
     // See syncMembershipHeartbeatWithServer: signing is local preparation, not network latency.
     let admissionClaim: PlaceAdmissionClaim;
     try {
@@ -1007,7 +1012,9 @@ export class WebChatroomService {
     }
   }
 
-  async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
+  /** `awaitServer: false` (room moves) returns once the local Gun leave is written; the server
+   *  DELETE finishes in the background. */
+  async leaveChatroom(chatroomId: string, userId: string, opts: { awaitServer?: boolean } = {}): Promise<void> {
     console.log(`🚪 Leaving chatroom: ${chatroomId} as user: ${userId}`);
     this.stopMembershipHeartbeat(chatroomId, userId);
     this.capacity.stop(chatroomId);
@@ -1043,7 +1050,11 @@ export class WebChatroomService {
     });
     // Best-effort privacy migration for rows written by older releases.
     gun.get('chatrooms').get(chatroomId).get('locations').get(userId).put(null);
-    await this.syncLeaveWithServer(chatroomId, userId);
+    const sync: Promise<void> = this.syncLeaveWithServer(chatroomId, userId).finally(() => {
+      if (this.pendingLeaveSyncs.get(chatroomId) === sync) this.pendingLeaveSyncs.delete(chatroomId);
+    });
+    this.pendingLeaveSyncs.set(chatroomId, sync);
+    if (opts.awaitServer !== false) await sync;
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }
 
@@ -1077,7 +1088,7 @@ export class WebChatroomService {
           )
           : undefined;
         const moveMembership = async () => {
-          if (from) await this.leaveChatroom(from, userId);
+          if (from) await this.leaveChatroom(from, userId, { awaitServer: false });
           this.currentChatroomId = newChatroomId;
           this.recordArrival(newChatroomId, 'manual');
           await this.joinChatroom(newChatroomId, userId, stageName, undefined, placeReservationToken);
@@ -1120,7 +1131,7 @@ export class WebChatroomService {
     if (this.manualMovesPending > 0) return false;
     return this.runMove(async () => {
       if (this.manualMovesPending > 0 || this.currentChatroomId !== from) return false;
-      await this.leaveChatroom(from, userId);
+      await this.leaveChatroom(from, userId, { awaitServer: false });
       this.currentChatroomId = child;
       this.recordArrival(child, 'auto');
       const gun = this.gunService.getGun();
