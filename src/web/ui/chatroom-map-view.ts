@@ -13,6 +13,7 @@ import {
   getChatroomMapLocation,
   type ChatroomMapLocation,
 } from '../../shared/chatroom-map-locations';
+import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
 
 type MapLibre = typeof import('maplibre-gl');
 type MapLibreMap = import('maplibre-gl').Map;
@@ -54,6 +55,8 @@ type ChatroomMapOptions = {
   visitsText: (count: number) => string;
   /** People on the map: a star for me, green for my room (Talks), yellow for everyone else. */
   userDots?: MapUserDots;
+  /** Incremented only when the person deliberately enters Map view, not on live-data refreshes. */
+  userLegendHintSession?: number;
   /** Every other room's square, each in its own colour (my own room stays the green shading). */
   otherRoomAreas?: ReadonlyArray<OtherRoomArea>;
   /** Tap a green dot (someone in my room): a brief profile card with Message and Profile. */
@@ -210,10 +213,12 @@ export function loadMapLibre(): Promise<MapLibre> {
         // The worker imports maplibre-gl-shared.mjs by a relative path, so reference that
         // asset too and verify Webpack kept both files in the same emitted directory.
         const workerUrl = new URL(
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
           require('maplibre-gl/dist/maplibre-gl-worker.mjs?maplibreWorkerAsset') as string,
           window.location.href,
         );
         const sharedUrl = new URL(
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
           require('maplibre-gl/dist/maplibre-gl-shared.mjs?maplibreWorkerAsset') as string,
           window.location.href,
         );
@@ -962,7 +967,11 @@ function clearUserDots(state: MapState): void {
   state.userDotMarkers = [];
   (state.map.getSource(USER_DENSITY_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)
     ?.setData(densityGeoJson([]) as never);
-  state.options.container.querySelector('.chatroom-map-user-legend')?.remove();
+  const legend = state.options.container.querySelector<HTMLElement>('.chatroom-map-user-legend');
+  if (legend) {
+    hideTransientMapHint(legend);
+    legend.remove();
+  }
 }
 
 /** Debounced: a pan or zoom settles before the visible area is queried. */
@@ -1037,19 +1046,30 @@ function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => 
 }
 
 function ensureUserDotLegend(state: MapState, source: MapUserDots): void {
-  if (state.options.container.querySelector('.chatroom-map-user-legend')) return;
-  const legend = document.createElement('div');
-  legend.className = 'chatroom-map-user-legend';
-  legend.setAttribute('data-testid', 'map-user-legend');
-  for (const [kind, text] of [['self', source.legendText.self], ['room', source.legendText.room], ['other', source.legendText.other]] as const) {
-    const row = document.createElement('span');
-    const swatch = document.createElement('span');
-    swatch.className = `chatroom-map-user-dot chatroom-map-user-dot-${kind} chatroom-map-user-legend-swatch`;
-    swatch.textContent = kind === 'self' ? '★' : '';
-    row.append(swatch, document.createTextNode(text));
-    legend.appendChild(row);
+  let legend = state.options.container.querySelector<HTMLElement>('.chatroom-map-user-legend');
+  if (!legend) {
+    legend = document.createElement('div');
+    legend.className = 'chatroom-map-user-legend';
+    legend.setAttribute('data-testid', 'map-user-legend');
+    for (const [kind, text] of [['self', source.legendText.self], ['room', source.legendText.room], ['other', source.legendText.other]] as const) {
+      const row = document.createElement('span');
+      const swatch = document.createElement('span');
+      swatch.className = `chatroom-map-user-dot chatroom-map-user-dot-${kind} chatroom-map-user-legend-swatch`;
+      swatch.textContent = kind === 'self' ? '★' : '';
+      row.append(swatch, document.createTextNode(text));
+      legend.appendChild(row);
+    }
+    state.options.container.appendChild(legend);
   }
-  state.options.container.appendChild(legend);
+  const session = state.options.userLegendHintSession;
+  if (session === undefined) {
+    legend.hidden = false;
+    return;
+  }
+  if (legend.dataset.hintSession !== String(session)) {
+    legend.dataset.hintSession = String(session);
+    showTransientMapHint(legend);
+  }
 }
 
 async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<void> {

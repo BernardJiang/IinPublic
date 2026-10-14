@@ -973,35 +973,6 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   border-top: 1px solid rgba(255, 255, 255, 0.25);
 }
 
-.status-broadcast-btn {
-  width: auto;
-  padding: 8px 14px;
-  background: var(--accent);
-  color: white;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  font-size: 0.95em;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.status-broadcast-btn:hover {
-  background: var(--accent-hover);
-}
-
-.status-broadcast-btn:active {
-  transform: translateY(0);
-}
-
-.status-broadcast-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -1225,6 +1196,10 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
   font-size: 0.8em;
   pointer-events: none;
+}
+
+.chatroom-map-user-legend[hidden] {
+  display: none;
 }
 
 .chatroom-map-user-legend > span {
