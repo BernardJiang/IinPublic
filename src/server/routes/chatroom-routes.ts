@@ -658,6 +658,17 @@ export function registerChatroomRoutes(
       await chatroomManager.sweepStaleMembersNow();
       res.json({ swept: true });
     });
+    // Phone-path journey 03 (Place expiry): age a Place past the 30-day live window.
+    app.post('/api/test/chatrooms/:id/backdate', async (req, res) => {
+      const days = Number(req.body?.days);
+      if (!Number.isFinite(days) || days <= 0) {
+        res.status(400).json({ error: 'days must be a positive number' });
+        return;
+      }
+      const atIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const found = await chatroomManager.backdatePlaceForTesting(req.params.id, atIso);
+      res.status(found ? 200 : 404).json({ backdated: found, at: atIso });
+    });
   }
 
   /** Retired compatibility endpoint; room participants have no assignable roles. */

@@ -417,6 +417,25 @@ export class ChatroomManager {
   }
 
   /**
+   * E2E only (`POST /api/test/chatrooms/:id/backdate`): move a Place's `createdAt` and
+   * `lastActiveAt` into the past, so a journey can check that a Place left unvisited for 30 days
+   * drops out of everyone's list without waiting 30 days. Returns false when the Place is unknown.
+   */
+  async backdatePlaceForTesting(chatroomId: string, atIso: string): Promise<boolean> {
+    const meta = this.roomMetaCache.get(chatroomId)
+      ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 1, 50);
+    if (!meta || typeof meta !== 'object' || meta['#'] != null) return false;
+    this.roomMetaCache.set(chatroomId, { ...meta, createdAt: atIso, lastActiveAt: atIso });
+    await Promise.all([
+      this.gunService.putPath(['chatroomMeta', chatroomId, 'createdAt'], atIso),
+      this.gunService.putPath(['chatroomMeta', chatroomId, 'lastActiveAt'], atIso),
+      this.gunService.putPath(['chatrooms', chatroomId, 'meta', 'createdAt'], atIso),
+      this.gunService.putPath(['chatrooms', chatroomId, 'meta', 'lastActiveAt'], atIso),
+    ]);
+    return true;
+  }
+
+  /**
    * A room's stored metadata (name, location, …) without the visit totals `getChatroom` adds. The
    * room list (`/api/active-rooms`) needs only the name and location; `getChatroom`'s two counter
    * reads cost ~2–3 s, longer than a phone's 2.5 s hub relay timeout, so every phone's room list

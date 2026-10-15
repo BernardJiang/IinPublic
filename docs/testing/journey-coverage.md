@@ -16,7 +16,14 @@ Five phone-only bugs reached users or a phone while every browser spec passed:
 | One Place with people made every phone's room list fail (503) | The hub's room list spent 2–3 s on visit counters; the phone relay waits 2.5 s. |
 | Durable presence never saved on phones (`Invalid data: Date`) | Only the embedded node's presence store hit it. |
 
-The last three were found by the phone-path suite below on its first runs. They are fixed in
+The last three were found by the phone-path suite below on its first runs. Its second batch of
+journeys (03–05, 2026-10-14) found three more:
+
+| Bug | Found by | Fixed in |
+|---|---|---|
+| Tapping a person (a plain DM, `talkId: 'direct'`) showed "1 match" on BOTH people's status bars and "You matched!" in the empty DM — web too, not only phones | `phone-path/04` J-TALK-05 | `countMatchConversations` (`status-bar.ts`), `conversation-detail-view.ts`; `status-bar.test.ts` |
+| A block made on a phone stayed on that phone: the hub and the blocked person's phone never learned it, so the blocked person still saw the full profile | `phone-path/04` J-TALK-05 | phone node relays blocks and asks the hub for status (`user-routes.ts`, `EmbeddedHubRelayClient.setBlock/getBlockStatus`); `user-routes.test.ts` |
+| Phone-path nodes ran mDNS LAN discovery: phone A and B could sync without the hub, and real phones on the Wi-Fi fed in their data (a release-smoke Place appeared on a fresh node with a dead hub) | `phone-path/03` | `scripts/e2e-phone-node.mjs` turns LAN discovery off | They are fixed in
 `src/web/services/web-chatroom-service.ts` (`PLACE_ADMISSION_REQUEST_TIMEOUT_MS`),
 `ChatroomManager.getChatroomMeta`, and `toGunPresenceRow`, each with a unit test.
 
@@ -27,7 +34,9 @@ The last three were found by the phone-path suite below on its first runs. They 
 | **Web** | Browser → desktop hub (the root Playwright suite) | `npm run test:e2e` |
 | **Phone path** | Browser → phone-like embedded node (production relay mode, no global WebCrypto, release capacity) → hub. Two phone nodes, so "the other user" is on another phone. | `npm run test:e2e:phone-path` |
 | **Slow hub** | Phone path with 400 ms added to every hub API call (mobile round trip) | `npm run test:e2e:phone-path:slow-hub` |
-| **Real phone** | The Android app on real phones against a LAN test hub | `npm run test:android:release-smoke` (short) / `scripts/run-android-phone-e2e-sweep.mjs` (full) |
+| **Real phone** | The Android app on real phones against a LAN test hub | `npm run test:android:release-smoke` (short) / `scripts/run-android-phone-e2e-sweep.mjs` (full: every `native-app/` Android spec; 08/09/27 need the TechSupport keys in `.env.local`, 29 a phone with a SIM, 13/30/31 three phones) |
+
+`npm run test:all` runs the phone path as its last phase (`TEST_ALL_PHONE_PATH=0` skips it).
 
 Phone-path files: `tests/e2e/phone-path/` (config, helpers, specs),
 `scripts/e2e-phone-node.mjs` (starts one phone node), `scripts/e2e-phone-runtime.cjs` (hides
@@ -45,13 +54,13 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 |---|---|---|---|---|
 | **Start** | | | | |
 | J-START-01 | Fresh install opens, an identity is made, app is usable | ✅ `stage0/*`, `platform-smoke/00` | ✅ every phone-path spec | ✅ `native-app/05` |
-| J-START-02 | Restart keeps the same identity | ✅ `platform-smoke/01` | — | ✅ `native-app/12` |
+| J-START-02 | Restart keeps the same identity | ✅ `platform-smoke/01` | ✅ `phone-path/05` | ✅ `native-app/12` |
 | J-START-03 | Location given → placed in the right Nearby room | ✅ `stage1/27` | ✅ `phone-path/02` | ✅ `native-app/30` |
 | J-START-04 | Location refused → still usable | ✅ `platform-smoke/02` (opt-in, production bundle) | — | — (OPEN-54) |
 | **Rooms** | | | | |
 | J-ROOM-01 | Two people nearby share one room and see each other in it | ✅ `stage2/01` | ✅ `phone-path/02` | ✅ `native-app/30` |
 | J-ROOM-02 | A full room splits, people move down, and come back up when it thins | ✅ `stage4/08`–`14` | — | ✅ `native-app/31` |
-| J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | — | — |
+| J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | ✅ `phone-path/04` | — |
 | **Places** | | | | |
 | J-PLACE-01 | Create a Place; the creator stands in it | ✅ `stage1/54-place-creation-rules` | ✅ `phone-path/01` | ✅ `native-app/33` |
 | J-PLACE-02 | The hub has the Place and lists it as a room with people | — | ✅ `phone-path/01` | ✅ `native-app/33` |
@@ -60,17 +69,17 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-PLACE-05 | Everyone leaves; the empty Place is still listed for others | ◐ `stage1/54` (creator only) | ✅ `phone-path/01` | ✅ `native-app/33` |
 | J-PLACE-06 | A plain web user sees a Place made on a phone | — | ✅ `phone-path/01` | — |
 | J-PLACE-07 | An empty Place can be entered again | ◐ `stage1/54` | ✅ `phone-path/01` | ✅ `native-app/33` |
-| J-PLACE-08 | Refusals: too few contacts, one live Place per person | ✅ `stage1/54` | — | — |
-| J-PLACE-09 | Refusals: same name in the cell, cell full | ◐ unit + integration only | — | — |
-| J-PLACE-10 | Hub unreachable while creating → clear error, nothing kept locally | ◐ integration only | — | — |
-| J-PLACE-11 | A Place with no visits for 30 days disappears from lists and the map | ◐ unit only | — | — |
+| J-PLACE-08 | Refusals: too few contacts, one live Place per person | ✅ `stage1/54` | ✅ `phone-path/03` | — |
+| J-PLACE-09 | Refusals: same name in the cell, cell full | ◐ unit + integration only | ✅ `phone-path/03` | — |
+| J-PLACE-10 | Hub unreachable while creating → clear error, nothing kept locally | ◐ integration only | ✅ `phone-path/03` | — |
+| J-PLACE-11 | A Place with no visits for 30 days disappears from lists and the map | ◐ unit only | ✅ `phone-path/03` (lists, not the map) | — |
 | J-PLACE-12 | The Place shows on the map as a block at the right spot | ◐ `stage1/54-chatroom-tree-and-map` | — | — |
 | **Talks** | | | | |
 | J-TALK-01 | Write and broadcast a Talk in the room | ✅ many (`talks-matching/*`, `stage2/*`) | ✅ `phone-path/02` | ✅ `native-app/07` |
 | J-TALK-02 | The other person receives it and answers | ✅ many | ✅ `phone-path/02` | ◐ `native-app/11` (received across devices) |
 | J-TALK-03 | Matching answer → both get a conversation | ✅ many | ✅ `phone-path/02` | ◐ `native-app/12` (match made through a shortcut, not the answer UI) |
-| J-TALK-04 | Non-matching answer → no conversation for either | ✅ `stage3/11` | — | — |
-| J-TALK-05 | Blocked person's Talks stop arriving | ✅ `stage2/15b` | — | — |
+| J-TALK-04 | Non-matching answer → no conversation for either | ✅ `stage3/11` | ✅ `phone-path/04` | — |
+| J-TALK-05 | Blocked person's Talks stop arriving | ✅ `stage2/15b` | ✅ `phone-path/04` | — |
 | **Chat** | | | | |
 | J-CHAT-01 | A message sent appears on the other person's screen | ✅ `stage2/09` | ✅ `phone-path/02` | ◐ `native-app/12` |
 | J-CHAT-02 | Message to someone offline arrives when they come back | ✅ `cross-platform/x6`, `talks-matching/05` | — | ✅ `native-app/13` |
@@ -80,11 +89,16 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 
 ### Gaps worth filling next (in order)
 
-1. **J-PLACE-08…11 on the phone path.** Refusals and expiry run only against the desktop hub or
-   in unit tests, and the phone node's relay sits between the dialog and the hub's 409.
-2. **J-TALK-04/05 and J-ROOM-03 on the phone path.** Mismatch, block and leave are where two
-   people's views must agree.
-3. **J-START-02/04 on the phone path.** Restarting the phone node with the same data dir.
+1. **J-START-04 (location refused)** has no phone coverage at all; on Android it is the native
+   location bridge (OPEN-54), so it needs the Real phone column, not the phone path.
+2. **J-ROOM-02 (split/promote) on the phone path.** Needs release capacity (498) worth of users,
+   or a phone-node capacity override that the production bundle accepts.
+3. **J-PLACE-12 (map block)** and **J-PLACE-11 on the map** — only the lists are checked.
+4. **Real phone ◐ rows** (J-TALK-02/03, J-CHAT-01): answer and match through the UI on two phones
+   instead of the shortcut in `native-app/12`.
+5. A phone keeps and lists Places it learned from LAN neighbours even when its hub has never had
+   them; after a release smoke the test phones carry the smoke Place. Decide whether a phone
+   should list a Place its hub does not know, and `pm clear` the phones after a smoke.
 
 ## Rules for new tests
 

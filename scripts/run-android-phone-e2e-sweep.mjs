@@ -16,6 +16,17 @@ const failures = [];
 const omissions = [];
 let latestBuildReady = false;
 
+// Same as test:all: .env.local supplies the TechSupport keys the 08/09/27 gates need. Values
+// already in the environment win.
+const envLocal = path.join(root, '.env.local');
+if (fs.existsSync(envLocal)) {
+  for (const line of fs.readFileSync(envLocal, 'utf8').split(/\r?\n/)) {
+    const match = /^\s*([A-Z0-9_]+)=(.*)$/.exec(line);
+    if (!match || process.env[match[1]]) continue;
+    process.env[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2');
+  }
+}
+
 function fail(message) {
   console.error(`[android-sweep] ${message}`);
   process.exit(1);
@@ -89,6 +100,22 @@ function runStep(label, command, args, env = process.env, timeoutMs = 2 * 60 * 6
     return false;
   }
   return true;
+}
+
+/** The first selected phone with a ready SIM (NATIVE_APP_ANDROID_CELLULAR overrides). */
+function simPhone(devices) {
+  const explicit = process.env.NATIVE_APP_ANDROID_CELLULAR?.trim();
+  if (explicit) return explicit;
+  if (planOnly) return devices.find((device) => device.sim)?.serial || '';
+  for (const device of devices) {
+    try {
+      const state = execFileSync('adb', ['-s', device.serial, 'shell', 'getprop', 'gsm.sim.state'], { encoding: 'utf8', timeout: 10_000 });
+      if (/READY|LOADED/.test(state)) return device.serial;
+    } catch {
+      // not reachable: not a candidate
+    }
+  }
+  return '';
 }
 
 function runNative(label, specs, env) {
@@ -203,6 +230,51 @@ try {
         NATIVE_APP_ANDROID_SLEEPER: firstTwo[1],
         E2E_REAL_ANDROID_SLEEP_NOTIFY: '1',
       });
+
+      runNative('two-phone Place create, find, enter, leave, re-enter', [
+        'tests/e2e/native-app/33-android-place-smoke.spec.ts',
+      ], { ...commonEnv, NATIVE_APP_ANDROID_SERIALS: firstTwo.join(','), E2E_REAL_ANDROID_PLACE_SMOKE: '1' });
+
+      // TechSupport gates sign as the real TechSupport identity; without its keys in .env.local
+      // they would only skip, so say so in the summary instead of running them.
+      if (process.env.TECHSUPPORT_SEA_PAIR_JSON?.trim()) {
+        runNative('TechSupport answers a phone user\'s question', [
+          'tests/e2e/native-app/08-android-techsupport-conversation-answer-flow.spec.ts',
+        ], { ...commonEnv, E2E_REAL_ANDROID_TECHSUPPORT_ANSWER: '1' });
+        runNative('TechSupport delegate on one phone answers an asker on another', [
+          'tests/e2e/native-app/09-android-techsupport-delegate-answers.spec.ts',
+        ], {
+          ...commonEnv,
+          E2E_REAL_ANDROID_TECHSUPPORT_DELEGATE: '1',
+          NATIVE_APP_ANDROID_SERIAL_DELEGATE: firstTwo[0],
+          NATIVE_APP_ANDROID_SERIAL_ASKER: firstTwo[1],
+        });
+      } else {
+        omissions.push('TechSupport answer and delegate gates 08/09 (TECHSUPPORT_SEA_PAIR_JSON not set in .env.local)');
+      }
+      if (process.env.TECHSUPPORT_RECOVERY_KEY_FILE?.trim() || process.env.TECHSUPPORT_RECOVERY_SEA_PAIR_JSON?.trim()) {
+        runNative('TechSupport recovery anchor catch-up', [
+          'tests/e2e/native-app/27-android-techsupport-recovery-anchor-catch-up.spec.ts',
+        ], commonEnv);
+      } else {
+        omissions.push('TechSupport recovery-anchor gate 27 (no TECHSUPPORT_RECOVERY_KEY_FILE / _SEA_PAIR_JSON)');
+      }
+
+      // Real cellular: needs a phone with a SIM; it runs against the public hub in a private room.
+      const cellular = simPhone(devices);
+      const wifiPeer = serials.find((serial) => serial !== cellular);
+      if (cellular && wifiPeer) {
+        runNative('cellular phone and Wi-Fi phone exchange Talks and a DM', [
+          'tests/e2e/native-app/29-android-cellular-talk-exchange.spec.ts',
+        ], {
+          ...commonEnv,
+          E2E_REAL_ANDROID_CELLULAR: '1',
+          NATIVE_APP_ANDROID_CELLULAR: cellular,
+          NATIVE_APP_ANDROID_WIFI_PEER: wifiPeer,
+        });
+      } else {
+        omissions.push('cellular gate 29 (no selected phone has a ready SIM)');
+      }
 
       if (devices.length >= 3) {
         const threePhoneEnv = { ...commonEnv, NATIVE_APP_ANDROID_SERIALS: firstThree.join(',') };

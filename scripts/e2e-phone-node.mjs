@@ -5,6 +5,8 @@
 // (scripts/e2e-phone-runtime.cjs), a fresh data dir, and the hub pointed at a local test hub.
 //
 // Usage: node scripts/e2e-phone-node.mjs <localPort> <hubPort>
+// PHONE_NODE_DATA_DIR=<dir> keeps the node's data in <dir> and leaves it on exit, so a journey can
+// stop the node and start it again on the same data, like an app restart on a phone.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,13 +20,16 @@ if (!localPort || !hubPort) {
   process.exit(2);
 }
 
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `iinpublic-phone-${localPort}-`));
+const keptDataDir = process.env.PHONE_NODE_DATA_DIR || '';
+if (keptDataDir) fs.mkdirSync(keptDataDir, { recursive: true });
+const dataDir = keptDataDir || fs.mkdtempSync(path.join(os.tmpdir(), `iinpublic-phone-${localPort}-`));
 const env = { ...process.env };
 // These isolate the worker hub's own Gun; on an embedded node they would also zero its hub link.
 delete env.E2E_GUN_MEMORY_ONLY;
 delete env.DEV_GUN_FRESH;
 delete env.NODE_ENV;
 delete env.E2E_HUB_API_DELAY_MS;
+delete env.PHONE_NODE_DATA_DIR;
 // Release capacity (498), as on a real phone: the production web bundle ignores test overrides.
 delete env.CHATROOM_MAX_CAPACITY;
 delete env.CHATROOM_ENABLE_FIFO;
@@ -50,11 +55,17 @@ const child = spawn(
       // desktop shell does (platforms/desktop/main.js).
       IINPUBLIC_NODE_MODULES_ROOT: path.join(repoRoot, 'node_modules'),
       IINPUBLIC_LOOPBACK_ONLY: '1',
+      // No mDNS LAN discovery: otherwise phone A and phone B sync with each other directly (not
+      // only through the hub, which is the route under test), and any real phone running the app
+      // on this Wi-Fi feeds its Gun data in — a test Place from a release smoke showed up on a
+      // fresh node with a dead hub (2026-10-14). PHONE_NODE_LAN_DISCOVERY=1 turns it back on.
+      IINPUBLIC_LAN_DISCOVERY_ENABLED: process.env.PHONE_NODE_LAN_DISCOVERY === '1' ? '1' : '0',
     },
   },
 );
 
 const cleanup = () => {
+  if (keptDataDir) return;
   try {
     fs.rmSync(dataDir, { recursive: true, force: true });
   } catch {

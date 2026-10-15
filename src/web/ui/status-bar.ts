@@ -1,5 +1,19 @@
 import type { UiTranslationKey } from './ui-translations';
 
+/**
+ * Conversations that came from a match: they carry the matched Talk's id. Support channels and
+ * plain DMs opened by tapping a person (talkId 'direct', rule N2a) are not matches — counting the
+ * DM made one tap on a stranger show "1 match" on both people's status bars (phone-path 04,
+ * 2026-10-14).
+ */
+export function countMatchConversations(conversations: Record<string, unknown>): number {
+  return Object.values(conversations).filter((conversation) => {
+    if (!conversation || typeof conversation !== 'object') return false;
+    const { supportChannel, talkId } = conversation as { supportChannel?: unknown; talkId?: unknown };
+    return supportChannel !== true && !!talkId && talkId !== 'direct';
+  }).length;
+}
+
 export type UpdateStatusBarDeps = {
   tf: (key: UiTranslationKey, vars: Record<string, string | number>) => string;
   getTotalMatches: () => number;
