@@ -3,6 +3,8 @@
  * context pointed at a phone node's origin (or the hub's, for a plain web user), so every API
  * call takes the same route it takes on a real phone: WebView → embedded node → hub relay.
  */
+import { spawn, type ChildProcess } from 'node:child_process';
+import * as path from 'node:path';
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { injectIdbClear } from '../helpers/clear-database';
 import { waitForAppReady } from '../helpers/timing';
@@ -26,6 +28,10 @@ export type OpenUserOptions = {
   /** Contacts needed to create a Place; journeys default to 0 so creation is not gated. */
   placeMinContacts?: number;
   extraQuery?: Record<string, string>;
+  /** Open the app from this origin instead (a phone node the spec started itself). */
+  baseUrl?: string;
+  /** Reuse a browser context (the same WebView storage), e.g. after the phone node restarted. */
+  context?: BrowserContext;
 };
 
 export async function openUser(
@@ -35,7 +41,7 @@ export async function openUser(
   options: OpenUserOptions = {},
 ): Promise<JourneyUser> {
   const coords = options.coords ?? JOURNEY_COORDS;
-  const context = await browser.newContext({
+  const context = options.context ?? await browser.newContext({
     viewport: { width: 480, height: 900 },
     geolocation: { latitude: coords.latitude, longitude: coords.longitude, accuracy: 10 },
     permissions: ['geolocation'],
@@ -55,12 +61,12 @@ export async function openUser(
       console.log(`[${label}] +${Date.now() % 100000} ${res.request().method()} ${res.url()} → ${res.status()} ${body.slice(0, 300)}`);
     });
   }
-  await injectIdbClear(page);
+  if (!options.context) await injectIdbClear(page);
   const query = new URLSearchParams({
     e2e_place_min_contacts: String(options.placeMinContacts ?? 0),
     ...options.extraQuery,
   });
-  await page.goto(`${phonePathURL(origin)}/?${query.toString()}`);
+  await page.goto(`${options.baseUrl ?? phonePathURL(origin)}/?${query.toString()}`);
   await page.waitForLoadState('load');
   await waitForAppReady(page, 60_000);
   await pinLocation(page, coords);
@@ -215,4 +221,71 @@ export async function openCurrentRoom(page: Page): Promise<void> {
   await openRoomList(page);
   await page.locator('#chatroom-list .chatroom-item.current-room').first().click();
   await expect(page.locator('#chatroom-members-list')).toBeVisible();
+}
+
+/** A notification banner whose text matches. */
+export function notification(page: Page, text: RegExp) {
+  return page.locator('.notification', { hasText: text });
+}
+
+/** Room ids a node lists at `GET /api/chatrooms` (Places are listed only while live). */
+export async function listedRoomIds(request: APIRequestContext, baseUrl: string, creatorPub?: string): Promise<string[]> {
+  const query = creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : '';
+  const res = await request.get(`${baseUrl}/api/chatrooms${query}`, { timeout: 20_000 });
+  if (!res.ok()) return [];
+  const body = await res.json().catch(() => []);
+  const rooms = Array.isArray(body) ? body : body.chatrooms || body.rooms || [];
+  return rooms.map((room: any) => String(room?.id || '')).filter(Boolean);
+}
+
+/** Age a Place `days` into the past on the hub and on both phone nodes (E2E-only endpoint). */
+export async function backdatePlace(request: APIRequestContext, roomId: string, days: number): Promise<void> {
+  let found = false;
+  for (const origin of Object.keys(PHONE_PATH_PORTS) as PhonePathOrigin[]) {
+    const res = await request.post(`${phonePathURL(origin)}/api/test/chatrooms/${encodeURIComponent(roomId)}/backdate`, {
+      data: { days },
+      timeout: 20_000,
+    });
+    expect([200, 404], `backdate on ${origin}`).toContain(res.status());
+    if (origin === 'hub') found = res.status() === 200;
+  }
+  expect(found, 'the hub did not know the Place to backdate').toBe(true);
+}
+
+export type SpecPhoneNode = { url: string; stop: () => Promise<void> };
+
+/**
+ * Start a phone node of the spec's own (scripts/e2e-phone-node.mjs) on `port`, relaying to the hub
+ * on `hubPort`. With `dataDir`, its data survives `stop()`, so starting it again is an app restart.
+ */
+export async function startPhoneNode(port: number, hubPort: number, dataDir?: string): Promise<SpecPhoneNode> {
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const child: ChildProcess = spawn(process.execPath, ['scripts/e2e-phone-node.mjs', String(port), String(hubPort)], {
+    cwd: repoRoot,
+    env: { ...process.env, ...(dataDir ? { PHONE_NODE_DATA_DIR: dataDir } : {}) },
+    stdio: process.env.PHONE_PATH_SERVER_LOGS === '1' ? 'inherit' : 'ignore',
+  });
+  const url = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    const up = await fetch(`${url}/health`).then((res) => res.ok).catch(() => false);
+    if (up) break;
+    if (child.exitCode != null || Date.now() > deadline) {
+      child.kill('SIGKILL');
+      throw new Error(`phone node on ${port} did not start (exit ${child.exitCode})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const stop = async () => {
+    if (child.exitCode != null) return;
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.kill('SIGTERM');
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 10_000))]);
+    if (child.exitCode == null) child.kill('SIGKILL');
+    // The port must be free before the node is started again.
+    for (let i = 0; i < 40 && await fetch(`${url}/health`).then(() => true).catch(() => false); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  };
+  return { url, stop };
 }

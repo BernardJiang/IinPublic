@@ -5,6 +5,16 @@ export const PHONE_PATH_PORTS = {
   phoneB: 18189,
 } as const;
 
+/**
+ * Ports for phone nodes a spec starts itself (a phone restarted on the same data; a phone whose
+ * hub is unreachable). Nothing listens on `deadHub`.
+ */
+export const PHONE_PATH_SPEC_PORTS = {
+  restartPhone: 18190,
+  offlinePhone: 18191,
+  deadHub: 18199,
+} as const;
+
 export type PhonePathOrigin = keyof typeof PHONE_PATH_PORTS;
 
 export function phonePathURL(origin: PhonePathOrigin): string {

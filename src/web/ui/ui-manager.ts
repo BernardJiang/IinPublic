@@ -146,7 +146,7 @@ import {
   updateConversationTransportMode as updateConversationTransportModeImpl,
   setConversationOnlineStatus as setConversationOnlineStatusImpl,
 } from './conversation-status-updates';
-import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
+import { countMatchConversations, updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
@@ -2281,14 +2281,7 @@ export class UIManager extends EventEmitter {
 
   getTotalMatches(): number {
     const statsMatches = Object.values(this.talkStatsMap).reduce((sum, s) => sum + s.matches, 0);
-    const conversationMatches = Object.values(this.getMyConversations()).filter((conversation: any) => {
-      return (
-        !!conversation &&
-        typeof conversation === 'object' &&
-        conversation.supportChannel !== true &&
-        !!conversation.talkId
-      );
-    }).length;
+    const conversationMatches = countMatchConversations(this.getMyConversations());
     // Use the higher of the two: per-talk stats update immediately on responses, while
     // Gun-backed conversations can lag (bulk matches would otherwise show "1 match" forever).
     return Math.max(statsMatches, conversationMatches);

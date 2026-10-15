@@ -349,9 +349,13 @@ export async function displayConversationMessages(
   deps.setLastConversationMessages(messages);
 
   if (messages.length === 0) {
+    // A DM opened by tapping a person (talkId 'direct') did not come from a match.
+    const emptyKey = deps.getMyConversations()[conversationId]?.talkId === 'direct'
+      ? 'conversationStart'
+      : 'conversationMatchedStart';
     messagesContainer.innerHTML = `
         <div style="text-align: center; padding: 40px 20px; color: #999;">
-          <p>${escapeHtml(deps.t('conversationMatchedStart'))}</p>
+          <p>${escapeHtml(deps.t(emptyKey))}</p>
         </div>
       `;
     return;

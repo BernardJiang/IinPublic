@@ -482,6 +482,20 @@ if [ "$SEQUENTIAL_TAIL" = "1" ]; then
   RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave 4: phone-path journeys (tests/e2e/phone-path, docs/testing/journey-coverage.md) — the
+# Android route without a phone: browser → phone-like embedded node (relay mode, no WebCrypto,
+# release capacity) → hub. Last, because it rebuilds dist/ as the production bundle the phone
+# ships (the phases above serve the development build from the same dist/web). Fixed ports
+# 18180–18199, its own report at playwright-report-phone-path/. TEST_ALL_PHONE_PATH=0 skips it.
+# ─────────────────────────────────────────────────────────────────────────────
+RC_PP=0
+if [ "${TEST_ALL_PHONE_PATH:-1}" != "0" ]; then
+  start_phase phone-path 0 env -u E2E_BLOB npm run test:e2e:phone-path
+  wait_wave 4
+  RC_PP=$(cat "$LOG_DIR/phone-path.rc")
+fi
+
 # Collect the overlapped static checks (no-ops when TEST_ALL_PREFIX_OVERLAP=0 —
 # already collected in phase 0). By now they have almost certainly finished; if
 # jest is somehow still running the wait is real time we'd have spent anyway.
@@ -604,7 +618,7 @@ for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar hea
   fi
 done
 
-E2E_RC=$(( RC_LIGHT || RC_MASS || RC_ISO || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA || RC_XB ))
+E2E_RC=$(( RC_LIGHT || RC_MASS || RC_ISO || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA || RC_XB || RC_PP ))
 PREFIX_RC=$(( RC_TYPE || RC_LINT || RC_JEST ))
 
 phase_time() { cat "$LOG_DIR/$1.time" 2>/dev/null || echo '?'; }
@@ -631,6 +645,8 @@ else
   printf '  %-26s %5ss  rc=%s   ─ isolated (serial, 1 worker)\n' "isolated"  "$(phase_time isolated)"      "$RC_ISO"
   printf '  %-26s %5ss  rc=%s   ─ wave 4 (solo)\n'        "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
 fi
+[ "${TEST_ALL_PHONE_PATH:-1}" != "0" ] && \
+  printf '  %-26s %5ss  rc=%s   ─ phone path (report: playwright-report-phone-path/)\n' "phone-path" "$(phase_time phone-path)" "$RC_PP"
 echo "[test:all] ───────────────────────────────────────────────"
 printf "  blobs: %s  |  TOTAL %dm%ds  |  report: npx playwright show-report\n" \
   "$blob_count" $((dur / 60)) $((dur % 60))

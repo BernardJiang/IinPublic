@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { syncStatusBarMatchCount, updateStatusBar } from '../../web/ui/status-bar';
+import { countMatchConversations, syncStatusBarMatchCount, updateStatusBar } from '../../web/ui/status-bar';
 
 const tf = (key: string, vars: Record<string, string | number>): string => `${key}(${vars.count})`;
 
@@ -98,5 +98,23 @@ describe('two-line status title', () => {
     expect(bar.title).toBe('📍 Nearby · 3 users · 2 matches');
     bar.click();
     expect(bar.classList.contains('status-bar-expanded')).toBe(true);
+  });
+});
+
+describe('countMatchConversations', () => {
+  it('counts conversations that came from a Talk match', () => {
+    expect(countMatchConversations({
+      a: { talkId: 'talk_1', otherUserId: 'u1' },
+      b: { talkId: 'talk_2', otherUserId: 'u2' },
+    })).toBe(2);
+  });
+
+  it('does not count a DM opened by tapping a person, a support channel, or a record without a Talk', () => {
+    expect(countMatchConversations({
+      direct: { talkId: 'direct', otherUserId: 'u1' },
+      support: { talkId: 'talk_x', supportChannel: true },
+      bare: { otherUserId: 'u3' },
+      junk: null,
+    })).toBe(0);
   });
 });

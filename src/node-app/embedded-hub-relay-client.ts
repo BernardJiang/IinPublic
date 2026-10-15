@@ -182,6 +182,13 @@ export interface EmbeddedHubRelayClientLike {
    */
   publishChatroom?(body: unknown): Promise<{ status: number; body: unknown }>;
   listChatrooms?(creatorPub?: string): Promise<unknown[]>;
+  /**
+   * Blocks are pair records the blocked person's device must also see (their peer view shows
+   * "Profile unavailable"). A phone writes them to its own store, which never syncs to the hub in
+   * relay mode, so the node forwards them and asks the hub for status. Optional for test doubles.
+   */
+  setBlock?(blockerId: string, targetId: string, blocked: boolean): Promise<void>;
+  getBlockStatus?(viewerId: string, targetId: string): Promise<{ blocked: boolean; blockedBy: boolean }>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -530,6 +537,27 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
 
   async publishChatroom(body: unknown): Promise<{ status: number; body: unknown }> {
     return this.forwardJson('/api/chatrooms', 'POST', body, ROOM_MEMBERSHIP_TIMEOUT_MS);
+  }
+
+  async setBlock(blockerId: string, targetId: string, blocked: boolean): Promise<void> {
+    const base = `/api/users/${encodeURIComponent(blockerId)}/blocks`;
+    if (blocked) {
+      await this.request(base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId }),
+      });
+    } else {
+      await this.request(`${base}/${encodeURIComponent(targetId)}`, { method: 'DELETE' });
+    }
+  }
+
+  async getBlockStatus(viewerId: string, targetId: string): Promise<{ blocked: boolean; blockedBy: boolean }> {
+    const response = await this.request(
+      `/api/users/${encodeURIComponent(viewerId)}/block-status/${encodeURIComponent(targetId)}`,
+    );
+    const body = (await response.json()) as { blocked?: unknown; blockedBy?: unknown };
+    return { blocked: body.blocked === true, blockedBy: body.blockedBy === true };
   }
 
   async listChatrooms(creatorPub?: string): Promise<unknown[]> {

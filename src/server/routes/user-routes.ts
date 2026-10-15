@@ -142,7 +142,15 @@ export function registerUserRoutes(
 
   app.get('/api/users/:id/block-status/:targetId', async (req, res) => {
     try {
-      const status = await userService.getBlockStatus(req.params.id, req.params.targetId);
+      const local = await userService.getBlockStatus(req.params.id, req.params.targetId);
+      // On a phone, a block made on ANOTHER phone reaches only the hub (see the relay below), so
+      // ask it too; this phone's own answer stands when the hub cannot be reached.
+      const remote = hubRelayClient?.getBlockStatus
+        ? await hubRelayClient.getBlockStatus(req.params.id, req.params.targetId).catch(() => null)
+        : null;
+      const blocked = local.blocked || remote?.blocked === true;
+      const blockedBy = local.blockedBy || remote?.blockedBy === true;
+      const status = { blocked, blockedBy, eitherBlocked: blocked || blockedBy };
       res.json(status);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -157,6 +165,9 @@ export function registerUserRoutes(
         return;
       }
       const result = await userService.blockUser(req.params.id, targetId);
+      // A phone node holds the block in its own store only; the blocked person's device learns it
+      // from the hub (phone-path 04, 2026-10-14: Alice's phone never knew Bob had blocked her).
+      if (hubRelayClient?.setBlock) void hubRelayClient.setBlock(req.params.id, targetId, true).catch(() => undefined);
       res.json({ ok: true, ...result });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -166,6 +177,9 @@ export function registerUserRoutes(
   app.delete('/api/users/:id/blocks/:targetId', async (req, res) => {
     try {
       const result = await userService.unblockUser(req.params.id, req.params.targetId);
+      if (hubRelayClient?.setBlock) {
+        void hubRelayClient.setBlock(req.params.id, req.params.targetId, false).catch(() => undefined);
+      }
       res.json({ ok: true, ...result });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
