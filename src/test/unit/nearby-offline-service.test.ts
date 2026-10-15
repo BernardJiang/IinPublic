@@ -206,6 +206,34 @@ describe('NearbyOfflineService', () => {
     expect(t.iceServers.at(-1)).toBeNull();
   });
 
+  it('does not make the one-way observer compete with the peer it is waiting for', async () => {
+    const t = setup();
+    await t.service.start();
+    // This peer wins the normal election, but never reports that it started hosting. This models
+    // A hearing B while B missed A and entered singleton backoff on real hardware.
+    const silentWinner = () => t.emitBle(scopedBle({
+      id: '000000000000',
+      canHost: true,
+      joinByCredential: true,
+      hostScore: 3,
+      hosting: false,
+    }));
+    silentWinner();
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+
+    t.advance(44_999);
+    silentWinner();
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+
+    t.advance(1);
+    silentWinner();
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+    t.service.dispose();
+  });
+
   it('joins an advertised group and peers Gun with the owner node', async () => {
     const t = setup();
     await t.service.start();
@@ -318,14 +346,24 @@ describe('NearbyOfflineService BLE presence', () => {
 describe('NearbyOfflineService Wi-Fi-only fallback', () => {
   const phone = (address: string, groupOwner = false) => ({ address, groupOwner, type: '10-0050F204-5' });
 
-  it('does not join or host from unscoped phone sightings', async () => {
+  it('uses a visible owner only to attempt the current room-derived credential', async () => {
     const t = setup();
     await t.service.start();
     t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
     await t.tick();
-    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
-    t.advance(15_000);
-    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
+    expect(t.native.joined).toEqual([TEST_GROUP_CREDENTIALS]);
+    expect(t.native.created).toHaveLength(0);
+    t.service.dispose();
+  });
+
+  it('never hosts or joins from an unverified non-owner sighting', async () => {
+    const t = setup();
+    await t.service.start();
+    const emitRawPeer = () => t.emitPeers([phone('aa:bb:cc:00:00:01')]);
+    emitRawPeer();
+    await t.tick();
+    t.advance(45_000);
+    emitRawPeer();
     await t.tick();
     expect(t.native.joined).toHaveLength(0);
     expect(t.native.created).toHaveLength(0);
@@ -524,7 +562,7 @@ describe('NearbyOfflineService staged discovery', () => {
     t.service.dispose();
   });
 
-  it('a lone offline phone stops Wi-Fi Direct discovery after its scan window (quiet singleton)', async () => {
+  it('a lone offline phone backs off, then performs a bounded host probe in a later window', async () => {
     const t = setup({ roomPeers: { count: 0, pubs: [] } });
     await t.service.start();
     expect(t.calls).toContain('wd-start');
@@ -539,6 +577,13 @@ describe('NearbyOfflineService staged discovery', () => {
     t.advance(30_000);
     await t.tick();
     expect(t.calls.filter((call) => call === 'wd-start')).toHaveLength(2);
+    expect(t.native.created).toEqual([TEST_GROUP_CREDENTIALS]);
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...TEST_GROUP_CREDENTIALS });
+    await flush();
+    await t.tick();
+    t.advance(60_000);
+    await t.tick();
+    expect(t.native.left).toBe(1);
     t.service.dispose();
   });
 

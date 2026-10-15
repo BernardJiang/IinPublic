@@ -119,6 +119,11 @@ const GROUP_RETRY_MS = 20_000;
 /** A join gets the native join timeout (hinted 35 s + unhinted retry) before replanning. */
 const JOIN_WAIT_MS = 75_000;
 const CREATE_WAIT_MS = 20_000;
+/** A phone that hears absolutely nobody may itself be the one others can hear. During a later scan
+ * window it briefly hosts the credential-protected room group, allowing a one-way observer to
+ * join. The first window remains scan-only, so a genuinely lone phone does not form immediately. */
+const SINGLETON_HOST_PROBE_MS = 45_000;
+const SINGLETON_HOST_PROBE_TEARDOWN_MS = 60_000;
 /** An owner with no clients this long removes its group. */
 const EMPTY_GROUP_TEARDOWN_MS = 3 * 60_000;
 /** Back online this long: the offline group is no longer needed and is left. */
@@ -165,6 +170,8 @@ export class NearbyOfflineService {
   private relayAddress: string | null = null;
   private emptySince: number | null = null;
   private lastPlan: OfflineGroupPlan | null = null;
+  private singletonSince: number | null = null;
+  private singletonProbeGroup = false;
   private lastFallback: WifiOnlyPlan['action'] = 'none';
   private readonly wdPeers = new Map<string, WifiDirectPeerSighting>();
   private readonly ownerCooldown = new Map<string, number>();
@@ -310,6 +317,7 @@ export class NearbyOfflineService {
       const state = this.opts.native.getState();
       if ((state.state === 'owner' || state.state === 'client') && state.networkName === this.currentCredentials()?.networkName) {
         this.ownsGroup = false;
+        this.singletonProbeGroup = false;
         this.opts.native.leaveGroup();
       }
       if (this.wifiDirectActive) this.stopWifiDirect('disabled-in-settings');
@@ -320,6 +328,7 @@ export class NearbyOfflineService {
   /** Room change or an explicit retry: forget the quiet-singleton backoff. */
   resetDiscoveryBackoff(): void {
     this.policy.reset();
+    this.singletonSince = null;
     void this.tick();
   }
 
@@ -386,6 +395,10 @@ export class NearbyOfflineService {
         hosting: !!peer.record?.group,
         ageSeconds: Math.round((now - peer.lastSeenAt) / 1000),
       })),
+      wifiDirectPeerSightings: {
+        total: [...this.wdPeers.values()].filter((peer) => now - peer.seenAt <= 30_000).length,
+        owners: [...this.wdPeers.values()].filter((peer) => now - peer.seenAt <= 30_000 && peer.groupOwner).length,
+      },
       group: safeGroupState,
       relayAddress: this.relayAddress,
       lastPlan: safeLastPlan,
@@ -436,6 +449,7 @@ export class NearbyOfflineService {
       // and joining the current room's group forever. Other apps' groups are left alone.
       if (inGroup && !ourGroup && state.networkName?.startsWith(OFFLINE_GROUP_NAME_PREFIX)) {
         this.ownsGroup = false;
+        this.singletonProbeGroup = false;
         this.opts.onEvent?.({ type: 'stale-group-left', networkName: state.networkName });
         this.opts.native.leaveGroup();
         return;
@@ -481,6 +495,7 @@ export class NearbyOfflineService {
       if (this.onlineSince !== null && now - this.onlineSince >= ONLINE_LEAVE_GROUP_MS) {
         this.onlineSince = null;
         this.ownsGroup = false;
+        this.singletonProbeGroup = false;
         this.opts.native.leaveGroup();
         if (this.wifiDirectActive) this.stopWifiDirect('hub-reachable');
         this.applyBle(decision.bleAdvertise, decision.bleScan);
@@ -557,15 +572,46 @@ export class NearbyOfflineService {
       lanIds: this.registry.lanIds(now),
       now,
     });
+    if (plan.action !== 'none' || plan.reason !== 'no-offline-peers') this.singletonSince = null;
     if (plan.action !== this.lastPlan?.action || (plan.action === 'join' && this.lastPlan?.action === 'join' && plan.record.id !== this.lastPlan.record.id)) {
       this.opts.onEvent?.({ type: 'plan', plan });
     }
     this.lastPlan = plan;
-    if (!mayForm) return;
     if (plan.action === 'none' && plan.reason === 'no-offline-peers') {
-      this.fallback(offline, this.opts.native.getState());
-      return;
+      // A scoped credential join to an already-visible owner is safe even though the policy has
+      // no proof-verified candidate to elect as a *new* host (see fallback's boundary comment).
+      if (this.fallback(offline, this.opts.native.getState())) return;
+      // "Singleton" must mean that every discovery route is quiet. A raw P2P sighting cannot
+      // authenticate a room member, but it is still enough evidence that this phone is the
+      // one-way observer rather than the unheard peer. Let the unheard peer perform the bounded
+      // host probe; once it becomes an owner, this observer can join with room credentials.
+      const hasRecentRawPeer = [...this.wdPeers.values()]
+        .some((peer) => now - peer.seenAt <= 30_000);
+      if (hasRecentRawPeer) {
+        this.singletonSince = null;
+        return;
+      }
+      if (!offline) {
+        this.singletonSince = null;
+        return;
+      }
+      if (caps.wifiDirect && caps.joinByCredential) {
+        this.singletonSince ??= now;
+        if (now - this.singletonSince >= SINGLETON_HOST_PROBE_MS) {
+          const credentials = this.currentCredentials();
+          if (!credentials) return;
+          this.singletonSince = null;
+          this.singletonProbeGroup = true;
+          this.ownsGroup = true;
+          this.busyUntil = now + CREATE_WAIT_MS;
+          this.opts.onEvent?.({ type: 'plan', plan: { action: 'host' } });
+          this.lastPlan = { action: 'host' };
+          this.opts.native.createGroup(credentials);
+          return;
+        }
+      }
     }
+    if (!mayForm) return;
     if (plan.action === 'host') {
       const credentials = this.currentCredentials();
       if (!credentials) return;
@@ -582,10 +628,12 @@ export class NearbyOfflineService {
 
   /** Wi-Fi-only path when neither BLE nor DNS-SD has reported anyone. Returns true if it acted. */
   private fallback(offline: boolean, state: WifiDirectNativeState): boolean {
-    // Plain P2P peer sightings carry no authenticated room capability. Joining an arbitrary
-    // nearby group would cross the hard room boundary, so room-scoped mode deliberately waits
-    // for BLE/DNS-SD carrying the opaque token instead.
-    if (this.opts.getRoomScope()) return false;
+    // Plain P2P sightings do not prove room membership, so they may never cause an uncredentialed
+    // classic join or elect a host. They may, however, trigger an Android 10+ credential join to a
+    // *visible owner* using credentials derived from this phone's authenticated room capability.
+    // A foreign group rejects that WPA2 credential; after a successful join, signed room/mesh
+    // checks still gate all data. This is the liveness path when BLE/DNS-SD discovery is one-way.
+    if (!this.opts.getRoomScope()) return false;
     if (!offline || this.registry.lanIds(this.now()).size > 0) return false;
     const now = this.now();
     const plan = planWifiOnlyFallback({
@@ -614,17 +662,16 @@ export class NearbyOfflineService {
         return true;
       }
       case 'host': {
-        const hostCredentials = this.currentCredentials();
-        if (!hostCredentials) return false;
-        this.ownsGroup = true;
-        this.busyUntil = now + CREATE_WAIT_MS;
-        this.opts.native.createGroup(hostCredentials);
-        return true;
+        // A non-owner raw sighting contains no authenticated host-election record. Never turn it
+        // into a competing group; the separately bounded singleton probe applies only when there
+        // are literally no recent sightings on any route.
+        return false;
       }
       case 'leave-and-join':
         // Our empty group loses to the other owner; the next idle tick joins it.
         this.emptySince = null;
         this.ownsGroup = false;
+        this.singletonProbeGroup = false;
         this.busyUntil = now + 3_000;
         this.opts.native.leaveGroup();
         return true;
@@ -633,10 +680,16 @@ export class NearbyOfflineService {
 
   private maybeTearDown(state: WifiDirectNativeState): void {
     if (!this.ownsGroup || state.state !== 'owner') { this.emptySince = null; return; }
-    if ((state.clientCount ?? 0) > 0) { this.emptySince = null; return; }
+    if ((state.clientCount ?? 0) > 0) {
+      this.emptySince = null;
+      this.singletonProbeGroup = false;
+      return;
+    }
     this.emptySince ??= this.now();
-    if (this.now() - this.emptySince < EMPTY_GROUP_TEARDOWN_MS) return;
+    const teardownMs = this.singletonProbeGroup ? SINGLETON_HOST_PROBE_TEARDOWN_MS : EMPTY_GROUP_TEARDOWN_MS;
+    if (this.now() - this.emptySince < teardownMs) return;
     this.emptySince = null;
+    this.singletonProbeGroup = false;
     this.ownsGroup = false;
     this.opts.native.leaveGroup();
   }
@@ -741,6 +794,7 @@ export class NearbyOfflineService {
         this.opts.setLocalLinkIceServer(null);
       }
       this.ownsGroup = false;
+      this.singletonProbeGroup = false;
       this.joinedRecord = null;
       this.emptySince = null;
       if (state.state === 'failed') {

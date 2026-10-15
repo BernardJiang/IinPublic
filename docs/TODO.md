@@ -712,22 +712,29 @@ phrase complexity into normal use.
   - [ ] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
     per-device coverage report; make unexpected coverage loss fail CI/release qualification.
 - [ ] **OPEN-60 — Three-phone offline BLE/Wi-Fi Direct election does not converge (found on real
-  phones 2026-10-15).** With the internet relay unreachable, LAN discovery disabled, all three
-  phones in the same Nearby room, and permissions granted, no phone reached a Wi-Fi Direct
-  owner/client state within 180 s. VOG-L29 repeatedly discovered PH-1 over BLE but chose
-  `wait / peer-hosts`; PH-1 and FRD-L04 saw no usable peer and entered quiet backoff. This is a real
-  discovery/election failure, not the first-run harness race: the same devices pass the online LAN
-  four-phone ring. Capture symmetric BLE sightings, make the deterministic host-election rule
-  self-start when the elected host has not seen the waiter, and add bounded election timeout/failover
-  before rerunning `test:e2e:android-three-phone-nearby-wifi-direct`.
-- [ ] **OPEN-61 — Finish migrating older physical gates to the flat Nearby design (found in the
-  2026-10-15 sweep).** The all-runtime matrix and directional-pair test still force `global`; the
-  Mac runtime failed to activate that retired exchange room. The phone/Mac device-sync gate still
-  waits for a TechSupport greeting conversation even though TechSupport is now a permanent Contact,
-  not a Global participant. Replace those setup assumptions with a shared deterministic Nearby test
-  room and contact-based TechSupport baseline. Separately diagnose the mixed-release manifest gate:
-  R1 accepted and retained signed M2 across restart, but its manifest-ready neighbor count remained
-  zero after the restart.
+  phones 2026-10-15; fix implemented, exact three-phone rerun pending).** The failure was asymmetric
+  radio discovery, not a room-policy disagreement: C10 could see PH-1 while PH-1 saw no BLE, DNS-SD,
+  or raw Wi-Fi Direct peer. The service now reports raw peer/owner counts, permits only a
+  credential-authenticated join to a visible owner using the active room's derived credentials,
+  and lets a phone which hears literally nobody perform a delayed, one-minute, credential-protected
+  host probe. A one-way observer never competes with that probe, and an empty probe is removed.
+  Unit coverage exercises each safety boundary. A real C10 (Android 14) + VOG-L29 (Android 10)
+  internet-off/LAN-off run passed owner/client convergence, Talks in both directions (21.2–21.3 s),
+  and background delivery (9.3 s). PH-1 disconnected from ADB during installation, so keep this
+  item open until the exact C10 + VOG-L29 + PH-1 supported-phone matrix is rerun; Android 7 remains
+  intentionally excluded because it cannot join app-selected dynamic Wi-Fi Direct credentials.
+- [x] **OPEN-61 — Older physical gates now use the flat Nearby design and current artifacts (fixed
+  2026-10-15).** Specs 06/11 use an opaque deterministic Nearby room; spec 10 uses the permanent
+  TechSupport Contact baseline. The native launcher rejects a packaged macOS app unless its build id
+  and web checksums match the current tree, and `desktop:dist:dir` is built by the individual native
+  commands and the full Android sweep (desktop gates are explicitly omitted if that build fails).
+  Synthetic-room joins now surface manifest bootstrap failures and renew their ordinary membership
+  lease; the seven-runtime matrix supplies its already-verified roster to the app's E2E broadcast
+  hook so inactive-tab timer throttling is not mistaken for transport failure. Physical evidence:
+  directional Android↔macOS/Chromium/WebKit/Firefox pairs passed; device sync passed; a seven-client
+  matrix (three phones, macOS app, three browser engines) completed all broadcasts and its seven-node
+  answer ring; and the mixed R1/R2 manifest procedure passed M2/K2/K3 upgrade, bidirectional Talks,
+  restart retention, and a manifest-ready neighbor after restart.
 - [ ] **OPEN-56 — `talks-matching/01-mesh-ping-overlay` fails about half the time (found 2026-10-13).**
   Same rate with and without the OPEN-53 change (2 of 4 runs alone on the unchanged tree): with Tom
   capped at one neighbor, Jerry or Bob never sees the relayed ping. Like spec 06, it probably sends

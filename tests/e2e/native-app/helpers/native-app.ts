@@ -30,6 +30,50 @@ const webrtcLaunchArgs = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
 
 type ElectronLaunchTarget = { executablePath: string; args: string[]; cwd?: string };
 
+function assertPackagedDesktopMatchesCurrentBuild(packagedApp: string): void {
+  const currentBuildPath = path.join(repoRoot, 'dist', 'web', 'build-id.json');
+  const packagedBuildPath = path.join(
+    packagedApp,
+    'Contents',
+    'Resources',
+    'app',
+    'dist',
+    'web',
+    'build-id.json',
+  );
+  const currentChecksumsPath = path.join(repoRoot, 'dist', 'web', 'SHA256SUMS');
+  const packagedChecksumsPath = path.join(
+    packagedApp,
+    'Contents',
+    'Resources',
+    'app',
+    'dist',
+    'web',
+    'SHA256SUMS',
+  );
+  const readBuildId = (filePath: string): string => {
+    try {
+      return String(JSON.parse(fs.readFileSync(filePath, 'utf8'))?.buildId || '');
+    } catch {
+      return '';
+    }
+  };
+  const currentBuildId = readBuildId(currentBuildPath);
+  const packagedBuildId = readBuildId(packagedBuildPath);
+  const readChecksums = (filePath: string): string => {
+    try { return fs.readFileSync(filePath, 'utf8').trim(); } catch { return ''; }
+  };
+  const currentChecksums = readChecksums(currentChecksumsPath);
+  const packagedChecksums = readChecksums(packagedChecksumsPath);
+  if (currentBuildId && packagedBuildId === currentBuildId
+    && currentChecksums && packagedChecksums === currentChecksums) return;
+  throw new Error(
+    `Packaged desktop build is stale (current ${currentBuildId || 'missing'}, packaged ${packagedBuildId || 'missing'}, ` +
+      `checksums ${currentChecksums === packagedChecksums ? 'match' : 'differ'}). ` +
+      'Run "npm run desktop:dist:dir" before native-app tests.',
+  );
+}
+
 /**
  * The raw dev Electron binary (platforms/desktop/node_modules/electron) is macOS's
  * official electron@31.7.7 release zip. Apple has since revoked that build's
@@ -54,8 +98,10 @@ function resolveElectronLaunchTarget(): ElectronLaunchTarget {
     return { executablePath: explicitExecutable, args: [...webrtcLaunchArgs] };
   }
   if (process.platform === 'darwin') {
-    const packagedApp = path.join(desktopRoot, 'dist', 'mac-arm64', 'IinPublic.app', 'Contents', 'MacOS', 'IinPublic');
+    const packagedAppRoot = path.join(desktopRoot, 'dist', 'mac-arm64', 'IinPublic.app');
+    const packagedApp = path.join(packagedAppRoot, 'Contents', 'MacOS', 'IinPublic');
     if (fs.existsSync(packagedApp)) {
+      assertPackagedDesktopMatchesCurrentBuild(packagedAppRoot);
       return { executablePath: packagedApp, args: [...webrtcLaunchArgs] };
     }
   }
@@ -441,18 +487,46 @@ export async function forceJoinRoom(page: Page, roomId: string): Promise<void> {
       app.uiManager?.updateChatroomMembers?.(members, user.id);
       app.syncPeerMeshRoom?.(nextRoomId, members);
     });
+    // Surface a failed signed-manifest bootstrap to the physical test instead of letting
+    // activateRoomExchange's user-facing catch turn it into a later, opaque room-state timeout.
+    await app.ensureProtocolManifestController?.();
     // Manual room selection ends by activating the room's exchange (app.ts `chatroomChanged`);
     // without it the receiver rejects every Talk body as outside its active room.
     await app.activateRoomExchange?.(nextRoomId);
   }, roomId);
+  await refreshRoomMembership(page, roomId);
   await expect.poll(
-    () => page.evaluate((expectedRoomId) => {
+    () => page.evaluate(() => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      return app?.currentChatroomId === expectedRoomId
-        && app?.chatroomService?.getCurrentChatroomId?.() === expectedRoomId
-        && app?.peerMeshService?.getDiagnostics?.()?.roomId === expectedRoomId
-        && app?.activeExchangeRoomController?.getActiveRoom?.()?.roomId === expectedRoomId;
-    }, roomId),
+      return {
+        app: String(app?.currentChatroomId || ''),
+        chatroom: String(app?.chatroomService?.getCurrentChatroomId?.() || ''),
+        mesh: String(app?.peerMeshService?.getDiagnostics?.()?.roomId || ''),
+        exchange: String(app?.activeExchangeRoomController?.getActiveRoom?.()?.roomId || ''),
+      };
+    }),
     { timeout: 30_000, message: `native user should activate room ${roomId}` },
-  ).toBe(true);
+  ).toEqual({ app: roomId, chatroom: roomId, mesh: roomId, exchange: roomId });
+}
+
+/** Renew a synthetic room's ordinary membership lease without restarting its exchange. */
+export async function refreshRoomMembership(page: Page, roomId: string): Promise<void> {
+  await page.evaluate(async (currentRoomId) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const user = app?.currentUser;
+    const apiBase = app?.getBackendApiBase?.();
+    if (!apiBase || !user?.id) throw new Error('room membership renewal requires an active user and API');
+    const response = await Promise.race([
+      fetch(`${apiBase}/api/chatrooms/${encodeURIComponent(currentRoomId)}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, stageName: user.stageName }),
+      }),
+      new Promise<Response>((_, reject) => window.setTimeout(
+        () => reject(new Error(`room membership POST timed out for ${currentRoomId}`)),
+        10_000,
+      )),
+    ]);
+    if (!response.ok) throw new Error(`room membership POST failed: ${response.status}`);
+  }, roomId);
 }

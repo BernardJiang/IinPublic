@@ -12,6 +12,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "dist:dir": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win --x64",
     "dist:win:arm64": "electron-builder --win --arm64",

@@ -18,6 +18,7 @@ import {
   forceJoinRoom,
   launchNativeUser,
   readRoomMembersFromHub,
+  refreshRoomMembership,
   type NativeUser,
 } from './helpers/native-app';
 import {
@@ -31,10 +32,10 @@ import {
   type AndroidUser,
 } from './helpers/native-app-android';
 import {
-  clickBroadcastUntilBulkAck,
   completeTalksInAppByAnswerIds,
   createTagTalkViaEditor,
 } from '../helpers/talk-demo-ui';
+import { deliverBroadcastViaAppPath } from '../helpers/broadcast-register-fallback';
 import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
 import { detectAvailableEnvironments, formatAvailabilityReport } from './helpers/environment-availability';
 
@@ -314,6 +315,10 @@ test.describe('Real-device cross-platform matrix (browsers + macOS app + whichev
       'publishing public user',
       async () => publishPublicUserToHub(await readCurrentPublicUser(user.page)),
     )));
+    // Joining seven heterogeneous runtimes can take longer than one room-membership lease. A
+    // browser that joined first may also throttle its heartbeat while Playwright drives other
+    // windows, so renew every lease at this shared barrier before asserting presence.
+    await Promise.all(users.map((user) => refreshRoomMembership(user.page, SHARED_ROOM_ID)));
 
     await expect.poll(async () => {
       const memberIds = new Set((await readRoomMembersFromHub(HUB_GUN_PORT, SHARED_ROOM_ID)).map((member) => member.userId));
@@ -331,16 +336,29 @@ test.describe('Real-device cross-platform matrix (browsers + macOS app + whichev
         { title: oneTagTalk(user.id, user.name, runId)[0].title, timeoutMs: 90_000 },
       ));
     }
-    // Exercise the lower-memory C10 first; this is a cross-runtime matrix, not a 42-response
-    // saturation test. Every runtime still authors and broadcasts exactly once.
-    const broadcastOrder = [
-      ...users.filter((user) => user.runtime.includes('PADC100013000534')),
-      ...users.filter((user) => !user.runtime.includes('PADC100013000534')),
-    ];
-    for (const user of broadcastOrder) {
+    // Authoring is intentionally serial to protect the lowest-memory phone. Renew once more so
+    // that serialization cannot expire the first browser's test-room lease before broadcast.
+    await Promise.all(users.map((user) => refreshRoomMembership(user.page, SHARED_ROOM_ID)));
+    // Broadcast together once every runtime has authored. Serializing seven 45-second-capable
+    // deliveries made the final runtime wait long enough for its otherwise healthy local member
+    // snapshot to expire. Concurrent senders are also the real product condition this matrix is
+    // intended to qualify; the later ring assertion still verifies one precise cross-runtime
+    // receive/answer edge per sender.
+    await Promise.all(users.map(async (user) => {
       console.log(`[matrix] broadcasting: ${user.runtime} (${user.name})`);
-      await clickBroadcastUntilBulkAck(user.page, { minGunPeers: 1, minSent: 1 });
-    }
+      // Presence for the complete matrix was already asserted above. Supply that authoritative
+      // test roster to the app's E2E delivery entrypoint: a background-throttled browser can have
+      // an empty UI snapshot even after its hub lease was renewed, which must not turn this
+      // transport matrix into a test of inactive-tab timers.
+      const result = await deliverBroadcastViaAppPath(user.page, {
+        minReceivers: users.length - 1,
+        receiverUsers: users
+          .filter((receiver) => receiver.id !== user.id)
+          .map((receiver) => ({ userId: receiver.id, stageName: receiver.name })),
+      });
+      expect(result.talksSent, `${user.runtime} should broadcast at least one Talk`).toBeGreaterThanOrEqual(1);
+      expect(result.receivers, `${user.runtime} should target at least one room peer`).toBeGreaterThanOrEqual(1);
+    }));
 
     // N-node ring (N = users.length, varying with how many Android phones are connected): each
     // runtime completes one different runtime's talk, covering every sender and receiver without

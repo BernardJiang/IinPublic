@@ -187,11 +187,23 @@ try {
     if (!latestInstalled) {
       omissions.push('all current-version gates (latest APK was not installed on every selected phone)');
     } else {
+      // Native specs 06/10/11 launch the packaged macOS app. Build it from the same current web
+      // tree as the just-installed APK; otherwise a months-old app bundle can make a phone gate
+      // look like a protocol regression. The launcher also verifies build-id + content checksums.
+      const desktopBuildReady = runStep('build current macOS test bundle', 'npm', [
+        'run', 'desktop:dist:dir',
+      ]);
+      if (!desktopBuildReady) {
+        omissions.push('desktop/phone gates 06/10/11 (current macOS test bundle build failed)');
+      }
+
       runNative('one-phone app, Talk, lifecycle, custody, camera, and device-sync gates', [
         'tests/e2e/native-app/05-android-device-boots.spec.ts',
         'tests/e2e/native-app/07-android-authoritative-talk-commit.spec.ts',
-        'tests/e2e/native-app/10-android-macmini-device-sync-conversation-merge.spec.ts',
-        'tests/e2e/native-app/11-android-cross-engine-directional-pairs.spec.ts',
+        ...(desktopBuildReady ? [
+          'tests/e2e/native-app/10-android-macmini-device-sync-conversation-merge.spec.ts',
+          'tests/e2e/native-app/11-android-cross-engine-directional-pairs.spec.ts',
+        ] : []),
         'tests/e2e/native-app/12-android-lifecycle-and-network-resilience.spec.ts',
         'tests/e2e/native-app/18-android-keystore-custody.spec.ts',
         'tests/e2e/native-app/26-android-camera-and-file-permissions.spec.ts',
@@ -217,9 +229,11 @@ try {
         E2E_PORT_OFFSET: process.env.E2E_PORT_OFFSET || '700',
       });
 
-      runNative('current-version browser, desktop, and phone matrix', [
-        'tests/e2e/native-app/06-seven-client-real-device-matrix.spec.ts',
-      ], { ...commonEnv, E2E_REAL_DEVICE_MATRIX: '1' });
+      if (desktopBuildReady) {
+        runNative('current-version browser, desktop, and phone matrix', [
+          'tests/e2e/native-app/06-seven-client-real-device-matrix.spec.ts',
+        ], { ...commonEnv, E2E_REAL_DEVICE_MATRIX: '1' });
+      }
 
       runNative('sleeping receiver notification and wake delivery', [
         'tests/e2e/native-app/28-android-sleeping-receiver-notification.spec.ts',

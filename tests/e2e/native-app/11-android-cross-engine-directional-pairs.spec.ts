@@ -159,7 +159,10 @@ test.describe('Native app: Android <-> browser-engine directional pairs', () => 
     expect(new Set(peers.map((peer) => peer.id)).size).toBe(peers.length);
     peers.forEach(attachDiagnostics);
 
-    await Promise.all(peers.map((peer) => forceJoinRoom(peer.page, SHARED_ROOM_ID)));
+    for (const peer of peers) {
+      console.log(`[directional-pairs] joining shared room: ${peer.runtime} (${peer.name})`);
+      await forceJoinRoom(peer.page, SHARED_ROOM_ID);
+    }
     await expect.poll(async () => {
       const memberIds = new Set((await readRoomMembersFromHub(HUB_GUN_PORT, SHARED_ROOM_ID)).map((member) => member.userId));
       return peers.filter((peer) => memberIds.has(peer.id)).length;
