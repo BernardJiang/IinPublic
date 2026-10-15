@@ -359,9 +359,13 @@ export async function bootstrapBrowserUserOnOrigin(
   };
 }
 
-export async function readGlobalMembersFromHub(hubPort: number): Promise<Array<{ userId: string; stageName: string }>> {
+export async function readRoomMembersFromHub(
+  hubPort: number,
+  roomId: string,
+): Promise<Array<{ userId: string; stageName: string }>> {
   return new Promise((resolve, reject) => {
-    const req = http.get({ host: '127.0.0.1', port: hubPort, path: '/api/chatrooms/global/members', timeout: 1500 }, (res) => {
+    const requestPath = `/api/chatrooms/${encodeURIComponent(roomId)}/members`;
+    const req = http.get({ host: '127.0.0.1', port: hubPort, path: requestPath, timeout: 1500 }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => { body += chunk; });
@@ -381,9 +385,13 @@ export async function readGlobalMembersFromHub(hubPort: number): Promise<Array<{
     req.on('error', reject);
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error(`GET /api/chatrooms/global/members on hub port ${hubPort} timed out`));
+      reject(new Error(`GET ${requestPath} on hub port ${hubPort} timed out`));
     });
   });
+}
+
+export async function readGlobalMembersFromHub(hubPort: number): Promise<Array<{ userId: string; stageName: string }>> {
+  return readRoomMembersFromHub(hubPort, 'global');
 }
 
 export async function forceJoinGlobal(page: Page): Promise<void> {

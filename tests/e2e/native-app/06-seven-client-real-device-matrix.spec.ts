@@ -15,9 +15,9 @@ import * as path from 'path';
 import {
   bootstrapBrowserUserOnOrigin,
   bootstrapNativeWindow,
-  forceJoinGlobal,
+  forceJoinRoom,
   launchNativeUser,
-  readGlobalMembersFromHub,
+  readRoomMembersFromHub,
   type NativeUser,
 } from './helpers/native-app';
 import {
@@ -47,6 +47,7 @@ const ANDROID_DEVICES = resolveAndroidMatrixDevices(
 );
 const RUN_MATRIX = process.env.E2E_REAL_DEVICE_MATRIX === '1';
 const WEBRTC_ARGS = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
+const SHARED_ROOM_ID = 'e2e_real_device_matrix';
 
 process.env.E2E_PORT_OFFSET = String(HUB_GUN_PORT - 8080);
 
@@ -305,8 +306,8 @@ test.describe('Real-device cross-platform matrix (browsers + macOS app + whichev
 
     await Promise.all(users.map((user) => runUserSetupStep(
       user,
-      'joining Global',
-      () => forceJoinGlobal(user.page),
+      'joining shared test room',
+      () => forceJoinRoom(user.page, SHARED_ROOM_ID),
     )));
     await Promise.all(users.map((user) => runUserSetupStep(
       user,
@@ -315,7 +316,7 @@ test.describe('Real-device cross-platform matrix (browsers + macOS app + whichev
     )));
 
     await expect.poll(async () => {
-      const memberIds = new Set((await readGlobalMembersFromHub(HUB_GUN_PORT)).map((member) => member.userId));
+      const memberIds = new Set((await readRoomMembersFromHub(HUB_GUN_PORT, SHARED_ROOM_ID)).map((member) => member.userId));
       return users.filter((user) => memberIds.has(user.id)).map((user) => user.runtime).sort();
     }, { timeout: 90_000, intervals: [1000, 2000, 3000] }).toEqual(users.map((user) => user.runtime).sort());
 

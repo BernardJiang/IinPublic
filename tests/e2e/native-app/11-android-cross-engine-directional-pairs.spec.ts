@@ -18,9 +18,9 @@ import * as path from 'path';
 import {
   bootstrapBrowserUserOnOrigin,
   bootstrapNativeWindow,
-  forceJoinGlobal,
+  forceJoinRoom,
   launchNativeUser,
-  readGlobalMembersFromHub,
+  readRoomMembersFromHub,
   type NativeUser,
 } from './helpers/native-app';
 import {
@@ -41,6 +41,7 @@ const APP_PORT = 19162;
 const ANDROID_SERIAL = process.env.NATIVE_APP_ANDROID_SERIAL?.trim() || configuredAndroidDevices()[0]?.serial || '';
 const RUN = process.env.E2E_REAL_ANDROID_DIRECTIONAL_PAIRS === '1';
 const WEBRTC_ARGS = ['--disable-features=WebRtcHideLocalIpsWithMdns'];
+const SHARED_ROOM_ID = 'e2e_directional_pairs';
 
 process.env.E2E_PORT_OFFSET = String(HUB_GUN_PORT - 8080);
 
@@ -158,9 +159,9 @@ test.describe('Native app: Android <-> browser-engine directional pairs', () => 
     expect(new Set(peers.map((peer) => peer.id)).size).toBe(peers.length);
     peers.forEach(attachDiagnostics);
 
-    await Promise.all(peers.map((peer) => forceJoinGlobal(peer.page)));
+    await Promise.all(peers.map((peer) => forceJoinRoom(peer.page, SHARED_ROOM_ID)));
     await expect.poll(async () => {
-      const memberIds = new Set((await readGlobalMembersFromHub(HUB_GUN_PORT)).map((member) => member.userId));
+      const memberIds = new Set((await readRoomMembersFromHub(HUB_GUN_PORT, SHARED_ROOM_ID)).map((member) => member.userId));
       return peers.filter((peer) => memberIds.has(peer.id)).length;
     }, { timeout: 90_000, intervals: [1000, 2000, 3000] }).toBe(peers.length);
 
