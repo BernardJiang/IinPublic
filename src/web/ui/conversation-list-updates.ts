@@ -137,6 +137,8 @@ export function addNewConversation(
       existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
     ...(existing?.status ? { status: existing.status } : {}),
     ...(existing?.changedAt ? { changedAt: existing.changedAt } : {}),
+    // Step 10: a re-sync after the author retracted keeps the retraction time with the status.
+    ...(existing?.retractedAt ? { retractedAt: existing.retractedAt } : {}),
     // Step 9: record change-of-mind timestamp for durable UI assertion
     ...(conversationData.changeOfMindAt || existing?.changeOfMindAt
       ? { changeOfMindAt: conversationData.changeOfMindAt ?? existing?.changeOfMindAt }
