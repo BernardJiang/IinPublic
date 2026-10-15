@@ -14,6 +14,11 @@
       "name": "android-charlie",
       "serial": "RNV0217207000190",
       "model": "FRD_L04"
+    },
+    {
+      "name": "android-dana",
+      "serial": "PADC100013000534",
+      "model": "C10"
     }
   ]
 }

@@ -41,6 +41,8 @@ class NodeForegroundService : Service() {
         const val HUB_GUN_URL_EXTRA = "hub_gun_url"
         /** Test-only isolation switch; normal app launches retain LAN peer discovery. */
         const val DISABLE_LAN_DISCOVERY_EXTRA = "disable_lan_discovery"
+        /** Debug-build-only fixed core contract endpoint; never honored by release builds. */
+        const val PORTABLE_CORE_TESTS_EXTRA = "portable_core_tests"
         const val ACTION_CONFIGURE_NEARBY = "com.iinpublic.app.CONFIGURE_NEARBY"
         const val ACTION_PAUSE_NEARBY = "com.iinpublic.app.PAUSE_NEARBY"
         const val ACTION_STOP_NEARBY = "com.iinpublic.app.STOP_NEARBY"
@@ -254,7 +256,9 @@ class NodeForegroundService : Service() {
             // that need a different hub, same as any fresh launch.
             val hubUrl = intent?.getStringExtra(HUB_GUN_URL_EXTRA)?.takeIf { it.isNotBlank() } ?: HUB_GUN_URL
             val disableLanDiscovery = intent?.getBooleanExtra(DISABLE_LAN_DISCOVERY_EXTRA, false) == true
-            startEmbeddedNode(hubUrl, disableLanDiscovery)
+            val enablePortableCoreTests = BuildConfig.DEBUG
+                && intent?.getBooleanExtra(PORTABLE_CORE_TESTS_EXTRA, false) == true
+            startEmbeddedNode(hubUrl, disableLanDiscovery, enablePortableCoreTests)
         }
         // Preserve the launch configuration if Android restarts this process. START_STICKY
         // supplies a null Intent, which silently changed an adb-selected test hub back to the
@@ -293,7 +297,11 @@ class NodeForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun startEmbeddedNode(hubUrl: String, disableLanDiscovery: Boolean) {
+    private fun startEmbeddedNode(
+        hubUrl: String,
+        disableLanDiscovery: Boolean,
+        enablePortableCoreTests: Boolean,
+    ) {
         val dataDir = filesDir.absolutePath + "/node-data"
         java.io.File(dataDir).mkdirs()
 
@@ -301,7 +309,15 @@ class NodeForegroundService : Service() {
             // NodeBridge.startProject unpacks assets then calls the JNI shim.
             // The native side sets IINPUBLIC_* env vars and spawns a pthread
             // that runs node::Start().
-            NodeBridge.startProject(this, "main.js", LOCAL_PORT, dataDir, hubUrl, disableLanDiscovery)
+            NodeBridge.startProject(
+                this,
+                "main.js",
+                LOCAL_PORT,
+                dataDir,
+                hubUrl,
+                disableLanDiscovery,
+                enablePortableCoreTests,
+            )
         }.start()
     }
 

@@ -384,6 +384,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
     '--es', 'hub_gun_url', options.hubGunUrl,
     '--ez', 'skip_first_launch_location', 'true',
     ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+    ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
   ], { timeout: 5_000 });
 
   let lastError: unknown;
@@ -409,6 +410,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
           '--es', 'hub_gun_url', options.hubGunUrl,
           '--ez', 'skip_first_launch_location', 'true',
           ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+          ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
         ], { timeout: 5_000 }).catch(() => undefined);
       }
     }
@@ -439,6 +441,8 @@ export type LaunchAndroidUserOptions = {
   resetAppData?: boolean;
   /** Keep a controlled matrix isolated from unrelated mDNS-advertised IinPublic nodes. */
   disableLanDiscovery?: boolean;
+  /** Enable the fixed, loopback-only embedded-Node parity endpoint in a debug APK. */
+  enablePortableCoreTests?: boolean;
   /** adb device serial (from `adb devices`) — required when more than one device/emulator
    *  is attached; the first detected device is used otherwise. */
   deviceSerial?: string;
@@ -490,6 +494,7 @@ export async function launchAndroidUser(options: LaunchAndroidUserOptions): Prom
       '--es', 'hub_gun_url', options.hubGunUrl,
       '--ez', 'skip_first_launch_location', 'true',
       ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+      ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
     ],
     { timeout: 5_000 },
   );

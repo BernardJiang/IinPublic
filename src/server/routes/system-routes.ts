@@ -4,6 +4,7 @@ import type express from 'express';
 import { logger } from '../logger';
 import { clearExactChatbotMemoryCacheForTesting } from '../exact-chatbot-memory-store';
 import { buildGraphSizeReport, unboundedGrowthCategories } from '../../shared/graph-size-report';
+import { runPortableCoreContracts } from '../../shared/portable-core-contracts';
 import type { GunService } from '../services/gun-service';
 import {
   applyP2PNeighborCacheAction,
@@ -1449,6 +1450,29 @@ export function registerSystemRoutes(
 
   // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
+    // OPEN-59: fixed, read-only core parity suite for the Android embedded Node runtime.
+    // The native shell sets this explicit flag only for a debug APK launched by the E2E harness.
+    // There is deliberately no arbitrary-code or arbitrary-module input. Require loopback as a
+    // second boundary because this endpoint is meaningful only to the WebView/adb harness on the
+    // same device, never to LAN or Internet peers.
+    if (process.env.IINPUBLIC_E2E_PORTABLE_CORE === '1') {
+      app.get('/api/test/portable-core', (req, res) => {
+        const remoteAddress = String(req.socket.remoteAddress || '');
+        const isLoopback = remoteAddress === '127.0.0.1'
+          || remoteAddress === '::1'
+          || remoteAddress === '::ffff:127.0.0.1';
+        if (!isLoopback) {
+          res.status(403).json({ error: 'Portable core tests are loopback-only' });
+          return;
+        }
+        res.json({
+          runtime: 'embedded-node',
+          node: process.version,
+          report: runPortableCoreContracts(),
+        });
+      });
+    }
+
     // P2P-V: abuse defense diagnostics (non-secret — no private keys or message bodies)
     app.get('/api/debug/p2p-abuse', (_req, res) => {
       res.json(abuseCtx.getDiagnostics());

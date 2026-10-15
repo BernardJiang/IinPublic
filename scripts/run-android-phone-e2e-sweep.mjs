@@ -37,10 +37,19 @@ function readyAdbSerials() {
 }
 
 function selectedDevices() {
-  const ready = readyAdbSerials();
   const explicit = String(process.env.NATIVE_APP_ANDROID_SERIALS || '')
     .split(',').map((value) => value.trim()).filter(Boolean);
   const bySerial = new Map(configured.map((device) => [device.serial, device]));
+  if (planOnly) {
+    const planned = explicit.length
+      ? explicit.map((serial, index) => bySerial.get(serial) || { name: `android-${index + 1}`, serial })
+      : configured;
+    if (planned.length < 2) {
+      fail(`At least two configured phones are required to construct the sweep plan; found ${planned.length}.`);
+    }
+    return planned;
+  }
+  const ready = readyAdbSerials();
   const selected = explicit.length
     ? explicit.map((serial, index) => bySerial.get(serial) || { name: `android-${index + 1}`, serial })
     : configured.filter((device) => ready.has(device.serial));

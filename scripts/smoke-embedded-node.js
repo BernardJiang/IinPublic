@@ -26,7 +26,11 @@ const os = require('os');
 const http = require('http');
 
 const repoRoot = path.resolve(__dirname, '..');
-const nodeEntry = path.join(repoRoot, 'dist', 'server', 'node-app', 'embedded-node.js');
+const portableCore = process.env.SMOKE_PORTABLE_CORE === '1';
+const embeddedMobile = process.env.SMOKE_EMBEDDED_MOBILE === '1';
+const nodeEntry = embeddedMobile
+  ? path.join(repoRoot, 'dist', 'embedded-mobile', 'server', 'node-app', 'embedded-node.js')
+  : path.join(repoRoot, 'dist', 'server', 'node-app', 'embedded-node.js');
 const webRoot = path.join(repoRoot, 'dist', 'web');
 const publicRoot = path.join(repoRoot, 'public');
 const PORT = parseInt(process.env.SMOKE_PORT || '18099', 10);
@@ -92,6 +96,7 @@ async function main() {
       IINPUBLIC_PUBLIC_ROOT: publicRoot,
       IINPUBLIC_DATA_DIR: dataDir,
       IINPUBLIC_LOOPBACK_ONLY: '1',
+      IINPUBLIC_E2E_PORTABLE_CORE: portableCore ? '1' : '0',
       // No hub peer configured: this smoke test only needs the local node to
       // boot and serve; discovery connectivity is out of scope here.
       NODE_ENV: process.env.NODE_ENV || 'test',
@@ -155,6 +160,20 @@ async function main() {
     } else {
       console.log(`[smoke] GET /node_modules/gun/gun.js -> ${gun.statusCode} OK`);
     }
+
+    if (portableCore) {
+      const core = await httpGet('/api/test/portable-core');
+      if (core.statusCode !== 200) {
+        fail(`GET /api/test/portable-core returned ${core.statusCode}: ${core.body}`);
+      } else {
+        const body = JSON.parse(core.body);
+        if (body.runtime !== 'embedded-node' || body.report?.failed !== 0 || body.report?.total !== 6) {
+          fail(`portable core report is invalid: ${core.body}`);
+        } else {
+          console.log(`[smoke] embedded Node portable core -> ${body.report.passed}/${body.report.total} PASS`);
+        }
+      }
+    }
   } catch (err) {
     fail(`request error: ${err.message}`);
   }
@@ -164,7 +183,10 @@ async function main() {
   if (process.exitCode) {
     console.error('[smoke] one or more assertions failed');
   } else {
-    console.log('[smoke] PASS: embedded-node boots and serves /health + / correctly');
+    console.log(
+      `[smoke] PASS: ${embeddedMobile ? 'mobile bundle ' : ''}embedded-node boots and serves correctly` +
+        `${portableCore ? ' with portable core parity' : ''}`,
+    );
   }
 }
 

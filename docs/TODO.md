@@ -668,6 +668,66 @@ phrase complexity into normal use.
   faster moves exposed (phantom headcount on phone nodes; Place catalogue never refreshed after
   boot), are in `docs/testing/journey-coverage.md` ("Room-move timings"). Create → inside (~9 s)
   is still the slowest move and has not been broken down further.
+- [ ] **OPEN-59 — Run the core-logic suite on Android, not only on the Mac host (started
+  2026-10-14).** `npm run test:all` remains the authoritative host suite: server, scale,
+  cross-browser, and desktop tests do not belong inside a phone. The Android layer instead runs
+  the same serializable core contracts in Jest, Node 18, the real app WebView, and embedded Node,
+  then ports user journeys behind a runtime-neutral actor interface. Full design and commands:
+  `docs/testing/android-core-test-plan.md`.
+  - [x] Inventory every current Jest/E2E file by execution lane and conversion disposition
+    (`npm run test:android:coverage`; machine-readable output with
+    `npm run --silent test:android:coverage -- --json`).
+  - [x] Add the first six deterministic portable contracts: release ordering, room-capacity
+    FIFO, contact audience, question defaults, Nearby location policy, and block-pair keys.
+  - [x] Build identical WebView and Node 18 bundles and prove the Jest/Node/headless-Chromium
+    baseline without a phone (`npm run test:android:core:host`).
+  - [x] Add a small `TestActor` interface for new browser/Android-neutral journeys and a bundle
+    runner which accepts either kind of actor.
+  - [x] Add a gated Playwright spec which runs the contracts in both runtimes of the actual
+    installed Android app (injected WebView bundle + embedded-Node endpoint) and attaches their
+    JSON results; add plan/core/full-sweep commands. The full sweep keeps mixed-release tests first
+    and portable latest-version parity last.
+  - [x] Add the embedded-Node bridge. It is fixed-function (no arbitrary evaluation), requires an
+    explicit E2E flag passed through a debug build, listens through the existing loopback server,
+    rejects non-loopback callers, and remains absent when the flag is off or `NODE_ENV=production`.
+  - [x] Run the new WebView + embedded-Node parity spec on the supported real-phone matrix
+    (2026-10-14): 6/6 contracts passed in both runtimes on all four devices — VOG-L29 Android 10 /
+    WebView 153, PH-1 Android 10 / WebView 154, FRD-L04 Android 7 / WebView 61, and C10 Android 14 /
+    WebView 153; embedded Node is v18.20.4. The first run correctly exposed that `addScriptTag`
+    violates the production CSP; the harness now uses its authenticated adb/CDP evaluation channel
+    without weakening app headers, and the complete four-device rerun passed.
+  - [x] Run the repaired current-version physical journeys (2026-10-15). Four-phone online Nearby
+    convergence passed with a four-Talk ring plus delivery after backgrounding (five deliveries,
+    9.6–18.6 s, median 13.3 s). Website↔phone identity linking passed cancellation, signatures,
+    replay rejection, restart persistence, and unlink. Three-phone room isolation/offline resync
+    passed, as did capacity-3 cohort splitting, manual traversal, Talk delivery, and background
+    recovery. The final four-phone WebView/embedded-Node parity rerun again passed 6/6 in both
+    runtimes on every phone.
+  - [x] Make physical bootstrap deterministic on slow/moving WebViews: dismiss the location picker
+    both before and after first Chatrooms entry, and invoke setup-only navigation through each real
+    button listener instead of waiting for an animated bounding box. Also ensure
+    `test:android:full` still runs latest-version portable parity last when an earlier journey fails.
+  - [ ] Port the high-value 1-, 2-, 3-, and 4-person staged journeys to `TestActor`; keep mass,
+    server-only, browser-engine, and desktop-native coverage on the host.
+  - [ ] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
+    per-device coverage report; make unexpected coverage loss fail CI/release qualification.
+- [ ] **OPEN-60 — Three-phone offline BLE/Wi-Fi Direct election does not converge (found on real
+  phones 2026-10-15).** With the internet relay unreachable, LAN discovery disabled, all three
+  phones in the same Nearby room, and permissions granted, no phone reached a Wi-Fi Direct
+  owner/client state within 180 s. VOG-L29 repeatedly discovered PH-1 over BLE but chose
+  `wait / peer-hosts`; PH-1 and FRD-L04 saw no usable peer and entered quiet backoff. This is a real
+  discovery/election failure, not the first-run harness race: the same devices pass the online LAN
+  four-phone ring. Capture symmetric BLE sightings, make the deterministic host-election rule
+  self-start when the elected host has not seen the waiter, and add bounded election timeout/failover
+  before rerunning `test:e2e:android-three-phone-nearby-wifi-direct`.
+- [ ] **OPEN-61 — Finish migrating older physical gates to the flat Nearby design (found in the
+  2026-10-15 sweep).** The all-runtime matrix and directional-pair test still force `global`; the
+  Mac runtime failed to activate that retired exchange room. The phone/Mac device-sync gate still
+  waits for a TechSupport greeting conversation even though TechSupport is now a permanent Contact,
+  not a Global participant. Replace those setup assumptions with a shared deterministic Nearby test
+  room and contact-based TechSupport baseline. Separately diagnose the mixed-release manifest gate:
+  R1 accepted and retained signed M2 across restart, but its manifest-ready neighbor count remained
+  zero after the restart.
 - [ ] **OPEN-56 — `talks-matching/01-mesh-ping-overlay` fails about half the time (found 2026-10-13).**
   Same rate with and without the OPEN-53 change (2 of 4 runs alone on the unchanged tree): with Tom
   capped at one neighbor, Jerry or Bob never sees the relayed ping. Like spec 06, it probably sends

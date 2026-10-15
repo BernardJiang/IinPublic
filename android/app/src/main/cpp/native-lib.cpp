@@ -56,12 +56,14 @@ extern "C" void* run_node(void*) {
 static pthread_mutex_t g_once_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
- * Java: NodeBridge.nativeStartNode(dataDir, scriptPath, port, hubUrl, disableLanDiscovery)
+ * Java: NodeBridge.nativeStartNode(dataDir, scriptPath, port, hubUrl,
+ *                                  disableLanDiscovery, enablePortableCoreTests)
  *   dataDir    — writable sandbox dir (assets unpacked here)
  *   scriptPath — entry point inside dataDir ("main.js")
  *   port       — loopback HTTP port for Express / WebView
  *   hubUrl     — Gun discovery peer URL
  *   disableLanDiscovery — isolates controlled E2E matrices from unrelated LAN peers
+ *   enablePortableCoreTests — debug-only fixed core contract endpoint (no arbitrary eval)
  */
 extern "C" JNIEXPORT void JNICALL
 Java_com_iinpublic_app_NodeBridge_nativeStartNode(
@@ -71,7 +73,8 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
         jstring script_path_j,
         jint port,
         jstring hub_j,
-        jboolean disable_lan_discovery)
+        jboolean disable_lan_discovery,
+        jboolean enable_portable_core_tests)
 {
     pthread_mutex_lock(&g_once_lock);
 
@@ -97,6 +100,7 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
     setenv("IINPUBLIC_HUB_GUN_URL", hub, 1);
     env->ReleaseStringUTFChars(hub_j, hub);
     setenv("IINPUBLIC_LAN_DISCOVERY_ENABLED", disable_lan_discovery ? "0" : "1", 1);
+    setenv("IINPUBLIC_E2E_PORTABLE_CORE", enable_portable_core_tests ? "1" : "0", 1);
 
     // Port (used by embedded-node config resolution)
     {

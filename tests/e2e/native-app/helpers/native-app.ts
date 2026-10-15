@@ -166,7 +166,14 @@ async function publishCurrentPublicUserForRelay(page: Page): Promise<void> {
 async function dismissAutomaticWalkthroughForBootstrap(page: Page): Promise<void> {
   const modal = page.locator('[data-testid="walkthrough-modal"]');
   if (!(await modal.isVisible().catch(() => false))) return;
-  await page.locator('[data-testid="walkthrough-close-btn"]').click();
+  // A freshly installed Android WebView can keep the introduction card moving while its
+  // map/location layer settles. Playwright's pointer click then waits forever for a "stable"
+  // bounding box even though the real close button and listener are already present. Trigger the
+  // button's ordinary DOM click through the authenticated CDP connection; this exercises the same
+  // listener without weakening actionability checks in product-facing UI tests.
+  await page.locator('[data-testid="walkthrough-close-btn"]').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await expect(modal).toHaveCount(0);
 }
 
@@ -177,8 +184,19 @@ async function dismissAutomaticWalkthroughForBootstrap(page: Page): Promise<void
 async function dismissLocationPickerForBootstrap(page: Page): Promise<void> {
   const picker = page.locator('[data-testid="encounter-location-modal"]');
   if (!(await picker.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false))) return;
-  await page.locator('#encounter-location-cancel').click();
+  await page.locator('#encounter-location-cancel').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await expect(picker).toHaveCount(0);
+}
+
+async function dismissBootstrapOverlays(page: Page): Promise<void> {
+  // The location picker is appended above the walkthrough, and on slower phones it can appear a
+  // moment after app-ready. Recheck it after closing the walkthrough so no late first-run overlay
+  // intercepts the first navigation click.
+  await dismissLocationPickerForBootstrap(page);
+  await dismissAutomaticWalkthroughForBootstrap(page);
+  await dismissLocationPickerForBootstrap(page);
 }
 
 export async function bootstrapNativeWindow(
@@ -197,8 +215,7 @@ export async function bootstrapNativeWindow(
   // The first-run location picker is appended after the walkthrough and therefore sits above it.
   // Dismiss the topmost modal first; otherwise its map canvas intercepts the walkthrough's close
   // button and every fresh-install native test stalls before it reaches its actual scenario.
-  await dismissLocationPickerForBootstrap(page);
-  await dismissAutomaticWalkthroughForBootstrap(page);
+  await dismissBootstrapOverlays(page);
   if (options.updateStageName !== false) {
     await page.evaluate(() => {
       document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]')?.click();
@@ -266,9 +283,18 @@ export async function bootstrapNativeWindow(
       .toBe(stageName);
   }
   await publishCurrentPublicUserForRelay(page);
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  // Settings can re-render while the asynchronous public-user publish settles. On physical
+  // WebViews that can keep the bottom bar's bounding box moving long enough for Playwright's
+  // pointer-stability guard to time out. Bootstrap only needs the production listener to run;
+  // pointer/actionability behavior remains covered by the UI-specific navigation specs.
+  await page.locator('.nav-btn[data-view="chatrooms"]').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await afterNav();
   if (options.pinStableLocation !== false) await pinStableE2eLocation(page);
+  // Entering Chatrooms is what requests an encounter location on a new profile, so the picker can
+  // legitimately be created after the earlier first-run cleanup.
+  await dismissLocationPickerForBootstrap(page);
   if (options.waitForSupportGreeting !== false) {
     await expectTechSupportGreetingReceived(page, stageName);
   }
@@ -297,8 +323,7 @@ export async function bootstrapBrowserUserOnOrigin(
   await gotoWebApp(page, `${baseURL}/?${params.toString()}`);
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
-  await dismissAutomaticWalkthroughForBootstrap(page);
-  await dismissLocationPickerForBootstrap(page);
+  await dismissBootstrapOverlays(page);
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
   await openSettingsSection(page, 'settings-section-profile');
@@ -313,9 +338,12 @@ export async function bootstrapBrowserUserOnOrigin(
     )
     .toBe(stageName);
   await publishCurrentPublicUserForRelay(page);
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  await page.locator('.nav-btn[data-view="chatrooms"]').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await afterNav();
   await pinStableE2eLocation(page);
+  await dismissLocationPickerForBootstrap(page);
   if (options.waitForSupportGreeting !== false) {
     await expectTechSupportGreetingReceived(page, stageName);
   }

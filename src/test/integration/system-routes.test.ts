@@ -251,6 +251,19 @@ describe('system routes', () => {
     expect(res.status).toBe(404);
   });
 
+  it('exposes fixed portable core contracts only behind the explicit non-production flag', async () => {
+    expect((await request(buildApp().app).get('/api/test/portable-core')).status).toBe(404);
+
+    process.env.IINPUBLIC_E2E_PORTABLE_CORE = '1';
+    const enabled = await request(buildApp().app).get('/api/test/portable-core');
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.runtime).toBe('embedded-node');
+    expect(enabled.body.report).toEqual(expect.objectContaining({ failed: 0, passed: 6, total: 6 }));
+
+    const production = await request(buildApp('production').app).get('/api/test/portable-core');
+    expect(production.status).toBe(404);
+  });
+
   it('supervises local node start, health-check, identity binding, and wipe in non-production', async () => {
     const { app } = buildApp();
 

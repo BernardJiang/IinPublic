@@ -329,6 +329,10 @@ class MainActivity : AppCompatActivity() {
         if (this.intent?.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false) == true) {
             intent.putExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, true)
         }
+        if (BuildConfig.DEBUG
+            && this.intent?.getBooleanExtra(NodeForegroundService.PORTABLE_CORE_TESTS_EXTRA, false) == true) {
+            intent.putExtra(NodeForegroundService.PORTABLE_CORE_TESTS_EXTRA, true)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

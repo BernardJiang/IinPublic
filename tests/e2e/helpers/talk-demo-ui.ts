@@ -154,7 +154,9 @@ export async function broadcastFromGlobalChatroom(
   opts?: { minGunPeers?: number; requirePreambleUi?: boolean },
 ): Promise<void> {
   const { waitForTabActive } = await import('./talks-matching-flow');
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  await page.locator('.nav-btn[data-view="chatrooms"]').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await waitForTabActive(page, 'chatrooms');
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
@@ -182,7 +184,12 @@ export async function clickBroadcastUntilBulkAck(
     stepStart = Date.now();
   };
   const { waitForTabActive } = await import('./talks-matching-flow');
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  // Presence/headcount updates can continuously resize the bottom bar on a physical WebView.
+  // This helper validates broadcast behavior, not pointer hit-testing, so invoke the production
+  // navigation listener without waiting for a stable bounding box.
+  await page.locator('.nav-btn[data-view="chatrooms"]').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await waitForTabActive(page, 'chatrooms');
   // A single synchronous isVisible() read right after the tab click can catch a transient
   // render gap (the detail view briefly unmounts/remounts on tab-switch) even when the caller

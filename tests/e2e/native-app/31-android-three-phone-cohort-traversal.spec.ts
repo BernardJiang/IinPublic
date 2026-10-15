@@ -140,6 +140,15 @@ async function activate(peer: Peer, value: RoomProtocolCheckpoint, defaultGroup:
     const pair = app?.gunService?.getStoredPair?.();
     const user = app?.currentUser;
     if (!app || !pair?.pub || !pair?.priv || !user?.id) throw new Error('cohort identity unavailable');
+    // This physical smoke deliberately injects synthetic signed checkpoints while the ordinary
+    // v2 Nearby control heartbeat from bootstrap is still alive. Stop that older allocator before
+    // activating v3; otherwise its 15-second refresh can race this awaited switch and move the
+    // phone back to the boot room. Production performs one coordinated migration rather than
+    // cycling through test checkpoints in a single session.
+    if (app.nearbyControlRefreshTimer) clearInterval(app.nearbyControlRefreshTimer);
+    app.nearbyControlRefreshTimer = null;
+    app.nearbyControlRootAssignment = null;
+    app.nearbyControlRoutingLocation = null;
     const active = await app.initializeNearbyCohortTraversal({
       checkpoint: targetCheckpoint,
       userId: user.id,
