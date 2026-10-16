@@ -711,18 +711,18 @@ phrase complexity into normal use.
     server-only, browser-engine, and desktop-native coverage on the host.
   - [ ] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
     per-device coverage report; make unexpected coverage loss fail CI/release qualification.
-- [ ] **OPEN-60 — Three-phone offline BLE/Wi-Fi Direct election does not converge (found on real
-  phones 2026-10-15; fix implemented, exact three-phone rerun pending).** The failure was asymmetric
+- [x] **OPEN-60 — Three-phone offline BLE/Wi-Fi Direct election now converges (fixed and verified
+  on real phones 2026-10-15).** The failure was asymmetric
   radio discovery, not a room-policy disagreement: C10 could see PH-1 while PH-1 saw no BLE, DNS-SD,
   or raw Wi-Fi Direct peer. The service now reports raw peer/owner counts, permits only a
   credential-authenticated join to a visible owner using the active room's derived credentials,
   and lets a phone which hears literally nobody perform a delayed, one-minute, credential-protected
   host probe. A one-way observer never competes with that probe, and an empty probe is removed.
-  Unit coverage exercises each safety boundary. A real C10 (Android 14) + VOG-L29 (Android 10)
-  internet-off/LAN-off run passed owner/client convergence, Talks in both directions (21.2–21.3 s),
-  and background delivery (9.3 s). PH-1 disconnected from ADB during installation, so keep this
-  item open until the exact C10 + VOG-L29 + PH-1 supported-phone matrix is rerun; Android 7 remains
-  intentionally excluded because it cannot join app-selected dynamic Wi-Fi Direct credentials.
+  Unit coverage exercises each safety boundary. The exact C10 (Android 14) + VOG-L29 (Android 10) +
+  PH-1 (Android 10) internet-off/LAN-off run passed: PH-1 hosted with two clients, the three-phone
+  Talk ring delivered in 11.2–20.0 s, and delivery to a backgrounded C10 took 9.9 s. Android 7
+  remains intentionally excluded because it cannot join app-selected dynamic Wi-Fi Direct
+  credentials.
 - [x] **OPEN-61 — Older physical gates now use the flat Nearby design and current artifacts (fixed
   2026-10-15).** Specs 06/11 use an opaque deterministic Nearby room; spec 10 uses the permanent
   TechSupport Contact baseline. The native launcher rejects a packaged macOS app unless its build id
