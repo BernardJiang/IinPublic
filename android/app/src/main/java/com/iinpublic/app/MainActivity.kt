@@ -67,6 +67,20 @@ class MainActivity : AppCompatActivity() {
             startNodeService()
             waitForNodeThenLoad()
         }
+    /** OPEN-54: asked again from Settings. A denial Android no longer shows a dialog for (denied
+     *  twice, or "Don't ask again") opens the app's settings page instead; onResume then notices a
+     *  grant made there. */
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants.any { (permission, granted) -> granted && permission in LOCATION_PERMISSIONS }) {
+                notifyPageLocationGranted()
+            } else if (LOCATION_PERMISSIONS.none { shouldShowRequestPermissionRationale(it) }) {
+                awaitingLocationFromSettings = true
+                openNearbySettings("app")
+            }
+        }
+    private var awaitingLocationFromSettings = false
+
     private val nearbyPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
             nearbyBridge.permissionResult(grants)
@@ -231,6 +245,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun isNightMode(): Boolean =
         (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    private fun hasLocationPermission(): Boolean = LOCATION_PERMISSIONS.any {
+        ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun requestLocationPermission() = runOnUiThread {
+        if (hasLocationPermission()) notifyPageLocationGranted()
+        else locationPermissionLauncher.launch(LOCATION_PERMISSIONS.toTypedArray())
+    }
 
     fun requestNearbyPermissions() {
         val permissions = mutableListOf<String>()
@@ -461,6 +484,10 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         isInForeground = true
+        if (awaitingLocationFromSettings && hasLocationPermission()) {
+            awaitingLocationFromSettings = false
+            notifyPageLocationGranted()
+        }
         // Android WebView does not consistently emit the browser visibilitychange event when an
         // Activity returns from HOME (observed on Android 14 hardware). Tell the SPA explicitly so
         // it can rebuild stale WebRTC room links and drain pending encrypted mailbox work.

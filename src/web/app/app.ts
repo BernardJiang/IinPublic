@@ -9408,11 +9408,23 @@ export class IinPublicApp {
     this.uiManager.on('requestLocationUpdate', async () => {
       await this.updateLocationAndMaybeSwitch();
     });
-    // Android: the first-launch location sheet was answered after boot's background fix was denied.
+    // Android: the location sheet (first launch, or "Use my location") was answered with a grant.
     window.addEventListener('iinpublic-location-granted', () => {
       void LocationPrivacy.getCurrentLocation()
         .then((fix) => this.applyRealGpsFix(fix))
-        .catch(() => this.handleGpsFixUnavailable());
+        .catch(() => this.handleGpsFixUnavailable())
+        .finally(() => { if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser); });
+    });
+    // OPEN-54: Settings → "Use my location". The Android shell asks the OS again (or opens the
+    // app's settings once Android stops showing the dialog); a browser re-asks through geolocation.
+    this.uiManager.on('requestLocationPermission', async () => {
+      const bridge = (window as unknown as { IinPublicNearby?: { requestLocationPermission?: () => void } }).IinPublicNearby;
+      if (typeof bridge?.requestLocationPermission === 'function') {
+        bridge.requestLocationPermission();
+        return;
+      }
+      await this.updateLocationAndMaybeSwitch();
+      if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser);
     });
 
     this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {

@@ -35,9 +35,17 @@ export function renderLocationSection(input: {
   connectivity: ConnectivitySettings;
   hasGps: boolean;
   traveler: boolean;
+  /** A GPS device whose fix was denied or never came (OPEN-54): offer to ask the OS again. */
+  gpsFixUnavailable?: boolean;
   encounterBlock: string;
 }): string {
   const { t, connectivity, hasGps, traveler } = input;
+  const useMine = hasGps && input.gpsFixUnavailable
+    ? `<div style="${card}" data-testid="settings-use-my-location-card">
+        <button type="button" class="btn" id="settings-use-my-location" data-testid="settings-use-my-location">📍 ${t('locationUseMine')}</button>
+        <div style="${help}margin-top:6px;">${t('locationUseMineHelp')}</div>
+      </div>`
+    : '';
   const source = hasGps
     ? `<fieldset data-testid="settings-location-source" style="${card}border-style:solid;">
         <legend style="font-weight:600;padding:0 4px;">${t('locationSourceTitle')}</legend>
@@ -60,7 +68,7 @@ export function renderLocationSection(input: {
         <small style="${help}">${t('locationAreaHelp')}</small>
       </label>
     </div>`;
-  return `${source}${traveler ? input.encounterBlock : ''}${area}${traveler ? '' : renderQuietPlaces(t, loadQuietSettings())}`;
+  return `${useMine}${source}${traveler ? input.encounterBlock : ''}${area}${traveler ? '' : renderQuietPlaces(t, loadQuietSettings())}`;
 }
 
 function renderQuietPlaces(t: T, quiet: QuietSettings): string {

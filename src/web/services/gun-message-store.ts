@@ -508,7 +508,9 @@ export class GunMessageStore {
     let disposed = false;
     let lastSignature = '';
     const emit = (wires: LocalConversationWire[]) => {
-      const signature = wires.map((wire) => wire.id).join('|');
+      // Text too, not ids alone: a record rewritten under the same id (the TechSupport welcome
+      // re-rendered after a rename) must reach subscribers, or they keep the old text.
+      const signature = wires.map((wire) => `${wire.id}:${wire.text}`).join('|');
       if (disposed || signature === lastSignature) return;
       lastSignature = signature;
       void this.decryptLocalWires(conversationId, wires, myUserId, otherUserId)

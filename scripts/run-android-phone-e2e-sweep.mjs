@@ -207,6 +207,7 @@ try {
         'tests/e2e/native-app/12-android-lifecycle-and-network-resilience.spec.ts',
         'tests/e2e/native-app/18-android-keystore-custody.spec.ts',
         'tests/e2e/native-app/26-android-camera-and-file-permissions.spec.ts',
+        'tests/e2e/native-app/35-android-location-reask.spec.ts',
       ], {
         ...commonEnv,
         NATIVE_APP_ANDROID_SERIALS: first,
@@ -215,6 +216,7 @@ try {
         E2E_REAL_ANDROID_DIRECTIONAL_PAIRS: '1',
         E2E_REAL_ANDROID_LIFECYCLE: '1',
         E2E_REAL_ANDROID_CAMERA: '1',
+        E2E_REAL_ANDROID_LOCATION: '1',
       });
 
       runStep('website-to-phone identity-link gates (X3)', playwright, [
@@ -252,9 +254,10 @@ try {
       // TechSupport gates sign as the real TechSupport identity; without its keys in .env.local
       // they would only skip, so say so in the summary instead of running them.
       if (process.env.TECHSUPPORT_SEA_PAIR_JSON?.trim()) {
-        runNative('TechSupport answers a phone user\'s question', [
-          'tests/e2e/native-app/08-android-techsupport-conversation-answer-flow.spec.ts',
-        ], { ...commonEnv, E2E_REAL_ANDROID_TECHSUPPORT_ANSWER: '1' });
+        // 08's desktop operator signs in with the root TechSupport key, which production web
+        // bundles have refused since 2026-09-21 (OPEN-27: use a delegated operator). 09 answers a
+        // phone asker through a delegate, the production route, so it stands in for 08.
+        omissions.push('TechSupport root-operator gate 08 (root browser mode is disabled in production bundles; 09 covers phone askers through a delegate)');
         runNative('TechSupport delegate on one phone answers an asker on another', [
           'tests/e2e/native-app/09-android-techsupport-delegate-answers.spec.ts',
         ], {

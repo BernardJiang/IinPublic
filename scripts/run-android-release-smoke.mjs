@@ -12,7 +12,9 @@
 // them explicitly:
 //   NATIVE_APP_ANDROID_SERIALS=<serial1>,<serial2> npm run test:android:release-smoke
 // Flags: --plan (print the steps only), --install (build and install the debug APK first),
-//        --skip-phone-path (phones only).
+//        --skip-phone-path (phones only), --keep-data (skip the final clear, to inspect a failure).
+// When it finishes, pass or fail, it clears the app data again so the smoke's identities and its
+// Place do not stay on the shared phones and spread to their LAN neighbours.
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,6 +80,12 @@ step('one phone: fresh install boots; a Talk commits', playwright, [
 step('two phones: create, find, enter, leave and re-enter a Place', playwright, [
   'test', '--config', nativeConfig, 'tests/e2e/native-app/33-android-place-smoke.spec.ts', '--workers=1', '--reporter=list',
 ], { ...phoneEnv, NATIVE_APP_ANDROID_SERIALS: serials.slice(0, 2).join(','), E2E_REAL_ANDROID_PLACE_SMOKE: '1' });
+
+if (!args.has('--keep-data')) {
+  for (const serial of serials.slice(0, 2)) {
+    step(`clear app data on ${serial}`, 'adb', ['-s', serial, 'shell', 'pm', 'clear', 'com.iinpublic.app']);
+  }
+}
 
 if (planOnly) process.exit(0);
 console.log(failures.length

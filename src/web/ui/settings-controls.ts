@@ -164,6 +164,9 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
       if (deps.currentUser) deps.renderSettingsView(deps.currentUser);
     }
   };
+  document.getElementById('settings-use-my-location')?.addEventListener('click', () => {
+    deps.emit('requestLocationPermission', undefined);
+  });
   document
     .querySelectorAll('#settings-section-connectivity input, #settings-section-connectivity select, #settings-nearby-mode, #settings-nearby-privacy-mode, input[name="settings-location-source"]')
     .forEach((element) => {

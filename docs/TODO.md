@@ -746,14 +746,30 @@ phrase complexity into normal use.
   matrix (three phones, macOS app, three browser engines) completed all broadcasts and its seven-node
   answer ring; and the mixed R1/R2 manifest procedure passed M2/K2/K3 upgrade, bidirectional Talks,
   restart retention, and a manifest-ready neighbor after restart.
-- [ ] **OPEN-56 — `talks-matching/01-mesh-ping-overlay` fails about half the time (found 2026-10-13).**
+- [x] **OPEN-56 — `talks-matching/01-mesh-ping-overlay` fails about half the time (found 2026-10-13, fixed 2026-10-15).**
   Same rate with and without the OPEN-53 change (2 of 4 runs alone on the unchanged tree): with Tom
   capped at one neighbor, Jerry or Bob never sees the relayed ping. Like spec 06, it probably sends
   before the single link is manifest-ready; check that first.
-- [ ] **OPEN-57 — `stage2/82-copy-then-edit-transfers-authorship` fails when run on its own (found 2026-10-13).**
+  Confirmed (2 of 4 failed on 2026-10-15): a ping goes only to manifest-ready neighbors and is not
+  queued, and the spec sent it once Tom's link was merely connected. The spec now waits until Tom's
+  one neighbor is ready and that neighbor has a ready link to the third peer: 6 of 6 passed.
+- [x] **OPEN-57 — `stage2/82-copy-then-edit-transfers-authorship` fails when run on its own (found 2026-10-13; passes 2026-10-15).**
+  2026-10-15: 5 of 5 runs alone pass on `3a7cad67`; most likely fixed with the OPEN-55 copy rework
+  (the copy GUI it drives was rebuilt then). Reopen if it fails again.
   After Tom drag-copies the incoming talk, clicking its title never opens `#talk-response-modal`
   (25 s timeout, line 119). Same failure on `65c3cab5`, so it predates the OPEN-53/55 work; not yet
   checked whether it also fails inside the stage2 phase of `test:all`.
+- [x] **OPEN-62 — A renamed user's TechSupport welcome went back to the old name (found 2026-10-15 by
+  the 1.0.151 phone sweep, fixed the same day, 1.0.152).** `native-app/08` and `09` failed in setup:
+  the welcome never named the user. Web too. `renderSupportGreeting` rewrites the welcome under the
+  same message id after a rename, but `GunMessageStore.subscribeToMessages` re-emitted only when
+  the list of message ids changed, so the TechSupport transport's 5 s poll fed the old text back
+  into the conversation preview. The signature now covers id + text, and
+  `DirectP2PConversationTransport.mergeLiveMessages` replaces a rewritten record instead of keeping
+  the first copy. Unit test in `direct-p2p-conversation-transport.test.ts`; journey
+  `phone-path/06` (fails without the fix). On phones 09 then passed. 08 cannot run on a release
+  bundle: its desktop operator signs in with the root key, refused in production since 2026-09-21
+  (OPEN-27); the sweep now lists it as not scheduled, and 09 (delegate answers phone askers) covers it.
 - [x] **OPEN-55 — Buyers matched buyers through re-broadcast copies (found 2026-10-13, fixed 2026-10-13).**
   `stage4/04-dealmaker-chatbot-match` "byte-identical criteria do NOT match" sometimes saw the two
   buyers match. The Pair-tag veto itself was fine. Cause: answering ANY talk auto-saved it as a
@@ -775,7 +791,7 @@ phrase complexity into normal use.
     `00l` test 4 and `00-ui-navigation-settings` cover the new rule and the toggle.
   Not migrated: non-tag talks already auto-copied on existing devices stay broadcastable until the
   user un-copies them (📋).
-- [ ] **OPEN-54 — Android with location denied (or never asked) is stuck in "Contacts only" with no way back
+- [x] **OPEN-54 — Android with location denied (or never asked) is stuck in "Contacts only" with no way back
   (found 2026-10-12, 1.0.141).** `MainActivity` asks for location once on first launch and never again
   (`location_asked` pref); a denial, or a harness launch with `skip_first_launch_location`, leaves the app
   on the placeholder fix: "Contacts only · 0 users", the map on Africa, nobody on it, and no prompt or
@@ -785,6 +801,13 @@ phrase complexity into normal use.
   (fine is capped at SDK 32), which is enough for Nearby.
   2026-10-13: since OPEN-53 such a phone is a random-point Traveler on the map instead of stuck; what
   remains is a button to re-ask the OS for location (Refresh already retries GPS once granted).
+  2026-10-15 (1.0.151): Settings → Your location shows **Use my location** while a GPS device has no
+  fix. On Android it calls `IinPublicNearby.requestLocationPermission()`: granted → the page gets
+  `iinpublic-location-granted` and takes the real fix; otherwise the system dialog; once Android
+  stops showing it, the app's settings page opens and a grant made there is noticed on resume. A
+  browser re-asks through geolocation. Unit test `location-settings-use-my-location`; real-phone
+  journey `native-app/35` (in the sweep's one-phone step): both cases pass on P30, PH-1 (Android
+  10), C10 (Android 14) and Honor FRD (Android 7) on 1.0.152.
 - [x] **OPEN-53 — Nobody drops to Contacts only for lack of location (found 2026-10-12, fixed 2026-10-13, 1.0.144).**
   Product owner rule: every user is on the map; anything without real GPS is a ✈ Traveler.
   - A failed/overloaded Nearby pre-admission resolution (the `stage3/24` symptom) no longer falls back
@@ -811,11 +834,18 @@ phrase complexity into normal use.
     audience.
   - Verified on PH-1 (Android 10): revoked location + no cache → random Traveler point + picker →
     Nearby; grant → Resident at the real fix, picker closed.
-- [ ] **OPEN-52 — Mesh neighbor logs "connected" twice (found 2026-10-12, 1.0.140).** On every phone each
+- [x] **OPEN-52 — Mesh neighbor logs "connected" twice (found 2026-10-12, 1.0.140).** On every phone each
   neighbor's first connect is followed 0–100 ms later by a second "connected (0 ms this attempt)". A
   transient non-connected session state (or a failed first send) clears `neighbor.connected`, and the
   next reconcile reconnects instantly and fires `onNeighborConnected` again. Harmless since OPEN-51
   (catch-up skips queued and in-flight Talks), but find why the state flaps right after connect.
+  Cause (2026-10-15): `P2PWebRTCSession` reported `connected` on ICE/peer-connection "connected",
+  before the DataChannel opened. The mesh's first frame (the manifest summary) then failed with
+  "DataChannel not open", which cleared `neighbor.connected`, and the next reconcile reconnected at
+  once and logged again. ICE "connected" now counts only when the channel is open
+  (`markTransportConnected`); the channel's `onopen` sets the state.
+  On the 1.0.151 sweep (4 phones + macOS + browsers) no neighbor logged a second "connected";
+  mixed-release spec 32 passed twice on 1.0.152 with the change in.
 
 - [x] **OPEN-29 — Add an independent emergency recovery authority.** (Done 2026-10-13: the private key is now in offline storage.) Single offline recovery key
   (product owner decision 2026-09-22 — a solo-operator deployment doesn't yet justify an M-of-N

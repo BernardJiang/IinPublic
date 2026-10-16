@@ -29,6 +29,17 @@ type MeshPingDiagnostics = {
   lastPongFrom: string | null;
 };
 
+/** Neighbors that are connected and have finished the manifest handshake (talk-ready). */
+function readyLinks(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService as any;
+    const ready: Set<string> | undefined = mesh?.manifestReadyPeerIds;
+    return [...(mesh?.neighbors?.values?.() ?? [])]
+      .filter((neighbor: any) => neighbor.connected && (!mesh?.protocolManifestController || ready?.has(neighbor.userId)))
+      .map((neighbor: any) => String(neighbor.userId));
+  });
+}
+
 /** Timeout for WebRTC overlay formation and ping propagation (per design §7 R-d). */
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -166,17 +177,22 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
     });
     expect(tomNeighborCount).toBeLessThanOrEqual(1);
 
-    // Wait for that 1 neighbor to be connected before sending the ping
+    // Wait until the whole path is ready before sending: a ping goes only to manifest-ready
+    // neighbors and is not queued (OPEN-56: sent on a link that was connected but not yet
+    // manifest-ready, it reached nobody). So Tom's one neighbor must be ready, and that neighbor
+    // must have a ready link to the third peer to relay through.
+    const pages: Record<string, Page> = { [tomId]: pageTom, [jerryId]: pageJerry, [bobId]: pageBob };
     await expect
       .poll(
-        () =>
-          pageTom.evaluate(() => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-          }),
-        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: no connected neighbor (K=1)' },
+        async () => {
+          const [relay] = await readyLinks(pageTom!);
+          if (!relay || !pages[relay]) return false;
+          const third = relay === jerryId ? bobId : jerryId;
+          return (await readyLinks(pages[relay])).includes(third);
+        },
+        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: no ready path to both peers (K=1)' },
       )
-      .toBeGreaterThan(0);
+      .toBe(true);
 
     // --- Step 3: Tom sends mesh-ping ---
     await afterAction();

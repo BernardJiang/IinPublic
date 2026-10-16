@@ -9,7 +9,7 @@ import { getDistanceUnit } from './distance-units';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
-import { deviceHasGps, getEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
+import { deviceHasGps, getEncounterLocation, isGpsFixUnavailable, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
 import {
   discoveryProviderAvailability,
   type DiscoveryProviderAvailability,
@@ -518,6 +518,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             connectivity,
             hasGps: deviceHasGps(),
             traveler: usesSelfDefinedEncounterLocation(),
+            gpsFixUnavailable: isGpsFixUnavailable(),
             encounterBlock: renderEncounterLocationBlock(deps.t),
           })}
           <div style="margin-top:8px;font-size:0.82em;color:var(--text-tertiary);">${escapeHtml(locationText)}</div>

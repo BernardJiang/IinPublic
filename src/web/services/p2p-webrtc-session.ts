@@ -675,6 +675,16 @@ export class P2PConversationSession {
     this.config.onRemoteMeshFrame = hook;
   }
 
+  /**
+   * ICE/DTLS "connected" counts only once the DataChannel is open (OPEN-52). ICE connects first;
+   * reporting "connected" then let callers send into a channel that was not open yet. The mesh's
+   * first frame failed with "DataChannel not open", marked the neighbor down, and the next
+   * reconcile logged a second "connected" 0–100 ms later. The channel's onopen sets the state.
+   */
+  private markTransportConnected(): void {
+    if (this.dc?.readyState === 'open') this.setState('connected');
+  }
+
   private setState(state: P2PConnectionState): void {
     const changed = this._state !== state;
     this._state = state;
@@ -900,7 +910,7 @@ export class P2PConversationSession {
     this.pc.onconnectionstatechange = () => {
       const cs = this.pc?.connectionState;
       if (cs === 'connected') {
-        this.setState('connected');
+        this.markTransportConnected();
       } else if (cs === 'failed' || cs === 'closed' || cs === 'disconnected') {
         this.setState('failed');
         this.connectPromise = null;
@@ -909,7 +919,7 @@ export class P2PConversationSession {
     this.pc.oniceconnectionstatechange = () => {
       const ice = this.pc?.iceConnectionState;
       if (ice === 'connected' || ice === 'completed') {
-        this.setState('connected');
+        this.markTransportConnected();
       } else if (ice === 'failed') {
         this.setState('failed');
         this.connectPromise = null;

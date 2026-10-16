@@ -16,16 +16,17 @@ Five phone-only bugs reached users or a phone while every browser spec passed:
 | One Place with people made every phone's room list fail (503) | The hub's room list spent 2–3 s on visit counters; the phone relay waits 2.5 s. |
 | Durable presence never saved on phones (`Invalid data: Date`) | Only the embedded node's presence store hit it. |
 
-The last three were found by the phone-path suite below on its first runs. Its second batch of
-journeys (03–05, 2026-10-14) found three more:
+The last three were found by the phone-path suite below on its first runs. They are fixed in
+`src/web/services/web-chatroom-service.ts` (`PLACE_ADMISSION_REQUEST_TIMEOUT_MS`),
+`ChatroomManager.getChatroomMeta`, and `toGunPresenceRow`, each with a unit test. Its second
+batch of journeys (03–05, 2026-10-14) found three more, and the 2026-10-15 phone sweep one more:
 
 | Bug | Found by | Fixed in |
 |---|---|---|
 | Tapping a person (a plain DM, `talkId: 'direct'`) showed "1 match" on BOTH people's status bars and "You matched!" in the empty DM — web too, not only phones | `phone-path/04` J-TALK-05 | `countMatchConversations` (`status-bar.ts`), `conversation-detail-view.ts`; `status-bar.test.ts` |
 | A block made on a phone stayed on that phone: the hub and the blocked person's phone never learned it, so the blocked person still saw the full profile | `phone-path/04` J-TALK-05 | phone node relays blocks and asks the hub for status (`user-routes.ts`, `EmbeddedHubRelayClient.setBlock/getBlockStatus`); `user-routes.test.ts` |
-| Phone-path nodes ran mDNS LAN discovery: phone A and B could sync without the hub, and real phones on the Wi-Fi fed in their data (a release-smoke Place appeared on a fresh node with a dead hub) | `phone-path/03` | `scripts/e2e-phone-node.mjs` turns LAN discovery off | They are fixed in
-`src/web/services/web-chatroom-service.ts` (`PLACE_ADMISSION_REQUEST_TIMEOUT_MS`),
-`ChatroomManager.getChatroomMeta`, and `toGunPresenceRow`, each with a unit test.
+| Phone-path nodes ran mDNS LAN discovery: phone A and B could sync without the hub, and real phones on the Wi-Fi fed in their data (a release-smoke Place appeared on a fresh node with a dead hub) | `phone-path/03` | `scripts/e2e-phone-node.mjs` turns LAN discovery off |
+| A renamed user's TechSupport welcome went back to the old name ~5 s later (web too): the message subscription re-emitted only when the message ids changed, so a rewrite under the same id never arrived | `native-app/08`, `09` on real phones (setup waits for a welcome with the user's name) | `GunMessageStore.subscribeToMessages` signs id + text; `DirectP2PConversationTransport.mergeLiveMessages` replaces a rewritten record; `direct-p2p-conversation-transport.test.ts`, `phone-path/06` |
 
 ## The four places a journey can run
 
@@ -56,7 +57,8 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-START-01 | Fresh install opens, an identity is made, app is usable | ✅ `stage0/*`, `platform-smoke/00` | ✅ every phone-path spec | ✅ `native-app/05` |
 | J-START-02 | Restart keeps the same identity | ✅ `platform-smoke/01` | ✅ `phone-path/05` | ✅ `native-app/12` |
 | J-START-03 | Location given → placed in the right Nearby room | ✅ `stage1/27` | ✅ `phone-path/02` | ✅ `native-app/30` |
-| J-START-04 | Location refused → still usable | ✅ `platform-smoke/02` (opt-in, production bundle) | — | — (OPEN-54) |
+| J-START-04 | Location refused → still usable | ✅ `platform-smoke/02` (opt-in, production bundle) | — | ✅ `native-app/35` (re-ask from Settings, OPEN-54) |
+| J-PROFILE-01 | Rename → the welcome and other people show the new name | ◐ `native-app/08` setup | ✅ `phone-path/06` | ◐ `native-app/08`, `09` setup |
 | **Rooms** | | | | |
 | J-ROOM-01 | Two people nearby share one room and see each other in it | ✅ `stage2/01` | ✅ `phone-path/02` | ✅ `native-app/30` |
 | J-ROOM-02 | A full room splits, people move down, and come back up when it thins | ✅ `stage4/08`–`14` | — | ✅ `native-app/31` |
@@ -89,16 +91,16 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 
 ### Gaps worth filling next (in order)
 
-1. **J-START-04 (location refused)** has no phone coverage at all; on Android it is the native
-   location bridge (OPEN-54), so it needs the Real phone column, not the phone path.
+1. ~~**J-START-04 (location refused)** on a real phone~~ — `native-app/35` (2026-10-15).
 2. **J-ROOM-02 (split/promote) on the phone path.** Needs release capacity (498) worth of users,
    or a phone-node capacity override that the production bundle accepts.
 3. **J-PLACE-12 (map block)** and **J-PLACE-11 on the map** — only the lists are checked.
 4. **Real phone ◐ rows** (J-TALK-02/03, J-CHAT-01): answer and match through the UI on two phones
    instead of the shortcut in `native-app/12`.
-5. A phone keeps and lists Places it learned from LAN neighbours even when its hub has never had
-   them; after a release smoke the test phones carry the smoke Place. Decide whether a phone
-   should list a Place its hub does not know, and `pm clear` the phones after a smoke.
+5. ~~A phone lists Places it learned from LAN neighbours even when its hub has never had them.~~
+   Decided 2026-10-15 (product owner): yes, a phone lists them — that is how Places work offline.
+   The release smoke now `pm clear`s both phones when it finishes (`--keep-data` skips that), so
+   the smoke Place no longer stays on the shared phones.
 
 ## Rules for new tests
 

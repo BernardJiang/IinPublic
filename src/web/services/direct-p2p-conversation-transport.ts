@@ -275,11 +275,18 @@ export class DirectP2PConversationTransport implements ConversationTransport {
    */
   private mergeLiveMessages(conversationId: string, messages: Message[]): void {
     const bucket = this.liveMessagesByConversation.get(conversationId) || [];
-    const knownIds = new Set(bucket.map((existing) => existing.id));
+    const indexById = new Map(bucket.map((existing, index) => [existing.id, index]));
     for (const message of messages) {
-      if (knownIds.has(message.id)) continue;
-      bucket.push(message);
-      knownIds.add(message.id);
+      const index = indexById.get(message.id);
+      if (index === undefined) {
+        indexById.set(message.id, bucket.length);
+        bucket.push(message);
+      } else if (bucket[index].text !== message.text) {
+        // A record rewritten under the same id (the TechSupport welcome re-rendered after a
+        // rename) must replace the cached copy; keeping the first one put the old text back
+        // into the conversation preview on the next emit. Fields only the cache knows survive.
+        bucket[index] = { ...bucket[index], ...message };
+      }
     }
     if (messages.length > 0) {
       // Same (timestamp, id) ordering as GunMessageStore's decrypt path: without the id

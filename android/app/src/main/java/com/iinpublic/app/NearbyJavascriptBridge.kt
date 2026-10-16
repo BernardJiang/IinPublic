@@ -22,6 +22,8 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun setNearbyExchangeMode(mode: String, roomId: String) =
         activity.updateNearbyForegroundMode(mode, roomId)
     @JavascriptInterface fun requestPermissions() = activity.requestNearbyPermissions()
+    /** OPEN-54: Settings → "Use my location" — ask again, or open the app's settings. */
+    @JavascriptInterface fun requestLocationPermission() = activity.requestLocationPermission()
     @JavascriptInterface fun startNsd(port: Int) = withManager { it.startNsd(port.coerceIn(1, 65535)) }
     /** OPEN-36 offline mode: LAN discovery advertising this phone's rotating nearby id. */
     @JavascriptInterface fun startLanDiscovery(port: Int, nearbyId: String, roomTokenPrefix: String) =

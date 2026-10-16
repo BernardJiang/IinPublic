@@ -185,4 +185,33 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     buildSpy.mockRestore();
     subSpy.mockRestore();
   });
+
+  it('a record rewritten under the same id replaces the cached copy (renamed TechSupport welcome)', async () => {
+    let emitGunSnapshot: ((messages: any[]) => void) | undefined;
+    const subSpy = jest
+      .spyOn(GunMessageStore.prototype, 'subscribeToMessages')
+      .mockImplementation((_conversationId, callback) => {
+        emitGunSnapshot = callback;
+        return () => undefined;
+      });
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      ensureConnected: jest.fn(async () => undefined),
+      setLedgerHooks: jest.fn(),
+      setOnRemoteDm: jest.fn(),
+    });
+    const cb = jest.fn();
+    transport.subscribeToMessages('conv1', cb, 'alice', 'bob');
+    for (let i = 0; i < 5 && !emitGunSnapshot; i++) await Promise.resolve();
+
+    const timestamp = new Date();
+    emitGunSnapshot?.([{ id: 'support_welcome_alice', senderId: 'ts', text: 'Welcome, User123', timestamp }]);
+    emitGunSnapshot?.([{ id: 'support_welcome_alice', senderId: 'ts', text: 'Welcome, Alice', timestamp }]);
+    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'support_welcome_alice', text: 'Welcome, Alice' })]);
+
+    // A later, unrelated emit must not bring the old text back.
+    emitGunSnapshot?.([]);
+    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ text: 'Welcome, Alice' })]);
+    subSpy.mockRestore();
+  });
 });
