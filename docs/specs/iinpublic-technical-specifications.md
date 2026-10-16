@@ -4430,7 +4430,7 @@ Reuse `createRelayEnvelope` / signed-proof model from `p2p-runtime.ts`. Frame: `
 | `talk-body-request` | { talkId, authorId, contentHash } | direct receiver → author |
 | `talk-body` | { talkId, talkData } over encrypted channel | direct author → receiver |
 | `talk-response` | { talkId, answers, outcome } (pair ciphertext) | unicast author |
-| `presence-gossip` | { peerId, pub, encounterPolicy, ts } | gossip |
+| `peer-exchange` | up to 16 independently signed { userId, seaPub, roomId, issuedAt, expiresAt } records | direct one-hop PEX; verified records may be re-packaged |
 | `ack` / `receipt` | { msgId } | unicast |
 
 Announce carries only metadata + content hash; the body is pulled on demand (`talk-body-request`/`talk-body`) so popular talks aren't duplicated needlessly and the author stays the source of truth.

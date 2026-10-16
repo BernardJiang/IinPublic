@@ -1595,6 +1595,13 @@ At this point nearby users can find each other even if IinPublic.com is unreacha
 - Cache validated records.
 - Add health and expiration logic.
 
+Implemented 2026-10-15 as room-scoped peer exchange (PEX): a direct neighbor sends at most 16
+independently SEA-signed records, and the receiver retains at most 48 encrypted local hints for
+restart bootstrap. Network advertisements expire after ten minutes; a previously verified hint may
+remain private for seven days but is not re-gossiped after advertisement expiry. The active mesh
+still maintains at most K=12 links, block policy is applied before admission, and PEX never carries
+or relays Talk bodies. libp2p DHT/provider discovery remains an independent redundant path.
+
 ### Phase 4: Internet decentralization
 
 - Add DHT provider.

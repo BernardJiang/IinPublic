@@ -996,6 +996,17 @@ export class WebGunService extends EventEmitter {
     return legacy;
   }
 
+  /**
+   * Read only the current device's encrypted private store. New local-only features use this to
+   * avoid the four-second legacy peered-graph migration probe when a key has never existed.
+   */
+  async getPrivateLocal(key: string): Promise<any> {
+    if (!this.seaPair) throw new Error('SEA keypair not authenticated');
+    if (!this.bridgeReady) throw new Error('Local private Gun store is unavailable');
+    const local = await this.bridge.getPrivate(key);
+    return local === null || local === undefined ? null : this.deserializeDates(local);
+  }
+
   /** Subscribe to decrypted owner-private data in the local-only worker Gun. */
   subscribePrivate(key: string, callback: (data: any) => void): () => void {
     if (!this.seaPair) throw new Error('SEA keypair not authenticated');

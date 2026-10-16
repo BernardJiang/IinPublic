@@ -368,6 +368,14 @@ its ID.
         but not BLE. Retire v2 BLE parsing after the compatibility window.
       - [ ] Session/receipt dedup across routes still relies on the mesh's per-user keying; wire the
         registry's logical peer into `PeerMeshService` route selection if hardware shows duplicates.
+    - [x] Added bounded authenticated peer exchange (PEX) (2026-10-15). Each manifest-compatible
+      direct neighbor exchanges at most 16 independently SEA-signed records for the one active
+      room. Fresh records may be re-packaged one hop at a time; ordinary Talk bodies never enter
+      this path. Up to 48 validated hints per room are retained in the owner's encrypted,
+      device-local Gun store for seven-day restart bootstrap, while expired advertisements remain
+      private hints and are never re-gossiped. Blocked identities are excluded. Unit coverage proves
+      signature/room/expiry rejection, bounded payloads, Alice→Bob→Carol discovery, and restart
+      recovery. This is PEX alongside libp2p DHT discovery, not a replacement for the DHT.
     - [x] Replaced the overlapping offline discovery work with `DiscoveryPolicy` (2026-10-10).
       Stages: online-singleton, online-peers, offline-searching, offline-quiet, offline-peers.
       - Scans run in 30 s windows.

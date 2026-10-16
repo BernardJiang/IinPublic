@@ -19,6 +19,7 @@ import {
 } from '../../shared/protocol-manifest';
 import type { WebGunService } from '../../web/services/web-gun-service';
 import { selectDirectTalkPeers } from '../../shared/direct-talk-scheduler';
+import { PeerExchangeCacheStore } from '../../web/services/peer-exchange-cache-store';
 
 type FakeSessionRecord = {
   localUserId: string;
@@ -1804,5 +1805,81 @@ describe('PeerMeshService', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(bobCallsByAuthor['carol']).toBe(2);
     }
+  });
+
+  it('shares bounded signed discovery records with direct neighbors and bootstraps them after restart', async () => {
+    const [alicePair, bobPair, carolPair] = await Promise.all([
+      SEA.pair(), SEA.pair(), SEA.pair(),
+    ]) as SeaSigningPair[];
+    const users = {
+      alice: { pub: alicePair.pub },
+      bob: { pub: bobPair.pub },
+      carol: { pub: carolPair.pub },
+    };
+    const privateByUser = new Map<string, Map<string, unknown>>();
+    const gunFor = (userId: string, pair: SeaSigningPair): WebGunService => {
+      const values = privateByUser.get(userId) ?? new Map<string, unknown>();
+      privateByUser.set(userId, values);
+      return {
+        getStoredPair: () => pair,
+        getPublicUser: async (id: string) => users[id as keyof typeof users],
+        getPrivate: async (key: string) => values.get(key) ?? null,
+        putPrivate: async (key: string, value: unknown) => { values.set(key, value); },
+      } as unknown as WebGunService;
+    };
+    const network = createFakeNetwork();
+    const aliceGun = gunFor('alice', alicePair);
+    const bobGun = gunFor('bob', bobPair);
+    const carolGun = gunFor('carol', carolPair);
+    const alice = new PeerMeshService(aliceGun, {
+      apiBase: '', localUserId: 'alice', localStageName: 'Alice', createSession: network.createSession,
+      peerExchangeCache: new PeerExchangeCacheStore(aliceGun),
+    });
+    const bob = new PeerMeshService(bobGun, {
+      apiBase: '', localUserId: 'bob', localStageName: 'Bob', createSession: network.createSession,
+      peerExchangeCache: new PeerExchangeCacheStore(bobGun),
+    });
+    const carol = new PeerMeshService(carolGun, {
+      apiBase: '', localUserId: 'carol', localStageName: 'Carol', createSession: network.createSession,
+      peerExchangeCache: new PeerExchangeCacheStore(carolGun),
+    });
+
+    await alice.joinRoom('room-pex', [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob', pub: bobPair.pub },
+    ]);
+    await bob.joinRoom('room-pex', [
+      { userId: 'alice', stageName: 'Alice', pub: alicePair.pub },
+      { userId: 'bob', stageName: 'Bob' },
+      { userId: 'carol', stageName: 'Carol', pub: carolPair.pub },
+    ]);
+    await carol.joinRoom('room-pex', [
+      { userId: 'bob', stageName: 'Bob', pub: bobPair.pub },
+      { userId: 'carol', stageName: 'Carol' },
+    ]);
+
+    await waitUntil(() => alice.getDiagnostics().peerExchangeCandidateCount >= 2);
+    await waitUntil(() => alice.getDiagnostics().neighborCount === 2);
+    expect(alice.getDiagnostics()).toMatchObject({
+      neighborCount: 2,
+      peerExchangeCandidateCount: 2,
+    });
+    await waitUntil(() => privateByUser.get('alice')?.has('peerExchangeCache/v1/room-pex') === true);
+    alice.leaveRoom();
+
+    const restartedGun = gunFor('alice', alicePair);
+    const restarted = new PeerMeshService(restartedGun, {
+      apiBase: '', localUserId: 'alice', localStageName: 'Alice', createSession: createFakeNetwork().createSession,
+      peerExchangeCache: new PeerExchangeCacheStore(restartedGun),
+    });
+    await restarted.joinRoom('room-pex', [{ userId: 'alice', stageName: 'Alice' }]);
+    expect(restarted.getDiagnostics()).toMatchObject({
+      neighborCount: 2,
+      peerExchangeCandidateCount: 2,
+    });
+
+    restarted.leaveRoom();
+    bob.leaveRoom();
+    carol.leaveRoom();
   });
 });

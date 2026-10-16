@@ -178,6 +178,7 @@ import type { NearbyCohortSeatClaim } from '../../shared/nearby-cohort-admission
 import { NearbyCohortPeerSyncController } from '../services/nearby-cohort-peer-sync-controller';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
+import { PeerExchangeCacheStore } from '../services/peer-exchange-cache-store';
 import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { eraseDevice } from '../services/device-wipe';
@@ -3555,6 +3556,8 @@ export class IinPublicApp {
         await this.syncActiveRoomProtocolCheckpoint();
       },
       forwardingSettings: loadConnectivitySettings().forwarding,
+      peerExchangeCache: new PeerExchangeCacheStore(this.gunService),
+      isPeerExchangeAllowed: (userId) => !(this.currentUser?.blockedUserIds ?? []).includes(userId),
       // Keep the E2E mesh dense enough for the 20-peer saturation scenario while
       // still using the production default cap (12) outside that harness.
       ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 12 } : {}),

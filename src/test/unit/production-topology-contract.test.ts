@@ -226,6 +226,8 @@ describe('production/development topology contract', () => {
       'android/app/src/main/java/com/iinpublic/app/NearbyConnectivityManager.kt',
       'android/app/src/main/java/com/iinpublic/app/NodeBridge.kt',
       'android/app/src/main/java/com/iinpublic/app/NodeForegroundService.kt',
+      // Test fixture proving debug-only overrides accept loopback while release builds reject it.
+      'android/app/src/test/java/com/iinpublic/app/AndroidLaunchNetworkPolicyTest.kt',
       'platforms/desktop/main.js',
       'platforms/ios/IinPublic/ViewController.swift',
       'src/node-app/embedded-node.ts',

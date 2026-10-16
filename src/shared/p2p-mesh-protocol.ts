@@ -4,6 +4,10 @@ import {
   parseNearbyCohortPeerSyncPayload,
   type NearbyCohortPeerSyncPayload,
 } from './nearby-cohort-peer-sync';
+import {
+  parsePeerExchangePayload,
+  type PeerExchangePayload,
+} from './peer-exchange';
 
 export type P2PMeshMessageKind =
   | 'mesh-ping'
@@ -17,6 +21,7 @@ export type P2PMeshMessageKind =
   | 'protocol-manifest-request'
   | 'protocol-manifest-chain'
   | 'nearby-cohort-peer-sync'
+  | 'peer-exchange'
   | 'ack';
 
 export type P2PProtocolManifestCheckpoint = {
@@ -130,6 +135,7 @@ export type P2PMeshFramePayload =
   | P2PProtocolManifestRequestPayload
   | P2PProtocolManifestChainPayload
   | NearbyCohortPeerSyncPayload
+  | PeerExchangePayload
   | { msgId: string };
 
 export type P2PMeshFrame = {
@@ -167,7 +173,7 @@ export function isP2PMeshFrame(value: unknown): value is P2PMeshFrame {
   if (!value || typeof value !== 'object') return false;
   const frame = value as Partial<P2PMeshFrame>;
   return frame.version === 1
-    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'nearby-cohort-peer-sync', 'ack'].includes(String(frame.kind))
+    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'nearby-cohort-peer-sync', 'peer-exchange', 'ack'].includes(String(frame.kind))
     && typeof frame.msgId === 'string' && frame.msgId.length > 0 && frame.msgId.length <= 256
     && typeof frame.roomId === 'string' && frame.roomId.length <= 256
     && typeof frame.originUserId === 'string' && frame.originUserId.length <= 256
@@ -236,6 +242,12 @@ export function isP2PNearbyCohortPeerSyncPayload(
   payload: P2PMeshFramePayload,
 ): payload is NearbyCohortPeerSyncPayload {
   return parseNearbyCohortPeerSyncPayload(payload) !== null;
+}
+
+export function isP2PPeerExchangePayload(
+  payload: P2PMeshFramePayload,
+): payload is PeerExchangePayload {
+  return parsePeerExchangePayload(payload) !== null;
 }
 
 export function isP2PMeshTalkBodyPayload(
