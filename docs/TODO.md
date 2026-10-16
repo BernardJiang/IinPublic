@@ -722,7 +722,10 @@ phrase complexity into normal use.
   PH-1 (Android 10) internet-off/LAN-off run passed: PH-1 hosted with two clients, the three-phone
   Talk ring delivered in 11.2–20.0 s, and delivery to a backgrounded C10 took 9.9 s. Android 7
   remains intentionally excluded because it cannot join app-selected dynamic Wi-Fi Direct
-  credentials.
+  credentials. Release hardening also makes all physical-test Intent overrides debug-only: a
+  product APK always starts with the production internet relay plus LAN, Wi-Fi Direct, and BLE
+  enabled by default (subject to device support, OS permission/radio state, and a user's explicit
+  saved Settings choices). Release Kotlin compilation and native/web default-policy tests pass.
 - [x] **OPEN-61 — Older physical gates now use the flat Nearby design and current artifacts (fixed
   2026-10-15).** Specs 06/11 use an opaque deterministic Nearby room; spec 10 uses the permanent
   TechSupport Contact baseline. The native launcher rejects a packaged macOS app unless its build id

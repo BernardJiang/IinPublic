@@ -323,10 +323,19 @@ class MainActivity : AppCompatActivity() {
         // --es hub_gun_url "http://<host>:<port>/gun"` overrides the production default so this
         // device dials a local/test hub instead — see docs/testing/manual-platform-test-plan.md.
         // Absent in normal (Play Store / sideloaded) launches, so production behavior is unchanged.
-        this.intent?.getStringExtra(NodeForegroundService.HUB_GUN_URL_EXTRA)?.let { override ->
+        // Test-only network isolation must never alter a production launch. MainActivity is the
+        // exported launcher, so merely documenting these Intent extras as "debug only" is not a
+        // security boundary: another app could otherwise redirect the relay or suppress LAN.
+        AndroidLaunchNetworkPolicy.hubOverride(
+            BuildConfig.DEBUG,
+            this.intent?.getStringExtra(NodeForegroundService.HUB_GUN_URL_EXTRA),
+        )?.let { override ->
             intent.putExtra(NodeForegroundService.HUB_GUN_URL_EXTRA, override)
         }
-        if (this.intent?.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false) == true) {
+        if (AndroidLaunchNetworkPolicy.disableLanDiscovery(
+                BuildConfig.DEBUG,
+                this.intent?.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false) == true,
+            )) {
             intent.putExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, true)
         }
         if (BuildConfig.DEBUG
@@ -415,6 +424,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wifiDirectLinkQuery(): String {
+        // Every query override below exists only to isolate physical E2E paths. A release always
+        // boots with the production defaults: internet relay, LAN, Wi-Fi Direct, and BLE enabled;
+        // the user's persisted Settings choices are then applied by the web app.
+        if (!AndroidLaunchNetworkPolicy.allowsTestOverrides(BuildConfig.DEBUG)) return ""
         val launch = intent ?: return ""
         var query = ""
         if (launch.hasExtra(WIFI_DIRECT_LINK_EXTRA)) {
