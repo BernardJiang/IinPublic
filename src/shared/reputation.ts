@@ -123,6 +123,20 @@ export type ReputationAction =
   | 'age_verified'
   | 'blocked';
 
+/**
+ * NFKC + lowercase, plus an explicit fullwidth-ASCII fold. Android's embedded Node is built
+ * without ICU, where normalize('NFKC') returns its input unchanged, so "ｆｕｃｋ" slipped past the
+ * filter there (found by the portable unit files on four phones, 2026-10-17). The fold is a no-op
+ * wherever NFKC already did it.
+ */
+function foldForMatching(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/\u3000/g, ' ')
+    .toLowerCase();
+}
+
 export class ContentFilter {
   private static latinBlockedWords = new Set([
     'spam', 'scam', 'fake', 'bot', 'phishing', 'fraud', 'fuck', 'shit', 'bitch',
@@ -187,11 +201,11 @@ export class ContentFilter {
    * on NFKC-lowercased text, so "cocktail" never matches "cock".
    */
   static findDirtyWord(content: string, customWords: readonly string[] = []): string | null {
-    const normalized = content.normalize('NFKC').toLowerCase();
+    const normalized = foldForMatching(content);
     const words = normalized.match(WORD_PATTERN) || [];
     const merged = new Set<string>(this.latinBlockedWords);
     for (const w of customWords) {
-      const t = String(w ?? '').normalize('NFKC').trim().toLowerCase();
+      const t = foldForMatching(String(w ?? '')).trim();
       if (t) merged.add(t);
     }
     for (const word of words) {
@@ -201,7 +215,7 @@ export class ContentFilter {
       if (normalized.includes(term)) return term;
     }
     for (const w of customWords) {
-      const t = String(w ?? '').normalize('NFKC').trim().toLowerCase();
+      const t = foldForMatching(String(w ?? '')).trim();
       // Multi-token custom terms (with spaces) fall back to substring matching.
       if (t.includes(' ') && normalized.includes(t)) return t;
     }

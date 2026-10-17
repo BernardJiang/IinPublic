@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.154",
+  "version": "1.0.156",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -55,7 +55,7 @@
     "desktop:dist:win:arm64": "npm run build:embedded && npm run desktop:stage-deps && cd platforms/desktop && npm install && npm run dist:win:arm64",
     "desktop:dist:win:all": "npm run build:embedded && npm run desktop:stage-deps && cd platforms/desktop && npm install && npm run dist:win:all",
     "build:embedded-mobile": "node scripts/patch-gun-radix.js && npm run build:server && node scripts/build-embedded-mobile.js",
-    "mobile:stage": "npm run build:embedded && npm run build:embedded-mobile",
+    "mobile:stage": "npm run build:embedded && npm run build:embedded-mobile && node scripts/build-portable-core-test-bundle.mjs",
     "smoke:dev:multi": "npm run build:server && node scripts/smoke-dev-multi.js",
     "smoke:embedded-node": "npm run build:embedded && node scripts/smoke-embedded-node.js",
     "smoke:embedded-node-mobile": "npm run mobile:stage && node scripts/smoke-embedded-node-mobile.js",

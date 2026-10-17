@@ -34,6 +34,8 @@ const CELLULAR_SERIAL = process.env.NATIVE_APP_ANDROID_CELLULAR?.trim() || '';
 const WIFI_SERIAL = process.env.NATIVE_APP_ANDROID_WIFI_PEER?.trim() || '';
 /** Diagnostic: keep Wi-Fi on the SIM phone too, to tell a cellular-path failure from a hub one. */
 const BOTH_WIFI = process.env.E2E_CELLULAR_BOTH_WIFI === '1';
+/** Put the peer on mobile data too (it needs a SIM): both phones behind carrier NAT. */
+const PEER_CELLULAR = process.env.E2E_CELLULAR_PEER_TOO === '1';
 
 type Peer = { name: string; serial: string; user: AndroidUser; id: string };
 
@@ -58,7 +60,9 @@ async function onCellularOnly(serial: string): Promise<boolean> {
   const active = out.split('\n').find((line) => /Active default network/i.test(line)) ?? '';
   const netId = active.match(/(\d+)/)?.[1];
   if (!netId) return false;
-  const agent = out.split('\n').find((line) => line.includes(`NetworkAgentInfo{network{${netId}}`)) ?? '';
+  // Android 16 prints `NetworkAgentInfo{network{N} …`; Android 10 `NetworkAgentInfo{ ni{…}  network{N} …`.
+  const agent = out.split('\n').find((line) => line.includes('NetworkAgentInfo{') && line.includes(` network{${netId}}`)
+    || line.includes(`NetworkAgentInfo{network{${netId}}`)) ?? '';
   return /CELLULAR/.test(agent) && !/WIFI/.test(agent);
 }
 
@@ -93,6 +97,7 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
 
   test.afterAll(async () => {
     await setWifi(CELLULAR_SERIAL, true).catch(() => {});
+    if (PEER_CELLULAR) await setWifi(WIFI_SERIAL, true).catch(() => {});
     for (const peer of peers) await closeAndroidUser(peer.user);
   });
 
@@ -116,6 +121,13 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
         message: 'cellular phone should be on mobile data only',
       }).toBe(true);
     }
+    if (PEER_CELLULAR) {
+      await setWifi(WIFI_SERIAL, false);
+      await expect.poll(() => onCellularOnly(WIFI_SERIAL), {
+        timeout: 30_000,
+        message: 'peer phone should be on mobile data only',
+      }).toBe(true);
+    }
 
     await Promise.all([resetAndroidAppData(CELLULAR_SERIAL), resetAndroidAppData(WIFI_SERIAL)]);
     for (const [name, serial] of [['cellular', CELLULAR_SERIAL], ['wifi', WIFI_SERIAL]] as const) {
@@ -131,6 +143,7 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
     const [cell, wifi] = peers;
     expect(await hubReachableFromPhone(CELLULAR_SERIAL)).toBe(true);
     if (!BOTH_WIFI) expect(await onCellularOnly(CELLULAR_SERIAL)).toBe(true);
+    if (PEER_CELLULAR) expect(await onCellularOnly(WIFI_SERIAL)).toBe(true);
 
     const runId = `cellular-${Date.now()}`;
     await Promise.all(peers.map((peer) => forceJoinRoom(peer.user.window, runId)));

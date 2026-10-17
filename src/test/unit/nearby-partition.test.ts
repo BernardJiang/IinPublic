@@ -90,7 +90,9 @@ describe('flat adaptive Nearby partition transitions', () => {
     const tampered = {
       ...transition,
       toGroups: transition.toGroups.map((group, index) => index === 0
-        ? { ...group, roomId: group.roomId.replace(/[a-f0-9]$/, '0') }
+        // Always a different last digit: a fixed '0' left ids already ending in 0 unchanged, so
+        // the "tampered" transition verified and the test failed 1 run in 16.
+        ? { ...group, roomId: group.roomId.replace(/[a-f0-9]$/, (digit) => (digit === '0' ? '1' : '0')) }
         : group),
     };
     expect((await verifyNearbyPartitionTransition(tampered, checkpoint)).ok).toBe(false);

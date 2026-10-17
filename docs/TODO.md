@@ -715,8 +715,19 @@ phrase complexity into normal use.
     both before and after first Chatrooms entry, and invoke setup-only navigation through each real
     button listener instead of waiting for an animated bounding box. Also ensure
     `test:android:full` still runs latest-version portable parity last when an earlier journey fails.
-  - [ ] Port the high-value 1-, 2-, 3-, and 4-person staged journeys to `TestActor`; keep mass,
-    server-only, browser-engine, and desktop-native coverage on the host.
+  - [x] Step 1 of the conversion plan (2026-10-17, `docs/testing/android-core-test-plan.md`): 92
+    real unit files (1,155 tests: match engine, intake filters, reputation, room routing, Nearby
+    partitions and certificates, P2P trust, manifests, SEA-signed records, TechSupport) run
+    unchanged in each phone's WebView and embedded Node through a Jest-compatible runtime;
+    `native-app/34` requires the host's exact test ids. `suites.json` records why each other file
+    stays host-only. The first phone runs found two embedded-Node-only bugs, both fixed with host
+    unit tests (`embedded-node-runtime-gaps.test.ts`): `sha256Hex` threw `crypto is not defined`
+    (Node 18 has no global WebCrypto), and the dirty-word filter missed fullwidth letters (no ICU,
+    so NFKC is a no-op). Also fixed a 1-in-16 flaky tamper in `nearby-partition.test.ts`.
+  - [ ] Grow step 1: `jest.fn`/`jest.spyOn` in the portable runtime (119 files are excluded only
+    for `jest.*`).
+  - [ ] Port the high-value 1-, 2-, 3-, and 4-person staged journeys to `TestActor` (steps 2–3);
+    keep mass, server-only, browser-engine, and desktop-native coverage on the host.
   - [ ] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
     per-device coverage report; make unexpected coverage loss fail CI/release qualification.
 - [x] **OPEN-60 — Three-phone offline BLE/Wi-Fi Direct election now converges (fixed and verified

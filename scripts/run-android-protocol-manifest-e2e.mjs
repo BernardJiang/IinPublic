@@ -68,9 +68,11 @@ try {
   exitCode = result.status ?? 1;
 
   if (process.env.E2E_PROTOCOL_KEEP_MIXED_APKS !== '1') {
+    // Restore with the workspace's current app-debug.apk (rebuilt above from the same tree as
+    // release 2) so the sweep's next install finds the same MD5 and skips these phones.
     for (const serial of serials) {
       console.log(`[protocol-manifest-e2e] restoring current APK on ${serial}`);
-      spawnSync('adb', ['-s', serial, 'install', '--no-streaming', '-r', release2Artifact], {
+      spawnSync('adb', ['-s', serial, 'install', '--no-streaming', '-r', currentApk], {
         cwd: root, stdio: 'inherit', timeout: 300_000,
       });
     }

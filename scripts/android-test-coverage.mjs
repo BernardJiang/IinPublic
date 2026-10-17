@@ -32,8 +32,18 @@ function laneFor(file) {
   return 'web-other';
 }
 
-function conversionFor(lane) {
+// Unit files that run unchanged on phones (src/test/support/portable-jest; the list is refreshed by
+// node scripts/build-portable-core-test-bundle.mjs --select).
+const portableSuites = JSON.parse(await readFile(path.join(repoRoot, 'src/test/support/portable-jest/suites.json'), 'utf8'));
+const portableJestFiles = new Set(portableSuites.included.map((file) => `src/test/unit/${file}`));
+const hostOnlyByDesign = new Set(portableSuites.excluded
+  .filter((entry) => /host-only by design/.test(entry.reason))
+  .map((entry) => `src/test/unit/${entry.file}`));
+
+function conversionFor(lane, file) {
   if (lane === 'android-real-device') return 'already-on-android';
+  if (portableJestFiles.has(file)) return 'unit-file-runs-on-android';
+  if (hostOnlyByDesign.has(file)) return 'keep-host-side';
   if (lane === 'host-jest-core') return 'portable-contract-candidate';
   if (lane === 'host-scale' || lane === 'host-browser-matrix' || lane === 'host-native-other') {
     return 'keep-host-side';
@@ -50,7 +60,7 @@ const files = [...jestFiles, ...e2eFiles]
   .sort()
   .map((file) => {
     const lane = laneFor(file);
-    return { file, lane, conversion: conversionFor(lane) };
+    return { file, lane, conversion: conversionFor(lane, file) };
   });
 
 const byLane = Object.fromEntries(
@@ -75,6 +85,7 @@ const report = {
     jest: jestFiles.length,
     e2e: e2eFiles.length,
     portableContracts: portableContractIds.length,
+    portableJestFiles: portableJestFiles.size,
   },
   byLane,
   byConversion,
@@ -88,6 +99,8 @@ if ((byLane['host-jest-core'] || 0) !== jestFiles.length) failures.push('Some Je
 if (!byLane['android-real-device']) failures.push('No existing Android real-device specs were found.');
 if (portableContractIds.length < 6) failures.push('Portable core contract set unexpectedly shrank below six cases.');
 if (new Set(portableContractIds).size !== portableContractIds.length) failures.push('Portable contract ids must be unique.');
+const missingPortable = [...portableJestFiles].filter((file) => !files.some((entry) => entry.file === file));
+if (missingPortable.length) failures.push(`suites.json lists unit files that no longer exist: ${missingPortable.join(', ')} (rerun --select)`);
 
 if (jsonOutput) {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -101,6 +114,7 @@ if (jsonOutput) {
     process.stdout.write(`  ${String(count).padStart(4)}  ${conversion}\n`);
   }
   process.stdout.write(`  ${String(portableContractIds.length).padStart(4)}  portable contracts implemented\n`);
+  process.stdout.write(`  ${String(portableJestFiles.size).padStart(4)}  unit files run unchanged on phones (src/test/support/portable-jest/suites.json)\n`);
 }
 
 if (failures.length > 0) {

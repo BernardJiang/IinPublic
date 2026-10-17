@@ -1,0 +1,1094 @@
+{
+  "comment": "Unit files run unchanged on phones by src/test/support/portable-jest. Regenerate: node scripts/build-portable-core-test-bundle.mjs --select",
+  "included": [
+    "active-exchange-room.test.ts",
+    "active-rooms.test.ts",
+    "authoritative-data-invariants.test.ts",
+    "block-signal.test.ts",
+    "broadcast-tag-targeting.test.ts",
+    "built-in-comparisons.test.ts",
+    "built-in-question-resolution.test.ts",
+    "challenge-plugins.test.ts",
+    "chatbot-talk-flow.test.ts",
+    "chatroom-hierarchy-runtime.test.ts",
+    "chatroom-map-geojson.test.ts",
+    "chatroom-map-locations.test.ts",
+    "closest-match.test.ts",
+    "connection-manager.test.ts",
+    "connectivity-binding.test.ts",
+    "connectivity-ingress-fuzz.test.ts",
+    "connectivity-intermediary-security.test.ts",
+    "connectivity-protocol-vectors.test.ts",
+    "contact-groups.test.ts",
+    "conversation-reconcile.test.ts",
+    "conversation-wakeup.test.ts",
+    "device-handoff.test.ts",
+    "direct-talk-scheduler.test.ts",
+    "embedded-node-config.test.ts",
+    "exact-chatbot-memory.test.ts",
+    "financial-data-guard.test.ts",
+    "find-similar.test.ts",
+    "flattened-answer-keys.test.ts",
+    "flow-capture.test.ts",
+    "graph-size-report.test.ts",
+    "handoff-protocol.test.ts",
+    "intake-filter-reasons.test.ts",
+    "merkle-checkpoint.test.ts",
+    "mesh-forwarding-policy.test.ts",
+    "mesh-frame-policy.test.ts",
+    "mesh-response-step4.test.ts",
+    "message-content-filter.test.ts",
+    "micro-room-assignment.test.ts",
+    "micro-room-overflow-certificate.test.ts",
+    "nearby-cohort-migration.test.ts",
+    "nearby-cohort-protocol.test.ts",
+    "nearby-cohort-scale-privacy.test.ts",
+    "nearby-discovery-policy.test.ts",
+    "nearby-offline.test.ts",
+    "nearby-overflow-certificate.test.ts",
+    "nearby-partition.test.ts",
+    "nearby-rooms.test.ts",
+    "nearby-sparse-policy.test.ts",
+    "p2p-abuse-defense.test.ts",
+    "p2p-handshake.test.ts",
+    "p2p-presence.test.ts",
+    "p2p-release-verification.test.ts",
+    "p2p-runtime.test.ts",
+    "p2p-schema-boot.test.ts",
+    "p2p-schema-migrations.test.ts",
+    "p2p-trust-neighbor-bridge.test.ts",
+    "p2p-trust.test.ts",
+    "peer-discovery-manager.test.ts",
+    "peer-discovery-provider.test.ts",
+    "peer-exchange.test.ts",
+    "peer-talk-delivery.test.ts",
+    "place-descriptor.test.ts",
+    "place-lifecycle.test.ts",
+    "platform-capability-matrix.test.ts",
+    "platform-connectivity-adapter.test.ts",
+    "portable-core-contracts.test.ts",
+    "portable-ecdsa.test.ts",
+    "portable-sha256.test.ts",
+    "profile-privacy.test.ts",
+    "protocol-manifest.test.ts",
+    "public-location.test.ts",
+    "reputation.test.ts",
+    "room-routing.test.ts",
+    "room-tile-grid.test.ts",
+    "selective-gun-sync.test.ts",
+    "semver-compare.test.ts",
+    "tag-opposite-pairs.test.ts",
+    "tag-similarity.test.ts",
+    "talk-contact-policy.test.ts",
+    "talk-content-id.test.ts",
+    "talk-engine.test.ts",
+    "talk-stats.test.ts",
+    "talk-types.test.ts",
+    "talk-wake.test.ts",
+    "techsupport-faq.test.ts",
+    "techsupport-trust-anchors.test.ts",
+    "techsupport-unblockable.test.ts",
+    "techsupport.test.ts",
+    "typed-preference-store.test.ts",
+    "user-tags.test.ts",
+    "user-utils.test.ts",
+    "visit-counter.test.ts"
+  ],
+  "excluded": [
+    {
+      "file": "actionable-guide-storage.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "android-api-compatibility.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "android-device-config.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"fs\""
+    },
+    {
+      "file": "android-key-attestation.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "android-nearby-adapter.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "answer-context-migration.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "answer-history-storage.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "answer-preference-mutations.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "answer-preference-resolution-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "answer-preferences-storage.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "answers-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "app-bar-overflow.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "app-bar.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "app-download-banner.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "app-shell-controls.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "app-update-reminder-view.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "attachment-hydration.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "attachment-metadata.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "attestation-verifier-key-custody.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "broadcast-audience-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "broadcast-audience-preview.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "broadcast-controller.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "broadcast-delivery-selection.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "broadcast-room-record.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "broadcast-tag-popularity-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "browser-file-save.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "browser-password-free-custody-manager.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "captured-question-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-browse-list.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "chatroom-capacity-test-override.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "chatroom-capacity.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "chatroom-cohort-controls.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-flat-map-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "chatroom-flat-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "chatroom-info.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "chatroom-manager.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "chatroom-map-tap.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "chatroom-member-headshots.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "chatroom-member-indicators.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "chatroom-message-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-shell-controller.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "cid.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"crypto\""
+    },
+    {
+      "file": "client-incoming-talk-mirror.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "connectivity-binding-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "connectivity-settings.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "contacts-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "content-filter-toast.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "conversation-media-controller.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "conversation-message-cards.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "conversation-record-updates.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "conversation-status-updates.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "conversation-view-updates.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "creator-replies-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "current-chatroom.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "custom-chatroom-dialogs-characterization.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "deal-confirmation-merge.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "delivery-reason-labels.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "deterministic-connectivity-harness.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "dev-stage-env.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "device-sync-authorization.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "device-sync-conflict-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-sync-contract.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "device-sync-importer.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "device-sync-outbox.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "device-wipe-native-custody.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "direct-p2p-conversation-transport.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "direct-talk-delivery-outbox.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "dirty-word-editor.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "downloads-routes.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "e2e-latency.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "edit-profile-dialog-characterization.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "edit-stage-name-dialog.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "embedded-gun-browser-storage.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "embedded-hub-relay-client.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "embedded-node-hub-dial.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "embedded-node-runtime-gaps.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "encounter-location.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "erase-device-dialog.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "erase-device-flow.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "flow-answer-constraints.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "gun-chatbot-memory-repository.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "gun-delivery-repository.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "gun-message-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "gun-pubsub-signaler.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "gun-talk-repository.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "http-bootstrap-static.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "identity-custody-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "identity-link-fragment.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "identity-linking.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: pairing payload + code › rejects legacy and unsupported pairing schemas: Buffer is not defined"
+    },
+    {
+      "file": "identity-password-custody-manager.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "identity-password-custody.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "identity-password-dialog.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "identity-password-free-custody-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "identity-password-free-custody.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "incoming-talk-notification.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "item-details-popup.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "lan-gun-discovery.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "link-code-qr.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "linked-devices-dialog.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "list-pins.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "local-device-metadata.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "local-link-turn-relay.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "local-peer-derivation.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "local-private-conversation-metadata-repository.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "local-private-conversation-repository.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "local-statistics.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "location-cache.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "location-room-suggestion.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "location-settings-use-my-location.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "location.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: LocationPrivacy › getCurrentLocation › should return mock location in test environment: Location error: User denied Geolocation"
+    },
+    {
+      "file": "loopback-probe.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "map-presence-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "matrix-orchestrator.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "micro-room-pre-admission-client.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "modal-accessibility.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "my-most-recent-location-talk.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "native-attestation-bridge.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "native-password-free-custody.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "navigate-to-answer.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "nearby-capacity-simulation.test.ts",
+      "reason": "scale simulation: host-only by design"
+    },
+    {
+      "file": "nearby-cohort-integration.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "nearby-cohort-peer-sync.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "nearby-cohort-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "nearby-cohort-traversal-client.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "nearby-control-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "nearby-offline-service.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "nearby-partition-geometry.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "nearby-partition-store.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "nearby-place-fallback.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "nearby-pre-admission-client.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "nearby-sparse-app.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "no-inline-baseline-graph.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "notification-badges.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "notification-toast.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "official-build-credential-signature.test.ts",
+      "reason": "uses require()"
+    },
+    {
+      "file": "official-build-credential.test.ts",
+      "reason": "uses require()"
+    },
+    {
+      "file": "onboarding-walkthrough.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "p2p-ice-priority.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "p2p-libp2p-mesh-invariants.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "p2p-libp2p-mesh-session.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "p2p-mesh-session-fallback.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "p2p-room-discovery.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "p2p-secure-session.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "peer-controller.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "peer-discovery-providers.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "peer-exchange-cache-store.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "peer-headshot-cache.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "peer-mesh-service.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "peer-name-cache.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "person-picker-dialogs.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "place-admission-evidence.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "place-admission-timeouts.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "presence-durable-row.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "production-topology-contract.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "profile-avatar.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "profile-photo.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "quick-answer-incoming-tag.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "quick-incoming-talk-actions.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "quiet-places.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "render-list-progressively.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "resolve-chatroom-title.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "return-home-button.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "room-list-empty-places.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "room-topology-million.test.ts",
+      "reason": "scale simulation: host-only by design"
+    },
+    {
+      "file": "route-editor-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "settings-section-template.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "settings-section-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "settings-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "signaling-transport.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "stage0-fixture.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "starter-talk-seeds.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "startup-metrics.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "statistics-dashboard-characterization.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "status-bar.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "storage-inspector-characterization.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "support-delegate-targeted-invite-views.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "support-inbox-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "support-settings-controller.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "survey-completeness.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "survey-statistics-characterization.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "system-announcement-banner.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "system-announcements.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-broadcast-toggle.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-completion.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-creation-storage.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-deletion.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-detail-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-distance.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "talk-editor-controller.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-editor-dialog.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-form-processor.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-history-restorer.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "talk-intake-filters.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "talk-ledger.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "talk-list-metadata.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "talk-peer-registration.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-response-dialog-ui.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-revision.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-template-picker.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talk-templates.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "talks-list-view.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "talks-row-gestures.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "techsupport-baseline.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-conversation-transport.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "techsupport-delegate-cache.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "techsupport-delegate-invite.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: techsupport-delegate-invite (K7 follow-on) › decodeDelegateInviteCode rejects an unsupported version: Buffer is not defined"
+    },
+    {
+      "file": "techsupport-delegate.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "techsupport-faq-bundle.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "techsupport-faq-cache.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "techsupport-faq-entry-cache.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "techsupport-faq-entry.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-faq-seed.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-greeting.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-key-not-bundled.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "techsupport-login.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "techsupport-onboarding-tips.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-recovery.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-support-ack.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "tls-mode.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "transient-map-hint.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "transient-signal-store-filter.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "ui-extracted-modules.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "ui-formatters.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "ui-manager-size-budget.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "ui-module-boundaries.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "ui-startup-chatrooms.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "ui-translations.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "user-detail-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "verified-support-messages.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-attestation-service.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-chatroom-atomic-move.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-chatroom-heartbeat.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-chatroom-leave-sync.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-chatroom-location-assignment.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-chatroom-server-roster.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-chatroom-techsupport-floor.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "web-content-node-service.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-device-handoff-service.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-device-sync-service.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-gun-service-add-peer.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-gun-service-hub-url.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "web-gun-service-private-boundary.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-identity-link-service.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "web-ledger-service.test.ts",
+      "reason": "imports server or web code"
+    },
+    {
+      "file": "web-talk-service-migration.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "web-talk-service-update-authorship.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "web-user-service.test.ts",
+      "reason": "uses jest.* (mocks, timers, or spies)"
+    },
+    {
+      "file": "wifi-direct-link.test.ts",
+      "reason": "imports server or web code"
+    }
+  ],
+  "hostOnlyTests": {
+    "find-similar.test.ts › find-similar §4 — scale to ~100k (REQ-SIM-NFR-01/02/05) › top-K over a 100k population is fast, bounded, and never O(N²)": "host-calibrated 1 s budget over a 100k population (1,051 ms on the C10, 2026-10-17)"
+  }
+}

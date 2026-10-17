@@ -175,6 +175,20 @@ type RegisterSystemRoutesDeps = {
   nearbyCohortPolicySignerPubs?: string[];
 };
 
+/**
+ * The unit files that run unchanged on a phone (src/test/support/portable-jest; built by
+ * scripts/build-portable-core-test-bundle.mjs). Three levels up from this file is dist/ on the
+ * host and nodejs-project/ in the app; only debug APKs carry device-tests/ (android/app/src/debug
+ * /assets), so a release build reports null. The path is fixed: no request input chooses code.
+ */
+async function runPortableJestBundle(): Promise<unknown> {
+  const bundle = path.resolve(__dirname, '..', '..', '..', 'device-tests', 'portable-jest-node.cjs');
+  if (!fs.existsSync(bundle)) return null;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { runPortableJest } = require(bundle) as { runPortableJest: () => Promise<unknown> };
+  return runPortableJest();
+}
+
 export function registerSystemRoutes(
   app: express.Application,
   {
@@ -1465,11 +1479,14 @@ export function registerSystemRoutes(
           res.status(403).json({ error: 'Portable core tests are loopback-only' });
           return;
         }
-        res.json({
-          runtime: 'embedded-node',
-          node: process.version,
-          report: runPortableCoreContracts(),
-        });
+        void (async () => {
+          res.json({
+            runtime: 'embedded-node',
+            node: process.version,
+            report: runPortableCoreContracts(),
+            jest: await runPortableJestBundle(),
+          });
+        })().catch((error) => res.status(500).json({ error: (error as Error).message }));
       });
     }
 

@@ -109,18 +109,81 @@ Like `test:all`, it ends with one report for the whole run: a table of every ste
 writes a blob under `blob-report/<run id>/`; `scripts/lib/android-sweep-report.mjs` does the rest.
 `test:android:core` and the phone sweep alone produce the same report when run by themselves.
 
-## Remaining conversion work
+## Conversion plan (2026-10-17)
 
-The debug/E2E-only embedded-Node bridge is implemented. The next work is to exercise it on the
-supported phone matrix, then port high-value staged journeys in increasing actor count:
+Where things stood on 2026-10-17: the phone sweep ran 30 Android-only tests and 6 hand-written
+contracts. The rest of the suite ran only on the Mac:
 
-1. single-user creation, persistence, filters, and restart;
-2. direct Talk delivery, answers, matching, contacts, and blocks;
-3. decentralized Nearby split/convergence and redundant path selection;
-4. capacity/overflow and traveler/Place behavior.
+| Suite | Files | Tests | On a phone before |
+|---|---|---|---|
+| `tests/e2e/staged/stage0–5` | 228 | ~346 | no |
+| `tests/e2e/talks-matching/` | 14 | 15 | no |
+| `tests/e2e/phone-path/` | 6 | 11 | phone code path, but in host Chromium |
+| `src/test/unit` + `integration` | 350 | thousands | 6 contracts only |
 
-Scale tests and synthetic hundreds-of-users tests stay host-side. They answer a different question
-and should not consume or destabilize physical phones.
+Porting every journey is not the goal: ~346 journeys at 1–3 min each on four shared phones would
+take 8–15 hours, and many check host or layout concerns (app bar, Chinese UI walk-throughs, the
+stats dashboard) where a phone adds nothing. The order:
+
+1. **Unit files unchanged on phones (done 2026-10-17).** Not hand-copied contracts: the real Jest
+   files run as they are, through a small Jest-compatible runtime
+   (`src/test/support/portable-jest/runtime.ts`: describe/it/test with .each/.skip/.only/.todo,
+   the four hooks, and the matchers these files use). It registers exactly the same 1,155 test
+   names as Jest, file by file. `node scripts/build-portable-core-test-bundle.mjs --select` picks
+   the files: every unit file with no `jest.*` mocks, Node built-ins, DOM, or server/web imports,
+   minus any that does not bundle for Chrome 61 (the Honor's WebView) or does not pass in host Node
+   and headless Chromium. It writes `src/test/support/portable-jest/suites.json` with a reason for
+   every file left out, so a reduction is visible in review. 92 files run, covering the match engine
+   (`talk-engine`, `talk-types`, tag similarity), intake filters, reputation and content filters,
+   room routing and tiles, Nearby partitions, cohorts and overflow certificates, the P2P
+   trust/handshake/abuse/presence rules, protocol manifests, SEA-signed records, TechSupport, and
+   conversation reconcile. Two scale simulations stay host-only by design.
+   - The WebView gets the bundle over the adb/CDP channel (like the contracts). Embedded Node runs
+     it from `/api/test/portable-core`, which loads `nodejs-project/device-tests/` only if present;
+     Gradle stages that file into `src/debug/assets`, so release APKs never carry it.
+   - `scripts/run-portable-jest-host.mjs` records the host's test ids; `native-app/34` fails a phone
+     whose WebView or embedded Node reports any failure or a different id set.
+   - First runs (2026-10-17): every WebView passed 1,155/1,155, including the Honor's WebView 61.
+     Embedded Node (v18.20.4) failed the same tests on all four phones, two real gaps the Mac's
+     Node cannot show (fixed; `embedded-node-runtime-gaps.test.ts` recreates each on the host):
+     it has no global WebCrypto, so `sha256Hex` (Nearby ids, Wi-Fi Direct host choice) threw
+     `crypto is not defined`; and it has no ICU, so `normalize('NFKC')` is a no-op and the
+     dirty-word filter let fullwidth "ｆｕｃｋ" through.
+   - Also found in the host run: `nearby-partition.test.ts` tampered a room id by setting its last
+     hex digit to `0`, a no-op 1 time in 16, so the test failed at random in Jest too (2 of 12
+     runs). Fixed.
+   - Single tests can be host-only (`HOST_ONLY_TESTS` in the builder; reported as skipped): the
+     `find-similar` 100k-population 1 s budget took 1,051 ms on the C10.
+   - Next, to grow it: give the runtime `jest.fn`/`jest.spyOn` (119 files are excluded only for
+     `jest.*`), and inject `Buffer` where the app ships one.
+2. **Two-phone journeys behind `TestActor`:** Talk delivery, answering, matching, the resulting
+   conversation, blocks, change of mind, and retraction (`staged/stage2`, `talks-matching`). One
+   spec runs with browser actors on the Mac and with phone actors in the sweep.
+3. **Three- and four-phone journeys:** Nearby splits, capacity, and cohorts, picked from
+   `staged/stage3`/`stage4`.
+4. **Stays on the Mac:** stage-1 UI and layout specs, the browser-engine matrix, desktop-native
+   specs, and scale tests.
+
+## Sweep speed (2026-10-17)
+
+The four-phone `test:android:full` took 68 minutes on 1.0.154. Where it went: 20 minutes installing
+the same APK one phone at a time, twice (after the mixed-release gate, and again as the final
+restore); 13 minutes of one-phone gates on one phone while three sat idle; the rest are the
+multi-phone gates and the mixed-release gate. Changes:
+
+- **One-ABI test APKs.** The debug APK carried `libnode.so` for three ABIs (150 of its 204 MB).
+  Sweeps set `IINPUBLIC_ANDROID_ABIS` from the phones' ABIs (`scripts/lib/android-test-abis.mjs`);
+  the APK is 70 MB. Gradle refuses the variable for any release task.
+- **Skip phones that already have the APK.** `install-android-matrix.mjs` compares the installed
+  `base.apk` MD5 with the local APK; the final restore and the install after the mixed-release gate
+  now cost seconds when nothing changed. The mixed-release runner restores with the current
+  `app-debug.apk` so the next install can skip those phones.
+- **Phones in parallel** (`scripts/lib/parallel-steps.mjs`, each lane on its own hub port, output
+  prefixed by lane): the one-phone gates split across two phones with X3 on a third; 28 + 33 on
+  the first pair while 09 runs on the second; spec 34 on all phones at once. Only one lane at a time
+  launches the macOS app.
+- **Rejected: parallel installs.** The phones' USB links differ (the C10 took 70 MB at 134 MB/s,
+  the P30 at 0.9 MB/s); four parallel installs of the 204 MB APK left three timed out at 5 min.
 
 ## Completion criteria
 

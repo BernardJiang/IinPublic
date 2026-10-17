@@ -1,6 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import { beginSweepReport, finishSweepReport, recordStep } from './lib/android-sweep-report.mjs';
+import { runParallel } from './lib/parallel-steps.mjs';
+import { useTestAbisFor } from './lib/android-test-abis.mjs';
 
 const args = process.argv.slice(2);
 const planOnly = args.includes('--plan');
@@ -58,11 +60,12 @@ function lanAddress() {
 
 const plan = [
   'Classify every Jest/E2E file and fail if the inventory has holes.',
-  'Build one deterministic contract bundle for Node 18 and Android WebView (Chrome 101+).',
+  'Build one deterministic contract bundle for Node 18 and Android WebView (Chrome 101+), and a bundle of the portable unit files (Chrome 61+).',
   'Run both bundles in host Node and headless Chromium, then smoke the mobile embedded-Node bundle.',
+  'Run the portable unit files in host Node and headless Chromium and record their test ids.',
   ...(hostOnly ? [] : [
     ...(install ? ['Build and install the current debug APK on each selected phone.'] : []),
-    'Run the same contracts in each selected phone app WebView and embedded Node; save one per-device report.',
+    'Run the same contracts and unit files in each selected phone app WebView and embedded Node, all phones at once; each must report the host ids.',
   ]),
 ];
 
@@ -77,6 +80,7 @@ run('node', ['scripts/android-test-coverage.mjs']);
 run('node', ['scripts/build-portable-core-test-bundle.mjs']);
 run('node', ['dist/device-tests/portable-core-node.cjs']);
 run('node', ['scripts/run-portable-core-browser.mjs']);
+run('node', ['scripts/run-portable-jest-host.mjs'], {}, { label: 'unit files run unchanged in host Node and headless Chromium (portable Jest)' });
 run('npm', ['run', 'build:embedded']);
 run('npm', ['run', 'build:embedded-mobile']);
 run('node', ['scripts/smoke-embedded-node.js'], {
@@ -96,23 +100,39 @@ if (serials.length === 0) {
 }
 
 if (install) {
+  useTestAbisFor(serials);
   run('npm', ['run', 'android:build']);
-  for (const serial of serials) {
-    run('adb', ['-s', serial, 'install', '-r', 'android/app/build/outputs/apk/debug/app-debug.apk']);
-  }
+  run('node', ['scripts/install-android-matrix.mjs'], { NATIVE_APP_ANDROID_SERIALS: serials.join(','), NATIVE_APP_ANDROID_NAMES: '' },
+    { label: 'install the current APK (phones that already have it are skipped)' });
 }
 
 const host = lanAddress();
-// Every phone runs even after one fails, so the report shows each phone's result.
-const failedSerials = serials.filter((serial) => !run('npx', [
-  'playwright', 'test',
-  '--config', 'tests/e2e/native-app/playwright.config.ts',
-  'tests/e2e/native-app/34-android-portable-core-contracts.spec.ts',
-], {
-  E2E_REAL_ANDROID_CORE: '1',
-  NATIVE_APP_ANDROID_SERIAL: serial,
-  NATIVE_APP_ANDROID_HOST: host,
-}, { label: `portable core contracts on ${serial}`, keepGoing: true }));
+// Every phone runs, at the same time on its own hub port, even after one fails, so the report
+// shows each phone's result.
+const coreStartedAt = Date.now();
+const coreResults = await runParallel(serials.map((serial, index) => ({
+  tag: serial,
+  command: 'npx',
+  args: [
+    'playwright', 'test',
+    '--config', 'tests/e2e/native-app/playwright.config.ts',
+    'tests/e2e/native-app/34-android-portable-core-contracts.spec.ts',
+  ],
+  env: {
+    ...process.env,
+    E2E_REAL_ANDROID_CORE: '1',
+    NATIVE_APP_ANDROID_SERIAL: serial,
+    NATIVE_APP_ANDROID_HOST: host,
+    NATIVE_APP_E2E_GUN_PORT: String(9078 + 100 * index),
+  },
+  timeoutMs: 15 * 60_000,
+})));
+const failedSerials = serials.filter((serial, index) => {
+  const result = coreResults[index];
+  recordStep('core', `portable core contracts on ${serial}`, result.ok, coreStartedAt,
+    result.ok ? '' : (result.error || `exit ${result.status ?? 'unknown'}`));
+  return !result.ok;
+});
 
 if (failedSerials.length) {
   process.stdout.write(`\n[android-core] FAIL on ${failedSerials.join(', ')} (${serials.length - failedSerials.length} of ${serials.length} phone(s) passed).\n`);
