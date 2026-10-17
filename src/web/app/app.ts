@@ -1710,7 +1710,12 @@ export class IinPublicApp {
       }
       this.applyEncounterLocationChange(detail);
     });
-    this.placeLocationlessDeviceOnMap();
+    if (this.forcedGpsFallbackPending) {
+      this.forcedGpsFallbackPending = false;
+      this.handleGpsFixUnavailable({ force: true });
+    } else {
+      this.placeLocationlessDeviceOnMap();
+    }
     markStartupPhase('initialSyncComplete');
   }
 
@@ -1819,12 +1824,18 @@ export class IinPublicApp {
   public handleGpsFixUnavailable(options: { askToPick?: boolean; force?: boolean } = {}): void {
     if (this.locationConfirmed && !isGpsFixUnavailable() && !options.force) return;
     setGpsFixUnavailable(true);
-    // Before initialize() finishes, its own placeLocationlessDeviceOnMap() call picks this up.
-    if (!this.initialized) return;
+    // Before initialize() finishes, its own placeLocationlessDeviceOnMap() call picks this up; a
+    // forced fallback (location denied while a saved fix is in use) is replayed there in full.
+    if (!this.initialized) {
+      if (options.force) this.forcedGpsFallbackPending = true;
+      return;
+    }
     const existing = getEncounterLocation();
     if (options.force && existing) this.applyEncounterLocationChange(existing);
     this.placeLocationlessDeviceOnMap(options);
   }
+
+  private forcedGpsFallbackPending = false;
 
   /** True when the current location is a real device fix, not an encounter point. */
   private hasRealGpsFix(): boolean {

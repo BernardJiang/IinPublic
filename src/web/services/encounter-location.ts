@@ -68,6 +68,11 @@ export function isGpsFixUnavailable(): boolean {
   return gpsFixUnavailable;
 }
 
+/** GeolocationPositionError.PERMISSION_DENIED, kept on the error by LocationPrivacy.getCurrentLocation. */
+export function isLocationPermissionDenied(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 1;
+}
+
 /**
  * True when this device appears at a chosen point (a Traveler ✈) rather than its blurred GPS
  * (a Resident): on a device that cannot read location, when its owner chose "A point I choose",

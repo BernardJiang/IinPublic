@@ -11,7 +11,7 @@ import { getCachedLocation } from './services/location-cache';
 
 /** How long a first-run phone waits for its GPS fix before appearing at a random Traveler point. */
 const GPS_FIX_FALLBACK_MS = 15_000;
-import { encounterLocationCoordinate, getEncounterLocation, keepEarlierBrowserEncounterChoice, usesSelfDefinedEncounterLocation } from './services/encounter-location';
+import { encounterLocationCoordinate, getEncounterLocation, isLocationPermissionDenied, keepEarlierBrowserEncounterChoice, usesSelfDefinedEncounterLocation } from './services/encounter-location';
 import { markStartupPhase } from './performance/startup-metrics';
 import { loadConnectivitySettings } from './ui/connectivity-settings';
 
@@ -177,7 +177,10 @@ class WebApp {
       .catch((error) => {
         clearTimeout(fallback);
         console.warn('📍 Could not resolve real location (keeping cached, else a random Traveler point):', error);
-        this.app.handleGpsFixUnavailable();
+        // Denied (location turned off for the app since the last session): the saved fix can't be
+        // refreshed, so the phone is a Traveler and Settings offers "Use my location" (OPEN-54),
+        // instead of sitting at its old position with no way back (2026-10-17, native-app/35).
+        this.app.handleGpsFixUnavailable(isLocationPermissionDenied(error) ? { force: true } : {});
       });
   }
 

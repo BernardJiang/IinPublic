@@ -312,6 +312,48 @@ describe('PeerMeshService', () => {
     bob.leaveRoom();
   });
 
+  it('a peer that forgot its ready neighbors (room restart after a manifest) is counted again', async () => {
+    const [alicePair, bobPair, k2, recovery] = await Promise.all([
+      SEA.pair(), SEA.pair(), SEA.pair(), SEA.pair(),
+    ]) as SeaSigningPair[];
+    const anchor = meshManifestAnchor(k2, recovery);
+    const [aliceController, bobController] = await Promise.all([
+      ProtocolManifestController.create({ anchor, runtimePolicy: meshManifestRuntimePolicy }),
+      ProtocolManifestController.create({ anchor, runtimePolicy: meshManifestRuntimePolicy }),
+    ]);
+    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+    const network = createFakeNetwork();
+    const alice = new PeerMeshService(mockGunService(alicePair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: network.createSession,
+      protocolManifestController: aliceController,
+    });
+    const bob = new PeerMeshService(mockGunService(bobPair, users), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'bob',
+      localStageName: 'Bob',
+      createSession: network.createSession,
+      protocolManifestController: bobController,
+    });
+    const members = [
+      { userId: 'alice', stageName: 'Alice' },
+      { userId: 'bob', stageName: 'Bob' },
+    ];
+    await alice.joinRoom('global', members);
+    await bob.joinRoom('global', members);
+    await waitUntil(() => alice.getDiagnostics().manifestReadyNeighborCount === 1
+      && bob.getDiagnostics().manifestReadyNeighborCount === 1);
+
+    // Alice clears her ready set and re-announces; Bob still counts her ready and must answer.
+    alice.setProtocolManifestController(aliceController);
+    await waitUntil(() => alice.getDiagnostics().manifestReadyNeighborCount === 1);
+    expect(bob.getDiagnostics().manifestReadyNeighborCount).toBe(1);
+    alice.leaveRoom();
+    bob.leaveRoom();
+  });
+
   it('rejects a same-sequence checkpoint fork and does not exchange room traffic', async () => {
     const [alicePair, bobPair, k2, recovery] = await Promise.all([
       SEA.pair(),

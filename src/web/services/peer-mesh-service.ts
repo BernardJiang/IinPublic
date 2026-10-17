@@ -1750,7 +1750,11 @@ export class PeerMeshService {
   private async sendProtocolManifestSummary(neighbor: Neighbor): Promise<void> {
     const controller = this.protocolManifestController;
     if (!controller || !isNeighborLive(neighbor)) return;
-    const frame = await this.buildFrame('protocol-manifest-summary', controller.summary(), {
+    const payload: P2PProtocolManifestSummaryPayload = {
+      ...controller.summary(),
+      peerReady: this.manifestReadyPeerIds.has(neighbor.userId),
+    };
+    const frame = await this.buildFrame('protocol-manifest-summary', payload, {
       recipientUserId: neighbor.userId,
       ttlHops: 1,
     });
@@ -1789,6 +1793,14 @@ export class PeerMeshService {
       if (remote.manifestHash === local.manifestHash) {
         this.manifestRejectedPeerIds.delete(fromUserId);
         this.markManifestReady(fromUserId);
+        // Readiness is one-way: this marks the sender ready here, but the sender counts us only once
+        // it hears our summary. It may never have (it announced before our link existed), or it may
+        // have forgotten us (it restarted its room after accepting a manifest and cleared its ready
+        // set while our link looked unchanged); either way it would hold all our room traffic (two
+        // phones, 2026-10-16). Answer unless it says it already counts us. Older releases never say
+        // so and never answer, so the exchange ends there too.
+        const neighbor = this.neighbors.get(fromUserId);
+        if (remote.peerReady !== true && neighbor) await this.sendProtocolManifestSummary(neighbor);
       } else {
         const firstRejection = !this.manifestRejectedPeerIds.has(fromUserId);
         this.manifestRejectedPeerIds.add(fromUserId);

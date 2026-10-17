@@ -5,6 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { listReporterArgs } from './lib/android-sweep-report.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-protocol-manifest-'));
@@ -51,7 +52,7 @@ try {
     '--config', 'tests/e2e/native-app/playwright.config.ts',
     spec,
     '--workers=1',
-    '--reporter=list',
+    ...listReporterArgs(),
   ], {
     cwd: root,
     env: {

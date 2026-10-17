@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
+import { beginSweepReport, finishSweepReport, recordStep } from './lib/android-sweep-report.mjs';
 
 const args = process.argv.slice(2);
 const planOnly = args.includes('--plan');
@@ -10,13 +11,21 @@ function valuesAfter(flag) {
   return args.flatMap((arg, index) => arg === flag && args[index + 1] ? [args[index + 1]] : []);
 }
 
-function run(command, commandArgs, environment = {}) {
+/** Run one step and record it; a failed step ends the sweep unless `keepGoing`. */
+function run(command, commandArgs, environment = {}, { label = '', keepGoing = false } = {}) {
   process.stdout.write(`\n[android-core] $ ${[command, ...commandArgs].join(' ')}\n`);
+  const startedAt = Date.now();
   const result = spawnSync(command, commandArgs, {
     stdio: 'inherit',
     env: { ...process.env, ...environment },
   });
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  const ok = result.status === 0;
+  recordStep('core', label || [command, ...commandArgs].join(' '), ok, startedAt, ok ? '' : `exit ${result.status ?? 'unknown'}`);
+  if (!ok && !keepGoing) {
+    finishSweepReport();
+    process.exit(result.status ?? 1);
+  }
+  return ok;
 }
 
 function connectedSerials() {
@@ -63,6 +72,7 @@ if (planOnly) {
   process.exit(0);
 }
 
+beginSweepReport('android-core');
 run('node', ['scripts/android-test-coverage.mjs']);
 run('node', ['scripts/build-portable-core-test-bundle.mjs']);
 run('node', ['dist/device-tests/portable-core-node.cjs']);
@@ -73,11 +83,15 @@ run('node', ['scripts/smoke-embedded-node.js'], {
   SMOKE_EMBEDDED_MOBILE: '1',
   SMOKE_PORTABLE_CORE: '1',
 });
-if (hostOnly) process.exit(0);
+if (hostOnly) {
+  finishSweepReport();
+  process.exit(0);
+}
 
 const serials = connectedSerials();
 if (serials.length === 0) {
   process.stderr.write('[android-core] No authorized Android device is connected. Use --host-only for device-free validation.\n');
+  finishSweepReport();
   process.exit(1);
 }
 
@@ -89,16 +103,21 @@ if (install) {
 }
 
 const host = lanAddress();
-for (const serial of serials) {
-  run('npx', [
-    'playwright', 'test',
-    '--config', 'tests/e2e/native-app/playwright.config.ts',
-    'tests/e2e/native-app/34-android-portable-core-contracts.spec.ts',
-  ], {
-    E2E_REAL_ANDROID_CORE: '1',
-    NATIVE_APP_ANDROID_SERIAL: serial,
-    NATIVE_APP_ANDROID_HOST: host,
-  });
-}
+// Every phone runs even after one fails, so the report shows each phone's result.
+const failedSerials = serials.filter((serial) => !run('npx', [
+  'playwright', 'test',
+  '--config', 'tests/e2e/native-app/playwright.config.ts',
+  'tests/e2e/native-app/34-android-portable-core-contracts.spec.ts',
+], {
+  E2E_REAL_ANDROID_CORE: '1',
+  NATIVE_APP_ANDROID_SERIAL: serial,
+  NATIVE_APP_ANDROID_HOST: host,
+}, { label: `portable core contracts on ${serial}`, keepGoing: true }));
 
-process.stdout.write(`\n[android-core] PASS: host parity plus ${serials.length} Android device(s).\n`);
+if (failedSerials.length) {
+  process.stdout.write(`\n[android-core] FAIL on ${failedSerials.join(', ')} (${serials.length - failedSerials.length} of ${serials.length} phone(s) passed).\n`);
+} else {
+  process.stdout.write(`\n[android-core] PASS: host parity plus ${serials.length} Android device(s).\n`);
+}
+finishSweepReport();
+process.exit(failedSerials.length ? 1 : 0);

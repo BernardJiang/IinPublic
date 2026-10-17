@@ -193,7 +193,9 @@ export class LocationPrivacy {
             });
           },
           (error: any) => {
-            reject(new Error(`Location error: ${error.message}`));
+            // Keep the GeolocationPositionError code: 1 (PERMISSION_DENIED) means a saved fix can
+            // no longer be refreshed, which callers treat differently from a slow or failed fix.
+            reject(Object.assign(new Error(`Location error: ${error.message}`), { code: error?.code }));
           },
           {
             enableHighAccuracy: true,

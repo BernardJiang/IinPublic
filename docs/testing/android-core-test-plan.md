@@ -103,6 +103,12 @@ journey reports a failure, so every completed command still records core parity 
 the phone matrix on—the latest APK rather than an old compatibility fixture. The command exits
 nonzero if either phase fails.
 
+Like `test:all`, it ends with one report for the whole run: a table of every step in both phases
+(pass or fail, time) and one HTML report merged from every Playwright step, at
+`playwright-report-android/` (`npx playwright show-report playwright-report-android`). Each step
+writes a blob under `blob-report/<run id>/`; `scripts/lib/android-sweep-report.mjs` does the rest.
+`test:android:core` and the phone sweep alone produce the same report when run by themselves.
+
 ## Remaining conversion work
 
 The debug/E2E-only embedded-Node bridge is implemented. The next work is to exercise it on the

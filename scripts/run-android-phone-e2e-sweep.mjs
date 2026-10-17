@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { beginSweepReport, finishSweepReport, listReporterArgs, recordStep } from './lib/android-sweep-report.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = path.join(root, 'tests', 'matrix', 'devices.json');
@@ -83,6 +84,7 @@ function runStep(label, command, args, env = process.env, timeoutMs = 2 * 60 * 6
   console.log(`\n[android-sweep] === ${label} ===`);
   console.log(`[android-sweep] ${commandLine(command, args)}`);
   if (planOnly) return true;
+  const stepStartedAt = Date.now();
   const result = spawnSync(command, args, {
     cwd: root,
     env,
@@ -92,13 +94,16 @@ function runStep(label, command, args, env = process.env, timeoutMs = 2 * 60 * 6
   if (result.error) {
     console.error(`[android-sweep] ${label} failed to start: ${result.error.message}`);
     failures.push(label);
+    recordStep('phones', label, false, stepStartedAt, 'did not start');
     return false;
   }
   if (result.status !== 0) {
     console.error(`[android-sweep] ${label} failed with exit code ${result.status ?? 'unknown'}`);
     failures.push(label);
+    recordStep('phones', label, false, stepStartedAt, `exit ${result.status ?? 'unknown'}`);
     return false;
   }
+  recordStep('phones', label, true, stepStartedAt);
   return true;
 }
 
@@ -120,7 +125,7 @@ function simPhone(devices) {
 
 function runNative(label, specs, env) {
   return runStep(label, playwright, [
-    'test', '--config', nativeConfig, ...specs, '--workers=1', '--reporter=list',
+    'test', '--config', nativeConfig, ...specs, '--workers=1', ...listReporterArgs(),
   ], env);
 }
 
@@ -151,6 +156,7 @@ function bestEffortLatestInstall(devices, label) {
 }
 
 const devices = selectedDevices();
+if (!planOnly) beginSweepReport('android-phones');
 const serials = devices.map((device) => device.serial);
 const first = serials[0];
 const firstTwo = serials.slice(0, 2);
@@ -221,7 +227,7 @@ try {
 
       runStep('website-to-phone identity-link gates (X3)', playwright, [
         'test', 'tests/e2e/cross-platform/x3-identity-linking.spec.ts',
-        '--project=chromium', '--workers=1', '--reporter=list',
+        '--project=chromium', '--workers=1', ...listReporterArgs(),
       ], {
         ...commonEnv,
         NATIVE_APP_ANDROID_SERIALS: first,
@@ -336,4 +342,5 @@ console.log('\n[android-sweep] === summary ===');
 console.log(`[android-sweep] failures: ${failures.length ? failures.join('; ') : 'none'}`);
 console.log(`[android-sweep] not scheduled: ${omissions.length ? omissions.join('; ') : 'none'}`);
 if (planOnly) console.log('[android-sweep] plan only; no builds, installs, app-data clears, or tests were performed.');
+else finishSweepReport();
 process.exit(failures.length ? 1 : 0);

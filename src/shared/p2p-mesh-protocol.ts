@@ -34,6 +34,8 @@ export type P2PProtocolManifestSummaryPayload = P2PProtocolManifestCheckpoint & 
   manifestEngineVersion: number;
   roomProtocolVersion: number;
   capabilities: string[];
+  /** The sender already counts the recipient manifest-ready, so the recipient need not answer. */
+  peerReady?: boolean;
 };
 
 export type P2PProtocolManifestRequestPayload = P2PProtocolManifestCheckpoint;
@@ -205,7 +207,8 @@ export function isP2PProtocolManifestSummaryPayload(value: unknown): value is P2
     && Number(summary.roomProtocolVersion) >= 1
     && Array.isArray(summary.capabilities)
     && summary.capabilities.length <= 64
-    && summary.capabilities.every((capability) => typeof capability === 'string' && capability.length > 0 && capability.length <= 128);
+    && summary.capabilities.every((capability) => typeof capability === 'string' && capability.length > 0 && capability.length <= 128)
+    && (summary.peerReady === undefined || typeof summary.peerReady === 'boolean');
 }
 
 export function isP2PProtocolManifestRequestPayload(value: unknown): value is P2PProtocolManifestRequestPayload {

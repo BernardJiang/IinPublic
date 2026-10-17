@@ -770,6 +770,30 @@ phrase complexity into normal use.
   `phone-path/06` (fails without the fix). On phones 09 then passed. 08 cannot run on a release
   bundle: its desktop operator signs in with the root key, refused in production since 2026-09-21
   (OPEN-27); the sweep now lists it as not scheduled, and 09 (delegate answers phone askers) covers it.
+- [x] **OPEN-63 — After accepting a manifest, the old phone counted no ready neighbors (found 2026-10-16
+  by the 1.0.152 phone sweep, fixed 2026-10-17, 1.0.153).** `native-app/32` timed out with ready
+  counts `[0, 1]`. A peer counts a neighbor manifest-ready only after hearing its summary, and
+  nobody answered a summary. Accepting M2 restarts the room (`syncActiveRoomProtocolCheckpoint`),
+  which clears the old phone's ready set; the new phone still counted it ready and its link looked
+  unchanged, so it never re-sent its summary and the old phone held all its room traffic. The
+  summary now carries `peerReady` (the sender already counts the receiver), and the receiver
+  answers any matching summary without it. Older releases never send the flag and never answer,
+  so the exchange always ends. Unit test in `peer-mesh-service.test.ts` (fails without the fix);
+  journey `native-app/32` passed alone and in the sweep.
+- [x] **OPEN-64 — `native-app/09`: the Mac app's Contacts click timed out (found 2026-10-16 by the
+  1.0.152 sweep).** The button was found but Playwright never saw it "stable": that check waits on
+  animation frames, which a desktop window behind other windows does not get. The asker steps now
+  click through the DOM after checking visibility, as the phone helpers already do. Passed alone
+  on 1.0.153.
+- [x] **OPEN-65 — Turning location off kept a phone at its old position with no "Use my location"
+  (found 2026-10-17 by the 1.0.153 sweep, fixed the same day, 1.0.154).** `native-app/35` test 2
+  failed on the P30: test 1 had just saved a real fix, and on the next boot the app reused it, so
+  when the GPS request was refused `handleGpsFixUnavailable` returned early ("a real fix is already
+  in hand"). OPEN-53 says a denied phone is a Traveler; a fix saved in an earlier session is not one
+  in hand. `LocationPrivacy.getCurrentLocation` now keeps the geolocation error code, and a denial
+  (code 1) forces the Traveler fallback, replayed after `initialize()` when it arrives first. A
+  timeout or an unavailable fix keeps the saved position as before. Unit tests in
+  `location-settings-use-my-location.test.ts` (fail without the fix); journey `native-app/35`.
 - [x] **OPEN-55 — Buyers matched buyers through re-broadcast copies (found 2026-10-13, fixed 2026-10-13).**
   `stage4/04-dealmaker-chatbot-match` "byte-identical criteria do NOT match" sometimes saw the two
   buyers match. The Pair-tag veto itself was fine. Cause: answering ANY talk auto-saved it as a
