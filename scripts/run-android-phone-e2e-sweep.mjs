@@ -244,7 +244,10 @@ try {
       }
 
       // The one-phone gates and X3 each need a single phone, so they run at once on different
-      // phones with their own hub ports (about 7 min instead of 13 in a row). Lane A keeps the
+      // phones with their own hub ports (about 7 min instead of 13 in a row). Lane ports count DOWN
+      // from 9078: a hub at H serves its page on H - 8080 + 3001, and the web app maps only pages on
+      // 3001-4000 to their hub — at 9178 (page 4099) browser peers looked for Gun on the static
+      // server and spec 12's match never formed (1.0.159 sweep). X3 uses offset 700 (8780/3701). Lane A keeps the
       // gates that also launch the macOS app or host browsers; only one lane may do that.
       // Lane B takes the third phone when there is one (the PH-1, Android 10 like the first): its
       // Wi-Fi toggling and camera gates have only been qualified on Android 10 phones, while X3
@@ -291,7 +294,7 @@ try {
           'tests/e2e/native-app/18-android-keystore-custody.spec.ts',
           'tests/e2e/native-app/26-android-camera-and-file-permissions.spec.ts',
           'tests/e2e/native-app/35-android-location-reask.spec.ts',
-        ], oneEnv(oneLaneB, 9178)),
+        ], oneEnv(oneLaneB, 8978)),
         ...(x3Serial ? [x3Step(x3Serial)] : []),
       ]);
       if (!x3Serial) await runSteps([x3Step(first)]);
@@ -303,7 +306,7 @@ try {
       }
 
       // 28 and 33 run on the first two phones (28's sleeper must be the Android 12+ second one);
-      // with four phones, 09 runs at the same time on the other two with its own hub port. 09 is
+      // with four phones, 09 runs at the same time on the other two with its own hub port (8878). 09 is
       // the only one of the three that launches the macOS app.
       const twoPhoneSteps = [nativeStep('sleeping receiver notification, then two-phone Place create, find, enter, leave, re-enter', [
         'tests/e2e/native-app/28-android-sleeping-receiver-notification.spec.ts',
@@ -330,7 +333,9 @@ try {
         ], {
           ...commonEnv,
           NATIVE_APP_ANDROID_SERIALS: pair.join(','),
-          NATIVE_APP_E2E_GUN_PORT: devices.length >= 4 ? '9178' : '9078',
+          // Not 9178: 33, running beside it, starts its own release-capacity hub there (1.0.159
+          // sweep: 33's hub could not bind, and it ran against 09's). Below 9078, see the lanes.
+          NATIVE_APP_E2E_GUN_PORT: devices.length >= 4 ? '8878' : '9078',
           E2E_REAL_ANDROID_TECHSUPPORT_DELEGATE: '1',
           NATIVE_APP_ANDROID_SERIAL_DELEGATE: pair[0],
           NATIVE_APP_ANDROID_SERIAL_ASKER: pair[1],

@@ -184,6 +184,12 @@ multi-phone gates and the mixed-release gate. Changes:
   launches the macOS app.
 - **Rejected: parallel installs.** The phones' USB links differ (the C10 took 70 MB at 134 MB/s,
   the P30 at 0.9 MB/s); four parallel installs of the 204 MB APK left three timed out at 5 min.
+- **Measured (1.0.159, 2026-10-17): 43 min 52 s** on the same four phones (was 68). Two lanes
+  failed on port choices, both fixed: lane B's hub at 9178 served its page on 4099, and the web
+  app maps only pages on 3001-4000 to their hub, so spec 12's browser peer never met the phone;
+  and 09's hub at 9178 collided with the release-capacity hub 33 starts there. Lane ports now count
+  down from 9078 (lane B 8978, 09 8878, spec 34 9078/8978/8878/8778), and the native config refuses
+  a hub port outside 8080-9079.
 
 ## Completion criteria
 

@@ -123,7 +123,7 @@ const coreResults = await runParallel(serials.map((serial, index) => ({
     E2E_REAL_ANDROID_CORE: '1',
     NATIVE_APP_ANDROID_SERIAL: serial,
     NATIVE_APP_ANDROID_HOST: host,
-    NATIVE_APP_E2E_GUN_PORT: String(9078 + 100 * index),
+    NATIVE_APP_E2E_GUN_PORT: String(9078 - 100 * index),
   },
   timeoutMs: 15 * 60_000,
 })));
