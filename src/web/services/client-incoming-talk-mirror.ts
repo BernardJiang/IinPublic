@@ -36,7 +36,9 @@ async function readOwnerEnvelopeClusters(
 ): Promise<IncomingTalkClusterWire[]> {
   let raw: OwnerIncomingTalkEnvelope | null;
   try {
-    raw = await gunService.getPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY) as OwnerIncomingTalkEnvelope | null;
+    // Local-only: this key was born in the local private store (0e74e33d), so getPrivate()'s 4 s
+    // peered-graph probe can never find it and cost every fresh install ~8 s on its first Talk.
+    raw = await gunService.getPrivateLocal(OWNER_INCOMING_TALK_PRIVATE_KEY) as OwnerIncomingTalkEnvelope | null;
   } catch {
     raw = null;
   }
@@ -152,7 +154,7 @@ function persistIncomingTalkClustersToLocalGun(
       // multi-second timeout and reject even though the write succeeded, which used to turn a
       // successful incoming-talk mirror into a reported delivery failure. Log and continue.
       try {
-        const verified = await gunService.getPrivate(
+        const verified = await gunService.getPrivateLocal(
           OWNER_INCOMING_TALK_PRIVATE_KEY,
         ) as OwnerIncomingTalkEnvelope | null;
         if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {

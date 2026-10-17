@@ -65,6 +65,32 @@ describe('WebGunService private/control Gun boundary', () => {
     });
   });
 
+  test('an identity created on this device never waits on the peered migration probe', async () => {
+    // The probe waits 4 s per missing key; a fresh install's first Talk read several missing keys
+    // and took ~14 s to show (spec 29, 2026-10-17). A new identity has nothing pre-split to import.
+    const store = new Map<string, string>();
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); } },
+    });
+    try {
+      const service = harness();
+      const fresh = await (service as unknown as { createFreshPair: () => Promise<{ pub: string }> }).createFreshPair();
+      service.seaPair = { pub: fresh.pub, priv: 'priv', epub: 'epub', epriv: 'epriv' };
+      await expect(service.getPrivate('incomingTalkClusters')).resolves.toBeNull();
+      expect(service.getLegacyReplicatedPrivate).not.toHaveBeenCalled();
+
+      // A restored or migrated identity (not created here) still imports its old peered copy.
+      service.seaPair = { pub: 'restored-pub', priv: 'priv', epub: 'epub', epriv: 'epriv' };
+      await service.getPrivate('incomingTalkClusters');
+      expect(service.getLegacyReplicatedPrivate).toHaveBeenCalledWith('incomingTalkClusters');
+    } finally {
+      if (previous) Object.defineProperty(globalThis, 'localStorage', previous);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
   test('fails closed instead of replicating when the local private store is unavailable', async () => {
     const service = harness();
     service.bridgeReady = false;

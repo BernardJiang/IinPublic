@@ -32,7 +32,7 @@ describe('client incoming talk mirror', () => {
     };
     const gunService = {
       getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
-      getPrivate: jest.fn().mockResolvedValue({
+      getPrivateLocal: jest.fn().mockResolvedValue({
         version: 1,
         clustersJson: JSON.stringify([stored]),
         updatedAt: '2026-08-13T22:00:01.000Z',
@@ -57,7 +57,7 @@ describe('client incoming talk mirror', () => {
     const gunService = {
       getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
       get: jest.fn().mockRejectedValue(new Error('missing legacy envelope')),
-      getPrivate: jest.fn(async () => envelope),
+      getPrivateLocal: jest.fn(async () => envelope),
       putPrivate: jest.fn(async (_key: string, value: unknown) => { envelope = value; }),
       getGun: jest.fn(() => ({ get: () => ({ get: () => emptyMap }) })),
     };
@@ -79,6 +79,40 @@ describe('client incoming talk mirror', () => {
     expect(JSON.parse(envelope.clustersJson)).toHaveLength(2);
   });
 
+  it('first incoming talk on a fresh device never waits on the peered private-graph probe', async () => {
+    // getPrivate() falls back to a 4 s peered-graph probe when a key is missing locally. This key
+    // was born local-only, so that probe can never find anything; it used to cost every fresh
+    // install ~8 s on its first incoming Talk (read before the write, then the read-back).
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      let envelope: any = null;
+      const emptyMap = { map: () => ({ once: () => undefined, off: () => undefined }) };
+      const gunService = {
+        getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
+        get: jest.fn().mockRejectedValue(new Error('missing legacy envelope')),
+        getPrivate: jest.fn(() => new Promise((resolve) => setTimeout(() => resolve(envelope), 4_000))),
+        getPrivateLocal: jest.fn(async () => envelope),
+        putPrivate: jest.fn(async (_key: string, value: unknown) => { envelope = value; }),
+        getGun: jest.fn(() => ({ get: () => ({ get: () => emptyMap }) })),
+      };
+      let settled = false;
+      const delivery = upsertLocalIncomingTalkClusters(
+        gunService as any,
+        'receiver-id',
+        [{ talkId: 'talk-coffee', talkData: { id: 'talk-coffee', title: 'Coffee', type: 'tag', questions: [] }, senderId: 'sender', senderName: 'Sender' }],
+        { p2pClientTalkMirror: true } as any,
+      ).then((clusters) => { settled = true; return clusters; });
+      for (let i = 0; i < 20 && !settled; i += 1) await jest.advanceTimersByTimeAsync(50);
+
+      expect(settled).toBe(true);
+      expect(gunService.getPrivate).not.toHaveBeenCalled();
+      expect(JSON.parse(envelope.clustersJson)).toHaveLength(1);
+      await delivery;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('imports the old plaintext owner envelope into private local Gun without rewriting it publicly', async () => {
     const legacyEnvelope = {
       version: 1,
@@ -87,7 +121,7 @@ describe('client incoming talk mirror', () => {
     };
     const gunService = {
       getStoredPair: jest.fn(() => ({ pub: 'receiver-sea-pub' })),
-      getPrivate: jest.fn().mockResolvedValue(null),
+      getPrivateLocal: jest.fn().mockResolvedValue(null),
       get: jest.fn().mockResolvedValue(legacyEnvelope),
       putPrivate: jest.fn().mockResolvedValue(undefined),
       put: jest.fn().mockResolvedValue(undefined),

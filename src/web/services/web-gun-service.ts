@@ -36,6 +36,8 @@ import { detectNativeCustodyBridge } from '../../shared/native-custody-bridge';
 type PasswordFreeCustodyManager = BrowserPasswordFreeCustodyManager | NativePasswordFreeCustodyManager;
 
 const KEYPAIR_STORAGE = 'iinpublic_keypair';
+/** Set per SEA pub when this device generated the identity: it has no pre-split peered private data. */
+const PRIVATE_STORE_BORN_LOCAL_PREFIX = 'iinpublic_private_born_local_v1:';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
 /**
  * K3 (docs/TODO.md): distinct from KEYPAIR_STORAGE/KEY_CUSTODY_STORAGE so the TechSupport
@@ -975,6 +977,27 @@ export class WebGunService extends EventEmitter {
     return this.deserializeDates(parsed);
   }
 
+  /** A brand-new identity: everything it will ever own lives in the local private store. */
+  private async createFreshPair(): Promise<GunPair> {
+    const pair = await getSEA().pair() as GunPair;
+    try {
+      localStorage.setItem(`${PRIVATE_STORE_BORN_LOCAL_PREFIX}${pair.pub}`, '1');
+    } catch {
+      /* storage unavailable: getPrivate keeps probing, which is only slower */
+    }
+    return pair;
+  }
+
+  private privateStoreBornLocal(): boolean {
+    const pub = this.seaPair?.pub;
+    if (!pub) return false;
+    try {
+      return localStorage.getItem(`${PRIVATE_STORE_BORN_LOCAL_PREFIX}${pub}`) === '1';
+    } catch {
+      return false;
+    }
+  }
+
   /** Read and decrypt from the current user's private namespace. */
   async getPrivate(key: string): Promise<any> {
     if (!this.seaPair) {
@@ -990,6 +1013,9 @@ export class WebGunService extends EventEmitter {
     // Upgrade compatibility: import the former peered ciphertext once. Historical remote
     // replicas cannot be recalled, but this device stops reading the peer after the local copy
     // exists and never publishes subsequent updates there.
+    // An identity created on this device after the split has no pre-split peered data to import,
+    // and the probe below waits 4 s per missing key (a fresh install's first Talk took ~14 s).
+    if (this.privateStoreBornLocal()) return null;
     const legacy = await this.getLegacyReplicatedPrivate(key);
     if (legacy === null || legacy === undefined) return null;
     await this.bridge.putPrivate(key, this.serializeDates(legacy));
@@ -1234,7 +1260,7 @@ export class WebGunService extends EventEmitter {
               }
             }
             if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) {
-              pair = await SEA.pair();
+              pair = await this.createFreshPair();
               console.log('🔐 Created new local SEA identity');
             } else {
               console.log('🔐 Migrating legacy plaintext SEA identity');
@@ -1284,13 +1310,13 @@ export class WebGunService extends EventEmitter {
         } else if (legacyRaw) {
           try {
             pair = JSON.parse(legacyRaw) as GunPair;
-            if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) pair = await SEA.pair();
+            if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) pair = await this.createFreshPair();
           } catch {
-            pair = await SEA.pair();
+            pair = await this.createFreshPair();
           }
           console.log('🔐 Migrated legacy SEA identity');
         } else {
-          pair = await SEA.pair();
+          pair = await this.createFreshPair();
           console.log('🔐 Created new local SEA identity');
         }
       }

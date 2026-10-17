@@ -85,7 +85,7 @@ async function waitForIncoming(peer: Peer, title: string): Promise<string> {
     } catch {
       return false;
     }
-  }, { timeout: 120_000, intervals: [2_000, 3_000, 5_000], message: `${peer.name} should receive "${title}"` }).toBe(true);
+  }, { timeout: 120_000, intervals: [250], message: `${peer.name} should receive "${title}"` }).toBe(true);
   return talkId;
 }
 

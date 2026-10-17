@@ -1,4 +1,5 @@
 import { clearEncounterLocation, getEncounterLocation, setEncounterLocation } from '../services/encounter-location';
+import { bindAppPermissionsSettings } from './app-permissions-settings';
 import { bindQuietPlaces } from './location-settings';
 import { setDistanceUnit } from './distance-units';
 import { showEncounterLocationPicker } from './encounter-location-picker';
@@ -164,6 +165,7 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
       if (deps.currentUser) deps.renderSettingsView(deps.currentUser);
     }
   };
+  bindAppPermissionsSettings(deps.t);
   document.getElementById('settings-use-my-location')?.addEventListener('click', () => {
     deps.emit('requestLocationPermission', undefined);
   });

@@ -210,7 +210,10 @@ export async function clickBroadcastUntilBulkAck(
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
   const start = Number.isFinite(genBefore) ? genBefore : 0;
-  await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
+  // Direct delivery goes over the mesh and the next step checks the room through the page. The
+  // probe targets 127.0.0.1:8080+slot, which phone-path, native and public-hub runs never serve,
+  // so it waited out its full 10 s on every broadcast there (spec 29: Talks took ~14 s, 2026-10-17).
+  if (!isDirectTalkDeliveryE2e()) await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
   perfMark('gun-api-ready');
   const requestedMinSent = opts?.minSent;
   const minPeers = opts?.minGunPeers ?? (requestedMinSent === 0 ? 0 : 1);

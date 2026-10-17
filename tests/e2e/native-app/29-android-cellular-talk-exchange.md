@@ -33,4 +33,28 @@ DMs ~5 s each way. 1 passed (1.5 m).
 
 The first P30/PH-1 runs failed in the test, not the app: Android 10 prints
 `NetworkAgentInfo{ ni{…}  network{N}`, which the "on mobile data only" check did not match.
-Talk delivery is now ~11–14.5 s each way versus ~450 ms on 1.0.120.
+Talk delivery was ~11–14.5 s each way versus ~450 ms on 1.0.120 — fixed in 1.0.158, below.
+
+## Slow Talks fixed (2026-10-17, 1.0.158)
+
+Two fixed waits, both found on the host phone-path journey 02 (same ~10 s as the phones):
+
+- **The receiver (app bug):** on a phone's first incoming Talk, the encrypted incoming-Talk store
+  did not exist yet, and every `getPrivate()` of a missing key waited 4 s for a pre-1.0.124 copy
+  on the peered graph that cannot exist (that key was born local-only). Twice per first Talk:
+  ~8.7 s. The store now reads local-only, and `getPrivate()` skips that probe entirely for an
+  identity created on this device. Unit tests in client-incoming-talk-mirror and
+  web-gun-service-private-boundary.
+- **The sender (test bug):** `clickBroadcastUntilBulkAck` probed `127.0.0.1:8080+slot/health`,
+  which phone-path, native and public-hub runs never serve, and waited out 10 s each broadcast.
+
+| Cellular phone | Peer | Talk → cell | Talk → peer | Match |
+|---|---|---|---|---|
+| HONOR FCP (Mint) | C10 on Wi-Fi | 0.35 s | 0.35 s | 0.6 s |
+| P30 (AT&T) | C10 on Wi-Fi | 0.34 s | 0.63 s | 0.6 s |
+| P30 (AT&T) | PH-1, also on AT&T data | 1.26 s | 1.15 s | 0.6 s |
+| HONOR FCP (Mint) | PH-1, also on AT&T data | 0.53 s | 0.40 s | 0.6 s |
+
+PH-1 → Honor FRD (Android 7, Wi-Fi) stopped at the pre-check: the PH-1's shell ping to the hub
+over AT&T got no reply (network, before the app was involved); it passed on 1.0.157.
+DMs still take ~4–8 s from the cellular side (direct WebRTC across carrier NAT) — not looked at yet.

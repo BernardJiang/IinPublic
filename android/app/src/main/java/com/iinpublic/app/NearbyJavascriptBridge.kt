@@ -58,6 +58,7 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun requestOfflineNearbyPermission() = activity.requestOfflineNearbyPermission()
     /** Opens the system screen that fixes a readiness gap: "wifi" or "location". */
     @JavascriptInterface fun openNearbySettings(kind: String) = activity.openNearbySettings(kind)
+    @JavascriptInterface fun permissionStatus(): String = activity.permissionStatus()
     @JavascriptInterface fun startWifiDirect() = withManager { it.startWifiDirect() }
     @JavascriptInterface fun connectWifiDirect(deviceAddress: String) = withManager { it.connectWifiDirect(deviceAddress) }
     @JavascriptInterface fun requestWifiDirectPermission() = activity.requestWifiDirectPermission()

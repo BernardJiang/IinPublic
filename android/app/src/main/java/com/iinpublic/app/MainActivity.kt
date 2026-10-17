@@ -81,11 +81,6 @@ class MainActivity : AppCompatActivity() {
         }
     private var awaitingLocationFromSettings = false
 
-    private val nearbyPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-            nearbyBridge.permissionResult(grants)
-        }
-
     // ── WebView → Android permission / picker bridge ────────────────────────────────────────────
     // A bare WebViewClient handles none of these: getUserMedia is silently denied ("Camera access
     // was denied" in the web UI), <input type=file> never opens a picker, and navigator.geolocation
@@ -255,13 +250,27 @@ class MainActivity : AppCompatActivity() {
         else locationPermissionLauncher.launch(LOCATION_PERMISSIONS.toTypedArray())
     }
 
-    fun requestNearbyPermissions() {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions += Manifest.permission.NEARBY_WIFI_DEVICES
-        else permissions += Manifest.permission.ACCESS_FINE_LOCATION
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
-        val missing = permissions.distinct().filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
+    // Nearby features never open a permission dialog by themselves: the first-launch batch asked
+    // once, and Settings → App permissions leads to the system page after that. These report the
+    // current grants so the feature turns itself on or stays off.
+    fun requestNearbyPermissions() = runOnUiThread { reportNearbyGrants(NEARBY_PERMISSIONS) }
+
+    private fun reportNearbyGrants(permissions: List<String>) {
+        nearbyBridge.permissionResult(permissions.associateWith { isGranted(it) })
+    }
+
+    private fun isGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    /** Settings → App permissions: what Android currently allows, per group. */
+    fun permissionStatus(): String {
+        val notifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || isGranted(Manifest.permission.POST_NOTIFICATIONS)
+        return org.json.JSONObject()
+            .put("notifications", notifications)
+            .put("location", hasLocationPermission())
+            .put("nearby", NEARBY_PERMISSIONS.all { isGranted(it) })
+            .put("camera", isGranted(Manifest.permission.CAMERA))
+            .toString()
     }
 
     fun updateNearbyForegroundMode(mode: String, roomId: String) {
@@ -275,11 +284,9 @@ class MainActivity : AppCompatActivity() {
         else startService(serviceIntent)
     }
 
-    /** Only what Wi-Fi Direct needs (no Bluetooth prompts): asked in context, on the first upgrade. */
+    /** Only what Wi-Fi Direct needs. Reports the grant; never prompts (see requestNearbyPermissions). */
     fun requestWifiDirectPermission() = runOnUiThread {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
-        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) nearbyBridge.permissionResult(mapOf(permission to true))
-        else nearbyPermissionLauncher.launch(arrayOf(permission))
+        reportNearbyGrants(listOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION))
     }
 
     fun openNearbySettings(kind: String) = runOnUiThread {
@@ -297,12 +304,7 @@ class MainActivity : AppCompatActivity() {
     /** OPEN-36 offline nearby: Wi-Fi Direct + BLE presence. Android 12+ shows these as one
      *  "Nearby devices" prompt; Android 10–11 need only Location (BLE there is install-time). */
     fun requestOfflineNearbyPermission() = runOnUiThread {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions += Manifest.permission.NEARBY_WIFI_DEVICES
-        else permissions += Manifest.permission.ACCESS_FINE_LOCATION
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE)
-        val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
+        reportNearbyGrants(NEARBY_PERMISSIONS.filter { it != Manifest.permission.BLUETOOTH_CONNECT })
     }
 
     private fun ensureNotificationPermissionThenStart() {
@@ -313,14 +315,20 @@ class MainActivity : AppCompatActivity() {
             missing += Manifest.permission.POST_NOTIFICATIONS
         }
         val prefs = getSharedPreferences(FIRST_LAUNCH_PREFS, MODE_PRIVATE)
-        if (!prefs.getBoolean(LOCATION_ASKED_PREF, false)) {
-            // Recorded up front: asked once, whatever the answer. Automation (no human to answer
-            // the sheet) passes skip_first_launch_location and is treated as already asked.
-            prefs.edit().putBoolean(LOCATION_ASKED_PREF, true).apply()
+        if (!prefs.getBoolean(PERMISSION_BATCH_ASKED_PREF, false)) {
+            // Every runtime permission the app needs, asked together ONCE per install, whatever the
+            // answers (camera excepted: asked on the first QR scan). Android shows one dialog per
+            // group, back to back; nothing prompts by itself after this — Settings → App
+            // permissions opens the system page. Installs that already answered the older
+            // location-only sheet are not asked for location again. Automation (no human to answer)
+            // passes skip_first_launch_location and is treated as already asked.
+            val locationAsked = prefs.getBoolean(LOCATION_ASKED_PREF, false)
+            prefs.edit().putBoolean(PERMISSION_BATCH_ASKED_PREF, true).putBoolean(LOCATION_ASKED_PREF, true).apply()
             val skip = intent?.getBooleanExtra(SKIP_FIRST_LAUNCH_LOCATION_EXTRA, false) == true
             if (!skip) {
-                missing += LOCATION_PERMISSIONS.filter {
-                    ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                if (!locationAsked) missing += LOCATION_PERMISSIONS.filter { !isGranted(it) }
+                missing += NEARBY_PERMISSIONS.filter {
+                    !isGranted(it) && it !in missing && !(locationAsked && it in LOCATION_PERMISSIONS)
                 }
             }
         }
@@ -431,6 +439,18 @@ class MainActivity : AppCompatActivity() {
     internal companion object {
         private const val FIRST_LAUNCH_PREFS = "iinpublic_first_launch_v1"
         private const val LOCATION_ASKED_PREF = "location_asked"
+        private const val PERMISSION_BATCH_ASKED_PREF = "permission_batch_asked"
+        /** Wi-Fi Direct + Bluetooth: one "Nearby devices" group on Android 12+; Location before that
+         *  (Bluetooth is install-time there). */
+        private val NEARBY_PERMISSIONS: List<String> = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            else add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(Manifest.permission.BLUETOOTH_SCAN)
+                add(Manifest.permission.BLUETOOTH_ADVERTISE)
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        }
         /** Test harness: no human can answer the first-launch location sheet. */
         const val SKIP_FIRST_LAUNCH_LOCATION_EXTRA = "skip_first_launch_location"
         // FINE is declared with maxSdkVersion 32 — on 33+ asking for it would be auto-denied.

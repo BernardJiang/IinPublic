@@ -17,6 +17,7 @@ import {
   type DiscoveryReadiness,
 } from '../../shared/nearby-discovery-policy';
 import { renderSettingsSection } from './settings-section-template';
+import { hasAppPermissionsBridge, renderAppPermissionsBody } from './app-permissions-settings';
 import { loadConnectivitySettings, type ConnectivityPreset } from './connectivity-settings';
 import {
   COLOR_SCHEMES,
@@ -269,6 +270,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       target: 'settings-section-content-filters',
     },
     ...(hasNearbyBridge() ? [{ icon: '📶', label: deps.t('settingsNearby'), target: 'settings-section-nearby' }] : []),
+    ...(hasAppPermissionsBridge() ? [{ icon: '🔐', label: deps.t('appPermissionsTitle'), target: 'settings-section-app-permissions' }] : []),
     { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
     { icon: '📱', label: deps.t('settingsDownloadApp'), target: 'settings-section-download-app' },
     {
@@ -622,6 +624,14 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             </details>
             <small style="color:var(--text-tertiary);">${deps.t('settingsNearbyScreenOff')}</small>
           </div>`,
+        ) : ''}
+        ${hasAppPermissionsBridge() ? renderSettingsSection(
+          {
+            id: 'settings-section-app-permissions',
+            title: deps.t('appPermissionsTitle'),
+            subtitle: deps.t('appPermissionsSubtitle'),
+          },
+          renderAppPermissionsBody(deps.t),
         ) : ''}
         ${renderSettingsSection(
           {

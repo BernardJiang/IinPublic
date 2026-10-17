@@ -3451,8 +3451,10 @@ export class IinPublicApp {
         return roster && roster.roomId === roomId ? { count: roster.count, pubs: roster.pubs } : null;
       },
       blePresence: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
-      onReadinessGap: (gap) => this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
-        retry: () => bridge.openNearbySettings(gap === 'permission' ? 'app' : gap),
+      // A missing permission was the user's answer to the one first-launch batch; Settings → App
+      // permissions shows it. Only radio/service switches that are off get a hint.
+      onReadinessGap: (gap) => gap === 'permission' ? undefined : this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
+        retry: () => bridge.openNearbySettings(gap),
       }),
       onEvent: (event) => console.info('[nearby-offline]', JSON.stringify(event)),
     });
