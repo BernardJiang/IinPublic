@@ -190,6 +190,13 @@ multi-phone gates and the mixed-release gate. Changes:
   and 09's hub at 9178 collided with the release-capacity hub 33 starts there. Lane ports now count
   down from 9078 (lane B 8978, 09 8878, spec 34 9078/8978/8878/8778), and the native config refuses
   a hub port outside 8080-9079.
+- **Added 2026-10-17 (OPEN-67):** the Honor FCP (Android 16, SIM) is the fifth phone in
+  `tests/matrix/devices.json`, which now lists phones in the sweep's qualified order (P30, C10,
+  PH-1, FRD, FCP; 28 needs an Android 12+ second phone) and marks SIM phones for `--plan`. New
+  steps: spec 29 again with both SIM phones on mobile data (~2 min), and spec 36 on all phones at
+  once (71 s for five). Each parallel step writes to its own `test-results/android-sweep/<step>`
+  folder; Playwright empties its output folder at start, which could delete a neighbor lane's
+  failure screenshots and traces.
 
 ## Completion criteria
 

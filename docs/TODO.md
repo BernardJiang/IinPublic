@@ -739,11 +739,13 @@ phrase complexity into normal use.
   now caches them (filled when the conversation opens) and decrypts alongside the local Gun write.
   P30 on AT&T: 0.20 s / 0.14 s with C10 on Wi-Fi, 0.16 s / 0.16 s with PH-1 also on AT&T data. Unit
   tests in `direct-p2p-conversation-transport.test.ts` (the first fails without the cache).
-- [ ] **OPEN-67 — Specs 29 and 36 are not part of `test:android:full` (found 2026-10-17).** Both pass
-  on their own: `native-app/29` (Talk, match and DM with one phone on mobile data; needs a phone with
-  a SIM) and `native-app/36` (runtime permissions asked once at first launch; clears app data). Add
-  them as opt-in sweep steps that pick SIM phones automatically. (29's old `no-empty-pattern` lint
-  error is cleared, 2026-10-17.)
+- [x] **OPEN-67 — Spec 36 and the two-SIM variant of 29 were not part of `test:android:full` (found
+  and fixed 2026-10-17).** Spec 29 already ran with one SIM phone; the sweep now also runs it with
+  two SIM phones both on mobile data, and runs spec 36 (permissions asked once at first launch) on
+  every phone at once, last (71 s for five phones on 1.0.160). The Honor FCP (Android 16, SIM) joins
+  `tests/matrix/devices.json` as the fifth phone; the file now lists the qualified sweep order and
+  marks SIM phones, and the core phase passes on the FCP. Parallel steps get their own Playwright
+  output folders. 29's old `no-empty-pattern` lint error is cleared.
 - [x] **OPEN-60 — Three-phone offline BLE/Wi-Fi Direct election now converges (fixed and verified
   on real phones 2026-10-15).** The failure was asymmetric
   radio discovery, not a room-policy disagreement: C10 could see PH-1 while PH-1 saw no BLE, DNS-SD,

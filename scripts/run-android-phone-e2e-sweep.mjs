@@ -109,24 +109,30 @@ function runStep(label, command, args, env = process.env, timeoutMs = 2 * 60 * 6
   return true;
 }
 
-/** The first selected phone with a ready SIM (NATIVE_APP_ANDROID_CELLULAR overrides). */
-function simPhone(devices) {
+/** Selected phones with a ready SIM, in sweep order (NATIVE_APP_ANDROID_CELLULAR goes first). */
+function simPhones(devices) {
   const explicit = process.env.NATIVE_APP_ANDROID_CELLULAR?.trim();
-  if (explicit) return explicit;
-  if (planOnly) return devices.find((device) => device.sim)?.serial || '';
+  const found = [];
   for (const device of devices) {
+    if (planOnly) {
+      if (device.sim) found.push(device.serial);
+      continue;
+    }
     try {
       const state = execFileSync('adb', ['-s', device.serial, 'shell', 'getprop', 'gsm.sim.state'], { encoding: 'utf8', timeout: 10_000 });
-      if (/READY|LOADED/.test(state)) return device.serial;
+      if (/READY|LOADED/.test(state)) found.push(device.serial);
     } catch {
       // not reachable: not a candidate
     }
   }
-  return '';
+  return explicit ? [explicit, ...found.filter((serial) => serial !== explicit)] : found;
 }
 
 function nativeStep(label, specs, env) {
-  return { label, command: playwright, args: ['test', '--config', nativeConfig, ...specs, '--workers=1', ...listReporterArgs()], env };
+  // Own output folder: Playwright empties its output folder when it starts, which would delete a
+  // lane running beside it's screenshots and traces.
+  const output = path.join('test-results', 'android-sweep', label.replace(/[^A-Za-z0-9]+/g, '-').slice(0, 80));
+  return { label, command: playwright, args: ['test', '--config', nativeConfig, ...specs, '--workers=1', '--output', output, ...listReporterArgs()], env };
 }
 
 /** Run steps at once (one step runs as before, unprefixed). Each is recorded like runStep. */
@@ -358,19 +364,31 @@ try {
       }
 
       // Real cellular: needs a phone with a SIM; it runs against the public hub in a private room.
-      const cellular = simPhone(devices);
-      const wifiPeer = serials.find((serial) => serial !== cellular);
+      // With two SIM phones it runs again with both on mobile data (both behind carrier NAT).
+      const sims = simPhones(devices);
+      const cellular = sims[0];
+      const wifiPeer = serials.find((serial) => serial !== cellular && !sims.includes(serial))
+        || serials.find((serial) => serial !== cellular);
+      const cellularEnv = (peer, extra = {}) => ({
+        ...commonEnv,
+        E2E_REAL_ANDROID_CELLULAR: '1',
+        NATIVE_APP_ANDROID_CELLULAR: cellular,
+        NATIVE_APP_ANDROID_WIFI_PEER: peer,
+        ...extra,
+      });
       if (cellular && wifiPeer) {
         runNative('cellular phone and Wi-Fi phone exchange Talks and a DM', [
           'tests/e2e/native-app/29-android-cellular-talk-exchange.spec.ts',
-        ], {
-          ...commonEnv,
-          E2E_REAL_ANDROID_CELLULAR: '1',
-          NATIVE_APP_ANDROID_CELLULAR: cellular,
-          NATIVE_APP_ANDROID_WIFI_PEER: wifiPeer,
-        });
+        ], cellularEnv(wifiPeer));
       } else {
         omissions.push('cellular gate 29 (no selected phone has a ready SIM)');
+      }
+      if (sims.length >= 2) {
+        runNative(`two phones on mobile data (${sims[0]}, ${sims[1]}) exchange Talks and a DM`, [
+          'tests/e2e/native-app/29-android-cellular-talk-exchange.spec.ts',
+        ], cellularEnv(sims[1], { E2E_CELLULAR_PEER_TOO: '1' }));
+      } else if (cellular) {
+        omissions.push('cellular gate 29 with both phones on mobile data (needs two phones with a ready SIM)');
       }
 
       if (devices.length >= 3) {
@@ -404,6 +422,19 @@ try {
       } else {
         omissions.push('four-phone online nearby gate (need 4 phones)');
       }
+
+      // Last, because it leaves each phone's permissions as a person would after first launch
+      // (everything but the camera allowed): every phone at once, each with its own hub port
+      // (9078 down, as in the one-phone lanes).
+      await runSteps(serials.map((serial, index) => nativeStep(`runtime permissions asked once at first launch on ${serial}`, [
+        'tests/e2e/native-app/36-android-permission-batch.spec.ts',
+      ], {
+        ...commonEnv,
+        NATIVE_APP_ANDROID_SERIAL: serial,
+        NATIVE_APP_ANDROID_SERIALS: serial,
+        NATIVE_APP_E2E_GUN_PORT: String(9078 - 100 * index),
+        E2E_REAL_ANDROID_PERMISSIONS: '1',
+      })));
     }
   }
 } finally {

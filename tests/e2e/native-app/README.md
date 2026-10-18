@@ -48,12 +48,14 @@ NATIVE_APP_ANDROID_SERIALS=serial1,serial2,serial3 npm run test:e2e:android-swee
 
 Two phones run the mixed-release, one-phone, cross-runtime, matrix, and sleep/wake gates. A third
 adds offline/resync, offline Wi-Fi Direct, and cohort traversal. A fourth adds online four-phone
-nearby convergence. Missing three/four-phone tiers are reported as "not scheduled," not silently
-shown as passing. The sweep continues after an individual gate fails, prints one failure summary,
+nearby convergence. A phone with a ready SIM adds the cellular gate 29 (that phone on mobile data,
+against the public hub); a second SIM phone adds 29 again with both phones on mobile data. Spec 36
+(runtime permissions asked once at first launch) runs last, on every phone at once. Missing tiers
+are reported as "not scheduled," not silently shown as passing. The sweep continues after an individual gate fails, prints one failure summary,
 and exits nonzero after restoring the latest APK.
 
-Tests that require a human-created topology or credentials remain separate: cellular-vs-Wi-Fi
-(`test:e2e:android-cellular`), TechSupport key fixtures (08/09/27), and Android plus remote
+Tests that require a human-created topology or credentials remain separate: TechSupport key
+fixtures (08/09/27, run only when `.env.local` holds the keys), and Android plus remote
 Windows/Ubuntu live-peer scenarios. They are not safe to infer from attached phones and therefore
 are not part of the automatic sweep.
 
