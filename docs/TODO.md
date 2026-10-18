@@ -730,6 +730,20 @@ phrase complexity into normal use.
     keep mass, server-only, browser-engine, and desktop-native coverage on the host.
   - [ ] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
     per-device coverage report; make unexpected coverage loss fail CI/release qualification.
+- [x] **OPEN-66 — A DM sent from a phone on mobile data took 4–5 s to show up (found 2026-10-17 by
+  `native-app/29`, fixed 2026-10-17, 1.0.160).** Talks over mobile data already arrived in 0.3–1.3 s
+  (fixed in `4b9ebbde`), but a DM from the mobile-data phone took 4.0–5.1 s and the reverse 1.9–3.0 s.
+  A trace (`E2E_CELLULAR_DM_TRACE=1`) showed the WebRTC hop took 0.1–0.5 s; the rest was two
+  public-record lookups of ~1.7 s each over mobile data: the sender's `getUserPub` before every send
+  and the receiver's `getUserEpub` before every decrypt. Both keys are immutable, so the DM transport
+  now caches them (filled when the conversation opens) and decrypts alongside the local Gun write.
+  P30 on AT&T: 0.20 s / 0.14 s with C10 on Wi-Fi, 0.16 s / 0.16 s with PH-1 also on AT&T data. Unit
+  tests in `direct-p2p-conversation-transport.test.ts` (the first fails without the cache).
+- [ ] **OPEN-67 — Specs 29 and 36 are not part of `test:android:full` (found 2026-10-17).** Both pass
+  on their own: `native-app/29` (Talk, match and DM with one phone on mobile data; needs a phone with
+  a SIM) and `native-app/36` (runtime permissions asked once at first launch; clears app data). Add
+  them as opt-in sweep steps that pick SIM phones automatically. (29's old `no-empty-pattern` lint
+  error is cleared, 2026-10-17.)
 - [x] **OPEN-60 — Three-phone offline BLE/Wi-Fi Direct election now converges (fixed and verified
   on real phones 2026-10-15).** The failure was asymmetric
   radio discovery, not a room-policy disagreement: C10 could see PH-1 while PH-1 saw no BLE, DNS-SD,

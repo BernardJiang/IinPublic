@@ -37,6 +37,45 @@ const BOTH_WIFI = process.env.E2E_CELLULAR_BOTH_WIFI === '1';
 /** Put the peer on mobile data too (it needs a SIM): both phones behind carrier NAT. */
 const PEER_CELLULAR = process.env.E2E_CELLULAR_PEER_TOO === '1';
 
+/** Diagnostic: log where a DM spends its time on both phones (E2E_CELLULAR_DM_TRACE=1). */
+const DM_TRACE = process.env.E2E_CELLULAR_DM_TRACE === '1';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function installDmTrace({ cid, me, other }: { cid: string; me: string; other: string }): Promise<string> {
+  const app = (window as any).__iinpublic_app.getApp();
+  const transport = app.conversationService.transport;
+  const session = await transport.sessionFor(cid, me, other);
+  const t0 = performance.now();
+  const log = (what: string): void => console.log(`[dmtrace] +${Math.round(performance.now() - t0)}ms ${what}`);
+  const wrap = (obj: any, name: string, label = name): void => {
+    const original = obj[name];
+    if (typeof original !== 'function') { log(`no ${label}`); return; }
+    obj[name] = async function (...args: unknown[]) {
+      const start = performance.now();
+      const kind = (args[0] as any)?.type ? ` ${(args[0] as any).type}` : '';
+      try {
+        return await original.apply(this, args);
+      } finally {
+        log(`${label}${kind} ${Math.round(performance.now() - start)}ms (ledgerReady=${session.ledgerReady})`);
+      }
+    };
+  };
+  wrap(session, 'ensureConnected');
+  wrap(session, 'waitForLedgerReady');
+  wrap(session, 'sendChannelFrame');
+  wrap(session, 'handleLedgerState');
+  wrap(session, 'ingestWireMessage');
+  wrap(transport.gunStore, 'putMessageRecord');
+  wrap(transport, 'getUserEpub');
+  wrap(transport, 'getUserPub');
+  const merge = transport.mergeLiveMessages.bind(transport);
+  transport.mergeLiveMessages = (c: string, msgs: unknown[]) => { log(`mergeLiveMessages ${msgs.length}`); return merge(c, msgs); };
+  const state = `state=${session._state} dc=${session.dc?.readyState} ledgerReady=${session.ledgerReady} local=${session.ledgerLocalSent} remote=${session.ledgerRemoteReceived} secure=${!!session.secureSessionKey}`;
+  log(state);
+  return state;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 type Peer = { name: string; serial: string; user: AndroidUser; id: string };
 
 async function adb(serial: string, ...args: string[]): Promise<string> {
@@ -101,6 +140,7 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
     for (const peer of peers) await closeAndroidUser(peer.user);
   });
 
+  // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured first argument
   test.afterEach(async ({}, testInfo) => {
     if (testInfo.status === testInfo.expectedStatus) return;
     for (const peer of peers) {
@@ -185,6 +225,15 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
       openConversationViaServer(cell.user.window, cell.id, 'cell-wifi', wifi.id),
       openConversationViaServer(wifi.user.window, wifi.id, 'cell-cellular', cell.id),
     ]);
+    if (DM_TRACE) {
+      for (const peer of [cell, wifi]) {
+        peer.user.window.on('console', (m) => {
+          const line = m.text();
+          if (/\[dmtrace\]|P2P|WebRTC|mailbox|📤/i.test(line)) console.log(`[${peer.name} ${Date.now() % 100000}] ${line.slice(0, 300)}`);
+        });
+        await peer.user.window.evaluate(installDmTrace, { cid: conversationId, me: peer.id, other: peer === cell ? wifi.id : cell.id });
+      }
+    }
     for (const [from, to, text] of [[cell, wifi, `${runId} hello from mobile data`], [wifi, cell, `${runId} hello from wifi`]] as const) {
       await from.user.window.evaluate(async ({ cid, sid, body }) => {
         await (window as any).__iinpublic_app?.getApp?.()?.conversationService.sendMessage(cid, sid, body);

@@ -214,4 +214,29 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ text: 'Welcome, Alice' })]);
     subSpy.mockRestore();
   });
+  it('looks up a peer\'s keys once, not before every send and every decrypt (OPEN-66)', async () => {
+    const getPublicUser = jest.fn(async () => ({ pub: 'pub_bob', epub: 'epub_bob' }));
+    const transport = new DirectP2PConversationTransport({ ...mockGun, getPublicUser } as unknown as WebGunService);
+    const keys = transport as unknown as {
+      getUserPub: (id: string) => Promise<string>;
+      getUserEpub: (id: string) => Promise<string | undefined>;
+    };
+    // Opening the conversation, two sends and a decrypt; the first two race like the real boot.
+    const [pub, epub] = await Promise.all([keys.getUserPub('bob'), keys.getUserEpub('bob')]);
+    expect(await keys.getUserPub('bob')).toBe(pub);
+    expect(await keys.getUserPub('bob')).toBe('pub_bob');
+    expect(await keys.getUserEpub('bob')).toBe(epub);
+    expect(epub).toBe('epub_bob');
+    expect(getPublicUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps asking for an epub the peer has not published yet', async () => {
+    const getPublicUser = jest.fn()
+      .mockResolvedValueOnce({ pub: 'pub_bob' })
+      .mockResolvedValue({ pub: 'pub_bob', epub: 'epub_bob' });
+    const transport = new DirectP2PConversationTransport({ ...mockGun, getPublicUser } as unknown as WebGunService);
+    const keys = transport as unknown as { getUserEpub: (id: string) => Promise<string | undefined> };
+    expect(await keys.getUserEpub('bob')).toBe('epub_bob');
+    expect(getPublicUser).toHaveBeenCalledTimes(2);
+  });
 });

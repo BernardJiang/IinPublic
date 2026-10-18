@@ -57,4 +57,19 @@ Two fixed waits, both found on the host phone-path journey 02 (same ~10 s as the
 
 PH-1 → Honor FRD (Android 7, Wi-Fi) stopped at the pre-check: the PH-1's shell ping to the hub
 over AT&T got no reply (network, before the app was involved); it passed on 1.0.157.
-DMs still take ~4–8 s from the cellular side (direct WebRTC across carrier NAT) — not looked at yet.
+
+## Slow DMs fixed (2026-10-17, 1.0.160, OPEN-66)
+
+`E2E_CELLULAR_DM_TRACE=1` logs where each DM spends its time on both phones. The WebRTC hop
+itself took 0.1–0.5 s; the rest was two lookups of the other user's public record (~1.7 s each
+over mobile data): the sender's pub before every send and the receiver's epub before every
+decrypt. Both keys never change, so the DM transport now caches them (filled when the
+conversation opens), and the receiver decrypts while the local Gun write runs instead of after
+it. Unit tests in direct-p2p-conversation-transport.
+
+| Cellular phone | Peer | DM cell → peer | DM peer → cell |
+|---|---|---|---|
+| P30 (AT&T), 1.0.159 | C10 on Wi-Fi | 4.04 s | 1.97 s |
+| P30 (AT&T), 1.0.160 | C10 on Wi-Fi | 0.20 s | 0.14 s |
+| P30 (AT&T), 1.0.158 | PH-1, also on AT&T data | 5.11 s | 2.99 s |
+| P30 (AT&T), 1.0.160 | PH-1, also on AT&T data | 0.16 s | 0.16 s |
