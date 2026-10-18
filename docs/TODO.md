@@ -760,6 +760,38 @@ phrase complexity into normal use.
     runtime, same ids as host, and every other step that names the phone), saved as
     `playwright-report-android/coverage.md` and `.json`. `src/test/support/portable-jest/
     coverage-floor.json` (148 files / 1,546 tests) fails the core phase on any drop below it.
+- [ ] **OPEN-70 — Nearby v3: personal nearby lists instead of shared Nearby rooms (proposed
+  2026-10-18; design `docs/design/nearby-and-place-chatrooms.md` §3.7).** Each person keeps their own
+  list of at most `C` signed cards, ranked by distance and then their own hash order, built by
+  gossip; the hub keeps only statistics, a headcount pyramid and a bounded introduction sample per
+  cell. Places stay rooms but are never full. Supersedes OPEN-68 and the v2 heartbeat-size problem
+  below. Needs a new protocol epoch.
+  - [x] Model and experiment: `src/test/support/nearby-gossip-model.ts`,
+    `scripts/nearby-gossip-experiment.ts` → `docs/testing/nearby-gossip-experiment.md`; unit gate
+    `nearby-gossip-personal-lists.test.ts` (host-only).
+  - [ ] Product owner accepts the v3 design (§3.7), including retiring the yellow map dots and
+    Nearby room chat.
+  - [ ] Decide the credit model for fake accounts: what counts as credit (only signals other people
+    or the hub sign), the threshold for creating a Place (replacing the unenforceable 100-Contacts
+    rule), the share of dense-tie list slots for low-credit accounts, and how newcomers earn credit
+    (§3.7 "Fake accounts and reputation").
+  - [ ] Read `C` and every v3 tunable (gossip period, cards per swap, card lifetime, hub sample size,
+    incoming limits) from the signed manifest; nothing hard-coded. Changing `C` needs no epoch in v3.
+  - [ ] Measure per-contact connection cost and broadcast-loop time on the five phones, over Wi-Fi
+    and mobile data, and choose the incoming limits.
+  - [ ] Implement: cards, the hub's statistics/pyramid/introduction sample, gossip, the adaptive
+    broadcast loop with per-peer inventories, incoming limits, Places on the same lists, the
+    daily beacon and identity-age rule, map/list/headcount UI, and the epoch migration.
+  - [ ] Remove the v2 partition lineage, cohort control plane, Place seat claims, map-presence index
+    and the Nearby `K` schedule once no v2 release is supported.
+  - **Interim v2 problem, if v3 is delayed:** every 15 s control heartbeat re-uploads the phone's
+    whole cached split chain (`nearby-pre-admission-client.ts` `rehydrationBundle`, up to 7.5 MB),
+    and each split record at C = 498 is 540 KB (499 signed presences; checking one takes 0.6 s on
+    the Mac in pure-JS ECDSA). Harmless today because production has never split; at 10,000 people in
+    one place it would be ~4–5 GB/s into the hub and ~1.7 GB/h per phone. Fix by re-uploading only
+    when the hub reports an unknown room, stripping repeated fields, and enabling HTTP compression.
+  - **Interim v2 gap:** groups of one area that differ only by identity lane cannot be entered
+    from the list or map (travel lands in your own lane; §3.6 "Known limit").
 - [ ] **OPEN-68 — A crowd in one place switches rooms once per quadtree level (found 2026-10-17 by
   the capacity experiment).** A split always creates the four quadrants one level down, so a crowd in
   one city descends from the world root through levels where everyone lands in the same child: 499
@@ -768,6 +800,7 @@ phrase complexity into normal use.
   certificate. Candidate fix: a split jumps straight to the first depth where its C + 1 witnesses
   actually divide. That changes room assignment, so it needs a protocol epoch and the mixed-release
   rules. Coalescing has the mirror cost: one level per 3-minute dwell (39 min to climb 13 levels).
+  Superseded by OPEN-70 if Nearby v3 is adopted (v3 has no splits).
 - [x] **OPEN-69 — Small C strands full groups in very dense places (found 2026-10-17 by the capacity
   experiment; guarded 2026-10-17: production refuses a signed manifest with C < 128,
   `production-protocol-manifest.ts`, unit test in `protocol-manifest.test.ts`).** Below everyone's privacy floor a group splits only by halving identity lanes, so a

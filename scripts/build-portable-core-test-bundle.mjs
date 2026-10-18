@@ -97,6 +97,7 @@ const HOST_ONLY_BY_DESIGN = {
   'room-topology-million.test.ts': 'scale simulation: host-only by design',
   'nearby-capacity-simulation.test.ts': 'scale simulation: host-only by design',
   'nearby-adaptive-capacity.test.ts': 'scale simulation: host-only by design',
+  'nearby-gossip-personal-lists.test.ts': 'scale simulation: host-only by design',
 };
 
 // Single tests skipped on phones (reported as skipped, so their ids still match the host): timing

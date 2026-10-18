@@ -1,0 +1,3694 @@
+{
+ "runs": [
+  {
+   "population": "498 (one city)",
+   "variant": "public-hash",
+   "seeding": "pyramid",
+   "people": 498,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.957,
+      "distanceQuality": 0.957,
+      "recall": 0.957,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.998,
+      "recall": 0.998,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 1,
+   "roundsToRecall90": 1,
+   "audience": {
+    "mean": 497,
+    "p50": 497,
+    "p99": 497,
+    "max": 497
+   },
+   "cardsPerPersonPerRound": 33,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.8,
+      "recall": 0.8,
+      "stale": 0.205,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.941,
+      "distanceQuality": 0.883,
+      "recall": 0.883,
+      "stale": 0.062,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.813,
+      "recall": 0.813,
+      "stale": 0.193,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.997,
+      "distanceQuality": 0.852,
+      "recall": 0.852,
+      "stale": 0.151,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.827,
+      "recall": 0.827,
+      "stale": 0.18,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 1,
+      "distanceQuality": 0.837,
+      "recall": 0.837,
+      "stale": 0.169,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.836,
+      "recall": 0.836,
+      "stale": 0.17,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 1,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.169,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.169,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 1,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.169,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 0.6
+  },
+  {
+   "population": "498 (one city)",
+   "variant": "secret-salt",
+   "seeding": "pyramid",
+   "people": 498,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.957,
+      "distanceQuality": 0.957,
+      "recall": 0.957,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.998,
+      "recall": 0.998,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 1,
+   "roundsToRecall90": 1,
+   "audience": {
+    "mean": 497,
+    "p50": 497,
+    "p99": 497,
+    "max": 497
+   },
+   "cardsPerPersonPerRound": 33,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.801,
+      "recall": 0.801,
+      "stale": 0.205,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.943,
+      "distanceQuality": 0.887,
+      "recall": 0.887,
+      "stale": 0.06,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.816,
+      "recall": 0.816,
+      "stale": 0.191,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.999,
+      "distanceQuality": 0.854,
+      "recall": 0.854,
+      "stale": 0.151,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.828,
+      "recall": 0.828,
+      "stale": 0.179,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 1,
+      "distanceQuality": 0.839,
+      "recall": 0.839,
+      "stale": 0.168,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.836,
+      "recall": 0.836,
+      "stale": 0.17,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 1,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.169,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.168,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 1,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.168,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 0.7
+  },
+  {
+   "population": "498 (one city)",
+   "variant": "public-hash",
+   "seeding": "region",
+   "people": 498,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.241,
+      "distanceQuality": 0.241,
+      "recall": 0.241,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.365,
+      "distanceQuality": 0.365,
+      "recall": 0.365,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.486,
+      "distanceQuality": 0.486,
+      "recall": 0.486,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.61,
+      "distanceQuality": 0.61,
+      "recall": 0.61,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.832,
+      "distanceQuality": 0.832,
+      "recall": 0.832,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 7,
+   "roundsToRecall90": 6,
+   "audience": {
+    "mean": 497,
+    "p50": 497,
+    "p99": 497,
+    "max": 497
+   },
+   "cardsPerPersonPerRound": 45,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.8,
+      "recall": 0.8,
+      "stale": 0.205,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.307,
+      "distanceQuality": 0.292,
+      "recall": 0.292,
+      "stale": 0.049,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.814,
+      "recall": 0.814,
+      "stale": 0.192,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.44,
+      "distanceQuality": 0.396,
+      "recall": 0.396,
+      "stale": 0.099,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.827,
+      "recall": 0.827,
+      "stale": 0.18,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.569,
+      "distanceQuality": 0.502,
+      "recall": 0.502,
+      "stale": 0.118,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.837,
+      "recall": 0.837,
+      "stale": 0.17,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.897,
+      "distanceQuality": 0.76,
+      "recall": 0.76,
+      "stale": 0.155,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 118,
+      "fill": 1,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.169,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 100,
+      "fill": 0.988,
+      "distanceQuality": 0.829,
+      "recall": 0.829,
+      "stale": 0.166,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 0.6
+  },
+  {
+   "population": "2,000 (one city)",
+   "variant": "public-hash",
+   "seeding": "pyramid",
+   "people": 2000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.905,
+      "distanceQuality": 0.711,
+      "recall": 0.707,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.942,
+      "distanceQuality": 0.809,
+      "recall": 0.804,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.97,
+      "distanceQuality": 0.888,
+      "recall": 0.883,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.986,
+      "distanceQuality": 0.933,
+      "recall": 0.929,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.981,
+      "recall": 0.979,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.999,
+      "recall": 0.999,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 1,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 4,
+   "roundsToRecall90": 3,
+   "audience": {
+    "mean": 498,
+    "p50": 501,
+    "p99": 781,
+    "max": 795
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 125,
+      "fill": 0.988,
+      "distanceQuality": 0.791,
+      "recall": 0.789,
+      "stale": 0.193,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.946,
+      "distanceQuality": 0.664,
+      "recall": 0.66,
+      "stale": 0.047,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 125,
+      "fill": 0.994,
+      "distanceQuality": 0.808,
+      "recall": 0.808,
+      "stale": 0.185,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.969,
+      "distanceQuality": 0.737,
+      "recall": 0.733,
+      "stale": 0.114,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 125,
+      "fill": 0.997,
+      "distanceQuality": 0.825,
+      "recall": 0.825,
+      "stale": 0.173,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.985,
+      "distanceQuality": 0.791,
+      "recall": 0.79,
+      "stale": 0.144,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 125,
+      "fill": 1,
+      "distanceQuality": 0.837,
+      "recall": 0.837,
+      "stale": 0.163,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.832,
+      "recall": 0.832,
+      "stale": 0.156,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 125,
+      "fill": 0.999,
+      "distanceQuality": 0.837,
+      "recall": 0.837,
+      "stale": 0.161,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.84,
+      "recall": 0.84,
+      "stale": 0.157,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 3.1
+  },
+  {
+   "population": "2,000 (one city)",
+   "variant": "secret-salt",
+   "seeding": "pyramid",
+   "people": 2000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.905,
+      "distanceQuality": 0.711,
+      "recall": 0.707,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.947,
+      "distanceQuality": 0.822,
+      "recall": 0.818,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.972,
+      "distanceQuality": 0.897,
+      "recall": 0.893,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.987,
+      "distanceQuality": 0.937,
+      "recall": 0.934,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.98,
+      "recall": 0.979,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.998,
+      "recall": 0.998,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.999,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.999,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 4,
+   "roundsToRecall90": 3,
+   "audience": {
+    "mean": 498,
+    "p50": 501,
+    "p99": 782,
+    "max": 795
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 125,
+      "fill": 0.991,
+      "distanceQuality": 0.793,
+      "recall": 0.791,
+      "stale": 0.193,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.947,
+      "distanceQuality": 0.662,
+      "recall": 0.658,
+      "stale": 0.049,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 125,
+      "fill": 0.996,
+      "distanceQuality": 0.81,
+      "recall": 0.809,
+      "stale": 0.185,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.972,
+      "distanceQuality": 0.733,
+      "recall": 0.729,
+      "stale": 0.114,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 125,
+      "fill": 0.998,
+      "distanceQuality": 0.825,
+      "recall": 0.825,
+      "stale": 0.173,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.987,
+      "distanceQuality": 0.799,
+      "recall": 0.798,
+      "stale": 0.145,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 125,
+      "fill": 1,
+      "distanceQuality": 0.837,
+      "recall": 0.837,
+      "stale": 0.163,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.834,
+      "recall": 0.834,
+      "stale": 0.156,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 125,
+      "fill": 0.998,
+      "distanceQuality": 0.838,
+      "recall": 0.838,
+      "stale": 0.161,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.84,
+      "recall": 0.84,
+      "stale": 0.157,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 3.2
+  },
+  {
+   "population": "2,000 (one city)",
+   "variant": "public-hash",
+   "seeding": "region",
+   "people": 2000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.253,
+      "distanceQuality": 0.064,
+      "recall": 0.063,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.378,
+      "distanceQuality": 0.18,
+      "recall": 0.178,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.495,
+      "distanceQuality": 0.291,
+      "recall": 0.289,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.625,
+      "distanceQuality": 0.412,
+      "recall": 0.41,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.855,
+      "distanceQuality": 0.641,
+      "recall": 0.638,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.969,
+      "recall": 0.967,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.997,
+      "recall": 0.996,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.999,
+      "recall": 0.998,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 10,
+   "roundsToRecall90": 9,
+   "audience": {
+    "mean": 498,
+    "p50": 501,
+    "p99": 782,
+    "max": 796
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 125,
+      "fill": 0.99,
+      "distanceQuality": 0.789,
+      "recall": 0.787,
+      "stale": 0.195,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.327,
+      "distanceQuality": 0.112,
+      "recall": 0.111,
+      "stale": 0.037,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 125,
+      "fill": 0.995,
+      "distanceQuality": 0.801,
+      "recall": 0.799,
+      "stale": 0.19,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.464,
+      "distanceQuality": 0.202,
+      "recall": 0.202,
+      "stale": 0.08,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 125,
+      "fill": 0.996,
+      "distanceQuality": 0.816,
+      "recall": 0.815,
+      "stale": 0.181,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.605,
+      "distanceQuality": 0.298,
+      "recall": 0.297,
+      "stale": 0.103,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 125,
+      "fill": 0.999,
+      "distanceQuality": 0.833,
+      "recall": 0.833,
+      "stale": 0.166,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.934,
+      "distanceQuality": 0.572,
+      "recall": 0.57,
+      "stale": 0.132,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 125,
+      "fill": 0.998,
+      "distanceQuality": 0.837,
+      "recall": 0.837,
+      "stale": 0.161,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.794,
+      "recall": 0.794,
+      "stale": 0.156,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 2.9
+  },
+  {
+   "population": "10,000 (one arena)",
+   "variant": "public-hash",
+   "seeding": "pyramid",
+   "people": 10000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.128,
+      "distanceQuality": 0.128,
+      "recall": 0.013,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.254,
+      "distanceQuality": 0.254,
+      "recall": 0.046,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.385,
+      "distanceQuality": 0.385,
+      "recall": 0.102,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.512,
+      "distanceQuality": 0.512,
+      "recall": 0.175,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.762,
+      "distanceQuality": 0.762,
+      "recall": 0.351,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.998,
+      "recall": 0.733,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.96,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.994,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 8,
+   "roundsToRecall90": 16,
+   "audience": {
+    "mean": 498,
+    "p50": 498,
+    "p99": 549,
+    "max": 584
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 120,
+      "fill": 0.492,
+      "distanceQuality": 0.4,
+      "recall": 0.352,
+      "stale": 0.188,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.194,
+      "distanceQuality": 0.184,
+      "recall": 0.048,
+      "stale": 0.053,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 120,
+      "fill": 0.688,
+      "distanceQuality": 0.563,
+      "recall": 0.415,
+      "stale": 0.182,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.329,
+      "distanceQuality": 0.297,
+      "recall": 0.127,
+      "stale": 0.099,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 120,
+      "fill": 0.844,
+      "distanceQuality": 0.693,
+      "recall": 0.488,
+      "stale": 0.179,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.452,
+      "distanceQuality": 0.399,
+      "recall": 0.212,
+      "stale": 0.118,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 120,
+      "fill": 0.994,
+      "distanceQuality": 0.812,
+      "recall": 0.662,
+      "stale": 0.182,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.756,
+      "distanceQuality": 0.647,
+      "recall": 0.43,
+      "stale": 0.144,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 120,
+      "fill": 0.996,
+      "distanceQuality": 0.866,
+      "recall": 0.75,
+      "stale": 0.131,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.975,
+      "distanceQuality": 0.858,
+      "recall": 0.65,
+      "stale": 0.12,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 19.9
+  },
+  {
+   "population": "10,000 (one arena)",
+   "variant": "secret-salt",
+   "seeding": "pyramid",
+   "people": 10000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.128,
+      "distanceQuality": 0.128,
+      "recall": 0.012,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.257,
+      "distanceQuality": 0.257,
+      "recall": 0.025,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.383,
+      "distanceQuality": 0.383,
+      "recall": 0.039,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.514,
+      "distanceQuality": 0.514,
+      "recall": 0.051,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.761,
+      "distanceQuality": 0.761,
+      "recall": 0.076,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.999,
+      "recall": 0.137,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.25,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.345,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 8,
+   "roundsToRecall90": null,
+   "audience": {
+    "mean": 498,
+    "p50": 498,
+    "p99": 640,
+    "max": 737
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 120,
+      "fill": 0.204,
+      "distanceQuality": 0.167,
+      "recall": 0.041,
+      "stale": 0.183,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.187,
+      "distanceQuality": 0.179,
+      "recall": 0.019,
+      "stale": 0.041,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 120,
+      "fill": 0.382,
+      "distanceQuality": 0.323,
+      "recall": 0.051,
+      "stale": 0.159,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.325,
+      "distanceQuality": 0.297,
+      "recall": 0.03,
+      "stale": 0.086,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 120,
+      "fill": 0.568,
+      "distanceQuality": 0.486,
+      "recall": 0.064,
+      "stale": 0.146,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.443,
+      "distanceQuality": 0.4,
+      "recall": 0.041,
+      "stale": 0.098,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 120,
+      "fill": 0.927,
+      "distanceQuality": 0.807,
+      "recall": 0.099,
+      "stale": 0.13,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.751,
+      "distanceQuality": 0.673,
+      "recall": 0.069,
+      "stale": 0.104,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 120,
+      "fill": 0.996,
+      "distanceQuality": 0.906,
+      "recall": 0.15,
+      "stale": 0.091,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.993,
+      "distanceQuality": 0.913,
+      "recall": 0.116,
+      "stale": 0.08,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 21.9
+  },
+  {
+   "population": "10,000 (one arena)",
+   "variant": "public-hash",
+   "seeding": "region",
+   "people": 10000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.256,
+      "distanceQuality": 0.13,
+      "recall": 0.013,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.377,
+      "distanceQuality": 0.249,
+      "recall": 0.041,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.51,
+      "distanceQuality": 0.382,
+      "recall": 0.086,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.644,
+      "distanceQuality": 0.516,
+      "recall": 0.149,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.878,
+      "distanceQuality": 0.766,
+      "recall": 0.308,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.995,
+      "recall": 0.706,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.957,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.993,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 8,
+   "roundsToRecall90": 16,
+   "audience": {
+    "mean": 498,
+    "p50": 498,
+    "p99": 549,
+    "max": 587
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 120,
+      "fill": 0.489,
+      "distanceQuality": 0.396,
+      "recall": 0.344,
+      "stale": 0.191,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.323,
+      "distanceQuality": 0.166,
+      "recall": 0.032,
+      "stale": 0.03,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 120,
+      "fill": 0.686,
+      "distanceQuality": 0.561,
+      "recall": 0.409,
+      "stale": 0.182,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.469,
+      "distanceQuality": 0.248,
+      "recall": 0.084,
+      "stale": 0.072,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 120,
+      "fill": 0.859,
+      "distanceQuality": 0.705,
+      "recall": 0.49,
+      "stale": 0.179,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.61,
+      "distanceQuality": 0.326,
+      "recall": 0.143,
+      "stale": 0.091,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 120,
+      "fill": 0.993,
+      "distanceQuality": 0.812,
+      "recall": 0.655,
+      "stale": 0.182,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.919,
+      "distanceQuality": 0.516,
+      "recall": 0.303,
+      "stale": 0.123,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 120,
+      "fill": 0.997,
+      "distanceQuality": 0.868,
+      "recall": 0.746,
+      "stale": 0.129,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.995,
+      "distanceQuality": 0.786,
+      "recall": 0.564,
+      "stale": 0.108,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 20.5
+  },
+  {
+   "population": "10,000 (stadium 5,000 + city 5,000)",
+   "variant": "public-hash",
+   "seeding": "pyramid",
+   "people": 10000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.621,
+      "distanceQuality": 0.375,
+      "recall": 0.307,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.688,
+      "distanceQuality": 0.473,
+      "recall": 0.381,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.746,
+      "distanceQuality": 0.556,
+      "recall": 0.453,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.808,
+      "distanceQuality": 0.638,
+      "recall": 0.529,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.928,
+      "distanceQuality": 0.786,
+      "recall": 0.667,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.995,
+      "recall": 0.922,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.997,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.999,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 8,
+   "roundsToRecall90": 10,
+   "audience": {
+    "mean": 498,
+    "p50": 528,
+    "p99": 637,
+    "max": 658
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 120,
+      "fill": 0.975,
+      "distanceQuality": 0.783,
+      "recall": 0.759,
+      "stale": 0.195,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.671,
+      "distanceQuality": 0.399,
+      "recall": 0.328,
+      "stale": 0.038,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 120,
+      "fill": 0.995,
+      "distanceQuality": 0.804,
+      "recall": 0.781,
+      "stale": 0.192,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.748,
+      "distanceQuality": 0.49,
+      "recall": 0.413,
+      "stale": 0.088,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 120,
+      "fill": 0.998,
+      "distanceQuality": 0.812,
+      "recall": 0.798,
+      "stale": 0.186,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.814,
+      "distanceQuality": 0.577,
+      "recall": 0.501,
+      "stale": 0.117,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 120,
+      "fill": 1,
+      "distanceQuality": 0.822,
+      "recall": 0.818,
+      "stale": 0.178,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.945,
+      "distanceQuality": 0.708,
+      "recall": 0.636,
+      "stale": 0.139,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 120,
+      "fill": 0.999,
+      "distanceQuality": 0.839,
+      "recall": 0.838,
+      "stale": 0.16,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.839,
+      "recall": 0.82,
+      "stale": 0.159,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 19
+  },
+  {
+   "population": "10,000 (stadium 5,000 + city 5,000)",
+   "variant": "secret-salt",
+   "seeding": "pyramid",
+   "people": 10000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.621,
+      "distanceQuality": 0.375,
+      "recall": 0.307,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.691,
+      "distanceQuality": 0.474,
+      "recall": 0.359,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.753,
+      "distanceQuality": 0.561,
+      "recall": 0.395,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.815,
+      "distanceQuality": 0.646,
+      "recall": 0.431,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.933,
+      "distanceQuality": 0.793,
+      "recall": 0.477,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.997,
+      "recall": 0.552,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.667,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.754,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 8,
+   "roundsToRecall90": null,
+   "audience": {
+    "mean": 498,
+    "p50": 524,
+    "p99": 643,
+    "max": 688
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 120,
+      "fill": 0.516,
+      "distanceQuality": 0.413,
+      "recall": 0.356,
+      "stale": 0.194,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.668,
+      "distanceQuality": 0.396,
+      "recall": 0.305,
+      "stale": 0.036,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 120,
+      "fill": 0.632,
+      "distanceQuality": 0.514,
+      "recall": 0.381,
+      "stale": 0.181,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.743,
+      "distanceQuality": 0.488,
+      "recall": 0.346,
+      "stale": 0.081,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 120,
+      "fill": 0.741,
+      "distanceQuality": 0.611,
+      "recall": 0.403,
+      "stale": 0.172,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.815,
+      "distanceQuality": 0.586,
+      "recall": 0.397,
+      "stale": 0.104,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 120,
+      "fill": 0.947,
+      "distanceQuality": 0.794,
+      "recall": 0.449,
+      "stale": 0.16,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.966,
+      "distanceQuality": 0.75,
+      "recall": 0.447,
+      "stale": 0.124,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 120,
+      "fill": 0.998,
+      "distanceQuality": 0.868,
+      "recall": 0.506,
+      "stale": 0.13,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.876,
+      "recall": 0.497,
+      "stale": 0.122,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 20.9
+  },
+  {
+   "population": "10,000 (stadium 5,000 + city 5,000)",
+   "variant": "public-hash",
+   "seeding": "region",
+   "people": 10000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.256,
+      "distanceQuality": 0.046,
+      "recall": 0.013,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.381,
+      "distanceQuality": 0.129,
+      "recall": 0.043,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.507,
+      "distanceQuality": 0.222,
+      "recall": 0.095,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.644,
+      "distanceQuality": 0.333,
+      "recall": 0.172,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.867,
+      "distanceQuality": 0.537,
+      "recall": 0.341,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.859,
+      "recall": 0.773,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.98,
+      "recall": 0.975,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.994,
+      "recall": 0.993,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 14,
+   "roundsToRecall90": 13,
+   "audience": {
+    "mean": 498,
+    "p50": 528,
+    "p99": 652,
+    "max": 685
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 120,
+      "fill": 0.966,
+      "distanceQuality": 0.772,
+      "recall": 0.749,
+      "stale": 0.196,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.33,
+      "distanceQuality": 0.069,
+      "recall": 0.03,
+      "stale": 0.037,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 120,
+      "fill": 0.991,
+      "distanceQuality": 0.792,
+      "recall": 0.768,
+      "stale": 0.194,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.467,
+      "distanceQuality": 0.111,
+      "recall": 0.064,
+      "stale": 0.076,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 120,
+      "fill": 0.997,
+      "distanceQuality": 0.801,
+      "recall": 0.783,
+      "stale": 0.192,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.599,
+      "distanceQuality": 0.154,
+      "recall": 0.098,
+      "stale": 0.097,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 120,
+      "fill": 0.999,
+      "distanceQuality": 0.814,
+      "recall": 0.809,
+      "stale": 0.183,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.913,
+      "distanceQuality": 0.293,
+      "recall": 0.22,
+      "stale": 0.127,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 120,
+      "fill": 0.999,
+      "distanceQuality": 0.837,
+      "recall": 0.835,
+      "stale": 0.161,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.654,
+      "recall": 0.578,
+      "stale": 0.141,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 19.1
+  },
+  {
+   "population": "12,000 (2,000 alone across the US + a 10,000-person arena; lone people scored)",
+   "variant": "public-hash",
+   "seeding": "pyramid",
+   "people": 12000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.885,
+      "distanceQuality": 0.689,
+      "recall": 0.679,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.931,
+      "distanceQuality": 0.789,
+      "recall": 0.769,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.95,
+      "distanceQuality": 0.853,
+      "recall": 0.826,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.96,
+      "distanceQuality": 0.887,
+      "recall": 0.856,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.975,
+      "distanceQuality": 0.931,
+      "recall": 0.888,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.997,
+      "distanceQuality": 0.974,
+      "recall": 0.921,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.993,
+      "recall": 0.961,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.998,
+      "recall": 0.981,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 7,
+   "roundsToRecall90": 7,
+   "audience": {
+    "mean": 498,
+    "p50": 506,
+    "p99": 683,
+    "max": 913
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 123,
+      "fill": 0.915,
+      "distanceQuality": 0.444,
+      "recall": 0.439,
+      "stale": 0.191,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.926,
+      "distanceQuality": 0.426,
+      "recall": 0.417,
+      "stale": 0.047,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 123,
+      "fill": 0.944,
+      "distanceQuality": 0.605,
+      "recall": 0.598,
+      "stale": 0.155,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.959,
+      "distanceQuality": 0.584,
+      "recall": 0.57,
+      "stale": 0.092,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 123,
+      "fill": 0.965,
+      "distanceQuality": 0.775,
+      "recall": 0.764,
+      "stale": 0.123,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.978,
+      "distanceQuality": 0.755,
+      "recall": 0.736,
+      "stale": 0.099,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 123,
+      "fill": 0.991,
+      "distanceQuality": 0.89,
+      "recall": 0.877,
+      "stale": 0.101,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.996,
+      "distanceQuality": 0.887,
+      "recall": 0.867,
+      "stale": 0.097,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 123,
+      "fill": 0.992,
+      "distanceQuality": 0.891,
+      "recall": 0.878,
+      "stale": 0.096,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.897,
+      "recall": 0.879,
+      "stale": 0.095,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 22.8
+  },
+  {
+   "population": "12,000 (2,000 alone across the US + a 10,000-person arena; lone people scored)",
+   "variant": "secret-salt",
+   "seeding": "pyramid",
+   "people": 12000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.885,
+      "distanceQuality": 0.689,
+      "recall": 0.679,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.931,
+      "distanceQuality": 0.789,
+      "recall": 0.768,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.95,
+      "distanceQuality": 0.853,
+      "recall": 0.824,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.96,
+      "distanceQuality": 0.888,
+      "recall": 0.852,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.975,
+      "distanceQuality": 0.931,
+      "recall": 0.878,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.997,
+      "distanceQuality": 0.974,
+      "recall": 0.89,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.993,
+      "recall": 0.897,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.998,
+      "recall": 0.903,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 7,
+   "roundsToRecall90": 25,
+   "audience": {
+    "mean": 498,
+    "p50": 504,
+    "p99": 686,
+    "max": 913
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 123,
+      "fill": 0.895,
+      "distanceQuality": 0.424,
+      "recall": 0.413,
+      "stale": 0.193,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.927,
+      "distanceQuality": 0.425,
+      "recall": 0.415,
+      "stale": 0.048,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 123,
+      "fill": 0.923,
+      "distanceQuality": 0.587,
+      "recall": 0.572,
+      "stale": 0.156,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.965,
+      "distanceQuality": 0.59,
+      "recall": 0.573,
+      "stale": 0.093,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 123,
+      "fill": 0.944,
+      "distanceQuality": 0.746,
+      "recall": 0.726,
+      "stale": 0.123,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.981,
+      "distanceQuality": 0.76,
+      "recall": 0.736,
+      "stale": 0.1,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 123,
+      "fill": 0.985,
+      "distanceQuality": 0.88,
+      "recall": 0.839,
+      "stale": 0.099,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.995,
+      "distanceQuality": 0.885,
+      "recall": 0.849,
+      "stale": 0.094,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 123,
+      "fill": 0.997,
+      "distanceQuality": 0.897,
+      "recall": 0.848,
+      "stale": 0.095,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.901,
+      "recall": 0.856,
+      "stale": 0.094,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 24.9
+  },
+  {
+   "population": "12,000 (2,000 alone across the US + a 10,000-person arena; lone people scored)",
+   "variant": "public-hash",
+   "seeding": "region",
+   "people": 12000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.134,
+      "distanceQuality": 0.022,
+      "recall": 0.01,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.228,
+      "distanceQuality": 0.044,
+      "recall": 0.02,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.323,
+      "distanceQuality": 0.075,
+      "recall": 0.037,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.414,
+      "distanceQuality": 0.112,
+      "recall": 0.061,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.599,
+      "distanceQuality": 0.2,
+      "recall": 0.131,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.965,
+      "distanceQuality": 0.461,
+      "recall": 0.361,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.808,
+      "recall": 0.762,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.932,
+      "recall": 0.911,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": null,
+   "roundsToRecall90": 29,
+   "audience": {
+    "mean": 498,
+    "p50": 509,
+    "p99": 680,
+    "max": 841
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 123,
+      "fill": 0.845,
+      "distanceQuality": 0.388,
+      "recall": 0.382,
+      "stale": 0.204,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.202,
+      "distanceQuality": 0.027,
+      "recall": 0.017,
+      "stale": 0.05,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 123,
+      "fill": 0.896,
+      "distanceQuality": 0.411,
+      "recall": 0.4,
+      "stale": 0.197,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.341,
+      "distanceQuality": 0.051,
+      "recall": 0.035,
+      "stale": 0.094,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 123,
+      "fill": 0.933,
+      "distanceQuality": 0.472,
+      "recall": 0.456,
+      "stale": 0.183,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.471,
+      "distanceQuality": 0.08,
+      "recall": 0.062,
+      "stale": 0.114,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 123,
+      "fill": 0.986,
+      "distanceQuality": 0.7,
+      "recall": 0.675,
+      "stale": 0.141,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.821,
+      "distanceQuality": 0.216,
+      "recall": 0.193,
+      "stale": 0.129,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 123,
+      "fill": 0.987,
+      "distanceQuality": 0.879,
+      "recall": 0.858,
+      "stale": 0.099,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.982,
+      "distanceQuality": 0.551,
+      "recall": 0.526,
+      "stale": 0.098,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 24.8
+  },
+  {
+   "population": "100,000 (40 cities + a 10,000-seat stadium)",
+   "variant": "public-hash",
+   "seeding": "pyramid",
+   "people": 100000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.876,
+      "distanceQuality": 0.676,
+      "recall": 0.656,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.907,
+      "distanceQuality": 0.771,
+      "recall": 0.744,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.927,
+      "distanceQuality": 0.846,
+      "recall": 0.815,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.946,
+      "distanceQuality": 0.899,
+      "recall": 0.865,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.972,
+      "distanceQuality": 0.956,
+      "recall": 0.918,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.999,
+      "recall": 0.974,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.996,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.999,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 5,
+   "roundsToRecall90": 5,
+   "audience": {
+    "mean": 498,
+    "p50": 525,
+    "p99": 861,
+    "max": 1125
+   },
+   "cardsPerPersonPerRound": 63,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 123,
+      "fill": 0.944,
+      "distanceQuality": 0.726,
+      "recall": 0.723,
+      "stale": 0.198,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.938,
+      "distanceQuality": 0.569,
+      "recall": 0.565,
+      "stale": 0.053,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 123,
+      "fill": 0.962,
+      "distanceQuality": 0.765,
+      "recall": 0.758,
+      "stale": 0.191,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.972,
+      "distanceQuality": 0.683,
+      "recall": 0.678,
+      "stale": 0.107,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 123,
+      "fill": 0.979,
+      "distanceQuality": 0.797,
+      "recall": 0.788,
+      "stale": 0.183,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.989,
+      "distanceQuality": 0.786,
+      "recall": 0.78,
+      "stale": 0.128,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 123,
+      "fill": 0.998,
+      "distanceQuality": 0.821,
+      "recall": 0.816,
+      "stale": 0.177,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.853,
+      "recall": 0.849,
+      "stale": 0.138,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 123,
+      "fill": 0.994,
+      "distanceQuality": 0.822,
+      "recall": 0.814,
+      "stale": 0.173,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.86,
+      "recall": 0.858,
+      "stale": 0.138,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 177
+  },
+  {
+   "population": "100,000 (40 cities + a 10,000-seat stadium)",
+   "variant": "secret-salt",
+   "seeding": "pyramid",
+   "people": 100000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.876,
+      "distanceQuality": 0.676,
+      "recall": 0.656,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.905,
+      "distanceQuality": 0.777,
+      "recall": 0.747,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.931,
+      "distanceQuality": 0.86,
+      "recall": 0.818,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.949,
+      "distanceQuality": 0.908,
+      "recall": 0.855,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.977,
+      "distanceQuality": 0.962,
+      "recall": 0.891,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.915,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.928,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 1,
+      "recall": 0.937,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 5,
+   "roundsToRecall90": 6,
+   "audience": {
+    "mean": 498,
+    "p50": 525,
+    "p99": 861,
+    "max": 1124
+   },
+   "cardsPerPersonPerRound": 63,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 123,
+      "fill": 0.913,
+      "distanceQuality": 0.701,
+      "recall": 0.691,
+      "stale": 0.201,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.937,
+      "distanceQuality": 0.574,
+      "recall": 0.57,
+      "stale": 0.052,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 123,
+      "fill": 0.928,
+      "distanceQuality": 0.737,
+      "recall": 0.718,
+      "stale": 0.193,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.972,
+      "distanceQuality": 0.685,
+      "recall": 0.68,
+      "stale": 0.109,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 123,
+      "fill": 0.94,
+      "distanceQuality": 0.763,
+      "recall": 0.737,
+      "stale": 0.186,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.986,
+      "distanceQuality": 0.785,
+      "recall": 0.78,
+      "stale": 0.128,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 123,
+      "fill": 0.985,
+      "distanceQuality": 0.811,
+      "recall": 0.754,
+      "stale": 0.177,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.853,
+      "recall": 0.846,
+      "stale": 0.137,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 123,
+      "fill": 0.997,
+      "distanceQuality": 0.826,
+      "recall": 0.76,
+      "stale": 0.171,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.999,
+      "distanceQuality": 0.861,
+      "recall": 0.855,
+      "stale": 0.137,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 182.8
+  },
+  {
+   "population": "100,000 (40 cities + a 10,000-seat stadium)",
+   "variant": "public-hash",
+   "seeding": "region",
+   "people": 100000,
+   "curve": [
+    {
+     "round": 0,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.257,
+      "distanceQuality": 0.033,
+      "recall": 0.027,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 1,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.376,
+      "distanceQuality": 0.063,
+      "recall": 0.052,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 2,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.499,
+      "distanceQuality": 0.103,
+      "recall": 0.086,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 3,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.626,
+      "distanceQuality": 0.149,
+      "recall": 0.127,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 5,
+     "metrics": {
+      "viewers": 150,
+      "fill": 0.86,
+      "distanceQuality": 0.262,
+      "recall": 0.228,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 10,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.636,
+      "recall": 0.589,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 20,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.933,
+      "recall": 0.921,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    },
+    {
+     "round": 30,
+     "metrics": {
+      "viewers": 150,
+      "fill": 1,
+      "distanceQuality": 0.985,
+      "recall": 0.983,
+      "stale": 0,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "roundsToQuality95": 22,
+   "roundsToRecall90": 19,
+   "audience": {
+    "mean": 498,
+    "p50": 526,
+    "p99": 850,
+    "max": 1072
+   },
+   "cardsPerPersonPerRound": 64,
+   "churn": [
+    {
+     "after": 1,
+     "old": {
+      "viewers": 123,
+      "fill": 0.935,
+      "distanceQuality": 0.713,
+      "recall": 0.709,
+      "stale": 0.198,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.334,
+      "distanceQuality": 0.084,
+      "recall": 0.082,
+      "stale": 0.037,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 3,
+     "old": {
+      "viewers": 123,
+      "fill": 0.957,
+      "distanceQuality": 0.736,
+      "recall": 0.728,
+      "stale": 0.196,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.486,
+      "distanceQuality": 0.154,
+      "recall": 0.152,
+      "stale": 0.077,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 5,
+     "old": {
+      "viewers": 123,
+      "fill": 0.977,
+      "distanceQuality": 0.77,
+      "recall": 0.76,
+      "stale": 0.191,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.643,
+      "distanceQuality": 0.222,
+      "recall": 0.219,
+      "stale": 0.098,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 10,
+     "old": {
+      "viewers": 123,
+      "fill": 0.995,
+      "distanceQuality": 0.807,
+      "recall": 0.805,
+      "stale": 0.182,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.952,
+      "distanceQuality": 0.451,
+      "recall": 0.447,
+      "stale": 0.114,
+      "sybilShare": 0
+     }
+    },
+    {
+     "after": 20,
+     "old": {
+      "viewers": 123,
+      "fill": 0.995,
+      "distanceQuality": 0.818,
+      "recall": 0.812,
+      "stale": 0.174,
+      "sybilShare": 0
+     },
+     "newcomers": {
+      "viewers": 150,
+      "fill": 0.998,
+      "distanceQuality": 0.707,
+      "recall": 0.702,
+      "stale": 0.128,
+      "sybilShare": 0
+     }
+    }
+   ],
+   "seconds": 187
+  }
+ ],
+ "sybils": [
+  {
+   "variant": "public-hash",
+   "metrics": {
+    "viewers": 150,
+    "fill": 1,
+    "distanceQuality": 1,
+    "recall": 0.987,
+    "stale": 0,
+    "sybilShare": 0.101
+   },
+   "audience": {
+    "mean": 497,
+    "p50": 497,
+    "p99": 548,
+    "max": 586
+   }
+  },
+  {
+   "variant": "secret-salt",
+   "metrics": {
+    "viewers": 150,
+    "fill": 1,
+    "distanceQuality": 1,
+    "recall": 0.287,
+    "stale": 0,
+    "sybilShare": 0.29
+   },
+   "audience": {
+    "mean": 399,
+    "p50": 398,
+    "p99": 531,
+    "max": 658
+   }
+  }
+ ]
+}

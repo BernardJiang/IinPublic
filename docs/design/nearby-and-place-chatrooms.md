@@ -547,6 +547,277 @@ Older splits without a threshold keep the legacy 1-in-4 identity digit.
 **Known limit:** groups of the same area that differ only by identity lane cannot be targeted by
 travel. Travel lands in your own lane.
 
+### 3.7 Proposed v3: personal Nearby lists (proposal 2026-10-18, not implemented)
+
+Status: **proposal**, agreed in direction with the product owner on 2026-10-18; it needs a new
+protocol epoch. Simulated in `docs/testing/nearby-gossip-experiment.md`. Tracking: `OPEN-70`.
+When implemented it replaces §3 to §3.3 and the Nearby parts of §3.6. Places (§4) stay rooms, with
+the changes in "Places in v3" below.
+
+**Why.** Room capacity exists only to bound traffic. It never required two people to share the
+same list of nearby people, and making them share one is what costs the most today:
+
+- a crowd in one place splits down one quadtree level at a time (10–20 room moves each; OPEN-68)
+  and merges back one level per 3-minute dwell;
+- every split record carries C + 1 = 499 signed presences (540 KB at C = 498), and every 15 s
+  heartbeat re-uploads the phone's whole cached chain (up to 7.5 MB);
+- in an arena, 30 groups share one map square and a user cannot move to any of them (§3.6
+  "Known limit").
+
+**Model.** Nearby is no longer a room. Each person has their own **nearby list** of at most `C`
+people. Two people's lists differ, and that is fine: if Adam's list has Eve and Eve's does not
+have Adam, Adam's Talks still reach Eve. Once Eve answers and they become Contacts, she reaches him
+directly. Places (below) and Contacts work as before.
+
+#### C is a manifest value, not a constant
+
+`C` (498 today) is the signed protocol manifest's `chatroomCapacity`, never a number in code. A
+later manifest may raise or lower it when real devices or networks call for it. Code, the model and
+the tests take `C` as a parameter; the unit gate runs at `C = 32`, the experiment at 498.
+
+v3 makes changing `C` cheap. Lists are personal, so nobody has to agree on a room's membership:
+
+- a phone that accepts a new manifest trims its list to the new `C` (keeping the best-ranked) or
+  lets gossip fill the extra slots;
+- phones still on the old value keep working with the new ones: a list of a different length is
+  just another asymmetric list;
+- no protocol epoch is needed, unlike v2, where `C` decides when rooms split.
+
+The manifest also carries the other v3 tunables, so they can change the same way: the gossip
+period, cards per swap, card lifetime, the hub's sample size per cell and the incoming limits. The
+v2 floor of `C ≥ 128` (OPEN-69) comes from the split depth and does not apply to v3; v3 sets its
+own range once device measurements exist.
+
+#### Cards
+
+A **card** is a signed, expiring record: public key, public point (§3.4, the centre of the
+privacy-floor square), and a timestamp. The owner re-signs it every few minutes. It carries no room
+id, no exact location and nothing private. A card replaces both the Nearby control presence and the
+map-presence record. Compact, a card is about 250 bytes.
+
+#### Ranking: distance, then my own hash order
+
+A list holds the `C` best cards by:
+
+1. **distance** between public points (people in the same square tie);
+2. **my hash order**, `hash(my key, their key, daily beacon)`.
+
+The hash makes everyone's order different, so in an arena different people list different 498s:
+everyone stays reachable and nobody is on far more lists than anyone else. It also gives a stable
+order for reaching beyond the first `C`: page 2 is the next 498 in my order.
+
+The order is **public**: anyone can compute where they rank in my list. That lets a gossip partner
+send me exactly the cards I would keep, which converges far faster than a secret order. The
+simulation compares both. A public order can be gamed by generating keys until some rank first for
+one victim. Two rules stop that:
+
+- the **daily beacon**, an unpredictable value in the signed protocol manifest, changes every
+  order each day;
+- only identities that existed **before** that beacon count in dense ties. The hub's user record
+  attests the account's creation time.
+
+An attacker then has to register fake accounts before knowing where they will rank, which brings
+them back to their population share.
+
+#### The hub: counts and introductions, not lists
+
+The hub never stores or serves anyone's nearby list. It keeps:
+
+1. **Statistics:** total users, users online, and online counts per cell of a geographic pyramid
+   (the existing quadtree levels). It counts verified heartbeats and does not keep identities for
+   counting. A per-minute Bloom filter stops one key from being counted twice. The pyramid also
+   feeds the map's density heat layer.
+2. **Introductions:** a bounded, rotating sample of recent cards per pyramid cell (64 in the
+   model). Newcomers start from it. In a sparse area the sample holds most of the people there,
+   because the hub cannot introduce lone people it does not know exist.
+3. **Connection setup** (WebRTC signalling), as today.
+
+The current yellow dots (everyone else in view) are retired: they would need the hub to serve every
+public point. The heat layer shows the crowd instead.
+
+#### Finding how far to look: pyramid plus 3×3 cells
+
+A list must reach farther when the area is sparse and stop sooner when it is dense, without walking
+500 million squares and without missing a crowd just across a cell edge. A newcomer's first cards
+come from the pyramid:
+
+1. Start at the finest level (the privacy-floor square).
+2. Look at the **3×3 block of cells around me** at that level, not just my own cell. Any point
+   within one cell width of me is inside the block, whatever the cell edges.
+3. Take a sample of cards from the block's cells.
+4. If the block holds at least `C` people, stop. Otherwise go up one level and repeat.
+
+The cost is at most about 24 levels × 9 counts, whatever the size of the world. A lone person in the
+desert climbs until the block reaches the nearest city. A lone person 3 km from an arena, but in a
+different cell, gets the arena from the first block that contains it. The cards then go through
+ranking, and gossip fills in the rest.
+
+#### When the search runs
+
+The pyramid search is not repeated on every heartbeat. It runs only:
+
+1. at first start;
+2. when my public point changes: I travel to a point on the map, or my GPS moves to another square
+   (past the existing 15 % edge hysteresis, §3.4);
+3. when my list has emptied, for example after a long time offline.
+
+Otherwise gossip keeps the list current, and newcomers find me through it. In a dense area the
+search does not climb at all: the first 3×3 block already holds `C` people, so it stops at the
+finest level. Only sparse areas climb, and only once per location change.
+
+**Places near me** use the same pyramid, with Place counts per cell instead of people. Places are
+public descriptors the hub already holds (§4.2), so this is an ordinary hub query. The list looks
+at the 3×3 block at the finest level and climbs only while the block holds fewer Places than the
+list shows (the nearest few). In a city with many Places it never leaves the finest level. Entering
+a Place does not run the people search; the Place's own sample seeds its member list.
+
+#### Gossip
+
+Every gossip period (30 s in the model), each phone swaps cards with one person from its list:
+
+1. Pick a person at random from the list.
+2. Send a compact digest of the cards I hold (for example a Bloom filter of keys and freshness).
+3. Each side sends up to 32 cards: its own fresh card, then the cards the other is missing or holds a
+   much older copy of, ranked the way the other would rank them.
+4. Merge, verify signatures, keep the freshest copy, drop expired cards, keep the top `C`.
+
+A card nobody refreshes expires after 30 periods (15 minutes). A swap or delivery attempt that gets
+no answer removes that person at once. Gossip uses whatever link exists: Internet, LAN, Bluetooth or
+Wi-Fi Direct. Offline, the phones I can reach are my list.
+
+**Beyond `C`:** "Show more people here" asks people on my list for cards ranked by my order,
+skipping the ones I already hold. It is orderly and repeatable, but not guaranteed complete.
+
+#### Delivering a Talk broadcast
+
+A broadcast is a loop over my list in rank order, not a fixed set of live links:
+
+1. Open a connection to the next person (direct, or through a relay hop if direct fails).
+2. Exchange compact inventories, so only Talks they do not already have are sent. A person who
+   already exchanged my Talks gets nothing again.
+3. Close the connection unless a conversation needs it, and move on.
+
+There is no fixed `K`. Concurrency adapts to the network: start with a few at a time, add more while
+connections succeed quickly, halve on timeouts. A full pass over 498 people at 1–2 s per connection
+and 8 at a time takes about 1–2 minutes. That is background work, so the UI shows progress
+("Sent to 120 of 498").
+
+**Receiving needs its own limit.** A list's size bounds what a person *sends*. What they *receive*
+is the number of lists they are on, which nothing bounds directly. The hash order keeps it near `C`
+on average, but each phone still accepts at most a fixed number of concurrent incoming connections
+and new Talks per minute, and tells the rest to retry later with backoff.
+
+#### Fake accounts and reputation (direction, not designed yet)
+
+Signatures stop anyone forging another person's card, but nothing stops someone creating many
+accounts. The simulation shows the public hash order keeps fakes to their population share
+(10.1 % for 10 %). That is still too much if one person runs thousands of accounts in one place,
+and fakes can always create Places and push Talks.
+
+Product direction (2026-10-18): **raise the credit needed for what matters, and let only reputable
+users create custom Places.** The details are still open. Starting points:
+
+- **Today's rule cannot be enforced.** Creating a Place needs 100 Contacts (§4.2), but Contacts are
+  private, so only the user's own app can count them.
+- **Most `Reputation` fields cannot be trusted.** Most are maintained by the user's own client
+  (`src/shared/types.ts`). Credit has to come from things other people or the hub sign:
+  - account age, from the hub's user record;
+  - age verification, which already needs three vouches (`AGE_VERIFICATION_THRESHOLD`);
+  - the number of distinct people who signed a match, a conversation or a review with this account;
+  - blocks and reports received.
+- **Possible uses of credit:**
+  - a minimum credit to create a Place (replacing the unenforceable Contacts rule);
+  - in dense ties, most list slots for credited accounts, with low-credit accounts sharing a small
+    fraction (for example 10 %), so a flood of fresh fakes cannot fill a list but newcomers are
+    still seen;
+  - the hub's introduction sample prefers credited accounts;
+  - stricter incoming limits for Talks from low-credit accounts.
+- **Open questions:**
+  - what exactly counts as credit, and with what weights;
+  - how to stop fake accounts vouching for each other (rings);
+  - how a genuine newcomer earns credit;
+  - whether credit is visible to other users.
+
+This must be decided before v3 ships, because it changes ranking, Place creation and the hub's
+sample.
+
+#### Map, list and headcounts
+
+- **Map:** fits itself to the people on my list. Green dots are my list, ★ is me, the heat layer
+  shows the crowd. An arena is one square with "498 of 10,000 here".
+- **List:** "People near you" (my list), then "Show more people here". The overlapping Nearby
+  groups ("Here · 2…") disappear. Places are listed as before.
+- **Headcounts:** "498 near you · 12,345 online". The first number is my own list; the second is
+  the hub's statistic. TechSupport stays a Contact and is never counted.
+
+#### Places in v3
+
+Places (§4) stay real rooms. They are how a business, an event or an interest group marks a spot on
+the map and draws people in. The Place descriptor, pin, lifecycle and creation limits (§4.2) are
+unchanged.
+
+- **Entering a Place** switches my Talk audience from my nearby list to the Place's members, as
+  today.
+- **Members find each other the same way as Nearby**, scoped to the Place: the hub keeps the
+  Place's headcount and a bounded sample of its members' cards, and members gossip cards tagged with
+  the Place id. Inside a Place everyone is "at" the Place, so ranking is my hash order alone.
+- **Up to `C` members:** everyone's list is everyone, so the Place behaves exactly like a shared
+  room, including its chat feed (`chatrooms/<placeId>/messages`).
+- **Above `C`:** each member sees their own 498, in their own order, and can page for more. A Place
+  is **never full**. The v1 first-`C` seat claims, two-phase reservation and reconciliation losses,
+  and the §4.1 cohort extension are no longer needed.
+- **Creators have no powers**, as today.
+
+Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contacts carry it.
+
+#### What v3 removes
+
+- the adaptive partition lineage, split and merge records and the server's partition store (§3.1);
+- the cohort control plane (§3.3) and Place seat claims (§4);
+- the Nearby part of `GET /api/active-rooms` and the map-presence index;
+- the tournament `K`-link schedule for Nearby delivery.
+
+#### Simulation results
+
+`scripts/nearby-gossip-experiment.ts` (model `src/test/support/nearby-gossip-model.ts`), C = 498,
+everyone arriving at once (the hardest start), 30 s gossip periods assumed. The model has no network
+timing, NAT failures or connection cost.
+
+- **Convergence:** lists reach 95 % of their true nearest-498 distance band in 1 round (498 people in
+  one city), 4 (2,000), 8 (a 10,000-person arena), 7 (lone people across the US plus an arena) and
+  5 (100,000 people in 40 cities plus a stadium): at most about 4 minutes.
+- **Pyramid seeding is what makes lone people work.** With the 3×3-block pyramid, lone people across
+  the US reach 95 % in 7 rounds. With a plain regional + worldwide sample they never get there in
+  30 rounds, and 100,000 people need 22 rounds instead of 5.
+- **Balance:** everyone is on 498 lists on average. The most-listed person is on 584 lists in the
+  arena (1.2 × C), 795 in a 2,000-person city and 1,125 at 100,000 (2.3 × C): people at the centre
+  of a crowd are nearest to more people. That is why receiving needs its own limit.
+- **Data:** about 64 cards sent per person per gossip period, about 1.9 MB per hour at 250 bytes per
+  card, versus up to 1.7 GB per hour for the current v2 heartbeat once rooms split.
+- **Public vs secret order:** the same distance quality, but a public order lets partners send
+  exactly the cards I would keep. With a secret order, the arena's exact first page is only 34 %
+  found after 30 rounds (99 % with the public order).
+- **Fake accounts:** 10 % fake accounts that pass on no honest cards and push only each other end up
+  with 10.1 % of honest lists under the public order (their fair share; honest recall 99 %), but
+  29 % under the secret order, which cannot target. Grinding keys against one victim is not
+  modelled; the daily beacon and identity-age rule above are the defence.
+- **Churn:** after 20 % leave without a goodbye and as many arrive, newcomers reach 84–90 % within
+  20 rounds. Departed people's cards hold about 16 % of slots until they expire at 15 minutes. A
+  shorter card lifetime starved the lists (they could not keep 498 fresh cards by gossip alone), so
+  the broadcast loop's failed contacts are what clear them in practice.
+
+Results: `docs/testing/nearby-gossip-experiment.md`. Unit gate:
+`src/test/unit/nearby-gossip-personal-lists.test.ts`.
+
+#### Open questions before implementation
+
+- Real connection cost per contact on phones and over mobile data (the model has no timing).
+- Exact incoming limits per phone.
+- The credit model for fake accounts (above).
+- Whether 30 s gossip periods are affordable on battery; the model counts cards, not radio time.
+- A migration plan: v3 is a new protocol epoch, so v2 and v3 phones do not see each other's
+  Nearby until both are updated.
+
 ## 4. Place rooms and map travel
 
 Any user may publish an immutable, signed, content-addressed Place descriptor containing a display
