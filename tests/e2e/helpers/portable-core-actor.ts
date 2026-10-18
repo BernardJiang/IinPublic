@@ -55,7 +55,33 @@ export async function runPortableJestOnActor(
   bundlePath: string,
 ): Promise<PortableJestReport> {
   const source = await readFile(bundlePath, 'utf8');
-  await actor.page.evaluate(source);
-  await actor.page.waitForFunction(() => window.__iinpublicPortableJest?.schemaVersion === 1);
-  return actor.page.evaluate(() => window.__iinpublicPortableJest!.run());
+  // In a same-origin iframe: the unit files spy on globals and fake setTimeout/Date, which in the
+  // app's own window would capture the running app's timers and lose them. The iframe has its own
+  // window (timers, Date, gun) and the app's secure origin (crypto.subtle). It loads the node's
+  // inert /health JSON, not about:blank: gun/sea redirects any page that is not https, localhost
+  // or 127.x to https (`location.protocol = 'https:'`), which navigated a blank frame mid-run.
+  const name = `iinpublic-portable-jest-${Date.now()}`;
+  await actor.page.evaluate((frameName) => new Promise<void>((resolve) => {
+    const frame = document.createElement('iframe');
+    frame.name = frameName;
+    frame.style.display = 'none';
+    frame.onload = () => resolve();
+    frame.src = '/health';
+    // Outside <body>, so the app's own rendering never moves it (moving an iframe reloads it).
+    document.documentElement.appendChild(frame);
+  }), name);
+  try {
+    let frame = actor.page.frame({ name });
+    for (let attempt = 0; !frame && attempt < 50; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      frame = actor.page.frame({ name });
+    }
+    if (!frame) throw new Error('the portable Jest iframe never attached');
+    await frame.evaluate(source);
+    // A hidden iframe never paints, so poll on a timer, not requestAnimationFrame.
+    await frame.waitForFunction(() => window.__iinpublicPortableJest?.schemaVersion === 1, undefined, { polling: 100 });
+    return await frame.evaluate(() => window.__iinpublicPortableJest!.run());
+  } finally {
+    await actor.page.evaluate((frameName) => document.querySelector(`iframe[name="${frameName}"]`)?.remove(), name).catch(() => undefined);
+  }
 }

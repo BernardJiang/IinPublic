@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.160",
+  "version": "1.0.165",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -60,6 +60,7 @@
     "smoke:embedded-node": "npm run build:embedded && node scripts/smoke-embedded-node.js",
     "smoke:embedded-node-mobile": "npm run mobile:stage && node scripts/smoke-embedded-node-mobile.js",
     "test:e2e:embedded-node": "npm run build:embedded && E2E_GUN_MEMORY_ONLY=1 playwright test --config tests/e2e/embedded-node/playwright.config.ts",
+    "test:e2e:production-web": "npm run build:embedded && E2E_STATIC_WEB=1 E2E_PRODUCTION_WEB=1 playwright test tests/e2e/staged/stage1-single-user/93-production-encounter-picker.spec.ts --project=chromium",
     "test:e2e:phone-path": "npm run build:embedded && playwright test --config tests/e2e/phone-path/playwright.config.ts",
     "test:e2e:phone-path:slow-hub": "npm run build:embedded && E2E_HUB_API_DELAY_MS=400 playwright test --config tests/e2e/phone-path/playwright.config.ts",
     "test:e2e:native-app": "npm run desktop:dist:dir && playwright test --config tests/e2e/native-app/playwright.config.ts",

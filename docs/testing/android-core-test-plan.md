@@ -156,7 +156,21 @@ stats dashboard) where a phone adds nothing. The order:
      `find-similar` 100k-population 1 s budget took 1,051 ms on the C10.
    - Next, to grow it: give the runtime `jest.fn`/`jest.spyOn` (119 files are excluded only for
      `jest.*`), and inject `Buffer` where the app ships one.
-2. **Two-phone journeys behind `TestActor`:** Talk delivery, answering, matching, the resulting
+   - **Grown (2026-10-17/18, 1.0.161-164): 148 files, 1,546 tests.** The runtime now has
+     `jest.fn`/`jest.spyOn`, the call/return matchers and modern fake timers
+     (`portable-jest/mocks.ts`; module mocks still keep a file host-only), and web imports are
+     allowed. Because fake timers and spies patch globals, a phone runs the suite in a sandbox: a
+     same-origin iframe loaded from `/health` in the WebView (an `about:blank` frame was navigated
+     away by gun/sea's https redirect) and a worker thread in embedded Node. Selection now runs the
+     Node bundle as the phones do (worker, no Node 19+ globals such as `crypto` and `CustomEvent`,
+     no `\p{...}` regex literals since there is no ICU) and drops any file whose test ids differ
+     from real Jest. Each of those rules came from a phone run that failed first.
+   - Coverage floor: `src/test/support/portable-jest/coverage-floor.json`; the host step fails on
+     any drop below it. Every sweep ends with a per-phone coverage table
+     (`playwright-report-android/coverage.md`).
+2. **Two-phone journeys behind `TestActor` (done 2026-10-18):** `tests/e2e/journeys/` holds the
+   bodies; phone-path/02 and /04 run them with host phone nodes and native-app/37 and /38 with two
+   real phones (talk → answer → match → P2P chat; mismatch; block; leave). Planned scope: Talk delivery, answering, matching, the resulting
    conversation, blocks, change of mind, and retraction (`staged/stage2`, `talks-matching`). One
    spec runs with browser actors on the Mac and with phone actors in the sweep.
 3. **Three- and four-phone journeys:** Nearby splits, capacity, and cohorts, picked from

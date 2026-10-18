@@ -49,7 +49,8 @@ NATIVE_APP_ANDROID_SERIALS=serial1,serial2,serial3 npm run test:e2e:android-swee
 Two phones run the mixed-release, one-phone, cross-runtime, matrix, and sleep/wake gates. A third
 adds offline/resync, offline Wi-Fi Direct, and cohort traversal. A fourth adds online four-phone
 nearby convergence. A phone with a ready SIM adds the cellular gate 29 (that phone on mobile data,
-against the public hub); a second SIM phone adds 29 again with both phones on mobile data. Spec 36
+against the public hub); a second SIM phone adds 29 again with both phones on mobile data. The two-person
+journeys 37/38 (shared with phone-path/02 and /04) run beside the cellular gate. Spec 36
 (runtime permissions asked once at first launch) runs last, on every phone at once. Missing tiers
 are reported as "not scheduled," not silently shown as passing. The sweep continues after an individual gate fails, prints one failure summary,
 and exits nonzero after restoring the latest APK.

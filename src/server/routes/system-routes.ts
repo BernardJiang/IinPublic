@@ -184,9 +184,35 @@ type RegisterSystemRoutesDeps = {
 async function runPortableJestBundle(): Promise<unknown> {
   const bundle = path.resolve(__dirname, '..', '..', '..', 'device-tests', 'portable-jest-node.cjs');
   if (!fs.existsSync(bundle)) return null;
+  // In a worker thread: the unit files spy on globals and fake setTimeout/Date, which inside this
+  // process would capture the live node's own timers (Gun, presence, relays) and lose them.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { runPortableJest } = require(bundle) as { runPortableJest: () => Promise<unknown> };
-  return runPortableJest();
+  const { Worker } = require('worker_threads') as typeof import('worker_threads');
+  const worker = new Worker(
+    // A test's stray async error must not end the run (a worker dies on one where this process
+    // has its own handlers, and host Jest carries on); the report lists them instead.
+    `const { parentPort, workerData } = require('worker_threads');
+     const unhandledErrors = [];
+     const record = (error) => { if (unhandledErrors.length < 20) unhandledErrors.push(String(error && error.stack || error).slice(0, 400)); };
+     process.on('unhandledRejection', record);
+     process.on('uncaughtException', record);
+     require(workerData.bundle).runPortableJest().then(
+       (report) => parentPort.postMessage({ report: { ...report, unhandledErrors } }),
+       (error) => parentPort.postMessage({ error: String(error && error.stack || error) }),
+     );`,
+    { eval: true, workerData: { bundle } },
+  );
+  try {
+    const message = await new Promise<{ report?: unknown; error?: string }>((resolve, reject) => {
+      worker.once('message', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`portable Jest worker exited with code ${code}`)));
+    });
+    if (message.error) throw new Error(message.error);
+    return message.report;
+  } finally {
+    void worker.terminate();
+  }
 }
 
 export function registerSystemRoutes(

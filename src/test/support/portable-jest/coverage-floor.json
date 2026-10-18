@@ -1,0 +1,5 @@
+{
+  "comment": "Minimum portable unit coverage on phones (scripts/run-portable-jest-host.mjs fails below it). Lower it only on purpose, in the same change that drops the tests; raise it when coverage grows.",
+  "files": 148,
+  "tests": 1546
+}

@@ -351,6 +351,17 @@ describe('forward-authorized protocol manifests', () => {
     ]));
   });
 
+  it('production refuses a capacity below 128, which strands full groups in dense places (OPEN-69)', () => {
+    const at = new Date('2026-10-05T00:00:00.000Z');
+    const withCapacity = (capacity: number) => body({ sequence: 2, previousManifestHash: H1, signerForNext: k3, recovery, capacity });
+    expect(evaluateProtocolManifestCompatibility(withCapacity(64), PRODUCTION_PROTOCOL_MANIFEST_RUNTIME, at).reasons)
+      .toContain('chatroom capacity is outside local safety bounds');
+    expect(evaluateProtocolManifestCompatibility(withCapacity(128), PRODUCTION_PROTOCOL_MANIFEST_RUNTIME, at).reasons)
+      .not.toContain('chatroom capacity is outside local safety bounds');
+    expect(evaluateProtocolManifestCompatibility(withCapacity(498), PRODUCTION_PROTOCOL_MANIFEST_RUNTIME, at).reasons)
+      .not.toContain('chatroom capacity is outside local safety bounds');
+  });
+
   it('round-trips a strict durable checkpoint and rejects malformed state', async () => {
     const m2 = await signProtocolManifest(body({
       sequence: 2,

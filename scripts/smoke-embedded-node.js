@@ -40,9 +40,9 @@ function fail(message) {
   process.exitCode = 1;
 }
 
-function httpGet(p) {
+function httpGet(p, timeout = 5000) {
   return new Promise((resolve, reject) => {
-    const req = http.get({ host: '127.0.0.1', port: PORT, path: p, timeout: 5000 }, (res) => {
+    const req = http.get({ host: '127.0.0.1', port: PORT, path: p, timeout }, (res) => {
       let body = '';
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => resolve({ statusCode: res.statusCode, body }));
@@ -162,7 +162,8 @@ async function main() {
     }
 
     if (portableCore) {
-      const core = await httpGet('/api/test/portable-core');
+      // Runs every portable unit file (~1,600 tests) in a worker thread.
+      const core = await httpGet('/api/test/portable-core', 120000);
       if (core.statusCode !== 200) {
         fail(`GET /api/test/portable-core returned ${core.statusCode}: ${core.body}`);
       } else {
@@ -171,6 +172,11 @@ async function main() {
           fail(`portable core report is invalid: ${core.body}`);
         } else {
           console.log(`[smoke] embedded Node portable core -> ${body.report.passed}/${body.report.total} PASS`);
+        }
+        if (body.jest && body.jest.failed !== 0) {
+          fail(`embedded Node portable unit files: ${body.jest.failed} failed`);
+        } else if (body.jest) {
+          console.log(`[smoke] embedded Node portable unit files -> ${body.jest.passed} passed, ${body.jest.skipped} skipped in ${body.jest.files} files`);
         }
       }
     }

@@ -41,7 +41,10 @@ export const PRODUCTION_PROTOCOL_MANIFEST_RUNTIME: ProtocolManifestRuntimePolicy
     'sparse-room-mesh-v1',
   ]),
   supportedExtensions: Object.freeze([]),
-  minimumChatroomCapacity: 1,
+  // Below 128, binary identity lanes exhaust the 24-level partition in a very dense place and leave
+  // full groups that refuse joins (OPEN-69; docs/testing/nearby-capacity-experiment.md: C = 64
+  // stranded 436 groups at a million people). A manifest outside these bounds is not adopted.
+  minimumChatroomCapacity: 128,
   maximumChatroomCapacity: 10_000,
 });
 

@@ -5,15 +5,15 @@
 //                                                        unchanged by src/test/support/portable-jest
 // The Jest files are the ones listed in src/test/support/portable-jest/suites.json. Refresh that
 // list with `node scripts/build-portable-core-test-bundle.mjs --select`: it takes every unit file
-// that uses no jest.* mocks, Node built-ins, DOM, or server/web imports, then drops (with the
-// reason) any that does not bundle for an old WebView or does not pass in host Node and headless
-// Chromium under the portable runtime. Excluded files stay host-only; they are never half-run.
+// that uses no module mocks, Node built-ins, DOM, or server imports, then drops (with the reason)
+// any that does not bundle for an old WebView or embedded Node, or does not pass in host Node and
+// headless Chromium under the portable runtime. Excluded files stay host-only; never half-run.
 
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { runPortableJestNodeBundle } from './lib/portable-jest-node-worker.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDirectory = path.join(repoRoot, 'dist', 'device-tests');
@@ -96,6 +96,7 @@ const NODE_BUILTINS = /from ['"](node:|fs|path|os|crypto|child_process|http|http
 const HOST_ONLY_BY_DESIGN = {
   'room-topology-million.test.ts': 'scale simulation: host-only by design',
   'nearby-capacity-simulation.test.ts': 'scale simulation: host-only by design',
+  'nearby-adaptive-capacity.test.ts': 'scale simulation: host-only by design',
 };
 
 // Single tests skipped on phones (reported as skipped, so their ids still match the host): timing
@@ -105,23 +106,34 @@ const HOST_ONLY_TESTS = {
     'host-calibrated 1 s budget over a 100k population (1,051 ms on the C10, 2026-10-17)',
 };
 
+// jest.* the portable runtime provides (src/test/support/portable-jest/mocks.ts). Mock/Mocked/
+// MockedFunction/SpyInstance are types only.
+const PORTABLE_JEST_APIS = new Set([
+  'fn', 'spyOn', 'isMockFunction', 'clearAllMocks', 'resetAllMocks', 'restoreAllMocks', 'setTimeout',
+  'useFakeTimers', 'useRealTimers', 'advanceTimersByTime', 'advanceTimersByTimeAsync', 'runAllTimers',
+  'runAllTimersAsync', 'runOnlyPendingTimers', 'runOnlyPendingTimersAsync', 'clearAllTimers',
+  'getTimerCount', 'setSystemTime', 'getRealSystemTime', 'now',
+  'Mock', 'Mocked', 'MockedFunction', 'MockedObject', 'SpyInstance', 'MockInstance', 'Spied',
+]);
+
 function staticExclusion(source) {
-  if (/\bjest\./.test(source)) return 'uses jest.* (mocks, timers, or spies)';
+  const unsupported = [...new Set([...source.matchAll(/\bjest\.(\w+)/g)].map((match) => match[1]))]
+    .filter((api) => !PORTABLE_JEST_APIS.has(api));
+  if (unsupported.length) return `uses jest.${unsupported.join(', jest.')} (module mocks stay host-only)`;
   if (NODE_BUILTINS.test(source)) return 'imports a Node built-in';
   if (/\brequire\(/.test(source)) return 'uses require()';
   if (/@testing-library|jsdom|@jest-environment/.test(source)) return 'needs a DOM test environment';
   if (/\b(document|window|localStorage|navigator)\./.test(source)) return 'uses the DOM or browser globals';
-  if (/from ['"]\.\.\/\.\.\/(server|web)\//.test(source)) return 'imports server or web code';
+  // Web code is what the app's WebView runs anyway; whether it also runs in embedded Node is
+  // decided by actually running it below. Server code never runs on a phone.
+  if (/from ['"]\.\.\/\.\.\/server\//.test(source)) return 'imports server code';
   if (/from ['"]\.\.\/(support|helpers|fixtures)\//.test(source)) return 'imports host test helpers';
   return '';
 }
 
 async function hostReport(files) {
   await jestBuild(files, 'node');
-  const require = createRequire(import.meta.url);
-  const bundle = path.join(outputDirectory, 'portable-jest-node.cjs');
-  delete require.cache[bundle];
-  return require(bundle).runPortableJest();
+  return runPortableJestNodeBundle(path.join(outputDirectory, 'portable-jest-node.cjs'));
 }
 
 async function chromiumReport(files) {
@@ -140,6 +152,23 @@ async function chromiumReport(files) {
   }
 }
 
+/** Test ids host Jest reports for these files ("describe › … › test"), keyed by file name. */
+async function realJestIds(files) {
+  const { spawnSync } = await import('node:child_process');
+  const { tmpdir } = await import('node:os');
+  const output = path.join(tmpdir(), `portable-jest-select-${process.pid}.json`);
+  spawnSync(path.join(repoRoot, 'node_modules', '.bin', 'jest'), [
+    '--json', `--outputFile=${output}`, ...files.map((file) => `src/test/unit/${file}`),
+  ], { cwd: repoRoot, stdio: 'ignore' });
+  const report = JSON.parse(await readFile(output, 'utf8'));
+  const ids = new Map();
+  for (const result of report.testResults) {
+    const file = path.basename(result.name);
+    ids.set(file, result.assertionResults.map((assertion) => [...assertion.ancestorTitles, assertion.title].join(' › ')));
+  }
+  return ids;
+}
+
 async function select() {
   const all = (await readdir(unitDirectory)).filter((file) => file.endsWith('.test.ts')).sort();
   const excluded = [];
@@ -150,12 +179,21 @@ async function select() {
     else included.push(file);
   }
   for (const file of [...included]) {
-    try {
-      await jestBuild([file], 'webview', false);
-    } catch (error) {
-      const message = error?.errors?.[0]?.text || String(error);
-      excluded.push({ file, reason: `does not bundle for ${WEBVIEW_TARGET}: ${message}` });
-      included = included.filter((name) => name !== file);
+    for (const [kind, target] of [['webview', WEBVIEW_TARGET], ['node', 'embedded Node']]) {
+      try {
+        const result = await jestBuild([file], kind, false);
+        // Embedded Node on the phones has no ICU: a /\p{L}/u literal anywhere in the bundle is a
+        // syntax error that stops every file from loading (1.0.161). `new RegExp('\\p{L}')` inside
+        // a try, as src/shared/reputation.ts does, is fine; that form is a string, not a literal.
+        if (kind === 'node' && /(^|[^\\])\\p\{/.test(result.outputFiles[0].text)) {
+          throw new Error('a Unicode property escape (\\p{...}) regex literal, which embedded Node without ICU cannot compile');
+        }
+      } catch (error) {
+        const message = error?.errors?.[0]?.text || String(error);
+        excluded.push({ file, reason: `does not bundle for ${target}: ${message}` });
+        included = included.filter((name) => name !== file);
+        break;
+      }
     }
   }
   // Repeat until nothing more fails: a file that throws while loading a shared module (gun's
@@ -163,7 +201,7 @@ async function select() {
   // then pass by accident. Removing the first file exposes the second.
   for (let changed = true; changed;) {
     changed = false;
-    for (const [runtime, run] of [['host Node', hostReport], ['headless Chromium', chromiumReport]]) {
+    for (const [runtime, run] of [['host Node as embedded Node 18', hostReport], ['headless Chromium', chromiumReport]]) {
       const report = await run(included);
       for (const fileReport of report.reports.filter((entry) => entry.failed > 0)) {
         const first = fileReport.results.find((result) => !result.passed);
@@ -172,6 +210,18 @@ async function select() {
         changed = true;
       }
     }
+  }
+  // The phones must report exactly host Jest's test ids (native-app/34). A name the portable
+  // runtime formats differently (Jest prints `%o` with Node's util.inspect) keeps its file host-only.
+  const jestIds = await realJestIds(included);
+  const portableIds = await hostReport(included);
+  for (const fileReport of portableIds.reports) {
+    const mine = fileReport.results.map((result) => result.id).sort();
+    const theirs = (jestIds.get(fileReport.file) || []).sort();
+    if (JSON.stringify(mine) === JSON.stringify(theirs)) continue;
+    const differing = mine.find((id) => !theirs.includes(id)) || theirs.find((id) => !mine.includes(id));
+    excluded.push({ file: fileReport.file, reason: `test ids differ from host Jest: ${differing}` });
+    included = included.filter((name) => name !== fileReport.file);
   }
   excluded.sort((a, b) => a.file.localeCompare(b.file));
   await writeFile(suitesPath, `${JSON.stringify({

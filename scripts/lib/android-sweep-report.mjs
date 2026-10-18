@@ -116,6 +116,51 @@ function mergeBlobs() {
 }
 
 /** Owner only: print every step of every phase, then merge the blobs. Returns true if all passed. */
+// ------------------------------------------------------------------------------ coverage
+
+/** native-app/34 records what each phone ran (contracts and unit files, per runtime). */
+export function coverageFile(serial) {
+  const stepsFile = process.env.ANDROID_SWEEP_STEPS_FILE;
+  return stepsFile ? path.join(path.dirname(stepsFile), `coverage-${serial.replace(/[^A-Za-z0-9]/g, '')}.json`) : '';
+}
+
+function readCoverage(steps) {
+  const stepsFile = process.env.ANDROID_SWEEP_STEPS_FILE;
+  const dir = stepsFile ? path.dirname(stepsFile) : '';
+  const phones = dir && fs.existsSync(dir)
+    ? fs.readdirSync(dir).filter((name) => /^coverage-.*\.json$/.test(name))
+      .map((name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')))
+    : [];
+  return phones.map((phone) => ({
+    ...phone,
+    // Every phone step that names this phone: journeys, gates, installs.
+    steps: steps.filter((step) => step.label.includes(phone.serial)).map((step) => ({ label: step.label, ok: step.ok })),
+  }));
+}
+
+const count = (runtime) => (runtime ? `${runtime.passed}/${runtime.total}${runtime.failed ? ` (${runtime.failed} failed)` : ''}` : 'not run');
+
+/** One table: what every phone ran and passed. Saved beside the HTML report as coverage.md/.json. */
+function writeCoverage(steps) {
+  const phones = readCoverage(steps);
+  if (phones.length === 0) return;
+  const lines = [
+    '| Phone | Android | Contracts (WebView / Node) | Unit tests (WebView / embedded Node) | Same ids as host | Other steps naming it |',
+    '|---|---|---|---|---|---|',
+    ...phones.map((phone) => {
+      const others = phone.steps.filter((step) => !/portable core contracts/.test(step.label));
+      const passed = others.filter((step) => step.ok).length;
+      return `| ${phone.model} (${phone.serial}) | ${phone.release} (SDK ${phone.sdk}) | ${count(phone.contracts?.webView)} / ${count(phone.contracts?.node)} | ${count(phone.jest?.webView)} / ${count(phone.jest?.node)} | ${phone.sameIdsAsHost ? 'yes' : '**no**'} | ${passed} of ${others.length} passed |`;
+    }),
+  ];
+  console.log('\n[android-report] ───────────── every phone ─────────────');
+  for (const line of lines) console.log(`  ${line}`);
+  fs.mkdirSync(ANDROID_REPORT_DIR, { recursive: true });
+  fs.writeFileSync(path.join(ANDROID_REPORT_DIR, 'coverage.md'), `# Android coverage, ${new Date(startedAt).toISOString()}\n\n${lines.join('\n')}\n`);
+  fs.writeFileSync(path.join(ANDROID_REPORT_DIR, 'coverage.json'), `${JSON.stringify(phones, null, 1)}\n`);
+  console.log(`[android-report] per-phone coverage: ${path.relative(root, path.join(ANDROID_REPORT_DIR, 'coverage.md'))}`);
+}
+
 export function finishSweepReport() {
   if (!owner) return true;
   const steps = readSteps();
@@ -127,6 +172,7 @@ export function finishSweepReport() {
   }
   console.log(`[android-report] ${steps.length - failed.length} of ${steps.length} step(s) passed; total ${formatSeconds(Math.round((Date.now() - startedAt) / 1000))}`);
   if (failed.length) console.log(`[android-report] failed: ${failed.map((step) => `[${step.phase}] ${step.label}`).join('; ')}`);
+  writeCoverage(steps);
   mergeBlobs();
   return failed.length === 0;
 }

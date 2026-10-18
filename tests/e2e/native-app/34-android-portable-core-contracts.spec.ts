@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   closeAndroidUser,
@@ -38,7 +38,7 @@ test.describe('Android portable core contracts', () => {
   });
 
   test('runs the same deterministic core cases and unit files in the app WebView and embedded Node', async ({}, testInfo) => {
-    // ~1,150 unit tests in each runtime; an Android 7 phone takes about a minute.
+    // ~1,630 unit tests in each runtime; an Android 7 phone takes a few minutes.
     test.setTimeout(10 * 60_000);
     test.skip(!ENABLED, 'Set E2E_REAL_ANDROID_CORE=1 through npm run test:android:core.');
     test.skip(!ANDROID_SERIAL, 'NATIVE_APP_ANDROID_SERIAL is required.');
@@ -58,7 +58,6 @@ test.describe('Android portable core contracts', () => {
       runtime: 'android-webview',
       page: user.window,
     }, BUNDLE_PATH);
-    // Embedded Node first: the WebView unit bundle loads its own gun into this page.
     const embeddedNode = await user.window.evaluate(async () => {
       const response = await fetch('/api/test/portable-core', { cache: 'no-store' });
       const body = await response.json();
@@ -81,7 +80,24 @@ test.describe('Android portable core contracts', () => {
       contentType: 'application/json',
     });
 
-    expect(embeddedNode.status).toBe(200);
+    // The sweep's per-phone coverage table (scripts/lib/android-sweep-report.mjs coverageFile):
+    // written before the assertions, so a phone that fails is listed too.
+    const stepsFile = process.env.ANDROID_SWEEP_STEPS_FILE;
+    if (stepsFile) {
+      const nodeReport = embeddedNode.body?.jest as PortableJestReport | null | undefined;
+      const summary = (report: { passed: number; failed: number; skipped?: number; total: number } | null | undefined) =>
+        (report ? { passed: report.passed, failed: report.failed, skipped: report.skipped ?? 0, total: report.total } : null);
+      await writeFile(path.join(path.dirname(stepsFile), `coverage-${ANDROID_SERIAL!.replace(/[^A-Za-z0-9]/g, '')}.json`), JSON.stringify({
+        ...(await readAndroidDeviceMetadata(ANDROID_SERIAL!)),
+        contracts: { webView: summary(webViewReport), node: summary(embeddedNode.body?.report) },
+        jest: { webView: summary(webViewJest), node: summary(nodeReport) },
+        expectedUnitTests: expectedJestIds.length,
+        sameIdsAsHost: JSON.stringify(jestIds(webViewJest)) === JSON.stringify(expectedJestIds)
+          && !!nodeReport && JSON.stringify(jestIds(nodeReport)) === JSON.stringify(expectedJestIds),
+      }, null, 1));
+    }
+
+    expect(embeddedNode.status, JSON.stringify(embeddedNode.body).slice(0, 600)).toBe(200);
     expect(embeddedNode.body.runtime).toBe('embedded-node');
     expect(embeddedNode.body.report.failed).toBe(0);
     expect(embeddedNode.body.report.results.map((result: { id: string }) => result.id)).toEqual(

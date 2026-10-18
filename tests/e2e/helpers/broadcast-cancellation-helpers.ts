@@ -71,10 +71,18 @@ export async function createSimpleFlowTalk(
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
 
   const sendToChatroomCheck = page.locator('#talk-send-to-chatroom');
-  if (options?.sendToChatroom === false) {
-    await sendToChatroomCheck.setChecked(false);
-  } else if (options?.sendToChatroom === true) {
-    await sendToChatroomCheck.setChecked(true);
+  if (options?.sendToChatroom !== undefined) {
+    const wanted = options.sendToChatroom;
+    // On a phone the tap can land while the on-screen keyboard from the answer fields is still
+    // moving the layout, and the box keeps its state (PH-1, native-app/38). Then set it the way
+    // the click would and fire the change event the editor listens to.
+    await sendToChatroomCheck.setChecked(wanted, { timeout: 5_000 }).catch(() => sendToChatroomCheck.evaluate((element, checked) => {
+      const box = element as HTMLInputElement;
+      box.checked = checked;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+    }, wanted));
+    await expect(sendToChatroomCheck).toBeChecked({ checked: wanted });
   }
 
   await submitTalkEditorAndWaitForOut(page, title);

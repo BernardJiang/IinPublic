@@ -1,10 +1,13 @@
 /**
- * A small Jest-compatible runtime so that pure unit files (src/test/unit, no jest.* mocks, no
- * Node built-ins, no DOM) run UNCHANGED on a phone: in the app WebView and in embedded Node.
- * It covers describe/it/test (.each/.skip/.only/.todo), the four hooks, and the matchers those
- * files use. A file that needs anything else is left out by scripts/build-portable-core-test-bundle.mjs
- * and stays host-only; it is never half-run.
+ * A small Jest-compatible runtime so that unit files (src/test/unit, no module mocks, no Node
+ * built-ins, no DOM) run UNCHANGED on a phone: in the app WebView and in embedded Node.
+ * It covers describe/it/test (.each/.skip/.only/.todo), the four hooks, the matchers those files
+ * use, and jest.fn / jest.spyOn / fake timers (./mocks). A file that needs anything else is left
+ * out by scripts/build-portable-core-test-bundle.mjs and stays host-only; it is never half-run.
  */
+import * as mocks from './mocks';
+
+const { realTimers } = mocks;
 
 type Fn = () => unknown | Promise<unknown>;
 
@@ -47,6 +50,7 @@ export function setHostOnlyTests(ids: readonly string[]): void {
 
 /** Called by the generated entry before each test file's module body runs. */
 export function beginFile(file: string): void {
+  mocks.setMockOwner(file);
   current = newSuite('');
   files.push({ file, root: current });
 }
@@ -61,6 +65,7 @@ export function fileLoadFailed(error: unknown): void {
 function show(value: unknown): string {
   try {
     if (typeof value === 'string') return JSON.stringify(value);
+    if (mocks.isMockFunction(value)) return `[MockFunction ${value.getMockName()}]`;
     if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
     if (typeof value === 'bigint') return `${value}n`;
     if (value instanceof Error) return `${value.name}: ${value.message}`;
@@ -321,6 +326,85 @@ function thrownMatches(error: unknown, expected: unknown): boolean {
 
 type MatcherResult = { pass: boolean; message: string };
 
+function mockOf(actual: unknown, matcher: string): mocks.PortableMock {
+  if (!mocks.isMockFunction(actual)) throw new AssertionError(`${matcher} needs a jest.fn() or jest.spyOn() mock, received ${show(actual)}`);
+  return actual;
+}
+
+function callsText(calls: unknown[][]): string {
+  return calls.length ? clip(calls.map((args) => show(args)).join(', ')) : 'no calls';
+}
+
+function mockMatchers(actual: unknown): Record<string, (...args: any[]) => MatcherResult> {
+  const called = (name: string) => () => {
+    const { calls } = mockOf(actual, name).mock;
+    return { pass: calls.length > 0, message: `expected the mock to have been called (${callsText(calls)})` };
+  };
+  const times = (name: string) => (n: number) => {
+    const { calls } = mockOf(actual, name).mock;
+    return { pass: calls.length === n, message: `expected ${n} call(s), received ${calls.length} (${callsText(calls)})` };
+  };
+  const calledWith = (name: string) => (...expected: unknown[]) => {
+    const { calls } = mockOf(actual, name).mock;
+    return { pass: calls.some((args) => equals(args, expected)), message: `expected a call with ${clip(show(expected))}; calls: ${callsText(calls)}` };
+  };
+  const lastCalledWith = (name: string) => (...expected: unknown[]) => {
+    const { calls } = mockOf(actual, name).mock;
+    const last = calls[calls.length - 1];
+    return { pass: !!last && equals(last, expected), message: `expected the last call to be ${clip(show(expected))}; calls: ${callsText(calls)}` };
+  };
+  const nthCalledWith = (name: string) => (n: number, ...expected: unknown[]) => {
+    const { calls } = mockOf(actual, name).mock;
+    const call = calls[n - 1];
+    return { pass: !!call && equals(call, expected), message: `expected call ${n} to be ${clip(show(expected))}; calls: ${callsText(calls)}` };
+  };
+  const returns = (name: string) => () => {
+    const { results } = mockOf(actual, name).mock;
+    return { pass: results.some((r) => r.type === 'return'), message: 'expected the mock to have returned' };
+  };
+  const returnTimes = (name: string) => (n: number) => {
+    const { results } = mockOf(actual, name).mock;
+    const count = results.filter((r) => r.type === 'return').length;
+    return { pass: count === n, message: `expected ${n} return(s), received ${count}` };
+  };
+  const returnedWith = (name: string) => (expected: unknown) => {
+    const { results } = mockOf(actual, name).mock;
+    return { pass: results.some((r) => r.type === 'return' && equals(r.value, expected)), message: `expected a return of ${clip(show(expected))}` };
+  };
+  const lastReturnedWith = (name: string) => (expected: unknown) => {
+    const { results } = mockOf(actual, name).mock;
+    const last = results[results.length - 1];
+    return { pass: !!last && last.type === 'return' && equals(last.value, expected), message: `expected the last return to be ${clip(show(expected))}` };
+  };
+  const nthReturnedWith = (name: string) => (n: number, expected: unknown) => {
+    const { results } = mockOf(actual, name).mock;
+    const result = results[n - 1];
+    return { pass: !!result && result.type === 'return' && equals(result.value, expected), message: `expected return ${n} to be ${clip(show(expected))}` };
+  };
+  return {
+    toHaveBeenCalled: called('toHaveBeenCalled'),
+    toBeCalled: called('toBeCalled'),
+    toHaveBeenCalledTimes: times('toHaveBeenCalledTimes'),
+    toBeCalledTimes: times('toBeCalledTimes'),
+    toHaveBeenCalledWith: calledWith('toHaveBeenCalledWith'),
+    toBeCalledWith: calledWith('toBeCalledWith'),
+    toHaveBeenLastCalledWith: lastCalledWith('toHaveBeenLastCalledWith'),
+    lastCalledWith: lastCalledWith('lastCalledWith'),
+    toHaveBeenNthCalledWith: nthCalledWith('toHaveBeenNthCalledWith'),
+    nthCalledWith: nthCalledWith('nthCalledWith'),
+    toHaveReturned: returns('toHaveReturned'),
+    toReturn: returns('toReturn'),
+    toHaveReturnedTimes: returnTimes('toHaveReturnedTimes'),
+    toReturnTimes: returnTimes('toReturnTimes'),
+    toHaveReturnedWith: returnedWith('toHaveReturnedWith'),
+    toReturnWith: returnedWith('toReturnWith'),
+    toHaveLastReturnedWith: lastReturnedWith('toHaveLastReturnedWith'),
+    lastReturnedWith: lastReturnedWith('lastReturnedWith'),
+    toHaveNthReturnedWith: nthReturnedWith('toHaveNthReturnedWith'),
+    nthReturnedWith: nthReturnedWith('nthReturnedWith'),
+  };
+}
+
 function matchers(actual: unknown): Record<string, (...args: any[]) => MatcherResult> {
   const a = actual as any;
   return {
@@ -375,6 +459,7 @@ function matchers(actual: unknown): Record<string, (...args: any[]) => MatcherRe
       }
       return { pass: false, message: `expected the function to throw${expected === undefined ? '' : ` ${show(expected)}`}` };
     },
+    ...mockMatchers(actual),
   };
 }
 
@@ -446,9 +531,27 @@ const expectApi = Object.assign((actual: unknown) => buildExpectation(actual), {
   hasAssertions: () => undefined,
 });
 
+const TEST_TIMEOUT_MS = 30_000;
+let testTimeoutMs = TEST_TIMEOUT_MS;
+
+const jestApi = {
+  fn: mocks.fn,
+  spyOn: mocks.spyOn,
+  isMockFunction: mocks.isMockFunction,
+  clearAllMocks: () => { mocks.clearAllMocks(); return jestApi; },
+  resetAllMocks: () => { mocks.resetAllMocks(); return jestApi; },
+  restoreAllMocks: () => { mocks.restoreAllMocks(); return jestApi; },
+  setTimeout: (ms: number) => { testTimeoutMs = ms; return jestApi; },
+  ...Object.fromEntries(Object.entries(mocks.timers).map(([name, method]) => [name, (...args: any[]) => {
+    const value = (method as (...a: any[]) => unknown)(...args);
+    return value === undefined ? jestApi : value;
+  }])),
+};
+
 /** Install the globals a Jest file expects. Called once by the generated entry. */
 export function installJestGlobals(target: Record<string, unknown>): void {
   Object.assign(target, {
+    jest: jestApi,
     describe: describeApi,
     it: testApi,
     test: testApi,
@@ -462,19 +565,18 @@ export function installJestGlobals(target: Record<string, unknown>): void {
 
 // --------------------------------------------------------------------------------- running
 
-const TEST_TIMEOUT_MS = 30_000;
-
 async function call(fn: Fn): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = testTimeoutMs;
   try {
     await Promise.race([
       Promise.resolve().then(fn),
       new Promise((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`timed out after ${TEST_TIMEOUT_MS} ms`)), TEST_TIMEOUT_MS);
+        timer = realTimers.setTimeout(() => reject(new Error(`timed out after ${limit} ms`)), limit);
       }),
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) realTimers.clearTimeout(timer);
   }
 }
 
@@ -521,7 +623,7 @@ async function runSuite(
       out.push({ id, passed: false, durationMs: 0, error: setupError });
       continue;
     }
-    const startedAt = Date.now();
+    const startedAt = realTimers.now();
     let error = '';
     try {
       for (const hook of hooks.beforeEach) await call(hook);
@@ -532,7 +634,7 @@ async function runSuite(
     for (const hook of hooks.afterEach) {
       try { await call(hook); } catch (caught) { error ||= `afterEach: ${errorText(caught)}`; }
     }
-    out.push({ id, passed: !error, durationMs: Date.now() - startedAt, ...(error ? { error } : {}) });
+    out.push({ id, passed: !error, durationMs: realTimers.now() - startedAt, ...(error ? { error } : {}) });
   }
   if (runnable) {
     for (const hook of suite.afterAll) {
@@ -543,11 +645,17 @@ async function runSuite(
 
 /** Run every registered file, one after another, and report each test by a stable id. */
 export async function runPortableJest(): Promise<PortableJestReport> {
-  const startedAt = Date.now();
+  const startedAt = realTimers.now();
   const reports: PortableJestFileReport[] = [];
   for (const { file, root } of files) {
     const results: PortableJestResult[] = [];
-    await runSuite(file, root, [], { beforeEach: [], afterEach: [] }, results);
+    testTimeoutMs = TEST_TIMEOUT_MS;
+    mocks.setMockOwner(file);
+    try {
+      await runSuite(file, root, [], { beforeEach: [], afterEach: [] }, results);
+    } finally {
+      mocks.endFileIsolation(file);
+    }
     const failed = results.filter((result) => !result.passed).length;
     const skipped = results.filter((result) => result.skipped).length;
     reports.push({ file, passed: results.length - failed - skipped, failed, skipped, results });
@@ -560,7 +668,7 @@ export async function runPortableJest(): Promise<PortableJestReport> {
     failed: sum('failed'),
     skipped: sum('skipped'),
     total: sum('passed') + sum('failed') + sum('skipped'),
-    durationMs: Date.now() - startedAt,
+    durationMs: realTimers.now() - startedAt,
     reports,
   };
 }

@@ -231,6 +231,24 @@ The partition manifest is protocol control data, not a tree of chatrooms. Groups
 user-visible parent, child, level, expandable node, or inherited room attributes. Repartitioning
 replaces flat groups atomically; it does not create a navigation hierarchy.
 
+**Simulation results (2026-10-17, `docs/testing/nearby-capacity-experiment.md`).** The production
+split rule, driven at 2, 498, 499, 10,000 and 1,000,000 people for C = 32, 64, 128, 256, 498 and
+1000:
+
+- C ≥ 128 keeps every room at or below C in every population; direct links stay at most K = 12 and
+  reciprocal. A member reads at most 24 lineage transitions.
+- C = 32 and 64 fail at a million people: two 50,000-seat stadiums sit below everyone's privacy
+  floor, the binary identity lanes exhaust the 24-level depth, and 1,449 (C = 32) and 436 (C = 64)
+  groups reach C + 1 with no split left, where the server refuses further joins. C = 32 also needs
+  32,378 splits, over the server's 16,384 transitions per checkpoint. C = 128 already reaches
+  depth 24 in those stadiums, so it is the smallest value with no margin left.
+- A crowd in one place splits down from the world root through empty quadrants: 499 people in one
+  city at C = 498 move 10 times each before settling (OPEN-68), and coalescing climbs back one
+  level per 3-minute dwell (39 min for one city at C = 128; 15-21 min at a million).
+
+So the simulation supports keeping `C` between 256 and 1000; 498 is inside that range. Real-device
+cost per room (OPEN-40-G2.5) still decides the value.
+
 ### 3.1 Implemented flat transition lineage
 
 The v2 runtime represents the manifest as bounded, independently verifiable lineage fragments

@@ -5,3 +5,12 @@
 import { installJestGlobals } from './runtime';
 
 installJestGlobals(globalThis as unknown as Record<string, unknown>);
+
+// The same test-only knobs src/test/setup.ts sets for host Jest (small retention windows and a
+// short enumeration settle), so web-service tests see the same configuration on a phone.
+Object.assign(process.env, {
+  NODE_ENV: 'test',
+  IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW: '500',
+  IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW: '200',
+  IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS: '20',
+});

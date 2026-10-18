@@ -417,7 +417,11 @@ its ID.
         keeps its own point.
       - Dev/E2E builds keep `__test_location`.
       - Behavior change: existing website users drop to Contacts only until they choose a point.
-      - [ ] Browser E2E for the picker → Nearby resolution (needs a production-mode web build).
+      - [x] Browser E2E for the picker → Nearby resolution (needs a production-mode web build).
+        → Done 2026-10-17: `stage1/93-production-encounter-picker` (`npm run test:e2e:production-web`
+        builds the production bundle): location refused → random Traveler point in Nearby, then
+        the picked point; location allowed → Resident at the browser fix with no picker; both share
+        the one Nearby room.
   - [ ] **P1 legacy migration:** stop old-room discovery before moving saved Global/tile/grid/custom
     memberships into Nearby or content-addressed Places. Preserve contacts, private data, Talk queues,
     receipts, and traveler intent without rebroadcasting old Talks. Retire obsolete capacity
@@ -441,11 +445,17 @@ its ID.
       10,000-person Nearby arena follows only over-capacity geographic branches, keeps every active
       room at or below `C`, keeps one opaque assignment per user, and proves the direct schedule is
       symmetric and at most `K=12`. Offset sparse arrivals converge through bounded widening.
-    - [ ] Replace the baseline with adaptive shared-room split/merge experiments at 2, 498, 499,
+    - [x] Replace the baseline with adaptive shared-room split/merge experiments at 2, 498, 499,
       10,000, and million-user scale. Measure control reads/writes, room churn, geographic diameter,
       merge convergence, boundary distribution, and `K` scheduling for
       `C=32/64/128/256/498/1000`. `C=498` remains arbitrary until these results justify a
       production value.
+      → Done 2026-10-17: `scripts/nearby-capacity-experiment.ts` (model:
+      `src/test/support/nearby-capacity-model.ts`, the production split rule) writes
+      `docs/testing/nearby-capacity-experiment.md`; `nearby-adaptive-capacity.test.ts` gates 2/498/499/
+      10,000 for every C. C ≥ 128 keeps every room ≤ C; C = 32/64 strand full groups at depth 24 in
+      50,000-seat stadiums and C = 32 exceeds the 16,384-transition bound at a million. Summary and
+      reading in the design doc §3; follow-ups OPEN-68 and OPEN-69.
     - [x] Current Nearby/LAN baseline on four physical Android phones (Android 7, 10, 10, and 14):
       all four independently derived the same opaque Nearby room, the hub roster converged to four,
       and a direct Talk reached the backgrounded Android 14 receiver and returned its end-recipient
@@ -724,12 +734,48 @@ phrase complexity into normal use.
     unit tests (`embedded-node-runtime-gaps.test.ts`): `sha256Hex` threw `crypto is not defined`
     (Node 18 has no global WebCrypto), and the dirty-word filter missed fullwidth letters (no ICU,
     so NFKC is a no-op). Also fixed a 1-in-16 flaky tamper in `nearby-partition.test.ts`.
-  - [ ] Grow step 1: `jest.fn`/`jest.spyOn` in the portable runtime (119 files are excluded only
+  - [x] Grow step 1: `jest.fn`/`jest.spyOn` in the portable runtime (119 files are excluded only
     for `jest.*`).
-  - [ ] Port the high-value 1-, 2-, 3-, and 4-person staged journeys to `TestActor` (steps 2–3);
-    keep mass, server-only, browser-engine, and desktop-native coverage on the host.
-  - [ ] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
+    → Done 2026-10-17/18 (1.0.161-164): `portable-jest/mocks.ts` adds jest.fn/spyOn, the call and
+    return matchers, and modern fake timers; web imports are allowed (the WebView runs them anyway).
+    148 files / 1,546 tests now run on phones (was 92 / 1,155). On a phone the suite runs in a
+    sandbox, because fake timers would otherwise capture the live app's timers: a same-origin
+    iframe in the WebView (not about:blank: gun/sea redirects any non-https, non-localhost page to
+    https and navigated it) and a worker thread in embedded Node. Selection emulates embedded
+    Node 18 (no global crypto/CustomEvent/…, no `\p{}` regex literals without ICU) and checks every
+    test id against real Jest; the phones' runs found each of these gaps first.
+  - [x] Step 2: the two-person journeys behind `TestActor` (2026-10-18). `tests/e2e/journeys/` holds
+    the bodies; phone-path/02 and /04 run them with host phone nodes and native-app/37 and /38 with
+    two real phones: talk → answer → match → P2P chat, mismatch, block, and leave (all pass on
+    P30+C10, PH-1+C10 and Honor FRD+C10). They run in `test:android:full` beside the cellular gate.
+    Found on the way (test harness): at phone width Broadcast sits in the "…" overflow, and a tap on
+    the Talk editor's checkbox can land while the keyboard moves the layout.
+  - [ ] Step 3: three- and four-person journeys behind `TestActor` (Nearby splits, capacity,
+    cohorts). Physical coverage exists as device-only specs (native-app/13, /30, /31); what is left
+    is sharing their bodies with the staged browser specs. Keep mass, server-only, browser-engine,
+    and desktop-native coverage on the host.
+  - [x] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
     per-device coverage report; make unexpected coverage loss fail CI/release qualification.
+    → Done 2026-10-18: every sweep ends with a per-phone table (contracts and unit tests per
+    runtime, same ids as host, and every other step that names the phone), saved as
+    `playwright-report-android/coverage.md` and `.json`. `src/test/support/portable-jest/
+    coverage-floor.json` (148 files / 1,546 tests) fails the core phase on any drop below it.
+- [ ] **OPEN-68 — A crowd in one place switches rooms once per quadtree level (found 2026-10-17 by
+  the capacity experiment).** A split always creates the four quadrants one level down, so a crowd in
+  one city descends from the world root through levels where everyone lands in the same child: 499
+  people in one city at C = 498 each switch rooms 10 times (and leave 29 empty groups); at a million
+  people the mean is 14-18 switches. Each switch is a stop-before-start room move with a new C + 1
+  certificate. Candidate fix: a split jumps straight to the first depth where its C + 1 witnesses
+  actually divide. That changes room assignment, so it needs a protocol epoch and the mixed-release
+  rules. Coalescing has the mirror cost: one level per 3-minute dwell (39 min to climb 13 levels).
+- [x] **OPEN-69 — Small C strands full groups in very dense places (found 2026-10-17 by the capacity
+  experiment; guarded 2026-10-17: production refuses a signed manifest with C < 128,
+  `production-protocol-manifest.ts`, unit test in `protocol-manifest.test.ts`).** Below everyone's privacy floor a group splits only by halving identity lanes, so a
+  place holds at most about C · 2^(24 − geographic depth) people. At a million people with two
+  50,000-seat stadiums, C = 32 left 1,449 and C = 64 left 436 groups at C + 1 with no split left
+  (the server refuses further joins), and C = 32 needs 32,378 transitions against the 16,384 bound.
+  C ≥ 128 is fine today; keep `C` ≥ 128 in any signed manifest, or use four-way lanes / a deeper
+  limit (protocol change) before allowing smaller values.
 - [x] **OPEN-66 — A DM sent from a phone on mobile data took 4–5 s to show up (found 2026-10-17 by
   `native-app/29`, fixed 2026-10-17, 1.0.160).** Talks over mobile data already arrived in 0.3–1.3 s
   (fixed in `4b9ebbde`), but a DM from the mobile-data phone took 4.0–5.1 s and the reverse 1.9–3.0 s.
@@ -1160,8 +1206,10 @@ phrase complexity into normal use.
   - **2026-10-11: durable root-cause watcher.** The GET route now sets `X-IinPublic-Roster-Source: fresh|cache`.
     `scripts/monitor-delegate-roster.sh` logs counts, roster source, RSS and uptime every 2 minutes from a systemd timer,
     installed per the VPS guide's "Delegate roster watcher" section.
-    - [ ] Deploy (production still runs v1.0.122, started 2026-10-08), install the timer, and read the log after the next
-      multi-day uptime. The root cause stays open until a `cache` line is caught.
+    - [x] Deployed `cea65cbc` (1.0.160) and installed the timer on 2026-10-17 (production had been on 1.0.150);
+      the first line reads `rosterSource: fresh`, 5 grants.
+    - [ ] Read `~/IinPublic/delegate-roster-monitor.jsonl` after several days of uptime (from 2026-10-24). The
+      root cause stays open until a `cache` line is caught; none caught means the cache keeps covering it.
 
 - [x] **OPEN-31 — TechSupport FAQ bundle does not scale (found 2026-09-24; IMPLEMENTED 2026-09-24, option 1: per-entry keyed storage).**
   - **Implemented (option 1).** Each answered question is now its own flat, individually signed record
@@ -1564,7 +1612,9 @@ review capacity is available and the issue is promoted after the website/Android
     - [x] Decide default-on once verified (today: off unless `wifi_direct_link=1`).
       → Decided: offline nearby mode is on by default, with Settings switches for Wi-Fi Direct and Bluetooth. The hub-matchmade *online* upgrade (`wifi_direct_link` flag) stays off by default — online pairs already connect directly, so it would only save relay bandwidth, and users were told Wi-Fi Direct runs only without internet.
 
-- [ ] **OPEN-38 — Receive talks while an Android 12+ phone sleeps.** The talk mesh runs in the
+- [x] **OPEN-38 — Receive talks while an Android 12+ phone sleeps (closed 2026-10-17: phones that keep
+  the foreground service get the wake notification, `native-app/28` passes in every sweep; phones
+  whose vendor force-stops the app are OPEN-44).** The talk mesh runs in the
   WebView page; Android 14 (C10) freezes that page while dozing, so a sleeping phone receives
   nothing until the app is opened, although the node service and the Wi-Fi Direct group stay up.
   Options: move mesh reception into the embedded node (foreground service), or have peers re-offer
@@ -1661,8 +1711,8 @@ review capacity is available and the issue is promoted after the website/Android
   non-production `POST /api/test/chatrooms/sweep` instead of waiting for the 30 s tick; 10/10).** Failed in two consecutive full runs at the 35 s headcount
   wait, passes alone every time. Root-cause the timing instead of widening the timeout blindly.
 
-- [ ] **OPEN-44 — Notify a sleeping phone whose vendor power layer blocks background timers
-  (found 2026-10-07, later).** On the C10 tablet (Android 14, Allwinner `powerguru`/`power_ex`)
+- [x] **OPEN-44 — Notify a sleeping phone whose vendor power layer blocks background timers
+  (found 2026-10-07; closed 2026-10-17 by product decision: scoped out, no OS push).** On the C10 tablet (Android 14, Allwinner `powerguru`/`power_ex`)
   the OPEN-38 mailbox watcher never runs while the screen is off: idle-allowed alarms are withheld
   regardless of forced Doze, Android's battery allowlist, or the device's per-app battery setting,
   and the vendor layer exposes no allowlist. A Talk that arrives after the app's page is frozen
@@ -1690,9 +1740,10 @@ review capacity is available and the issue is promoted after the website/Android
       screen-off. That ends the foreground service, embedded node, alarms and long-poll together.
     - [x] Measured: this C10 vendor layer does not merely drop the TCP connection; it force-stops
       the entire app process while asleep. No in-process retry can survive that state.
-    - [ ] Decide whether to add a content-free OS push wake (for example FCM when a hub is
-      reachable) or explicitly scope sleeping notifications to devices that preserve the
-      foreground service. Offline P2P cannot wake a force-stopped phone, and a permanent partial
+    - [x] Decided 2026-10-17 (product owner): no content-free OS push wake (FCM would add a Google
+      Play Services dependency). Sleeping notifications are scoped to devices that preserve the
+      foreground service; a force-stopped phone shows its Talks when IinPublic is next opened
+      (`docs/design/chatroom-scoped-p2p-traffic.md`, background levels). Offline P2P cannot wake a force-stopped phone, and a permanent partial
       wake lock is not an acceptable default because of battery cost.
 
 - [ ] **OPEN-25 — Complete the external transport security review (deferred).** Review cellular

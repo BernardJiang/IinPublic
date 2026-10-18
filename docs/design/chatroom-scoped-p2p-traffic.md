@@ -382,6 +382,10 @@ Background capability is intentionally described in three levels:
   operating-system-managed push transport (content-free FCM on Android, for example), which is not
   currently implemented and would only work when a reachable push/hub path exists. Fully offline
   delivery cannot wake a force-stopped phone.
+  Product decision (2026-10-17, OPEN-44): no OS push transport. It would add a Google Play
+  Services dependency to a decentralized app. A phone whose vendor force-stops the app while
+  asleep (measured: the C10 tablet, ~90 s after screen-off) shows its Talks and notifications the
+  next time IinPublic is opened; nothing is lost.
 
 `Always` means that native discovery and the embedded node keep trying under a visible persistent
 notification; it does not promise that Android will keep the WebView or even the process alive.

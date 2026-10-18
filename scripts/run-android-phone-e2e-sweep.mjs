@@ -376,12 +376,32 @@ try {
         NATIVE_APP_ANDROID_WIFI_PEER: peer,
         ...extra,
       });
-      if (cellular && wifiPeer) {
-        runNative('cellular phone and Wi-Fi phone exchange Talks and a DM', [
+      // The shared two-person journeys (tests/e2e/journeys/, also run by phone-path/02 and /04).
+      // With five phones they run on the two the cellular gate leaves idle, at the same time.
+      const busyForCellular = new Set([cellular, wifiPeer, sims[1]].filter(Boolean));
+      const idle = serials.filter((serial) => !busyForCellular.has(serial));
+      const journeyPair = idle.length >= 2 ? idle.slice(0, 2) : firstTwo;
+      const journeyStep = nativeStep(`two-person journeys on ${journeyPair.join(' and ')}: match and chat, mismatch, block, leave`, [
+        'tests/e2e/native-app/37-android-talk-match-chat-journey.spec.ts',
+        'tests/e2e/native-app/38-android-mismatch-block-leave.spec.ts',
+      ], {
+        ...commonEnv,
+        NATIVE_APP_ANDROID_SERIALS: journeyPair.join(','),
+        E2E_REAL_ANDROID_JOURNEYS: '1',
+        // Not 9078: 29 starts the config hub there when it runs beside this lane.
+        NATIVE_APP_E2E_GUN_PORT: '8978',
+      });
+      const cellularStep = cellular && wifiPeer
+        ? nativeStep('cellular phone and Wi-Fi phone exchange Talks and a DM', [
           'tests/e2e/native-app/29-android-cellular-talk-exchange.spec.ts',
-        ], cellularEnv(wifiPeer));
+        ], cellularEnv(wifiPeer))
+        : null;
+      if (!cellularStep) omissions.push('cellular gate 29 (no selected phone has a ready SIM)');
+      if (cellularStep && idle.length >= 2) {
+        await runSteps([cellularStep, journeyStep]);
       } else {
-        omissions.push('cellular gate 29 (no selected phone has a ready SIM)');
+        if (cellularStep) await runSteps([cellularStep]);
+        await runSteps([journeyStep]);
       }
       if (sims.length >= 2) {
         runNative(`two phones on mobile data (${sims[0]}, ${sims[1]}) exchange Talks and a DM`, [

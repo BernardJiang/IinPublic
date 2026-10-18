@@ -57,9 +57,20 @@ async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: n
   const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
 
   if (!(await preamble.isVisible().catch(() => false))) {
+    // On a phone-width screen the app bar moves Broadcast (priority 3) into the "…" overflow
+    // panel, as it does New Room and Return Home (phone-path helpers' clickAppBarAction).
+    const overflow = page.locator('#app-bar-overflow-btn');
+    if (!(await broadcastBtn.isVisible().catch(() => false)) && await overflow.isVisible().catch(() => false)) {
+      await overflow.evaluate((element) => (element as HTMLButtonElement).click());
+      await expect(page.locator('#app-bar-overflow-panel')).toHaveClass(/\bopen\b/);
+    }
     await expect(broadcastBtn).toBeVisible({ timeout: 10_000 });
-    await broadcastBtn.click({ timeout: 8_000 }).catch(() => {
-      // Audience preview can open the preamble while the click is in flight.
+    await broadcastBtn.click({ timeout: 8_000 }).catch(async () => {
+      // Audience preview can open the preamble while the click is in flight. Otherwise the click
+      // timed out on actionability: a phone's bottom bar keeps resizing with presence updates, so
+      // fire the production listener directly (as the nav helpers do).
+      if (await preamble.isVisible().catch(() => false)) return;
+      await broadcastBtn.evaluate((element) => (element as HTMLButtonElement).click()).catch(() => {});
     });
     await afterSync();
   }

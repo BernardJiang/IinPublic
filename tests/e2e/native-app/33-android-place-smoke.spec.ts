@@ -16,10 +16,8 @@
  * or as part of `npm run test:android:release-smoke`.
  */
 import { test, expect } from '@playwright/test';
-import { spawn, type ChildProcess } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import * as os from 'os';
-import * as path from 'path';
-import { bootstrapNativeWindow } from './helpers/native-app';
 import {
   closeAndroidUser,
   collectAndroidDiagnostics,
@@ -29,10 +27,9 @@ import {
   type AndroidUser,
 } from './helpers/native-app-android';
 import { resolveAndroidMatrixDevices } from './helpers/android-device-config';
-import { waitForAppReady } from '../helpers/timing';
+import { preparePlacePhone, startReleaseCapacityHub } from './helpers/release-hub';
 import {
   createPlace,
-  currentRoomId,
   enterRoomFromList,
   memberItem,
   returnHome,
@@ -43,8 +40,6 @@ import {
 const RUN = process.env.E2E_REAL_ANDROID_PLACE_SMOKE === '1';
 const HUB_PORT = Number(process.env.E2E_PLACE_SMOKE_HUB_PORT || '9178');
 const DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDROID_SERIALS || '');
-const LOCATION = { latitude: 32.7157, longitude: -117.1611, accuracy: 10 };
-const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
 function lanIp(): string {
   if (process.env.NATIVE_APP_ANDROID_HOST) return process.env.NATIVE_APP_ANDROID_HOST;
@@ -56,39 +51,6 @@ function lanIp(): string {
   throw new Error('No LAN IPv4 address found; set NATIVE_APP_ANDROID_HOST.');
 }
 
-async function waitForHub(): Promise<void> {
-  await expect.poll(async () => {
-    try {
-      return (await fetch(`http://127.0.0.1:${HUB_PORT}/health`)).ok;
-    } catch {
-      return false;
-    }
-  }, { timeout: 60_000, message: 'release-capacity hub did not start' }).toBe(true);
-}
-
-/** Confirm the phone's location the way a GPS fix does, then let the WebView reload with the
- *  contact minimum lifted (a fresh install has no contacts; the gate has its own spec). */
-async function prepare(user: AndroidUser, label: string): Promise<void> {
-  await bootstrapNativeWindow(user.window, label, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000, pinStableLocation: false });
-  // Wait for the reload itself before probing the page: a probe during the navigation throws
-  // "Execution context was destroyed", which ends the poll instead of retrying it.
-  await Promise.all([
-    user.window.waitForURL(/e2e_place_min_contacts=0/, { timeout: 60_000 }),
-    user.window.evaluate(() => {
-      const url = new URL(window.location.href);
-      url.searchParams.set('e2e_place_min_contacts', '0');
-      window.location.replace(url.toString());
-    }).catch(() => undefined),
-  ]);
-  await user.window.waitForLoadState('domcontentloaded');
-  await waitForAppReady(user.window, 150_000);
-  await user.window.evaluate(async (location) => {
-    const app = (window as any).__iinpublic_app?.getApp?.();
-    await app.updateLocationAndMaybeSwitch({ ...location, timestamp: new Date() });
-  }, LOCATION);
-  await expect.poll(() => currentRoomId(user.window), { timeout: 60_000 }).toMatch(/^nearby_/);
-}
-
 test.describe('Android release smoke: Places on two phones', () => {
   test.skip(!RUN, 'Set E2E_REAL_ANDROID_PLACE_SMOKE=1 (clears app data on two phones).');
 
@@ -96,11 +58,7 @@ test.describe('Android release smoke: Places on two phones', () => {
   const users: AndroidUser[] = [];
 
   test.beforeAll(async () => {
-    const env = { ...process.env, E2E_GUN_MEMORY_ONLY: '1', PORT: String(HUB_PORT) };
-    delete env.CHATROOM_MAX_CAPACITY;
-    delete env.CHATROOM_ENABLE_FIFO;
-    hub = spawn(process.execPath, [path.join(repoRoot, 'dist', 'server', 'server', 'index.js')], { cwd: repoRoot, env, stdio: 'ignore' });
-    await waitForHub();
+    hub = await startReleaseCapacityHub(HUB_PORT);
   });
 
   test.afterAll(async () => {
@@ -131,8 +89,8 @@ test.describe('Android release smoke: Places on two phones', () => {
       users.push(await launchAndroidUserViaAdb({ hubGunUrl, deviceSerial: device.serial, disableLanDiscovery: true }));
     }
     const [one, two] = users;
-    await prepare(one, 'Place Smoke 1');
-    await prepare(two, 'Place Smoke 2');
+    await preparePlacePhone(one, 'Place Smoke 1');
+    await preparePlacePhone(two, 'Place Smoke 2');
     const [oneId, twoId] = [await userId(one.window), await userId(two.window)];
 
     const name = `Smoke Place ${Date.now()}`;

@@ -515,9 +515,10 @@ export function nearbyPartitionSelectorPath(
 /**
  * Which child of a split this member follows. Above the privacy floor: the geographic quadrant of
  * the declared location. Below it: the balanced lane (hash vs the split's threshold); a legacy split
- * without a threshold keeps the old 1-in-4 identity digit.
+ * without a threshold keeps the old 1-in-4 identity digit. Exported for the capacity experiment
+ * (src/test/support/nearby-capacity-model.ts), which must follow exactly this rule.
  */
-function nextSplitPath(
+export function nextSplitPath(
   parentPath: string,
   transition: NearbyPartitionTransition,
   input: { location: GPSCoordinate; mode: NearbyPublicMode; identity?: string },

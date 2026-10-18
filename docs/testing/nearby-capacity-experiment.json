@@ -1,0 +1,2192 @@
+[
+ {
+  "population": "2 (San Diego, London)",
+  "capacity": 32,
+  "settled": {
+   "users": 2,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 2,
+    "p50": 2,
+    "p95": 2,
+    "max": 2
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47683876,
+    "p95": 47683876,
+    "max": 47683876
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 1,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 0,
+   "rooms": 0,
+   "emptyGroups": 1,
+   "occupancy": {
+    "min": 0,
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "2 (San Diego, London)",
+  "capacity": 64,
+  "settled": {
+   "users": 2,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 2,
+    "p50": 2,
+    "p95": 2,
+    "max": 2
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47683876,
+    "p95": 47683876,
+    "max": 47683876
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 1,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 0,
+   "rooms": 0,
+   "emptyGroups": 1,
+   "occupancy": {
+    "min": 0,
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "2 (San Diego, London)",
+  "capacity": 128,
+  "settled": {
+   "users": 2,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 2,
+    "p50": 2,
+    "p95": 2,
+    "max": 2
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47683876,
+    "p95": 47683876,
+    "max": 47683876
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 1,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 0,
+   "rooms": 0,
+   "emptyGroups": 1,
+   "occupancy": {
+    "min": 0,
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "2 (San Diego, London)",
+  "capacity": 256,
+  "settled": {
+   "users": 2,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 2,
+    "p50": 2,
+    "p95": 2,
+    "max": 2
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47683876,
+    "p95": 47683876,
+    "max": 47683876
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 1,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 0,
+   "rooms": 0,
+   "emptyGroups": 1,
+   "occupancy": {
+    "min": 0,
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "2 (San Diego, London)",
+  "capacity": 498,
+  "settled": {
+   "users": 2,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 2,
+    "p50": 2,
+    "p95": 2,
+    "max": 2
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47683876,
+    "p95": 47683876,
+    "max": 47683876
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 1,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 0,
+   "rooms": 0,
+   "emptyGroups": 1,
+   "occupancy": {
+    "min": 0,
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "2 (San Diego, London)",
+  "capacity": 1000,
+  "settled": {
+   "users": 2,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 2,
+    "p50": 2,
+    "p95": 2,
+    "max": 2
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47683876,
+    "p95": 47683876,
+    "max": 47683876
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 1,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 0,
+   "rooms": 0,
+   "emptyGroups": 1,
+   "occupancy": {
+    "min": 0,
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "498 (one city)",
+  "capacity": 32,
+  "settled": {
+   "users": 498,
+   "rooms": 38,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 12,
+    "p95": 26,
+    "max": 30
+   },
+   "usersInSmallRoomsPct": 7.6,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 14,
+    "max": 14
+   },
+   "diameterMeters": {
+    "p50": 2912,
+    "p95": 23295,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 13.13,
+    "max": 14
+   },
+   "controlWrites": {
+    "splits": 22,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 136,
+   "rooms": 14,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 2,
+    "p50": 7,
+    "p95": 31,
+    "max": 31
+   },
+   "usersInSmallRoomsPct": 27.9,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 13,
+    "max": 13
+   },
+   "diameterMeters": {
+    "p50": 5822,
+    "p95": 46576,
+    "max": 46576
+   },
+   "movesPerUser": {
+    "mean": 14.07,
+    "max": 17
+   },
+   "controlWrites": {
+    "splits": 22,
+    "coalesces": 8
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 3,
+  "seconds": 0
+ },
+ {
+  "population": "498 (one city)",
+  "capacity": 64,
+  "settled": {
+   "users": 498,
+   "rooms": 20,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 22,
+    "p95": 59,
+    "max": 59
+   },
+   "usersInSmallRoomsPct": 8.2,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 13,
+    "max": 13
+   },
+   "diameterMeters": {
+    "p50": 5825,
+    "p95": 46568,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 12.6,
+    "max": 13
+   },
+   "controlWrites": {
+    "splits": 16,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 20,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 121,
+   "rooms": 8,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 9,
+    "p95": 34,
+    "max": 34
+   },
+   "usersInSmallRoomsPct": 24,
+   "controlReadsPerUser": {
+    "p50": 12,
+    "p95": 12,
+    "max": 12
+   },
+   "diameterMeters": {
+    "p50": 23282,
+    "p95": 46568,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 13.39,
+    "max": 15
+   },
+   "controlWrites": {
+    "splits": 16,
+    "coalesces": 4
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 2,
+  "seconds": 0
+ },
+ {
+  "population": "498 (one city)",
+  "capacity": 128,
+  "settled": {
+   "users": 498,
+   "rooms": 17,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 22,
+    "p95": 84,
+    "max": 84
+   },
+   "usersInSmallRoomsPct": 37.3,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 13,
+    "max": 13
+   },
+   "diameterMeters": {
+    "p50": 11630,
+    "p95": 46568,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 12.43,
+    "max": 13
+   },
+   "controlWrites": {
+    "splits": 15,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 17,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 111,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 111,
+    "p50": 111,
+    "p95": 111,
+    "max": 111
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47698142,
+    "p95": 47698142,
+    "max": 47698142
+   },
+   "movesPerUser": {
+    "mean": 24.77,
+    "max": 26
+   },
+   "controlWrites": {
+    "splits": 15,
+    "coalesces": 15
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 13,
+  "seconds": 0
+ },
+ {
+  "population": "498 (one city)",
+  "capacity": 256,
+  "settled": {
+   "users": 498,
+   "rooms": 8,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 10,
+    "p50": 26,
+    "p95": 138,
+    "max": 138
+   },
+   "usersInSmallRoomsPct": 18.1,
+   "controlReadsPerUser": {
+    "p50": 12,
+    "p95": 12,
+    "max": 12
+   },
+   "diameterMeters": {
+    "p50": 23282,
+    "p95": 46568,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 11.61,
+    "max": 12
+   },
+   "controlWrites": {
+    "splits": 12,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 8,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 129,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 129,
+    "p50": 129,
+    "p95": 129,
+    "max": 129
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47699561,
+    "p95": 47699561,
+    "max": 47699561
+   },
+   "movesPerUser": {
+    "mean": 23.49,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 12,
+    "coalesces": 12
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 12,
+  "seconds": 0
+ },
+ {
+  "population": "498 (one city)",
+  "capacity": 498,
+  "settled": {
+   "users": 498,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 498,
+    "p50": 498,
+    "p95": 498,
+    "max": 498
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47702508,
+    "p95": 47702508,
+    "max": 47702508
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 148,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 148,
+    "p50": 148,
+    "p95": 148,
+    "max": 148
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47698816,
+    "p95": 47698816,
+    "max": 47698816
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "498 (one city)",
+  "capacity": 1000,
+  "settled": {
+   "users": 498,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 498,
+    "p50": 498,
+    "p95": 498,
+    "max": 498
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47702508,
+    "p95": 47702508,
+    "max": 47702508
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 107,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 107,
+    "p50": 107,
+    "p95": 107,
+    "max": 107
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47698816,
+    "p95": 47698816,
+    "max": 47698816
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "499 (one city)",
+  "capacity": 32,
+  "settled": {
+   "users": 499,
+   "rooms": 38,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 12,
+    "p95": 26,
+    "max": 30
+   },
+   "usersInSmallRoomsPct": 7.6,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 14,
+    "max": 14
+   },
+   "diameterMeters": {
+    "p50": 2912,
+    "p95": 23295,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 13.13,
+    "max": 14
+   },
+   "controlWrites": {
+    "splits": 22,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 130,
+   "rooms": 14,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 2,
+    "p50": 7,
+    "p95": 32,
+    "max": 32
+   },
+   "usersInSmallRoomsPct": 26.9,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 13,
+    "max": 13
+   },
+   "diameterMeters": {
+    "p50": 5822,
+    "p95": 46576,
+    "max": 46576
+   },
+   "movesPerUser": {
+    "mean": 14.11,
+    "max": 17
+   },
+   "controlWrites": {
+    "splits": 22,
+    "coalesces": 8
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 3,
+  "seconds": 0
+ },
+ {
+  "population": "499 (one city)",
+  "capacity": 64,
+  "settled": {
+   "users": 499,
+   "rooms": 20,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 22,
+    "p95": 59,
+    "max": 59
+   },
+   "usersInSmallRoomsPct": 8.2,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 13,
+    "max": 13
+   },
+   "diameterMeters": {
+    "p50": 5825,
+    "p95": 46568,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 12.6,
+    "max": 13
+   },
+   "controlWrites": {
+    "splits": 16,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 20,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 119,
+   "rooms": 7,
+   "emptyGroups": 30,
+   "occupancy": {
+    "min": 3,
+    "p50": 8,
+    "p95": 34,
+    "max": 34
+   },
+   "usersInSmallRoomsPct": 19.3,
+   "controlReadsPerUser": {
+    "p50": 12,
+    "p95": 12,
+    "max": 12
+   },
+   "diameterMeters": {
+    "p50": 11644,
+    "p95": 46541,
+    "max": 46541
+   },
+   "movesPerUser": {
+    "mean": 13.54,
+    "max": 15
+   },
+   "controlWrites": {
+    "splits": 16,
+    "coalesces": 4
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 2,
+  "seconds": 0
+ },
+ {
+  "population": "499 (one city)",
+  "capacity": 128,
+  "settled": {
+   "users": 499,
+   "rooms": 17,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 22,
+    "p95": 84,
+    "max": 84
+   },
+   "usersInSmallRoomsPct": 37.3,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 13,
+    "max": 13
+   },
+   "diameterMeters": {
+    "p50": 11630,
+    "p95": 46568,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 12.43,
+    "max": 13
+   },
+   "controlWrites": {
+    "splits": 15,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 17,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 131,
+   "rooms": 2,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 3,
+    "p50": 128,
+    "p95": 128,
+    "max": 128
+   },
+   "usersInSmallRoomsPct": 2.3,
+   "controlReadsPerUser": {
+    "p50": 10,
+    "p95": 10,
+    "max": 10
+   },
+   "diameterMeters": {
+    "p50": 46624,
+    "p95": 46624,
+    "max": 46624
+   },
+   "movesPerUser": {
+    "mean": 14.99,
+    "max": 16
+   },
+   "controlWrites": {
+    "splits": 15,
+    "coalesces": 5
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 3,
+  "seconds": 0
+ },
+ {
+  "population": "499 (one city)",
+  "capacity": 256,
+  "settled": {
+   "users": 499,
+   "rooms": 8,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 10,
+    "p50": 26,
+    "p95": 139,
+    "max": 139
+   },
+   "usersInSmallRoomsPct": 18,
+   "controlReadsPerUser": {
+    "p50": 12,
+    "p95": 12,
+    "max": 12
+   },
+   "diameterMeters": {
+    "p50": 23282,
+    "p95": 46568,
+    "max": 46568
+   },
+   "movesPerUser": {
+    "mean": 11.61,
+    "max": 12
+   },
+   "controlWrites": {
+    "splits": 12,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 8,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 122,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 122,
+    "p50": 122,
+    "p95": 122,
+    "max": 122
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47743263,
+    "p95": 47743263,
+    "max": 47743263
+   },
+   "movesPerUser": {
+    "mean": 23.23,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 12,
+    "coalesces": 12
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 12,
+  "seconds": 0
+ },
+ {
+  "population": "499 (one city)",
+  "capacity": 498,
+  "settled": {
+   "users": 499,
+   "rooms": 2,
+   "emptyGroups": 29,
+   "occupancy": {
+    "min": 18,
+    "p50": 481,
+    "p95": 481,
+    "max": 481
+   },
+   "usersInSmallRoomsPct": 3.6,
+   "controlReadsPerUser": {
+    "p50": 10,
+    "p95": 10,
+    "max": 10
+   },
+   "diameterMeters": {
+    "p50": 46584,
+    "p95": 46584,
+    "max": 46584
+   },
+   "movesPerUser": {
+    "mean": 10,
+    "max": 10
+   },
+   "controlWrites": {
+    "splits": 10,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 2,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 120,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 120,
+    "p50": 120,
+    "p95": 120,
+    "max": 120
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47655499,
+    "p95": 47655499,
+    "max": 47655499
+   },
+   "movesPerUser": {
+    "mean": 20,
+    "max": 20
+   },
+   "controlWrites": {
+    "splits": 10,
+    "coalesces": 10
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 10,
+  "seconds": 0
+ },
+ {
+  "population": "499 (one city)",
+  "capacity": 1000,
+  "settled": {
+   "users": 499,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 499,
+    "p50": 499,
+    "p95": 499,
+    "max": 499
+   },
+   "usersInSmallRoomsPct": 0,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47702508,
+    "p95": 47702508,
+    "max": 47702508
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 1,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 135,
+   "rooms": 1,
+   "emptyGroups": 0,
+   "occupancy": {
+    "min": 135,
+    "p50": 135,
+    "p95": 135,
+    "max": 135
+   },
+   "usersInSmallRoomsPct": 100,
+   "controlReadsPerUser": {
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "diameterMeters": {
+    "p50": 47667234,
+    "p95": 47667234,
+    "max": 47667234
+   },
+   "movesPerUser": {
+    "mean": 0,
+    "max": 0
+   },
+   "controlWrites": {
+    "splits": 0,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 0,
+  "seconds": 0
+ },
+ {
+  "population": "10,000 (stadium 5,000 + city 5,000)",
+  "capacity": 32,
+  "settled": {
+   "users": 10000,
+   "rooms": 515,
+   "emptyGroups": 524,
+   "occupancy": {
+    "min": 1,
+    "p50": 20,
+    "p95": 31,
+    "max": 32
+   },
+   "usersInSmallRoomsPct": 1.9,
+   "controlReadsPerUser": {
+    "p50": 18,
+    "p95": 23,
+    "max": 24
+   },
+   "diameterMeters": {
+    "p50": 1455,
+    "p95": 5819,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 18.43,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 346,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 2540,
+   "rooms": 149,
+   "emptyGroups": 146,
+   "occupancy": {
+    "min": 1,
+    "p50": 18,
+    "p95": 29,
+    "max": 32
+   },
+   "usersInSmallRoomsPct": 3.2,
+   "controlReadsPerUser": {
+    "p50": 15,
+    "p95": 22,
+    "max": 23
+   },
+   "diameterMeters": {
+    "p50": 1455,
+    "p95": 11630,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 19.92,
+    "max": 27
+   },
+   "controlWrites": {
+    "splits": 346,
+    "coalesces": 248
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 3,
+  "seconds": 0.2
+ },
+ {
+  "population": "10,000 (stadium 5,000 + city 5,000)",
+  "capacity": 64,
+  "settled": {
+   "users": 10000,
+   "rooms": 301,
+   "emptyGroups": 249,
+   "occupancy": {
+    "min": 1,
+    "p50": 33,
+    "p95": 59,
+    "max": 64
+   },
+   "usersInSmallRoomsPct": 4.9,
+   "controlReadsPerUser": {
+    "p50": 17,
+    "p95": 22,
+    "max": 22
+   },
+   "diameterMeters": {
+    "p50": 1455,
+    "p95": 5825,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 17.62,
+    "max": 22
+   },
+   "controlWrites": {
+    "splits": 183,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 2534,
+   "rooms": 86,
+   "emptyGroups": 83,
+   "occupancy": {
+    "min": 1,
+    "p50": 30,
+    "p95": 53,
+    "max": 60
+   },
+   "usersInSmallRoomsPct": 5.2,
+   "controlReadsPerUser": {
+    "p50": 16,
+    "p95": 20,
+    "max": 20
+   },
+   "diameterMeters": {
+    "p50": 2910,
+    "p95": 23279,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 19.06,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 183,
+    "coalesces": 127
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 4,
+  "seconds": 0.2
+ },
+ {
+  "population": "10,000 (stadium 5,000 + city 5,000)",
+  "capacity": 128,
+  "settled": {
+   "users": 10000,
+   "rooms": 141,
+   "emptyGroups": 136,
+   "occupancy": {
+    "min": 1,
+    "p50": 73,
+    "p95": 119,
+    "max": 128
+   },
+   "usersInSmallRoomsPct": 4.7,
+   "controlReadsPerUser": {
+    "p50": 17,
+    "p95": 21,
+    "max": 21
+   },
+   "diameterMeters": {
+    "p50": 2909,
+    "p95": 11639,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 16.79,
+    "max": 21
+   },
+   "controlWrites": {
+    "splits": 92,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 2445,
+   "rooms": 47,
+   "emptyGroups": 50,
+   "occupancy": {
+    "min": 5,
+    "p50": 48,
+    "p95": 105,
+    "max": 121
+   },
+   "usersInSmallRoomsPct": 12.7,
+   "controlReadsPerUser": {
+    "p50": 15,
+    "p95": 19,
+    "max": 19
+   },
+   "diameterMeters": {
+    "p50": 2911,
+    "p95": 23298,
+    "max": 46579
+   },
+   "movesPerUser": {
+    "mean": 18.17,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 92,
+    "coalesces": 60
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 3,
+  "seconds": 0.2
+ },
+ {
+  "population": "10,000 (stadium 5,000 + city 5,000)",
+  "capacity": 256,
+  "settled": {
+   "users": 10000,
+   "rooms": 81,
+   "emptyGroups": 79,
+   "occupancy": {
+    "min": 1,
+    "p50": 123,
+    "p95": 220,
+    "max": 241
+   },
+   "usersInSmallRoomsPct": 5.4,
+   "controlReadsPerUser": {
+    "p50": 16,
+    "p95": 20,
+    "max": 20
+   },
+   "diameterMeters": {
+    "p50": 2910,
+    "p95": 23251,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 16.08,
+    "max": 20
+   },
+   "controlWrites": {
+    "splits": 53,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 2510,
+   "rooms": 36,
+   "emptyGroups": 37,
+   "occupancy": {
+    "min": 1,
+    "p50": 49,
+    "p95": 211,
+    "max": 230
+   },
+   "usersInSmallRoomsPct": 29.3,
+   "controlReadsPerUser": {
+    "p50": 15,
+    "p95": 18,
+    "max": 18
+   },
+   "diameterMeters": {
+    "p50": 2911,
+    "p95": 46569,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 17.35,
+    "max": 22
+   },
+   "controlWrites": {
+    "splits": 53,
+    "coalesces": 29
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 2,
+  "seconds": 0.3
+ },
+ {
+  "population": "10,000 (stadium 5,000 + city 5,000)",
+  "capacity": 498,
+  "settled": {
+   "users": 10000,
+   "rooms": 47,
+   "emptyGroups": 47,
+   "occupancy": {
+    "min": 1,
+    "p50": 195,
+    "p95": 475,
+    "max": 490
+   },
+   "usersInSmallRoomsPct": 10.8,
+   "controlReadsPerUser": {
+    "p50": 15,
+    "p95": 19,
+    "max": 19
+   },
+   "diameterMeters": {
+    "p50": 2911,
+    "p95": 46495,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 15.3,
+    "max": 19
+   },
+   "controlWrites": {
+    "splits": 31,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 2495,
+   "rooms": 24,
+   "emptyGroups": 31,
+   "occupancy": {
+    "min": 1,
+    "p50": 56,
+    "p95": 372,
+    "max": 467
+   },
+   "usersInSmallRoomsPct": 32.4,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 17,
+    "max": 17
+   },
+   "diameterMeters": {
+    "p50": 5819,
+    "p95": 46549,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 16.57,
+    "max": 21
+   },
+   "controlWrites": {
+    "splits": 31,
+    "coalesces": 13
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 3,
+  "seconds": 0.5
+ },
+ {
+  "population": "10,000 (stadium 5,000 + city 5,000)",
+  "capacity": 1000,
+  "settled": {
+   "users": 10000,
+   "rooms": 35,
+   "emptyGroups": 35,
+   "occupancy": {
+    "min": 1,
+    "p50": 195,
+    "p95": 965,
+    "max": 975
+   },
+   "usersInSmallRoomsPct": 24.4,
+   "controlReadsPerUser": {
+    "p50": 15,
+    "p95": 18,
+    "max": 18
+   },
+   "diameterMeters": {
+    "p50": 2911,
+    "p95": 46554,
+    "max": 93323
+   },
+   "movesPerUser": {
+    "mean": 14.7,
+    "max": 18
+   },
+   "controlWrites": {
+    "splits": 23,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 2559,
+   "rooms": 19,
+   "emptyGroups": 30,
+   "occupancy": {
+    "min": 4,
+    "p50": 54,
+    "p95": 591,
+    "max": 591
+   },
+   "usersInSmallRoomsPct": 24.1,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 16,
+    "max": 16
+   },
+   "diameterMeters": {
+    "p50": 5818,
+    "p95": 46554,
+    "max": 46554
+   },
+   "movesPerUser": {
+    "mean": 15.87,
+    "max": 20
+   },
+   "controlWrites": {
+    "splits": 23,
+    "coalesces": 7
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 3,
+  "seconds": 0.9
+ },
+ {
+  "population": "1,000,000 (40 cities + two 50,000-seat stadiums)",
+  "capacity": 32,
+  "settled": {
+   "users": 1000000,
+   "rooms": 47906,
+   "emptyGroups": 49229,
+   "occupancy": {
+    "min": 1,
+    "p50": 20,
+    "p95": 32,
+    "max": 204
+   },
+   "usersInSmallRoomsPct": 1.4,
+   "controlReadsPerUser": {
+    "p50": 17,
+    "p95": 24,
+    "max": 24
+   },
+   "diameterMeters": {
+    "p50": 1724,
+    "p95": 3890,
+    "max": 836784
+   },
+   "movesPerUser": {
+    "mean": 17.37,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 32378,
+    "coalesces": 0
+   },
+   "stuckOverflows": 1449
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 250580,
+   "rooms": 14795,
+   "emptyGroups": 8846,
+   "occupancy": {
+    "min": 1,
+    "p50": 17,
+    "p95": 30,
+    "max": 51
+   },
+   "usersInSmallRoomsPct": 3.6,
+   "controlReadsPerUser": {
+    "p50": 15,
+    "p95": 23,
+    "max": 24
+   },
+   "diameterMeters": {
+    "p50": 2808,
+    "p95": 8640,
+    "max": 836784
+   },
+   "movesPerUser": {
+    "mean": 18.82,
+    "max": 27
+   },
+   "controlWrites": {
+    "splits": 32378,
+    "coalesces": 24498
+   },
+   "stuckOverflows": 1449
+  },
+  "mergePasses": 6,
+  "seconds": 16
+ },
+ {
+  "population": "1,000,000 (40 cities + two 50,000-seat stadiums)",
+  "capacity": 64,
+  "settled": {
+   "users": 1000000,
+   "rooms": 27025,
+   "emptyGroups": 20853,
+   "occupancy": {
+    "min": 1,
+    "p50": 37,
+    "p95": 61,
+    "max": 156
+   },
+   "usersInSmallRoomsPct": 2.6,
+   "controlReadsPerUser": {
+    "p50": 16,
+    "p95": 24,
+    "max": 24
+   },
+   "diameterMeters": {
+    "p50": 2273,
+    "p95": 6279,
+    "max": 836784
+   },
+   "movesPerUser": {
+    "mean": 16.62,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 15959,
+    "coalesces": 0
+   },
+   "stuckOverflows": 436
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 249167,
+   "rooms": 7887,
+   "emptyGroups": 3832,
+   "occupancy": {
+    "min": 1,
+    "p50": 31,
+    "p95": 58,
+    "max": 64
+   },
+   "usersInSmallRoomsPct": 4.5,
+   "controlReadsPerUser": {
+    "p50": 14,
+    "p95": 22,
+    "max": 24
+   },
+   "diameterMeters": {
+    "p50": 2814,
+    "p95": 12786,
+    "max": 836660
+   },
+   "movesPerUser": {
+    "mean": 18.03,
+    "max": 27
+   },
+   "controlWrites": {
+    "splits": 15959,
+    "coalesces": 12053
+   },
+   "stuckOverflows": 436
+  },
+  "mergePasses": 5,
+  "seconds": 14.2
+ },
+ {
+  "population": "1,000,000 (40 cities + two 50,000-seat stadiums)",
+  "capacity": 128,
+  "settled": {
+   "users": 1000000,
+   "rooms": 14815,
+   "emptyGroups": 8565,
+   "occupancy": {
+    "min": 1,
+    "p50": 68,
+    "p95": 118,
+    "max": 128
+   },
+   "usersInSmallRoomsPct": 3.9,
+   "controlReadsPerUser": {
+    "p50": 15,
+    "p95": 23,
+    "max": 24
+   },
+   "diameterMeters": {
+    "p50": 2808,
+    "p95": 10511,
+    "max": 836784
+   },
+   "movesPerUser": {
+    "mean": 15.88,
+    "max": 24
+   },
+   "controlWrites": {
+    "splits": 7793,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 249978,
+   "rooms": 4272,
+   "emptyGroups": 1966,
+   "occupancy": {
+    "min": 1,
+    "p50": 54,
+    "p95": 115,
+    "max": 128
+   },
+   "usersInSmallRoomsPct": 6.3,
+   "controlReadsPerUser": {
+    "p50": 14,
+    "p95": 21,
+    "max": 22
+   },
+   "diameterMeters": {
+    "p50": 3172,
+    "p95": 23078,
+    "max": 837165
+   },
+   "movesPerUser": {
+    "mean": 17.2,
+    "max": 27
+   },
+   "controlWrites": {
+    "splits": 7793,
+    "coalesces": 5714
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 5,
+  "seconds": 12.5
+ },
+ {
+  "population": "1,000,000 (40 cities + two 50,000-seat stadiums)",
+  "capacity": 256,
+  "settled": {
+   "users": 1000000,
+   "rooms": 7954,
+   "emptyGroups": 3732,
+   "occupancy": {
+    "min": 1,
+    "p50": 125,
+    "p95": 230,
+    "max": 256
+   },
+   "usersInSmallRoomsPct": 4.6,
+   "controlReadsPerUser": {
+    "p50": 14,
+    "p95": 22,
+    "max": 23
+   },
+   "diameterMeters": {
+    "p50": 2840,
+    "p95": 13787,
+    "max": 836784
+   },
+   "movesPerUser": {
+    "mean": 15.18,
+    "max": 23
+   },
+   "controlWrites": {
+    "splits": 3895,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 249835,
+   "rooms": 2252,
+   "emptyGroups": 1157,
+   "occupancy": {
+    "min": 1,
+    "p50": 105,
+    "p95": 224,
+    "max": 256
+   },
+   "usersInSmallRoomsPct": 7,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 20,
+    "max": 21
+   },
+   "diameterMeters": {
+    "p50": 5696,
+    "p95": 42266,
+    "max": 837165
+   },
+   "movesPerUser": {
+    "mean": 16.49,
+    "max": 26
+   },
+   "controlWrites": {
+    "splits": 3895,
+    "coalesces": 2759
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 7,
+  "seconds": 11.4
+ },
+ {
+  "population": "1,000,000 (40 cities + two 50,000-seat stadiums)",
+  "capacity": 498,
+  "settled": {
+   "users": 1000000,
+   "rooms": 4427,
+   "emptyGroups": 1922,
+   "occupancy": {
+    "min": 1,
+    "p50": 212,
+    "p95": 437,
+    "max": 498
+   },
+   "usersInSmallRoomsPct": 6.3,
+   "controlReadsPerUser": {
+    "p50": 14,
+    "p95": 21,
+    "max": 22
+   },
+   "diameterMeters": {
+    "p50": 3173,
+    "p95": 25149,
+    "max": 836784
+   },
+   "movesPerUser": {
+    "mean": 14.56,
+    "max": 22
+   },
+   "controlWrites": {
+    "splits": 2116,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 250130,
+   "rooms": 1289,
+   "emptyGroups": 800,
+   "occupancy": {
+    "min": 1,
+    "p50": 174,
+    "p95": 434,
+    "max": 497
+   },
+   "usersInSmallRoomsPct": 9.7,
+   "controlReadsPerUser": {
+    "p50": 13,
+    "p95": 19,
+    "max": 19
+   },
+   "diameterMeters": {
+    "p50": 6541,
+    "p95": 55173,
+    "max": 836914
+   },
+   "movesPerUser": {
+    "mean": 15.86,
+    "max": 25
+   },
+   "controlWrites": {
+    "splits": 2116,
+    "coalesces": 1420
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 6,
+  "seconds": 11.2
+ },
+ {
+  "population": "1,000,000 (40 cities + two 50,000-seat stadiums)",
+  "capacity": 1000,
+  "settled": {
+   "users": 1000000,
+   "rooms": 2335,
+   "emptyGroups": 1131,
+   "occupancy": {
+    "min": 1,
+    "p50": 398,
+    "p95": 868,
+    "max": 1000
+   },
+   "usersInSmallRoomsPct": 7.5,
+   "controlReadsPerUser": {
+    "p50": 14,
+    "p95": 20,
+    "max": 20
+   },
+   "diameterMeters": {
+    "p50": 5694,
+    "p95": 45523,
+    "max": 836784
+   },
+   "movesPerUser": {
+    "mean": 13.89,
+    "max": 20
+   },
+   "controlWrites": {
+    "splits": 1155,
+    "coalesces": 0
+   },
+   "stuckOverflows": 0
+  },
+  "links": {
+   "rooms": 25,
+   "maxLinks": 12,
+   "asymmetric": 0
+  },
+  "merged": {
+   "users": 249419,
+   "rooms": 713,
+   "emptyGroups": 659,
+   "occupancy": {
+    "min": 1,
+    "p50": 307,
+    "p95": 883,
+    "max": 993
+   },
+   "usersInSmallRoomsPct": 10.9,
+   "controlReadsPerUser": {
+    "p50": 12,
+    "p95": 18,
+    "max": 18
+   },
+   "diameterMeters": {
+    "p50": 12546,
+    "p95": 96871,
+    "max": 1162559
+   },
+   "movesPerUser": {
+    "mean": 15.21,
+    "max": 22
+   },
+   "controlWrites": {
+    "splits": 1155,
+    "coalesces": 698
+   },
+   "stuckOverflows": 0
+  },
+  "mergePasses": 7,
+  "seconds": 13.5
+ }
+]
