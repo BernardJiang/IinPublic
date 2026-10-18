@@ -707,39 +707,68 @@ is the number of lists they are on, which nothing bounds directly. The hash orde
 on average, but each phone still accepts at most a fixed number of concurrent incoming connections
 and new Talks per minute, and tells the rest to retry later with backoff.
 
-#### Fake accounts and reputation (direction, not designed yet)
+#### Fake accounts and reputation (criteria decided, mechanics open)
 
 Signatures stop anyone forging another person's card, but nothing stops someone creating many
 accounts. The simulation shows the public hash order keeps fakes to their population share
 (10.1 % for 10 %). That is still too much if one person runs thousands of accounts in one place,
 and fakes can always create Places and push Talks.
 
-Product direction (2026-10-18): **raise the credit needed for what matters, and let only reputable
-users create custom Places.** The details are still open. Starting points:
+**Credit criteria (product decision 2026-10-18).** An account is *reputable* when all of these
+hold. Every threshold is a signed-manifest value, so it can change without a new release; the
+numbers are still to be chosen.
 
-- **Today's rule cannot be enforced.** Creating a Place needs 100 Contacts (§4.2), but Contacts are
-  private, so only the user's own app can count them.
-- **Most `Reputation` fields cannot be trusted.** Most are maintained by the user's own client
-  (`src/shared/types.ts`). Credit has to come from things other people or the hub sign:
-  - account age, from the hub's user record;
-  - age verification, which already needs three vouches (`AGE_VERIFICATION_THRESHOLD`);
-  - the number of distinct people who signed a match, a conversation or a review with this account;
-  - blocks and reports received.
-- **Possible uses of credit:**
-  - a minimum credit to create a Place (replacing the unenforceable Contacts rule);
-  - in dense ties, most list slots for credited accounts, with low-credit accounts sharing a small
-    fraction (for example 10 %), so a flood of fresh fakes cannot fill a list but newcomers are
-    still seen;
-  - the hub's introduction sample prefers credited accounts;
-  - stricter incoming limits for Talks from low-credit accounts.
-- **Open questions:**
-  - what exactly counts as credit, and with what weights;
-  - how to stop fake accounts vouching for each other (rings);
-  - how a genuine newcomer earns credit;
-  - whether credit is visible to other users.
+1. **Open reputation.** Credit is visible to others (`settings-credit-visible` on, that is
+   `Reputation.isHidden !== true`).
+2. **Enough activity:** at least a set number of Contacts, of Talks sent, and of answers in the Me
+   tab (the Q&A history).
+3. **Few blocks:** fewer than a set number of people block the account.
 
-This must be decided before v3 ships, because it changes ranking, Place creation and the hub's
-sample.
+Only reputable accounts can **create a Place** or **back** one (rule 4, "Places in v3" below). The
+same credit could later also limit fresh accounts in crowds (most dense-tie list slots for reputable
+accounts, a small share for the rest); that is not decided.
+
+**Who decides: the user's own app, never the server (product decision 2026-10-18).**
+
+- **Each app checks its own user.** It counts Contacts, Talks and Me-tab answers on the device,
+  reads its own block count, and opens **New Room** (or **Back this Place**) only when every rule
+  passes. No server rules on whether someone may create a Place.
+- **Settings → Credit is read-only.** It shows the user their own numbers and whether each rule
+  passes. The user cannot edit them.
+- **Block count.** When Adam blocks Eve, Adam's app adds one to Eve's block count; unblocking takes
+  it back.
+  - Adam knows whom he blocked. Eve sees only her number going up in Settings → Credit: she can
+    guess who it was, but cannot prove it.
+  - Block lists stay impossible to enumerate (`src/shared/block-pair.ts`). The count is stored
+    without the blocker's identity; the existing pair hash lets it count each pair only once, so
+    blocking, unblocking and blocking again cannot inflate it.
+  - Adam's app sends the increment only if Adam is reputable himself, so a fake farm cannot push an
+    honest person past the threshold.
+- **Modified apps cannot be stopped.** The code is open, so anyone can build an app that skips the
+  checks, and nothing in the network can prevent that. What the hub can do is decide what goes into
+  **its own database**:
+  - the hub registers a new Place (and counts a backing or a visit towards keeping it live) only
+    when the request comes from a **genuine IinPublic app**, proven by the existing official-build
+    credential (`src/shared/official-build-credential.ts`, Android key attestation, issued by
+    `attestation-routes.ts`);
+  - a Place the hub will not register is not listed or drawn for anyone else. Its creator can still
+    share it directly.
+
+  The identity design (`docs/IinPublic Identity & Key Architecture TODO.md` §16.6) allows requiring
+  the credential for high-risk actions, and forbids adding official-build status to reputation.
+  This rule is the first: it is not part of reputation, and community builds keep working for
+  everything else.
+- **Consequences to decide (deferred 2026-10-18; Android first):**
+  - The website and the desktop apps have no platform attestation, so they cannot register Places
+    unless another proof is found. Today the website can create Places.
+  - Android key attestation fails on rooted phones, some custom ROMs and emulators.
+  - iOS needs App Attest, which needs an Apple developer team (not set up).
+- **Not prevented:** a genuine app on a farm of real phones, and real people who give their
+  accounts to someone else. The thresholds and backing raise the cost; they do not make it
+  impossible.
+
+The thresholds must be chosen before v3 ships, because they decide who can create and keep Places.
+These decisions are deferred (2026-10-18); work continues on the Android app first.
 
 #### Map, list and headcounts
 
@@ -767,6 +796,18 @@ unchanged.
   is **never full**. The v1 first-`C` seat claims, two-phase reservation and reconciliation losses,
   and the §4.1 cohort extension are no longer needed.
 - **Creators have no powers**, as today.
+- **Only reputable accounts create Places**, checked by the creator's own app, replacing the
+  100-Contacts rule (§4.2; criteria under "Fake accounts and reputation"). The hub registers a
+  Place only from a genuine IinPublic app.
+- **Backed by other people (rule 4).** A new Place is not public until a set number of *other*
+  reputable accounts back it by co-signing its descriptor within a set time (for example 7 days).
+  Each backer's own app checks that its user is reputable, and the hub counts a backing only from a
+  genuine app. Until then only the creator and people with its link see it. An unbacked Place
+  expires.
+- **Alive only while used.** A Place stays on the map and in lists only while enough distinct
+  reputable people have entered it within the live window (§4.2 uses 30 days and "anyone"; v3
+  counts distinct reputable visitors). Below that it disappears from the map and lists. Backing it
+  again brings it back. Numbers are signed-manifest values, not yet chosen.
 
 Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contacts carry it.
 
@@ -1049,6 +1090,11 @@ remain absent.
 ### 4.2 Place lifecycle and creation limits (product decision 2026-10-13)
 
 An empty Place must stay reachable, but anyone can create one, so unused Places must not pile up.
+
+> **v3 proposal (§3.7):** only reputable accounts create Places (checked by their own app), a Place
+> goes public only once other reputable accounts back it, and it stays live only while enough
+> distinct reputable people use it. The hub registers Places, backings and visits only from genuine
+> IinPublic apps (official-build credential).
 
 - **Live Places.** A Place is *live* while someone is in it or someone entered it in the last
   30 days (`PLACE_LIVE_WINDOW_MS`). Its `lastActiveAt` starts when the hub accepts it (the signed

@@ -771,10 +771,15 @@ phrase complexity into normal use.
     `nearby-gossip-personal-lists.test.ts` (host-only).
   - [ ] Product owner accepts the v3 design (§3.7), including retiring the yellow map dots and
     Nearby room chat.
-  - [ ] Decide the credit model for fake accounts: what counts as credit (only signals other people
-    or the hub sign), the threshold for creating a Place (replacing the unenforceable 100-Contacts
-    rule), the share of dense-tie list slots for low-credit accounts, and how newcomers earn credit
-    (§3.7 "Fake accounts and reputation").
+  - [ ] **Deferred (2026-10-18; Android first):** Credit model (§3.7 "Fake accounts and reputation"; decided 2026-10-18): open reputation,
+    minimum Contacts / Talks sent / Me-tab answers, fewer than N blocks; Places need backers and stay
+    live only while used by enough reputable people. Each user's own app checks the rules; Settings
+    → Credit shows them read-only; the hub only refuses to register Places (and count backings or
+    visits) from apps without an official-build credential. Still to choose: the thresholds
+    (signed-manifest values), and what website, desktop and iOS users do without platform
+    attestation.
+  - [ ] **Deferred (2026-10-18):** Block count: Adam's app adds one to Eve's count (only if Adam is reputable), stored without
+    the blocker's identity and counted once per pair; Eve sees only the number.
   - [ ] Read `C` and every v3 tunable (gossip period, cards per swap, card lifetime, hub sample size,
     incoming limits) from the signed manifest; nothing hard-coded. Changing `C` needs no epoch in v3.
   - [ ] Measure per-contact connection cost and broadcast-loop time on the five phones, over Wi-Fi
