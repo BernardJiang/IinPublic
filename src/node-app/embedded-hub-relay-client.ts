@@ -528,8 +528,9 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     method: 'GET' | 'POST' | 'DELETE',
     body?: unknown,
   ): Promise<{ status: number; body: unknown }> {
-    // Map presence (user dots) is the same kind of shared Nearby metadata and goes to the same hub.
-    if (!/^\/api\/(?:nearby-cohorts|map-presence|active-rooms)(?:\/|\?|$)/.test(path)) {
+    // Map presence (user dots) and Nearby v3 cards/introductions/statistics are the same kind of
+    // shared Nearby metadata and go to the same hub.
+    if (!/^\/api\/(?:nearby-cohorts|map-presence|active-rooms|nearby\/v3)(?:\/|\?|$)/.test(path)) {
       throw new Error(`embedded hub relay refuses non-cohort path "${path}"`);
     }
     return this.forwardJson(path, method, body);

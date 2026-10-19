@@ -779,8 +779,8 @@ phrase complexity into normal use.
   - [x] Model and experiment: `src/test/support/nearby-gossip-model.ts`,
     `scripts/nearby-gossip-experiment.ts` → `docs/testing/nearby-gossip-experiment.md`; unit gate
     `nearby-gossip-personal-lists.test.ts` (host-only).
-  - [ ] Product owner accepts the v3 design (§3.7), including retiring the yellow map dots and
-    Nearby room chat.
+  - [x] Product owner accepts the v3 design (§3.7), including retiring the yellow map dots and
+    Nearby room chat (2026-10-19). Implementation plan: §3.7 "Implementation plan".
   - [ ] **Deferred (2026-10-18; Android first):** Credit model (§3.7 "Fake accounts and reputation"; decided 2026-10-18): open reputation,
     minimum Contacts / Talks sent / Me-tab answers, fewer than N blocks; Places need backers and stay
     live only while used by enough reputable people. Each user's own app checks the rules; Settings
@@ -790,8 +790,20 @@ phrase complexity into normal use.
     attestation.
   - [ ] **Deferred (2026-10-18):** Block count: Adam's app adds one to Eve's count (only if Adam is reputable), stored without
     the blocker's identity and counted once per pair; Eve sees only the number.
-  - [ ] Read `C` and every v3 tunable (gossip period, cards per swap, card lifetime, hub sample size,
+  - [x] Read `C` and every v3 tunable (gossip period, cards per swap, card lifetime, hub sample size,
     incoming limits) from the signed manifest; nothing hard-coded. Changing `C` needs no epoch in v3.
+    (`nearby-v3-config.ts`, 2026-10-19.)
+  - [x] Phase 1 (2026-10-19): signed cards, ranking, pyramid, list with digests and gossip offers,
+    the hub's counts / introductions / heat (`NearbyV3Hub`, `/api/nearby/v3/*`), and the phone's
+    `NearbyV3Service` (not wired into the app yet). Tests `nearby-v3-core`, `nearby-v3-hub`,
+    `nearby-v3-service`.
+  - [ ] Phase 2: peer link — a signed knock lets someone on my list open a session to me although I
+    am not on theirs (incoming limit, block list); gossip over the mesh DataChannel.
+  - [ ] Phase 3: broadcast loop over the list with adaptive concurrency; "Sent to N of M".
+  - [ ] Phase 4: map (green list dots, heat layer, no yellow dots), list, headcounts; Nearby chat
+    removed.
+  - [ ] Phase 5: Places on lists. Phase 6: epoch switch and removal of v2.
+  - [ ] Daily beacon from the signed manifest (today the UTC date); identity-age rule.
   - [ ] Measure per-contact connection cost and broadcast-loop time on the five phones, over Wi-Fi
     and mobile data, and choose the incoming limits.
     2026-10-18 first numbers (`docs/testing/android-transport-measurements.md`): a fresh connection

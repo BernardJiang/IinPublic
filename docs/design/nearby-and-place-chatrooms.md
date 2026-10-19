@@ -547,10 +547,10 @@ Older splits without a threshold keep the legacy 1-in-4 identity digit.
 **Known limit:** groups of the same area that differ only by identity lane cannot be targeted by
 travel. Travel lands in your own lane.
 
-### 3.7 Proposed v3: personal Nearby lists (proposal 2026-10-18, not implemented)
+### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, being implemented)
 
-Status: **proposal**, agreed in direction with the product owner on 2026-10-18; it needs a new
-protocol epoch. Simulated in `docs/testing/nearby-gossip-experiment.md`. Tracking: `OPEN-70`.
+Status: **accepted** by the product owner on 2026-10-19, including retiring the yellow map dots and
+Nearby room chat. Implementation is in progress (plan below). It needs a new protocol epoch. Simulated in `docs/testing/nearby-gossip-experiment.md`. Tracking: `OPEN-70`.
 When implemented it replaces §3 to §3.3 and the Nearby parts of §3.6. Places (§4) stay rooms, with
 the changes in "Places in v3" below.
 
@@ -849,6 +849,41 @@ timing, NAT failures or connection cost.
 
 Results: `docs/testing/nearby-gossip-experiment.md`. Unit gate:
 `src/test/unit/nearby-gossip-personal-lists.test.ts`.
+
+#### Implementation plan (2026-10-19)
+
+Android first. Each phase lands with unit tests; phases 3–6 also with phone-path journeys and a
+real-phone run.
+
+1. **Core and hub — done (2026-10-19).**
+   - Shared: `nearby-v3-config.ts` (C and every tunable from the manifest, `extensions['nearby-v3']`),
+     `nearby-v3-card.ts` (signed cards), `nearby-v3-ranking.ts` (distance, then
+     `hash(viewer, member, beacon)`), `nearby-v3-pyramid.ts` (cells, 3×3 blocks, the climb),
+     `nearby-v3-list.ts` (the list, digests, gossip offers), `nearby-v3-gossip.ts` (swap messages).
+   - Hub: `NearbyV3Hub` (`src/server/services/nearby-v3-hub.ts`) with `POST /api/nearby/v3/card`,
+     `POST /api/nearby/v3/introductions` and `GET /api/nearby/v3/stats`; phones forward these to
+     the hub.
+   - Phone: `NearbyV3Service` (`src/web/services/nearby-v3-service.ts`): card reissue and heartbeat,
+     introductions only on start / move / empty list, one swap per period, a silent person leaves
+     the list, the incoming limit, the list saved across restarts. Not wired into the app yet.
+   - Tests: `nearby-v3-core`, `nearby-v3-hub` (includes 300 people converging on the real modules)
+     and `nearby-v3-service`.
+2. **Peer link.** A person on my list can reach me even when I am not on theirs: a signed "knock"
+   on my own signalling channel asks me to open the pair's session, subject to my incoming limit and
+   block list. Gossip messages ride the mesh DataChannel.
+3. **Broadcast loop.** The mesh's Nearby audience becomes the list (no shared room id): Talks queue
+   per person in list order, connections open with adaptive concurrency and close when done, and
+   the UI shows "Sent to N of M".
+4. **UI.** Map: green dots for my list, ★ for me, the heat layer from `GET /api/nearby/v3/stats`;
+   the yellow dots go. List: "People near you" and "Show more people here". Headcounts:
+   "N near you · M online". Nearby room chat goes.
+5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, chat kept for Places;
+   seat claims and cohorts go.
+6. **Epoch switch and removal of v2.** A manifest with the v3 capability, then removing the
+   partition lineage, cohort control plane, map presence and the Nearby part of active rooms.
+
+Still open from earlier phases: the daily beacon is the UTC date until the manifest carries an
+unpredictable one, and the identity-age rule needs the hub's account creation time.
 
 #### Open questions before implementation
 

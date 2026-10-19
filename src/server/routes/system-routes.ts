@@ -82,6 +82,8 @@ import { MicroRoomControlStore } from '../services/micro-room-control-store';
 import { NearbyControlStore } from '../services/nearby-control-store';
 import { NearbyPartitionStore } from '../services/nearby-partition-store';
 import { MapPresenceStore } from '../services/map-presence-store';
+import { NearbyV3Hub } from '../services/nearby-v3-hub';
+import { hubNearbyV3Config, registerNearbyV3Routes } from './nearby-v3-routes';
 import { captureRuntimeWindow } from '../services/runtime-profiler';
 import { parseMapBounds } from '../../shared/map-presence';
 import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
@@ -249,6 +251,7 @@ export function registerSystemRoutes(
   const nearbyControlStore = new NearbyControlStore();
   const nearbyPartitionStore = new NearbyPartitionStore();
   const mapPresenceStore = new MapPresenceStore();
+  const nearbyV3Hub = new NearbyV3Hub(hubNearbyV3Config());
   const nearbyCohortStore = new NearbyCohortStore(new Set(
     nearbyCohortPolicySignerPubs
       ?? String(process.env.IINPUBLIC_NEARBY_COHORT_POLICY_PUBS || '')
@@ -585,6 +588,9 @@ export function registerSystemRoutes(
     if (await relayMapPresence(res, `/api/map-presence?${query}`, 'GET')) return;
     res.json(mapPresenceStore.query(bounds));
   });
+
+  // Nearby v3 (docs/design/nearby-and-place-chatrooms.md §3.7): cards, introductions, statistics.
+  registerNearbyV3Routes(app, { hub: nearbyV3Hub, relay: relayMapPresence });
 
   // Room list: every room with ≥ 1 person, nearest first (or busiest / most room), paged.
   app.get('/api/active-rooms', async (req, res) => {
@@ -1736,6 +1742,7 @@ export function registerSystemRoutes(
           nearbyControlStore.clear();
           nearbyPartitionStore.clear();
           mapPresenceStore.clear();
+          nearbyV3Hub.clear();
           clearForTesting?.();
           await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();
