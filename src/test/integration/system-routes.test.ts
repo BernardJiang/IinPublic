@@ -1,5 +1,5 @@
 import express from 'express';
-import request, { type Response } from 'supertest';
+import request from 'supertest';
 import SEA from 'gun/sea';
 import { registerSystemRoutes } from '../../server/routes/system-routes';
 import {
@@ -9,12 +9,6 @@ import {
   type SeaSigningPair,
 } from '../../shared/p2p-runtime';
 import { peerAckSigningPayload } from '../../shared/p2p-presence';
-import { createMicroRoomControlPresence } from '../../shared/micro-room-control-presence';
-import { microRoomControlScopeId } from '../../shared/micro-room-assignment';
-import { createNearbyControlPresence, nearbyControlScopeId } from '../../shared/nearby-control-presence';
-import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
-import { nearbyPartitionAssignment, nearbyPartitionRootGroup } from '../../shared/nearby-partition';
-import type { RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 import { signFaqEntry } from '../../shared/techsupport-faq-entry';
 import { buildSupportFaqEntry, supportQuestionKey } from '../../shared/techsupport-faq';
@@ -196,38 +190,32 @@ describe('system routes', () => {
     );
   });
 
-  it('forwards Nearby cohort control through an embedded node with exact status and query', async () => {
-    const forwardNearbyCohort = jest.fn()
-      .mockResolvedValueOnce({ status: 200, body: { cohorts: [{ roomId: 'cohort-a' }] } })
-      .mockResolvedValueOnce({ status: 409, body: { code: 'target-full', error: 'full' } });
-    const { app } = buildApp('test', { forwardNearbyCohort } as unknown as EmbeddedHubRelayClientLike);
+  it('forwards Nearby v3 and the room list through an embedded node with exact status and query', async () => {
+    const forwardHubApi = jest.fn()
+      .mockResolvedValueOnce({ status: 200, body: { online: 7, heat: [] } })
+      .mockResolvedValueOnce({ status: 400, body: { error: 'bad card' } });
+    const { app } = buildApp('test', { forwardHubApi } as unknown as EmbeddedHubRelayClientLike);
 
-    const summary = await request(app)
-      .get('/api/nearby-cohorts/nearby_area_abc/summaries')
-      .query({ networkId: 'physical', protocolEpoch: '2', manifestSequence: '1' });
-    expect(summary.status).toBe(200);
-    expect(summary.body.cohorts).toEqual([{ roomId: 'cohort-a' }]);
-    expect(forwardNearbyCohort).toHaveBeenNthCalledWith(
-      1,
-      expect.stringMatching(/^\/api\/nearby-cohorts\/nearby_area_abc\/summaries\?/),
-      'GET',
-      undefined,
-    );
-    const forwardedPath = String(forwardNearbyCohort.mock.calls[0][0]);
-    expect(forwardedPath).toContain('networkId=physical');
-    expect(forwardedPath).toContain('protocolEpoch=2');
+    const stats = await request(app)
+      .get('/api/nearby/v3/stats')
+      .query({ west: '-118', south: '32', east: '-116', north: '34' });
+    expect(stats.status).toBe(200);
+    expect(stats.body).toEqual({ online: 7, heat: [] });
+    const forwardedPath = String(forwardHubApi.mock.calls[0][0]);
+    expect(forwardedPath).toMatch(/^\/api\/nearby\/v3\/stats\?/);
+    expect(forwardedPath).toContain('west=-118');
 
-    const reserve = await request(app)
-      .post('/api/nearby-cohorts/reservations')
-      .send({ claim: 'signed' });
-    expect(reserve.status).toBe(409);
-    expect(reserve.body).toEqual({ code: 'target-full', error: 'full' });
-    expect(forwardNearbyCohort).toHaveBeenNthCalledWith(
-      2,
-      '/api/nearby-cohorts/reservations',
-      'POST',
-      { claim: 'signed' },
-    );
+    const card = await request(app).post('/api/nearby/v3/card').send({ card: 'signed' });
+    expect(card.status).toBe(400);
+    expect(card.body).toEqual({ error: 'bad card' });
+    expect(forwardHubApi).toHaveBeenNthCalledWith(2, '/api/nearby/v3/card', 'POST', { card: 'signed' });
+  });
+
+  it('serves the retired v2 Nearby endpoints no more', async () => {
+    const { app } = buildApp('test');
+    for (const path of ['/api/nearby-cohorts/reservations', '/api/map-presence', '/api/nearby-control/presence']) {
+      expect((await request(app).post(path).send({})).status).toBe(404);
+    }
   });
 
   it('reports SEA private-key and plaintext relay leaks in debug storage', async () => {
@@ -258,7 +246,7 @@ describe('system routes', () => {
     const enabled = await request(buildApp().app).get('/api/test/portable-core');
     expect(enabled.status).toBe(200);
     expect(enabled.body.runtime).toBe('embedded-node');
-    expect(enabled.body.report).toEqual(expect.objectContaining({ failed: 0, passed: 6, total: 6 }));
+    expect(enabled.body.report).toEqual(expect.objectContaining({ failed: 0, passed: 5, total: 5 }));
 
     const production = await request(buildApp('production').app).get('/api/test/portable-core');
     expect(production.status).toBe(404);
@@ -551,219 +539,6 @@ describe('system routes', () => {
     expect(list.body.messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'support_1', text: 'Welcome' })]),
     );
-  });
-
-  it('forms and serves a bounded verifiable micro-room overflow certificate at C+1', async () => {
-    const { app } = buildApp('test');
-    const baseGridRoomId = 'region_32.71_-117.17_room_0';
-    const checkpoint: RoomProtocolCheckpoint = {
-      networkId: 'iinpublic-test',
-      protocolEpoch: 1,
-      manifestSequence: 1,
-      manifestHash: 'b'.repeat(64),
-      chatroomCapacity: 3,
-    };
-    let lastResponse: Response | null = null;
-    for (let index = 0; index < 4; index += 1) {
-      const pair = await SEA.pair() as SeaSigningPair;
-      const presence = await createMicroRoomControlPresence({
-        userId: `arena-user-${index}`,
-        pair,
-        baseGridRoomId,
-        splitGeneration: 0,
-        laneIndex: 0,
-        checkpoint,
-      });
-      lastResponse = await request(app)
-        .post('/api/micro-rooms/control/presence')
-        .send({ baseGridRoomId, presence });
-      expect(lastResponse.status).toBe(200);
-      expect(lastResponse.body.laneWitnessCount).toBe(index + 1);
-    }
-    expect(lastResponse?.body.certificates).toEqual([
-      expect.objectContaining({
-        fromSplitGeneration: 0,
-        toSplitGeneration: 1,
-        witnesses: expect.any(Array),
-      }),
-    ]);
-    expect(lastResponse?.body.certificates[0].witnesses).toHaveLength(4);
-
-    const listed = await request(app).get(
-      `/api/micro-rooms/control/${microRoomControlScopeId(baseGridRoomId)}/certificates`,
-    );
-    expect(listed.status).toBe(200);
-    expect(listed.body.certificates).toHaveLength(1);
-
-    const tampered = await request(app)
-      .post('/api/micro-rooms/control/presence')
-      .send({
-        baseGridRoomId,
-        presence: { ...lastResponse?.body.record, laneIndex: 1 },
-      });
-    expect(tampered.status).toBe(400);
-  });
-
-  it('forms and serves a geographic Nearby overflow certificate at C+1', async () => {
-    const { app } = buildApp('test');
-    const now = new Date();
-    const checkpoint: RoomProtocolCheckpoint = {
-      networkId: 'iinpublic-test',
-      protocolEpoch: 1,
-      manifestSequence: 1,
-      manifestHash: '9'.repeat(64),
-      chatroomCapacity: 2,
-    };
-    const root = deriveNearbyRoomAssignment({
-      location: { latitude: 32.7157, longitude: -117.1611, accuracy: 5, timestamp: now },
-      mode: 'neighborhood',
-      identity: 'root',
-    });
-    let lastResponse: Response | null = null;
-    for (let index = 0; index < 3; index += 1) {
-      const pair = await SEA.pair() as SeaSigningPair;
-      const presence = await createNearbyControlPresence({
-        userId: `nearby-user-${index}`,
-        pair,
-        rootRoomId: root.roomId,
-        assignment: root,
-        checkpoint,
-      });
-      lastResponse = await request(app)
-        .post('/api/nearby-control/presence')
-        .send({ presence });
-      expect(lastResponse.status).toBe(200);
-      expect(lastResponse.body.roomWitnessCount).toBe(index + 1);
-    }
-    expect(lastResponse?.body.certificates).toHaveLength(1);
-
-    const list = await request(app).get(
-      `/api/nearby-control/${nearbyControlScopeId(root.roomId)}/certificates`
-        + `?roomId=${encodeURIComponent(root.roomId)}&requestedSplitGeneration=0`,
-    );
-    expect(list.status).toBe(200);
-    expect(list.body.certificates).toEqual([
-      expect.objectContaining({
-        fromRoomId: root.roomId,
-        fromRequestedSplitGeneration: 0,
-        toRequestedSplitGeneration: 1,
-      }),
-    ]);
-  });
-
-  it('forms and serves a flat adaptive group-replacement transition at C+1', async () => {
-    const { app } = buildApp('test');
-    const checkpoint: RoomProtocolCheckpoint = {
-      networkId: 'iinpublic-test',
-      protocolEpoch: 1,
-      manifestSequence: 1,
-      manifestHash: '7'.repeat(64),
-      chatroomCapacity: 2,
-    };
-    const location = { latitude: 32.7157, longitude: -117.1611, accuracy: 5, timestamp: new Date() };
-    const root = nearbyPartitionRootGroup(checkpoint);
-    const assignment = nearbyPartitionAssignment({
-      group: root,
-      location,
-      mode: 'neighborhood',
-      checkpoint,
-    });
-    let last: Response | null = null;
-    for (let index = 0; index < 3; index += 1) {
-      const pair = await SEA.pair() as SeaSigningPair;
-      const presence = await createNearbyControlPresence({
-        userId: `adaptive-user-${index}`,
-        pair,
-        rootRoomId: root.roomId,
-        assignment,
-        checkpoint,
-      });
-      last = await request(app).post('/api/nearby-partitions/presence').send({ presence });
-      expect(last.status).toBe(200);
-    }
-    expect(last?.body.transitions).toEqual([
-      expect.objectContaining({
-        kind: 'replace-group-with-groups',
-        fromGroups: [root],
-      }),
-    ]);
-
-    const listed = await request(app).get(
-      `/api/nearby-partitions/${encodeURIComponent(root.roomId)}/transition`
-        + `?networkId=${checkpoint.networkId}`
-        + `&protocolEpoch=${checkpoint.protocolEpoch}`
-        + `&manifestSequence=${checkpoint.manifestSequence}`
-        + `&manifestHash=${checkpoint.manifestHash}`
-        + `&chatroomCapacity=${checkpoint.chatroomCapacity}`,
-    );
-    expect(listed.status).toBe(200);
-    expect(listed.body.transitions).toHaveLength(1);
-  });
-
-  it('serializes simultaneous Nearby arrivals so only the first C remain on generation zero', async () => {
-    const { app } = buildApp('test');
-    const now = new Date();
-    const checkpoint: RoomProtocolCheckpoint = {
-      networkId: 'iinpublic-test',
-      protocolEpoch: 1,
-      manifestSequence: 1,
-      manifestHash: '8'.repeat(64),
-      chatroomCapacity: 1,
-    };
-    const root = deriveNearbyRoomAssignment({
-      location: { latitude: 40.7128, longitude: -74.006, accuracy: 5, timestamp: now },
-      mode: 'neighborhood',
-      identity: 'root',
-    });
-    const presences = await Promise.all(Array.from({ length: 5 }, async (_, index) => {
-      const pair = await SEA.pair() as SeaSigningPair;
-      return createNearbyControlPresence({
-        userId: `simultaneous-nearby-user-${index}`,
-        pair,
-        rootRoomId: root.roomId,
-        assignment: root,
-        checkpoint,
-      });
-    }));
-    const responses = await Promise.all(presences.map((presence) => request(app)
-      .post('/api/nearby-control/presence')
-      .send({ presence })));
-
-    expect(responses.every((response) => response.status === 200)).toBe(true);
-    expect(responses.filter((response) => response.body.certificates.length === 0)).toHaveLength(1);
-    expect(responses.filter((response) => response.body.certificates.length === 1)).toHaveLength(4);
-    expect(responses.find((response) => response.body.certificates.length === 1)
-      ?.body.certificates[0].witnesses).toHaveLength(2);
-  });
-
-  it('serializes simultaneous overflow formation so no more than C entrants receive generation zero', async () => {
-    const { app } = buildApp('test');
-    const baseGridRoomId = 'region_40.71_-74.00_room_0';
-    const checkpoint: RoomProtocolCheckpoint = {
-      networkId: 'iinpublic-test',
-      protocolEpoch: 1,
-      manifestSequence: 1,
-      manifestHash: 'd'.repeat(64),
-      chatroomCapacity: 1,
-    };
-    const presences = await Promise.all(Array.from({ length: 5 }, async (_, index) => {
-      const pair = await SEA.pair() as SeaSigningPair;
-      return createMicroRoomControlPresence({
-        userId: `simultaneous-user-${index}`,
-        pair,
-        baseGridRoomId,
-        splitGeneration: 0,
-        laneIndex: 0,
-        checkpoint,
-      });
-    }));
-    const responses = await Promise.all(presences.map((presence) => request(app)
-      .post('/api/micro-rooms/control/presence')
-      .send({ baseGridRoomId, presence })));
-
-    expect(responses.every((response) => response.status === 200)).toBe(true);
-    expect(responses.filter((response) => response.body.certificates.length === 0)).toHaveLength(1);
-    expect(responses.filter((response) => response.body.certificates.length === 1)).toHaveLength(4);
   });
 
   it('forwards a posted TechSupport message to the explicit hub relay and merges remote messages on read', async () => {

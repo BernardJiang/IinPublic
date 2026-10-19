@@ -663,7 +663,10 @@ The pyramid search is not repeated on every heartbeat. It runs only:
    (past the existing 15 % edge hysteresis, §3.4);
 3. when my list has emptied, for example after a long time offline.
 
-Otherwise gossip keeps the list current, and newcomers find me through it. In a dense area the
+Otherwise gossip keeps the list current, and newcomers find me through it: a newcomer, someone
+who moved, and someone whose card changed (a new name, the traveler flag) swap with the **three
+nearest** people at once, so a small group sees them right away rather than one period later. In a
+dense area the
 search does not climb at all: the first 3×3 block already holds `C` people, so it stops at the
 finest level. Only sparse areas climb, and only once per location change.
 
@@ -683,9 +686,15 @@ Every gossip period (30 s in the model), each phone swaps cards with one person 
    much older copy of, ranked the way the other would rank them.
 4. Merge, verify signatures, keep the freshest copy, drop expired cards, keep the top `C`.
 
-A card nobody refreshes expires after 30 periods (15 minutes). A swap or delivery attempt that gets
-no answer removes that person at once. Gossip uses whatever link exists: Internet, LAN, Bluetooth or
-Wi-Fi Direct. Offline, the phones I can reach are my list.
+A card nobody refreshes expires after 30 periods (15 minutes). A swap that gets no answer is asked
+once more at once (a link may still be opening), and a second silence removes that person; only a
+newer card of theirs brings them back. A link that cannot be opened (a delivery gives up) is no
+proof that someone left — under load or behind a strict NAT a live phone can fail to connect — so
+it only triggers that swap; the mailbox carries their Talks meanwhile (implementation note,
+2026-10-19: dropping people on link failures emptied six live lists under load). A knock carries
+the knocker's card, so the person knocked has the knocker on their list before the link is up.
+Gossip uses whatever link exists: Internet, LAN, Bluetooth or Wi-Fi Direct. Offline, the phones I
+can reach are my list.
 
 **Beyond `C`:** "Show more people here" asks people on my list for cards ranked by my order,
 skipping the ones I already hold. It is orderly and repeatable, but not guaranteed complete.
@@ -698,6 +707,10 @@ A broadcast is a loop over my list in rank order, not a fixed set of live links:
 2. Exchange compact inventories, so only Talks they do not already have are sent. A person who
    already exchanged my Talks gets nothing again.
 3. Close the connection unless a conversation needs it, and move on.
+
+The same loop carries Talks for people who are not on my list (a contact group, a chosen audience),
+after the listed ones; an answer opens a link to the Talk's author the same way. After two failed
+connects to a person the loop leaves them to the mailbox for 5 minutes.
 
 There is no fixed `K`. Concurrency adapts to the network: start with a few at a time, add more while
 connections succeed quickly, halve on timeouts. A full pass over 498 people at 1–2 s per connection
@@ -889,9 +902,16 @@ real-phone run.
    "N near you · M online". Nearby room chat goes.
 5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, chat kept for Places;
    seat claims and cohorts go.
-6. **Removal of v2** (no epoch switch, no compatibility): the partition lineage, cohort control
-   plane, control presence, capacity splits and evictions, tiles and routing, map presence and the
-   Nearby part of active rooms, with their tests.
+6. **Removal of v2 — done (2026-10-19)** (no epoch switch, no compatibility): the partition
+   lineage, cohort control plane and its mesh frame, control presence, micro-rooms, capacity splits
+   and evictions, room routing, map presence and the Nearby part of the room list (now Places
+   only), with their server stores, routes and tests (unit and web e2e). The map's people layer
+   already draws the list (green dots, ★ me) and the hub's heat; the tile grid and travel by map
+   point remain until step 4. Found and fixed on the way (each with a unit test): renamed cards
+   and knock cards reach peers at once, announcing to the three nearest, swap retry and a 15 s
+   swap timeout (WebRTC alone may take 10 s), link failures probe instead of dropping, stale knocks
+   (sent while I was away) no longer stop a returning phone from knocking back, a knock restarts a
+   stale session, the broadcast loop and answers reach people outside the list.
 
 Still open from earlier phases: the daily beacon is the UTC date until the manifest carries an
 unpredictable one, and the identity-age rule needs the hub's account creation time.
@@ -902,8 +922,7 @@ unpredictable one, and the identity-age rule needs the hub's account creation ti
 - Exact incoming limits per phone.
 - The credit model for fake accounts (above).
 - Whether 30 s gossip periods are affordable on battery; the model counts cards, not radio time.
-- A migration plan: v3 is a new protocol epoch, so v2 and v3 phones do not see each other's
-  Nearby until both are updated.
+- (Settled: no migration. There is no official release yet, so v3 replaced v2 outright.)
 
 ## 4. Place rooms and map travel
 

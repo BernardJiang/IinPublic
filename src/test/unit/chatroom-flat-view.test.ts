@@ -3,22 +3,22 @@
 import '@testing-library/jest-dom';
 import { renderChatroomList, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
 import { uiText } from '../../web/ui/ui-translations';
-import { createLocalCohortTraversalViewModel } from '../../web/ui/cohort-traversal-view-model';
 import type { ActiveRoomsView } from '../../shared/active-rooms';
+import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
 
-const NEARBY_ID = 'nearby_v1_e1_p1000_g0_0123456789abcdef01234567';
+const NEARBY_ID = NEARBY_V3_ROOM_ID;
 const PLACE_ID = 'place_32.71_-117.17_abcdefabcdef';
 
-const LA_ID = 'nearby_v2_e1_aaaaaaaaaaaaaaaaaaaaaaaa';
-const FULL_ID = 'nearby_v2_e1_bbbbbbbbbbbbbbbbbbbbbbbb';
+const LA_PLACE_ID = 'place_34.05_-118.24_abcdefabcdef';
+const FULL_ID = 'place_36.17_-115.14_abcdefabcdef';
+// The hub's room list holds Places only: Nearby is my own list, never a listed room (§3.7).
 const ROOMS: ActiveRoomsView = {
-  totalOnline: 351,
-  totalRooms: 3,
+  totalOnline: 49,
+  totalRooms: 2,
   hasMore: false,
   rooms: [
-    { roomId: NEARBY_ID, kind: 'nearby', memberCount: 302, latitude: 32.72, longitude: -117.16, distanceMeters: 0, bearingDegrees: 0 },
     { roomId: PLACE_ID, kind: 'place', name: 'Bean There Café', memberCount: 46, latitude: 32.71, longitude: -117.17, distanceMeters: 1_200, bearingDegrees: 225 },
-    { roomId: LA_ID, kind: 'nearby', memberCount: 3, latitude: 34.05, longitude: -118.24, distanceMeters: 179_000, bearingDegrees: 315 },
+    { roomId: LA_PLACE_ID, kind: 'place', name: 'Echo Park', memberCount: 3, latitude: 34.05, longitude: -118.24, distanceMeters: 179_000, bearingDegrees: 315 },
   ],
 };
 
@@ -48,7 +48,6 @@ function render(overrides: Record<string, unknown> = {}): void {
     matchedUserIds: new Set(),
     customChatrooms: places,
     travelModeActive: false,
-    cohortTraversal: createLocalCohortTraversalViewModel(),
     setChatroomBrowseMode: jest.fn(),
     setCurrentChatroom: jest.fn(),
     setCurrentChatroomMembers: jest.fn(),
@@ -66,42 +65,32 @@ function render(overrides: Record<string, unknown> = {}): void {
 }
 
 describe('flat Nearby and Places list', () => {
-  it('lists your room first, then every other room with people, with the online total', () => {
+  it('shows Nearby first, then every Place with people, with the Places total', () => {
     render({ activeRooms: ROOMS });
 
-    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('351 online · 3 rooms');
+    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('49 online · 2 rooms');
     const current = document.querySelector('[data-testid="current-group-section"]');
-    expect(current?.textContent).toContain('Your room');
-    expect(current?.textContent).toContain('near San Diego');
+    expect(current?.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).not.toBeNull();
     expect(current?.querySelector('.chatroom-icon')).toBeNull(); // no meaningless pin
     const rows = Array.from(document.querySelectorAll('[data-testid="room-list-row"]'));
-    // A Place by its name; a Nearby group by where it is from you, with the big city as context.
-    expect(rows.map((row) => row.querySelector('.chatroom-name')?.textContent?.trim())).toEqual([
-      'Bean There Café',
-      expect.stringMatching(/^\d+ (km|mi) NW$/),
-    ]);
+    expect(rows.map((row) => row.querySelector('.chatroom-name')?.textContent?.trim())).toEqual(['Bean There Café', 'Echo Park']);
     expect(rows[0]?.textContent).toContain('46 / 498 people');
     expect(rows[0]?.querySelector('.chatroom-description')?.textContent).toMatch(/^Place · [\d.]+ (km|mi) SW$/);
-    expect(rows[0]?.querySelector('.chatroom-icon')).not.toBeNull();
-    expect(rows[1]?.querySelector('.chatroom-description')?.textContent).toBe('near Los Angeles');
-    expect(rows[1]?.textContent).toContain('3 / 498 people');
-    expect(rows[1]?.querySelector('.chatroom-icon')).toBeNull();
+    expect(rows.every((row) => row.getAttribute('data-room-kind') === 'place')).toBe(true);
     expect(document.querySelector('.chatroom-expand-icon')).toBeNull();
     expect(document.querySelector('[data-level]')).toBeNull();
-    expect(document.querySelector('[data-testid="cohort-controls"]')).toBeNull();
-    expect(document.body.textContent).not.toContain(NEARBY_ID);
+    expect(document.querySelector('[data-testid="cohort-status"]')).toBeNull();
   });
 
-  it('labels a map-selected Nearby audience as travel without exposing its room id', () => {
+  it('labels a map-selected Nearby audience as travel', () => {
     render({ travelModeActive: true });
 
     const current = document.querySelector('[data-testid="current-group-section"]');
     expect(current?.textContent).toContain('Traveler');
     expect(current?.textContent).toContain('Based on the map point you selected');
-    expect(current?.textContent).not.toContain(NEARBY_ID);
   });
 
-  it('tapping a room enters it: your own and Places show members; another Nearby group travels there', () => {
+  it('tapping Nearby or a Place enters it', () => {
     const emit = jest.fn();
     render({ activeRooms: ROOMS, emit });
     document.body.insertAdjacentHTML('beforeend', '<div id="chatroom-members-list"></div><div id="current-chatroom-title"></div>');
@@ -109,17 +98,14 @@ describe('flat Nearby and Places list', () => {
     (document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`) as HTMLElement).click();
     expect(emit).toHaveBeenCalledWith('chatroomChanged', NEARBY_ID);
 
-    (document.querySelector(`.chatroom-item[data-chatroom-id="${PLACE_ID}"]`) as HTMLElement).click();
-    expect(emit).toHaveBeenCalledWith('chatroomChanged', PLACE_ID);
-
-    (document.querySelector(`.chatroom-item[data-chatroom-id="${LA_ID}"]`) as HTMLElement).click();
-    expect(emit).toHaveBeenCalledWith('travelNearbyAtPoint', { latitude: 34.05, longitude: -118.24 });
-    expect(document.getElementById('current-chatroom-title')?.textContent).toMatch(/^\d+ (km|mi) NW$/);
+    (document.querySelector(`.chatroom-item[data-chatroom-id="${LA_PLACE_ID}"]`) as HTMLElement).click();
+    expect(emit).toHaveBeenCalledWith('chatroomChanged', LA_PLACE_ID);
+    expect(emit).not.toHaveBeenCalledWith('travelNearbyAtPoint', expect.anything());
   });
 
-  it('shows a full room greyed out and does not enter it', () => {
+  it('shows a full Place greyed out and does not enter it', () => {
     const emit = jest.fn();
-    render({ activeRooms: { ...ROOMS, rooms: [...ROOMS.rooms, { roomId: FULL_ID, kind: 'nearby', memberCount: 498, latitude: 36.17, longitude: -115.14, distanceMeters: 400_000, bearingDegrees: 45 }] }, emit });
+    render({ activeRooms: { ...ROOMS, rooms: [...ROOMS.rooms, { roomId: FULL_ID, kind: 'place', name: 'Arena', memberCount: 498, latitude: 36.17, longitude: -115.14, distanceMeters: 400_000, bearingDegrees: 45 }] }, emit });
     const full = document.querySelector(`.chatroom-item[data-chatroom-id="${FULL_ID}"]`) as HTMLElement;
     expect(full.getAttribute('aria-disabled')).toBe('true');
     expect(full.textContent).toContain('Full');
@@ -127,11 +113,10 @@ describe('flat Nearby and Places list', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it('does not offer Nearby cohort switching while the current group is a Place', () => {
+  it('shows the Place as the current group while inside it', () => {
     render({ currentChatroom: PLACE_ID });
 
     expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Bean There Café');
-    expect(document.querySelector('[data-testid="cohort-status"]')).toBeNull();
   });
 });
 

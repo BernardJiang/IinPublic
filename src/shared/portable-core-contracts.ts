@@ -1,20 +1,11 @@
 import { blockPairHash } from './block-pair';
 import {
-  capacityNoticeCoordinator,
-  orderMembersFifo,
-  overflowMembers,
-} from './chatroom-capacity';
-import {
   buildQuestionDefaultKey,
   putQuestionDefault,
   resolveQuestionDefault,
   type QuestionDefaultContractMap,
 } from './question-default-contracts';
-import {
-  isNearbyPublicMode,
-  nearbyBasePrecisionMeters,
-  projectNearbyCoordinate,
-} from './nearby-rooms';
+import { isNearbyPublicMode, nearbyBasePrecisionMeters } from './nearby-rooms';
 import { compareVersions, isNewerVersion } from './semver-compare';
 import { filterTalkPeersByContactPolicy } from './talk-contact-policy';
 
@@ -68,28 +59,6 @@ export function portableCoreContracts(): PortableCoreContract[] {
         assertEqual(compareVersions('1.2', '1.2.0'), 0, 'missing segment');
         assertEqual(compareVersions('1.2.0', '1.10.0'), -1, 'numeric ordering');
         assert(isNewerVersion('2.0.0', '1.999.999'), 'major release should be newer');
-      },
-    },
-    {
-      id: 'capacity-fifo-is-deterministic',
-      run: () => {
-        const members = [
-          { userId: 'charlie', joinedAt: 'invalid' },
-          { userId: 'bob', joinedAt: '2026-01-01T00:00:00.000Z' },
-          { userId: 'alice', joinedAt: '2026-01-01T00:00:00.000Z' },
-          { userId: 'dana', joinedAt: '2026-01-01T00:00:01.000Z' },
-        ];
-        assertArrayEqual(
-          orderMembersFifo(members).map((member) => member.userId),
-          ['alice', 'bob', 'dana', 'charlie'],
-          'FIFO total order',
-        );
-        assertArrayEqual(
-          overflowMembers(members, 3).map((member) => member.userId),
-          ['alice'],
-          'overflow member',
-        );
-        assertEqual(capacityNoticeCoordinator(members), 'charlie', 'notice coordinator');
       },
     },
     {
@@ -148,9 +117,6 @@ export function portableCoreContracts(): PortableCoreContract[] {
         assert(!isNearbyPublicMode('contacts-only'), 'contacts-only should not publish location');
         assertEqual(nearbyBasePrecisionMeters('close-nearby'), 400, 'close range');
         assertEqual(nearbyBasePrecisionMeters('neighborhood'), 1_000, 'neighborhood range');
-        const origin = projectNearbyCoordinate({ latitude: 0, longitude: 0 });
-        assert(Math.abs(origin.x) < 1e-9, 'projected origin x');
-        assert(Math.abs(origin.y) < 1e-6, 'projected origin y');
       },
     },
     {

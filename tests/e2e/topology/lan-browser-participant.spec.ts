@@ -30,12 +30,6 @@ type BootstrappedUser = {
   stageName: string;
 };
 
-async function fetchJson(url: string): Promise<any> {
-  const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
-  if (!res.ok) throw new Error(`${url} failed: ${res.status} ${await res.text()}`);
-  return res.json();
-}
-
 async function seedTechSupportUser(): Promise<void> {
   await fetch(`${gunBaseURL()}/api/users`, {
     method: 'POST',
@@ -244,20 +238,25 @@ test.describe('LAN browser development topology', () => {
     const currentRoomOf = (page: Page) =>
       page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''));
     const roomId = await currentRoomOf(localA.page);
-    expect(roomId).toMatch(/^nearby_/);
+    expect(roomId).toMatch(/^nearby-v3$/);
     await expect.poll(() => currentRoomOf(localB.page)).toBe(roomId);
     await expect.poll(() => currentRoomOf(lanUser.page)).toBe(roomId);
 
+    // Nearby is each user's own list (§3.7): the LAN browser is on both local users' lists and they
+    // are on its list; TechSupport is a Contact and on nobody's.
+    const nearbyIds = (page: Page) => page.evaluate(() => {
+      const runtime = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3;
+      return (runtime?.service.entries() ?? []).map((entry: { card: { userId: string } }) => entry.card.userId) as string[];
+    });
     await expect
       .poll(
         async () => {
-          const members = await fetchJson(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members`);
-          const ids = new Set(members.map((member: { userId?: string }) => member.userId));
+          const [a, b, lan] = await Promise.all([nearbyIds(localA.page), nearbyIds(localB.page), nearbyIds(lanUser.page)]);
           return {
-            techSupport: ids.has(TECHSUPPORT_ROOT_USER_ID),
-            localA: ids.has(localA.userId),
-            localB: ids.has(localB.userId),
-            lanUser: ids.has(lanUser.userId),
+            techSupport: [...a, ...b, ...lan].includes(TECHSUPPORT_ROOT_USER_ID),
+            localA: lan.includes(localA.userId) && b.includes(localA.userId),
+            localB: lan.includes(localB.userId) && a.includes(localB.userId),
+            lanUser: a.includes(lanUser.userId) && b.includes(lanUser.userId),
           };
         },
         { timeout: 30_000, intervals: [1000, 1500, 2000] },

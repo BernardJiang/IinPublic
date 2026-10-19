@@ -1,30 +1,23 @@
 import { isPlaceRoomId } from './place-rooms';
 
 /**
- * The flat room list that replaced the chatroom tree: every room (Nearby group or Place) with at
- * least one person online, nearest first.
- *
- * Where a room is: a Place is at its public pin. A Nearby group is at the mean of its members'
- * public map points (shared/public-location.ts) — never a precise position. A group none of whose
- * members has a dot yet has no position and is listed after every placed room.
+ * The flat room list: every Place with at least one person online, nearest first, at its public
+ * pin. Nearby is not a room (§3.7: it is each phone's own list), so it is never listed here.
  */
 export type ActiveRoomSummary = {
   roomId: string;
-  kind: 'nearby' | 'place';
+  kind: 'place';
   memberCount: number;
   latitude?: number;
   longitude?: number;
-  /** Place display name; Nearby groups are named on the device from their position. */
   name?: string;
   distanceMeters?: number;
   /** Compass bearing from the viewer, 0 = north, clockwise. */
   bearingDegrees?: number;
-  /** Nearby group's partition path (public signed control data): where a tap should travel. */
-  partitionPath?: string;
 };
 
 export type ActiveRoomsView = {
-  /** Distinct people online in any room (TechSupport is a Contact and never counted). */
+  /** Distinct people in any Place (TechSupport is a Contact and never counted). */
   totalOnline: number;
   totalRooms: number;
   rooms: ActiveRoomSummary[];
@@ -66,12 +59,8 @@ export function bearingDegrees(
 
 export function summarizeActiveRooms(input: {
   rooms: ReadonlyArray<{ roomId: string; memberIds: readonly string[] }>;
-  /** A member's public map point, if they publish one. */
-  pointOf: (userId: string) => { latitude: number; longitude: number } | undefined;
   /** A Place's public pin and name. */
   placeOf: (roomId: string) => { name: string; latitude?: number; longitude?: number } | undefined;
-  /** A Nearby group's partition path, when the index knows it. */
-  pathOf?: (roomId: string) => string | undefined;
   origin?: { latitude: number; longitude: number };
   offset?: number;
   limit?: number;
@@ -82,26 +71,16 @@ export function summarizeActiveRooms(input: {
   const online = new Set<string>();
   const summaries: ActiveRoomSummary[] = [];
   for (const room of input.rooms) {
+    if (!isPlaceRoomId(room.roomId)) continue;
     const memberIds = [...new Set(room.memberIds)];
     memberIds.forEach((id) => online.add(id));
     if (memberIds.length === 0 && room.roomId !== input.currentRoomId) continue;
-    const kind = isPlaceRoomId(room.roomId) ? 'place' : 'nearby';
-    const summary: ActiveRoomSummary = { roomId: room.roomId, kind, memberCount: memberIds.length };
-    if (kind === 'place') {
-      const place = input.placeOf(room.roomId);
-      if (place?.name) summary.name = place.name;
-      if (Number.isFinite(place?.latitude) && Number.isFinite(place?.longitude)) {
-        summary.latitude = place!.latitude!;
-        summary.longitude = place!.longitude!;
-      }
-    } else {
-      const path = input.pathOf?.(room.roomId);
-      if (path !== undefined) summary.partitionPath = path;
-      const points = memberIds.map(input.pointOf).filter((point): point is { latitude: number; longitude: number } => !!point);
-      if (points.length > 0) {
-        summary.latitude = points.reduce((sum, point) => sum + point.latitude, 0) / points.length;
-        summary.longitude = points.reduce((sum, point) => sum + point.longitude, 0) / points.length;
-      }
+    const summary: ActiveRoomSummary = { roomId: room.roomId, kind: 'place', memberCount: memberIds.length };
+    const place = input.placeOf(room.roomId);
+    if (place?.name) summary.name = place.name;
+    if (Number.isFinite(place?.latitude) && Number.isFinite(place?.longitude)) {
+      summary.latitude = place!.latitude!;
+      summary.longitude = place!.longitude!;
     }
     if (input.origin && summary.latitude !== undefined && summary.longitude !== undefined) {
       const at = { latitude: summary.latitude, longitude: summary.longitude };

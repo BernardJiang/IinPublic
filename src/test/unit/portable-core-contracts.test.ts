@@ -7,7 +7,7 @@ describe('portable core contracts', () => {
   it('has unique stable ids', () => {
     const ids = portableCoreContracts().map((contract) => contract.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.length).toBeGreaterThanOrEqual(6);
+    expect(ids.length).toBeGreaterThanOrEqual(5);
   });
 
   it('passes in the Jest host runtime', () => {

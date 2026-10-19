@@ -43,7 +43,7 @@ import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { tileIdAt } from '../../shared/room-tiles';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId, nearbyMapArea, type NearbyMapArea, type NearbyRoomAssignment } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId } from '../../shared/nearby-rooms';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
@@ -183,10 +183,6 @@ import { applyAppShellTranslations, renderAppShell } from './app-shell';
 import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
 import { PeerHeadshotCache } from './peer-headshot-cache';
 import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
-import {
-  createLocalCohortTraversalViewModel,
-  type CohortTraversalViewModel,
-} from './cohort-traversal-view-model';
 import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
 import type { MapUserDotSource } from './chatroom-map-view';
@@ -303,7 +299,6 @@ export class UIManager extends EventEmitter {
   private peerController?: PeerController;
   private broadcastController?: BroadcastController;
   private chatroomShellController?: ChatroomShellController;
-  private cohortTraversalViewModel: CohortTraversalViewModel = createLocalCohortTraversalViewModel();
   private talkEditorController?: TalkEditorController;
   private supportSettingsController?: SupportSettingsController;
   private supportDelegateInviteHooks?: SupportDelegateInviteHooks;
@@ -314,7 +309,6 @@ export class UIManager extends EventEmitter {
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
   private chatroomBrowseMode: ChatroomBrowseMode = initialChatroomBrowseMode();
-  private nearbyMapArea: NearbyMapArea | undefined;
   private expandedChatrooms = new Set<string>();
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
@@ -521,7 +515,6 @@ export class UIManager extends EventEmitter {
       getHomeChatroomId: () => this.getHomeChatroomId(),
       currentChatroom: this.currentChatroom,
       resolveChatroomTitle: (chatroomId) => this.resolveChatroomTitle(chatroomId),
-      awayFromDefaultGroup: !this.cohortTraversalViewModel.getSnapshot().isDefaultGroup,
     });
   }
 
@@ -885,9 +878,7 @@ export class UIManager extends EventEmitter {
         getExpandedChatrooms: () => this.expandedChatrooms,
         getMatchedUserIds: () => this.matchedUserIds,
         getCustomChatrooms: () => this.customChatrooms,
-        getNearbyMapArea: () => this.nearbyMapArea,
         getTravelModeActive: () => this.travelModeActive,
-        getCohortTraversalViewModel: () => this.cohortTraversalViewModel,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
         setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; saveChatroomBrowseMode(mode); },
@@ -920,12 +911,6 @@ export class UIManager extends EventEmitter {
       });
     }
     return this.chatroomShellController;
-  }
-
-  /** Install the verified network-backed Nearby cohort model without exposing allocation IDs. */
-  public setCohortTraversalViewModel(viewModel: CohortTraversalViewModel | undefined): void {
-    this.cohortTraversalViewModel = viewModel ?? createLocalCohortTraversalViewModel();
-    if (document.getElementById('chatroom-list')) this.renderChatroomList();
   }
 
   private talkEditor(): TalkEditorController {
@@ -1134,11 +1119,6 @@ export class UIManager extends EventEmitter {
   /** Map user dots: my published point plus a viewport loader; null hides them. */
   setMapUserDotSource(source: MapUserDotSource | null): void { this.chatroomShell().setMapUserDotSource(source); }
   setActiveRooms(view: Parameters<ChatroomShellController['setActiveRooms']>[0]): void { this.chatroomShell().setActiveRooms(view); }
-
-  setNearbyMapAssignment(assignment: NearbyRoomAssignment | null): void {
-    this.nearbyMapArea = assignment ? nearbyMapArea(assignment) : undefined;
-    if (this.chatroomBrowseMode === 'map') this.renderChatroomList();
-  }
 
   displayTalksList(): void {
     displayTalksListView({
@@ -1916,9 +1896,6 @@ export class UIManager extends EventEmitter {
     return this.tf('travelHomeSet', { name });
   }
 
-  public formatRoomPromotionWaiting(name: string, minutes: number): string {
-    return this.tf('roomPromotionWaiting', { name, minutes });
-  }
 
   public formatTravelLocationHeld(): string {
     return this.t('travelLocationHeld');

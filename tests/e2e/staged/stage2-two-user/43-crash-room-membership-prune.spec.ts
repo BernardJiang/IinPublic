@@ -5,12 +5,11 @@ import { chromium, type Browser, type BrowserContext, type Page } from '@playwri
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
-import { afterSync, headless } from '../../helpers/timing';
-import { gunBaseURL } from '../../helpers/ports';
+import { headless } from '../../helpers/timing';
 import { bootstrapOnPage, launchPersistentUser } from '../../helpers/crash-recovery';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
-test.describe('Room membership cleanup after OS-level browser crash', () => {
+test.describe('Nearby list cleanup after an OS-level browser crash', () => {
   let browserA: Browser;
   let contextA: BrowserContext | undefined;
   let pageA: Page | undefined;
@@ -32,7 +31,7 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
     await clearGunForStage2Spec();
   });
 
-  test('SIGKILLed member is removed from visible Nearby headcount after membership TTL expiry', async () => {
+  test('a SIGKILLed person leaves the Nearby headcount when the next swap gets no answer', async () => {
     const roomHeadcount = (page: Page) =>
       page.locator('.chatroom-item.current-room .chatroom-headcount');
     const readRoomHeadcount = async (page: Page) => {
@@ -54,11 +53,11 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
       .poll(() => readRoomHeadcount(pageA!), { timeout: 20_000 })
       .toBeGreaterThanOrEqual(2)
       .then(() => readRoomHeadcount(pageA!));
-    // Both users share the automatic Nearby room (Global is retired); its headcount excludes TechSupport.
+    // Both users are in Nearby: each one's own list; its headcount excludes TechSupport.
     const roomId = await pageA.evaluate(
       () => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
     );
-    expect(roomId).toMatch(/^nearby_/);
+    expect(roomId).toMatch(/^nearby-v3$/);
 
     let bClosed = false;
     contextB.on('close', () => { bClosed = true; });
@@ -68,30 +67,9 @@ test.describe('Room membership cleanup after OS-level browser crash', () => {
       .toBe(true);
     contextB = undefined;
 
-    // Fast-forward Bob's server-visible room-membership heartbeat past the TTL.
-    const expiredIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const touchRes = await fetch(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(bobId)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stageName: 'Crash Room Bob', lastSeen: expiredIso }),
-    });
-    expect(touchRes.ok).toBe(true);
-
-    await expect
-      .poll(
-        async () => {
-          const membersRes = await fetch(`${gunBaseURL()}/api/chatrooms/${encodeURIComponent(roomId)}/members`, {
-            headers: { 'Cache-Control': 'no-cache' },
-          });
-          if (!membersRes.ok) return ['__members_request_failed__'];
-          const rows = (await membersRes.json()) as Array<{ userId?: string }>;
-          return rows.map((row) => row.userId).filter(Boolean).sort();
-        },
-        { timeout: 20_000, intervals: [500, 1000, 1500], message: 'crashed Bob should be pruned from /members' },
-      )
-      .not.toContain(bobId);
-
-    await afterSync();
-    await expect(roomHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 20_000 });
+    // Nearby is Alice's own list (§3.7): there is no hub membership to expire. Her next swap with
+    // Bob gets no answer, which drops him at once; run that swap now instead of waiting a period.
+    await pageA.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.gossipNow());
+    await expect(roomHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 35_000 });
   });
 });

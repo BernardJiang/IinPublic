@@ -18,7 +18,6 @@
     "chatroom-hierarchy-runtime.test.ts",
     "chatroom-map-geojson.test.ts",
     "chatroom-map-locations.test.ts",
-    "chatroom-map-tap.test.ts",
     "client-incoming-talk-mirror.test.ts",
     "closest-match.test.ts",
     "connection-manager.test.ts",
@@ -62,21 +61,11 @@
     "mesh-frame-policy.test.ts",
     "mesh-response-step4.test.ts",
     "message-content-filter.test.ts",
-    "micro-room-assignment.test.ts",
-    "micro-room-overflow-certificate.test.ts",
     "my-most-recent-location-talk.test.ts",
     "native-password-free-custody.test.ts",
-    "nearby-cohort-migration.test.ts",
-    "nearby-cohort-peer-sync.test.ts",
-    "nearby-cohort-protocol.test.ts",
-    "nearby-cohort-scale-privacy.test.ts",
-    "nearby-cohort-traversal-client.test.ts",
     "nearby-discovery-policy.test.ts",
     "nearby-offline.test.ts",
-    "nearby-overflow-certificate.test.ts",
-    "nearby-partition.test.ts",
     "nearby-rooms.test.ts",
-    "nearby-sparse-policy.test.ts",
     "p2p-abuse-defense.test.ts",
     "p2p-handshake.test.ts",
     "p2p-ice-priority.test.ts",
@@ -115,7 +104,6 @@
     "quiet-places.test.ts",
     "reputation.test.ts",
     "room-list-empty-places.test.ts",
-    "room-routing.test.ts",
     "room-tile-grid.test.ts",
     "selective-gun-sync.test.ts",
     "semver-compare.test.ts",
@@ -254,14 +242,6 @@
     {
       "file": "chatroom-browse-list.test.ts",
       "reason": "does not bundle for embedded Node: Error: a Unicode property escape (\\p{...}) regex literal, which embedded Node without ICU cannot compile"
-    },
-    {
-      "file": "chatroom-capacity.test.ts",
-      "reason": "needs a DOM test environment"
-    },
-    {
-      "file": "chatroom-cohort-controls.test.ts",
-      "reason": "needs a DOM test environment"
     },
     {
       "file": "chatroom-flat-map-view.test.ts",
@@ -504,16 +484,8 @@
       "reason": "fails under the portable runtime in headless Chromium: (file failed to load): global is not defined"
     },
     {
-      "file": "map-presence-store.test.ts",
-      "reason": "imports server code"
-    },
-    {
       "file": "matrix-orchestrator.test.ts",
       "reason": "imports host test helpers"
-    },
-    {
-      "file": "micro-room-pre-admission-client.test.ts",
-      "reason": "fails under the portable runtime in host Node as embedded Node 18: OPEN-40 micro-room pre-admission client › uses generation zero when no overflow certificate exists: toBe: expected false to be true"
     },
     {
       "file": "modal-accessibility.test.ts",
@@ -528,47 +500,11 @@
       "reason": "needs a DOM test environment"
     },
     {
-      "file": "nearby-adaptive-capacity.test.ts",
-      "reason": "scale simulation: host-only by design"
-    },
-    {
-      "file": "nearby-capacity-simulation.test.ts",
-      "reason": "scale simulation: host-only by design"
-    },
-    {
-      "file": "nearby-cohort-integration.test.ts",
-      "reason": "imports server code"
-    },
-    {
-      "file": "nearby-cohort-store.test.ts",
-      "reason": "imports server code"
-    },
-    {
-      "file": "nearby-control-store.test.ts",
-      "reason": "imports server code"
-    },
-    {
       "file": "nearby-offline-service.test.ts",
       "reason": "fails under the portable runtime in host Node as embedded Node 18: NearbyOfflineService › starts LAN discovery with the rotating id and, offline, peers Gun with each LAN phone once: CustomEvent is not defined"
     },
     {
-      "file": "nearby-partition-geometry.test.ts",
-      "reason": "uses jest.requireActual (module mocks stay host-only)"
-    },
-    {
-      "file": "nearby-partition-store.test.ts",
-      "reason": "imports server code"
-    },
-    {
       "file": "nearby-place-fallback.test.ts",
-      "reason": "needs a DOM test environment"
-    },
-    {
-      "file": "nearby-pre-admission-client.test.ts",
-      "reason": "fails under the portable runtime in host Node as embedded Node 18: NearbyPreAdmissionClient › re-resolves before admission and can reuse the verified path offline: toBe: expected 1 to be 2"
-    },
-    {
-      "file": "nearby-sparse-app.test.ts",
       "reason": "needs a DOM test environment"
     },
     {
@@ -642,10 +578,6 @@
     {
       "file": "return-home-button.test.ts",
       "reason": "needs a DOM test environment"
-    },
-    {
-      "file": "room-topology-million.test.ts",
-      "reason": "scale simulation: host-only by design"
     },
     {
       "file": "route-editor-characterization.test.ts",

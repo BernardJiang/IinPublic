@@ -2,7 +2,7 @@ import type express from 'express';
 import { CONFIG } from '../../shared/config';
 import { nearbyV3ConfigFromManifest, type NearbyV3Config } from '../../shared/nearby-v3-config';
 import { BUNDLED_PROTOCOL_MANIFEST_HISTORY } from '../../shared/production-protocol-manifest';
-import { parseMapBounds } from '../../shared/map-presence';
+import { parseMapBounds } from '../../shared/map-dots';
 import { NearbyV3Hub } from '../services/nearby-v3-hub';
 
 /**

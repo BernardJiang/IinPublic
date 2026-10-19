@@ -56,11 +56,6 @@ describe('resolveChatroomTitle', () => {
     expect(resolveChatroomTitle('global', [customRoom({ id: 'global', name: 'Custom Global' })])).toBe('💬 Custom Global');
   });
 
-  it('labels non-geographic Global overflow rooms as Global groups', () => {
-    expect(resolveChatroomTitle('global-unknown', [])).toBe('🌍 Global · Group 2');
-    expect(resolveChatroomTitle('global-unknown_part_2', [])).toBe('🌍 Global · Group 3');
-  });
-
   it('titles coarse coordinate cell rooms by the nearest city, not the raw id', () => {
     hierarchy.getFlatChatroomList.mockReturnValue([
       { id: 'california', name: 'California', icon: '🌉', hasChildren: true },
@@ -68,7 +63,6 @@ describe('resolveChatroomTitle', () => {
     ]);
     expect(resolveChatroomTitle('region_32.71_-117.17_room_0', [])).toBe('📍 Near San Diego');
     expect(resolveChatroomTitle('region_32.71_-117.17_room_2', [])).toBe('📍 Near San Diego · Group 3');
-    expect(resolveChatroomTitle('region_32.71_-117.17_room_0_part_2', [])).toBe('📍 Near San Diego (2)');
     hierarchy.getFlatChatroomList.mockReturnValue([]);
     expect(resolveChatroomTitle('region_-80.00_10.00_room_0', [])).toBe('📍 80.0°S 10.0°E');
   });

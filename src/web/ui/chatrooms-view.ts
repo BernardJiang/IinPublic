@@ -1,13 +1,9 @@
 import { getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
-import { nearbyPartitionCellBounds, nearbyPartitionTargetPoint } from '../../shared/nearby-partition-geometry';
-import { loadConnectivitySettings } from './connectivity-settings';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { emptyPlaceRows, nearbyRoomName, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
 import { getRoomListSort, setRoomListSort } from '../services/active-rooms-client';
-import { formatDistance } from './distance-units';
 import { showEncounterLocationPicker } from './encounter-location-picker';
 import { getActiveChatroomHierarchy, getFlatChatroomList, type FlatChatroomNode } from '../../shared/chatroom-hierarchy';
-import { splitBaseId, splitIndex } from '../../shared/chatroom-split';
 import { CONFIG } from '../../shared/config';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
@@ -17,16 +13,10 @@ import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId, placeRoomTile } from '../../shared/place-rooms';
-import {
-  CONTACTS_ONLY_SCOPE_ID,
-  isNearbyRoomId,
-  type NearbyMapArea,
-} from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId } from '../../shared/nearby-rooms';
 import { getL1TileInfo, getL1Tiles, isLandL1Tile, parseTileId, tileBounds, tileCenter, tileIdAt, tileLineage, TILE_BOTTOM_LAYER, type L1TileInfo } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import { otherRoomColor, renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
-import { cohortStatusLine } from './cohort-traversal-controls';
-import type { CohortTraversalViewModel } from './cohort-traversal-view-model';
+import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
 import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
 
 type ChatroomMember = {
@@ -56,16 +46,13 @@ type ChatroomsViewDeps = {
   expandedChatrooms: Set<string>;
   matchedUserIds: Set<string>;
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
-  nearbyMapArea?: NearbyMapArea;
-  /** User dots on the map (★ me, green my room, yellow others). */
+  /** User dots on the map (★ me, green my Nearby list) and the crowd heat layer. */
   mapUserDots?: MapUserDots;
   /** Tap a green dot: brief profile card with Message (DM) and Profile. */
   roomMemberCard?: RoomMemberCardSource;
-  /** The room list: every room with ≥ 1 person, nearest first (shared/active-rooms.ts). */
+  /** The room list: every Place with ≥ 1 person, nearest first (shared/active-rooms.ts). */
   activeRooms?: ActiveRoomsView;
   travelModeActive: boolean;
-  /** Local UI model in Group 1; replaced by the real traversal client in Group 2. */
-  cohortTraversal: CohortTraversalViewModel;
   setChatroomBrowseMode: (mode: 'list' | 'map') => void;
   setCurrentChatroom: (chatroomId: string) => void;
   setCurrentChatroomMembers: (members: ChatroomMember[]) => void;
@@ -197,17 +184,16 @@ function l1TileNode(tile: L1TileInfo, parentId: string): FlatChatroomNode {
 }
 
 export function l1TileForGridRoom(chatroomId: string): string | undefined {
-  const cell = COARSE_CELL_ID.exec(splitBaseId(chatroomId));
+  const cell = COARSE_CELL_ID.exec(chatroomId);
   return cell ? tileIdAt(1, Number(cell[1]), Number(cell[2])) : undefined;
 }
 
 /**
  * The tree path from an L1 tile down to `roomId`: tile rooms walk their tile lineage, a 1 km grid
- * room hangs under its L4 tile, and a numbered overflow room (`_part_N`) under its base room.
- * Empty for rooms outside the tile tree (Global, custom rooms, the Global overflow family).
+ * room hangs under its L4 tile. Empty for rooms outside the tile tree (Global, custom rooms).
  */
 export function browsePath(roomId: string): string[] {
-  const base = splitBaseId(roomId);
+  const base = roomId;
   let path: string[] = [];
   if (parseTileId(base)) path = tileLineage(base);
   else {
@@ -246,7 +232,7 @@ function cityTileEdges(): Map<string, string[]> {
   return edges;
 }
 
-/** North → south, then west → east for tiles; other rooms (grid cells, `_part_N`) after them. */
+/** North → south, then west → east for tiles; other rooms (grid cells, Places) after them. */
 function compareBrowseChildren(a: string, b: string): number {
   const ta = parseTileId(a);
   const tb = parseTileId(b);
@@ -259,8 +245,7 @@ function compareBrowseChildren(a: string, b: string): number {
 /**
  * Global → L1 tiles → … Every tile can be expanded to its sub-tiles that contain a named city;
  * local custom rooms (`customRooms`) hang under their L4 tile; each room in `roomIds` (normally the
- * current room) is shown with its whole path. Numbered overflow rooms (`_part_N`) only appear on
- * that path, so an empty one is never listed. An ocean/Antarctica tile appears only when used.
+ * current room) is shown with its whole path. An ocean/Antarctica tile appears only when used.
  */
 export function buildBrowseTree(
   roomIds: readonly string[],
@@ -287,10 +272,9 @@ export function buildBrowseTree(
   const out: FlatChatroomNode[] = [root];
   const addDescendants = (parentId: string, level: number): void => {
     for (const id of children.get(parentId) ?? []) {
-      const custom = customById.get(splitBaseId(id));
+      const custom = customById.get(id);
       const node = pathRoomNode(id, parentId, level, (children.get(id) ?? []).length > 0);
-      if (custom && custom.id === id) Object.assign(node, { name: custom.name, icon: customRoomIcon(custom.type), description: 'Local room' });
-      else if (custom) Object.assign(node, { name: `${custom.name} (${splitIndex(id)})`, icon: customRoomIcon(custom.type) });
+      if (custom) Object.assign(node, { name: custom.name, icon: customRoomIcon(custom.type), description: 'Local room' });
       out.push(node);
       addDescendants(id, level + 1);
     }
@@ -356,7 +340,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   const currentCustom = deps.customChatrooms.find((room) => room.id === deps.currentChatroom);
   const currentTitle = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
   const currentIsNearby = isNearbyRoomId(deps.currentChatroom);
-  const cohortSnapshot = deps.cohortTraversal.getSnapshot();
   const currentIsContactsOnly = deps.currentChatroom === CONTACTS_ONLY_SCOPE_ID;
   const currentNode: FlatChatroomNode | null = deps.currentChatroom
     ? {
@@ -450,8 +433,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
             <p>${deps.escapeHtml(deps.text(getEncounterLocation()?.auto ? 'encounterLocationRandomHelp' : 'encounterLocationHelp'))}</p>
             <button type="button" class="btn primary-btn" id="chatroom-encounter-location-set" data-testid="chatroom-encounter-location-set">${deps.escapeHtml(deps.text('encounterLocationSetButton'))}</button>
           </div>`
-        : currentIsNearby && cohortStatusLine(cohortSnapshot, deps.text)
-        ? `<p class="chatroom-cohort-status chatroom-cohort-status-${cohortSnapshot.status}" data-testid="cohort-status" role="status" aria-live="polite">${deps.escapeHtml(cohortStatusLine(cohortSnapshot, deps.text))}</p>`
         : ''}
     </section>
     <section class="chatroom-flat-section" data-testid="rooms-near-you-section">
@@ -543,30 +524,13 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
         uniqueVisitorCount: visits.uniqueVisitorCount,
       };
     });
-    for (const row of roomRows) {
-      if (row.kind !== 'nearby' || row.latitude === undefined || row.longitude === undefined) continue;
-      mapRooms.push({
-        id: row.roomId, name: row.displayName, icon: row.icon, level: 0, description: '', hasChildren: false,
-        location: { latitude: row.latitude, longitude: row.longitude },
-        memberCount: row.memberCount, visitCount: 0, uniqueVisitorCount: 0,
-      } as ChatroomMapRoom);
-    }
-    // "Showing N Places": Nearby room pins are not Places.
     const mappedCount = mapRooms.filter((room) => !!room.location && isPlaceRoomId(room.id)).length;
     const unmappedCustomCount = customNodes.filter((room) => !deps.customChatrooms.find((candidate) => candidate.id === room.id)?.location).length;
     const customNote = unmappedCustomCount > 0
       ? ` ${deps.text('chatroomMapCustomRoomsNote').replace('{count}', String(unmappedCustomCount))}`
       : '';
-    const nearbyDistance = deps.nearbyMapArea ? formatDistance(deps.nearbyMapArea.approximateDiameterMeters) : '';
-    const summary = deps.nearbyMapArea
-      ? deps.text('chatroomMapNearbySummary')
-        .replace('{distance}', nearbyDistance)
-        .replace('{count}', String(mappedCount))
-      : deps.text('chatroomMapSummary').replace('{count}', String(mappedCount));
-    const cohortSummary = currentIsNearby && (cohortSnapshot.groupCount ?? 0) > 1
-      ? ` ${deps.text('chatroomCohortMapCount').replace('{count}', String(cohortSnapshot.groupCount))}`
-      : '';
-    mapStatus.textContent = `${summary}${cohortSummary}${customNote}`;
+    const summary = deps.text('chatroomMapSummary').replace('{count}', String(mappedCount));
+    mapStatus.textContent = `${summary}${customNote}`;
     if (startedMapVisit) showTransientMapHint(mapStatus);
     if (!mapContainer.classList.contains('maplibregl-map')) {
       mapContainer.textContent = deps.text('chatroomMapLoading');
@@ -575,22 +539,10 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       container: mapContainer,
       rooms: mapRooms,
       currentChatroom: deps.currentChatroom,
-      ...(deps.nearbyMapArea ? { nearbyMapArea: deps.nearbyMapArea } : {}),
       ...(deps.mapUserDots ? { userDots: deps.mapUserDots } : {}),
       ...(deps.roomMemberCard ? { roomMemberCard: deps.roomMemberCard } : {}),
       userLegendHintSession: mapHintSession,
       openChatroom: (chatroomId) => enterRoom(deps, chatroomId, roomRows.find((row) => row.roomId === chatroomId)),
-      otherRoomAreas: roomRows
-        .filter((row) => row.kind === 'nearby' && row.partitionPath !== undefined && row.latitude !== undefined && row.longitude !== undefined)
-        .map((row) => ({
-          id: row.roomId,
-          color: otherRoomColor(row.roomId),
-          ...nearbyPartitionCellBounds({
-            path: row.partitionPath!,
-            mode: loadConnectivitySettings().nearbyPrivacyMode,
-            near: { latitude: row.latitude!, longitude: row.longitude! },
-          }),
-        })),
       selectNearbyPoint: (location) => deps.emit('travelNearbyAtPoint', location),
       nearbyPointTitle: deps.text('chatroomNearbyPointTitle'),
       nearbyPointAction: deps.text('chatroomNearbyPointAction'),
@@ -611,47 +563,10 @@ export function toggleChatroomExpanded(deps: ChatroomsViewDeps, chatroomId: stri
   deps.renderChatroomList();
 }
 
-/**
- * Tap a room (list row or map pin): enter it and show its members. Your own room just shows its
- * members. Another Nearby group is entered by traveling to its position — you become a Traveler ✈
- * in the group covering that point — and its members appear once you arrive. Full rooms stay shut.
- */
+/** Tap a room (list row or map pin): enter it and show its members. Full Places stay shut. */
 function enterRoom(deps: ChatroomsViewDeps, chatroomId: string, row: RoomListRow | undefined): void {
   if (row?.full) return;
-  if (row && row.kind === 'nearby' && chatroomId !== deps.currentChatroom
-    && row.latitude !== undefined && row.longitude !== undefined) {
-    // Aim at the group's own partition square (the members' average can sit across an edge).
-    const target = row.partitionPath !== undefined
-      ? nearbyPartitionTargetPoint({
-          path: row.partitionPath,
-          mode: loadConnectivitySettings().nearbyPrivacyMode,
-          near: { latitude: row.latitude, longitude: row.longitude },
-        })
-      : { latitude: row.latitude, longitude: row.longitude };
-    deps.emit('travelNearbyAtPoint', { latitude: target.latitude, longitude: target.longitude });
-    openRoomDetailShell(deps, row.displayName);
-    return;
-  }
   showChatroomDetail(deps, chatroomId);
-}
-
-/** The member-list screen without switching rooms (the travel switches, then members arrive). */
-function openRoomDetailShell(deps: ChatroomsViewDeps, title: string): void {
-  const listContainer = document.getElementById('chatroom-list-container');
-  const detailContainer = document.getElementById('chatroom-detail-container');
-  if (listContainer) listContainer.style.display = 'none';
-  if (detailContainer) detailContainer.style.display = 'flex';
-  document.body.dataset.chatroomDetail = 'open';
-  const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
-  if (backBtn) backBtn.style.display = 'inline-flex';
-  const chatroomTitle = document.getElementById('current-chatroom-title');
-  if (chatroomTitle) chatroomTitle.textContent = title;
-  const chatroomStatus = document.getElementById('current-chatroom-status');
-  if (chatroomStatus) chatroomStatus.textContent = deps.text('chatroomLoadingMembers');
-  const membersList = document.getElementById('chatroom-members-list');
-  if (membersList) {
-    membersList.innerHTML = `<div style="padding: 20px; text-align: center; color: #999;">${deps.text('chatroomLoadingOnlineUsers')}</div>`;
-  }
 }
 
 export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string): void {
@@ -939,13 +854,6 @@ function coarseCellTitle(chatroomId: string): string | null {
 export function resolveChatroomTitle(chatroomId: string, customChatrooms: readonly CustomChatroomRow[]): string {
   if (chatroomId === CONTACTS_ONLY_SCOPE_ID) return '👥 Contacts only';
   if (isNearbyRoomId(chatroomId)) return '📍 Nearby';
-  // A numbered overflow room (`x_part_3`) is shown as its base room plus the number: "Arena (3)".
-  const baseId = splitBaseId(chatroomId);
-  if (baseId === CONFIG.GLOBAL_UNKNOWN_CHATROOM_ID) {
-    const groupNumber = baseId === chatroomId ? 2 : splitIndex(chatroomId) + 1;
-    return `🌍 Global · Group ${groupNumber}`;
-  }
-  if (baseId !== chatroomId) return `${resolveChatroomTitle(baseId, customChatrooms)} (${splitIndex(chatroomId)})`;
   const tile = getL1TileInfo(chatroomId);
   if (tile) return `${tile.icon} ${tile.name}`;
   const deepTile = deepTileTitle(chatroomId);

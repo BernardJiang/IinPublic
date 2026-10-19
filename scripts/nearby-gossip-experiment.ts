@@ -10,7 +10,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pointNear, seededRandom } from '../src/test/support/nearby-capacity-model';
+import { pointNear, seededRandom } from '../src/test/support/seeded-random';
 import {
   addPerson,
   DEFAULT_GOSSIP_OPTIONS,

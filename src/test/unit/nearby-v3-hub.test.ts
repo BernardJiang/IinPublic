@@ -12,7 +12,7 @@ import { nearbyDailyBeacon, publicPointDistanceMeters } from '../../shared/nearb
 import { NearbyList } from '../../shared/nearby-v3-list';
 import { pyramidCellIds } from '../../shared/nearby-v3-pyramid';
 import { NearbyV3Hub } from '../../server/services/nearby-v3-hub';
-import { seededRandom } from '../support/nearby-capacity-model';
+import { seededRandom } from '../support/seeded-random';
 
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const SD = snapPublicLocation({ latitude: 32.7157, longitude: -117.1611 }, 1_000);

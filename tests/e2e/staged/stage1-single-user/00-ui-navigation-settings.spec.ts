@@ -72,7 +72,8 @@ test.describe('UI navigation and settings shell', () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return { before, mid, after: read() };
     });
-    expect(duplicateVisitCheck.before).toBeGreaterThan(0);
+    // Nearby is my own list, not a room, so it has no visit counter; a same-room switch adds none.
+    expect(duplicateVisitCheck.before).toBe(0);
     expect(duplicateVisitCheck.mid).toBe(duplicateVisitCheck.before);
     expect(duplicateVisitCheck.after).toBe(duplicateVisitCheck.before);
     await expect

@@ -1,18 +1,15 @@
 /** @jest-environment jsdom */
 
 import { IinPublicApp } from '../../web/app/app';
-import { deriveNearbyRoomAssignment, isNearbyRoomId } from '../../shared/nearby-rooms';
+import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
 
 describe('full Place Nearby fallback', () => {
   beforeEach(() => localStorage.clear());
 
-  it('offers a deliberate Nearby room derived from the Place public pin', () => {
+  it('offers Nearby at the Place pin: my card moves there, the scope stays my list', () => {
     const app: any = Object.create(IinPublicApp.prototype);
     let joinSuggestion: (() => void) | undefined;
     app.currentUser = { id: 'alice', languages: ['en'] };
-    app.nearbyControlRootAssignment = null;
-    app.nearbyControlRoutingLocation = null;
-    app.chatroomService = { getNearbyRoomAssignment: jest.fn().mockReturnValue(undefined) };
     app.uiManager = {
       getCustomChatroomMeta: jest.fn().mockReturnValue({
         id: 'place-id',
@@ -32,26 +29,18 @@ describe('full Place Nearby fallback', () => {
       expect.any(Function),
     );
     joinSuggestion!();
-    expect(isNearbyRoomId(app.pendingNearbyTravel.rootAssignment.roomId)).toBe(true);
-    expect(app.pendingNearbyTravel.location).toMatchObject({
-      latitude: 32.7157,
-      longitude: -117.1611,
+    expect(app.pendingNearbyTravel).toMatchObject({
+      placeId: 'place-id',
+      placeName: 'Bean There',
+      location: { latitude: 32.7157, longitude: -117.1611 },
     });
-    expect(app.uiManager.emit).toHaveBeenCalledWith(
-      'chatroomChanged',
-      app.pendingNearbyTravel.rootAssignment.roomId,
-    );
+    expect(app.uiManager.emit).toHaveBeenCalledWith('chatroomChanged', NEARBY_V3_ROOM_ID);
   });
 
-  it('restores only a Nearby travel room that also has its public Place point', () => {
+  it('restores a Nearby-at-a-pin visit only together with its public point', () => {
     const app: any = Object.create(IinPublicApp.prototype);
     app.uiManager = { setTravelModeState: jest.fn() };
-    const travelRoomId = deriveNearbyRoomAssignment({
-      location: { latitude: 40.7128, longitude: -74.006, accuracy: 0, timestamp: new Date() },
-      mode: 'neighborhood',
-      identity: 'alice',
-    }).roomId;
-    localStorage.setItem('iinpublic_travel_room', travelRoomId);
+    localStorage.setItem('iinpublic_travel_room', NEARBY_V3_ROOM_ID);
     localStorage.setItem('iinpublic_travel_nearby_point', JSON.stringify({
       latitude: 40.7128,
       longitude: -74.006,
@@ -62,7 +51,7 @@ describe('full Place Nearby fallback', () => {
     app.loadTravelModeStateFromStorage();
 
     expect(app.travelModeActive).toBe(true);
-    expect(app.travelChatroomId).toBe(travelRoomId);
+    expect(app.travelChatroomId).toBe(NEARBY_V3_ROOM_ID);
     expect(app.travelNearbyPoint).toMatchObject({
       latitude: 40.7128,
       longitude: -74.006,

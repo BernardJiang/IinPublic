@@ -59,7 +59,7 @@ import {
   type PeerAckMessage,
   type PresenceRecord,
 } from '../../shared/p2p-presence';
-import type { ActiveRoomScope, RoomProtocolCheckpoint } from '../../shared/active-exchange-room';
+import type { ActiveRoomScope } from '../../shared/active-exchange-room';
 import { CONFIG } from '../../shared/config';
 import { TechSupportMessageStore, type TechSupportStoredMessage } from '../services/techsupport-message-store';
 import type { TechSupportDurableStore } from '../services/techsupport-durable-store';
@@ -78,17 +78,11 @@ import {
   verifyTargetedDelegateInvite,
 } from '../../shared/techsupport-delegate-invite';
 import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
-import { MicroRoomControlStore } from '../services/micro-room-control-store';
-import { NearbyControlStore } from '../services/nearby-control-store';
-import { NearbyPartitionStore } from '../services/nearby-partition-store';
-import { MapPresenceStore } from '../services/map-presence-store';
 import { NearbyV3Hub } from '../services/nearby-v3-hub';
 import { hubNearbyV3Config, registerNearbyV3Routes } from './nearby-v3-routes';
 import { captureRuntimeWindow } from '../services/runtime-profiler';
-import { parseMapBounds } from '../../shared/map-presence';
 import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { NearbyCohortStore, NearbyCohortStoreError } from '../services/nearby-cohort-store';
 import {
   FAQ_ENTRIES_ROOT,
   faqEntryRecordPath,
@@ -174,8 +168,6 @@ type RegisterSystemRoutesDeps = {
   verifyTechSupportDelegateGrant?: (value: unknown) => Promise<TechSupportDelegateGrant | null>;
   /** OPEN-29 test seam; production always uses signature verification rooted in compiled anchors. */
   verifyTechSupportRecoveryAnchor?: (value: unknown) => Promise<RecoveryAnchorRecord | null>;
-  /** Trusted release/policy SEA public keys allowed to tune experimental Nearby cohort headroom. */
-  nearbyCohortPolicySignerPubs?: string[];
 };
 
 /**
@@ -232,7 +224,6 @@ export function registerSystemRoutes(
     techSupportStore,
     verifyTechSupportDelegateGrant = verifyDelegateGrant,
     verifyTechSupportRecoveryAnchor = verifyRecoveryAnchor,
-    nearbyCohortPolicySignerPubs,
   }: RegisterSystemRoutesDeps,
 ): void {
   let localNodeSupervisor: LocalNodeSupervisorSnapshot = createLocalNodeSupervisorSnapshot();
@@ -247,18 +238,7 @@ export function registerSystemRoutes(
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
   const signalingByConversation = new Map<string, SignalingRelayFrame[]>();
   const presenceByUserId = new Map<string, PresenceRecord>();
-  const microRoomControlStore = new MicroRoomControlStore();
-  const nearbyControlStore = new NearbyControlStore();
-  const nearbyPartitionStore = new NearbyPartitionStore();
-  const mapPresenceStore = new MapPresenceStore();
   const nearbyV3Hub = new NearbyV3Hub(hubNearbyV3Config());
-  const nearbyCohortStore = new NearbyCohortStore(new Set(
-    nearbyCohortPolicySignerPubs
-      ?? String(process.env.IINPUBLIC_NEARBY_COHORT_POLICY_PUBS || '')
-        .split(',')
-        .map((pub) => pub.trim())
-        .filter(Boolean),
-  ));
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -405,163 +385,11 @@ export function registerSystemRoutes(
     res.json({ peers, count: peers.length });
   });
 
-  app.get('/api/micro-rooms/control/:controlScopeId/certificates', (req, res) => {
-    const controlScopeId = String(req.params.controlScopeId || '');
-    if (!/^grid_[a-f0-9]{24}_control_v1$/.test(controlScopeId)) {
-      res.status(400).json({ error: 'invalid micro-room control scope' });
-      return;
-    }
-    const fromGeneration = Number(req.query.fromGeneration ?? 0);
-    if (!Number.isSafeInteger(fromGeneration) || fromGeneration < 0 || fromGeneration > 20) {
-      res.status(400).json({ error: 'invalid micro-room split generation' });
-      return;
-    }
-    const allCertificates = microRoomControlStore.list(controlScopeId);
-    const certificates = allCertificates.filter((certificate) =>
-      certificate.fromSplitGeneration >= fromGeneration);
-    const highestSplitGeneration = allCertificates.length > 0
-      ? allCertificates[allCertificates.length - 1]!.fromSplitGeneration
-      : -1;
-    res.json({ certificates, highestSplitGeneration });
-  });
-
-  app.post('/api/micro-rooms/control/certificates', async (req, res) => {
+  // Forward to the hub when this node is a relay (phones), else answer locally.
+  const relayToHub = async (res: express.Response, path: string, method: 'GET' | 'POST', body?: unknown): Promise<boolean> => {
+    if (!hubRelayClient?.forwardHubApi) return false;
     try {
-      const baseGridRoomId = String(req.body?.baseGridRoomId || '');
-      if (!baseGridRoomId || baseGridRoomId.length > 256) {
-        res.status(400).json({ error: 'invalid micro-room base grid' });
-        return;
-      }
-      const certificates = await microRoomControlStore.publishCertificates(
-        baseGridRoomId,
-        Array.isArray(req.body?.certificates) ? req.body.certificates : [],
-      );
-      res.json({ certificates });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.post('/api/micro-rooms/control/presence', async (req, res) => {
-    try {
-      const baseGridRoomId = String(req.body?.baseGridRoomId || '');
-      if (!baseGridRoomId || baseGridRoomId.length > 256) {
-        res.status(400).json({ error: 'invalid micro-room base grid' });
-        return;
-      }
-      if (Array.isArray(req.body?.certificates)) {
-        await microRoomControlStore.publishCertificates(baseGridRoomId, req.body.certificates);
-      }
-      const registration = await microRoomControlStore.register(
-        baseGridRoomId,
-        req.body?.presence,
-      );
-      res.json(registration);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.get('/api/nearby-control/:controlScopeId/certificates', (req, res) => {
-    const controlScopeId = String(req.params.controlScopeId || '');
-    if (!/^nearby_[a-f0-9]{24}_control_v1$/.test(controlScopeId)) {
-      res.status(400).json({ error: 'invalid Nearby control scope' });
-      return;
-    }
-    const roomId = String(req.query.roomId || '');
-    const requestedSplitGeneration = Number(req.query.requestedSplitGeneration);
-    if (!roomId || roomId.length > 256
-      || !Number.isSafeInteger(requestedSplitGeneration)
-      || requestedSplitGeneration < 0
-      || requestedSplitGeneration > 24) {
-      res.status(400).json({ error: 'Nearby room and requested split generation are required' });
-      return;
-    }
-    res.json({
-      certificates: nearbyControlStore.listForRoom(
-        controlScopeId,
-        roomId,
-        requestedSplitGeneration,
-      ),
-    });
-  });
-
-  app.post('/api/nearby-control/certificates', async (req, res) => {
-    try {
-      const certificates = await nearbyControlStore.publishCertificates(
-        Array.isArray(req.body?.certificates) ? req.body.certificates : [],
-      );
-      res.json({ certificates });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.post('/api/nearby-control/presence', async (req, res) => {
-    try {
-      if (Array.isArray(req.body?.certificates)) {
-        await nearbyControlStore.publishCertificates(req.body.certificates);
-      }
-      const registration = await nearbyControlStore.register(req.body?.presence);
-      res.json(registration);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  const partitionCheckpointFrom = (value: Record<string, unknown>): RoomProtocolCheckpoint | null => {
-    const checkpoint: RoomProtocolCheckpoint = {
-      networkId: String(value.networkId || ''),
-      protocolEpoch: Number(value.protocolEpoch),
-      manifestSequence: Number(value.manifestSequence),
-      manifestHash: String(value.manifestHash || ''),
-      chatroomCapacity: Number(value.chatroomCapacity),
-    };
-    if (!checkpoint.networkId
-      || !Number.isSafeInteger(checkpoint.protocolEpoch)
-      || checkpoint.protocolEpoch < 1
-      || !Number.isSafeInteger(checkpoint.manifestSequence)
-      || checkpoint.manifestSequence < 1
-      || !/^[a-f0-9]{64}$/.test(checkpoint.manifestHash)
-      || !Number.isSafeInteger(checkpoint.chatroomCapacity)
-      || checkpoint.chatroomCapacity < 1
-      || checkpoint.chatroomCapacity > 4_096) return null;
-    return checkpoint;
-  };
-
-  app.get('/api/nearby-partitions/:roomId/transition', (req, res) => {
-    const parsed = partitionCheckpointFrom(req.query as Record<string, unknown>);
-    if (!parsed) {
-      res.status(400).json({ error: 'valid Nearby partition checkpoint is required' });
-      return;
-    }
-    res.json({
-      transitions: nearbyPartitionStore.transitionFor(parsed, String(req.params.roomId || '')),
-    });
-  });
-
-  app.post('/api/nearby-partitions/presence', async (req, res) => {
-    try {
-      const checkpoint = req.body?.presence?.checkpoint;
-      if (!checkpoint || typeof checkpoint !== 'object') {
-        res.status(400).json({ error: 'Nearby partition checkpoint is required' });
-        return;
-      }
-      if (Array.isArray(req.body?.transitions)) {
-        await nearbyPartitionStore.publishTransitions(checkpoint, req.body.transitions);
-      }
-      const registration = await nearbyPartitionStore.register(req.body?.presence);
-      res.json(registration);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  // Map user dots (shared/map-presence.ts): signed public snapped points, bounded viewport reads.
-  const relayMapPresence = async (res: express.Response, path: string, method: 'GET' | 'POST', body?: unknown): Promise<boolean> => {
-    if (!hubRelayClient?.forwardNearbyCohort) return false;
-    try {
-      const relayed = await hubRelayClient.forwardNearbyCohort(path, method, body);
+      const relayed = await hubRelayClient.forwardHubApi(path, method, body);
       res.status(relayed.status).json(relayed.body);
     } catch (error) {
       res.status(503).json({ error: (error as Error).message });
@@ -569,35 +397,15 @@ export function registerSystemRoutes(
     return true;
   };
 
-  app.post('/api/map-presence', async (req, res) => {
-    if (await relayMapPresence(res, '/api/map-presence', 'POST', req.body || {})) return;
-    try {
-      res.json(await mapPresenceStore.register(req.body?.presence));
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.get('/api/map-presence', async (req, res) => {
-    const bounds = parseMapBounds(req.query as Record<string, unknown>);
-    if (!bounds) {
-      res.status(400).json({ error: 'west, south, east and north are required' });
-      return;
-    }
-    const query = new URLSearchParams(Object.entries(bounds).map(([key, value]) => [key, String(value)]));
-    if (await relayMapPresence(res, `/api/map-presence?${query}`, 'GET')) return;
-    res.json(mapPresenceStore.query(bounds));
-  });
-
   // Nearby v3 (docs/design/nearby-and-place-chatrooms.md §3.7): cards, introductions, statistics.
-  registerNearbyV3Routes(app, { hub: nearbyV3Hub, relay: relayMapPresence });
+  registerNearbyV3Routes(app, { hub: nearbyV3Hub, relay: relayToHub });
 
   // Room list: every room with ≥ 1 person, nearest first (or busiest / most room), paged.
   app.get('/api/active-rooms', async (req, res) => {
     const query = req.query as Record<string, unknown>;
     const passthrough = new URLSearchParams(Object.entries(query)
       .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-    if (await relayMapPresence(res, `/api/active-rooms?${passthrough}`, 'GET')) return;
+    if (await relayToHub(res, `/api/active-rooms?${passthrough}`, 'GET')) return;
     if (!activeRoomSource) {
       res.json({ totalOnline: 0, totalRooms: 0, rooms: [], hasMore: false });
       return;
@@ -616,8 +424,6 @@ export function registerSystemRoutes(
     const currentRoomId = typeof query.current === 'string' ? query.current : undefined;
     res.json(summarizeActiveRooms({
       rooms,
-      pointOf: (userId) => mapPresenceStore.pointOf(userId),
-      pathOf: (roomId) => nearbyPartitionStore.pathOf(roomId),
       placeOf: (roomId) => places.get(roomId),
       ...(origin ? { origin } : {}),
       ...(currentRoomId ? { currentRoomId } : {}),
@@ -625,169 +431,6 @@ export function registerSystemRoutes(
       ...(Number(query.limit) > 0 ? { limit: Number(query.limit) } : {}),
       ...(isActiveRoomSort(query.sort) ? { sort: query.sort } : {}),
     }));
-  });
-
-  const cohortError = (res: express.Response, error: unknown): void => {
-    if (error instanceof NearbyCohortStoreError) {
-      res.status(error.status).json({ code: error.code, error: error.message });
-      return;
-    }
-    res.status(400).json({ error: (error as Error).message });
-  };
-
-  const relayCohort = async (
-    res: express.Response,
-    path: string,
-    method: 'GET' | 'POST' | 'DELETE',
-    body?: unknown,
-  ): Promise<boolean> => {
-    if (!hubRelayClient?.forwardNearbyCohort) return false;
-    try {
-      const relayed = await hubRelayClient.forwardNearbyCohort(path, method, body);
-      if (relayed.status === 204) res.status(204).send();
-      else res.status(relayed.status).json(relayed.body);
-    } catch (error) {
-      res.status(503).json({ code: 'policy-unavailable', error: (error as Error).message });
-    }
-    return true;
-  };
-
-  app.post('/api/nearby-cohorts/policy', async (req, res) => {
-    if (await relayCohort(res, '/api/nearby-cohorts/policy', 'POST', req.body || {})) return;
-    try {
-      const checkpoint = req.body?.policy?.checkpoint;
-      if (!checkpoint || typeof checkpoint !== 'object') {
-        res.status(400).json({ error: 'Nearby cohort policy checkpoint is required' });
-        return;
-      }
-      const policy = await nearbyCohortStore.publishPolicy(checkpoint, req.body.policy);
-      res.json({ policy });
-    } catch (error) {
-      cohortError(res, error);
-    }
-  });
-
-  app.get('/api/nearby-cohorts/:areaBindingId/summaries', async (req, res) => {
-    const summaryQuery = new URLSearchParams(Object.entries(req.query)
-      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-    const summaryPath = `/api/nearby-cohorts/${encodeURIComponent(String(req.params.areaBindingId || ''))}/summaries?${summaryQuery}`;
-    if (await relayCohort(res, summaryPath, 'GET')) return;
-    try {
-      const checkpoint = partitionCheckpointFrom(req.query as Record<string, unknown>);
-      if (!checkpoint) {
-        res.status(400).json({ error: 'valid Nearby cohort checkpoint is required' });
-        return;
-      }
-      const result = await nearbyCohortStore.summaries({
-        checkpoint,
-        areaBindingId: String(req.params.areaBindingId || ''),
-        currentRoomId: String(req.query.currentRoomId || ''),
-      });
-      res.json(result);
-    } catch (error) {
-      cohortError(res, error);
-    }
-  });
-
-  app.post('/api/nearby-cohorts/reservations', async (req, res) => {
-    if (await relayCohort(res, '/api/nearby-cohorts/reservations', 'POST', req.body || {})) return;
-    try {
-      const reservation = await nearbyCohortStore.reserve({
-        claim: req.body?.claim,
-        ...(req.body?.selection != null ? { selection: req.body.selection } : {}),
-      });
-      res.status(201).json(reservation);
-    } catch (error) {
-      cohortError(res, error);
-    }
-  });
-
-  app.post('/api/nearby-cohorts/reservations/:token/commit', async (req, res) => {
-    const commitPath = `/api/nearby-cohorts/reservations/${encodeURIComponent(String(req.params.token || ''))}/commit`;
-    if (await relayCohort(res, commitPath, 'POST', req.body || {})) return;
-    try {
-      const result = await nearbyCohortStore.commit({
-        reservationToken: String(req.params.token || ''),
-        claim: req.body?.claim,
-      });
-      res.json(result);
-    } catch (error) {
-      cohortError(res, error);
-    }
-  });
-
-  app.delete('/api/nearby-cohorts/reservations/:token', (req, res) => {
-    if (hubRelayClient?.forwardNearbyCohort) {
-      const cancelPath = `/api/nearby-cohorts/reservations/${encodeURIComponent(String(req.params.token || ''))}`;
-      void relayCohort(res, cancelPath, 'DELETE');
-      return;
-    }
-    nearbyCohortStore.cancelReservation(String(req.params.token || ''));
-    res.status(204).send();
-  });
-
-  app.post('/api/nearby-cohorts/release', async (req, res) => {
-    if (await relayCohort(res, '/api/nearby-cohorts/release', 'POST', req.body || {})) return;
-    try {
-      res.json(await nearbyCohortStore.release(req.body?.claim));
-    } catch (error) {
-      cohortError(res, error);
-    }
-  });
-
-  app.post('/api/nearby-cohorts/reconcile', async (req, res) => {
-    if (await relayCohort(res, '/api/nearby-cohorts/reconcile', 'POST', req.body || {})) return;
-    try {
-      const checkpoint = req.body?.checkpoint;
-      if (!checkpoint || typeof checkpoint !== 'object') {
-        res.status(400).json({ error: 'Nearby cohort reconciliation checkpoint is required' });
-        return;
-      }
-      res.json(await nearbyCohortStore.reconcile({
-        checkpoint,
-        claims: Array.isArray(req.body?.claims) ? req.body.claims : [],
-      }));
-    } catch (error) {
-      cohortError(res, error);
-    }
-  });
-
-  app.post('/api/nearby-cohorts/peer-reconcile', async (req, res) => {
-    if (await relayCohort(res, '/api/nearby-cohorts/peer-reconcile', 'POST', req.body || {})) return;
-    try {
-      const checkpoint = req.body?.checkpoint;
-      if (!checkpoint || typeof checkpoint !== 'object') {
-        res.status(400).json({ error: 'Nearby peer reconciliation checkpoint is required' });
-        return;
-      }
-      res.json(await nearbyCohortStore.reconcilePeer({
-        checkpoint,
-        artifacts: Array.isArray(req.body?.artifacts) ? req.body.artifacts : [],
-        claims: Array.isArray(req.body?.claims) ? req.body.claims : [],
-      }));
-    } catch (error) {
-      cohortError(res, error);
-    }
-  });
-
-  app.get('/api/nearby-cohorts/active/:pub', (req, res) => {
-    if (hubRelayClient?.forwardNearbyCohort) {
-      const activeQuery = new URLSearchParams(Object.entries(req.query)
-        .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-      const activePath = `/api/nearby-cohorts/active/${encodeURIComponent(String(req.params.pub || ''))}?${activeQuery}`;
-      void relayCohort(res, activePath, 'GET');
-      return;
-    }
-    try {
-      const checkpoint = partitionCheckpointFrom(req.query as Record<string, unknown>);
-      if (!checkpoint) {
-        res.status(400).json({ error: 'valid Nearby cohort checkpoint is required' });
-        return;
-      }
-      res.json({ claim: nearbyCohortStore.activeClaim(checkpoint, String(req.params.pub || '')) });
-    } catch (error) {
-      cohortError(res, error);
-    }
   });
 
   app.post('/api/presence/ack', async (req, res) => {
@@ -1738,10 +1381,6 @@ export function registerSystemRoutes(
           logger.info('Clearing Gun.js in-memory database...');
           gun._.graph = {};
           if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
-          microRoomControlStore.clear();
-          nearbyControlStore.clear();
-          nearbyPartitionStore.clear();
-          mapPresenceStore.clear();
           nearbyV3Hub.clear();
           clearForTesting?.();
           await onClearDatabase?.();

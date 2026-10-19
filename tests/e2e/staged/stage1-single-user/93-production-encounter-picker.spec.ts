@@ -67,7 +67,7 @@ test.describe('Production website encounter location → Nearby', () => {
 
     await expect(refused.locator('[data-testid="encounter-location-modal"]')).toBeVisible({ timeout: 60_000 });
     await expect.poll(async () => (await encounter(refused))?.auto, { timeout: 15_000 }).toBe(true);
-    await expect.poll(async () => (await app(refused)).room, { timeout: 60_000 }).toMatch(/^nearby_/);
+    await expect.poll(async () => (await app(refused)).room, { timeout: 60_000 }).toMatch(/^nearby-v3$/);
     expect((await app(refused)).traveler).toBe(true);
 
     await refused.locator('[data-testid="encounter-location-lat"]').fill(String(LONDON.latitude));
@@ -76,7 +76,7 @@ test.describe('Production website encounter location → Nearby', () => {
     await expect(refused.locator('[data-testid="encounter-location-modal"]')).toHaveCount(0);
     await expect.poll(() => encounter(refused), { timeout: 15_000 }).toMatchObject(LONDON);
     expect((await encounter(refused)).auto).toBeUndefined();
-    await expect.poll(async () => (await app(refused)).room, { timeout: 60_000 }).toMatch(/^nearby_/);
+    await expect.poll(async () => (await app(refused)).room, { timeout: 60_000 }).toMatch(/^nearby-v3$/);
     expect((await app(refused)).traveler).toBe(true);
   });
 
@@ -85,7 +85,7 @@ test.describe('Production website encounter location → Nearby', () => {
     contexts.push(user.context);
     allowed = user.page;
 
-    await expect.poll(async () => (await app(allowed)).room, { timeout: 60_000 }).toMatch(/^nearby_/);
+    await expect.poll(async () => (await app(allowed)).room, { timeout: 60_000 }).toMatch(/^nearby-v3$/);
     expect((await app(allowed)).traveler).toBe(false);
     expect(await encounter(allowed)).toBeNull();
     await expect(allowed.locator('[data-testid="encounter-location-modal"]')).toHaveCount(0);

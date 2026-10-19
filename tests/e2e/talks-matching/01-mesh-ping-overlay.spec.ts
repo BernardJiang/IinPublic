@@ -18,6 +18,7 @@ import {
 import { bootstrapUser, enableMeshForwarding, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { enterNewPlaceTogether } from '../helpers/nearby-v3';
 
 /** Collect all non-metadata keys under a Gun root over a 500ms window. */
 const COLLECT_GUN_WINDOW_MS = 500;
@@ -136,6 +137,11 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
 
     // Allow presence to settle so getActiveMembers returns all three
     await afterSync();
+    await afterSync();
+
+    // Room-wide mesh topology (a bounded overlay, forwarding through a neighbor) belongs to shared
+    // rooms: Places. Nearby is each user's own list and opens links only for a reason (§3.7).
+    await enterNewPlaceTogether([pageTom, pageJerry, pageBob], `Mesh Ping Overlay ${Date.now()}`);
     await afterSync();
 
     // --- Sub-case 1: actively warm mesh links until ≥1 connected neighbor on each peer ---

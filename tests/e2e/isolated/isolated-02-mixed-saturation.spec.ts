@@ -1,9 +1,8 @@
 /** M4 — six independent browsers receive four numbered talk types.
  * Reduced from twelve, then eight: per policy no poll may exceed 60s and nothing retries.
- * At 8 nodes the four delivery assertions passed but the full-mesh health check needs
- * n*(n-1)/2 = 28 WebRTC handshakes, which measured just over 60s even running alone on a
- * 14-core machine; 6 nodes (15 sessions) fits the budget with margin while every assertion
- * (per-type golden deliveries, full-mesh health, memory bound) keeps its meaning. */
+ * Six browsers in one Chromium is the load that once emptied live Nearby lists (a failed link
+ * dropped a live peer); the assertions are per-type golden deliveries, every Nearby list still
+ * holding the other five afterwards, and the memory bound. */
 import { chromium } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
@@ -84,33 +83,16 @@ test.describe('M4 real mixed saturation', () => {
           expect(clusterIds.length).toBeLessThanOrEqual(1);
         }
       }
-      // B — PeerMeshService neighbor count: with 6 nodes each has 5 reachable peers, below the
-      // default maxNeighbors cap (12), so a healthy mesh connects all 5. peerMeshService is
-      // exposed via (this as any) cast inside ensurePeerMeshService() once a join triggers init.
-      await Promise.all(pages.map((page) =>
-        page.evaluate(async (members) => {
-          const app = (window as any).__iinpublic_app.getApp() as any;
-          await app.peerMeshService?.joinRoom?.('global', members);
-        }, users),
-      ));
-      // Re-issue idempotent joinRoom nudges on every poll tick; with the phase running solo
-      // the mesh settles quickly, and per policy no poll exceeds one minute.
+      // B — Nearby lists (§3.7): links open only for a reason (a swap, a queued Talk), so there is
+      // no standing full mesh to count. What must hold is that every user's own list has the other
+      // five, and that the delivery traffic above dropped nobody who is alive.
       await expect
         .poll(
           async () => {
-            await Promise.all(pages.map((page) =>
-              page.evaluate(async (members) => {
-                const app = (window as any).__iinpublic_app.getApp() as any;
-                await app.peerMeshService?.joinRoom?.('global', members);
-              }, users),
-            )).catch(() => {});
-            const neighborCounts = await Promise.all(pages.map((page) =>
-              page.evaluate(() => {
-                const mesh = ((window as any).__iinpublic_app.getApp() as any).peerMeshService;
-                return mesh ? (mesh.getDiagnostics() as { neighborCount: number }).neighborCount : 0;
-              }),
+            const sizes = await Promise.all(pages.map((page) =>
+              page.evaluate(() => ((window as any).__iinpublic_app.getApp().nearbyV3?.service.entries() ?? []).length),
             ));
-            return neighborCounts.every((count) => count >= 5);
+            return sizes.every((size) => size >= 5);
           },
           { timeout: 60_000, intervals: [500, 1000, 2000, 4000] },
         )

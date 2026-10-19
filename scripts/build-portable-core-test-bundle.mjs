@@ -94,9 +94,6 @@ const NODE_BUILTINS = /from ['"](node:|fs|path|os|crypto|child_process|http|http
 // Scale simulations answer a host question and take seconds even on the Mac
 // (docs/testing/android-core-test-plan.md: scale tests stay host-side).
 const HOST_ONLY_BY_DESIGN = {
-  'room-topology-million.test.ts': 'scale simulation: host-only by design',
-  'nearby-capacity-simulation.test.ts': 'scale simulation: host-only by design',
-  'nearby-adaptive-capacity.test.ts': 'scale simulation: host-only by design',
   'nearby-gossip-personal-lists.test.ts': 'scale simulation: host-only by design',
 };
 

@@ -8,6 +8,7 @@ import { wait, afterLoad, afterSync, afterNav, delay, headless } from '../../hel
 import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { expectNearbyHeadcount } from '../../helpers/nearby-v3';
 
 test.describe('Login — two users headcount', () => {
   let browser: Browser;
@@ -70,7 +71,7 @@ test.describe('Login — two users headcount', () => {
     await page2.close();
     await afterSync();
 
-    await expect(activeHeadcount(page)).toContainText('1', { timeout: 20000 });
+    await expectNearbyHeadcount(page, 1);
 
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));

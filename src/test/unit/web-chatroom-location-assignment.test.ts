@@ -2,7 +2,7 @@
 
 import { WebChatroomService } from '../../web/services/web-chatroom-service';
 import type { GPSCoordinate } from '../../shared/types';
-import { CONTACTS_ONLY_SCOPE_ID, NEARBY_V3_ROOM_ID, isNearbyRoomId } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
 
 const SAN_DIEGO: GPSCoordinate = {
   latitude: 32.7157,
@@ -23,12 +23,6 @@ describe('WebChatroomService Nearby-first assignment', () => {
     await expect(
       service.findOptimalChatroomHierarchical(SAN_DIEGO, 'user-1', undefined, false),
     ).resolves.toBe(CONTACTS_ONLY_SCOPE_ID);
-  });
-
-  it('uses a Nearby room rather than a bottom-layer ~78 km tile', async () => {
-    const roomId = await service.findOptimalChatroom(SAN_DIEGO);
-    expect(isNearbyRoomId(roomId)).toBe(true);
-    expect(roomId).not.toMatch(/^tile_/);
   });
 
   it('moves a saved shared Nearby room or legacy room into the personal list', async () => {

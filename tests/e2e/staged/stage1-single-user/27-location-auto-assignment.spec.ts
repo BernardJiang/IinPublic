@@ -55,10 +55,10 @@ test.describe('Location-based chatroom assignment', () => {
     await clearGunForStage1Spec();
   });
 
-  test('explicit location refresh keeps a lone user in the unsplit Nearby root group', async () => {
+  test('explicit location refresh keeps a lone user in Nearby', async () => {
     const p = page!;
     const currentRoom = () => p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '');
-    await expect.poll(currentRoom).toMatch(/^nearby_/);
+    await expect.poll(currentRoom).toMatch(/^nearby-v3$/);
     const before = await currentRoom();
 
     await p.evaluate(async () => {

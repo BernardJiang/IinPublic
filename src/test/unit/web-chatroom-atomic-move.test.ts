@@ -20,8 +20,6 @@ function gunChain(): any {
   return chain;
 }
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 describe('WebChatroomService atomic room moves', () => {
   let service: any;
   let order: string[];
@@ -62,43 +60,6 @@ describe('WebChatroomService atomic room moves', () => {
     jest.restoreAllMocks();
   });
 
-  it('a manual switch requested first beats an eviction that has not started', async () => {
-    const manual = service.switchChatroom('u', 'B', 'u');
-    const evicted = await service.moveForEviction('A', 'u', 'A-child', 'u');
-    await manual;
-
-    expect(evicted).toBe(false);
-    expect(order).toEqual(['leave:A', 'join:B']);
-    expect(service.currentChatroomId).toBe('B');
-  });
-
-  it('a manual switch arriving after the eviction was queued still wins', async () => {
-    const evicted = service.moveForEviction('A', 'u', 'A-child', 'u');
-    const manual = service.switchChatroom('u', 'B', 'u');
-
-    expect(await evicted).toBe(false);
-    await manual;
-    expect(order).toEqual(['leave:A', 'join:B']);
-  });
-
-  it('an eviction already running finishes first, then the manual switch lands the user where they chose', async () => {
-    leaveDelayMs = 20;
-    const evicted = service.moveForEviction('A', 'u', 'A-child', 'u');
-    await tick(); // the eviction has started (passed its checks, waiting inside leave)
-    const manual = service.switchChatroom('u', 'B', 'u');
-
-    expect(await evicted).toBe(true);
-    await manual;
-    expect(order).toEqual(['leave:A', 'join:A-child', 'leave:A-child', 'join:B']);
-    expect(service.currentChatroomId).toBe('B');
-  });
-
-  it('ignores an eviction when the user is no longer in the room the notice was for', async () => {
-    service.currentChatroomId = 'somewhere-else';
-    expect(await service.moveForEviction('A', 'u', 'A-child', 'u')).toBe(false);
-    expect(order).toEqual([]);
-  });
-
   it('never interleaves two manual switches', async () => {
     leaveDelayMs = 10;
     await Promise.all([service.switchChatroom('u', 'B', 'u'), service.switchChatroom('u', 'C', 'u')]);
@@ -118,16 +79,6 @@ describe('WebChatroomService atomic room moves', () => {
     // The queue is not poisoned by the failure.
     await service.switchChatroom('u', 'C', 'u');
     expect(service.currentChatroomId).toBe('C');
-  });
-
-  it('does not restore the old room when an eviction join fails', async () => {
-    service.joinChatroom = jest.fn(async (room: string) => {
-      order.push(`join:${room}`);
-      if (room === 'A-child') throw new Error('join failed');
-      service.currentChatroomId = room;
-    });
-    expect(await service.moveForEviction('A', 'u', 'A-child', 'u')).toBe(false);
-    expect(order).toEqual(['leave:A', 'join:A-child']);
   });
 
   it('keeps the current room active when a Place rejects admission at capacity', async () => {

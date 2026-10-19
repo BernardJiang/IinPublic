@@ -21,7 +21,10 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ card }),
     });
-    if (!response.ok) throw new Error(`hub refused the card (${response.status})`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: unknown } | null;
+      throw new Error(`hub refused the card (${response.status}${body?.error ? `: ${String(body.error)}` : ''})`);
+    }
   }
 
   async introductions(input: { point: { latitude: number; longitude: number }; scope: string; excludePub: string }): Promise<NearbyCard[]> {
@@ -101,6 +104,7 @@ export class NearbyV3Runtime {
       localPub: () => this.pair()?.pub ?? null,
       mesh: deps.mesh,
       incomingLimit: () => deps.config().incomingConnections,
+      onCard: (card) => { void this.service.offerCard(card).catch(() => undefined); },
     });
   }
 
@@ -133,9 +137,9 @@ export class NearbyV3Runtime {
     return this.service.handleMessage(fromPub, message);
   }
 
-  /** Mesh hook: nobody answered on this person's link; they leave the list. */
+  /** Mesh hook: this person's link could not be opened; a swap decides whether they left. */
   unreachable(pub: string): void {
-    this.service.reportUnreachable(pub);
+    void this.service.probe(pub).catch(() => undefined);
   }
 
   diagnostics(): Record<string, unknown> {

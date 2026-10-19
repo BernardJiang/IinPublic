@@ -251,7 +251,7 @@ test.describe('Stage zero N2N smoke', () => {
     await expect(page.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     const currentRoom = () => page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''));
     const homeRoomId = await currentRoom();
-    expect(homeRoomId).toMatch(/^nearby_/);
+    expect(homeRoomId).toMatch(/^nearby-v3$/);
 
     // Travel = visiting a Place; 🏠 brings Adam back to his Nearby room.
     await page.click('#create-custom-chatroom-btn');

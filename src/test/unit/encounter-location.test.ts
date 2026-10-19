@@ -16,7 +16,7 @@ import {
 } from '../../web/services/encounter-location';
 import { loadConnectivitySettings } from '../../web/ui/connectivity-settings';
 import { showEncounterLocationPicker } from '../../web/ui/encounter-location-picker';
-import { deriveNearbyRoomAssignment } from '../../shared/nearby-rooms';
+import { snapPublicLocation } from '../../shared/public-location';
 import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
 
 const t = (key: string) => key;
@@ -112,18 +112,11 @@ describe('encounter location storage', () => {
     expect(getEncounterLocation()).toBeNull();
   });
 
-  it('resolves the shared Nearby room from the chosen point, with nothing raw in the room id', () => {
-    const point = encounterLocationCoordinate({ latitude: 48.8584, longitude: 2.2945 });
-    const assignment = deriveNearbyRoomAssignment({ location: point, mode: 'neighborhood', identity: 'user-1' });
-    expect(assignment.roomId).toMatch(/^nearby_v1_/);
-    expect(assignment.roomId).not.toContain('48.8');
-    // Two web users who choose nearby points share the same room.
-    const neighbor = deriveNearbyRoomAssignment({
-      location: encounterLocationCoordinate({ latitude: 48.8585, longitude: 2.2946 }),
-      mode: 'neighborhood',
-      identity: 'user-2',
-    });
-    expect(neighbor.roomId).toBe(assignment.roomId);
+  it('publishes the chosen point only snapped to the public grid, the same for close neighbours', () => {
+    const point = snapPublicLocation(encounterLocationCoordinate({ latitude: 48.8584, longitude: 2.2945 }), 1_000);
+    const neighbor = snapPublicLocation(encounterLocationCoordinate({ latitude: 48.8585, longitude: 2.2946 }), 1_000);
+    expect(neighbor).toEqual(point);
+    expect(point.latitude).not.toBe(48.8584);
   });
 });
 

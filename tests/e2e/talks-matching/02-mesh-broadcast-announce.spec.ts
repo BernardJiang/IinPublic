@@ -23,6 +23,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { enterNewPlaceTogether } from '../helpers/nearby-v3';
 
 /** Collect all non-metadata keys under a Gun root over a 500ms window. */
 const COLLECT_GUN_WINDOW_MS = 500;
@@ -153,6 +154,11 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
 
     // Allow presence to settle so getActiveMembers returns all three
     await afterSync();
+    await afterSync();
+
+    // Room-wide mesh topology (a bounded overlay, forwarding through a neighbor) belongs to shared
+    // rooms: Places. Nearby is each user's own list and opens links only for a reason (§3.7).
+    await enterNewPlaceTogether([pageTom, pageJerry, pageBob], `Mesh Broadcast Announce ${Date.now()}`);
     await afterSync();
 
     // --- Warm mesh connections (parallel) ---

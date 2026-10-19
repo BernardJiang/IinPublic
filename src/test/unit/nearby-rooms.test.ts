@@ -1,232 +1,35 @@
 import {
-  deriveNearbyRoomAssignment,
+  CONTACTS_ONLY_SCOPE_ID,
+  hasNoHubRoster,
+  isLocalOnlyRoomScope,
+  isNearbyPublicMode,
   isNearbyRoomId,
-  maximumGeographicSplitGeneration,
-  nearbyMapArea,
-  nearbyPublicScope,
-  projectNearbyCoordinate,
+  nearbyBasePrecisionMeters,
+  NEARBY_V3_ROOM_ID,
 } from '../../shared/nearby-rooms';
-import type { GPSCoordinate } from '../../shared/types';
 
-const point = (latitude: number, longitude: number, accuracy = 10): GPSCoordinate => ({
-  latitude,
-  longitude,
-  accuracy,
-  timestamp: new Date('2026-10-08T12:00:00.000Z'),
-});
-
-describe('Nearby geographic room placement', () => {
-  test('recognizes versioned adaptive and visitable-cohort room IDs without widening the pattern', () => {
-    expect(isNearbyRoomId(`nearby_v2_e1_${'a'.repeat(24)}`)).toBe(true);
-    expect(isNearbyRoomId(`nearby_v3_e2_${'b'.repeat(24)}`)).toBe(true);
-    expect(isNearbyRoomId(`nearby_v3_e2_${'b'.repeat(23)}z`)).toBe(false);
-    expect(isNearbyRoomId(`nearby_v4_e2_${'b'.repeat(24)}`)).toBe(false);
+describe('Nearby scopes (§3.7)', () => {
+  test('Nearby is one local scope, never a shared room id', () => {
+    expect(isNearbyRoomId(NEARBY_V3_ROOM_ID)).toBe(true);
+    // Retired v2 room ids are not Nearby any more: a saved one migrates to the personal list.
+    expect(isNearbyRoomId('nearby_v2_e1_0123456789abcdef01234567')).toBe(false);
+    expect(isNearbyRoomId('nearby_v1_e1_p1000_g0_0123456789abcdef01234567')).toBe(false);
+    expect(isNearbyRoomId('place_32.71_-117.17_abcdefabcdef')).toBe(false);
   });
 
-  test('same close-nearby cell converges without exposing coordinates in the room ID', () => {
-    const alice = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'close-nearby',
-      identity: 'alice',
-    });
-    const bob = deriveNearbyRoomAssignment({
-      location: point(32.71571, -117.16109),
-      mode: 'close-nearby',
-      identity: 'bob',
-    });
-    expect(alice.roomId).toBe(bob.roomId);
-    expect(isNearbyRoomId(alice.roomId)).toBe(true);
-    expect(alice.roomId).not.toContain('32.7157');
-    expect(alice.roomId).not.toContain('117.1611');
+  test('Nearby and Contacts only have no hub roster; Places do', () => {
+    expect(hasNoHubRoster(NEARBY_V3_ROOM_ID)).toBe(true);
+    expect(hasNoHubRoster(CONTACTS_ONLY_SCOPE_ID)).toBe(true);
+    expect(isLocalOnlyRoomScope(NEARBY_V3_ROOM_ID)).toBe(false);
+    expect(hasNoHubRoster('place_32.71_-117.17_abcdefabcdef')).toBe(false);
   });
 
-  test('citywide and regional privacy choices produce larger valid shared rooms', () => {
-    const location = point(32.7157, -117.1611);
-    const neighborhood = deriveNearbyRoomAssignment({
-      location,
-      mode: 'neighborhood',
-      identity: 'alice',
-    });
-    const citywide = deriveNearbyRoomAssignment({
-      location,
-      mode: 'citywide',
-      identity: 'alice',
-    });
-    const regional = deriveNearbyRoomAssignment({
-      location,
-      mode: 'regional',
-      identity: 'alice',
-    });
-    expect(citywide.basePrecisionMeters).toBe(10_000);
-    expect(regional.basePrecisionMeters).toBe(50_000);
-    expect(citywide.approximateDiameterMeters).toBeGreaterThan(neighborhood.approximateDiameterMeters);
-    expect(regional.approximateDiameterMeters).toBeGreaterThan(citywide.approximateDiameterMeters);
-    expect(isNearbyRoomId(citywide.roomId)).toBe(true);
-    expect(isNearbyRoomId(regional.roomId)).toBe(true);
-    expect(JSON.stringify(nearbyPublicScope(regional))).not.toContain('32.7157');
-
-    const regionalOverflow = deriveNearbyRoomAssignment({
-      location,
-      mode: 'regional',
-      identity: 'alice',
-      requestedSplitGeneration: 3,
-    });
-    expect(regionalOverflow.splitGeneration).toBe(0);
-    expect(regionalOverflow.identityLaneCount).toBe(8);
-    expect(regionalOverflow.cellSizeMeters).toBe(50_000);
-  });
-
-  test('overflow generations group by finer geography before identity', () => {
-    const west = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1625, 5),
-      mode: 'neighborhood',
-      identity: 'same-identity',
-      requestedSplitGeneration: 3,
-    });
-    const east = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1585, 5),
-      mode: 'neighborhood',
-      identity: 'same-identity',
-      requestedSplitGeneration: 3,
-    });
-    expect(west.splitGeneration).toBe(3);
-    expect(west.identityLaneCount).toBe(1);
-    expect(west.roomId).not.toBe(east.roomId);
-  });
-
-  test('poor GPS accuracy stops geographic splitting and uses final identity lanes', () => {
-    expect(maximumGeographicSplitGeneration(400, 100)).toBe(1);
-    const assignment = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611, 100),
-      mode: 'close-nearby',
-      identity: 'alice',
-      requestedSplitGeneration: 4,
-    });
-    expect(assignment.splitGeneration).toBe(1);
-    expect(assignment.identityLaneCount).toBe(8);
-    expect(assignment.roomId).toMatch(/_l\d+of8$/);
-  });
-
-  test('boundary hysteresis prevents GPS drift from immediately changing rooms', () => {
-    const first = deriveNearbyRoomAssignment({
-      location: point(0, 0.00358),
-      mode: 'close-nearby',
-      identity: 'alice',
-    });
-    const projected = projectNearbyCoordinate(point(0, 0.0036));
-    const justAcross = point(0, (projected.x + 8) / 6_378_137 * 180 / Math.PI);
-    const stable = deriveNearbyRoomAssignment({
-      location: justAcross,
-      mode: 'close-nearby',
-      identity: 'alice',
-      previous: first,
-    });
-    expect(stable.roomId).toBe(first.roomId);
-  });
-
-  test('public scope omits local grid coordinates and exact location', () => {
-    const assignment = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'neighborhood',
-      identity: 'alice',
-    });
-    const scope = nearbyPublicScope(assignment) as Record<string, unknown>;
-    expect(scope.localCell).toBeUndefined();
-    expect(JSON.stringify(scope)).not.toContain('32.7157');
-    expect(JSON.stringify(scope)).not.toContain('-117.1611');
-  });
-
-  test('map area contains the local point and shrinks with geographic subdivision', () => {
-    const location = point(32.7157, -117.1611, 5);
-    const root = deriveNearbyRoomAssignment({
-      location,
-      mode: 'neighborhood',
-      identity: 'alice',
-    });
-    const child = deriveNearbyRoomAssignment({
-      location,
-      mode: 'neighborhood',
-      identity: 'alice',
-      requestedSplitGeneration: 2,
-    });
-    const rootArea = nearbyMapArea(root);
-    const childArea = nearbyMapArea(child);
-    expect(rootArea.west).toBeLessThanOrEqual(location.longitude);
-    expect(rootArea.east).toBeGreaterThan(location.longitude);
-    expect(rootArea.south).toBeLessThanOrEqual(location.latitude);
-    expect(rootArea.north).toBeGreaterThan(location.latitude);
-    expect(childArea.approximateDiameterMeters).toBeLessThan(rootArea.approximateDiameterMeters);
-  });
-
-  test('sparse widening converges adjacent base cells into one coarser active room', () => {
-    const west = deriveNearbyRoomAssignment({
-      location: point(0, 0.0044),
-      mode: 'neighborhood',
-      identity: 'alice',
-    });
-    const east = deriveNearbyRoomAssignment({
-      location: point(0, 0.0092),
-      mode: 'neighborhood',
-      identity: 'bob',
-    });
-    expect(west.roomId).not.toBe(east.roomId);
-
-    const widenedWest = deriveNearbyRoomAssignment({
-      location: point(0, 0.0044),
-      mode: 'neighborhood',
-      identity: 'alice',
-      wideningLevel: 1,
-    });
-    const widenedEast = deriveNearbyRoomAssignment({
-      location: point(0, 0.0092),
-      mode: 'neighborhood',
-      identity: 'bob',
-      wideningLevel: 1,
-    });
-    expect(widenedWest.roomId).toBe(widenedEast.roomId);
-    expect(widenedWest.wideningLevel).toBe(1);
-    expect(widenedWest.widenedPrecisionMeters).toBe(2_000);
-    expect(widenedWest.approximateDiameterMeters).toBe(2_828);
-    expect(widenedWest.roomId).toMatch(/_p1000_w1_g0_/);
-    expect(isNearbyRoomId(widenedWest.roomId)).toBe(true);
-  });
-
-  test('level-zero IDs remain compatible and widening level is part of public scope', () => {
-    const baseline = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'neighborhood',
-      identity: 'alice',
-    });
-    const explicitZero = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'neighborhood',
-      identity: 'alice',
-      wideningLevel: 0,
-    });
-    expect(explicitZero.roomId).toBe(baseline.roomId);
-    expect(explicitZero.roomId).not.toContain('_w0_');
-    expect(nearbyPublicScope(explicitZero).wideningLevel).toBe(0);
-  });
-
-  test('widening reports the real map reach and rejects levels outside the release policy', () => {
-    const baseline = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'close-nearby',
-      identity: 'alice',
-    });
-    const widened = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'close-nearby',
-      identity: 'alice',
-      wideningLevel: 2,
-    });
-    expect(nearbyMapArea(widened).approximateDiameterMeters)
-      .toBeCloseTo(nearbyMapArea(baseline).approximateDiameterMeters * 4, -1);
-    expect(() => deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'close-nearby',
-      identity: 'alice',
-      wideningLevel: 4,
-    })).toThrow('nearby widening level is out of range');
+  test('each public privacy mode snaps the public point to its own precision', () => {
+    expect(nearbyBasePrecisionMeters('close-nearby')).toBe(400);
+    expect(nearbyBasePrecisionMeters('neighborhood')).toBe(1_000);
+    expect(nearbyBasePrecisionMeters('citywide')).toBe(10_000);
+    expect(nearbyBasePrecisionMeters('regional')).toBe(50_000);
+    expect(isNearbyPublicMode('contacts-only')).toBe(false);
+    expect(isNearbyPublicMode('location-off')).toBe(false);
   });
 });

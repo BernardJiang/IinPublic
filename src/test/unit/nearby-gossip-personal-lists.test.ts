@@ -4,7 +4,7 @@
  * a cell edge, and keep fake accounts to their fair share. Small C keeps it fast; the C = 498 and
  * 100,000-person runs are scripts/nearby-gossip-experiment.ts → docs/testing/nearby-gossip-experiment.md.
  */
-import { pointNear, seededRandom } from '../support/nearby-capacity-model';
+import { pointNear, seededRandom } from '../support/seeded-random';
 import {
   DEFAULT_GOSSIP_OPTIONS,
   gossipRound,

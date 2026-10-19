@@ -806,12 +806,22 @@ phrase complexity into normal use.
     leave the list and come back only with a newer card; the hub introduces only phones heartbeating
     in the last two periods; all 13 phone-path journeys pass, 6.6 min vs 9.1 on v2). Still to do:
     "Sent to N of M", the web e2e suites, real phones.
-  - [ ] No compatibility (product owner 2026-10-19: no official release yet): remove the v2 code
-    rather than keep an epoch switch.
-  - [ ] Phase 4: map (green list dots, heat layer, no yellow dots), list, headcounts; Nearby chat
-    removed.
-  - [ ] Phase 5: Places on lists. Phase 6: epoch switch and removal of v2.
+  - [x] No compatibility (product owner 2026-10-19: no official release yet): the v2 code is removed
+    (2026-10-19; partition, cohorts and their mesh frame, control presence, micro-rooms, capacity
+    splits and evictions, routing, map presence, Nearby in the room list — now Places only; server
+    stores and routes; unit and web e2e tests). The web e2e run on v3 found real bugs, all fixed with
+    unit tests (design §3.7 "Gossip" and "Delivering a Talk broadcast"): renamed and knock cards
+    reach peers at once, announce to the three nearest, swap retry and a 15 s swap timeout, link
+    failures probe instead of dropping, stale knocks, stale sessions, Talks and answers to people
+    outside the list.
+  - [ ] Phase 4: map (green list dots and heat already drawn from the list and the hub; still: no
+    tile grid, fit to the list), list, headcounts; Nearby chat removed.
+  - [ ] Phase 5: Places on lists.
   - [ ] Daily beacon from the signed manifest (today the UTC date); identity-age rule.
+  - [ ] Not v3 (found 2026-10-19, same on the pre-v3 commit 4981a03e): `find-similar-people.spec.ts`
+    hangs in its reject phase inside `seedIncomingTagTalksForE2e` → `upsertLocalIncomingTalkClusters`
+    (local Gun writes) while six browsers' direct DM sessions time out; the test hits its 7-minute
+    limit.
   - [ ] Measure per-contact connection cost and broadcast-loop time on the five phones, over Wi-Fi
     and mobile data, and choose the incoming limits.
     2026-10-18 first numbers (`docs/testing/android-transport-measurements.md`): a fresh connection

@@ -14,7 +14,7 @@ import {
   type NearbyV3Link,
   type NearbyV3Position,
 } from '../../web/services/nearby-v3-service';
-import { seededRandom } from '../support/nearby-capacity-model';
+import { seededRandom } from '../support/seeded-random';
 
 const START = Date.parse('2026-10-19T12:00:00Z');
 const SD = snapPublicLocation({ latitude: 32.7157, longitude: -117.1611 }, 1_000);
@@ -22,7 +22,7 @@ const LA = snapPublicLocation({ latitude: 34.0522, longitude: -118.2437 }, 1_000
 
 /** Unsigned cards: the test injects `sign` and `verify`, so no SEA keys are needed. */
 const fakeSign = async (input: {
-  userId: string; pair: SeaSigningPair; point: PublicLocation; traveler?: boolean; scope?: NearbyCard['scope']; lifetimeMs: number; now?: Date;
+  userId: string; pair: SeaSigningPair; stageName?: string; point: PublicLocation; traveler?: boolean; scope?: NearbyCard['scope']; lifetimeMs: number; now?: Date;
 }): Promise<NearbyCard> => {
   const now = input.now ?? new Date();
   return {
@@ -30,6 +30,7 @@ const fakeSign = async (input: {
     kind: 'nearby-card',
     userId: input.userId,
     pub: input.pair.pub,
+    ...(input.stageName ? { stageName: input.stageName } : {}),
     point: input.point,
     traveler: input.traveler === true,
     scope: input.scope ?? 'nearby',
@@ -39,7 +40,7 @@ const fakeSign = async (input: {
   };
 };
 
-type Phone = { service: NearbyV3Service; position: NearbyV3Position; online: boolean; storage: Map<string, string> };
+type Phone = { service: NearbyV3Service; position: NearbyV3Position; online: boolean; storage: Map<string, string>; stageName?: string };
 
 function network(config: NearbyV3Config, points: PublicLocation[], options: { seed?: number } = {}) {
   let nowMs = START;
@@ -47,10 +48,15 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
   const phones = new Map<string, Phone>();
   const heartbeats: string[] = [];
   const random = seededRandom(options.seed ?? 3);
+  let dropNext = 0;
   const link: NearbyV3Link = {
     async request(to, message) {
       const phone = phones.get(to.pub);
       if (!phone?.online) return null;
+      if (dropNext > 0) {
+        dropNext -= 1;
+        return null;
+      }
       const from = (message as { card?: NearbyCard }).card?.pub ?? '';
       return phone.service.handleMessage(from, JSON.parse(JSON.stringify(message)));
     },
@@ -59,7 +65,11 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
     const phone = { position: { point, traveler: false, scope: 'nearby' as const }, online: true, storage } as Phone;
     phone.service = new NearbyV3Service({
       config: () => config,
-      identity: () => ({ userId: `user-${pub}`, pair: { pub, priv: 'x' } as SeaSigningPair }),
+      identity: () => ({
+        userId: `user-${pub}`,
+        pair: { pub, priv: 'x' } as SeaSigningPair,
+        ...(phone.stageName ? { stageName: phone.stageName } : {}),
+      }),
       position: () => phone.position,
       hub: {
         async heartbeat(card) { heartbeats.push(card.pub); hub.ingest(card, nowMs); },
@@ -83,6 +93,8 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
     heartbeats,
     add,
     advance(ms: number) { nowMs += ms; },
+    /** The next `count` swap requests get no answer (a link still opening, a busy phone). */
+    dropRequests(count: number) { dropNext = count; },
     now: () => nowMs,
     async round() {
       nowMs += config.gossipPeriodMs;
@@ -122,6 +134,59 @@ describe('NearbyV3Service', () => {
     expect(net.heartbeats.filter((pub) => pub === 'p2')).toHaveLength(3);
     expect(p2.service.card()!.point).toEqual(SD);
     expect(p2.service.entries()[0]!.key.distanceMeters).toBe(0);
+  });
+
+  it('announces a newcomer to the three nearest people at once', async () => {
+    const net = network(config(), [SD, SD, SD, SD]);
+    const [p0, p1, p2, p3] = ['p0', 'p1', 'p2', 'p3'].map((pub) => net.phones.get(pub)!);
+    // The first three know each other; the fourth arrives later.
+    for (const phone of [p0, p1, p2]) await phone.service.tick();
+    for (const phone of [p0, p1, p2]) await phone.service.tick();
+    await p3!.service.tick();
+    for (const phone of [p0, p1, p2]) {
+      expect(phone!.service.entries().map((entry) => entry.card.pub)).toContain('p3');
+    }
+  });
+
+  it('sends a renamed card to the nearest person at once, not at the next period', async () => {
+    const net = network(config(), [SD, SD]);
+    for (const phone of net.phones.values()) await phone.service.tick();
+    const p0 = net.phones.get('p0')!;
+    const p1 = net.phones.get('p1')!;
+    expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+    // Renamed seconds after boot (found by web e2e 00e): the peer showed the boot-time name.
+    net.advance(1_000);
+    p1.stageName = 'JerryOv';
+    await p1.service.refresh();
+    expect(p0.service.entries()[0]!.card.stageName).toBe('JerryOv');
+  });
+
+  it('puts a knocker on the list from the card in the knock, before any link is up', async () => {
+    const net = network(config(), [SD]);
+    const p0 = net.phones.get('p0')!;
+    await p0.service.tick();
+    expect(p0.service.entries()).toHaveLength(0);
+    const knocker = net.add('k', SD);
+    p0.online = false; // the knocker's own announce cannot reach p0: the link is not up yet
+    await knocker.service.tick();
+    p0.online = true;
+    expect(p0.service.entries()).toHaveLength(0);
+    await p0.service.offerCard(knocker.service.card()!);
+    expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['k']);
+  });
+
+  it('keeps a person after one silent swap, and drops them after two in a row', async () => {
+    // Found by web e2e isolated-02: under load a swap that had to open a new link timed out, and
+    // dropping at once emptied six live phones' lists one by one.
+    const net = network(config({ capacity: 1 }), [SD, SD]);
+    for (const phone of net.phones.values()) await phone.service.tick();
+    const p0 = net.phones.get('p0')!;
+    net.dropRequests(1);
+    await p0.service.gossipNow();
+    expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+    net.dropRequests(2);
+    await p0.service.gossipNow();
+    expect(p0.service.entries()).toHaveLength(0);
   });
 
   it('drops a person who stops answering', async () => {

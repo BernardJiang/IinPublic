@@ -133,7 +133,7 @@ test.describe('Messaging edge cases', () => {
     await expect.poll(() => page.evaluate(() => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       return String(app?.currentChatroomId || app?.chatroomService?.getCurrentChatroomId?.() || '')
-        .startsWith('nearby_');
+        === 'nearby-v3';
     }), { timeout: 20_000 }).toBe(true);
     await afterSync();
   }

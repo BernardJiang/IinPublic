@@ -64,10 +64,8 @@ describe('room browse tree', () => {
     expect(tree.indexOf(node(area))).toBeGreaterThan(tree.indexOf(node(path[2])));
   });
 
-  it('hangs a legacy 1 km grid room and a numbered overflow room under their base', () => {
+  it('hangs a legacy 1 km grid room under its L4 tile', () => {
     expect(browsePath(SAN_DIEGO_GRID)).toEqual([...tileLineage(tileIdAt(4, 32.71, -117.17)), SAN_DIEGO_GRID]);
-    const part = `${tileIdAt(4, 32.7157, -117.1611)}_part_2`;
-    expect(browsePath(part).slice(-2)).toEqual([tileIdAt(4, 32.7157, -117.1611), part]);
     expect(browsePath('room_custom')).toEqual([]);
     expect(browsePath('global')).toEqual([]);
   });
@@ -97,10 +95,6 @@ describe('room browse tree', () => {
     expect(tree.find((room) => room.id === cafe.id)).toMatchObject({ level: 5, parentId: l4, name: 'Bean There Café', icon: '🏪' });
     expect(tree.find((room) => room.id === l4)).toMatchObject({ level: 4, hasChildren: true });
     expect(tree.some((room) => room.id === legacy.id)).toBe(false);
-    // Its numbered overflow rooms only appear on the current room's path (never empty ones).
-    expect(tree.some((room) => room.id === `${cafe.id}_part_2`)).toBe(false);
-    const inPart = buildBrowseTree([`${cafe.id}_part_2`], [cafe]);
-    expect(inPart.find((room) => room.id === `${cafe.id}_part_2`)).toMatchObject({ level: 6, parentId: cafe.id, name: 'Bean There Café (2)' });
   });
 
   it('titles tile rooms by their label', () => {

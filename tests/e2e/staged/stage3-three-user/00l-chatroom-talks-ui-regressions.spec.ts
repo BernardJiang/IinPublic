@@ -138,6 +138,9 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await expect(pageTom.locator('#current-chatroom-status')).toContainText(/2 members total/, { timeout: 45_000 });
 
     await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.());
+    // Nearby has no goodbye (§3.7): Tom drops Jerry when his next swap with Jerry gets no answer,
+    // up to one gossip period later. Run that swap now so the test does not wait out the period.
+    await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.gossipNow());
     await expect(pageTom.locator('#current-chatroom-status')).toContainText(/1 member total/, { timeout: 45_000 });
 
     await pageTom.click('#back-to-chatrooms');

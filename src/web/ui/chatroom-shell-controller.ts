@@ -11,10 +11,6 @@ import {
 } from './chatrooms-view';
 import { normalizeStringList, normalizeTalkFilterShape } from './settings-view';
 import type { CustomChatroomDraft } from './custom-chatroom-dialogs';
-import {
-  createLocalCohortTraversalViewModel,
-  type CohortTraversalViewModel,
-} from './cohort-traversal-view-model';
 
 import { createMapUserDots, type MapUserDotSource, type RoomMemberCardSource } from './chatroom-map-view';
 import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
@@ -32,10 +28,8 @@ export type ChatroomShellControllerDeps = {
   getExpandedChatrooms: () => Set<string>;
   getMatchedUserIds: () => Set<string>;
   getCustomChatrooms: () => CustomChatroomRow[];
-  getNearbyMapArea?: () => ChatroomsViewDeps['nearbyMapArea'];
   getTravelModeActive: () => boolean;
   /** Group 2 supplies the network-backed model; Group 1 keeps a truthful one-group local shell. */
-  getCohortTraversalViewModel?: () => CohortTraversalViewModel;
   setSessionUser: (user: User) => void;
   setCurrentUserId: (userId: string) => void;
   setChatroomBrowseMode: (mode: ChatroomsViewDeps['chatroomBrowseMode']) => void;
@@ -70,8 +64,7 @@ export type ChatroomShellControllerDeps = {
 export type ChatroomShellController = ReturnType<typeof createChatroomShellController>;
 
 export function createChatroomShellController(deps: ChatroomShellControllerDeps) {
-  const localCohortTraversal = createLocalCohortTraversalViewModel();
-  /** Set by the app once map presence works; the room roster decides which dots are green. */
+  /** Set by the app once Nearby runs: my point (★) and a loader for my list's dots and the heat. */
   let mapUserDotSource: MapUserDotSource | undefined;
   let roomMembers: ReadonlyArray<{ userId: string; stageName?: string; isTraveler?: boolean }> = [];
 
@@ -123,7 +116,6 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   let activeRooms: ChatroomsViewDeps['activeRooms'];
 
   const viewDeps = (): ChatroomsViewDeps => {
-    const nearbyMapArea = deps.getNearbyMapArea?.();
     const mapUserDots = mapUserDotSource
       ? createMapUserDots(mapUserDotSource, deps.getCurrentUserId(), roomMembers, deps.t)
       : undefined;
@@ -136,8 +128,6 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     matchedUserIds: deps.getMatchedUserIds(),
     customChatrooms: deps.getCustomChatrooms(),
     travelModeActive: deps.getTravelModeActive(),
-    cohortTraversal: deps.getCohortTraversalViewModel?.() ?? localCohortTraversal,
-      ...(nearbyMapArea ? { nearbyMapArea } : {}),
       ...(mapUserDots ? { mapUserDots, roomMemberCard: roomMemberCard() } : {}),
       ...(activeRooms ? { activeRooms } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,

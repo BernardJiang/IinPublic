@@ -164,14 +164,13 @@ export interface EmbeddedHubRelayClientLike {
   postAttestationVerify?(body: unknown): Promise<{ status: number; body: unknown }>;
   getAttestationVerifierKeys?(): Promise<{ status: number; body: unknown }>;
   /**
-   * OPEN-40-G2: the browser inside a native app talks to its loopback embedded node. Cohort
-   * admission is shared control metadata, so a connected embedded node must forward it to the
-   * upstream index just like room membership. The exact status is preserved because 409/503 are
-   * meaningful traversal outcomes rather than generic transport failures.
+   * OPEN-40-G2: the browser inside a native app talks to its loopback embedded node. Nearby
+   * (cards, introductions, statistics) and the room list are shared hub metadata, so a connected
+   * embedded node forwards them to the hub, keeping the hub's exact status.
    */
-  forwardNearbyCohort?(
+  forwardHubApi?(
     path: string,
-    method: 'GET' | 'POST' | 'DELETE',
+    method: 'GET' | 'POST',
     body?: unknown,
   ): Promise<{ status: number; body: unknown }>;
   /**
@@ -523,15 +522,13 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     return this.forwardJson('/api/attestation/verifier-keys', 'GET');
   }
 
-  async forwardNearbyCohort(
+  async forwardHubApi(
     path: string,
-    method: 'GET' | 'POST' | 'DELETE',
+    method: 'GET' | 'POST',
     body?: unknown,
   ): Promise<{ status: number; body: unknown }> {
-    // Map presence (user dots) and Nearby v3 cards/introductions/statistics are the same kind of
-    // shared Nearby metadata and go to the same hub.
-    if (!/^\/api\/(?:nearby-cohorts|map-presence|active-rooms|nearby\/v3)(?:\/|\?|$)/.test(path)) {
-      throw new Error(`embedded hub relay refuses non-cohort path "${path}"`);
+    if (!/^\/api\/(?:active-rooms|nearby\/v3)(?:\/|\?|$)/.test(path)) {
+      throw new Error(`embedded hub relay refuses path "${path}"`);
     }
     return this.forwardJson(path, method, body);
   }

@@ -3,13 +3,13 @@
 import { renderChatroomList } from '../../web/ui/chatrooms-view';
 import { renderChatroomMap } from '../../web/ui/chatroom-map-view';
 import { uiText } from '../../web/ui/ui-translations';
-import { createLocalCohortTraversalViewModel } from '../../web/ui/cohort-traversal-view-model';
+import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
 import { MAP_HINT_VISIBLE_MS } from '../../web/ui/transient-map-hint';
 
 jest.mock('../../web/ui/chatroom-map-view', () => ({ renderChatroomMap: jest.fn() }));
 
 const mapRenderer = renderChatroomMap as jest.MockedFunction<typeof renderChatroomMap>;
-const NEARBY_ID = 'nearby_v1_e1_p1000_g0_0123456789abcdef01234567';
+const NEARBY_ID = NEARBY_V3_ROOM_ID;
 const PLACE_ID = 'place_32.71_-117.17_abcdefabcdef';
 
 describe('flat chatroom map', () => {
@@ -38,15 +38,7 @@ describe('flat chatroom map', () => {
         type: 'business',
         location: { latitude: 32.71, longitude: -117.17 },
       }],
-      nearbyMapArea: {
-        north: 32.72,
-        south: 32.70,
-        east: -117.16,
-        west: -117.18,
-        approximateDiameterMeters: 1_000,
-      },
       travelModeActive: false,
-      cohortTraversal: createLocalCohortTraversalViewModel({ groupCount: 6 }),
       setChatroomBrowseMode: jest.fn(),
       setCurrentChatroom: jest.fn(),
       setCurrentChatroomMembers: jest.fn(),
@@ -71,18 +63,9 @@ describe('flat chatroom map', () => {
     options.selectNearbyPoint?.({ latitude: 40.71, longitude: -74.0 });
     expect(emit).toHaveBeenCalledWith('travelNearbyAtPoint', { latitude: 40.71, longitude: -74.0 });
     expect(options).not.toHaveProperty('openTile');
-    expect(options.nearbyMapArea).toEqual({
-      north: 32.72,
-      south: 32.70,
-      east: -117.16,
-      west: -117.18,
-      approximateDiameterMeters: 1_000,
-    });
     expect(options.rooms).toHaveLength(2);
     expect(options.nearbyPointAction).toBe('Join as traveler');
-    expect(document.getElementById('chatroom-map-status')?.textContent).toContain(
-      '6 groups share the same shaded area.',
-    );
+    expect(document.getElementById('chatroom-map-status')?.textContent).not.toContain('groups share');
     const status = document.getElementById('chatroom-map-status') as HTMLElement;
     expect(status.hidden).toBe(false);
     jest.advanceTimersByTime(MAP_HINT_VISIBLE_MS);

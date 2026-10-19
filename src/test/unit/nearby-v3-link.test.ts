@@ -161,6 +161,32 @@ describe('Nearby v3 swap over the mesh with one-sided lists', () => {
   });
 });
 
+describe('Nearby v3 knocks back', () => {
+  it('knocks back after a stale knock, never after a fresh one', async () => {
+    // Found by web e2e 02-multi-user-headcount: a returning user read knocks sent while it was away,
+    // took them for "they are opening their side", never knocked back, and nobody answered.
+    const net = fakeNetwork();
+    const knocked: string[] = [];
+    const pair = await SEA.pair() as SeaSigningPair;
+    const gun = { getStoredPair: () => pair, getPublicUser: async () => undefined, getPrivate: async () => null, putPrivate: async () => undefined } as unknown as WebGunService;
+    const eve = new PeerMeshService(gun, {
+      apiBase: 'http://127.0.0.1:1',
+      localUserId: 'eve',
+      localStageName: 'eve',
+      createSession: net.createSession as never,
+      knockPeer: async (peer) => { knocked.push(peer.userId); },
+    });
+    await eve.joinRoom('nearby-v3', [], { replace: true, personal: true });
+    const [adam, bob] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    eve.pinPeer('adam', adam!.pub, 60_000, { fromKnock: true, knockedAtMs: Date.now() - 30_000 });
+    eve.pinPeer('bob', bob!.pub, 60_000, { fromKnock: true, knockedAtMs: Date.now() });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(knocked).toContain('adam');
+    expect(knocked).not.toContain('bob');
+    eve.leaveRoom();
+  });
+});
+
 describe('Nearby v3 broadcast loop', () => {
   it('delivers a Talk to everyone on the list, opening links a few at a time, although nobody lists the sender', async () => {
     const net = fakeNetwork();
@@ -207,6 +233,87 @@ describe('Nearby v3 broadcast loop', () => {
     expect([...delivered].sort()).toEqual(names.slice(1));
     expect(mostLinks).toBeLessThanOrEqual(3);
     expect(meshes.adam!.getPersonalConcurrency()).toBe(3);
+    for (const mesh of Object.values(meshes)) mesh.leaveRoom();
+  }, 20_000);
+
+  it('opens the author\'s link to send an answer, though the author is not on the list', async () => {
+    // Found by web e2e find-similar (mailbox off): an answer went only over links already open,
+    // and in personal mode none was open to the author.
+    const net = fakeNetwork();
+    const pairs = { adam: await SEA.pair() as SeaSigningPair, carol: await SEA.pair() as SeaSigningPair };
+    const answers: string[] = [];
+    const gates: Record<string, NearbyKnockGate> = {};
+    const meshes: Record<string, PeerMeshService> = {};
+    for (const name of ['adam', 'carol'] as const) {
+      const pair = pairs[name];
+      const values = new Map<string, unknown>();
+      const gun = {
+        getStoredPair: () => pair,
+        getPublicUser: async (userId: string) => (userId === 'adam' ? { id: 'adam', pub: pairs.adam.pub } : undefined),
+        getPrivate: async (key: string) => values.get(key) ?? null,
+        putPrivate: async (key: string, value: unknown) => { values.set(key, value); },
+      } as unknown as WebGunService;
+      meshes[name] = new PeerMeshService(gun, {
+        apiBase: 'http://127.0.0.1:1',
+        localUserId: name,
+        localStageName: name,
+        ackTimeoutMs: 2_000,
+        createSession: net.createSession as never,
+        knockPeer: async (peer) => {
+          await gates[peer.userId]!.receive(await createNearbyKnock({ fromUserId: name, pair, toPub: peer.pub, card: null }));
+        },
+        onTalkResponse: (payload) => { answers.push(`${payload.responderId}->${name}`); },
+      });
+      gates[name] = new NearbyKnockGate({ localPub: () => pair.pub, mesh: meshes[name]!, incomingLimit: () => 8 });
+      await meshes[name]!.joinRoom('nearby-v3', [], { replace: true, personal: true });
+    }
+    const at = new Date().toISOString();
+    const acknowledged = await meshes.carol!.sendTalkResponse({
+      responseId: 'r1', talkId: 't1', authorId: 'adam', responderId: 'carol', submittedAt: at, respondedAt: at,
+      version: 1, encryption: 'sea-ecdh-v1', payloadCiphertext: 'x', transportMode: 'mesh-p2p',
+    } as never);
+    expect(answers).toEqual(['carol->adam']);
+    expect(acknowledged).toBe(true);
+    for (const mesh of Object.values(meshes)) mesh.leaveRoom();
+  }, 20_000);
+
+  it('reaches a chosen recipient who is not on the Nearby list (a contact group)', async () => {
+    // Found by web e2e isolated-02: the loop opened links only to listed people, so a Talk for
+    // anyone else waited in the outbox for good.
+    const net = fakeNetwork();
+    const pairs = { adam: await SEA.pair() as SeaSigningPair, carol: await SEA.pair() as SeaSigningPair };
+    const delivered: string[] = [];
+    const gates: Record<string, NearbyKnockGate> = {};
+    const meshes: Record<string, PeerMeshService> = {};
+    for (const name of ['adam', 'carol'] as const) {
+      const pair = pairs[name];
+      const values = new Map<string, unknown>();
+      const gun = {
+        getStoredPair: () => pair,
+        // The hub's public record: how the mesh learns a contact's key.
+        getPublicUser: async (userId: string) => (userId === 'carol' ? { id: 'carol', pub: pairs.carol.pub } : undefined),
+        getPrivate: async (key: string) => values.get(key) ?? null,
+        putPrivate: async (key: string, value: unknown) => { values.set(key, value); },
+      } as unknown as WebGunService;
+      meshes[name] = new PeerMeshService(gun, {
+        apiBase: 'http://127.0.0.1:1',
+        localUserId: name,
+        localStageName: name,
+        ackTimeoutMs: 2_000,
+        authoritativeDirectTalkDelivery: true,
+        createSession: net.createSession as never,
+        knockPeer: async (peer) => {
+          await gates[peer.userId]!.receive(await createNearbyKnock({ fromUserId: name, pair, toPub: peer.pub, card: null }));
+        },
+        onTalkBody: () => { delivered.push(name); },
+      });
+      gates[name] = new NearbyKnockGate({ localPub: () => pair.pub, mesh: meshes[name]!, incomingLimit: () => 8 });
+      await meshes[name]!.joinRoom('nearby-v3', [], { replace: true, personal: true });
+    }
+    await meshes.adam!.broadcastTalk({ id: 'contact-talk', authorId: 'adam', title: 'Friends', type: 'tag', questions: [] }, { recipientUserIds: ['carol'] });
+    const deadline = Date.now() + 10_000;
+    while (!delivered.includes('carol') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(delivered).toEqual(['carol']);
     for (const mesh of Object.values(meshes)) mesh.leaveRoom();
   }, 20_000);
 });

@@ -1,8 +1,9 @@
 /**
- * Concurrent room visits are both counted (docs/TODO.md L1).
+ * Concurrent Place visits are both counted (docs/TODO.md L1). Nearby is each phone's own list and
+ * has no visit counter (§3.7), so the counter lives on Places.
  *
  * Regression gate for the shared-scalar read-modify-write this replaced: two users
- * joining the same room at the same time each read `visitCount` = N and both wrote
+ * joining the same Place at the same time each read `visitCount` = N and both wrote
  * N+1, so Gun's last-write-wins silently dropped one visit. The CRDT G-Counter gives
  * each user their own slot, so there is nothing to race on.
  *
@@ -12,7 +13,7 @@
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterLoad, afterSync, headless } from '../../helpers/timing';
+import { afterLoad, afterNav, afterSync, headless } from '../../helpers/timing';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { gunBaseURL } from '../../helpers/ports';
@@ -41,10 +42,17 @@ test.describe('Room visit counter: concurrent joins', () => {
   let contextBob: BrowserContext;
   let pageAlice: Page;
   let pageBob: Page;
-  /** The automatic Nearby room both users share (Global is retired); empty until they boot. */
+  /** The Place Alice creates; both then enter it at the same moment. */
   let roomId = '';
   const currentRoomOf = (page: Page) =>
     page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''));
+  const enter = (page: Page, id: string) =>
+    page.evaluate((target) => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.emit('chatroomChanged', target), id);
+  const goHome = async (page: Page) => {
+    await page.click('#return-home-btn');
+    await afterNav();
+    await expect.poll(() => currentRoomOf(page), { timeout: 15_000 }).toBe('nearby-v3');
+  };
 
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
     await clearGunForStage2Spec();
@@ -69,11 +77,6 @@ test.describe('Room visit counter: concurrent joins', () => {
   });
 
   test('two simultaneous joins are both counted, unique = 2', async () => {
-    // The hub graph was cleared in beforeAll, so the shared room starts with no visits.
-    const before = { visitCount: 0, uniqueVisitorCount: 0 };
-
-    // Launch both joins together — this is the interleaving that lost an increment
-    // under the old shared-scalar counter.
     const [alice, bob] = await Promise.all([
       bootstrapUser(browserAlice, 'Alice', 'Alice'),
       bootstrapUser(browserBob, 'Bob', 'Bob'),
@@ -84,30 +87,40 @@ test.describe('Room visit counter: concurrent joins', () => {
     pageBob = bob.page;
     attachE2eBrowserTabLabel(pageAlice, 'Alice');
     attachE2eBrowserTabLabel(pageBob, 'Bob');
-
     await afterLoad();
-    await afterSync();
+
+    // Alice creates a Place (her first visit), then goes back to Nearby.
+    await pageAlice.click('#create-custom-chatroom-btn');
+    await afterNav();
+    await pageAlice.locator('[data-testid="custom-room-name-input"]').fill(`Visit Counter Place ${Date.now()}`);
+    await pageAlice.locator('[data-testid="custom-room-submit-btn"]').click();
+    await expect.poll(() => currentRoomOf(pageAlice), { timeout: 15_000 }).toMatch(/^place_/);
     roomId = await currentRoomOf(pageAlice);
-    expect(roomId).toMatch(/^nearby_/);
-    await expect.poll(() => currentRoomOf(pageBob)).toBe(roomId);
+    await goHome(pageAlice);
+    await expect.poll(async () => (await readRoomVisitTotals(roomId)).visitCount, { timeout: 20_000 }).toBe(1);
+    const before = await readRoomVisitTotals(roomId);
+
+    // Both enter together — the interleaving that lost an increment under the old shared-scalar
+    // counter.
+    await Promise.all([enter(pageAlice, roomId), enter(pageBob, roomId)]);
+    await expect.poll(() => currentRoomOf(pageAlice), { timeout: 15_000 }).toBe(roomId);
+    await expect.poll(() => currentRoomOf(pageBob), { timeout: 15_000 }).toBe(roomId);
+    await afterSync();
 
     await expect
-      .poll(async () => (await readRoomVisitTotals(roomId)).uniqueVisitorCount, { timeout: 20_000 })
-      .toBeGreaterThanOrEqual(before.uniqueVisitorCount + 2);
-
-    const after = await readRoomVisitTotals(roomId);
-    // Both visits survived — the old counter would report +1 here on an unlucky interleave.
-    expect(after.visitCount).toBeGreaterThanOrEqual(before.visitCount + 2);
-    // Two distinct users, so exactly two new slots regardless of how many times each joined.
-    expect(after.uniqueVisitorCount).toBe(before.uniqueVisitorCount + 2);
+      .poll(async () => (await readRoomVisitTotals(roomId)).visitCount, { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(before.visitCount + 2);
+    // Two distinct users: Alice's slot and Bob's new one.
+    expect((await readRoomVisitTotals(roomId)).uniqueVisitorCount).toBe(2);
   });
 
   test('a repeat visit by the same user raises visits but not unique visitors', async () => {
-    expect(roomId).toMatch(/^nearby_/);
+    expect(roomId).toMatch(/^place_/);
     const before = await readRoomVisitTotals(roomId);
 
-    await pageAlice.reload();
-    await afterLoad();
+    await goHome(pageAlice);
+    await enter(pageAlice, roomId);
+    await expect.poll(() => currentRoomOf(pageAlice), { timeout: 15_000 }).toBe(roomId);
     await afterSync();
 
     await expect

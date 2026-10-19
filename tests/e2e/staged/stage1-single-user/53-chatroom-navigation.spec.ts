@@ -63,7 +63,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
 
     await expect(back).toBeHidden();
     const nearbyId = await openCurrentChatroom(p);
-    expect(nearbyId).toMatch(/^nearby_v\d+_/);
+    expect(nearbyId).toMatch(/^nearby-v3$/);
     await expect(back).toBeVisible();
     await expect(back).toHaveText('‹');
     await expect(p.locator('#chatroom-detail-container')).toBeVisible();
@@ -81,7 +81,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     await toChatroomList(page!);
     const p = page!;
     const nearbyId = await currentRoomId(p);
-    expect(nearbyId).toMatch(/^nearby_v\d+_/);
+    expect(nearbyId).toMatch(/^nearby-v3$/);
 
     const rows = p.locator('.chatroom-item');
     expect(await rows.count()).toBeGreaterThan(0);
@@ -93,7 +93,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     await expect(p.locator('.chatroom-expand-icon')).toHaveCount(0);
   });
 
-  test('list/map toggle shades Nearby and an open-map tap does not invent a grid room', async () => {
+  test('list/map toggle shows the map and an open-map tap does not invent a grid room', async () => {
     await toChatroomList(page!);
     const p = page!;
     const listButton = p.locator('[data-testid="chatroom-list-view-btn"]');
@@ -113,9 +113,10 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     await expect(list).toBeHidden();
     await expect(map).toBeVisible();
     await expect(map).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
-    await expect(map).toHaveAttribute('data-nearby-area-visible', 'true');
+    // Nearby is my own list, not an area: nothing is shaded (§3.7 "Map, list and headcounts").
+    await expect(map).not.toHaveAttribute('data-nearby-area-visible', 'true');
     await expect(map).toHaveAttribute('data-map-clustering', 'true');
-    await expect(p.locator('#chatroom-map-status')).toContainText('shaded Nearby area');
+    await expect(p.locator('#chatroom-map-status')).not.toContainText('shaded Nearby area');
     await expect(map.locator('a[href*="openstreetmap.org/copyright"]')).toBeVisible();
 
     await p.setViewportSize({ width: 360, height: 800 });
@@ -194,7 +195,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
 
     await home.click();
     await afterNav();
-    await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby_v\d+_/);
+    await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby-v3$/);
     await expect(home).toBeDisabled();
 
     await p.locator(`.chatroom-item[data-chatroom-id="${createdPlaceId}"]`).click();

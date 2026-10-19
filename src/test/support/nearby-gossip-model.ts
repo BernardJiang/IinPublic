@@ -16,7 +16,7 @@
  * one gossip period (each live phone starts one swap). Card freshness is counted in rounds.
  */
 import type { GPSCoordinate } from '../../shared/types';
-import { seededRandom } from './nearby-capacity-model';
+import { seededRandom } from './seeded-random';
 
 export type GossipVariant = 'public-hash' | 'secret-salt';
 

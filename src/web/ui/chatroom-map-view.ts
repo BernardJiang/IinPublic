@@ -2,13 +2,12 @@ import { gridLayerForZoom, tileAtTap, tileGridLines, tileSquares } from '../../s
 import { parseTileId } from '../../shared/room-tiles';
 import type { FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { CONFIG } from '../../shared/config';
-import { isNearbyRoomId, type NearbyMapArea } from '../../shared/nearby-rooms';
 import { isPlaceRoomId } from '../../shared/place-rooms';
 import {
   chatroomsToGeoJson,
   type ChatroomMapFeatureProperties,
 } from '../../shared/chatroom-map-geojson';
-import type { MapBounds, MapDensityCell, MapPresenceDot } from '../../shared/map-presence';
+import type { MapBounds, MapDensityCell, MapPresenceDot } from '../../shared/map-dots';
 import type { PublicLocation } from '../../shared/public-location';
 import {
   getChatroomMapLocation,
@@ -47,19 +46,16 @@ type ChatroomMapOptions = {
   /** Tile to shade as "you are here" (the current room's tile), if any. */
   currentTileId?: string;
   /** Device-local Nearby cell geometry. This value is rendered only and is never published. */
-  nearbyMapArea?: NearbyMapArea;
   enterTileText?: string;
   mapLoadFailedText: string;
   /** Label of the "center on me" button under the zoom buttons. */
   locateSelfText?: string;
   membersText: (count: number) => string;
   visitsText: (count: number) => string;
-  /** People on the map: a star for me, green for my room (Talks), yellow for everyone else. */
+  /** People on the map: a star for me, green for my Nearby list, heat for the crowd. */
   userDots?: MapUserDots;
   /** Incremented only when the person deliberately enters Map view, not on live-data refreshes. */
   userLegendHintSession?: number;
-  /** Every other room's square, each in its own colour (my own room stays the green shading). */
-  otherRoomAreas?: ReadonlyArray<OtherRoomArea>;
   /** Tap a green dot (someone in my room): a brief profile card with Message and Profile. */
   roomMemberCard?: RoomMemberCardSource;
 };
@@ -86,17 +82,6 @@ export type RoomMemberCardSource = {
   profile: (userId: string, stageName: string) => void;
   text: { message: string; profile: string; online: string; away: string; matched: string; traveler: string };
 };
-
-export type OtherRoomArea = { id: string; west: number; south: number; east: number; north: number; color: string };
-
-/** Distinct, stable colours for other rooms (never my room's green). Same room → same colour for everyone. */
-const OTHER_ROOM_COLORS = ['#2563eb', '#9333ea', '#ea580c', '#db2777', '#0891b2', '#ca8a04', '#7c3aed', '#dc2626', '#0d9488', '#4f46e5'];
-
-export function otherRoomColor(roomId: string): string {
-  let hash = 0;
-  for (let i = 0; i < roomId.length; i++) hash = (hash * 31 + roomId.charCodeAt(i)) >>> 0;
-  return OTHER_ROOM_COLORS[hash % OTHER_ROOM_COLORS.length]!;
-}
 
 /** What the app supplies: my published point and a viewport loader. */
 export type MapUserDotSource = {
@@ -175,31 +160,8 @@ const ROOM_LAYER_ID = 'iinpublic-chatroom-points';
 const GRID_SOURCE_ID = 'iinpublic-tile-grid';
 const CURRENT_TILE_SOURCE_ID = 'iinpublic-tile-current';
 const SELECTED_TILE_SOURCE_ID = 'iinpublic-tile-selected';
-const NEARBY_AREA_SOURCE_ID = 'iinpublic-nearby-area';
 const USER_DENSITY_SOURCE_ID = 'iinpublic-user-density';
-const OTHER_ROOMS_SOURCE_ID = 'iinpublic-other-rooms';
 
-function otherRoomsGeoJson(areas: ReadonlyArray<OtherRoomArea> | undefined) {
-  return {
-    type: 'FeatureCollection' as const,
-    features: (areas ?? []).map((area) => ({
-      type: 'Feature' as const,
-      properties: { color: area.color, roomId: area.id },
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [area.west, area.south], [area.east, area.south], [area.east, area.north], [area.west, area.north], [area.west, area.south],
-        ]],
-      },
-    })),
-  };
-}
-
-function updateOtherRoomAreas(state: MapState): void {
-  const source = state.map.getSource(OTHER_ROOMS_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  source?.setData(otherRoomsGeoJson(state.options.otherRoomAreas) as never);
-  state.options.container.dataset.otherRoomAreas = String(state.options.otherRoomAreas?.length ?? 0);
-}
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
 let mapLibrePromise: Promise<MapLibre> | undefined;
 
@@ -316,32 +278,6 @@ function updateCurrentTile(state: MapState): void {
   source?.setData(tileSquares(state.options.currentTileId ? [state.options.currentTileId] : []) as never);
 }
 
-function nearbyAreaGeoJson(area: NearbyMapArea | undefined) {
-  return {
-    type: 'FeatureCollection' as const,
-    features: area ? [{
-      type: 'Feature' as const,
-      properties: { kind: 'nearby-area' },
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [area.west, area.south],
-          [area.east, area.south],
-          [area.east, area.north],
-          [area.west, area.north],
-          [area.west, area.south],
-        ]],
-      },
-    }] : [],
-  };
-}
-
-function updateNearbyArea(state: MapState): void {
-  const source = state.map.getSource(NEARBY_AREA_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  source?.setData(nearbyAreaGeoJson(state.options.nearbyMapArea) as never);
-  state.options.container.dataset.nearbyAreaVisible = String(!!state.options.nearbyMapArea);
-}
-
 function clearTileSelection(state: MapState): void {
   state.selectionMarker?.remove();
   state.selectionMarker = undefined;
@@ -351,41 +287,9 @@ function clearTileSelection(state: MapState): void {
   source?.setData(tileSquares([]) as never);
 }
 
-function areaContains(area: { west: number; south: number; east: number; north: number }, latitude: number, longitude: number): boolean {
-  return latitude >= area.south && latitude <= area.north && longitude >= area.west && longitude <= area.east;
-}
-
-/**
- * A tap outside my room means "move there": into the other room whose square holds the point
- * (smallest square wins), or as a traveler to that point. Inside my own room the point card stays,
- * so a lone user (whose room is the whole world) can still travel deliberately.
- */
-export function routeMapTap(
-  options: Pick<ChatroomMapOptions, 'currentChatroom' | 'nearbyMapArea' | 'otherRoomAreas'>,
-  latitude: number,
-  longitude: number,
-): { kind: 'inside-own-room' } | { kind: 'enter-room'; roomId: string } | { kind: 'travel' } {
-  const own = isNearbyRoomId(options.currentChatroom) ? options.nearbyMapArea : undefined;
-  if (own && areaContains(own, latitude, longitude)) return { kind: 'inside-own-room' };
-  const hits = (options.otherRoomAreas ?? [])
-    .filter((area) => area.id !== options.currentChatroom && areaContains(area, latitude, longitude))
-    .sort((a, b) => (a.east - a.west) * (a.north - a.south) - (b.east - b.west) * (b.north - b.south));
-  if (hits[0]) return { kind: 'enter-room', roomId: hits[0].id };
-  return { kind: 'travel' };
-}
-
 function handleMapTap(maplibre: MapLibre, state: MapState, latitude: number, longitude: number): void {
   clearTileSelection(state);
   if (state.options.selectNearbyPoint) {
-    const route = routeMapTap(state.options, latitude, longitude);
-    if (route.kind === 'enter-room') {
-      state.options.openChatroom(route.roomId);
-      return;
-    }
-    if (route.kind === 'travel') {
-      state.options.selectNearbyPoint({ latitude, longitude });
-      return;
-    }
     selectNearbyPoint(maplibre, state, { latitude, longitude });
     return;
   }
@@ -563,8 +467,6 @@ function roomMarkerElement(options: ChatroomMapOptions, room: ChatroomMapRoom): 
     + (room.id !== options.currentChatroom && isEmptyPlace(room) ? ' empty-place' : '');
   marker.dataset.chatroomId = room.id;
   marker.title = room.name;
-  // A Nearby room's pin matches its square's colour.
-  if (room.id !== options.currentChatroom && isNearbyRoomId(room.id)) marker.style.background = otherRoomColor(room.id);
   marker.setAttribute(
     'aria-label',
     `${room.name}. ${options.membersText(room.memberCount)}. ${options.visitsText(room.visitCount)}`,
@@ -687,18 +589,6 @@ function updateSource(state: MapState): void {
   source?.setData(chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom));
 }
 
-/**
- * Zoom at which the area's diameter fits the map's shorter side. Never further out than the whole
- * world across the map's width, so a lone user's world-sized room shows the full world map.
- */
-function zoomToHoldArea(state: MapState, diameterMeters: number): number {
-  const width = Math.max(1, state.options.container.clientWidth || 512);
-  const height = Math.max(1, state.options.container.clientHeight || 512);
-  // 0.8: a margin, since the map centers on me rather than on the area.
-  const fit = Math.log2((0.8 * Math.min(width, height) * 40_075_016) / (512 * Math.max(1, diameterMeters)));
-  return Math.max(Math.log2(width / 512), Math.min(18, fit));
-}
-
 function selfCenter(state: MapState): [number, number] | undefined {
   const self = state.options.userDots?.selfPoint;
   return self ? [self.longitude, self.latitude] : undefined;
@@ -711,12 +601,7 @@ function centerOnSelf(state: MapState): void {
 }
 
 function focusCurrentRoom(state: MapState): void {
-  // Re-fit when the room's area changes scale, not just its id: the area lands a render after
-  // the room id, and a sparse Nearby room grows from a local cell up to the whole world (and
-  // shrinks back once it splits). Rounded to zoom steps so a GPS wobble never moves the camera.
-  const area = isNearbyRoomId(state.options.currentChatroom) ? state.options.nearbyMapArea : undefined;
-  const areaScale = area ? Math.round(Math.log2(Math.max(1, area.approximateDiameterMeters))) : '';
-  const focusKey = `${state.options.currentChatroom}|${areaScale}`;
+  const focusKey = state.options.currentChatroom;
   if (focusKey === state.focusedChatroom) {
     // My position landed after the first paint (first-launch permission, slow fix): go there once.
     const self = state.awaitingSelfCenter ? selfCenter(state) : undefined;
@@ -729,21 +614,13 @@ function focusCurrentRoom(state: MapState): void {
   state.focusedChatroom = focusKey;
   const currentRoom = state.options.rooms.find((room) => room.id === state.options.currentChatroom);
   const focus = currentRoom ? roomLocation(currentRoom, state.options.rooms) : undefined;
-  const nearby = isNearbyRoomId(state.options.currentChatroom) ? state.options.nearbyMapArea : undefined;
-  const nearbyCenter = nearby
-    ? [(nearby.west + nearby.east) / 2, (nearby.south + nearby.north) / 2] as [number, number]
-    : undefined;
-  const nearbyZoom = nearby ? zoomToHoldArea(state, nearby.approximateDiameterMeters) : undefined;
-  // Zoom to hold my whole room: alone, my Nearby area is the world (anyone on the map can talk
-  // to me); it only shrinks once the room splits past capacity. Center on me inside it — a
-  // world-sized area's own middle is (0, 0), nowhere near me. Rooms with no area of their own
-  // (Contacts only, custom rooms) show my neighbourhood.
+  // A Place shows its pin; Nearby and Contacts only show my neighbourhood.
   const self = focus ? undefined : selfCenter(state);
-  state.roomZoom = focus ? zoomForRoom(currentRoom) : nearbyZoom ?? SELF_ZOOM;
+  state.roomZoom = focus ? zoomForRoom(currentRoom) : SELF_ZOOM;
   state.awaitingSelfCenter = !focus && !self;
   state.map.jumpTo({
-    center: focus ? [focus.longitude, focus.latitude] : self ?? nearbyCenter ?? [0, 20],
-    zoom: focus || self ? state.roomZoom : nearbyZoom ?? zoomForRoom(currentRoom),
+    center: focus ? [focus.longitude, focus.latitude] : self ?? [0, 20],
+    zoom: focus || self ? state.roomZoom : zoomForRoom(currentRoom),
   });
 }
 
@@ -846,37 +723,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
     map.on('moveend', () => scheduleUserDots(maplibre, state));
-    // Other rooms first, so my own (green) area is drawn on top of them.
-    map.addSource(OTHER_ROOMS_SOURCE_ID, { type: 'geojson', data: otherRoomsGeoJson(state.options.otherRoomAreas) as never });
-    map.addLayer({
-      id: 'iinpublic-other-rooms-fill',
-      type: 'fill',
-      source: OTHER_ROOMS_SOURCE_ID,
-      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.12 },
-    });
-    map.addLayer({
-      id: 'iinpublic-other-rooms-line',
-      type: 'line',
-      source: OTHER_ROOMS_SOURCE_ID,
-      paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.85, 'line-dasharray': [3, 2] },
-    });
-    map.addSource(NEARBY_AREA_SOURCE_ID, {
-      type: 'geojson',
-      data: nearbyAreaGeoJson(state.options.nearbyMapArea) as never,
-    });
-    map.addLayer({
-      id: 'iinpublic-nearby-area-fill',
-      type: 'fill',
-      source: NEARBY_AREA_SOURCE_ID,
-      paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.14 },
-    });
-    map.addLayer({
-      id: 'iinpublic-nearby-area-line',
-      type: 'line',
-      source: NEARBY_AREA_SOURCE_ID,
-      paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.8 },
-    });
-    // Where the crowd is: anonymous per-square headcounts (map-presence density), drawn as heat.
+    // Where the crowd is: the hub's anonymous headcount per cell, drawn as heat.
     map.addSource(USER_DENSITY_SOURCE_ID, { type: 'geojson', data: densityGeoJson([]) as never });
     map.addLayer({
       id: 'iinpublic-user-density-heat',
@@ -951,7 +798,6 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     refreshMarkers();
     focusCurrentRoom(state);
     updateCurrentTile(state);
-    updateNearbyArea(state);
     updateTileGrid(state);
     resolveReady();
   });
@@ -1158,8 +1004,6 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
     await state.ready;
     updateSource(state);
     updateCurrentTile(state);
-    updateNearbyArea(state);
-    updateOtherRoomAreas(state);
     focusCurrentRoom(state);
     updateTileGrid(state);
     scheduleUserDots(maplibre, state, 0);

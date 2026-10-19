@@ -23,7 +23,7 @@ test.describe('Location model settings', () => {
     page = await context.newPage();
     await injectIdbClear(page);
     await gotoWebApp(page, webBaseURL());
-    await expect.poll(() => roomOf(), { timeout: 60_000 }).toMatch(/^nearby_/);
+    await expect.poll(() => roomOf(), { timeout: 60_000 }).toMatch(/^nearby-v3$/);
   });
 
   test.afterAll(async () => {
@@ -56,7 +56,7 @@ test.describe('Location model settings', () => {
     await openLocation();
     await page.locator('[data-testid="settings-quiet-now"]').check();
     await expect.poll(effectiveMode, { timeout: 15_000 }).toBe('regional');
-    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby_/);
+    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby-v3$/);
 
     await page.locator('[data-testid="settings-quiet-action"]').selectOption('hide');
     await expect.poll(effectiveMode, { timeout: 15_000 }).toBe('contacts-only');
@@ -64,7 +64,7 @@ test.describe('Location model settings', () => {
 
     await page.locator('[data-testid="settings-quiet-now"]').uncheck();
     await expect.poll(effectiveMode, { timeout: 15_000 }).toBe('neighborhood');
-    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby_/);
+    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby-v3$/);
     await backToSettingsMenu(page);
   });
 
@@ -77,14 +77,14 @@ test.describe('Location model settings', () => {
     await expect(page.locator('[data-testid="encounter-location-modal"]')).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_encounter_location_v1') || '{}').auto))
       .toBe(true);
-    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby_/);
+    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby-v3$/);
     expect(await roomOf()).not.toBe(CONTACTS_SCOPE);
     expect(await traveler()).toBe(true);
 
     await page.locator('[data-testid="encounter-location-lat"]').fill('51.50135');
     await page.locator('[data-testid="encounter-location-lng"]').fill('-0.14189');
     await page.locator('[data-testid="encounter-location-confirm"]').click();
-    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby_/);
+    await expect.poll(roomOf, { timeout: 30_000 }).toMatch(/^nearby-v3$/);
     expect(await traveler()).toBe(true);
 
     // Back to Resident: GPS (the test location) again, no longer a Traveler.

@@ -61,7 +61,13 @@ export type NearbyV3ServiceDeps = {
 
 export const NEARBY_V3_STORAGE_KEY = 'iinpublic_nearby_v3_list_v1';
 const PAUSED_GOSSIP_FACTOR = 4;
-const SWAP_TIMEOUT_MS = 8_000;
+/** Covers opening a new link (WebRTC gives up after 10 s) plus the answer. */
+const SWAP_TIMEOUT_MS = 15_000;
+/**
+ * A newcomer (or a changed card) swaps with this many of the nearest people at once, so a small
+ * group sees a new arrival right away instead of one gossip period later for all but one of them.
+ */
+const ANNOUNCE_SWAPS = 3;
 const MAX_VERIFIED_CACHE = 4_096;
 /** While the list is empty, ask the hub again after this long, doubling up to one gossip period. */
 const EMPTY_RETRY_MIN_MS = 5_000;
@@ -115,7 +121,17 @@ export class NearbyV3Service {
     return this.tick();
   }
 
-  /** A broadcast or swap to this person got no answer: drop them now. */
+  /**
+   * The link to this person could not be opened (a delivery gave up). That alone is no proof they
+   * left — under load or behind a strict NAT a live phone can fail to connect — so ask them with a
+   * swap now; only a swap that stays silent (twice) drops them.
+   */
+  probe(pub: string): Promise<void> {
+    const entry = this.list?.get(pub);
+    return entry ? this.gossipOnce(entry.card) : Promise.resolve();
+  }
+
+  /** Swaps to this person got no answer: drop them now. */
   reportUnreachable(pub: string): void {
     const entry = this.list?.get(pub);
     if (entry) {
@@ -123,6 +139,14 @@ export class NearbyV3Service {
       if (this.silent.size > MAX_VERIFIED_CACHE) this.silent.delete(this.silent.keys().next().value as string);
     }
     if (this.list?.remove(pub)) this.changed();
+  }
+
+  /**
+   * A card that reached me outside gossip (a knock carries the knocker's own card): merge it like a
+   * swapped one, so the person who knocked is on my list before our link is even up.
+   */
+  offerCard(card: NearbyCard): Promise<void> {
+    return this.ingest([card]);
   }
 
   /** Swaps started, failed (partner dropped), refused busy, and swaps this phone answered. */
@@ -203,7 +227,11 @@ export class NearbyV3Service {
     if (!list) return;
     if (list.prune(nowMs)) this.changed();
 
+    // A changed name, point or traveler flag reaches the nearest person at once (below); a plain
+    // reissue before expiry travels with the next regular swap.
+    let changedCard = false;
     if (this.cardIsStale(position, identity.userId, nowMs, config)) {
+      const previous = this.ownCard;
       const sign = this.deps.sign ?? createNearbyCard;
       this.ownCard = await sign({
         userId: identity.userId,
@@ -215,6 +243,10 @@ export class NearbyV3Service {
         lifetimeMs: config.cardLifetimeMs,
         now: new Date(nowMs),
       });
+      changedCard = !!previous && (previous.stageName !== this.ownCard.stageName
+        || previous.traveler !== this.ownCard.traveler
+        || previous.point.latitude !== this.ownCard.point.latitude
+        || previous.point.longitude !== this.ownCard.point.longitude);
       await this.deps.hub.heartbeat(this.ownCard).catch((error) => this.log(`hub heartbeat failed: ${String(error)}`));
     }
 
@@ -223,7 +255,7 @@ export class NearbyV3Service {
     if (searchKey !== this.searchedKey || list.size === 0) {
       try {
         const cards = await this.deps.hub.introductions({ point: position.point, scope: position.scope, excludePub: identity.pair.pub });
-        // A newcomer (or someone who just moved) swaps with the nearest person at once, so the
+        // A newcomer (or someone who just moved) swaps with the nearest few people at once, so the
         // people around learn of them now rather than at their next period.
         announce = searchKey !== this.searchedKey || this.searchedEmpty;
         this.searchedKey = searchKey;
@@ -235,9 +267,9 @@ export class NearbyV3Service {
     }
 
     const period = config.gossipPeriodMs * (this.deps.isPaused?.() ? PAUSED_GOSSIP_FACTOR : 1);
-    if (announce && list.size > 0) {
+    if ((announce || changedCard) && list.size > 0) {
       this.lastGossipAt = nowMs;
-      await this.gossipOnce(list.entries()[0]!.card);
+      await Promise.all(list.entries().slice(0, ANNOUNCE_SWAPS).map((entry) => this.gossipOnce(entry.card)));
     } else if (nowMs - this.lastGossipAt >= period) {
       this.lastGossipAt = nowMs;
       await this.gossipOnce();
@@ -245,7 +277,7 @@ export class NearbyV3Service {
     this.persist();
   }
 
-  private async gossipOnce(chosen?: NearbyCard): Promise<void> {
+  private async gossipOnce(chosen?: NearbyCard, retry = false): Promise<void> {
     const list = this.list;
     const own = this.ownCard;
     if (!list || !own || list.size === 0) return;
@@ -267,6 +299,10 @@ export class NearbyV3Service {
     const reply = parseNearbyGossipMessage(answer);
     if (!reply) {
       this.counters.failedSwaps += 1;
+      // One silent swap can be a link that was still opening (or a busy phone under load); ask
+      // once more now, and only a second silence drops them. A person who left is still gone
+      // within two swap timeouts.
+      if (!retry && this.list?.get(partner.pub)) return this.gossipOnce(partner, true);
       this.reportUnreachable(partner.pub);
       return;
     }

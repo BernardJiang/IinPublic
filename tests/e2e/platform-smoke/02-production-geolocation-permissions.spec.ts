@@ -53,7 +53,7 @@ test.describe('@smoke production geolocation permissions', () => {
         }))
         .toMatchObject({ ...expected, accuracy: 12 });
       await expect.poll(() => appState(page), { timeout: 60_000 })
-        .toMatchObject({ room: expect.stringMatching(/^nearby_/), traveler: false });
+        .toMatchObject({ room: expect.stringMatching(/^nearby-v3$/), traveler: false });
       await expect(page.locator('body')).not.toContainText('Oops! Something went wrong');
     } finally {
       await context.close();
@@ -67,7 +67,7 @@ test.describe('@smoke production geolocation permissions', () => {
       const page = await freshPage(context);
       await expect(page.locator('.bottom-nav')).toBeVisible();
       await expect.poll(() => appState(page), { timeout: 60_000 })
-        .toMatchObject({ room: expect.stringMatching(/^nearby_/), traveler: true, randomPoint: true });
+        .toMatchObject({ room: expect.stringMatching(/^nearby-v3$/), traveler: true, randomPoint: true });
       // Headless Firefox leaves the prompt unanswered, so this is the 15 s timeout path, which places
       // the device without opening the picker over a prompt the person may still be reading.
       await expect(page.locator('body')).not.toContainText('Oops! Something went wrong');

@@ -108,7 +108,7 @@ test.describe('Profile privacy visibility', () => {
         timeout: 90_000,
         intervals: [500, 1000, 2000],
       })
-      .toMatch(/^nearby_/);
+      .toMatch(/^nearby-v3$/);
   }
 
   async function openPeerDetail(page: Page, peerUserId: string, _peerStageName: string): Promise<void> {
