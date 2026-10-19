@@ -85,7 +85,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page1, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page1, 'User1');
-    await expectHeadcount(page1, 1, 'User 1');
+    await expectHeadcount(page1, 0, 'User 1');
 
     context2 = await newContext(browser2);
     page2 = await context2.newPage();
@@ -96,8 +96,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page2, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2');
-    await expectHeadcount(page1, 2, 'User 1');
-    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page1, 1, 'User 1');
+    await expectHeadcount(page2, 1, 'User 2');
 
     context3 = await newContext(browser3);
     page3 = await context3.newPage();
@@ -108,17 +108,17 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page3, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page3, 'User3');
-    await expectHeadcount(page1, 3, 'User 1');
-    await expectHeadcount(page2, 3, 'User 2');
-    await expectHeadcount(page3, 3, 'User 3');
+    await expectHeadcount(page1, 2, 'User 1');
+    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page3, 2, 'User 3');
 
     await cleanupUser(page1, 'User 1');
     // Leave by closing the page only: the context keeps this user's identity (its non-extractable
     // key cannot be saved in a storage state), so re-entering is the same person.
     await page1.close();
     await afterSync();
-    await expectHeadcount(page2, 2, 'User 2');
-    await expectHeadcount(page3, 2, 'User 3');
+    await expectHeadcount(page2, 1, 'User 2');
+    await expectHeadcount(page3, 1, 'User 3');
 
     await cleanupUser(page2, 'User 2');
     // Leave by closing the page only: the context keeps this user's identity (its non-extractable
@@ -126,7 +126,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await page2.close();
     await afterSync();
     await wait(2000, 5000);
-    await expectHeadcount(page3, 1, 'User 3');
+    await expectHeadcount(page3, 0, 'User 3');
 
     await cleanupUser(page3, 'User 3');
     // Leave by closing the page only: the context keeps this user's identity (its non-extractable
@@ -141,7 +141,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2 re-enter');
-    await expectHeadcount(page2, 1, 'User 2');
+    await expectHeadcount(page2, 0, 'User 2');
 
     page3 = await context3.newPage();
     attachFilteredConsoleLog(page3, 'User3');
@@ -150,8 +150,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page3, 'User3 re-enter');
-    await expectHeadcount(page2, 2, 'User 2');
-    await expectHeadcount(page3, 2, 'User 3');
+    await expectHeadcount(page2, 1, 'User 2');
+    await expectHeadcount(page3, 1, 'User 3');
 
     page1 = await context1.newPage();
     attachFilteredConsoleLog(page1, 'User1');
@@ -160,9 +160,9 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page1, 'User1 re-enter');
-    await expectHeadcount(page1, 3, 'User 1');
-    await expectHeadcount(page2, 3, 'User 2');
-    await expectHeadcount(page3, 3, 'User 3');
+    await expectHeadcount(page1, 2, 'User 1');
+    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page3, 2, 'User 3');
 
     await cleanupUser(page1, 'User 1');
     await cleanupUser(page2, 'User 2');

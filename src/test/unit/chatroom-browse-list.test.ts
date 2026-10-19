@@ -1,12 +1,10 @@
 /**
- * The room tree is Global → L1 tiles (45° squares, labeled by continent) → L2 → L3 → L4 area rooms.
- * Countries, states and cities are never offered (no national borders in the UI).
+ * The tile grid (45° L1 squares, labeled by continent, down to L4) that Places hang under, and tile
+ * titles. Countries, states and cities are never offered (no national borders in the UI).
  */
-import { browsePath, buildBrowseTree, getBrowsableBuiltInChatrooms, resolveChatroomTitle } from '../../web/ui/chatrooms-view';
-import { getL1Tiles, parseTileId, tileCenter, tileIdAt, tileLineage } from '../../shared/room-tiles';
+import { resolveChatroomTitle } from '../../web/ui/chatrooms-view';
+import { getL1Tiles, parseTileId, tileCenter, tileIdAt } from '../../shared/room-tiles';
 
-const SAN_DIEGO_GRID = 'region_32.71_-117.17_room_0';
-const HONOLULU_GRID = 'region_21.31_-157.86_room_0';
 
 describe('room tiles', () => {
   it('maps points to deterministic tile ids at every layer, including the edges', () => {
@@ -42,61 +40,6 @@ describe('room tiles', () => {
 });
 
 describe('room browse tree', () => {
-  it('offers Global plus the land L1 tiles only', () => {
-    const rooms = getBrowsableBuiltInChatrooms();
-    expect(rooms[0]).toMatchObject({ id: 'global', level: 0 });
-    expect(rooms.slice(1).every((room) => room.level === 1 && room.id.startsWith('tile_1_'))).toBe(true);
-    expect(rooms.some((room) => ['north-america', 'usa', 'california', 'san-diego', 'japan'].includes(room.id))).toBe(false);
-    expect(rooms.some((room) => room.name === 'Antarctica' || room.name.includes('Pacific ·'))).toBe(false);
-  });
-
-  it('shows the whole tile path down to the current area room, titled by city', () => {
-    const area = tileIdAt(4, 32.7157, -117.1611);
-    const path = browsePath(area);
-    expect(path).toEqual(tileLineage(area));
-    const tree = buildBrowseTree([area]);
-    const node = (id: string) => tree.find((room) => room.id === id)!;
-    path.forEach((id, i) => expect(node(id)).toMatchObject({ level: i + 1, ...(i > 0 ? { parentId: path[i - 1] } : {}) }));
-    expect(node(path[1]).name).toBe('Large region around San Diego');
-    expect(node(path[2]).name).toBe('Region around San Diego');
-    expect(node(area)).toMatchObject({ name: 'Around San Diego', icon: '📍', hasChildren: false });
-    // Children follow their parent in the flat order (depth-first).
-    expect(tree.indexOf(node(area))).toBeGreaterThan(tree.indexOf(node(path[2])));
-  });
-
-  it('hangs a legacy 1 km grid room under its L4 tile', () => {
-    expect(browsePath(SAN_DIEGO_GRID)).toEqual([...tileLineage(tileIdAt(4, 32.71, -117.17)), SAN_DIEGO_GRID]);
-    expect(browsePath('room_custom')).toEqual([]);
-    expect(browsePath('global')).toEqual([]);
-  });
-
-  it('shows an ocean tile only when it holds the current room', () => {
-    expect(buildBrowseTree([]).some((room) => room.id === 'tile_1_2_0')).toBe(false);
-    const tree = buildBrowseTree([HONOLULU_GRID]);
-    const i = tree.findIndex((room) => room.id === 'tile_1_2_0');
-    expect(tree[i]).toMatchObject({ name: 'North Pacific', hasChildren: true });
-    expect(tree.find((room) => room.id === HONOLULU_GRID)).toMatchObject({ level: 5 });
-  });
-
-  it('lets every region tile expand to sub-tiles that contain a named city, down to L4', () => {
-    const tree = buildBrowseTree([]);
-    const london = tree.filter((room) => room.level > 1 && tileLineage(tileIdAt(4, 51.5074, -0.1278)).includes(room.id));
-    expect(london.map((room) => room.level)).toEqual([2, 3, 4]);
-    expect(london[2].name).toBe('Around London');
-    // An empty ocean sub-tile is not offered.
-    expect(tree.some((room) => room.id === tileIdAt(2, 30, -40))).toBe(false);
-  });
-
-  it('hangs a local custom room under its anchor cell\'s L4 tile; legacy unanchored rooms are not in the tree', () => {
-    const cafe = { id: 'place_32.71_-117.17_0123456789abcdef01234567', name: 'Bean There Café', type: 'business' };
-    const legacy = { id: 'room_legacy', name: 'Taiwan', type: 'custom' };
-    const tree = buildBrowseTree([], [cafe, legacy]);
-    const l4 = tileIdAt(4, 32.71, -117.17);
-    expect(tree.find((room) => room.id === cafe.id)).toMatchObject({ level: 5, parentId: l4, name: 'Bean There Café', icon: '🏪' });
-    expect(tree.find((room) => room.id === l4)).toMatchObject({ level: 4, hasChildren: true });
-    expect(tree.some((room) => room.id === legacy.id)).toBe(false);
-  });
-
   it('titles tile rooms by their label', () => {
     expect(resolveChatroomTitle('tile_1_3_3', [])).toBe('🇪🇺 Europe · North Atlantic');
   });

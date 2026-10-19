@@ -12,10 +12,10 @@ covers: SPEC-3.3, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 A multi-test file guarding against UI regressions across chatroom presence and talks list rendering. Three browsers available but each test uses only what it needs.
 
 ### Test 1 — Headcount Updates As Members Come And Go
-Tom and Jerry share the automatic Nearby room; Tom's current-room row shows 2 (Nearby headcounts exclude TechSupport). Tom opens the room → "2 members total". Jerry's browser calls `manualCleanup` → Tom's open detail view drops to "1 member total" without a reload, and back on the list the row shows 1. (The old Global → area-room hop is retired with the tile tree.)
+Tom and Jerry are in Nearby, each on the other's list; Tom's Nearby row reads "1 near you" (my list, without me or TechSupport). Tom opens it → the status reads "1 near you". Jerry's browser calls `manualCleanup`; Nearby has no goodbye, so Tom drops Jerry at his next swap (the test runs it now) → Tom's open detail view drops to "0 near you" without a reload, and back on the list the row shows "0 near you".
 
 ### Test 2 — First Screen Hydrates Existing Headcounts
-Bob logs in as the third user and lands directly on the Chatrooms list. His current Nearby row should show headcount "3" *before* he clicks it (TechSupport is not counted). After opening the room, the status bar confirms "3 members total". Proves presence data is loaded on first render without requiring a manual refresh.
+Bob logs in as the third user and lands directly on the Chatrooms list. His Nearby row should read "2 near you" *before* he clicks it (TechSupport is not counted). After opening it, the status confirms "2 near you". Proves the list is shown on first render without a manual refresh.
 
 ### Test 3 — Talks Rows Show States Without Redundant Controls
 Jerry receives Tom's broadcast → incoming row has `talk-incoming-new` class. Jerry taps the row's 📋 toggle, then answers with match path → copied OUT row appears with `talk-broadcast-enabled` class and toggle shows "Broadcast On". No redundant edit badge in the row. Long-press on toggle flips to "Broadcast Off" (disabled class), back again to "On". Clicking the row opens editor modal (cancelable).

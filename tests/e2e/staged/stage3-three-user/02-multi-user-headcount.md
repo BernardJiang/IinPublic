@@ -1,32 +1,29 @@
 # Test: Multi-User — Three Users Enter Sequentially, Exit FIFO, Re-Enter Random Order
 
-covers: SPEC-3.3, SPEC-3.1, SPEC-3.7  <!-- auto-seeded; refine by hand -->
+covers: SPEC-3.3, SPEC-3.1, SPEC-3.7
 
-**File:** 02-multi-user-headcount.spec.ts  
-**Features tested:** Multi-user headcount (3 users), FIFO exit, storage state persistence, random re-entry order, real-time sync
+**File:** 02-multi-user-headcount.spec.ts
+**Features tested:** the Nearby headcount ("N near you", my list without me) with three users
+leaving and coming back
 
 ---
 
 ## What this test does (in plain English):
 
-1. **Setup:** Three browsers are launched at positions (0,0), (640,0), (1280,0). Databases are cleared.
+1. **Users 1, 2 and 3 enter one after another:** the headcounts read 0, then 1 and 1, then 2 on all
+   three.
+2. **They leave in order (1, then 2, then 3):** each closes their page only, keeping the browser
+   context (and so their identity: its non-extractable key cannot be saved in a storage state).
+   Nearby has no goodbye (design §3.7): the others drop the leaver when a swap gets no answer.
+3. **They come back in another order (2, 3, then 1):** a returning user's saved list still holds
+   people who left meanwhile; each drops after two silent swaps. Headcounts end at 2 on all three.
 
-2. **User 1 enters:** Headcount in "Global" chatroom shows `1` on User 1's browser.
+Every check runs swaps now (`expectNearbyHeadcount`) instead of waiting out gossip periods, and the
+test allows 5 minutes for the stale entries to clear.
 
-3. **User 2 enters:** Headcount updates to `2` on BOTH User 1's and User 2's browsers.
-
-4. **User 3 enters:** Headcount updates to `3` on ALL three browsers.
-
-5. **User 1 exits (FIFO):** User 1 calls `manualCleanup()`, saves storage state to JSON, closes page + context. After sync, the remaining browsers (User 2, User 3) see headcount drop to `2`.
-
-6. **User 2 exits:** Same pattern — saves storage state, closes. User 3 sees headcount drop to `1`.
-
-7. **User 3 exits:** Same pattern. Room is now empty.
-
-8. **Users re-enter in random order (User 2, then User 3, then User 1):** Each re-logs in using saved storage states. Headcounts update correctly: User 2 enters (1), User 3 joins (2), User 1 joins (3). All three see headcount of `3`.
-
-> **Why this matters:** Verifies that three concurrent users can join, leave in FIFO order, and re-enter in any arbitrary order with headcounts staying accurate throughout — proving storage-state persistence and Gun.js sync reliability.
+> **Why this matters:** lists stay right through arrivals, silent departures and returns,
+> including a returning phone whose old peers have reset.
 
 ---
 
-**Helpers used:** `clearGunDatabases`, `injectIdbClear`, `ensureWindowFitsViewport`, `afterLoad`, `afterSync`, `afterNav`, `wait`, `attachE2eBrowserTabLabel`, storage state save/restore
+**Helpers used:** `expectNearbyHeadcount` (`helpers/nearby-v3.ts`), `injectIdbClear`, `ensureWindowFitsViewport`, `afterLoad`, `afterSync`, `afterNav`, `wait`, `attachE2eBrowserTabLabel`

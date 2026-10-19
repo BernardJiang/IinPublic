@@ -163,6 +163,7 @@ export class WebChatroomService {
   private membersListCallback?: (members: ChatroomMember[]) => void;
   private membersListenerRoomId: string | undefined = undefined;
   private personalRoster: ChatroomMember[] = [];
+  private personalSelfUserId: string | undefined;
   private readonly personalCountCallbacks = new Set<(count: number) => void>();
   private serverMembersPollTimer: ReturnType<typeof setInterval> | null = null;
   /**
@@ -1091,17 +1092,18 @@ export class WebChatroomService {
    * Nearby v3: my personal list is the Nearby audience. The app pushes it here whenever it changes,
    * and it reaches the same member callback a shared room's roster would.
    */
-  pushPersonalRoster(members: ChatroomMember[]): void {
+  pushPersonalRoster(members: ChatroomMember[], selfUserId?: string): void {
     this.personalRoster = members.slice();
+    this.personalSelfUserId = selfUserId;
     for (const callback of this.personalCountCallbacks) callback(this.personalHeadcount());
     if (isNearbyRoomId(this.membersListenerRoomId) && this.membersListCallback) {
       this.membersListCallback(this.personalRoster.slice());
     }
   }
 
-  /** People in my Nearby: the pushed roster (my list plus me, like a shared room's roster). */
+  /** People near me: my list (the pushed roster without me, §3.7 "N near you"). */
   private personalHeadcount(): number {
-    return new Set(this.personalRoster.map((member) => member.userId)).size;
+    return new Set(this.personalRoster.map((member) => member.userId).filter((userId) => userId !== this.personalSelfUserId)).size;
   }
 
   subscribeToMembers(

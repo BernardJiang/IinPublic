@@ -51,7 +51,7 @@ test.describe('Nearby list cleanup after an OS-level browser crash', () => {
 
     const initialHeadcount = await expect
       .poll(() => readRoomHeadcount(pageA!), { timeout: 20_000 })
-      .toBeGreaterThanOrEqual(2)
+      .toBeGreaterThanOrEqual(1)
       .then(() => readRoomHeadcount(pageA!));
     // Both users are in Nearby: each one's own list; its headcount excludes TechSupport.
     const roomId = await pageA.evaluate(

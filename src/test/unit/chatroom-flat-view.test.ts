@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import '@testing-library/jest-dom';
-import { renderChatroomList, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
+import { renderChatroomList, updateChatroomMembers, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
 import { uiText } from '../../web/ui/ui-translations';
 import type { ActiveRoomsView } from '../../shared/active-rooms';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
@@ -117,6 +117,56 @@ describe('flat Nearby and Places list', () => {
     render({ currentChatroom: PLACE_ID });
 
     expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Bean There Café');
+  });
+});
+
+describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
+  it('names Nearby "People near you" and counts my list, then everyone online', () => {
+    render({ activeRooms: ROOMS, chatroomMemberCounts: new Map([[NEARBY_ID, 12], [PLACE_ID, 46]]), nearbyOnline: 12_345 });
+    const current = document.querySelector('[data-testid="current-group-section"]');
+    expect(current?.querySelector('.chatroom-name')?.textContent).toContain('People near you');
+    expect(current?.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('12 near you · 12,345 online');
+    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('12,345 online · 2 rooms');
+  });
+
+  it('says only "N near you" until the hub reports who is online', () => {
+    render({ chatroomMemberCounts: new Map([[NEARBY_ID, 0]]) });
+    expect(document.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('0 near you');
+  });
+
+  it('shows "Sent to N of M" for the latest Nearby broadcast', () => {
+    render({ nearbyBroadcastProgress: { sent: 120, total: 498 } });
+    expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')?.textContent).toBe('Sent to 120 of 498');
+    render({ currentChatroom: PLACE_ID, nearbyBroadcastProgress: { sent: 120, total: 498 } });
+    expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
+  });
+
+  it('lists the people on my list without me, with "Show more people here"', () => {
+    document.body.innerHTML = '<div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>';
+    const emit = jest.fn();
+    const counts = new Map<string, number>();
+    updateChatroomMembers({
+      currentChatroom: NEARBY_ID,
+      chatroomMemberCounts: counts,
+      chatroomVisitCounts: new Map(),
+      matchedUserIds: new Set(),
+      customChatrooms: [],
+      nearbyOnline: 7,
+      setCurrentChatroomMembers: jest.fn(),
+      renderChatroomList: jest.fn(),
+      escapeHtml: (value: string) => value,
+      emit,
+      text: (key: string) => uiText('en', key as never),
+      isUserOnline: () => false,
+      formatDate: () => '',
+      currentUserId: 'me',
+      apiBase: '',
+    } as never, [{ userId: 'me', stageName: 'Me' }, { userId: 'ann', stageName: 'Ann' }, { userId: 'bo', stageName: 'Bo' }], 'me');
+    expect(counts.get(NEARBY_ID)).toBe(2);
+    expect(document.getElementById('current-chatroom-status')?.textContent).toBe('2 near you · 7 online');
+    expect(document.querySelectorAll('.chatroom-member-item')).toHaveLength(2);
+    (document.querySelector('[data-testid="nearby-show-more"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('nearbyShowMore', undefined);
   });
 });
 

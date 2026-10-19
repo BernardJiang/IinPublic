@@ -189,6 +189,21 @@ describe('NearbyV3Service', () => {
     expect(p0.service.entries()).toHaveLength(0);
   });
 
+  it('shows more people beyond C on request, and goes back to C after a move', async () => {
+    const net = network(config({ capacity: 4 }), Array.from({ length: 12 }, () => SD));
+    for (let i = 0; i < 6; i += 1) await net.round();
+    const p0 = net.phones.get('p0')!;
+    expect(p0.service.entries()).toHaveLength(4);
+    await p0.service.showMore();
+    for (let i = 0; i < 3; i += 1) await p0.service.gossipNow();
+    expect(p0.service.entries().length).toBeGreaterThan(4);
+    expect(p0.service.entries().length).toBeLessThanOrEqual(8);
+    p0.position = { ...p0.position, point: LA };
+    await p0.service.refresh();
+    await p0.service.tick();
+    expect(p0.service.entries().length).toBeLessThanOrEqual(4);
+  });
+
   it('drops a person who stops answering', async () => {
     const net = network(config({ capacity: 1 }), [SD, SD]);
     for (const phone of net.phones.values()) await phone.service.tick();

@@ -52,7 +52,7 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1');
-    await expect(activeHeadcount(page)).toContainText('1', { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('0 near you', { timeout: 20000 });
 
     context2 = await browser2.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page2 = await context2.newPage();
@@ -63,15 +63,15 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page2, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2');
-    await expect(activeHeadcount(page)).toContainText('2', { timeout: 20000 });
-    await expect(activeHeadcount(page2)).toContainText('2', { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('1 near you', { timeout: 20000 });
+    await expect(activeHeadcount(page2)).toContainText('1 near you', { timeout: 20000 });
 
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await wait(1000, 3000);
     await page2.close();
     await afterSync();
 
-    await expectNearbyHeadcount(page, 1);
+    await expectNearbyHeadcount(page, 0);
 
     page2 = await context2.newPage();
     page2.on('console', (m) => console.log('[User2]:', m.text()));
@@ -80,8 +80,8 @@ test.describe('Login — two users headcount', () => {
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2 re-login');
-    await expect(activeHeadcount(page)).toContainText('2', { timeout: 20000 });
-    await expect(activeHeadcount(page2)).toContainText('2', { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('1 near you', { timeout: 20000 });
+    await expect(activeHeadcount(page2)).toContainText('1 near you', { timeout: 20000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());

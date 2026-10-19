@@ -1,5 +1,4 @@
-import { gridLayerForZoom, tileAtTap, tileGridLines, tileSquares } from '../../shared/room-tile-grid';
-import { parseTileId } from '../../shared/room-tiles';
+import { isNearbyRoomId } from '../../shared/nearby-rooms';
 import type { FlatChatroomNode } from '../../shared/chatroom-hierarchy';
 import { CONFIG } from '../../shared/config';
 import { isPlaceRoomId } from '../../shared/place-rooms';
@@ -36,17 +35,6 @@ type ChatroomMapOptions = {
   selectNearbyPoint?: (location: ChatroomMapLocation) => void;
   nearbyPointTitle?: string;
   nearbyPointAction?: string;
-  /**
-   * Tap on open map: select the tile (of the grid layer drawn at this zoom) under the tap; its
-   * "Enter" button opens that room. Without it, taps do nothing.
-   */
-  openTile?: (tileId: string) => void;
-  /** Display title for a tile room ("📍 Around San Diego"). */
-  tileTitle?: (tileId: string) => string;
-  /** Tile to shade as "you are here" (the current room's tile), if any. */
-  currentTileId?: string;
-  /** Device-local Nearby cell geometry. This value is rendered only and is never published. */
-  enterTileText?: string;
   mapLoadFailedText: string;
   /** Label of the "center on me" button under the zoom buttons. */
   locateSelfText?: string;
@@ -87,6 +75,8 @@ export type RoomMemberCardSource = {
 export type MapUserDotSource = {
   selfPoint?: PublicLocation;
   selfTraveler?: boolean;
+  /** Where the people on my Nearby list are: the map fits itself to them (§3.7). */
+  listPoints?: () => ReadonlyArray<{ latitude: number; longitude: number }>;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
 };
 
@@ -107,6 +97,7 @@ export function createMapUserDots(
     selfUserId,
     ...(source.selfPoint ? { selfPoint: source.selfPoint } : {}),
     selfTraveler: source.selfTraveler === true,
+    ...(source.listPoints ? { listPoints: source.listPoints } : {}),
     roomMemberIds: new Set(roomMembers.map((member) => member.userId)),
     load: source.load,
     selfText: t('mapUserSelf'),
@@ -121,6 +112,7 @@ export type MapUserDots = {
   /** My own published (snapped) point, so I see exactly what others see of me. */
   selfPoint?: PublicLocation;
   selfTraveler?: boolean;
+  listPoints?: () => ReadonlyArray<{ latitude: number; longitude: number }>;
   /** Current room roster: these users can exchange Talks with me. */
   roomMemberIds: ReadonlySet<string>;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
@@ -133,7 +125,6 @@ export type MapUserDots = {
 type MapState = {
   map: MapLibreMap;
   markers: MapLibreMarker[];
-  selectedTile?: string | undefined;
   selectionMarker?: MapLibreMarker | undefined;
   /** Room id plus its Nearby area's scale at the last focus. */
   focusedChatroom: string;
@@ -147,6 +138,8 @@ type MapState = {
   userDotCache?: { key: string; at: number; dots: MapPresenceDot[]; density: MapDensityCell[] };
   /** The room has no place of its own and my position was not known yet when it was focused. */
   awaitingSelfCenter: boolean;
+  /** Nearby was focused before my list had anyone: fit to the list once it does. */
+  awaitingListFit?: boolean;
   /** Zoom that fits my current room; "center on me" returns to it. */
   roomZoom?: number | undefined;
 };
@@ -157,9 +150,6 @@ const SELF_ZOOM = 12;
 const SOURCE_ID = 'iinpublic-chatrooms';
 const CLUSTER_LAYER_ID = 'iinpublic-chatroom-clusters';
 const ROOM_LAYER_ID = 'iinpublic-chatroom-points';
-const GRID_SOURCE_ID = 'iinpublic-tile-grid';
-const CURRENT_TILE_SOURCE_ID = 'iinpublic-tile-current';
-const SELECTED_TILE_SOURCE_ID = 'iinpublic-tile-selected';
 const USER_DENSITY_SOURCE_ID = 'iinpublic-user-density';
 
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
@@ -255,54 +245,27 @@ function roomLocation(
   };
 }
 
-/** Focus zoom per tree level, chosen so the grid drawn there is the room's own tile layer. */
+/** Focus zoom for a room pin by its tree level (Places sit at the finest level). */
 function zoomForRoom(room: FlatChatroomNode | undefined): number {
   if (!room) return 2;
   return [2, 2.5, 4, 6, 9][Math.min(room.level, 4)] || 9;
 }
 
-/** Redraw the grid lines of the layer that fits the current zoom, over the visible area. */
-function updateTileGrid(state: MapState): void {
-  const source = state.map.getSource(GRID_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  if (!source) return;
-  const layer = gridLayerForZoom(state.map.getZoom());
-  const b = state.map.getBounds();
-  const lines = tileGridLines(layer, { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
-  source.setData(lines as never);
-  state.options.container.dataset.gridLayer = String(layer);
-  state.options.container.dataset.gridLineCount = String(lines.features.length);
-}
-
-function updateCurrentTile(state: MapState): void {
-  const source = state.map.getSource(CURRENT_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  source?.setData(tileSquares(state.options.currentTileId ? [state.options.currentTileId] : []) as never);
-}
-
-function clearTileSelection(state: MapState): void {
+function clearSelection(state: MapState): void {
   state.selectionMarker?.remove();
   state.selectionMarker = undefined;
-  state.selectedTile = undefined;
-  delete state.options.container.dataset.selectedTile;
-  const source = state.map.getSource(SELECTED_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  source?.setData(tileSquares([]) as never);
 }
 
 function handleMapTap(maplibre: MapLibre, state: MapState, latitude: number, longitude: number): void {
-  clearTileSelection(state);
-  if (state.options.selectNearbyPoint) {
-    selectNearbyPoint(maplibre, state, { latitude, longitude });
-    return;
-  }
-  if (state.options.openTile) {
-    selectTile(maplibre, state, tileAtTap(latitude, longitude, state.map.getZoom()), [longitude, latitude]);
-  }
+  clearSelection(state);
+  if (state.options.selectNearbyPoint) selectNearbyPoint(maplibre, state, { latitude, longitude });
 }
 
 /** Brief profile card for the member(s) at a green dot, with Message and Profile actions. */
 function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotGroup): void {
   const source = state.options.roomMemberCard;
   if (!source) return;
-  clearTileSelection(state);
+  clearSelection(state);
   const card = document.createElement('div');
   card.className = 'chatroom-map-tile-card chatroom-map-member-card';
   card.setAttribute('data-testid', 'map-member-card');
@@ -340,7 +303,7 @@ function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotG
     message.textContent = `💬 ${source.text.message}`;
     message.addEventListener('click', (event) => {
       event.stopPropagation();
-      clearTileSelection(state);
+      clearSelection(state);
       source.message(userId, summary.stageName);
     });
     const profile = document.createElement('button');
@@ -350,7 +313,7 @@ function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotG
     profile.textContent = `👤 ${source.text.profile}`;
     profile.addEventListener('click', (event) => {
       event.stopPropagation();
-      clearTileSelection(state);
+      clearSelection(state);
       source.profile(userId, summary.stageName);
     });
     actions.append(message, profile);
@@ -387,7 +350,7 @@ function selectNearbyPoint(
   state: MapState,
   location: ChatroomMapLocation,
 ): void {
-  clearTileSelection(state);
+  clearSelection(state);
   const card = document.createElement('div');
   card.className = 'chatroom-map-tile-card';
   card.dataset.testid = 'map-nearby-point-card';
@@ -401,7 +364,7 @@ function selectNearbyPoint(
   enter.textContent = state.options.nearbyPointAction ?? 'Join as traveler';
   enter.addEventListener('click', (event) => {
     event.stopPropagation();
-    clearTileSelection(state);
+    clearSelection(state);
     state.options.selectNearbyPoint?.(location);
   });
   card.addEventListener('click', (event) => event.stopPropagation());
@@ -409,36 +372,6 @@ function selectNearbyPoint(
   state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom' })
     .setLngLat([location.longitude, location.latitude])
     .addTo(state.map);
-}
-
-/** Highlight the tapped tile and offer to enter it (a label with an Enter button at the tap). */
-function selectTile(maplibre: MapLibre, state: MapState, tileId: string, at: [number, number]): void {
-  clearTileSelection(state);
-  state.selectedTile = tileId;
-  state.options.container.dataset.selectedTile = tileId;
-  const source = state.map.getSource(SELECTED_TILE_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  source?.setData(tileSquares([tileId]) as never);
-
-  const card = document.createElement('div');
-  card.className = 'chatroom-map-tile-card';
-  card.dataset.testid = 'map-tile-card';
-  card.setAttribute('data-testid', 'map-tile-card');
-  const name = document.createElement('strong');
-  name.textContent = state.options.tileTitle?.(tileId) ?? tileId;
-  const enter = document.createElement('button');
-  enter.type = 'button';
-  enter.className = 'chatroom-map-tile-enter';
-  enter.setAttribute('data-testid', 'map-tile-enter');
-  enter.textContent = state.options.enterTileText ?? 'Enter ›';
-  enter.addEventListener('click', (event) => {
-    event.stopPropagation();
-    const id = state.selectedTile;
-    clearTileSelection(state);
-    if (id) state.options.openTile?.(id);
-  });
-  card.addEventListener('click', (event) => event.stopPropagation());
-  card.append(name, enter);
-  state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom' }).setLngLat(at).addTo(state.map);
 }
 
 function tooltipElement(options: ChatroomMapOptions, room: ChatroomMapRoom): HTMLElement {
@@ -589,6 +522,25 @@ function updateSource(state: MapState): void {
   source?.setData(chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom));
 }
 
+/** Fit the view to me and the people on my list; false while there is no one to fit. */
+function fitToList(state: MapState): boolean {
+  const dots = state.options.userDots;
+  const points = [...(dots?.listPoints?.() ?? [])];
+  if (points.length === 0) return false;
+  if (dots?.selfPoint) points.push(dots.selfPoint);
+  const lats = points.map((point) => point.latitude);
+  const lngs = points.map((point) => point.longitude);
+  const [south, north, west, east] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
+  state.options.container.dataset.mapFitPoints = String(points.length);
+  if (south === north && west === east) {
+    state.map.jumpTo({ center: [west, south], zoom: SELF_ZOOM });
+  } else {
+    state.map.fitBounds([[west, south], [east, north]], { padding: 48, maxZoom: 14, duration: 0 });
+  }
+  state.roomZoom = state.map.getZoom();
+  return true;
+}
+
 function selfCenter(state: MapState): [number, number] | undefined {
   const self = state.options.userDots?.selfPoint;
   return self ? [self.longitude, self.latitude] : undefined;
@@ -603,6 +555,11 @@ function centerOnSelf(state: MapState): void {
 function focusCurrentRoom(state: MapState): void {
   const focusKey = state.options.currentChatroom;
   if (focusKey === state.focusedChatroom) {
+    if (state.awaitingListFit && fitToList(state)) {
+      state.awaitingListFit = false;
+      state.awaitingSelfCenter = false;
+      return;
+    }
     // My position landed after the first paint (first-launch permission, slow fix): go there once.
     const self = state.awaitingSelfCenter ? selfCenter(state) : undefined;
     if (self) {
@@ -614,7 +571,15 @@ function focusCurrentRoom(state: MapState): void {
   state.focusedChatroom = focusKey;
   const currentRoom = state.options.rooms.find((room) => room.id === state.options.currentChatroom);
   const focus = currentRoom ? roomLocation(currentRoom, state.options.rooms) : undefined;
-  // A Place shows its pin; Nearby and Contacts only show my neighbourhood.
+  // A Place shows its pin; Nearby fits itself to me and my list (§3.7); Contacts only shows my
+  // neighbourhood.
+  const nearby = !focus && isNearbyRoomId(state.options.currentChatroom);
+  state.awaitingListFit = nearby;
+  if (nearby && fitToList(state)) {
+    state.awaitingListFit = false;
+    state.awaitingSelfCenter = false;
+    return;
+  }
   const self = focus ? undefined : selfCenter(state);
   state.roomZoom = focus ? zoomForRoom(currentRoom) : SELF_ZOOM;
   state.awaitingSelfCenter = !focus && !self;
@@ -744,23 +709,6 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
         ],
       },
     });
-    if (state.options.openTile || state.options.currentTileId) {
-      // Compatibility path for legacy callers. The Nearby + Places UI omits `openTile`, so its
-      // map contains meaningful Place pins without exposing the retired geographic room tree.
-      map.addSource(GRID_SOURCE_ID, { type: 'geojson', data: tileGridLines(1, { west: -180, south: -85, east: 180, north: 85 }) as never });
-      map.addSource(CURRENT_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
-      map.addSource(SELECTED_TILE_SOURCE_ID, { type: 'geojson', data: tileSquares([]) as never });
-      map.addLayer({ id: 'iinpublic-tile-current-fill', type: 'fill', source: CURRENT_TILE_SOURCE_ID, paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.12 } });
-      map.addLayer({ id: 'iinpublic-tile-current-line', type: 'line', source: CURRENT_TILE_SOURCE_ID, paint: { 'line-color': '#16803c', 'line-width': 2, 'line-opacity': 0.7 } });
-      map.addLayer({ id: 'iinpublic-tile-selected-fill', type: 'fill', source: SELECTED_TILE_SOURCE_ID, paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.14 } });
-      map.addLayer({ id: 'iinpublic-tile-selected-line', type: 'line', source: SELECTED_TILE_SOURCE_ID, paint: { 'line-color': '#2563eb', 'line-width': 2 } });
-      map.addLayer({ id: 'iinpublic-tile-grid-line', type: 'line', source: GRID_SOURCE_ID, paint: { 'line-color': '#475569', 'line-width': 1, 'line-opacity': 0.35 } });
-      map.on('moveend', () => updateTileGrid(state));
-      map.on('zoomend', () => {
-        if (state.selectedTile && parseTileId(state.selectedTile)?.layer !== gridLayerForZoom(map.getZoom())) clearTileSelection(state);
-      });
-    }
-
     const initialData = chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom);
     state.options.container.dataset.mapGeojsonFeatureCount = String(initialData.features.length);
     map.addSource(SOURCE_ID, {
@@ -797,8 +745,6 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     });
     refreshMarkers();
     focusCurrentRoom(state);
-    updateCurrentTile(state);
-    updateTileGrid(state);
     resolveReady();
   });
 
@@ -1003,9 +949,7 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
     }
     await state.ready;
     updateSource(state);
-    updateCurrentTile(state);
     focusCurrentRoom(state);
-    updateTileGrid(state);
     scheduleUserDots(maplibre, state, 0);
     requestAnimationFrame(() => state.map.resize());
   } catch {

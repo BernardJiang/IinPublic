@@ -43,15 +43,15 @@ test.describe('X1: cross-platform presence and headcount', () => {
     const headcountOf = (page: typeof a.page) =>
       page.locator('.chatroom-item.current-room .chatroom-headcount');
 
-    // Both users + the TechSupport baseline ⇒ at least 2 non-support members visible.
+    // Each client has the other on its Nearby list (the count leaves out me and TechSupport).
     for (const { page } of [a, b]) {
       await expect
         .poll(async () => {
           const txt = (await headcountOf(page).first().textContent().catch(() => '')) || '';
-          const n = Number(txt.replace(/[^0-9]/g, ''));
+          const n = Number(txt.match(/\d+/)?.[0] ?? '0');
           return Number.isFinite(n) ? n : 0;
-        }, { timeout: 30_000, message: 'global headcount should reflect both clients' })
-        .toBeGreaterThanOrEqual(2);
+        }, { timeout: 30_000, message: 'each client should have the other on its Nearby list' })
+        .toBeGreaterThanOrEqual(1);
     }
 
     await a.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});

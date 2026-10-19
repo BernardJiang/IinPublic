@@ -147,9 +147,11 @@ export function roomMetaText(row: RoomListRow, capacity: number, t: T): string {
 }
 
 /** Header: everyone online, how many rooms, and the sort choice. */
-export function renderRoomListHeader(view: ActiveRoomsView | undefined, sort: ActiveRoomSort, t: T): string {
+export function renderRoomListHeader(view: ActiveRoomsView | undefined, sort: ActiveRoomSort, t: T, nearbyOnline?: number): string {
+  // Everyone online is the hub's Nearby count when known; the room list itself holds Places only.
+  const online = Math.max(nearbyOnline ?? 0, view?.totalOnline ?? 0);
   const total = view ? t('roomListOnline')
-    .replace('{people}', view.totalOnline.toLocaleString('en-US'))
+    .replace('{people}', online.toLocaleString('en-US'))
     .replace('{rooms}', view.totalRooms.toLocaleString('en-US')) : t('roomListLoading');
   const option = (value: ActiveRoomSort, key: UiTranslationKey) =>
     `<option value="${value}" ${sort === value ? 'selected' : ''}>${t(key)}</option>`;

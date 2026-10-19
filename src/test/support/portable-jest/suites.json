@@ -104,7 +104,6 @@
     "quiet-places.test.ts",
     "reputation.test.ts",
     "room-list-empty-places.test.ts",
-    "room-tile-grid.test.ts",
     "selective-gun-sync.test.ts",
     "semver-compare.test.ts",
     "settings-section-template.test.ts",

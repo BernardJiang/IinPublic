@@ -114,6 +114,8 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     },
   });
   let activeRooms: ChatroomsViewDeps['activeRooms'];
+  let nearbyOnline: number | undefined;
+  let nearbyBroadcastProgress: ChatroomsViewDeps['nearbyBroadcastProgress'];
 
   const viewDeps = (): ChatroomsViewDeps => {
     const mapUserDots = mapUserDotSource
@@ -130,6 +132,8 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     travelModeActive: deps.getTravelModeActive(),
       ...(mapUserDots ? { mapUserDots, roomMemberCard: roomMemberCard() } : {}),
       ...(activeRooms ? { activeRooms } : {}),
+      ...(nearbyOnline !== undefined ? { nearbyOnline } : {}),
+      ...(nearbyBroadcastProgress ? { nearbyBroadcastProgress } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
       deps.setCurrentChatroom(chatroomId);
@@ -273,6 +277,17 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     renderChatroomList();
   };
 
+  const setNearbyOnline = (online: number): void => {
+    if (online === nearbyOnline) return;
+    nearbyOnline = online;
+    renderChatroomList();
+  };
+
+  const setNearbyBroadcastProgress = (progress: ChatroomsViewDeps['nearbyBroadcastProgress'] | null): void => {
+    nearbyBroadcastProgress = progress ?? undefined;
+    renderChatroomList();
+  };
+
   const setMapUserDotSource = (source: MapUserDotSource | null): void => {
     mapUserDotSource = source ?? undefined;
     if (deps.getChatroomBrowseMode() === 'map') renderChatroomList();
@@ -282,6 +297,8 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     handleCreateCustomChatroomClick,
     setMapUserDotSource,
     setActiveRooms,
+    setNearbyOnline,
+    setNearbyBroadcastProgress,
     renderChatroomList,
     showChatroomDetail,
     showChatroomList,

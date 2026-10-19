@@ -363,6 +363,8 @@ export class IinPublicApp {
   private nearbyPointShownKey = '';
   /** Nearby (§3.7): my personal list, the audience of `NEARBY_V3_ROOM_ID`. */
   private nearbyV3: NearbyV3Runtime | null = null;
+  /** The latest Nearby broadcast, for "Sent to N of M". */
+  private nearbyBroadcast: { talkIds: Set<string>; total: number; delivered: Set<string> } | null = null;
   private lastMeshRoomId: string | null = null;
   /** Last published home square (hysteresis memory for `publicHomeLocation`). */
   private lastPublicHomeLocation: PublicLocation | null = null;
@@ -1911,8 +1913,9 @@ export class IinPublicApp {
         // Like a shared room's roster, the Nearby roster includes me.
         const me = this.currentUser;
         const roster = me ? [...members, { userId: me.id, stageName: me.stageName || me.id, isTraveler: this.appearsAsTraveler() }] : members;
-        this.chatroomService.pushPersonalRoster(roster);
-        this.applyChatroomMemberCount(NEARBY_V3_ROOM_ID, new Set(roster.map((member) => member.userId)).size);
+        this.chatroomService.pushPersonalRoster(roster, me?.id);
+        // "N near you" is my list (§3.7), without me.
+        this.applyChatroomMemberCount(NEARBY_V3_ROOM_ID, new Set(members.map((member) => member.userId)).size);
       },
     });
     const runtime = this.nearbyV3;
@@ -1946,6 +1949,8 @@ export class IinPublicApp {
 
   private async refreshActiveRooms(): Promise<void> {
     if (!this.currentUser) return;
+    // "M online" (§3.7): the hub's count of everyone heartbeating a Nearby card.
+    void this.nearbyV3?.hub.stats().then((stats) => this.uiManager.setNearbyOnline(stats.online)).catch(() => undefined);
     const origin = this.nearbyPublicPoint();
     try {
       const view = await fetchActiveRooms(this.getBackendApiBase(), {
@@ -1989,6 +1994,7 @@ export class IinPublicApp {
     this.uiManager.setMapUserDotSource({
       ...(location ? { selfPoint: location } : {}),
       selfTraveler: this.appearsAsTraveler(),
+      listPoints: () => this.nearbyV3?.service.entries().map((entry) => entry.card.point) ?? [],
       load: (bounds) => this.loadNearbyMapDots(bounds),
     });
   }
@@ -3163,6 +3169,7 @@ export class IinPublicApp {
         ?? baselineRoomCheckpoint().chatroomCapacity,
       authoritativeDirectTalkDelivery: this.p2pRuntimeFlags.p2pDirectTalkDelivery,
       onTalkDeliveryAck: (payload, recipientUserId) => {
+        this.noteNearbyDelivery(payload.talkId, recipientUserId);
         const deliveredTalk = payload.talkData as unknown as Talk;
         const wholeIdentityKey = buildTalkIdentityKey(deliveredTalk);
         const deliveredIdentityKeys = buildTagIdentityKeys(deliveredTalk, wholeIdentityKey);
@@ -6599,6 +6606,7 @@ export class IinPublicApp {
     const sentAtIso = new Date(nowMs).toISOString();
     for (const plan of plans) {
       if (!acceptedRecipientIds.has(plan.recipientId)) continue;
+      this.noteNearbyDelivery(talkId, plan.recipientId);
       for (const ik of plan.sentIdentityKeys) {
         markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
       }
@@ -7349,6 +7357,25 @@ export class IinPublicApp {
   /**
    * E2E: deliver pending OUT talks using the same register + Gun path as Broadcast, without the audience modal.
    */
+  /** "Sent to N of M" (§3.7): count delivery acks from the people on my list as the loop reaches them. */
+  private startNearbyBroadcastProgress(chatroomId: string, talkIds: readonly string[], total: number): void {
+    if (!isNearbyRoomId(chatroomId)) return;
+    const previous = this.nearbyBroadcast;
+    // The same Talks again (a retried send of the same broadcast) keep the deliveries counted so far.
+    const same = previous && previous.talkIds.size === talkIds.length && talkIds.every((id) => previous.talkIds.has(id));
+    this.nearbyBroadcast = same ? { ...previous, total } : { talkIds: new Set(talkIds), total, delivered: new Set() };
+    const delivered = this.nearbyBroadcast.delivered.size;
+    this.uiManager.setNearbyBroadcastProgress({ sent: Math.min(delivered, total), total });
+  }
+
+  /** One person acknowledged a Talk of the latest Nearby broadcast (outbox ack or a live send's ack). */
+  private noteNearbyDelivery(talkId: string, recipientUserId: string): void {
+    const progress = this.nearbyBroadcast;
+    if (!progress?.talkIds.has(talkId) || progress.delivered.has(recipientUserId)) return;
+    progress.delivered.add(recipientUserId);
+    this.uiManager.setNearbyBroadcastProgress({ sent: Math.min(progress.delivered.size, progress.total), total: progress.total });
+  }
+
   public async deliverPendingBroadcastTalksForE2e(
     minReceivers = 1,
     opts: {
@@ -7380,6 +7407,7 @@ export class IinPublicApp {
     }
     // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
     recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
+    this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
     const releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
     try {
       let sent = 0;
@@ -8473,6 +8501,7 @@ export class IinPublicApp {
             : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
+          if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
           if (targetCount === 0) {
             console.warn(
               '⚠️ broadcastTalk: no receivers resolved (no other active members in this chatroom).',
@@ -9067,6 +9096,10 @@ export class IinPublicApp {
       }
       await this.updateLocationAndMaybeSwitch();
       if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser);
+    });
+
+    this.uiManager.on('nearbyShowMore', () => {
+      void this.nearbyV3?.service.showMore().catch((error) => console.warn('Show more people failed:', error));
     });
 
     this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {

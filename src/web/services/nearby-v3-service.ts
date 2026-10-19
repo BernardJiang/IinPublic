@@ -87,6 +87,8 @@ export class NearbyV3Service {
   /** The last hub search found nobody: the next one that finds someone announces us. */
   private searchedEmpty = false;
   private emptyRetryMs = EMPTY_RETRY_MIN_MS;
+  /** Room for more people than `C`, one page per "Show more people here"; a move resets it. */
+  private extraCapacity = 0;
   private readonly verified = new Map<string, boolean>();
   /** People who did not answer, with the card they had: only a newer card brings them back. */
   private readonly silent = new Map<string, number>();
@@ -147,6 +149,20 @@ export class NearbyV3Service {
    */
   offerCard(card: NearbyCard): Promise<void> {
     return this.ingest([card]);
+  }
+
+  /**
+   * "Show more people here" (§3.7 "Beyond C"): make room for one more page of `C` and ask a few
+   * people on my list for the next people in my order. Orderly and repeatable, not guaranteed
+   * complete; the next people keep arriving with later swaps.
+   */
+  async showMore(): Promise<void> {
+    this.extraCapacity += this.deps.config().capacity;
+    const list = this.ensureList();
+    if (!list?.size || !this.ownCard) return;
+    const random = this.deps.random ?? Math.random;
+    const partners = [...list.entries()].sort(() => random() - 0.5).slice(0, ANNOUNCE_SWAPS);
+    await Promise.all(partners.map((entry) => this.gossipOnce(entry.card)));
   }
 
   /** Swaps started, failed (partner dropped), refused busy, and swaps this phone answered. */
@@ -258,6 +274,7 @@ export class NearbyV3Service {
         // A newcomer (or someone who just moved) swaps with the nearest few people at once, so the
         // people around learn of them now rather than at their next period.
         announce = searchKey !== this.searchedKey || this.searchedEmpty;
+        if (this.searchedKey && searchKey !== this.searchedKey) this.extraCapacity = 0; // moved: back to C
         this.searchedKey = searchKey;
         await this.ingest(cards);
         this.searchedEmpty = list.size === 0;
@@ -384,7 +401,7 @@ export class NearbyV3Service {
       scope: position.scope,
       beacon: nearbyDailyBeacon(this.now()),
     };
-    const capacity = this.deps.config().capacity;
+    const capacity = this.deps.config().capacity + this.extraCapacity;
     if (!this.list || this.list.ownerInfo.pub !== owner.pub || this.listCapacity !== capacity) {
       const previous = this.list?.ownerInfo.pub === owner.pub ? this.list.entries().map((entry) => entry.card) : this.load(owner.pub);
       this.list = new NearbyList(owner, { capacity });

@@ -1119,6 +1119,10 @@ export class UIManager extends EventEmitter {
   /** Map user dots: my published point plus a viewport loader; null hides them. */
   setMapUserDotSource(source: MapUserDotSource | null): void { this.chatroomShell().setMapUserDotSource(source); }
   setActiveRooms(view: Parameters<ChatroomShellController['setActiveRooms']>[0]): void { this.chatroomShell().setActiveRooms(view); }
+  /** The hub's count of everyone online in Nearby (§3.7 "N near you · M online"). */
+  setNearbyOnline(online: number): void { this.chatroomShell().setNearbyOnline(online); }
+  /** "Sent to N of M" for the latest Nearby broadcast; null hides it. */
+  setNearbyBroadcastProgress(progress: { sent: number; total: number } | null): void { this.chatroomShell().setNearbyBroadcastProgress(progress); }
 
   displayTalksList(): void {
     displayTalksListView({

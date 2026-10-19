@@ -195,7 +195,7 @@ export async function blockJourney(alice: TestActor, bob: TestActor): Promise<vo
 export async function leaveJourney(alice: TestActor, bob: TestActor, options: { hubUrl: string; closeAlice: () => Promise<void> }): Promise<{ goneAfterMs: number }> {
   const { aliceId, roomId } = await sameRoomAndVisible(alice, bob);
   await expect.poll(() => hubRoomMembers(options.hubUrl, roomId), { timeout: 30_000 }).toContain(aliceId);
-  await expect.poll(() => roomHeadcount(bob.page), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => roomHeadcount(bob.page), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
   const together = await roomHeadcount(bob.page);
 
   // Alice moves away (into a Place of her own): Bob's room loses her.

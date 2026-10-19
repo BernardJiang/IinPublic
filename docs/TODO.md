@@ -804,8 +804,8 @@ phrase complexity into normal use.
   - [ ] Phase 3: Nearby is the personal list everywhere (2026-10-19, done: `nearby-v3` scope, no hub
     roster or chat; broadcast loop with adaptive concurrency; knock on link open; unreachable people
     leave the list and come back only with a newer card; the hub introduces only phones heartbeating
-    in the last two periods; all 13 phone-path journeys pass, 6.6 min vs 9.1 on v2). Still to do:
-    "Sent to N of M", the web e2e suites, real phones.
+    in the last two periods; all 13 phone-path journeys pass, 6.6 min vs 9.1 on v2). Web e2e suites
+    and "Sent to N of M" done; still to do: real phones.
   - [x] No compatibility (product owner 2026-10-19: no official release yet): the v2 code is removed
     (2026-10-19; partition, cohorts and their mesh frame, control presence, micro-rooms, capacity
     splits and evictions, routing, map presence, Nearby in the room list — now Places only; server
@@ -814,8 +814,10 @@ phrase complexity into normal use.
     reach peers at once, announce to the three nearest, swap retry and a 15 s swap timeout, link
     failures probe instead of dropping, stale knocks, stale sessions, Talks and answers to people
     outside the list.
-  - [ ] Phase 4: map (green list dots and heat already drawn from the list and the hub; still: no
-    tile grid, fit to the list), list, headcounts; Nearby chat removed.
+  - [x] Phase 4 (2026-10-19): map (green list dots, ★, heat, fitted to the list; tile grid and the
+    unused browse tree removed), "People near you", "N near you · M online" (my list without me,
+    then the hub's count), "Show more people here", "Sent to N of M". Web e2e `95-nearby-screens`;
+    headcount specs now count the list without me.
   - [ ] Phase 5: Places on lists.
   - [ ] Daily beacon from the signed manifest (today the UTC date); identity-age rule.
   - [ ] Not v3 (found 2026-10-19, same on the pre-v3 commit 4981a03e): `find-similar-people.spec.ts`

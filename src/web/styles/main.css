@@ -1428,6 +1428,18 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   text-transform: uppercase;
 }
 
+/* Nearby (§3.7): "Sent to N of M" under my Nearby row; "Show more people here" under my list. */
+.chatroom-flat-progress {
+  margin: 4px 12px 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.chatroom-show-more {
+  display: block;
+  margin: 8px auto 16px;
+}
+
 .chatroom-flat-empty {
   margin: 0 8px;
   padding: 16px;

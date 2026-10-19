@@ -58,7 +58,7 @@ test.describe('Nearby and Places list/map views', () => {
     const current = page!.locator(`.chatroom-item[data-chatroom-id="${currentRoomId}"]`);
     await expect(current).toBeVisible();
     await expect(current).toHaveClass(/current-room/);
-    await expect(current).toContainText('Your room');
+    await expect(current).toContainText('People near you');
     await expect(page!.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id*="_part_"]')).toHaveCount(0);

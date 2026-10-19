@@ -897,9 +897,13 @@ real-phone run.
    whose link fails twice after the knock grace leaves the list. A newcomer swaps with the nearest
    person at once, and an empty list asks the hub again every 5 s, doubling. Still to do:
    "Sent to N of M".
-4. **UI.** Map: green dots for my list, ★ for me, the heat layer from `GET /api/nearby/v3/stats`;
-   the yellow dots go. List: "People near you" and "Show more people here". Headcounts:
-   "N near you · M online". Nearby room chat goes.
+4. **UI — done (2026-10-19).** Map: green dots for my list, ★ for me, the heat layer from
+   `GET /api/nearby/v3/stats`, fitted to me and my list; no yellow dots, no tile grid. List: the
+   Nearby row is "People near you"; its open list ends with "Show more people here" (one more page
+   of `C`, filled by swaps with three people on my list; a move goes back to `C`). Headcounts:
+   "N near you · M online" — N is my list without me, M the hub's count; the room-list header uses
+   M too. A Nearby broadcast shows "Sent to N of M" under the Nearby row, counting delivery acks.
+   Nearby has no chat feed. Web e2e `stage2-two-user/95-nearby-screens`.
 5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, chat kept for Places;
    seat claims and cohorts go.
 6. **Removal of v2 — done (2026-10-19)** (no epoch switch, no compatibility): the partition
