@@ -1,6 +1,6 @@
 /**
- * Nearby v3 phase 2 (docs/design/nearby-and-place-chatrooms.md §3.7) on phone-like nodes: with
- * `?nearby_v3=1`, each device signs a card, the hub introduces the two to each other, and a gossip
+ * Nearby v3 (docs/design/nearby-and-place-chatrooms.md §3.7) on phone-like nodes: each device signs
+ * a card, the hub introduces the two to each other, and a gossip
  * swap crosses a real WebRTC link that the receiving side opened because of a signed knock.
  * One-sided lists (a knock from someone the receiver does not list) are pinned by
  * src/test/unit/nearby-v3-link.test.ts.
@@ -33,8 +33,8 @@ test.describe('Nearby v3: personal lists and a gossip swap between two phones', 
 
   test('cards → hub introductions → each lists the other → a swap over a knocked link', async ({ browser }) => {
     test.setTimeout(180_000);
-    alice = await openUser(browser, 'Alice', 'phoneA', { extraQuery: { nearby_v3: '1' } });
-    bob = await openUser(browser, 'Bob', 'phoneB', { extraQuery: { nearby_v3: '1' } });
+    alice = await openUser(browser, 'Alice', 'phoneA');
+    bob = await openUser(browser, 'Bob', 'phoneB');
     const [aliceId, bobId] = [await userId(alice.page), await userId(bob.page)];
 
     // Bob may have asked the hub before Alice's card reached it; an empty list asks again.

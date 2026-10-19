@@ -20,6 +20,8 @@ export type NearbyCard = {
   kind: 'nearby-card';
   userId: string;
   pub: string;
+  /** Public display name, so a list can be shown without a lookup per person. */
+  stageName?: string;
   point: PublicLocation;
   /** At a chosen map point (✈) rather than blurred GPS. Self-declared. */
   traveler: boolean;
@@ -43,6 +45,7 @@ function signingPayload(card: Omit<NearbyCard, 'proof'>): unknown {
     kind: card.kind,
     userId: card.userId,
     pub: card.pub,
+    ...(card.stageName ? { stageName: card.stageName } : {}),
     point: card.point,
     traveler: card.traveler,
     scope: card.scope,
@@ -54,6 +57,7 @@ function signingPayload(card: Omit<NearbyCard, 'proof'>): unknown {
 export async function createNearbyCard(input: {
   userId: string;
   pair: SeaSigningPair;
+  stageName?: string;
   point: PublicLocation;
   traveler?: boolean;
   scope?: NearbyCardScope;
@@ -66,6 +70,7 @@ export async function createNearbyCard(input: {
     kind: 'nearby-card',
     userId: String(input.userId || '').trim(),
     pub: String(input.pair.pub || '').trim(),
+    ...(input.stageName ? { stageName: String(input.stageName).slice(0, 80) } : {}),
     point: { ...input.point },
     traveler: input.traveler === true,
     scope: input.scope ?? 'nearby',
@@ -91,6 +96,7 @@ export function parseNearbyCard(value: unknown): NearbyCard | null {
     || card.kind !== 'nearby-card'
     || typeof card.userId !== 'string' || card.userId.length < 1 || card.userId.length > 256
     || typeof card.pub !== 'string' || card.pub.length < 1 || card.pub.length > 2_048
+    || (card.stageName !== undefined && (typeof card.stageName !== 'string' || card.stageName.length > 80))
     || !isPublicLocation(card.point)
     || typeof card.traveler !== 'boolean'
     || !isNearbyCardScope(card.scope)

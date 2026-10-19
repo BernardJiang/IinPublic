@@ -33,7 +33,7 @@ import { MapPresenceClient } from '../services/map-presence-client';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
 import { BlockStatusCache } from '../services/block-status-cache';
 import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
-import { NearbyV3Runtime, isNearbyV3Enabled } from '../services/nearby-v3-runtime';
+import { NearbyV3Runtime } from '../services/nearby-v3-runtime';
 import { nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
 import { placesMissingFromCatalogue } from '../ui/room-list-view';
 import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
@@ -69,6 +69,9 @@ import {
   CONTACTS_ONLY_SCOPE_ID,
   deriveNearbyRoomAssignment,
   isLocalOnlyRoomScope,
+  NEARBY_V3_ROOM_ID,
+  hasNoHubRoster,
+  isPersonalNearbyRoomId,
   isNearbyPublicMode,
   isNearbyRoomId,
   type NearbyRoomAssignment,
@@ -380,8 +383,9 @@ export class IinPublicApp {
   private mapPresenceTimer: ReturnType<typeof setInterval> | undefined;
   private mapPresencePublishTimer: ReturnType<typeof setTimeout> | undefined;
   private mapPresenceShownKey = '';
-  /** Nearby v3 (§3.7), behind `?nearby_v3=1` until it replaces the v2 room (OPEN-70). */
+  /** Nearby (§3.7): my personal list, the audience of `NEARBY_V3_ROOM_ID`. */
   private nearbyV3: NearbyV3Runtime | null = null;
+  private lastMeshRoomId: string | null = null;
   /** Last published home square (hysteresis memory for `publicHomeLocation`). */
   private lastPublicHomeLocation: PublicLocation | null = null;
   private pendingNearbyTravel: {
@@ -1997,29 +2001,43 @@ export class IinPublicApp {
 
   private startNearbyV3(): void {
     const user = this.currentUser;
-    if (this.nearbyV3 || !user || isTechSupportUser(user) || !isNearbyV3Enabled()) return;
+    if (this.nearbyV3 || !user || isTechSupportUser(user)) return;
+    const mesh = this.ensurePeerMeshService();
+    if (!mesh) return;
     const extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions;
     this.nearbyV3 = new NearbyV3Runtime({
       gunService: this.gunService,
+      mesh,
       apiBase: () => this.getBackendApiBase(),
       userId: user.id,
-      stageName: user.stageName || user.id,
-      config: () => nearbyV3ConfigFromManifest({
-        chatroomCapacity: this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
-          ?? baselineRoomCheckpoint().chatroomCapacity,
-        ...(extensions ? { extensions } : {}),
-      }),
+      stageName: () => this.currentUser?.stageName || user.id,
+      config: () => this.nearbyV3Config(extensions),
       position: () => {
+        // Only while Nearby is the active audience; inside a Place this phone is not on Nearby.
+        if (!isPersonalNearbyRoomId(this.currentChatroomId)) return null;
         const point = this.mapPresenceLocation();
         return point ? { point, traveler: this.appearsAsTraveler() } : null;
       },
-      isBlocked: (userId) => (this.currentUser?.blockedUserIds ?? []).includes(userId),
       isPaused: isPageHidden,
-      ...(this.protocolManifestController ? { protocolManifestController: this.protocolManifestController } : {}),
+      onRoster: (members) => {
+        // Like a shared room's roster, the Nearby roster includes me.
+        const me = this.currentUser;
+        const roster = me ? [...members, { userId: me.id, stageName: me.stageName || me.id, isTraveler: this.appearsAsTraveler() }] : members;
+        this.chatroomService.pushPersonalRoster(roster);
+        this.applyChatroomMemberCount(NEARBY_V3_ROOM_ID, new Set(roster.map((member) => member.userId)).size);
+      },
     });
     const runtime = this.nearbyV3;
     (window as unknown as { __iinpublicNearbyV3?: () => Record<string, unknown> }).__iinpublicNearbyV3 = () => runtime.diagnostics();
-    void runtime.start().catch((error) => console.warn('[nearby-v3] start failed:', error));
+    runtime.start();
+  }
+
+  private nearbyV3Config(extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions) {
+    return nearbyV3ConfigFromManifest({
+      chatroomCapacity: this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
+        ?? baselineRoomCheckpoint().chatroomCapacity,
+      ...(extensions ? { extensions } : {}),
+    });
   }
 
   /** Room list: every room with ≥ 1 person, refreshed every 20 s and on demand. */
@@ -2607,7 +2625,7 @@ export class IinPublicApp {
     }
 
     // Contacts-only has no public room graph.
-    if (!isLocalOnlyRoomScope(chatroomId)) this.subscribeToMessages(chatroomId);
+    if (!hasNoHubRoster(chatroomId)) this.subscribeToMessages(chatroomId);
 
     // Subscribe to chatroom talks
 
@@ -3344,9 +3362,10 @@ export class IinPublicApp {
 
   /** Recompute the automatic home scope; a selected Place is never treated as home. */
   private async resolveAutomaticNearbyRoom(): Promise<string> {
-    if (!this.currentUser || !this.currentLocation || isTechSupportUser(this.currentUser)) {
-      return CONTACTS_ONLY_SCOPE_ID;
-    }
+    if (!this.currentUser || isTechSupportUser(this.currentUser)) return CONTACTS_ONLY_SCOPE_ID;
+    // Nearby is my personal list wherever I publish a point (§3.7); nothing to resolve.
+    if (this.mapPresenceLocation()) return NEARBY_V3_ROOM_ID;
+    if (!this.currentLocation) return CONTACTS_ONLY_SCOPE_ID;
     const selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
       this.currentLocation,
       this.currentUser.id,
@@ -3588,6 +3607,13 @@ export class IinPublicApp {
         });
       },
       onNearbyCohortPeerSync: (payload) => this.nearbyCohortPeerSync?.ingest(payload),
+      knockPeer: async (peer) => { await this.nearbyV3?.knock(peer); },
+      onNearbyGossip: async (fromUserId, fromPub, message) => this.nearbyV3?.handleGossip(fromUserId, fromPub, message) ?? null,
+      personalConcurrency: () => {
+        const config = this.nearbyV3Config();
+        return { initial: config.broadcastInitialConcurrency, max: config.broadcastMaxConcurrency };
+      },
+      onPersonalPeerUnreachable: (_userId, pub) => this.nearbyV3?.unreachable(pub),
       ...(this.protocolManifestController
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
@@ -3846,14 +3872,17 @@ export class IinPublicApp {
           ...members,
           { userId: this.currentUser.id, stageName: this.currentUser.stageName },
         ];
-    void mesh.joinRoom(chatroomId, withSelf)
+    const personal = isPersonalNearbyRoomId(chatroomId);
+    if (personal && this.lastMeshRoomId !== chatroomId) this.nearbyV3?.refresh();
+    this.lastMeshRoomId = chatroomId;
+    void mesh.joinRoom(chatroomId, withSelf, { personal, replace: personal })
       .then(() => {
         for (const member of members) this.catchUpPeerInActiveRoom(member.userId, chatroomId, member.stageName);
       })
       .catch((error) => {
         console.warn('Peer mesh room join failed:', error);
       });
-    const discovery = this.hubDiscoveryAllowedNow() ? this.ensureRoomDiscoveryService() : null;
+    const discovery = !personal && this.hubDiscoveryAllowedNow() ? this.ensureRoomDiscoveryService() : null;
     if (discovery) {
       void discovery.announceRoom(chatroomId).catch((error) => {
         console.warn('Room discovery provide failed:', error);
@@ -6304,6 +6333,8 @@ export class IinPublicApp {
    * This allows showing headcount badges for rooms the user hasn't visited
    */
   private subscribeToMessages(chatroomId: string): void {
+    // Nearby has no shared chat feed (§3.7); Contacts only has none either.
+    if (hasNoHubRoster(chatroomId)) return;
     console.log('💬 Subscribing to chatroom messages:', chatroomId);
     const gun = this.gunService.getGun();
 
@@ -9532,7 +9563,7 @@ export class IinPublicApp {
         await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
         this.currentChatroomId = home;
         localStorage.setItem('iinpublic_last_chatroom', home);
-        if (!isLocalOnlyRoomScope(home)) this.subscribeToMessages(home);
+        if (!hasNoHubRoster(home)) this.subscribeToMessages(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
           this.harvestRosterEpubs(members);

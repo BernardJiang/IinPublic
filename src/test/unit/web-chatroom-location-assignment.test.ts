@@ -2,7 +2,7 @@
 
 import { WebChatroomService } from '../../web/services/web-chatroom-service';
 import type { GPSCoordinate } from '../../shared/types';
-import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, NEARBY_V3_ROOM_ID, isNearbyRoomId } from '../../shared/nearby-rooms';
 
 const SAN_DIEGO: GPSCoordinate = {
   latitude: 32.7157,
@@ -14,9 +14,9 @@ const SAN_DIEGO: GPSCoordinate = {
 describe('WebChatroomService Nearby-first assignment', () => {
   const service = new WebChatroomService({ getGun: jest.fn() } as any);
 
-  it('places a confirmed first-time user into a small automatic Nearby room', async () => {
+  it('puts a confirmed user in Nearby: their own personal list, not a shared room (§3.7)', async () => {
     const roomId = await service.findOptimalChatroomHierarchical(SAN_DIEGO, 'user-1', undefined, true);
-    expect(isNearbyRoomId(roomId)).toBe(true);
+    expect(roomId).toBe(NEARBY_V3_ROOM_ID);
   });
 
   it('does not publish a stranger room for an unconfirmed/GPS-less user', async () => {
@@ -31,9 +31,10 @@ describe('WebChatroomService Nearby-first assignment', () => {
     expect(roomId).not.toMatch(/^tile_/);
   });
 
-  it('migrates an existing legacy room assignment into Nearby', async () => {
-    const roomId = await service.findOptimalChatroomHierarchical(SAN_DIEGO, 'user-1', 'global', true);
-    expect(isNearbyRoomId(roomId)).toBe(true);
+  it('moves a saved shared Nearby room or legacy room into the personal list', async () => {
+    for (const saved of ['global', 'nearby_v2_e1_926050112988aa94871fe00d']) {
+      await expect(service.findOptimalChatroomHierarchical(SAN_DIEGO, 'user-1', saved, true)).resolves.toBe(NEARBY_V3_ROOM_ID);
+    }
   });
 
   it('preserves a deliberately selected Place across restart', async () => {

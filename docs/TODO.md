@@ -797,9 +797,17 @@ phrase complexity into normal use.
     the hub's counts / introductions / heat (`NearbyV3Hub`, `/api/nearby/v3/*`), and the phone's
     `NearbyV3Service` (not wired into the app yet). Tests `nearby-v3-core`, `nearby-v3-hub`,
     `nearby-v3-service`.
-  - [ ] Phase 2: peer link — a signed knock lets someone on my list open a session to me although I
-    am not on theirs (incoming limit, block list); gossip over the mesh DataChannel.
-  - [ ] Phase 3: broadcast loop over the list with adaptive concurrency; "Sent to N of M".
+  - [x] Phase 2 (2026-10-19): peer link — a signed knock lets someone on my list open a session to
+    me although I am not on theirs (incoming limit); gossip over the mesh DataChannel. A block stops
+    Talks only, never gossip or knocks (otherwise the blocker vanishes from the blocked person's
+    list at once and gives himself away).
+  - [ ] Phase 3: Nearby is the personal list everywhere (2026-10-19, done: `nearby-v3` scope, no hub
+    roster or chat; broadcast loop with adaptive concurrency; knock on link open; unreachable people
+    leave the list and come back only with a newer card; the hub introduces only phones heartbeating
+    in the last two periods; all 13 phone-path journeys pass, 6.6 min vs 9.1 on v2). Still to do:
+    "Sent to N of M", the web e2e suites, real phones.
+  - [ ] No compatibility (product owner 2026-10-19: no official release yet): remove the v2 code
+    rather than keep an epoch switch.
   - [ ] Phase 4: map (green list dots, heat layer, no yellow dots), list, headcounts; Nearby chat
     removed.
   - [ ] Phase 5: Places on lists. Phase 6: epoch switch and removal of v2.

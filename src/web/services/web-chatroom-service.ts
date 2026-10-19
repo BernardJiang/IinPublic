@@ -10,6 +10,9 @@ import {
   CONTACTS_ONLY_SCOPE_ID,
   deriveNearbyRoomAssignment,
   isLocalOnlyRoomScope,
+  isPersonalNearbyRoomId,
+  hasNoHubRoster,
+  NEARBY_V3_ROOM_ID,
   isNearbyRoomId,
   type NearbyPrivacyMode,
   type NearbyRoomAssignment,
@@ -173,6 +176,8 @@ export class WebChatroomService {
   private membersListDebounce: ReturnType<typeof setTimeout> | null = null;
   private membersListCallback?: (members: ChatroomMember[]) => void;
   private membersListenerRoomId: string | undefined = undefined;
+  private personalRoster: ChatroomMember[] = [];
+  private readonly personalCountCallbacks = new Set<(count: number) => void>();
   private serverMembersPollTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Gun's `.map().on()` only re-fires a member's callback when THAT member's own node is
@@ -419,16 +424,8 @@ export class WebChatroomService {
     // confirmed fix they migrate directly into the current automatic Nearby cell.
     if (lastChatroomId && isPlaceRoomId(lastChatroomId)) return lastChatroomId;
     if (!locationConfirmed) return CONTACTS_ONLY_SCOPE_ID;
-
-    this.nearbyRootAssignment = deriveNearbyRoomAssignment({
-      location,
-      mode: nearbyPrivacyMode,
-      identity: userId,
-      ...(this.nearbyRootAssignment ? { previous: this.nearbyRootAssignment } : {}),
-    });
-    this.nearbyAssignment = this.nearbyRootAssignment;
-    console.log(`  → Automatic Nearby room: ${this.nearbyAssignment.roomId}`);
-    return this.nearbyAssignment.roomId;
+    // Nearby is my personal list (§3.7): one local scope, never a shared room to compute.
+    return NEARBY_V3_ROOM_ID;
   }
 
   async joinChatroom(
@@ -439,7 +436,7 @@ export class WebChatroomService {
     placeReservationToken?: string,
   ): Promise<void> {
     await this.pendingLeaveSyncs.get(chatroomId);
-    if (isLocalOnlyRoomScope(chatroomId)) {
+    if (hasNoHubRoster(chatroomId)) {
       this.currentChatroomId = chatroomId;
       this.stopMembershipHeartbeat();
       this.recordArrival(chatroomId, 'auto');
@@ -682,6 +679,9 @@ export class WebChatroomService {
       console.warn('syncMembershipHeartbeatWithServer failed (non-fatal):', error);
       return;
     }
+    // Signing the Place claim takes a moment. If the user left meanwhile, this beat must not reach
+    // the hub after the leave: it re-adds them and marks the Place visited again (J-PLACE-11).
+    if (this.membershipHeartbeatKey !== `${chatroomId}:${userId}`) return;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
@@ -1007,7 +1007,7 @@ export class WebChatroomService {
     chatroomId: string,
     onMoved?: (newChatroomId: string) => void,
   ): void {
-    if (!isNearbyRoomId(chatroomId) && !isPlaceRoomId(chatroomId) && !isLocalOnlyRoomScope(chatroomId)) {
+    if (!isNearbyRoomId(chatroomId) && !isPlaceRoomId(chatroomId) && !hasNoHubRoster(chatroomId)) {
       this.watchForEviction(userId, chatroomId, onMoved);
     }
   }
@@ -1018,7 +1018,7 @@ export class WebChatroomService {
     console.log(`🚪 Leaving chatroom: ${chatroomId} as user: ${userId}`);
     this.stopMembershipHeartbeat(chatroomId, userId);
     this.capacity.stop(chatroomId);
-    if (isLocalOnlyRoomScope(chatroomId)) {
+    if (hasNoHubRoster(chatroomId)) {
       if (this.currentChatroomId === chatroomId) delete this.currentChatroomId;
       return;
     }
@@ -1156,6 +1156,7 @@ export class WebChatroomService {
     observeMs = 400,
     _options: { includeTechSupport?: boolean } = {},
   ): Promise<string[]> {
+    if (isPersonalNearbyRoomId(chatroomId)) return [...new Set(this.personalRoster.map((member) => member.userId))];
     if (isLocalOnlyRoomScope(chatroomId)) return [];
     try {
       const gun = this.gunService.getGun();
@@ -1203,7 +1204,7 @@ export class WebChatroomService {
    * ping lets their device notice it.
    */
   async observeLapsedMemberIds(chatroomId: string, maxLapseMs: number, observeMs = 400): Promise<string[]> {
-    if (isLocalOnlyRoomScope(chatroomId)) return [];
+    if (hasNoHubRoster(chatroomId)) return [];
     try {
       const gun = this.gunService.getGun();
       const lapsed = new Set<string>();
@@ -1272,15 +1273,36 @@ export class WebChatroomService {
     }
   }
 
+  /**
+   * Nearby v3: my personal list is the Nearby audience. The app pushes it here whenever it changes,
+   * and it reaches the same member callback a shared room's roster would.
+   */
+  pushPersonalRoster(members: ChatroomMember[]): void {
+    this.personalRoster = members.slice();
+    for (const callback of this.personalCountCallbacks) callback(this.personalHeadcount());
+    if (isPersonalNearbyRoomId(this.membersListenerRoomId) && this.membersListCallback) {
+      this.membersListCallback(this.personalRoster.slice());
+    }
+  }
+
+  /** People in my Nearby: the pushed roster (my list plus me, like a shared room's roster). */
+  private personalHeadcount(): number {
+    return new Set(this.personalRoster.map((member) => member.userId)).size;
+  }
+
   subscribeToMembers(
     chatroomId: string,
     callback: (members: ChatroomMember[]) => void,
   ): void {
     this.membersListCallback = callback;
-    if (isLocalOnlyRoomScope(chatroomId)) {
+    if (hasNoHubRoster(chatroomId)) {
       this.activeMembersUnsubscribe?.();
+      delete this.activeMembersUnsubscribe;
       this.membersListenerRoomId = chatroomId;
-      queueMicrotask(() => callback([]));
+      const roster = isPersonalNearbyRoomId(chatroomId) ? [...this.personalRoster] : [];
+      queueMicrotask(() => {
+        if (this.membersListCallback === callback && this.membersListenerRoomId === chatroomId) callback(roster);
+      });
       return;
     }
 
@@ -1457,6 +1479,7 @@ export class WebChatroomService {
    * This is useful for displaying member counts in chatroom lists
    */
   async getMemberCount(chatroomId: string): Promise<number> {
+    if (isPersonalNearbyRoomId(chatroomId)) return this.personalHeadcount();
     if (isLocalOnlyRoomScope(chatroomId)) return 0;
     const activeMemberIds = await this.observeActiveMemberIds(chatroomId, 1400, { includeTechSupport: true });
     return activeMemberIds.length;
@@ -1467,6 +1490,13 @@ export class WebChatroomService {
    * Calls the callback whenever the member count changes
    */
   subscribeToMemberCount(chatroomId: string, callback: (count: number) => void): void {
+    if (isPersonalNearbyRoomId(chatroomId)) {
+      // One live subscriber per screen, like the shared-room path below.
+      this.personalCountCallbacks.clear();
+      this.personalCountCallbacks.add(callback);
+      callback(this.personalHeadcount());
+      return;
+    }
     if (isLocalOnlyRoomScope(chatroomId)) {
       callback(0);
       return;

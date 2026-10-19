@@ -42,6 +42,8 @@ export class NearbyV3Hub {
   private current: CountWindow;
   private previous: CountWindow | null = null;
   private samples = new Map<string, Map<string, NearbyCard>>();
+  /** pub → when its last heartbeat arrived; only recent ones are introduced. */
+  private lastHeartbeat = new Map<string, number>();
   /** userId → pub while that user's card is live, so another key cannot speak for them. */
   private owners = new Map<string, { pub: string; expiresAtMs: number }>();
 
@@ -57,6 +59,7 @@ export class NearbyV3Hub {
   clear(nowMs = Date.now()): void {
     this.samples.clear();
     this.owners.clear();
+    this.lastHeartbeat.clear();
     this.previous = null;
     this.current = this.newWindow(this.windowIndex(nowMs));
   }
@@ -84,6 +87,9 @@ export class NearbyV3Hub {
       if (card.scope === 'nearby') this.current.total += 1;
       for (const cell of cells) this.current.cells.set(cell, (this.current.cells.get(cell) ?? 0) + 1);
     }
+    this.lastHeartbeat.delete(card.pub);
+    this.lastHeartbeat.set(card.pub, nowMs);
+    while (this.lastHeartbeat.size > MAX_SAMPLES) this.lastHeartbeat.delete(this.lastHeartbeat.keys().next().value as string);
     for (const cell of cells) this.addSample(cell, card);
     return { accepted: true, online: this.online(nowMs) };
   }
@@ -166,9 +172,12 @@ export class NearbyV3Hub {
     const sample = this.samples.get(cellId);
     if (!sample) return [];
     const live: NearbyCard[] = [];
+    // A phone heartbeats once per reissue period; one that missed two has left, whatever its
+    // card's lifetime says, so it is no longer introduced.
+    const recent = nowMs - 2 * this.config.cardReissueMs;
     for (const [pub, card] of sample) {
-      if (Date.parse(card.expiresAt) > nowMs) live.push(card);
-      else sample.delete(pub);
+      if (Date.parse(card.expiresAt) <= nowMs) sample.delete(pub);
+      else if ((this.lastHeartbeat.get(pub) ?? 0) >= recent) live.push(card);
     }
     if (!sample.size) this.samples.delete(cellId);
     return live;

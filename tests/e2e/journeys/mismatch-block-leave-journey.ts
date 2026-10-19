@@ -96,7 +96,21 @@ function blockStatus(page: Page, viewer: string, peer: string): Promise<{ blocke
 }
 
 /** Members of a room as the hub lists them. */
+/**
+ * Who the hub knows in this room. Nearby is a personal list (§3.7) with no hub roster: there, the
+ * people the hub would introduce to a newcomer at the journey's point.
+ */
 async function hubRoomMembers(hubUrl: string, roomId: string): Promise<string[]> {
+  if (roomId === 'nearby-v3') {
+    const res = await fetch(`${hubUrl}/api/nearby/v3/introductions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ point: { latitude: 32.7157, longitude: -117.1611 } }),
+    }).catch(() => null);
+    if (!res?.ok) return [];
+    const body = await res.json().catch(() => ({})) as { cards?: Array<{ userId?: string }> };
+    return (body.cards ?? []).map((card) => String(card.userId || '')).filter(Boolean);
+  }
   const res = await fetch(`${hubUrl}/api/chatrooms/${encodeURIComponent(roomId)}/members`).catch(() => null);
   if (!res?.ok) return [];
   const body = await res.json().catch(() => ({})) as any;
@@ -189,7 +203,10 @@ export async function leaveJourney(alice: TestActor, bob: TestActor, options: { 
   await openCurrentRoom(bob.page);
   await expect(memberItem(bob.page, aliceId)).toHaveCount(0, { timeout: 45_000 });
   await expect.poll(() => roomHeadcount(bob.page), { timeout: 45_000, message: 'Bob\'s headcount did not drop' }).toBe(together - 1);
-  await expect.poll(() => hubRoomMembers(options.hubUrl, roomId), { timeout: 30_000 }).not.toContain(aliceId);
+  // A shared room's hub roster drops her at once. Nearby has none: the hub's introduction sample
+  // keeps her card until it expires (§3.7), and Bob's own list is what matters.
+  const personal = roomId === 'nearby-v3';
+  if (!personal) await expect.poll(() => hubRoomMembers(options.hubUrl, roomId), { timeout: 30_000 }).not.toContain(aliceId);
 
   // She comes back: Bob sees her again.
   await returnHome(alice.page);
@@ -202,7 +219,7 @@ export async function leaveJourney(alice: TestActor, bob: TestActor, options: { 
   // within about four minutes Bob's list, his headcount and the hub drop her.
   await options.closeAlice();
   const closedAt = Date.now();
-  await expect.poll(() => hubRoomMembers(options.hubUrl, roomId), { timeout: 240_000, intervals: [5_000] }).not.toContain(aliceId);
+  if (!personal) await expect.poll(() => hubRoomMembers(options.hubUrl, roomId), { timeout: 240_000, intervals: [5_000] }).not.toContain(aliceId);
   await expect.poll(async () => {
     await openCurrentRoom(bob.page);
     return memberItem(bob.page, aliceId).count();

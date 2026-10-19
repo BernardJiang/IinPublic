@@ -183,6 +183,7 @@ describe('WebChatroomService atomic room moves', () => {
       json: async () => ({ code: 'PLACE_RECONCILED_OUT', capacity: 2 }),
     }) as jest.Mock;
     const place = 'place_32.71_-117.17_abcdefabcdef';
+    service.membershipHeartbeatKey = `${place}:u`; // the heartbeat that sends this beat is live
 
     await service.syncMembershipHeartbeatWithServer(place, 'u', 'User', new Date().toISOString(), true);
 
@@ -196,6 +197,7 @@ describe('WebChatroomService atomic room moves', () => {
       status: 409,
       json: async () => ({ code: 'PLACE_ADMISSION_REQUIRED' }),
     }) as jest.Mock;
+    service.membershipHeartbeatKey = 'place_32.71_-117.17_abcdefabcdef:u';
 
     await service.syncMembershipHeartbeatWithServer(
       'place_32.71_-117.17_abcdefabcdef',

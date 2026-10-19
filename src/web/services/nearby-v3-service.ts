@@ -43,7 +43,7 @@ export type NearbyV3Position = { point: PublicLocation; traveler: boolean; scope
 
 export type NearbyV3ServiceDeps = {
   config: () => NearbyV3Config;
-  identity: () => { userId: string; pair: SeaSigningPair } | null;
+  identity: () => { userId: string; pair: SeaSigningPair; stageName?: string } | null;
   /** The public point to publish and the active scope; null publishes nothing (no point chosen yet). */
   position: () => NearbyV3Position | null;
   hub: NearbyV3Hub;
@@ -63,6 +63,8 @@ export const NEARBY_V3_STORAGE_KEY = 'iinpublic_nearby_v3_list_v1';
 const PAUSED_GOSSIP_FACTOR = 4;
 const SWAP_TIMEOUT_MS = 8_000;
 const MAX_VERIFIED_CACHE = 4_096;
+/** While the list is empty, ask the hub again after this long, doubling up to one gossip period. */
+const EMPTY_RETRY_MIN_MS = 5_000;
 
 export class NearbyV3Service {
   private list: NearbyList | null = null;
@@ -76,7 +78,12 @@ export class NearbyV3Service {
   private readonly counters = { swaps: 0, failedSwaps: 0, busy: 0, answered: 0 };
   private listCapacity = 0;
   private persistedSignature: string | null = null;
+  /** The last hub search found nobody: the next one that finds someone announces us. */
+  private searchedEmpty = false;
+  private emptyRetryMs = EMPTY_RETRY_MIN_MS;
   private readonly verified = new Map<string, boolean>();
+  /** People who did not answer, with the card they had: only a newer card brings them back. */
+  private readonly silent = new Map<string, number>();
   private readonly deps: NearbyV3ServiceDeps;
 
   constructor(deps: NearbyV3ServiceDeps) {
@@ -110,6 +117,11 @@ export class NearbyV3Service {
 
   /** A broadcast or swap to this person got no answer: drop them now. */
   reportUnreachable(pub: string): void {
+    const entry = this.list?.get(pub);
+    if (entry) {
+      this.silent.set(pub, entry.issuedAtMs);
+      if (this.silent.size > MAX_VERIFIED_CACHE) this.silent.delete(this.silent.keys().next().value as string);
+    }
     if (this.list?.remove(pub)) this.changed();
   }
 
@@ -178,7 +190,13 @@ export class NearbyV3Service {
   private async runTick(): Promise<void> {
     const position = this.deps.position();
     const identity = this.deps.identity();
-    if (!position || !identity) return;
+    if (!position || !identity) {
+      // Not in Nearby (in a Place, or no point chosen): publish nothing. Coming back searches again
+      // and announces with a newly signed card (people who found us silent take only a newer one).
+      this.searchedKey = '';
+      this.ownCard = null;
+      return;
+    }
     const config = this.deps.config();
     const nowMs = this.now();
     const list = this.ensureList();
@@ -190,6 +208,7 @@ export class NearbyV3Service {
       this.ownCard = await sign({
         userId: identity.userId,
         pair: identity.pair,
+        ...(identity.stageName ? { stageName: identity.stageName } : {}),
         point: position.point,
         traveler: position.traveler,
         scope: position.scope,
@@ -200,31 +219,39 @@ export class NearbyV3Service {
     }
 
     const searchKey = `${position.scope}|${position.point.latitude}|${position.point.longitude}`;
+    let announce = false;
     if (searchKey !== this.searchedKey || list.size === 0) {
       try {
         const cards = await this.deps.hub.introductions({ point: position.point, scope: position.scope, excludePub: identity.pair.pub });
+        // A newcomer (or someone who just moved) swaps with the nearest person at once, so the
+        // people around learn of them now rather than at their next period.
+        announce = searchKey !== this.searchedKey || this.searchedEmpty;
         this.searchedKey = searchKey;
         await this.ingest(cards);
+        this.searchedEmpty = list.size === 0;
       } catch (error) {
         this.log(`hub introductions failed: ${String(error)}`);
       }
     }
 
     const period = config.gossipPeriodMs * (this.deps.isPaused?.() ? PAUSED_GOSSIP_FACTOR : 1);
-    if (nowMs - this.lastGossipAt >= period) {
+    if (announce && list.size > 0) {
+      this.lastGossipAt = nowMs;
+      await this.gossipOnce(list.entries()[0]!.card);
+    } else if (nowMs - this.lastGossipAt >= period) {
       this.lastGossipAt = nowMs;
       await this.gossipOnce();
     }
     this.persist();
   }
 
-  private async gossipOnce(): Promise<void> {
+  private async gossipOnce(chosen?: NearbyCard): Promise<void> {
     const list = this.list;
     const own = this.ownCard;
     if (!list || !own || list.size === 0) return;
     const config = this.deps.config();
     const random = this.deps.random ?? Math.random;
-    const partner = list.entries()[Math.floor(random() * list.size)]!.card;
+    const partner = chosen ?? list.entries()[Math.floor(random() * list.size)]!.card;
     let answer: unknown;
     try {
       answer = await this.deps.link.request(partner, {
@@ -264,7 +291,14 @@ export class NearbyV3Service {
   private async ingest(cards: NearbyCard[]): Promise<void> {
     const list = this.list;
     if (!list || !cards.length) return;
-    const useful = list.useful(cards, this.now());
+    const fresh = cards.filter((card) => {
+      const silentSince = this.silent.get(card.pub);
+      if (silentSince === undefined) return true;
+      if (nearbyCardIssuedAtMs(card) <= silentSince) return false;
+      this.silent.delete(card.pub);
+      return true;
+    });
+    const useful = list.useful(fresh, this.now());
     const valid: NearbyCard[] = [];
     for (const card of useful) if (await this.isValid(card)) valid.push(card);
     if (!valid.length) return;
@@ -290,6 +324,7 @@ export class NearbyV3Service {
     const card = this.ownCard;
     if (!card) return true;
     return card.userId !== userId
+      || (card.stageName ?? '') !== (this.deps.identity()?.stageName ?? '')
       || card.scope !== position.scope
       || card.traveler !== position.traveler
       || card.point.latitude !== position.point.latitude
@@ -368,8 +403,15 @@ export class NearbyV3Service {
       this.timer = null;
       void this.tick().catch((error) => this.log(`tick failed: ${String(error)}`)).finally(() => {
         const config = this.deps.config();
+        const regular = Math.min(config.gossipPeriodMs, config.cardReissueMs);
+        if ((this.list?.size ?? 0) === 0) {
+          this.schedule(Math.min(regular, this.emptyRetryMs));
+          this.emptyRetryMs = Math.min(regular, this.emptyRetryMs * 2);
+          return;
+        }
+        this.emptyRetryMs = EMPTY_RETRY_MIN_MS;
         const jitter = (this.deps.random ?? Math.random)() * 0.2 * config.gossipPeriodMs;
-        this.schedule(Math.min(config.gossipPeriodMs, config.cardReissueMs) + jitter);
+        this.schedule(regular + jitter);
       });
     }, delayMs);
     (this.timer as { unref?: () => void }).unref?.();

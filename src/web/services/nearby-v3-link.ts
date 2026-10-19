@@ -23,7 +23,7 @@ export type NearbyV3MeshPort = {
     timeoutMs: number,
     options?: { expectReply?: boolean },
   ): Promise<Record<string, unknown> | null>;
-  pinPeer(userId: string, pub: string, ttlMs: number): void;
+  pinPeer(userId: string, pub: string, ttlMs: number, options?: { fromKnock?: boolean }): void;
   isPinned(userId: string): boolean;
 };
 
@@ -78,7 +78,7 @@ export class NearbyKnockGate {
     const known = this.accepted.has(knock.fromUserId) || this.deps.mesh.isPinned(knock.fromUserId);
     if (!known && this.accepted.size >= this.deps.incomingLimit()) return 'busy';
     this.accepted.set(knock.fromUserId, nowMs + NEARBY_KNOCK_PIN_MS);
-    this.deps.mesh.pinPeer(knock.fromUserId, knock.fromPub, NEARBY_KNOCK_PIN_MS);
+    this.deps.mesh.pinPeer(knock.fromUserId, knock.fromPub, NEARBY_KNOCK_PIN_MS, { fromKnock: true });
     if (knock.card) this.deps.onCard?.(knock.card);
     return known ? 'refreshed' : 'accepted';
   }

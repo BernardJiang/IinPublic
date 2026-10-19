@@ -156,6 +156,9 @@ test.describe('Place refusals and expiry on the phone route', () => {
     await returnHome(bob.page);
     await returnHome(alice.page);
     await waitForRoomRow(bob.page, placeId);
+    // Let the visit end at the hub first: a heartbeat sent just before leaving can reach the hub
+    // after a backdate and count as a visit (it is one).
+    await expect.poll(() => hubRoomMembers(request, placeId), { timeout: 30_000 }).toEqual([]);
 
     // 31 days pass with nobody visiting.
     await backdatePlace(request, placeId, 31);

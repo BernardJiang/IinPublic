@@ -61,6 +61,15 @@ describe('Nearby v3 hub', () => {
     expect(hub.online(start + 2 * window + 1)).toBe(0);
   });
 
+  it('stops introducing a phone that missed two heartbeats, although its card is still valid', () => {
+    const hub = new NearbyV3Hub(config(), NOW);
+    hub.ingest(card('a', SD), NOW);
+    const later = NOW + 2 * NEARBY_V3_DEFAULTS.cardReissueMs + 1;
+    expect(later).toBeLessThan(NOW + NEARBY_V3_DEFAULTS.cardLifetimeMs);
+    expect(hub.introductions({ point: SD, now: new Date(NOW + 1) }).cards).toHaveLength(1);
+    expect(hub.introductions({ point: SD, now: new Date(later) }).cards).toHaveLength(0);
+  });
+
   it('keeps a bounded sample per cell and introduces a newcomer to the nearest crowd', () => {
     const hub = new NearbyV3Hub(config({ capacity: 20, hubCellSample: 8 }), NOW);
     for (let i = 0; i < 30; i += 1) hub.ingest(card(`sd${i}`, SD), NOW);

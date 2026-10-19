@@ -2,32 +2,16 @@ import type { NearbyCard } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import type { PublicLocation } from '../../shared/public-location';
-import { GunNearbyKnockChannel, NearbyKnockGate, NearbyV3MeshLink } from './nearby-v3-link';
-import { NearbyV3Service, type NearbyV3Hub } from './nearby-v3-service';
-import { PeerMeshService } from './peer-mesh-service';
-import type { WebGunService } from './web-gun-service';
-import type { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import type { NearbyListEntry } from '../../shared/nearby-v3-list';
+import { GunNearbyKnockChannel, NearbyKnockGate, NearbyV3MeshLink, type NearbyV3MeshPort } from './nearby-v3-link';
+import { NearbyV3Service, type NearbyV3Hub } from './nearby-v3-service';
+import type { WebGunService } from './web-gun-service';
 
 /**
- * Nearby v3 on one device (§3.7): the personal list, its own mesh (room id `nearby-v3`, links only
- * to pinned peers), knocks in and out, and the hub client. Phase 2 runs it next to the v2 room so
- * gossip can be measured on phones; Talks still go through the v2 room until phase 3.
- *
- * Switched on with `?nearby_v3=1` or localStorage `iinpublic_nearby_v3 = "1"`.
+ * Nearby on one device (§3.7): the personal list, knocks in and out, and the hub client. The app's
+ * own mesh carries gossip and Talks; while Nearby is active it runs in personal mode with the list
+ * as its roster (`NEARBY_V3_ROOM_ID`).
  */
-export const NEARBY_V3_ROOM_ID = 'nearby-v3';
-export const NEARBY_V3_FLAG_KEY = 'iinpublic_nearby_v3';
-
-export function isNearbyV3Enabled(): boolean {
-  try {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('nearby_v3') === '1') return true;
-    return typeof localStorage !== 'undefined' && localStorage.getItem(NEARBY_V3_FLAG_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
 export class FetchNearbyV3Hub implements NearbyV3Hub {
   constructor(private readonly apiBase: () => string) {}
 
@@ -62,81 +46,67 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
   }
 }
 
+export type NearbyV3RosterMember = { userId: string; stageName: string; pub: string; isTraveler: boolean };
+
 export type NearbyV3RuntimeDeps = {
   gunService: WebGunService;
+  mesh: NearbyV3MeshPort;
   apiBase: () => string;
   userId: string;
-  stageName: string;
+  stageName: () => string;
   config: () => NearbyV3Config;
   position: () => { point: PublicLocation; traveler: boolean } | null;
-  isBlocked: (userId: string) => boolean;
   isPaused?: () => boolean;
-  protocolManifestController?: ProtocolManifestController;
-  onChange?: (entries: readonly NearbyListEntry[]) => void;
+  /** The list changed: it is the Nearby roster. */
+  onRoster: (members: NearbyV3RosterMember[], entries: readonly NearbyListEntry[]) => void;
 };
 
 export class NearbyV3Runtime {
-  readonly mesh: PeerMeshService;
   readonly service: NearbyV3Service;
   readonly hub: FetchNearbyV3Hub;
+  private readonly knocks: GunNearbyKnockChannel;
+  private readonly gate: NearbyKnockGate;
   private stopKnocks: (() => void) | null = null;
 
-  constructor(deps: NearbyV3RuntimeDeps) {
+  constructor(private readonly deps: NearbyV3RuntimeDeps) {
     this.hub = new FetchNearbyV3Hub(deps.apiBase);
-    const knocks = new GunNearbyKnockChannel(deps.gunService.getGun() as never);
-    const pair = () => deps.gunService.getStoredPair() as SeaSigningPair | null;
-    this.mesh = new PeerMeshService(deps.gunService, {
-      apiBase: deps.apiBase(),
-      localUserId: deps.userId,
-      localStageName: deps.stageName,
-      personalRoster: true,
-      maxNeighbors: 16,
-      ...(deps.protocolManifestController ? { protocolManifestController: deps.protocolManifestController } : {}),
-      isPeerExchangeAllowed: (userId) => !deps.isBlocked(userId),
-      knockPeer: async (peer) => {
-        const local = pair();
-        if (!local?.pub || !local.priv || deps.isBlocked(peer.userId)) return;
-        await knocks.send({ fromUserId: deps.userId, pair: local, toPub: peer.pub, card: this.service.card() });
-      },
-      onNearbyGossip: (fromUserId, fromPub, message) =>
-        (deps.isBlocked(fromUserId) ? Promise.resolve(null) : this.service.handleMessage(fromPub, message)),
-    });
+    this.knocks = new GunNearbyKnockChannel(deps.gunService.getGun() as never);
     this.service = new NearbyV3Service({
       config: deps.config,
       identity: () => {
-        const local = pair();
-        return local?.pub && local.priv ? { userId: deps.userId, pair: local } : null;
+        const local = this.pair();
+        return local?.pub && local.priv ? { userId: deps.userId, pair: local, stageName: deps.stageName() } : null;
       },
       position: () => {
         const position = deps.position();
         return position ? { ...position, scope: 'nearby' } : null;
       },
       hub: this.hub,
-      link: new NearbyV3MeshLink(this.mesh),
+      link: new NearbyV3MeshLink(deps.mesh),
       storage: typeof localStorage !== 'undefined' ? localStorage : null,
       ...(deps.isPaused ? { isPaused: deps.isPaused } : {}),
       onChange: (entries) => {
-        // The mesh roster is the list itself; links still open only on demand.
-        void this.mesh.joinRoom(NEARBY_V3_ROOM_ID, entries.map((entry) => ({
+        deps.onRoster(entries.map((entry) => ({
           userId: entry.card.userId,
-          stageName: entry.card.userId,
+          stageName: entry.card.stageName || entry.card.userId,
           pub: entry.card.pub,
-        })), { replace: true });
-        deps.onChange?.(entries);
+          isTraveler: entry.card.traveler,
+        })), entries);
       },
     });
-    const gate = new NearbyKnockGate({
-      localPub: () => pair()?.pub ?? null,
-      mesh: this.mesh,
+    // A block stops Talks (filtered on both sides), never card gossip or knocks: if a blocked
+    // person's swaps failed, the blocker would vanish from their list at the moment of the block
+    // and give himself away (Settings → Credit: Eve can guess, not prove).
+    this.gate = new NearbyKnockGate({
+      localPub: () => this.pair()?.pub ?? null,
+      mesh: deps.mesh,
       incomingLimit: () => deps.config().incomingConnections,
-      isBlocked: deps.isBlocked,
     });
-    const localPub = pair()?.pub;
-    if (localPub) this.stopKnocks = knocks.listen(localPub, (knock) => { void gate.receive(knock); });
   }
 
-  async start(): Promise<void> {
-    await this.mesh.joinRoom(NEARBY_V3_ROOM_ID, [], { replace: true });
+  start(): void {
+    const localPub = this.pair()?.pub;
+    if (localPub && !this.stopKnocks) this.stopKnocks = this.knocks.listen(localPub, (knock) => { void this.gate.receive(knock); });
     this.service.start();
   }
 
@@ -144,7 +114,6 @@ export class NearbyV3Runtime {
     this.service.stop();
     this.stopKnocks?.();
     this.stopKnocks = null;
-    this.mesh.leaveRoom();
   }
 
   /** The public point changed (moved, traveled, privacy setting). */
@@ -152,12 +121,32 @@ export class NearbyV3Runtime {
     void this.service.refresh().catch(() => undefined);
   }
 
+  /** Mesh hook: ask this peer to open their side of our link. */
+  async knock(peer: { userId: string; pub: string }): Promise<void> {
+    const local = this.pair();
+    if (!local?.pub || !local.priv) return;
+    await this.knocks.send({ fromUserId: this.deps.userId, pair: local, toPub: peer.pub, card: this.service.card() });
+  }
+
+  /** Mesh hook: a gossip message from a direct neighbor. */
+  handleGossip(_fromUserId: string, fromPub: string, message: Record<string, unknown>): Promise<unknown> {
+    return this.service.handleMessage(fromPub, message);
+  }
+
+  /** Mesh hook: nobody answered on this person's link; they leave the list. */
+  unreachable(pub: string): void {
+    this.service.reportUnreachable(pub);
+  }
+
   diagnostics(): Record<string, unknown> {
     return {
       list: this.service.entries().map((entry) => ({ userId: entry.card.userId, distanceMeters: entry.key.distanceMeters })),
       card: this.service.card()?.issuedAt ?? null,
       stats: this.service.stats(),
-      mesh: this.mesh.getDiagnostics(),
     };
+  }
+
+  private pair(): SeaSigningPair | null {
+    return this.deps.gunService.getStoredPair() as SeaSigningPair | null;
   }
 }

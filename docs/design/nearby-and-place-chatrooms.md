@@ -550,7 +550,9 @@ travel. Travel lands in your own lane.
 ### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, being implemented)
 
 Status: **accepted** by the product owner on 2026-10-19, including retiring the yellow map dots and
-Nearby room chat. Implementation is in progress (plan below). It needs a new protocol epoch. Simulated in `docs/testing/nearby-gossip-experiment.md`. Tracking: `OPEN-70`.
+Nearby room chat. Implementation is in progress (plan below). There is no official release yet,
+so v3 replaces v2 outright: no protocol epoch, no compatibility with v2 phones, and the v2 code is
+removed (product owner, 2026-10-19). Simulated in `docs/testing/nearby-gossip-experiment.md`. Tracking: `OPEN-70`.
 When implemented it replaces §3 to §3.3 and the Nearby parts of §3.6. Places (§4) stay rooms, with
 the changes in "Places in v3" below.
 
@@ -868,19 +870,28 @@ real-phone run.
      the list, the incoming limit, the list saved across restarts. Not wired into the app yet.
    - Tests: `nearby-v3-core`, `nearby-v3-hub` (includes 300 people converging on the real modules)
      and `nearby-v3-service`.
-2. **Peer link.** A person on my list can reach me even when I am not on theirs: a signed "knock"
-   on my own signalling channel asks me to open the pair's session, subject to my incoming limit and
-   block list. Gossip messages ride the mesh DataChannel.
-3. **Broadcast loop.** The mesh's Nearby audience becomes the list (no shared room id): Talks queue
-   per person in list order, connections open with adaptive concurrency and close when done, and
-   the UI shows "Sent to N of M".
+2. **Peer link — done (2026-10-19).** A person on my list can reach me even when I am not on
+   theirs: a signed knock (`nearby-v3-knock.ts`) on my own signalling channel asks me to open the
+   pair's link, subject to my incoming limit (`NearbyKnockGate`). A block stops Talks only (both
+   sides filter them), never card gossip or knocks: otherwise the blocker would vanish from the
+   blocked person's list at the moment of the block and give himself away. Gossip rides the
+   mesh as one-hop `nearby-gossip` frames. Journey `phone-path/08`.
+3. **Broadcast loop and the app's Nearby (in progress).** Nearby is the local scope
+   `NEARBY_V3_ROOM_ID` (`nearby-v3`): its members are my list, the hub keeps no roster for it, and
+   it has no chat. The app's mesh runs in personal mode there: links open only to pinned peers and
+   to people with queued Talks, in list order, as many at a time as the adaptive limit allows
+   (grows per delivered Talk, halves on a failed link); a link knocks when it opens; a person
+   whose link fails twice after the knock grace leaves the list. A newcomer swaps with the nearest
+   person at once, and an empty list asks the hub again every 5 s, doubling. Still to do:
+   "Sent to N of M".
 4. **UI.** Map: green dots for my list, ★ for me, the heat layer from `GET /api/nearby/v3/stats`;
    the yellow dots go. List: "People near you" and "Show more people here". Headcounts:
    "N near you · M online". Nearby room chat goes.
 5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, chat kept for Places;
    seat claims and cohorts go.
-6. **Epoch switch and removal of v2.** A manifest with the v3 capability, then removing the
-   partition lineage, cohort control plane, map presence and the Nearby part of active rooms.
+6. **Removal of v2** (no epoch switch, no compatibility): the partition lineage, cohort control
+   plane, control presence, capacity splits and evictions, tiles and routing, map presence and the
+   Nearby part of active rooms, with their tests.
 
 Still open from earlier phases: the daily beacon is the UTC date until the manifest carries an
 unpredictable one, and the identity-age rule needs the hub's account creation time.

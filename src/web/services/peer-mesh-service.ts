@@ -167,6 +167,13 @@ type PeerMeshServiceOptions = {
   personalRoster?: boolean;
   /** Ask a peer to open the pair's session to us (they may not have us on their list). */
   knockPeer?: (peer: { userId: string; pub: string }) => Promise<void>;
+  /**
+   * Nearby v3 broadcast loop: how many people with queued Talks get a link at once. Starts at
+   * `initial`, grows by one per delivered Talk up to `max`, halves when a link cannot be opened.
+   */
+  personalConcurrency?: () => { initial: number; max: number };
+  /** Nearby v3: a link to this person could not be opened twice in a row; they leave the list. */
+  onPersonalPeerUnreachable?: (userId: string, pub: string) => void;
   /** A Nearby v3 gossip message from a direct neighbor; the returned message is sent back. */
   onNearbyGossip?: (fromUserId: string, fromPub: string, message: Record<string, unknown>) => Promise<unknown>;
 };
@@ -202,6 +209,8 @@ const DEFAULT_MESH_ACK_TIMEOUT_MS = 3_000;
  */
 const MESH_BROADCAST_FLOOD_ATTEMPTS = 3;
 const DEFAULT_DIRECT_ROTATION_INTERVAL_MS = 30_000;
+/** Nearby v3: a new link may fail to connect for this long while the other side answers the knock. */
+const PERSONAL_CONNECT_GRACE_MS = 8_000;
 const DIRECT_DELIVERY_RETRY_INTERVAL_MS = 5_000;
 
 /**
@@ -331,6 +340,15 @@ export class PeerMeshService {
   /** Nearby v3: peers a link must open to now, until the given time. */
   private readonly pinnedPeers = new Map<string, { pub: string; until: number }>();
   private readonly gossipWaiters = new Map<string, (message: Record<string, unknown>) => void>();
+  /** The current room is a personal list (Nearby v3) rather than a shared room. */
+  private personalMode = false;
+  private personalLimit: number | null = null;
+  private readonly lastKnockAt = new Map<string, number>();
+  private readonly connectFailures = new Map<string, number>();
+  /** When each personal link was created: the other side opens only after our knock lands. */
+  private readonly personalLinkOpenedAt = new Map<string, number>();
+  /** Peers whose own knock pinned them: they already opened their side, no knock back needed. */
+  private readonly knockedBy = new Set<string>();
 
   constructor(
     private readonly gunService: WebGunService,
@@ -446,8 +464,48 @@ export class PeerMeshService {
    * Nearby v3: keep a link open to this peer until `ttlMs` from now, whether or not they are on the
    * roster (a gossip partner, someone who knocked). The link closes once the pin expires.
    */
-  pinPeer(userId: string, pub: string, ttlMs: number): void {
+  private isPersonal(): boolean {
+    return this.personalMode || this.opts.personalRoster === true;
+  }
+
+  private personalConcurrencyLimit(): number {
+    const bounds = this.opts.personalConcurrency?.() ?? { initial: 4, max: 16 };
+    this.personalLimit ??= bounds.initial;
+    this.personalLimit = Math.max(1, Math.min(bounds.max, this.personalLimit));
+    return this.personalLimit;
+  }
+
+  private adjustPersonalConcurrency(delivered: boolean): void {
+    if (!this.isPersonal()) return;
+    const bounds = this.opts.personalConcurrency?.() ?? { initial: 4, max: 16 };
+    const current = this.personalLimit ?? bounds.initial;
+    this.personalLimit = delivered ? Math.min(bounds.max, current + 1) : Math.max(1, Math.floor(current / 2));
+  }
+
+  /** Personal mode: ask the peer to open their side, at most once per 10 s per peer. */
+  private knockIfPersonal(neighbor: { userId: string; pub: string }): void {
+    if (!this.isPersonal() || !this.opts.knockPeer || this.knockedBy.has(neighbor.userId)) return;
+    const nowMs = Date.now();
+    if (nowMs - (this.lastKnockAt.get(neighbor.userId) ?? 0) < 10_000) return;
+    this.lastKnockAt.set(neighbor.userId, nowMs);
+    void this.opts.knockPeer({ userId: neighbor.userId, pub: neighbor.pub }).catch(() => undefined);
+  }
+
+  /** Talks queued in the outbox per recipient for the current room. */
+  private pendingRecipients(): Set<string> {
+    const pending = new Set<string>();
+    for (const key of this.queuedDirectTalks) pending.add(key.slice(0, key.indexOf('|')));
+    return pending;
+  }
+
+  /** How many people the Nearby v3 broadcast loop links to at once now. */
+  getPersonalConcurrency(): number {
+    return this.personalConcurrencyLimit();
+  }
+
+  pinPeer(userId: string, pub: string, ttlMs: number, options: { fromKnock?: boolean } = {}): void {
     if (!userId || !pub || userId === this.opts.localUserId) return;
+    if (options.fromKnock) this.knockedBy.add(userId);
     const until = (this.opts.now?.() ?? Date.now()) + Math.max(0, ttlMs);
     const existing = this.pinnedPeers.get(userId);
     this.pinnedPeers.set(userId, { pub, until: Math.max(until, existing?.until ?? 0) });
@@ -480,14 +538,8 @@ export class PeerMeshService {
     if (!this.currentRoomId) return null;
     const expectReply = options.expectReply !== false;
     const deadline = Date.now() + timeoutMs;
-    const existing = this.neighbors.get(peer.userId);
-    const linkUp = !!existing && isNeighborLive(existing);
     this.pinPeer(peer.userId, peer.pub, timeoutMs + 30_000);
-    const knock = linkUp ? undefined : this.opts.knockPeer?.(peer).catch(() => undefined);
-    if (!(await this.waitForConnectedNeighbor(peer.userId, Math.max(0, deadline - Date.now())))) {
-      await knock;
-      return null;
-    }
+    if (!(await this.waitForConnectedNeighbor(peer.userId, Math.max(0, deadline - Date.now())))) return null;
     while (this.protocolManifestController && !this.manifestReadyPeerIds.has(peer.userId)) {
       if (Date.now() >= deadline) return null;
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -528,11 +580,16 @@ export class PeerMeshService {
    * For v1 keeps deterministic `localeCompare` sort (reproducible E2E).
    */
   private selectNeighbors(members: RoomMember[], K: number): RoomMember[] {
-    if (this.opts.personalRoster) {
-      // Nearby v3: only peers with a reason to talk now. Newest pin first.
-      const pins = [...this.pinnedPeers.entries()].sort((a, b) => b[1].until - a[1].until).map(([userId]) => userId);
+    if (this.isPersonal()) {
+      // Nearby v3: only peers with a reason to talk now. Pinned peers (a swap, a knock) first, then
+      // the broadcast loop: people with queued Talks, in list order, as many as the adaptive limit.
       const byId = new Map(members.map((member) => [member.userId, member]));
-      return pins.map((userId) => byId.get(userId)).filter((member): member is RoomMember => !!member).slice(0, K);
+      const pins = [...this.pinnedPeers.entries()].sort((a, b) => b[1].until - a[1].until).map(([userId]) => userId);
+      const pending = this.pendingRecipients();
+      const loop = [...this.currentRoomMembers.keys()].filter((userId) => pending.has(userId) && !this.pinnedPeers.has(userId))
+        .slice(0, this.personalConcurrencyLimit());
+      return [...pins, ...loop].map((userId) => byId.get(userId)).filter((member): member is RoomMember => !!member)
+        .slice(0, Math.max(K, pins.length + loop.length));
     }
     const selectWindow = (values: RoomMember[], limit: number): RoomMember[] => {
       if (limit <= 0) return [];
@@ -571,7 +628,12 @@ export class PeerMeshService {
     return this.queuedDirectTalks.has(`${recipientUserId}|${talkId}`);
   }
 
-  async joinRoom(roomId: string, members: RoomMember[], options: { replace?: boolean } = {}): Promise<void> {
+  async joinRoom(
+    roomId: string,
+    members: RoomMember[],
+    options: { replace?: boolean; personal?: boolean } = {},
+  ): Promise<void> {
+    if (options.personal !== undefined) this.personalMode = options.personal;
     const wasInactive = this.currentRoomId === null;
     const roomChanged = this.currentRoomId !== null && this.currentRoomId !== roomId;
     if (roomChanged) {
@@ -587,6 +649,9 @@ export class PeerMeshService {
       this.cachedBootstrapPeerIds.clear();
       this.localPeerExchangeRecord = null;
       this.peerExchangeLoadedRoomId = null;
+      this.pinnedPeers.clear();
+      this.knockedBy.clear();
+      this.connectFailures.clear();
     }
     this.currentRoomId = roomId;
     const remoteMembers = members.filter(
@@ -672,13 +737,15 @@ export class PeerMeshService {
   private async runNeighborReconcile(roomId: string): Promise<void> {
     if (this.currentRoomId !== roomId) return;
     const local = this.localIdentity();
-    const maxNeighbors = this.neighborLimit();
+    // A personal list links only to peers with a reason (pins, the loop); the loop bounds itself.
+    const maxNeighbors = this.isPersonal() ? 256 : this.neighborLimit();
     const mergedMembers = new Map<string, RoomMember>(this.currentRoomMembers);
-    if (this.opts.personalRoster) {
+    if (this.isPersonal()) {
       const nowMs = this.opts.now?.() ?? Date.now();
       for (const [userId, pin] of this.pinnedPeers) {
         if (pin.until <= nowMs) {
           this.pinnedPeers.delete(userId);
+          this.knockedBy.delete(userId);
           continue;
         }
         const member = mergedMembers.get(userId);
@@ -774,6 +841,8 @@ export class PeerMeshService {
       this.manifestRejectedPeerIds.delete(member.userId);
       this.neighbors.set(member.userId, neighbor);
       session.setOnRemoteMeshFrame((otherUserId, frame) => this.handleRemoteFrame(otherUserId, frame));
+      this.personalLinkOpenedAt.set(member.userId, Date.now());
+      this.knockIfPersonal(neighbor);
       this.connectNeighbor(neighbor);
     }));
     if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
@@ -816,12 +885,30 @@ export class PeerMeshService {
         const newlyConnected = !neighbor.connected;
         if (newlyConnected) console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} connected (${Date.now() - startedAt} ms this attempt)`);
         neighbor.connected = true;
+        this.connectFailures.delete(neighbor.userId);
         void this.sendProtocolManifestSummary(neighbor);
         if (newlyConnected) this.notifyNeighborConnected(neighbor.userId);
         if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
       })
       .catch(() => {
         neighbor.connected = false;
+        const inGrace = Date.now() - (this.personalLinkOpenedAt.get(neighbor.userId) ?? 0) < PERSONAL_CONNECT_GRACE_MS;
+        if (this.isPersonal() && (inGrace || this.knockedBy.has(neighbor.userId))) {
+          // Still waiting for the other side to answer our knock, or they knocked us: not a failure.
+          this.knockIfPersonal(neighbor);
+        } else if (this.isPersonal() && this.neighbors.get(neighbor.userId) === neighbor) {
+          const failures = (this.connectFailures.get(neighbor.userId) ?? 0) + 1;
+          this.connectFailures.set(neighbor.userId, failures);
+          this.adjustPersonalConcurrency(false);
+          if (failures >= 2) {
+            // Nobody answers there: the person leaves the list, and their link and pin go.
+            this.connectFailures.delete(neighbor.userId);
+            this.pinnedPeers.delete(neighbor.userId);
+            this.opts.onPersonalPeerUnreachable?.(neighbor.userId, neighbor.pub);
+          } else {
+            this.knockIfPersonal(neighbor);
+          }
+        }
         this.scheduleReconcile(500);
       });
   }
@@ -864,6 +951,8 @@ export class PeerMeshService {
     this.localPeerExchangeRecord = null;
     this.peerExchangeLoadedRoomId = null;
     this.pinnedPeers.clear();
+    this.knockedBy.clear();
+    this.connectFailures.clear();
     for (const resolve of [...this.gossipWaiters.values()]) resolve({});
     this.gossipWaiters.clear();
   }
@@ -1179,6 +1268,8 @@ export class PeerMeshService {
       if (roomId === this.currentRoomId) {
         for (const entry of queued) this.queuedDirectTalks.add(`${entry.recipientUserId}|${entry.talkId}`);
       }
+      // Nearby v3: links open only for people with queued Talks, so open the loop's first batch.
+      if (this.isPersonal()) await this.reconcileNeighbors();
       await this.flushDirectTalkOutbox();
       const remaining = new Set((await this.directTalkOutbox.list(roomId)).map((entry) => entry.key));
       if (this.opts.onDirectDeliveryPending) {
@@ -2171,6 +2262,7 @@ export class PeerMeshService {
         const acks = await this.sendAndWaitForAcks(frame, [entry.recipientUserId]);
         if (!acks.has(entry.recipientUserId)) return;
         acknowledged.add(entry.recipientUserId);
+        this.adjustPersonalConcurrency(true);
         await this.completeDirectTalkDelivery(entry.payload, entry.recipientUserId);
       } catch (error) {
         console.warn('[direct-talk] queued delivery attempt failed:', error);

@@ -134,6 +134,25 @@ describe('NearbyV3Service', () => {
     expect(p0.service.entries()).toHaveLength(0);
   });
 
+  it('does not take back a person who stopped answering until they sign a newer card', async () => {
+    const cfg = config({ capacity: 1 });
+    const net = network(cfg, [SD, SD]);
+    for (const phone of net.phones.values()) await phone.service.tick();
+    const p0 = net.phones.get('p0')!;
+    net.phones.get('p1')!.online = false;
+    await net.round();
+    expect(p0.service.entries()).toHaveLength(0);
+    // The hub still has p1's card (within two reissue periods): p0's empty list asks again.
+    await p0.service.tick();
+    expect(p0.service.entries()).toHaveLength(0);
+    // p1 comes back and signs a new card: p0 takes it.
+    net.phones.get('p1')!.online = true;
+    net.advance(cfg.cardReissueMs);
+    await net.phones.get('p1')!.service.tick();
+    await p0.service.tick();
+    expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+  });
+
   it('answers "busy" past its incoming limit', async () => {
     const net = network(config({ incomingConnections: 1 }), [SD, SD]);
     for (const phone of net.phones.values()) await phone.service.tick();

@@ -335,3 +335,19 @@ export function isNearbyRoomId(value: string | null | undefined): boolean {
 export function isLocalOnlyRoomScope(value: string | null | undefined): boolean {
   return value === CONTACTS_ONLY_SCOPE_ID;
 }
+
+/**
+ * Nearby v3 (docs/design/nearby-and-place-chatrooms.md §3.7): Nearby is no longer a shared room.
+ * This one local id stands for "my personal nearby list": its members are my list, the hub keeps no
+ * roster for it, and it has no chat feed.
+ */
+export const NEARBY_V3_ROOM_ID = 'nearby-v3';
+
+export function isPersonalNearbyRoomId(value: string | null | undefined): boolean {
+  return value === NEARBY_V3_ROOM_ID;
+}
+
+/** Scopes with no hub roster, membership writes or chat: Contacts only and the personal list. */
+export function hasNoHubRoster(value: string | null | undefined): boolean {
+  return isLocalOnlyRoomScope(value) || isPersonalNearbyRoomId(value);
+}

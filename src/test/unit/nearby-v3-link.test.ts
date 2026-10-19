@@ -160,3 +160,54 @@ describe('Nearby v3 swap over the mesh with one-sided lists', () => {
     eve!.mesh.leaveRoom();
   });
 });
+
+describe('Nearby v3 broadcast loop', () => {
+  it('delivers a Talk to everyone on the list, opening links a few at a time, although nobody lists the sender', async () => {
+    const net = fakeNetwork();
+    const names = ['adam', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6'];
+    const pairs = Object.fromEntries(await Promise.all(names.map(async (name) => [name, await SEA.pair() as SeaSigningPair])));
+    const privateStore = () => {
+      const values = new Map<string, unknown>();
+      return { getPrivate: async (key: string) => values.get(key) ?? null, putPrivate: async (key: string, value: unknown) => { values.set(key, value); } };
+    };
+    const meshes: Record<string, PeerMeshService> = {};
+    const gates: Record<string, NearbyKnockGate> = {};
+    const delivered: string[] = [];
+    let mostLinks = 0;
+    for (const name of names) {
+      const pair = pairs[name]!;
+      const gun = { getStoredPair: () => pair, getPublicUser: async () => undefined, ...privateStore() } as unknown as WebGunService;
+      meshes[name] = new PeerMeshService(gun, {
+        apiBase: 'http://127.0.0.1:1',
+        localUserId: name,
+        localStageName: name,
+        ackTimeoutMs: 2_000,
+        authoritativeDirectTalkDelivery: true,
+        personalConcurrency: () => ({ initial: 2, max: 3 }),
+        createSession: net.createSession as never,
+        knockPeer: async (peer) => {
+          await gates[peer.userId]!.receive(await createNearbyKnock({ fromUserId: name, pair, toPub: peer.pub, card: null }));
+        },
+        onTalkBody: (body) => { delivered.push(name); expect(body.talkId).toBe('loop-talk'); },
+      });
+      gates[name] = new NearbyKnockGate({ localPub: () => pair.pub, mesh: meshes[name]!, incomingLimit: () => 8 });
+    }
+    // Adam's list holds the six; each receiver's own list is empty (one-sided).
+    const list = names.slice(1).map((name) => ({ userId: name, stageName: name, pub: pairs[name]!.pub }));
+    await meshes.adam!.joinRoom('nearby-v3', list, { replace: true, personal: true });
+    for (const name of names.slice(1)) await meshes[name]!.joinRoom('nearby-v3', [], { replace: true, personal: true });
+    const watch = setInterval(() => { mostLinks = Math.max(mostLinks, meshes.adam!.getDiagnostics().neighborCount); }, 5);
+
+    await meshes.adam!.broadcastTalk({ id: 'loop-talk', authorId: 'adam', title: 'Loop', type: 'tag', questions: [] }, { roomBroadcast: true });
+    const deadline = Date.now() + 10_000;
+    while (delivered.length < 6 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    clearInterval(watch);
+    expect([...delivered].sort()).toEqual(names.slice(1));
+    expect(mostLinks).toBeLessThanOrEqual(3);
+    expect(meshes.adam!.getPersonalConcurrency()).toBe(3);
+    for (const mesh of Object.values(meshes)) mesh.leaveRoom();
+  }, 20_000);
+});
+
