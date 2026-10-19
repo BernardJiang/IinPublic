@@ -12,6 +12,7 @@ import {
   isP2PMeshTalkRetractedPayload,
   isP2PNearbyCohortPeerSyncPayload,
   isP2PPeerExchangePayload,
+  isP2PNearbyGossipPayload,
   isProtocolManifestControlKind,
   p2pMeshFrameSigningPayload,
   type P2PMeshFrame,
@@ -24,6 +25,7 @@ import {
   type P2PMeshTalkBodyRequestPayload,
   type P2PMeshTalkResponsePayload,
   type P2PMeshTalkRetractedPayload,
+  type P2PNearbyGossipPayload,
 } from '../../shared/p2p-mesh-protocol';
 import type { NearbyCohortPeerSyncPayload } from '../../shared/nearby-cohort-peer-sync';
 import type { ProtocolManifestCompatibility } from '../../shared/protocol-manifest';
@@ -158,6 +160,15 @@ type PeerMeshServiceOptions = {
   peerExchangeCache?: PeerExchangeCacheStore;
   /** Blocked identities never enter PEX, its cache, or the active candidate set. */
   isPeerExchangeAllowed?: (userId: string) => boolean;
+  /**
+   * Nearby v3 (§3.7): the roster is this phone's own nearby list, not a shared room. Links open only
+   * to pinned peers (a gossip partner, someone who knocked), never to a rotating K of the roster.
+   */
+  personalRoster?: boolean;
+  /** Ask a peer to open the pair's session to us (they may not have us on their list). */
+  knockPeer?: (peer: { userId: string; pub: string }) => Promise<void>;
+  /** A Nearby v3 gossip message from a direct neighbor; the returned message is sent back. */
+  onNearbyGossip?: (fromUserId: string, fromPub: string, message: Record<string, unknown>) => Promise<unknown>;
 };
 
 type Neighbor = {
@@ -317,6 +328,9 @@ export class PeerMeshService {
   private localPeerExchangeRecord: PeerExchangeRecord | null = null;
   private peerExchangeLoadedRoomId: string | null = null;
   private peerExchangeSave: Promise<void> = Promise.resolve();
+  /** Nearby v3: peers a link must open to now, until the given time. */
+  private readonly pinnedPeers = new Map<string, { pub: string; until: number }>();
+  private readonly gossipWaiters = new Map<string, (message: Record<string, unknown>) => void>();
 
   constructor(
     private readonly gunService: WebGunService,
@@ -429,11 +443,97 @@ export class PeerMeshService {
   }
 
   /**
+   * Nearby v3: keep a link open to this peer until `ttlMs` from now, whether or not they are on the
+   * roster (a gossip partner, someone who knocked). The link closes once the pin expires.
+   */
+  pinPeer(userId: string, pub: string, ttlMs: number): void {
+    if (!userId || !pub || userId === this.opts.localUserId) return;
+    const until = (this.opts.now?.() ?? Date.now()) + Math.max(0, ttlMs);
+    const existing = this.pinnedPeers.get(userId);
+    this.pinnedPeers.set(userId, { pub, until: Math.max(until, existing?.until ?? 0) });
+    this.knownPeerPubs.set(userId, pub);
+    if (!this.currentRoomId) return;
+    void this.reconcileNeighbors().then(() => this.scheduleReconcile()).catch(() => undefined);
+  }
+
+  unpinPeer(userId: string): void {
+    if (!this.pinnedPeers.delete(userId) || !this.currentRoomId) return;
+    void this.reconcileNeighbors().catch(() => undefined);
+  }
+
+  isPinned(userId: string): boolean {
+    const pin = this.pinnedPeers.get(userId);
+    return !!pin && pin.until > (this.opts.now?.() ?? Date.now());
+  }
+
+  /**
+   * Nearby v3: send one gossip message to a peer and wait for the answer. Opens the link (asking the
+   * peer to open their side with a knock) and resolves null when the peer cannot be reached or does
+   * not answer within `timeoutMs`.
+   */
+  async requestNearbyGossip(
+    peer: { userId: string; pub: string },
+    message: Record<string, unknown>,
+    timeoutMs: number,
+    options: { expectReply?: boolean } = {},
+  ): Promise<Record<string, unknown> | null> {
+    if (!this.currentRoomId) return null;
+    const expectReply = options.expectReply !== false;
+    const deadline = Date.now() + timeoutMs;
+    const existing = this.neighbors.get(peer.userId);
+    const linkUp = !!existing && isNeighborLive(existing);
+    this.pinPeer(peer.userId, peer.pub, timeoutMs + 30_000);
+    const knock = linkUp ? undefined : this.opts.knockPeer?.(peer).catch(() => undefined);
+    if (!(await this.waitForConnectedNeighbor(peer.userId, Math.max(0, deadline - Date.now())))) {
+      await knock;
+      return null;
+    }
+    while (this.protocolManifestController && !this.manifestReadyPeerIds.has(peer.userId)) {
+      if (Date.now() >= deadline) return null;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const requestId = randomId('gossip');
+    if (!expectReply) {
+      const frame = await this.buildFrame('nearby-gossip', { requestId, message }, { recipientUserId: peer.userId, ttlHops: 1 });
+      const neighbor = this.neighbors.get(peer.userId);
+      this.rememberSeen(frame.msgId);
+      if (neighbor) await this.sendFrameToNeighbor(neighbor, frame);
+      return null;
+    }
+    const answer = new Promise<Record<string, unknown> | null>((resolve) => {
+      const timer = setTimeout(() => {
+        this.gossipWaiters.delete(requestId);
+        resolve(null);
+      }, Math.max(0, deadline - Date.now()));
+      this.gossipWaiters.set(requestId, (reply) => {
+        clearTimeout(timer);
+        this.gossipWaiters.delete(requestId);
+        resolve(reply);
+      });
+    });
+    const payload: P2PNearbyGossipPayload = { requestId, message };
+    const frame = await this.buildFrame('nearby-gossip', payload, { recipientUserId: peer.userId, ttlHops: 1 });
+    const neighbor = this.neighbors.get(peer.userId);
+    this.rememberSeen(frame.msgId);
+    if (!neighbor || !(await this.sendFrameToNeighbor(neighbor, frame))) {
+      this.gossipWaiters.delete(requestId);
+      return null;
+    }
+    return answer;
+  }
+
+  /**
    * R2: Extract neighbor selection into its own method so step ≥2 can swap in
    * `scoreP2PNeighbor`-based ranking without touching gossip/dedup/forwarding.
    * For v1 keeps deterministic `localeCompare` sort (reproducible E2E).
    */
   private selectNeighbors(members: RoomMember[], K: number): RoomMember[] {
+    if (this.opts.personalRoster) {
+      // Nearby v3: only peers with a reason to talk now. Newest pin first.
+      const pins = [...this.pinnedPeers.entries()].sort((a, b) => b[1].until - a[1].until).map(([userId]) => userId);
+      const byId = new Map(members.map((member) => [member.userId, member]));
+      return pins.map((userId) => byId.get(userId)).filter((member): member is RoomMember => !!member).slice(0, K);
+    }
     const selectWindow = (values: RoomMember[], limit: number): RoomMember[] => {
       if (limit <= 0) return [];
       if (this.directTalkOutbox) {
@@ -471,7 +571,7 @@ export class PeerMeshService {
     return this.queuedDirectTalks.has(`${recipientUserId}|${talkId}`);
   }
 
-  async joinRoom(roomId: string, members: RoomMember[]): Promise<void> {
+  async joinRoom(roomId: string, members: RoomMember[], options: { replace?: boolean } = {}): Promise<void> {
     const wasInactive = this.currentRoomId === null;
     const roomChanged = this.currentRoomId !== null && this.currentRoomId !== roomId;
     if (roomChanged) {
@@ -495,6 +595,16 @@ export class PeerMeshService {
         member.userId !== TECHSUPPORT_ROOT_USER_ID,
     );
     let rosterChanged = wasInactive || roomChanged;
+    if (options.replace) {
+      // A personal list (Nearby v3) shrinks as well as grows: forget whoever left it.
+      const keep = new Set(remoteMembers.map((member) => member.userId));
+      for (const userId of [...this.currentRoomMembers.keys()]) {
+        if (keep.has(userId)) continue;
+        this.currentRoomMembers.delete(userId);
+        this.currentRoomMemberIds.delete(userId);
+        rosterChanged = true;
+      }
+    }
     // Gun room membership arrives as a stream of partial snapshots. Replacing the
     // roster on every callback tears down healthy links whenever a callback contains
     // only the newest member. Keep the discovered same-room set until leave/room
@@ -564,6 +674,17 @@ export class PeerMeshService {
     const local = this.localIdentity();
     const maxNeighbors = this.neighborLimit();
     const mergedMembers = new Map<string, RoomMember>(this.currentRoomMembers);
+    if (this.opts.personalRoster) {
+      const nowMs = this.opts.now?.() ?? Date.now();
+      for (const [userId, pin] of this.pinnedPeers) {
+        if (pin.until <= nowMs) {
+          this.pinnedPeers.delete(userId);
+          continue;
+        }
+        const member = mergedMembers.get(userId);
+        mergedMembers.set(userId, { ...(member ?? { userId, stageName: userId }), pub: pin.pub });
+      }
+    }
     const maxRoomCandidates = this.roomCandidateLimit();
     if (typeof this.opts.getDiscoveryUserIds === 'function') {
       try {
@@ -742,6 +863,9 @@ export class PeerMeshService {
     this.cachedBootstrapPeerIds.clear();
     this.localPeerExchangeRecord = null;
     this.peerExchangeLoadedRoomId = null;
+    this.pinnedPeers.clear();
+    for (const resolve of [...this.gossipWaiters.values()]) resolve({});
+    this.gossipWaiters.clear();
   }
 
   /**
@@ -1554,6 +1678,24 @@ export class PeerMeshService {
     }
   }
 
+  private async handleNearbyGossip(fromUserId: string, fromPub: string, payload: P2PNearbyGossipPayload): Promise<void> {
+    if (payload.replyTo) {
+      this.gossipWaiters.get(payload.replyTo)?.(payload.message);
+      return;
+    }
+    const reply = await this.opts.onNearbyGossip?.(fromUserId, fromPub, payload.message);
+    if (!reply || typeof reply !== 'object') return;
+    const neighbor = this.neighbors.get(fromUserId);
+    if (!neighbor) return;
+    const frame = await this.buildFrame('nearby-gossip', {
+      requestId: randomId('gossip'),
+      replyTo: payload.requestId,
+      message: reply as Record<string, unknown>,
+    }, { recipientUserId: fromUserId, ttlHops: 1 });
+    this.rememberSeen(frame.msgId);
+    await this.sendFrameToNeighbor(neighbor, frame);
+  }
+
   private async handleRemoteFrame(fromUserId: string, frame: P2PMeshFrame): Promise<void> {
     if (!frame || frame.version !== 1 || !frame.msgId || !frame.roomId) return;
     // During an ordered switch `leaveRoom()` deliberately creates a no-room interval. Accepting
@@ -1646,6 +1788,13 @@ export class PeerMeshService {
     if (frame.kind === 'nearby-cohort-peer-sync'
       && isP2PNearbyCohortPeerSyncPayload(frame.payload)) {
       await this.opts.onNearbyCohortPeerSync?.(frame.payload, frame.originUserId);
+      return;
+    }
+
+    if (frame.kind === 'nearby-gossip' && isP2PNearbyGossipPayload(frame.payload)) {
+      // One hop only, between the two ends of a direct link.
+      if (frame.originUserId !== fromUserId || frame.recipientUserId !== this.opts.localUserId) return;
+      await this.handleNearbyGossip(fromUserId, frame.originPub, frame.payload);
       return;
     }
 

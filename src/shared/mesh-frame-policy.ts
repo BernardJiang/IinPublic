@@ -14,6 +14,7 @@ export const MESH_FRAME_INVENTORY: Readonly<Record<P2PMeshMessageKind, MeshFrame
   'protocol-manifest-chain': 'retain-control',
   'nearby-cohort-peer-sync': 'retain-control',
   'peer-exchange': 'retain-control',
+  'nearby-gossip': 'retain-control',
   ack: 'retain-control',
 };
 

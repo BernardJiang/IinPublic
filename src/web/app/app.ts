@@ -32,7 +32,9 @@ import { WebTalkService } from '../services/web-talk-service';
 import { MapPresenceClient } from '../services/map-presence-client';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
 import { BlockStatusCache } from '../services/block-status-cache';
-import { throttleWhileHidden } from '../services/throttle-while-hidden';
+import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
+import { NearbyV3Runtime, isNearbyV3Enabled } from '../services/nearby-v3-runtime';
+import { nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
 import { placesMissingFromCatalogue } from '../ui/room-list-view';
 import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
 import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
@@ -378,6 +380,8 @@ export class IinPublicApp {
   private mapPresenceTimer: ReturnType<typeof setInterval> | undefined;
   private mapPresencePublishTimer: ReturnType<typeof setTimeout> | undefined;
   private mapPresenceShownKey = '';
+  /** Nearby v3 (§3.7), behind `?nearby_v3=1` until it replaces the v2 room (OPEN-70). */
+  private nearbyV3: NearbyV3Runtime | null = null;
   /** Last published home square (hysteresis memory for `publicHomeLocation`). */
   private lastPublicHomeLocation: PublicLocation | null = null;
   private pendingNearbyTravel: {
@@ -1991,6 +1995,33 @@ export class IinPublicApp {
     return precision === null ? null : snapPublicLocation(travel, precision);
   }
 
+  private startNearbyV3(): void {
+    const user = this.currentUser;
+    if (this.nearbyV3 || !user || isTechSupportUser(user) || !isNearbyV3Enabled()) return;
+    const extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions;
+    this.nearbyV3 = new NearbyV3Runtime({
+      gunService: this.gunService,
+      apiBase: () => this.getBackendApiBase(),
+      userId: user.id,
+      stageName: user.stageName || user.id,
+      config: () => nearbyV3ConfigFromManifest({
+        chatroomCapacity: this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
+          ?? baselineRoomCheckpoint().chatroomCapacity,
+        ...(extensions ? { extensions } : {}),
+      }),
+      position: () => {
+        const point = this.mapPresenceLocation();
+        return point ? { point, traveler: this.appearsAsTraveler() } : null;
+      },
+      isBlocked: (userId) => (this.currentUser?.blockedUserIds ?? []).includes(userId),
+      isPaused: isPageHidden,
+      ...(this.protocolManifestController ? { protocolManifestController: this.protocolManifestController } : {}),
+    });
+    const runtime = this.nearbyV3;
+    (window as unknown as { __iinpublicNearbyV3?: () => Record<string, unknown> }).__iinpublicNearbyV3 = () => runtime.diagnostics();
+    void runtime.start().catch((error) => console.warn('[nearby-v3] start failed:', error));
+  }
+
   /** Room list: every room with ≥ 1 person, refreshed every 20 s and on demand. */
   private startActiveRooms(): void {
     if (this.activeRoomsTimer) return;
@@ -2037,11 +2068,14 @@ export class IinPublicApp {
 
   private startMapPresence(): void {
     if (this.mapPresenceTimer) return;
+    this.startNearbyV3();
     this.mapPresenceTimer = setInterval(() => { void this.publishMapPresenceNow(); }, MAP_PRESENCE_REFRESH_MS);
     this.scheduleMapPresencePublish();
   }
 
   private stopMapPresence(): void {
+    this.nearbyV3?.stop();
+    this.nearbyV3 = null;
     if (this.mapPresenceTimer) clearInterval(this.mapPresenceTimer);
     if (this.mapPresencePublishTimer) clearTimeout(this.mapPresencePublishTimer);
     this.mapPresenceTimer = undefined;
@@ -2051,6 +2085,7 @@ export class IinPublicApp {
   /** Coalesce bursts (travel + room change + location) into one signed publish. */
   private scheduleMapPresencePublish(): void {
     if (!this.mapPresenceTimer) return;
+    this.nearbyV3?.refresh();
     if (this.mapPresencePublishTimer) clearTimeout(this.mapPresencePublishTimer);
     this.mapPresencePublishTimer = setTimeout(() => {
       this.mapPresencePublishTimer = undefined;

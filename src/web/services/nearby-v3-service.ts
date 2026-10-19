@@ -35,6 +35,8 @@ export type NearbyV3Hub = {
 export type NearbyV3Link = {
   /** Send one gossip message to a person and wait for their answer; null when they did not answer. */
   request(to: NearbyCard, message: NearbyGossipMessage, timeoutMs: number): Promise<unknown>;
+  /** Send without waiting for an answer (the swap's last message); falls back to `request`. */
+  send?(to: NearbyCard, message: NearbyGossipMessage): Promise<void>;
 };
 
 export type NearbyV3Position = { point: PublicLocation; traveler: boolean; scope: NearbyCardScope };
@@ -71,6 +73,7 @@ export class NearbyV3Service {
   private running = false;
   private ticking: Promise<void> | null = null;
   private incoming = 0;
+  private readonly counters = { swaps: 0, failedSwaps: 0, busy: 0, answered: 0 };
   private listCapacity = 0;
   private persistedSignature: string | null = null;
   private readonly verified = new Map<string, boolean>();
@@ -108,6 +111,16 @@ export class NearbyV3Service {
   /** A broadcast or swap to this person got no answer: drop them now. */
   reportUnreachable(pub: string): void {
     if (this.list?.remove(pub)) this.changed();
+  }
+
+  /** Swaps started, failed (partner dropped), refused busy, and swaps this phone answered. */
+  stats(): { swaps: number; failedSwaps: number; busy: number; answered: number; size: number } {
+    return { ...this.counters, size: this.list?.size ?? 0 };
+  }
+
+  /** Run one swap now, whatever the period (diagnostics and tests). */
+  gossipNow(): Promise<void> {
+    return this.gossipOnce();
   }
 
   /** One pass of due work. Safe to call at any time; overlapping calls share one pass. */
@@ -155,6 +168,7 @@ export class NearbyV3Service {
         cards: offer.filter((card) => card !== this.ownCard),
       };
       await this.ingest([message.card]);
+      this.counters.answered += 1;
       return reply;
     } finally {
       this.incoming -= 1;
@@ -222,11 +236,14 @@ export class NearbyV3Service {
     } catch {
       answer = null;
     }
+    this.counters.swaps += 1;
     const reply = parseNearbyGossipMessage(answer);
     if (!reply) {
+      this.counters.failedSwaps += 1;
       this.reportUnreachable(partner.pub);
       return;
     }
+    if (reply.kind === 'nearby-gossip-busy') this.counters.busy += 1;
     if (reply.kind !== 'nearby-gossip-reply' || reply.card.pub !== partner.pub) return;
     await this.ingest([reply.card, ...reply.cards]);
     const nowMs = this.now();
@@ -238,7 +255,8 @@ export class NearbyV3Service {
       refreshMs: config.cardRefreshMs,
       nowMs,
     });
-    void this.deps.link.request(partner, { kind: 'nearby-gossip-push', version: 1, card: own, cards: offer }, SWAP_TIMEOUT_MS)
+    const push: NearbyGossipMessage = { kind: 'nearby-gossip-push', version: 1, card: own, cards: offer };
+    void (this.deps.link.send ? this.deps.link.send(partner, push) : this.deps.link.request(partner, push, SWAP_TIMEOUT_MS))
       .catch(() => undefined);
   }
 

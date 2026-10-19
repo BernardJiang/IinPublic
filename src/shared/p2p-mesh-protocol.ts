@@ -22,6 +22,7 @@ export type P2PMeshMessageKind =
   | 'protocol-manifest-chain'
   | 'nearby-cohort-peer-sync'
   | 'peer-exchange'
+  | 'nearby-gossip'
   | 'ack';
 
 export type P2PProtocolManifestCheckpoint = {
@@ -138,7 +139,26 @@ export type P2PMeshFramePayload =
   | P2PProtocolManifestChainPayload
   | NearbyCohortPeerSyncPayload
   | PeerExchangePayload
+  | P2PNearbyGossipPayload
   | { msgId: string };
+
+/**
+ * One Nearby v3 gossip message between two direct neighbors (nearby-v3-gossip.ts). A request carries
+ * a fresh `requestId`; the answer carries the same id in `replyTo`. Always one hop.
+ */
+export type P2PNearbyGossipPayload = {
+  requestId: string;
+  replyTo?: string;
+  message: Record<string, unknown>;
+};
+
+export function isP2PNearbyGossipPayload(payload: unknown): payload is P2PNearbyGossipPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const value = payload as Partial<P2PNearbyGossipPayload>;
+  return typeof value.requestId === 'string' && value.requestId.length > 0 && value.requestId.length <= 128
+    && (value.replyTo === undefined || (typeof value.replyTo === 'string' && value.replyTo.length <= 128))
+    && !!value.message && typeof value.message === 'object' && !Array.isArray(value.message);
+}
 
 export type P2PMeshFrame = {
   version: 1;
@@ -175,7 +195,7 @@ export function isP2PMeshFrame(value: unknown): value is P2PMeshFrame {
   if (!value || typeof value !== 'object') return false;
   const frame = value as Partial<P2PMeshFrame>;
   return frame.version === 1
-    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'nearby-cohort-peer-sync', 'peer-exchange', 'ack'].includes(String(frame.kind))
+    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'nearby-cohort-peer-sync', 'peer-exchange', 'nearby-gossip', 'ack'].includes(String(frame.kind))
     && typeof frame.msgId === 'string' && frame.msgId.length > 0 && frame.msgId.length <= 256
     && typeof frame.roomId === 'string' && frame.roomId.length <= 256
     && typeof frame.originUserId === 'string' && frame.originUserId.length <= 256
