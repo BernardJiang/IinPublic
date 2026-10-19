@@ -379,6 +379,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
     ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
     { timeout: 5_000 },
   );
+  await wakeAndroidScreen(serial);
   await execFileAsync('adb', [
     '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
     '--es', 'hub_gun_url', options.hubGunUrl,
@@ -487,6 +488,7 @@ export async function launchAndroidUser(options: LaunchAndroidUserOptions): Prom
     ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
     { timeout: 5_000 },
   );
+  await wakeAndroidScreen(serial);
   await execFileAsync(
     'adb',
     [
@@ -541,4 +543,25 @@ export async function closeAndroidUser(user: AndroidUser | undefined): Promise<v
     6_000,
   );
   await disposeAndroidTransport(user);
+  // The phones sit on USB with "stay awake while charging" on, so a screen left on stays on
+  // between runs and wears the battery (user request 2026-10-18). The next launch wakes it.
+  await sleepAndroidScreen(user.deviceSerial);
+}
+
+/** Turn the screen off now (it stays off until something wakes it). */
+export async function sleepAndroidScreen(serial: string): Promise<void> {
+  await settleWithin(
+    execFileAsync('adb', ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_SLEEP'], { timeout: 5_000 }),
+    6_000,
+  );
+}
+
+/**
+ * Turn the screen on and dismiss a swipe-only lock screen. A phone with a PIN or password stays
+ * locked: native specs need the lock set to None or Swipe on every test phone.
+ */
+export async function wakeAndroidScreen(serial: string): Promise<void> {
+  for (const args of [['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) {
+    await settleWithin(execFileAsync('adb', ['-s', serial, 'shell', ...args], { timeout: 5_000 }), 6_000);
+  }
 }
