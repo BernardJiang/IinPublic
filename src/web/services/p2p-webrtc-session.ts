@@ -203,6 +203,16 @@ export const P2P_WEBRTC_CONNECT_TIMEOUT_MS = 10_000;
 export const P2P_WEBRTC_RETRY_COOLDOWN_MS = 15_000;
 
 /**
+ * A DataChannel whose encrypted handshake is not confirmed within this long after it opens is
+ * failed, so the session is rebuilt. Without it, a pair whose two sides derived different
+ * sessions stayed "connected" forever with every frame undeliverable (seen on phones 2026-10-18).
+ */
+export const P2P_SECURE_HANDSHAKE_TIMEOUT_MS = 15_000;
+
+/** HTTP signaling poll interval while the link is connected (600 ms otherwise). */
+export const P2P_CONNECTED_SIGNAL_POLL_MS = 15_000;
+
+/**
  * Returns the ICE server list for `RTCPeerConnection`.
  *
  * Connection priority order (§4.4):
@@ -453,6 +463,13 @@ export class P2PConversationSession {
   private secureSessionId: string | null = null;
   private secureSessionConfirmed = false;
   private secureConfirmSent = false;
+  /**
+   * Bumped by every resetSecureSession(). Handshake work started before a reset (a slow
+   * contact-key lookup, key derivation) checks it after each await and is dropped, so it cannot
+   * derive a key for the new channel from the previous channel's remote offer.
+   */
+  private secureGeneration = 0;
+  private secureHandshakeWatchdog: ReturnType<typeof setTimeout> | null = null;
   private readonly pendingEncryptedFrames: EncryptedChannelWirePayload[] = [];
   /** Epoch ms of the most recent transition into 'failed'; null when never failed. */
   private lastFailedAt: number | null = null;
@@ -464,7 +481,10 @@ export class P2PConversationSession {
   constructor(private config: P2PSessionConfig) {
     this.signaling = new CompositeSignalingTransport([
       new GunPubSubSignaler(config.gun, config.localPub, config.otherPub, config.conversationId),
-      new HttpRelaySignaler(config.apiBase),
+      // A connected link needs signaling only for a renegotiation, which Gun pub/sub pushes; the
+      // HTTP fallback slows down meanwhile. Each session polled every 600 ms forever, which on a
+      // phone is a request through the embedded node per link per 0.6 s (native-app/39).
+      new HttpRelaySignaler(config.apiBase, () => (this._state === 'connected' ? P2P_CONNECTED_SIGNAL_POLL_MS : 600)),
     ]);
   }
 
@@ -774,7 +794,8 @@ export class P2PConversationSession {
 
   ensureConnected(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS): Promise<void> {
     if (this._state === 'connected') return Promise.resolve();
-    if (this.connectPromise) return this.connectPromise;
+    // Never hand back a finished attempt for a session that has since failed.
+    if (this.connectPromise && this._state !== 'failed') return this.connectPromise;
 
     // Fail fast while still inside the post-failure cooldown: a peer that was
     // unreachable a moment ago is very unlikely to have become reachable in the
@@ -869,6 +890,8 @@ export class P2PConversationSession {
   }
 
   private resetSecureSession(): void {
+    this.secureGeneration += 1;
+    this.clearSecureHandshakeWatchdog();
     this.localHandshakePayload = null;
     this.pendingRemoteHandshake = null;
     this.remoteHandshakePayload = null;
@@ -954,8 +977,14 @@ export class P2PConversationSession {
 
   private async sendHandshake(): Promise<void> {
     if (!this.config.localPair) return;
-    if (!this.secureOffer) this.secureOffer = await generateSecureSessionOffer();
+    const generation = this.secureGeneration;
+    if (!this.secureOffer) {
+      const offer = await generateSecureSessionOffer();
+      if (generation !== this.secureGeneration) return;
+      this.secureOffer ??= offer;
+    }
     const peerId = await derivePeerIdFromPub(this.config.localPub);
+    if (generation !== this.secureGeneration) return;
     const localBuildTrustCredential = this.config.getBuildTrustCredential?.();
     const payload = buildHandshakePayload({
       peerId,
@@ -968,18 +997,21 @@ export class P2PConversationSession {
     this.localHandshakePayload = payload;
     const frame: HandshakeWirePayload = { type: 'handshake', payload };
     await this.sendSignedHandshake(frame);
+    if (generation !== this.secureGeneration) return;
     if (this.pendingRemoteHandshake) {
       const remote = this.pendingRemoteHandshake;
       this.pendingRemoteHandshake = null;
-      await this.acceptRemoteHandshake(remote);
+      await this.acceptRemoteHandshake(remote, generation);
     }
   }
 
   private async handleHandshake(payload: unknown, signedPub: string, signedPeerId: string): Promise<void> {
+    const generation = this.secureGeneration;
     const validation = validateHandshakePayload(payload);
     if (!validation.ok) return this.failSecureHandshake(validation.reason);
     const remote = validation.payload;
     const derivedPeerId = await derivePeerIdFromPub(remote.publicKey);
+    if (generation !== this.secureGeneration) return;
     if (
       remote.userId !== this.config.otherUserId ||
       remote.publicKey !== this.config.otherPub ||
@@ -995,8 +1027,11 @@ export class P2PConversationSession {
     } catch {
       // Fail closed and visibly: an unhandled throw here used to leave the session "connected"
       // with no encrypted key, so every send waited out the handshake timeout forever.
+      if (generation !== this.secureGeneration) return;
       return this.failSecureHandshake('contact identity lookup failed');
     }
+    // The lookup can be slow on phones; a reconnect meanwhile made this handshake stale.
+    if (generation !== this.secureGeneration) return;
     if (!pinnedIdentityAccepts(pinnedPub, remote.publicKey)) {
       return this.failSecureHandshake('contact identity key changed');
     }
@@ -1004,10 +1039,11 @@ export class P2PConversationSession {
       this.pendingRemoteHandshake = remote;
       return;
     }
-    await this.acceptRemoteHandshake(remote);
+    await this.acceptRemoteHandshake(remote, generation);
   }
 
-  private async acceptRemoteHandshake(remote: P2PHandshakePayload): Promise<void> {
+  private async acceptRemoteHandshake(remote: P2PHandshakePayload, generation: number): Promise<void> {
+    if (generation !== this.secureGeneration) return;
     if (!this.localHandshakePayload || !this.secureOffer) return;
     const result = negotiateProtocol(this.localHandshakePayload, remote);
     this.handshakeDiagnostics = {
@@ -1035,6 +1071,7 @@ export class P2PConversationSession {
           ...remote.secureSession,
         },
       });
+      if (generation !== this.secureGeneration) return;
       this.secureSessionKey = derived.key;
       this.secureSessionId = derived.sessionId;
       if (!this.secureConfirmSent) {
@@ -1044,6 +1081,7 @@ export class P2PConversationSession {
       const pending = this.pendingEncryptedFrames.splice(0);
       for (const wire of pending) await this.handleEncryptedChannelFrame(wire);
     } catch {
+      if (generation !== this.secureGeneration) return;
       this.failSecureHandshake('could not derive encrypted session');
     }
   }
@@ -1057,7 +1095,15 @@ export class P2PConversationSession {
       };
     }
     this.setState('failed');
+    // A stale resolved attempt would make ensureConnected() report success on a dead session.
+    this.connectPromise = null;
+    this.clearSecureHandshakeWatchdog();
     this.closeTransport();
+  }
+
+  private clearSecureHandshakeWatchdog(): void {
+    if (this.secureHandshakeWatchdog) clearTimeout(this.secureHandshakeWatchdog);
+    this.secureHandshakeWatchdog = null;
   }
 
   private async waitForSecureSession(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS): Promise<void> {
@@ -1113,6 +1159,13 @@ export class P2PConversationSession {
   private attachDataChannel(channel: RTCDataChannel): void {
     channel.onopen = () => {
       this.setState('connected');
+      this.clearSecureHandshakeWatchdog();
+      this.secureHandshakeWatchdog = setTimeout(() => {
+        this.secureHandshakeWatchdog = null;
+        if (this.dc === channel && !this.secureSessionConfirmed) {
+          this.failSecureHandshake('encrypted handshake not confirmed');
+        }
+      }, P2P_SECURE_HANDSHAKE_TIMEOUT_MS);
       void this.sendHandshake()
         .then(() => this.waitForSecureSession())
         .then(() => this.sendLedgerState())
@@ -1337,6 +1390,7 @@ export class P2PConversationSession {
     if (frame.type === 'secure-confirm') {
       if (frame.sessionId !== this.secureSessionId) return;
       this.secureSessionConfirmed = true;
+      this.clearSecureHandshakeWatchdog();
       return;
     }
     if (!this.secureSessionConfirmed || frame.type === 'handshake') return;
@@ -1516,6 +1570,7 @@ export class P2PConversationSession {
       clearTimeout(this.reDigestTimer);
       this.reDigestTimer = null;
     }
+    this.clearSecureHandshakeWatchdog();
     this.resetTransport();
     this.connectPromise = null;
   }

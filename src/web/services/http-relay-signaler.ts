@@ -13,7 +13,8 @@ export class HttpRelaySignaler implements SignalingTransport {
 
   constructor(
     private readonly apiBase: string,
-    private readonly pollMs = 600,
+    /** Poll interval in ms; a function lets the session slow down once its link is up. */
+    private readonly pollMs: number | (() => number) = 600,
   ) {}
 
   async post(conversationId: string, body: PostSignalingBody): Promise<void> {
@@ -61,7 +62,7 @@ export class HttpRelaySignaler implements SignalingTransport {
       } catch {
         // Signaling is best-effort; Gun pub/sub or the next HTTP poll may still deliver.
       } finally {
-        if (!stopped) timer = setTimeout(poll, this.pollMs);
+        if (!stopped) timer = setTimeout(poll, typeof this.pollMs === 'function' ? this.pollMs() : this.pollMs);
       }
     };
 

@@ -31,6 +31,7 @@ import {
 import { WebTalkService } from '../services/web-talk-service';
 import { MapPresenceClient } from '../services/map-presence-client';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
+import { BlockStatusCache } from '../services/block-status-cache';
 import { placesMissingFromCatalogue } from '../ui/room-list-view';
 import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
 import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
@@ -405,6 +406,8 @@ export class IinPublicApp {
   private microRoomRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private microRoomRefreshInFlight = false;
   private nearbyPreAdmissionClient: NearbyPreAdmissionClient | null = null;
+  /** The hub's either-way block answer per peer, for a minute (every incoming Talk asks). */
+  private readonly blockStatusCache = new BlockStatusCache({ fetchStatus: (peerId) => this.fetchBlockStatusEitherWay(peerId) });
   private nearbyCohortTraversalClient: NearbyCohortTraversalClient | null = null;
   private nearbyCohortPeerSync: NearbyCohortPeerSyncController | null = null;
   private lastNearbyCohortClaim: NearbyCohortSeatClaim | null = null;
@@ -2687,17 +2690,24 @@ export class IinPublicApp {
     const me = this.currentUser;
     if (!me?.id || !peerId) return false;
     if ((me.blockedUserIds ?? []).includes(peerId)) return true;
+    return this.blockStatusCache.isBlocked(peerId);
+  }
+
+  /** The hub's answer, or null when it could not be reached (not remembered). */
+  private async fetchBlockStatusEitherWay(peerId: string): Promise<boolean | null> {
+    const me = this.currentUser;
+    if (!me?.id) return null;
     try {
       const base = this.getBackendApiBase();
       const res = await fetch(
         `${base}/api/users/${encodeURIComponent(me.id)}/block-status/${encodeURIComponent(peerId)}`,
         { cache: 'no-store' },
       );
-      if (!res.ok) return false;
+      if (!res.ok) return null;
       const status = (await res.json()) as { eitherBlocked?: boolean };
       return !!status.eitherBlocked;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -3534,6 +3544,8 @@ export class IinPublicApp {
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
       onNeighborConnected: (userId, roomId) => {
+        // Warm the block-status answer now, so this peer's first Talk does not wait ~1 s on the hub.
+        void this.resolveBlockStatusEitherWay(userId).catch(() => undefined);
         this.catchUpPeerInActiveRoom(userId, roomId);
         void this.nearbyCohortPeerSync?.syncToPeer(userId).catch((error) => {
           console.warn('[Nearby cohort] peer snapshot failed:', error);
@@ -6829,9 +6841,12 @@ export class IinPublicApp {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
     if (this.isTalkExpiredForDelivery(talk)) return false;
+    // Never offer a Talk to someone this user has blocked. The receiver's own block check used to
+    // ask the hub on every Talk and hid this; it is now cached for a minute.
+    const blocked = new Set(me.blockedUserIds ?? []);
     let receiverIds = members
       .map((m) => m.userId)
-      .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
+      .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID && !blocked.has(id));
     if (eligibleReceiverIds !== undefined) {
       const allowed = new Set(eligibleReceiverIds);
       receiverIds = receiverIds.filter((id) => allowed.has(id));
@@ -8482,6 +8497,7 @@ export class IinPublicApp {
           const blockedUserIds = data.blocked
             ? await this.userService.blockUser(this.currentUser.id, data.userId)
             : await this.userService.unblockUser(this.currentUser.id, data.userId);
+          this.blockStatusCache.invalidate(data.userId);
           this.currentUser.blockedUserIds = blockedUserIds;
           this.writeCachedUser(this.currentUser);
           this.uiManager.adoptSessionUser(this.currentUser);

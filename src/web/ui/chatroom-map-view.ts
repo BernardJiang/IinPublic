@@ -158,6 +158,8 @@ type MapState = {
   userDotMarkers: MapLibreMarker[];
   userDotTimer?: ReturnType<typeof setTimeout> | undefined;
   userDotRequest: number;
+  /** Last dot query, reused for the same view for USER_DOT_REUSE_MS (the list re-renders often). */
+  userDotCache?: { key: string; at: number; dots: MapPresenceDot[]; density: MapDensityCell[] };
   /** The room has no place of its own and my position was not known yet when it was focused. */
   awaitingSelfCenter: boolean;
   /** Zoom that fits my current room; "center on me" returns to it. */
@@ -1083,6 +1085,12 @@ function ensureUserDotLegend(state: MapState, source: MapUserDots): void {
   }
 }
 
+/**
+ * The room list re-renders the map on every headcount callback; on a phone each dot query is a
+ * request through the embedded node (about one every 1.5 s while idle, measured 2026-10-18).
+ */
+const USER_DOT_REUSE_MS = 20_000;
+
 async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<void> {
   const source = state.options.userDots;
   if (!source) return;
@@ -1090,16 +1098,25 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
   const view = state.map.getBounds();
   let dots: MapPresenceDot[] = [];
   let density: MapDensityCell[] = [];
-  try {
-    ({ dots, density } = await source.load({
-      west: Math.max(-180, view.getWest()),
-      south: Math.max(-90, view.getSouth()),
-      east: Math.min(180, view.getEast()),
-      north: Math.min(90, view.getNorth()),
-    }));
-  } catch {
-    dots = [];
-    density = [];
+  const bounds = {
+    west: Math.max(-180, view.getWest()),
+    south: Math.max(-90, view.getSouth()),
+    east: Math.min(180, view.getEast()),
+    north: Math.min(90, view.getNorth()),
+  };
+  const key = Object.values(bounds).map((value) => value.toFixed(4)).join(',');
+  const cached = state.userDotCache;
+  if (cached && cached.key === key && Date.now() - cached.at < USER_DOT_REUSE_MS) {
+    // Same view, recent answer: redraw with the current roster without asking the hub again.
+    ({ dots, density } = cached);
+  } else {
+    try {
+      ({ dots, density } = await source.load(bounds));
+      state.userDotCache = { key, at: Date.now(), dots, density };
+    } catch {
+      dots = [];
+      density = [];
+    }
   }
   if (request !== state.userDotRequest || stateByContainer.get(state.options.container) !== state) return;
   state.userDotMarkers.forEach((marker) => marker.remove());

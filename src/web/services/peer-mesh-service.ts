@@ -583,13 +583,19 @@ export class PeerMeshService {
       [...mergedMembers.values()],
       this.directTalkOutbox ? maxNeighbors : maxRoomCandidates,
     );
-    const presencePubs = await this.fetchPresencePubs();
     const resolvedByUserId = new Map<string, string>();
+    const localPub = (member: RoomMember): string | undefined =>
+      member.pub || this.neighbors.get(member.userId)?.pub || this.knownPeerPubs.get(member.userId);
+    // Reconcile runs on every roster callback (about once a second while idle). Ask the hub's
+    // presence list only when some candidate's key is still unknown: fetching up to 200 entries
+    // on every pass kept an idle phone's embedded node busy (measured 2026-10-18, native-app/39).
+    const presencePubs = rankedCandidates.some((member) => !localPub(member))
+      ? await this.fetchPresencePubs()
+      : new Map<string, string>();
     for (const member of rankedCandidates) {
-      const existing = this.neighbors.get(member.userId);
       // Roster-carried pub first: zero-lookup, present as soon as the member record
       // replicates. Network-derived sources remain as fallbacks for older records.
-      const pub = member.pub || existing?.pub || presencePubs.get(member.userId) || this.knownPeerPubs.get(member.userId);
+      const pub = localPub(member) || presencePubs.get(member.userId);
       if (pub) resolvedByUserId.set(member.userId, pub);
     }
     if (resolvedByUserId.size < maxNeighbors) {

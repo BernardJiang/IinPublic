@@ -1,0 +1,554 @@
+/**
+ * Measurement run on real phones (OPEN-40-G2.5 transport slice, the discovery-timer physical gate,
+ * and OPEN-70's per-contact cost). One run, one transport mode, every phone named in
+ * NATIVE_APP_ANDROID_SERIALS (2–5):
+ *
+ *   1. discovery: launch → app ready → hub roster has everyone (hub modes) / LAN NSD sees everyone
+ *      (hub-lan) / one Wi-Fi Direct group and a converged roster (wifi-direct);
+ *   2. connection cost: a fresh WebRTC connection per pair (session.reconnect), repeated, with the
+ *      selected candidate types;
+ *   3. broadcast loop (the Nearby v3 delivery model): each phone in turn sends one Talk to every
+ *      other phone one at a time, then to all at once; time per contact and until all received;
+ *   4. background: the newest-Android phone is sent a Talk after N minutes in the background;
+ *   5. idle window: N minutes idle in Nearby with Android's battery accounting reset (charging
+ *      ignored via `dumpsys battery unplug`), then the app's estimated mAh, network bytes and
+ *      wakelock time, plus how often each phone's discovery state changed (radio churn).
+ *
+ * Modes (E2E_MEASURE_MODE):
+ *   hub-lan     local hub reachable, LAN discovery on (default)
+ *   hub-only    local hub reachable, LAN discovery off
+ *   wifi-direct hub unreachable, LAN discovery off: phones must form a Wi-Fi Direct group
+ *   cellular    public hub, private run-unique room; phones in E2E_MEASURE_CELLULAR_SERIALS turn
+ *               Wi-Fi off and use mobile data
+ *
+ * Destructive: clears the IinPublic app data on every named phone. Results:
+ * test-results/android-measurements/<mode>-<time>.json, summarised in
+ * docs/testing/android-transport-measurements.md.
+ *
+ *   E2E_REAL_ANDROID_MEASURE=1 E2E_MEASURE_MODE=hub-lan NATIVE_APP_ANDROID_SERIALS=<s1>,<s2>,<s3> \
+ *   npx playwright test --config tests/e2e/native-app/playwright.config.ts \
+ *     tests/e2e/native-app/39-android-transport-measurements.spec.ts
+ */
+import { test, expect } from '@playwright/test';
+import { execFile } from 'child_process';
+import * as fs from 'fs';
+import * as http from 'http';
+import * as os from 'os';
+import * as path from 'path';
+import { promisify } from 'util';
+import { bootstrapNativeWindow, forceJoinRoom } from './helpers/native-app';
+import {
+  ANDROID_MAIN_ACTIVITY,
+  clearAndroidE2ETestProjections,
+  closeAndroidUser,
+  collectAndroidDiagnostics,
+  isAndroidDeviceReady,
+  launchAndroidUserViaAdb,
+  readAndroidDeviceMetadata,
+  resetAndroidAppData,
+  type AndroidUser,
+} from './helpers/native-app-android';
+import { findIncomingTalkIdByTitle } from '../helpers/talk-demo-ui';
+import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
+import { isNearbyRoomId } from '../../../src/shared/nearby-rooms';
+
+const execFileAsync = promisify(execFile);
+
+type Mode = 'hub-lan' | 'hub-only' | 'wifi-direct' | 'cellular';
+const RUN = process.env.E2E_REAL_ANDROID_MEASURE === '1';
+const MODE = (process.env.E2E_MEASURE_MODE || 'hub-lan') as Mode;
+const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
+const PUBLIC_HUB = process.env.NATIVE_APP_CELLULAR_HUB?.trim() || 'https://www.iinpublic.com/gun';
+const SERIALS = process.env.NATIVE_APP_ANDROID_SERIALS || '';
+const CELLULAR_SERIALS = new Set((process.env.E2E_MEASURE_CELLULAR_SERIALS || '').split(',').map((s) => s.trim()).filter(Boolean));
+const RECONNECTS = Number(process.env.E2E_MEASURE_RECONNECTS || '5');
+const BACKGROUND_MINUTES = Number(process.env.E2E_MEASURE_BACKGROUND_MIN || '5');
+const IDLE_MINUTES = Number(process.env.E2E_MEASURE_IDLE_MIN || '15');
+const SAMPLE_SECONDS = 30;
+const PACKAGE = 'com.iinpublic.app';
+const FIXED_LOCATION = { latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: '2026-10-18T12:00:00.000Z' };
+
+process.env.E2E_PORT_OFFSET = String(HUB_GUN_PORT - 8080);
+
+type Phone = {
+  device: ConfiguredAndroidDevice;
+  user: AndroidUser;
+  id: string;
+  sdk: number;
+  model: string;
+  release: string;
+  uid: string;
+  roomId: string;
+};
+
+type Evidence = {
+  mode: Mode;
+  startedAt: string;
+  appVersion?: string;
+  phones: Array<{ name: string; serial: string; model: string; android: string; sdk: number; onMobileData: boolean }>;
+  discovery: Record<string, Record<string, number | null>>;
+  connections: Array<{ from: string; to: string; ms: number | null; error?: string; local?: string; remote?: string }>;
+  broadcast: Array<{ author: string; style: 'one-at-a-time' | 'all-at-once'; sendMs: Record<string, number>; receivedMs: Record<string, number | null>; allReceivedMs: number | null }>;
+  background: { receiver: string; minutes: number; receivedWhileBackgroundMs: number | null; receivedAfterForegroundMs: number | null } | null;
+  idle: Record<string, unknown>;
+  notes: string[];
+};
+
+async function adb(serial: string, ...args: string[]): Promise<string> {
+  const result = await execFileAsync('adb', ['-s', serial, 'shell', ...args], { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 });
+  return String(result.stdout);
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function wakeAndUnlock(serial: string): Promise<void> {
+  await adb(serial, 'input', 'keyevent', 'KEYCODE_WAKEUP').catch(() => '');
+  await adb(serial, 'wm', 'dismiss-keyguard').catch(() => '');
+  await adb(serial, 'cmd', 'statusbar', 'collapse').catch(() => '');
+}
+
+async function setWifi(serial: string, enabled: boolean): Promise<void> {
+  await adb(serial, 'svc', 'wifi', enabled ? 'enable' : 'disable');
+}
+
+/** True when the default network is cellular, i.e. Wi-Fi really is out of the path. */
+async function onCellularOnly(serial: string): Promise<boolean> {
+  const out = await adb(serial, 'dumpsys', 'connectivity').catch(() => '');
+  const active = out.split('\n').find((line) => /Active default network/i.test(line)) ?? '';
+  const netId = active.match(/(\d+)/)?.[1];
+  if (!netId) return false;
+  const agent = out.split('\n').find((line) => line.includes('NetworkAgentInfo{') && line.includes(` network{${netId}}`)
+    || line.includes(`NetworkAgentInfo{network{${netId}}`)) ?? '';
+  return /CELLULAR/.test(agent) && !/WIFI/.test(agent);
+}
+
+async function dropLeftoverWifiDirectGroup(serial: string): Promise<void> {
+  const p2p = await adb(serial, 'dumpsys', 'wifip2p').catch(() => '');
+  if (!/groupFormed: true/.test(p2p)) return;
+  await setWifi(serial, false);
+  await sleep(3_000);
+  await setWifi(serial, true);
+  await sleep(10_000);
+}
+
+async function grantOfflineNearbyPermissions(serial: string, sdk: number): Promise<void> {
+  const permissions = sdk >= 33
+    ? ['android.permission.NEARBY_WIFI_DEVICES', 'android.permission.BLUETOOTH_SCAN', 'android.permission.BLUETOOTH_ADVERTISE', 'android.permission.BLUETOOTH_CONNECT']
+    : ['android.permission.ACCESS_FINE_LOCATION'];
+  for (const permission of permissions) await adb(serial, 'pm', 'grant', PACKAGE, permission).catch(() => '');
+}
+
+async function appUid(serial: string): Promise<string> {
+  const dump = await adb(serial, 'dumpsys', 'package', PACKAGE).catch(() => '');
+  return dump.match(/(?:userId|appId)=(\d+)/)?.[1] ?? '';
+}
+
+function resolveLanIp(): string {
+  if (process.env.NATIVE_APP_ANDROID_HOST) return process.env.NATIVE_APP_ANDROID_HOST;
+  for (const addresses of Object.values(os.networkInterfaces())) {
+    for (const address of addresses ?? []) if (address.family === 'IPv4' && !address.internal) return address.address;
+  }
+  throw new Error('No LAN IPv4 address found; set NATIVE_APP_ANDROID_HOST.');
+}
+
+function readRoomMembers(roomId: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    const request = http.get({ host: '127.0.0.1', port: HUB_GUN_PORT, path: `/api/chatrooms/${encodeURIComponent(roomId)}/members`, timeout: 3_000 }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => {
+        try {
+          const parsed = JSON.parse(body);
+          resolve(Array.isArray(parsed) ? parsed.map((member: { userId: string }) => member.userId) : []);
+        } catch {
+          resolve([]);
+        }
+      });
+    });
+    request.once('error', () => resolve([]));
+    request.once('timeout', () => { request.destroy(); resolve([]); });
+  });
+}
+
+/** Poll until `check` is true; the elapsed milliseconds, or null on timeout. */
+async function timeUntil(check: () => Promise<boolean>, timeoutMs: number, intervalMs = 500): Promise<number | null> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (await check().catch(() => false)) return Date.now() - started;
+    await sleep(intervalMs);
+  }
+  return null;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function routeToFixedNearby(window: AndroidUser['window']): Promise<string> {
+  const roomId = await window.evaluate(async (location) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    await app.updateLocationAndMaybeSwitch({ ...location, timestamp: new Date(location.timestamp) });
+    return String(app.chatroomService?.getCurrentChatroomId?.() || app.currentChatroomId || '');
+  }, FIXED_LOCATION);
+  expect(isNearbyRoomId(roomId)).toBe(true);
+  await forceJoinRoom(window, roomId);
+  return roomId;
+}
+
+async function createTagTalk(phone: Phone, title: string): Promise<{ talkId: string; talkData: any }> {
+  await phone.user.window.evaluate((expectedTitle) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    app.uiManager.emit('createTalk', {
+      title: expectedTitle,
+      type: 'tag',
+      language: 'en',
+      isAdult: false,
+      tags: [],
+      questions: [{
+        id: 'q_1',
+        text: expectedTitle,
+        answers: [
+          { id: 'a_0_match', text: expectedTitle, isMatch: true, isTerminal: true },
+          { id: 'a_0_ignore', text: 'Not interested', isIgnore: true, isTerminal: true },
+        ],
+      }],
+      selfAnswers: [{ questionId: 'q_1', answerId: 'a_0_match' }],
+      createdAt: new Date().toISOString(),
+      isTemplate: false,
+      usageCount: 0,
+      sendToChatroom: false,
+    });
+  }, title);
+  let created: { talkId: string; talkData: any } | null = null;
+  await expect.poll(async () => {
+    created = await phone.user.window.evaluate((expectedTitle) => {
+      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const entry = Object.entries(talks).find(([, value]: [string, any]) => value?.role === 'created' && value?.title === expectedTitle && value?.fullTalk);
+      return entry ? { talkId: entry[0], talkData: (entry[1] as any).fullTalk } : null;
+    }, title);
+    return created !== null;
+  }, { timeout: 90_000, intervals: [500, 1_000] }).toBe(true);
+  return created!;
+}
+
+async function hasIncoming(phone: Phone, title: string): Promise<boolean> {
+  try {
+    await findIncomingTalkIdByTitle(phone.user.window, title);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Send one Talk to the given receivers over the mesh; returns how long the send call took. */
+async function sendTo(author: Phone, talk: { talkId: string; talkData: any }, receivers: Phone[]): Promise<number> {
+  const started = Date.now();
+  await author.user.window.evaluate(async ({ talkId, talkData, members }) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    return app?.deliverTalkToReceiversOverMesh?.(talkId, talkData, members, members.map((member: { userId: string }) => member.userId));
+  }, { talkId: talk.talkId, talkData: talk.talkData, members: receivers.map((r) => ({ userId: r.id, stageName: r.device.name })) });
+  return Date.now() - started;
+}
+
+async function discoveryState(phone: Phone): Promise<string> {
+  return phone.user.window.evaluate(() => {
+    const d = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.();
+    if (!d) return 'none';
+    return [d.stage, d.wifiDirectActive ? 'wd' : '-', d.group?.state ?? '-', d.lanNsd ? 'nsd' : '-', (d.peers || []).length].join('|');
+  }).catch(() => 'unavailable');
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/** The app's line from `dumpsys batterystats --checkin`: estimated mAh, bytes, wakelock time. */
+function parseBatteryStats(checkin: string, uid: string): Record<string, unknown> {
+  const rows = checkin.split('\n').map((line) => line.split(',')).filter((cols) => cols[1] === uid && cols[2] === 'l');
+  const out: Record<string, unknown> = {};
+  const nt = rows.find((cols) => cols[3] === 'nt');
+  if (nt) {
+    out.mobileRxBytes = Number(nt[4]);
+    out.mobileTxBytes = Number(nt[5]);
+    out.wifiRxBytes = Number(nt[6]);
+    out.wifiTxBytes = Number(nt[7]);
+  }
+  const pwi = checkin.split('\n').map((line) => line.split(',')).find((cols) => cols[3] === 'pwi' && cols[4] === 'uid' && cols[1] === uid);
+  if (pwi) out.estimatedMah = Number(pwi[5]);
+  const wakelocks = rows.filter((cols) => cols[3] === 'wl');
+  // wl: name, full time, f, count, partial time, p, count, …
+  out.partialWakelockMs = wakelocks.reduce((sum, cols) => sum + (Number(cols[8]) || 0), 0);
+  const wifi = rows.find((cols) => cols[3] === 'wfl');
+  if (wifi) out.wifiScanMs = Number(wifi[5]) || 0;
+  const cpu = rows.find((cols) => cols[3] === 'cpu');
+  if (cpu) out.cpuMs = (Number(cpu[4]) || 0) + (Number(cpu[5]) || 0);
+  return out;
+}
+
+function percentile(values: number[], q: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * q) - 1)]!;
+}
+
+test.describe('Native app: transport measurements on real phones', () => {
+  test.skip(!RUN, 'Set E2E_REAL_ANDROID_MEASURE=1 to run this destructive physical-device measurement.');
+  test.skip(!SERIALS, 'Name the phones in NATIVE_APP_ANDROID_SERIALS (they are shared; never measure unnamed phones).');
+
+  const phones: Phone[] = [];
+  const consoleLines: Record<string, string[]> = {};
+  const evidence: Evidence = {
+    mode: MODE,
+    startedAt: new Date().toISOString(),
+    phones: [],
+    discovery: {},
+    connections: [],
+    broadcast: [],
+    background: null,
+    idle: {},
+    notes: [],
+  };
+
+  test.afterAll(async () => {
+    for (const phone of phones) {
+      await adb(phone.device.serial, 'dumpsys', 'battery', 'reset').catch(() => '');
+      if (CELLULAR_SERIALS.has(phone.device.serial)) await setWifi(phone.device.serial, true).catch(() => {});
+      await clearAndroidE2ETestProjections(phone.user).catch(() => {});
+      await closeAndroidUser(phone.user);
+    }
+  });
+
+  // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured first argument
+  test.afterEach(async ({}, testInfo) => {
+    const summary = {
+      connectionP50Ms: percentile(evidence.connections.flatMap((c) => (c.ms == null ? [] : [c.ms])), 0.5),
+      connectionP95Ms: percentile(evidence.connections.flatMap((c) => (c.ms == null ? [] : [c.ms])), 0.95),
+      connectionFailures: evidence.connections.filter((c) => c.ms == null).length,
+      deliveryP50Ms: percentile(evidence.broadcast.flatMap((b) => Object.values(b.receivedMs).flatMap((v) => (v == null ? [] : [v]))), 0.5),
+      deliveryP95Ms: percentile(evidence.broadcast.flatMap((b) => Object.values(b.receivedMs).flatMap((v) => (v == null ? [] : [v]))), 0.95),
+      perContactSendP50Ms: percentile(evidence.broadcast.filter((b) => b.style === 'one-at-a-time').flatMap((b) => Object.values(b.sendMs)), 0.5),
+    };
+    const body = JSON.stringify({ ...evidence, summary }, null, 2);
+    console.log(`[measure] summary ${JSON.stringify(summary)}`);
+    const dir = path.resolve('test-results', 'android-measurements');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${MODE}-${evidence.startedAt.replace(/[:.]/g, '-')}.json`), body);
+    await testInfo.attach('measurements.json', { body: Buffer.from(body), contentType: 'application/json' });
+    for (const phone of phones) {
+      const consolePath = testInfo.outputPath(`${phone.device.name}-webview-console.txt`);
+      fs.writeFileSync(consolePath, (consoleLines[phone.device.name] ?? []).join('\n'));
+      await testInfo.attach(`${phone.device.name}-webview-console.txt`, { path: consolePath, contentType: 'text/plain' });
+    }
+    if (testInfo.status !== testInfo.expectedStatus) {
+      for (const phone of phones) {
+        const failure = await collectAndroidDiagnostics(phone.device.serial);
+        await testInfo.attach(`${phone.device.name}-logcat.txt`, { body: Buffer.from(failure.logcat), contentType: 'text/plain' });
+      }
+    }
+  });
+
+  test(`measure ${MODE}`, async () => {
+    test.setTimeout((25 + BACKGROUND_MINUTES + IDLE_MINUTES) * 60_000);
+    const devices = resolveAndroidMatrixDevices(SERIALS);
+    const ready = [];
+    for (const device of devices) if (await isAndroidDeviceReady(device.serial)) ready.push(device);
+    test.skip(ready.length < 2, `Needs at least two ready phones; found ${ready.length}.`);
+
+    const hubUrl = MODE === 'cellular'
+      ? PUBLIC_HUB
+      : MODE === 'wifi-direct' ? 'http://127.0.0.1:1/gun' : `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
+    const runId = `measure-${MODE}-${Date.now()}`;
+
+    for (const device of ready) {
+      await wakeAndUnlock(device.serial);
+      if (MODE === 'wifi-direct') await dropLeftoverWifiDirectGroup(device.serial);
+      if (MODE === 'cellular' && CELLULAR_SERIALS.has(device.serial)) {
+        await setWifi(device.serial, false);
+        await expect.poll(() => onCellularOnly(device.serial), { timeout: 30_000, message: `${device.serial} should be on mobile data` }).toBe(true);
+      }
+    }
+    await Promise.all(ready.map((device) => resetAndroidAppData(device.serial)));
+
+    // 1. Launch and discovery.
+    for (let index = 0; index < ready.length; index += 1) {
+      const device = ready[index]!;
+      const metadata = await readAndroidDeviceMetadata(device.serial);
+      const sdk = Number(metadata.sdk || 0);
+      if (MODE === 'wifi-direct') await grantOfflineNearbyPermissions(device.serial, sdk);
+      const launchedAt = Date.now();
+      const user = await launchAndroidUserViaAdb({ hubGunUrl: hubUrl, deviceSerial: device.serial, disableLanDiscovery: MODE !== 'hub-lan' });
+      const lines: string[] = consoleLines[device.name] = [];
+      user.window.on('console', (message) => {
+        if (lines.length < 20_000) lines.push(`${new Date().toISOString()} ${message.type()} ${message.text()}`);
+      });
+      const id = await bootstrapNativeWindow(user.window, `Measure ${index + 1}`, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000, pinStableLocation: false });
+      const readyMs = Date.now() - launchedAt;
+      const phone: Phone = { device, user, id, sdk, model: String(metadata.model), release: String(metadata.release), uid: await appUid(device.serial), roomId: '' };
+      phones.push(phone);
+      evidence.phones.push({ name: device.name, serial: device.serial, model: phone.model, android: phone.release, sdk, onMobileData: CELLULAR_SERIALS.has(device.serial) });
+      evidence.discovery[device.name] = { launchToReadyMs: readyMs };
+      console.log(`[measure] ${device.name} (${phone.model}, Android ${phone.release}) ready in ${readyMs} ms`);
+    }
+    // Everyone enters Nearby at the same moment, so discovery is timed from one shared start.
+    const discoveryStartedAt = Date.now();
+    await Promise.all(phones.map(async (phone) => {
+      const routedAt = Date.now();
+      if (MODE === 'cellular') {
+        await forceJoinRoom(phone.user.window, runId);
+        phone.roomId = runId;
+      } else {
+        phone.roomId = await routeToFixedNearby(phone.user.window);
+      }
+      evidence.discovery[phone.device.name]!.routeMs = Date.now() - routedAt;
+    }));
+    evidence.appVersion = await phones[0]!.user.window.evaluate(() => String((window as any).__IINPUBLIC_VERSION__ || (window as any).__iinpublic_app?.getApp?.()?.appVersion || '')).catch(() => '');
+    expect(new Set(phones.map((p) => p.roomId)).size).toBe(1);
+    const roomId = phones[0]!.roomId;
+    const allIds = phones.map((p) => p.id);
+    const sinceStart = (ms: number | null) => (ms == null ? null : Date.now() - discoveryStartedAt);
+
+    if (MODE === 'wifi-direct') {
+      const groupMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate(() => {
+        const d = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.();
+        return d?.wifiDirectActive === true && (d?.group?.state === 'owner' || d?.group?.state === 'client');
+      })))).every(Boolean), 240_000, 1_000));
+      evidence.discovery.all = { ...(evidence.discovery.all ?? {}), wifiDirectGroupMs: groupMs };
+    }
+    if (MODE !== 'cellular' && MODE !== 'wifi-direct') {
+      evidence.discovery.all = {
+        hubRosterMs: sinceStart(await timeUntil(async () => {
+          const members = new Set(await readRoomMembers(roomId));
+          return allIds.every((id) => members.has(id));
+        }, 120_000, 250)),
+      };
+    }
+    const rosterMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate((ids) => {
+      const service = (window as any).__iinpublic_app?.getApp?.()?.chatroomService;
+      const seen = new Set<string>(Array.from(service?.activeMembersForList?.keys?.() || []).map(String));
+      return ids.every((id: string) => seen.has(id));
+    }, allIds)))).every(Boolean), 240_000, 500));
+    evidence.discovery.all = { ...(evidence.discovery.all ?? {}), everyRosterMs: rosterMs };
+    if (MODE === 'hub-lan') {
+      evidence.discovery.all.lanNsdAllMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate(() => {
+        const d = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.();
+        return (d?.peers || []).filter((peer: { onLan?: boolean }) => peer.onLan).length;
+      })))).every((n) => n >= phones.length - 1), 120_000, 500));
+    }
+    // Every pair also has a live mesh link with a confirmed encrypted session.
+    evidence.discovery.all.meshAllMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate((ids) => {
+      const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
+      return ids.filter((id: string) => mesh?.neighbors?.get?.(id)?.session?.secureSessionConfirmed === true).length;
+    }, allIds.filter((id) => id !== p.id))))).every((n) => n >= phones.length - 1), 120_000, 500));
+    console.log(`[measure] discovery ${JSON.stringify(evidence.discovery.all)} (from ${new Date(discoveryStartedAt).toISOString()})`);
+    expect(rosterMs, 'every phone should list every other phone').not.toBeNull();
+
+    // 2. Fresh connection per pair, from the side that makes the WebRTC offer.
+    for (let i = 0; i < phones.length; i += 1) {
+      for (let j = i + 1; j < phones.length; j += 1) {
+        const [a, b] = phones[i]!.id.localeCompare(phones[j]!.id) < 0 ? [phones[i]!, phones[j]!] : [phones[j]!, phones[i]!];
+        await a.user.window.evaluate((otherId) => (window as any).__iinpublic_app?.getApp?.()?.peerMeshService?.waitForConnectedNeighbor?.(otherId, 20_000), b.id).catch(() => false);
+        for (let rep = 0; rep < RECONNECTS; rep += 1) {
+          const result = await a.user.window.evaluate(async (otherId) => {
+            const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
+            const neighbor = mesh?.neighbors?.get?.(otherId);
+            if (!neighbor?.session?.reconnect) return { ms: null, error: 'no mesh session' };
+            const started = performance.now();
+            try {
+              await neighbor.session.reconnect(20_000);
+              const ms = Math.round(performance.now() - started);
+              const pair = await neighbor.session.getSelectedCandidatePair?.().catch?.(() => null);
+              return { ms, local: pair?.localType, remote: pair?.remoteType };
+            } catch (error) {
+              return { ms: null, error: String((error as Error)?.message || error) };
+            }
+          }, b.id);
+          evidence.connections.push({ from: a.device.name, to: b.device.name, ...result });
+          await sleep(1_000);
+        }
+      }
+    }
+    console.log(`[measure] connections ${JSON.stringify(evidence.connections.map((c) => c.ms))}`);
+
+    // 3. The broadcast loop: one at a time, then all at once, from every phone.
+    for (const style of ['one-at-a-time', 'all-at-once'] as const) {
+      for (const author of phones) {
+        const receivers = phones.filter((p) => p !== author);
+        const talk = await createTagTalk(author, `${runId}-${style}-${author.device.name}`);
+        const title = talk.talkData.title as string;
+        const started = Date.now();
+        const receivedMs: Record<string, number | null> = {};
+        const watchers = receivers.map(async (receiver) => {
+          receivedMs[receiver.device.name] = await timeUntil(() => hasIncoming(receiver, title), 120_000, 250)
+            .then((ms) => (ms == null ? null : Date.now() - started));
+        });
+        const sendMs: Record<string, number> = {};
+        if (style === 'one-at-a-time') {
+          for (const receiver of receivers) sendMs[receiver.device.name] = await sendTo(author, talk, [receiver]);
+        } else {
+          sendMs.all = await sendTo(author, talk, receivers);
+        }
+        await Promise.all(watchers);
+        const values = Object.values(receivedMs);
+        evidence.broadcast.push({
+          author: author.device.name,
+          style,
+          sendMs,
+          receivedMs,
+          allReceivedMs: values.every((v) => v != null) ? Math.max(...(values as number[])) : null,
+        });
+        console.log(`[measure] ${style} from ${author.device.name}: send ${JSON.stringify(sendMs)} received ${JSON.stringify(receivedMs)}`);
+      }
+    }
+
+    // 4. Background delivery to the newest Android.
+    if (BACKGROUND_MINUTES > 0) {
+      const receiver = [...phones].sort((a, b) => b.sdk - a.sdk)[0]!;
+      const author = phones.find((p) => p !== receiver)!;
+      const talk = await createTagTalk(author, `${runId}-background`);
+      await adb(receiver.device.serial, 'input', 'keyevent', 'KEYCODE_HOME');
+      console.log(`[measure] ${receiver.device.name} in the background for ${BACKGROUND_MINUTES} min`);
+      await sleep(BACKGROUND_MINUTES * 60_000);
+      const started = Date.now();
+      await sendTo(author, talk, [receiver]);
+      const whileBackground = await timeUntil(() => hasIncoming(receiver, talk.talkData.title), 60_000, 1_000);
+      let afterForeground: number | null = null;
+      if (whileBackground == null) {
+        await adb(receiver.device.serial, 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY);
+        afterForeground = await timeUntil(() => hasIncoming(receiver, talk.talkData.title), 120_000, 500)
+          .then((ms) => (ms == null ? null : Date.now() - started));
+      } else {
+        await adb(receiver.device.serial, 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY);
+      }
+      evidence.background = { receiver: receiver.device.name, minutes: BACKGROUND_MINUTES, receivedWhileBackgroundMs: whileBackground, receivedAfterForegroundMs: afterForeground };
+      console.log(`[measure] background ${JSON.stringify(evidence.background)}`);
+      await sleep(5_000);
+    }
+
+    // 5. Idle window with battery accounting, and discovery-state churn.
+    if (IDLE_MINUTES > 0) {
+      for (const phone of phones) {
+        await adb(phone.device.serial, 'dumpsys', 'battery', 'unplug').catch(() => '');
+        await adb(phone.device.serial, 'dumpsys', 'batterystats', '--reset').catch(() => '');
+      }
+      evidence.notes.push('Battery: Android\'s per-app power estimate with charging hidden (dumpsys battery unplug); the phones stay on USB, so this is the model estimate, not measured drain.');
+      const states: Record<string, string[]> = Object.fromEntries(phones.map((p) => [p.device.name, []]));
+      const samples = Math.max(1, Math.round((IDLE_MINUTES * 60) / SAMPLE_SECONDS));
+      for (let sample = 0; sample < samples; sample += 1) {
+        for (const phone of phones) states[phone.device.name]!.push(await discoveryState(phone));
+        await sleep(SAMPLE_SECONDS * 1_000);
+      }
+      for (const phone of phones) {
+        const checkin = await adb(phone.device.serial, 'dumpsys', 'batterystats', '--checkin').catch(() => '');
+        const series = states[phone.device.name]!;
+        const changes = series.filter((state, index) => index > 0 && state !== series[index - 1]).length;
+        evidence.idle[phone.device.name] = {
+          minutes: IDLE_MINUTES,
+          ...parseBatteryStats(checkin, phone.uid),
+          discoveryStateChanges: changes,
+          discoveryStates: [...new Set(series)],
+          mesh: await phone.user.window.evaluate(() => {
+            const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
+            return { ...mesh?.getDiagnostics?.(), forwarding: mesh?.getForwardingDiagnostics?.() };
+          }).catch(() => null),
+        };
+        await adb(phone.device.serial, 'dumpsys', 'battery', 'reset').catch(() => '');
+      }
+      console.log(`[measure] idle ${JSON.stringify(evidence.idle)}`);
+    }
+  });
+});

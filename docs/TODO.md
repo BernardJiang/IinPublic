@@ -171,6 +171,13 @@ its ID.
       delivery, roster/control bytes, duplicate bytes, radio churn, background survival, and battery
       across Internet, LAN, isolated BLE, and Wi-Fi Direct. Record evidence; do not promote `498` from
       an arbitrary default without results.
+        2026-10-18 measurement round (`native-app/39`, `docs/testing/android-transport-measurements.md`,
+        1.0.168–1.0.169, P30/C10/FRD + PH-1): hub+LAN, hub-only, offline Wi-Fi Direct and mobile data.
+        Discovery 2.0–2.4 s with a hub, 13–17 s offline, 4–8 s with a SIM phone; fresh connections
+        0.7–1.5 s on Wi-Fi, 2.2–2.9 s across carrier NAT, none over offline Wi-Fi Direct (OPEN-74);
+        Talk delivery p50 2.2–3.9 s, p95 6–7 s (36 s once offline); backgrounded delivery ~0.4 s;
+        no Talk lost. The round found and fixed OPEN-71 and OPEN-72 and found OPEN-73 (idle cost).
+        Still missing: isolated BLE, a long unplugged battery run, duplicate bytes.
         Connected-hub/LAN slice passed on 2026-10-11 on Android 7, 10, and 14 using a deliberately
         small experimental `C=3`: three signed claims shared one upstream index, opened one two-way
         cohort split in 15.261 s, moved into identity-derived defaults, and completed explicit
@@ -396,6 +403,9 @@ its ID.
       rejected, web-without-native-bridge, hub loss/recovery, no empty Wi-Fi Direct group, bounded
       backoff, and one elected host among 4 eligible phones.
     - [ ] Physical gates: record discovery time, scan duty cycle, group churn, duplicate
+      2026-10-18 (`native-app/39`): discovery times above; discovery-state changes while idle 0 on
+      hub modes, 3 per 15 min offline, 12 per 15 min on mobile data (offline-quiet ↔
+      offline-searching, OPEN-73 follow-up). Scan duty cycle and battery per timer still to do.
       candidates/bytes, and battery on ≥ 3 phones before selecting the production timers (the
       30 s / 10 min / 30 min values above are untested defaults).
     - [x] Product decision (2026-10-10): a shared chatroom takes priority over exact personalized
@@ -784,6 +794,10 @@ phrase complexity into normal use.
     incoming limits) from the signed manifest; nothing hard-coded. Changing `C` needs no epoch in v3.
   - [ ] Measure per-contact connection cost and broadcast-loop time on the five phones, over Wi-Fi
     and mobile data, and choose the incoming limits.
+    2026-10-18 first numbers (`docs/testing/android-transport-measurements.md`): a fresh connection
+    0.7–1.5 s on Wi-Fi and 2.2–2.9 s across carrier NAT; the sender spends ~3.5 s per contact one at
+    a time (mostly waiting for the receiver), and a receiver ~1.5 s accepting one Talk. A 498-contact
+    loop needs overlapping sends; incoming limits not chosen yet.
   - [ ] Implement: cards, the hub's statistics/pyramid/introduction sample, gossip, the adaptive
     broadcast loop with per-peer inventories, incoming limits, Places on the same lists, the
     daily beacon and identity-age rule, map/list/headcount UI, and the epoch migration.
@@ -806,6 +820,54 @@ phrase complexity into normal use.
   actually divide. That changes room assignment, so it needs a protocol epoch and the mixed-release
   rules. Coalescing has the mirror cost: one level per 3-minute dwell (39 min to climb 13 levels).
   Superseded by OPEN-70 if Nearby v3 is adopted (v3 has no splits).
+- [x] **OPEN-71 — After a reconnect, a phone pair could stay "connected" but exchange nothing
+  (found 2026-10-18 by `native-app/39`, fixed 2026-10-18, 1.0.166).** Four of six pairs on four
+  phones never delivered a Talk; the mesh logged each such neighbor "connected (0 ms)" about once a
+  second for minutes (~5,000 mesh frames per phone). Cause: a handshake from the previous
+  DataChannel was still waiting on the contact-key lookup when the reconnect reset the encrypted
+  session; it then derived a key from the old remote offer and the new local one, and the real new
+  handshake was ignored, so the two phones held different session ids and no `secure-confirm` ever
+  matched. Fix (`p2p-webrtc-session.ts`): a generation counter drops handshake work started before a
+  reset; a channel not confirmed within 15 s fails so the session is rebuilt; a failed session never
+  returns its old resolved connect promise. Unit test `p2p-session-handshake-race.test.ts` (fails
+  without the fix); journey `phone-path/07-mesh-reconnect-delivery`. On 1.0.166 every pair delivers
+  and a backgrounded C10 received a Talk in 0.4 s (75 s and only after reopening before).
+- [x] **OPEN-72 — Every incoming Talk asked the hub twice whether either side blocked the other
+  (found 2026-10-18 by tracing a 4 s Talk send on two phones, fixed 1.0.167–1.0.168).** A C10 spent
+  ~2.4 s accepting one Talk; 1.8 s of it was two `GET /api/users/<me>/block-status/<sender>` calls
+  (announcement and body, ~0.9 s each through the embedded node). Now `BlockStatusCache` remembers
+  the answer per peer for 60 s, shares a lookup between the announcement and the body, is warmed when
+  a mesh neighbor connects, and is dropped on block/unblock; the local block list is still checked
+  first. The sender now also skips people it has blocked (it relied on the receiver's hub check).
+  Receiver body handling 2.4 s → 1.45 s. Unit test `block-status-cache.test.ts`; block journeys
+  `phone-path/04` and staged 15a/15b/40/81/82 pass. Still open in the same path: writing the
+  incoming cluster (~0.8 s) and `cacheReceivedTalk` (~0.6 s) on the phone, and the sender's 3 s ACK
+  timeout is shorter than a phone's ~3.7 s round trip.
+- [ ] **OPEN-73 — An idle phone in Nearby keeps most of a CPU core busy and moves 12–63 MB per 15
+  minutes (found 2026-10-18 by `native-app/39`; first fixes in 1.0.169).** Idle in a three-phone
+  Nearby room on 1.0.168, Android's battery stats showed the C10 using 836 s and the FRD 765 s of
+  CPU in 900 s, and the P30 moving 35 MB in / 28 MB out with LAN discovery on (12 MB with the hub only;
+  0.3 MB offline). The page made ~4.6 requests/s to its embedded node, each relayed to the hub:
+  HTTP signaling polled every 600 ms per WebRTC link even when connected (196 per 2 min with one
+  link), the mesh reconcile fetched up to 200 presence entries on every roster callback (~1/s), and
+  every unchanged headcount callback re-rendered the room list and map, which re-queried map dots.
+  Fixed in 1.0.169: signaling polls every 15 s while connected; presence is fetched only for
+  candidates whose key is unknown; unchanged headcounts do not re-render; map dots for the same view
+  are reused for 20 s. On the host, idle page requests fell from ~550 to ~190 per 2 minutes.
+  - [x] Re-measured on 1.0.169 (2026-10-18): phone idle CPU unchanged (C10 847 s, FRD 719 s per 900 s)
+    and the P30 still moved 57 MB per 15 min with LAN on. The page polling was not the phones' main
+    cost; the busy thread is the embedded node (`Thread-3`).
+  - [ ] Add a profiler or event-loop/request counters to the embedded node and find what keeps it
+    busy while idle (hub-connected 680–850 s, offline 375 s of CPU per 900 s on the C10).
+  - [ ] Remaining pollers: mailbox every 3 s; TechSupport messages, delegate grants and recovery
+    every 5 s each (`techsupport-conversation-transport.ts`); room members every 5 s.
+  - [ ] LAN mode adds ~50 MB per 15 minutes over hub-only (likely Gun replication between phones).
+  - [ ] Offline (Wi-Fi Direct, no hub) the C10 still used 375 s of CPU in 900 s: find the rest.
+- [ ] **OPEN-74 — A fresh WebRTC reconnect never succeeds over an offline Wi-Fi Direct group
+  (found 2026-10-18 by `native-app/39`).** With the hub unreachable, P30 (owner) and C10 (client)
+  formed a group in 11.4 s and their mesh link confirmed in 17.5 s, but all five
+  `session.reconnect()` attempts failed ("WebRTC connection failed"), and the next Talk took 36 s
+  while the link recovered by itself. The app uses `reconnect()` for the Wi-Fi Direct relay switch.
 - [x] **OPEN-69 — Small C strands full groups in very dense places (found 2026-10-17 by the capacity
   experiment; guarded 2026-10-17: production refuses a signed manifest with C < 128,
   `production-protocol-manifest.ts`, unit test in `protocol-manifest.test.ts`).** Below everyone's privacy floor a group splits only by halving identity lanes, so a

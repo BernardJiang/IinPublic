@@ -2788,6 +2788,9 @@ export class UIManager extends EventEmitter {
    * Set member count for a specific chatroom (can be called for any chatroom)
    */
   setChatroomMemberCount(chatroomId: string, count: number): void {
+    // Headcount callbacks fire on every member heartbeat (about once a second) with the same
+    // number; re-rendering the room list and its map each time kept an idle phone busy.
+    if (this.chatroomMemberCounts.get(chatroomId) === count) return;
     console.log(`📊 Setting member count for ${chatroomId}: ${count} members`);
     this.chatroomMemberCounts.set(chatroomId, count);
 
