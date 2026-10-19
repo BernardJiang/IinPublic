@@ -4,6 +4,8 @@ import { CONFIG } from '../../shared/config';
 import { randomUUID } from 'crypto';
 import type express from 'express';
 import { ChatroomManager } from '../services/chatroom-manager';
+import { RelayMemberTouchThrottle } from '../services/relay-member-touch-throttle';
+import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import {
   EmbeddedHubRelayRequestError,
   type EmbeddedHubRelayClientLike,
@@ -88,17 +90,20 @@ export function registerChatroomRoutes(
   // Who each room's last hub roster contained, so members who leave at the hub can be dropped
   // here. Members who joined through this node and never reached the hub are left alone.
   const relayedMemberIds = new Map<string, Set<string>>();
+  const relayTouches = new RelayMemberTouchThrottle(Math.floor((ROOM_MEMBERSHIP_TTL_SECONDS * 1000) / 3));
   const syncMembersFromRelay = async (chatroomId: string): Promise<RelayRoomMember[]> => {
     if (!hubRelayClient) return [];
     const remoteMembers = await hubRelayClient.listMembers(chatroomId);
     const remoteIds = new Set(remoteMembers.map((member) => member.userId));
     const previousIds = relayedMemberIds.get(chatroomId);
     if (previousIds) {
-      await chatroomManager.dropRelayedMembers(chatroomId, [...previousIds].filter((id) => !remoteIds.has(id)));
+      const gone = [...previousIds].filter((id) => !remoteIds.has(id));
+      for (const id of gone) relayTouches.forget(chatroomId, id);
+      await chatroomManager.dropRelayedMembers(chatroomId, gone);
     }
     relayedMemberIds.set(chatroomId, remoteIds);
     await Promise.all(
-      remoteMembers.map((member) =>
+      remoteMembers.filter((member) => relayTouches.shouldTouch(chatroomId, member)).map((member) =>
         chatroomManager.touchMemberFast(chatroomId, member.userId, {
           stageName: member.stageName,
           lastSeen: new Date().toISOString(),

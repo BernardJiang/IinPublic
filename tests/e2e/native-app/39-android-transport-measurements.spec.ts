@@ -65,6 +65,11 @@ const RECONNECTS = Number(process.env.E2E_MEASURE_RECONNECTS || '5');
 const BACKGROUND_MINUTES = Number(process.env.E2E_MEASURE_BACKGROUND_MIN || '5');
 const IDLE_MINUTES = Number(process.env.E2E_MEASURE_IDLE_MIN || '15');
 const SAMPLE_SECONDS = 30;
+/** OPEN-73: also record a CPU profile of each phone's embedded node during the idle window. */
+const PROFILE = process.env.E2E_MEASURE_PROFILE === '1';
+const PROFILE_SECONDS = 60;
+/** Idle with the screens off, the way a phone in a pocket idles (otherwise the screen stays on). */
+const SCREEN_OFF = process.env.E2E_MEASURE_SCREEN_OFF === '1';
 const PACKAGE = 'com.iinpublic.app';
 const FIXED_LOCATION = { latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: '2026-10-18T12:00:00.000Z' };
 
@@ -278,6 +283,89 @@ function parseBatteryStats(checkin: string, uid: string): Record<string, unknown
   const cpu = rows.find((cols) => cols[3] === 'cpu');
   if (cpu) out.cpuMs = (Number(cpu[4]) || 0) + (Number(cpu[5]) || 0);
   return out;
+}
+
+type CpuProfile = {
+  nodes: Array<{ id: number; callFrame: { functionName: string; url: string; lineNumber: number } }>;
+  samples: number[];
+  timeDeltas: number[];
+};
+
+/** Self time per function, largest first: where the embedded node spent the window. */
+function topSelfTime(profile: CpuProfile, limit = 15): Array<{ fn: string; ms: number }> {
+  const byNode = new Map(profile.nodes.map((node) => [node.id, node]));
+  const totals = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const frame = byNode.get(id)?.callFrame;
+    if (!frame) return;
+    const file = frame.url.split('/').slice(-2).join('/');
+    const key = `${frame.functionName || '(anonymous)'} ${file}:${frame.lineNumber + 1}`;
+    totals.set(key, (totals.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+  });
+  return [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([fn, ms]) => ({ fn, ms: Math.round(ms) }));
+}
+
+/**
+ * CPU % over `seconds` (second `top` frame) for the app's busiest threads and for every process
+ * that belongs to it, including the WebView's sandboxed renderer (its own isolated uid).
+ */
+async function sampleAppCpu(serial: string, seconds: number): Promise<{ processes: Array<{ name: string; cpu: number }>; threads: Array<{ name: string; cpu: number }> }> {
+  const secondFrame = (out: string) => out.split(/\n(?=Tasks:|Threads:)/).pop() ?? '';
+  const rows = (frame: string, nameColumnFromEnd: number) => frame.split('\n')
+    .map((line) => line.trim().split(/\s+/))
+    .filter((cols) => /^\d+$/.test(cols[0] ?? '') && cols.length > 9)
+    .map((cols) => {
+      const cpuIndex = cols.findIndex((col, i) => i > 5 && /^\d+(\.\d+)?$/.test(col) && /^\d+(\.\d+)?$/.test(cols[i + 1] ?? '') && /:/.test(cols[i + 2] ?? ''));
+      return { name: cols.slice(cols.length - nameColumnFromEnd).join(' '), cpu: cpuIndex > 0 ? Number(cols[cpuIndex]) : 0 };
+    });
+  const pid = (await adb(serial, 'pidof', PACKAGE).catch(() => '')).trim().split(/\s+/)[0];
+  const topRun = async (...args: string[]) => String((await execFileAsync('adb', ['-s', serial, 'shell', 'top', ...args], {
+    timeout: (seconds + 30) * 1000,
+    maxBuffer: 16 * 1024 * 1024,
+  }).catch(() => ({ stdout: '' }))).stdout);
+  const [processOut, threadOut] = await Promise.all([
+    topRun('-b', '-n', '2', '-d', String(seconds)),
+    pid ? topRun('-H', '-b', '-n', '2', '-d', String(seconds), '-p', pid) : Promise.resolve(''),
+  ]);
+  const processes = rows(secondFrame(processOut), 1)
+    .filter((row) => /iinpublic|sandboxed|webview|webview_zygote/i.test(row.name))
+    .sort((a, b) => b.cpu - a.cpu).slice(0, 6);
+  const threads = rows(secondFrame(threadOut), 2)
+    .sort((a, b) => b.cpu - a.cpu).slice(0, 10);
+  return { processes, threads };
+}
+
+/** CDP profile of the WebView page plus how its main thread spent the window. */
+async function profileWebViewPage(page: AndroidUser['window'], seconds: number): Promise<{ profile?: CpuProfile; metrics?: Record<string, number>; error?: string }> {
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    const metricsNow = async () => Object.fromEntries(((await cdp.send('Performance.getMetrics')) as { metrics: Array<{ name: string; value: number }> }).metrics.map((m) => [m.name, m.value]));
+    await cdp.send('Performance.enable');
+    await cdp.send('Profiler.enable');
+    await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
+    const before = await metricsNow();
+    await cdp.send('Profiler.start');
+    await sleep(seconds * 1000);
+    const { profile } = (await cdp.send('Profiler.stop')) as { profile: CpuProfile };
+    const after = await metricsNow();
+    const delta = (name: string) => Math.round(((after[name] ?? 0) - (before[name] ?? 0)) * 1000);
+    await cdp.detach().catch(() => undefined);
+    return {
+      profile,
+      metrics: {
+        taskMs: delta('TaskDuration'),
+        scriptMs: delta('ScriptDuration'),
+        layoutMs: delta('LayoutDuration'),
+        recalcStyleMs: delta('RecalcStyleDuration'),
+        layoutCount: Math.round((after.LayoutCount ?? 0) - (before.LayoutCount ?? 0)),
+        recalcStyleCount: Math.round((after.RecalcStyleCount ?? 0) - (before.RecalcStyleCount ?? 0)),
+        nodes: Math.round(after.Nodes ?? 0),
+        jsHeapMb: Math.round((after.JSHeapUsedSize ?? 0) / 1e6),
+      },
+    };
+  } catch (error) {
+    return { error: String((error as Error)?.message || error) };
+  }
 }
 
 function percentile(values: number[], q: number): number | null {
@@ -526,7 +614,55 @@ test.describe('Native app: transport measurements on real phones', () => {
         await adb(phone.device.serial, 'dumpsys', 'batterystats', '--reset').catch(() => '');
       }
       evidence.notes.push('Battery: Android\'s per-app power estimate with charging hidden (dumpsys battery unplug); the phones stay on USB, so this is the model estimate, not measured drain.');
+      evidence.notes.push(SCREEN_OFF ? 'Idle window with the screens off.' : 'Idle window with the screens on.');
+      if (SCREEN_OFF) for (const phone of phones) await adb(phone.device.serial, 'input', 'keyevent', 'KEYCODE_SLEEP').catch(() => '');
       const states: Record<string, string[]> = Object.fromEntries(phones.map((p) => [p.device.name, []]));
+      if (PROFILE) {
+        // The page is served by the embedded node on loopback, so it may call the loopback-only window.
+        // At the same time, profile the WebView page itself over CDP (script, layout, style, paint).
+        // Android 7's WebView drops the whole page connection when a CDP session is opened on it.
+        const pageWindows = Promise.all(phones.map((phone) => (phone.sdk >= 29
+          ? profileWebViewPage(phone.user.window, PROFILE_SECONDS)
+          : Promise.resolve({ error: `page profile skipped on Android SDK ${phone.sdk}` }))));
+        const cpuSamples = Promise.all(phones.map((phone) => sampleAppCpu(phone.device.serial, 30)));
+        const windows = await Promise.all(phones.map((phone) => phone.user.window.evaluate(async (seconds) => {
+          const response = await fetch(`/api/debug/runtime-window?seconds=${seconds}`, { cache: 'no-store' });
+          return response.ok ? response.json() : { error: `${response.status} ${await response.text()}` };
+        }, PROFILE_SECONDS).catch((error) => ({ error: String(error) }))));
+        const pages = await pageWindows;
+        const cpu = await cpuSamples;
+        phones.forEach((phone, index) => {
+          (evidence.idle as Record<string, unknown>)[`${phone.device.name}-cpu`] = cpu[index];
+          console.log(`[measure] cpu ${phone.device.name} ${JSON.stringify(cpu[index])}`);
+        });
+        phones.forEach((phone, index) => {
+          const page = pages[index]!;
+          if (page.profile) {
+            fs.mkdirSync(path.resolve('test-results', 'android-measurements'), { recursive: true });
+            fs.writeFileSync(path.resolve('test-results', 'android-measurements', `${MODE}-${phone.device.name}-page-${evidence.startedAt.replace(/[:.]/g, '-')}.cpuprofile`), JSON.stringify(page.profile));
+          }
+          const summary = { metrics: page.metrics, topSelfTime: page.profile ? topSelfTime(page.profile) : null, error: page.error };
+          (evidence.idle as Record<string, unknown>)[`${phone.device.name}-page`] = summary;
+          console.log(`[measure] page ${phone.device.name} ${JSON.stringify(summary)}`);
+        });
+        const dir = path.resolve('test-results', 'android-measurements');
+        fs.mkdirSync(dir, { recursive: true });
+        phones.forEach((phone, index) => {
+          const report = windows[index] as { profile?: CpuProfile; eventLoopUtilization?: number; requests?: unknown; profileUnavailable?: string; error?: string };
+          if (report.profile) {
+            fs.writeFileSync(path.join(dir, `${MODE}-${phone.device.name}-${evidence.startedAt.replace(/[:.]/g, '-')}.cpuprofile`), JSON.stringify(report.profile));
+          }
+          const summary = {
+            eventLoopUtilization: report.eventLoopUtilization,
+            requests: report.requests,
+            gun: (report as { gun?: unknown }).gun,
+            topSelfTime: report.profile ? topSelfTime(report.profile) : null,
+            profileUnavailable: report.profileUnavailable ?? report.error,
+          };
+          (evidence.idle as Record<string, unknown>)[`${phone.device.name}-runtime`] = summary;
+          console.log(`[measure] runtime ${phone.device.name} ${JSON.stringify(summary)}`);
+        });
+      }
       const samples = Math.max(1, Math.round((IDLE_MINUTES * 60) / SAMPLE_SECONDS));
       for (let sample = 0; sample < samples; sample += 1) {
         for (const phone of phones) states[phone.device.name]!.push(await discoveryState(phone));

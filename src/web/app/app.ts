@@ -32,6 +32,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { MapPresenceClient } from '../services/map-presence-client';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
 import { BlockStatusCache } from '../services/block-status-cache';
+import { throttleWhileHidden } from '../services/throttle-while-hidden';
 import { placesMissingFromCatalogue } from '../ui/room-list-view';
 import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
 import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
@@ -3870,10 +3871,12 @@ export class IinPublicApp {
   private startMailboxPolling(): void {
     this.registerNativeMailboxWatch();
     if (this.mailboxPollTimer) return;
-    this.mailboxPollTimer = setInterval(() => {
+    // While hidden (screen off, backgrounded) the native mailbox watch covers delivery; poll
+    // once a minute instead of every 3 s through the embedded node (OPEN-73).
+    this.mailboxPollTimer = setInterval(throttleWhileHidden(() => {
       void this.drainMailbox().catch(() => {});
       void this.retryFailedMailboxPosts().catch(() => {});
-    }, 3_000);
+    }, 60_000), 3_000);
   }
 
   /**
@@ -5555,7 +5558,8 @@ export class IinPublicApp {
       }
     };
     void tick();
-    this.techSupportRelayPollTimer = setInterval(() => void tick(), 5_000);
+    // Delegate grants and the recovery anchor change only during an incident (OPEN-73).
+    this.techSupportRelayPollTimer = setInterval(throttleWhileHidden(() => void tick(), 120_000), 5_000);
   }
 
   private stopTechSupportDelegateRelayPolling(): void {

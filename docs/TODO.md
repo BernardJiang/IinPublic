@@ -857,8 +857,21 @@ phrase complexity into normal use.
   - [x] Re-measured on 1.0.169 (2026-10-18): phone idle CPU unchanged (C10 847 s, FRD 719 s per 900 s)
     and the P30 still moved 57 MB per 15 min with LAN on. The page polling was not the phones' main
     cost; the busy thread is the embedded node (`Thread-3`).
-  - [ ] Add a profiler or event-loop/request counters to the embedded node and find what keeps it
-    busy while idle (hub-connected 680–850 s, offline 375 s of CPU per 900 s on the C10).
+  - [x] 2026-10-19: added `GET /api/debug/runtime-window` (CPU profile, requests by route, Gun
+    writes by record shape; loopback-only, debug builds) and `E2E_MEASURE_PROFILE=1` in
+    `native-app/39`. Found every node rewriting each mirrored room member ~4 times a second
+    (`syncMembersFromRelay` → `touchMemberFast` with a fresh `lastSeen`); `RelayMemberTouchThrottle`
+    (1.0.172) cut it from ~230 to 14 writes a minute. 1.0.173–1.0.174 slow the mailbox, TechSupport
+    and delegate polls while the Activity is paused (`__iinpublicNativePaused`; the WebView kept
+    reporting "visible"). Idle 15 min, screen off, 1.0.174: P30 12.7 mAh and 5.0 MB (72 mAh and
+    63 MB on 1.0.168), C10 201 CPU s (836), FRD 469 CPU s (765). Results:
+    `docs/testing/android-transport-measurements.md`.
+  - [ ] FRD (Android 7) still uses ~50 % of a core while idle; the WebView renderer uses 24–32 %
+    with the screen on (map drawing). Next: profile the FRD's node (no CDP on Android 7) and stop
+    map rendering while the Chatrooms map is not in view.
+  - [ ] Each phone's node still polls the hub roster every 5 s for every room it ever joined
+    (`observeRelayRoom`); stopping it on leave broke the Place list after leaving (phone-path/01),
+    so it needs a local roster clean-up on leave first.
   - [ ] Remaining pollers: mailbox every 3 s; TechSupport messages, delegate grants and recovery
     every 5 s each (`techsupport-conversation-transport.ts`); room members every 5 s.
   - [ ] LAN mode adds ~50 MB per 15 minutes over hub-only (likely Gun replication between phones).

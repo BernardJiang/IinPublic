@@ -513,13 +513,19 @@ class MainActivity : AppCompatActivity() {
         // it can rebuild stale WebRTC room links and drain pending encrypted mailbox work.
         if (::webView.isInitialized) {
             webView.post {
-                webView.evaluateJavascript("window.dispatchEvent(new Event('iinpublic-native-resume'));", null)
+                webView.evaluateJavascript("window.__iinpublicNativePaused = false; window.dispatchEvent(new Event('iinpublic-native-resume'));", null)
             }
         }
     }
 
     override fun onPause() {
         isInForeground = false
+        // The page's visibilityState stays "visible" when the screen turns off or the app goes to
+        // the background (this Activity never pauses the WebView). Tell the SPA, so background
+        // polls can slow down (OPEN-73); JavaScript keeps running for mesh delivery.
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript("window.__iinpublicNativePaused = true; window.dispatchEvent(new Event('iinpublic-native-pause'));", null)
+        }
         super.onPause()
     }
 

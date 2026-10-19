@@ -15,6 +15,7 @@ import { resolveP2PRuntimeFlags } from '../../shared/p2p-runtime';
 import { resolveEmbeddedNodeConfig } from '../../shared/embedded-node-config';
 import { CONFIG } from '../../shared/config';
 import { installTransientSignalStoreFilter } from '../services/transient-signal-store-filter';
+import { installGunWireCounter, requestCounter } from '../services/runtime-profiler';
 
 /** Origin the browser's MapLibre client fetches style/tile data from (chatroom map view).
  * Must be CSP connect-src allowed or the map fails with "could not be loaded" despite a
@@ -121,6 +122,8 @@ export function configureHttpMiddleware(app: express.Application): void {
     }),
   );
 
+  // OPEN-73: per-route request counts for /api/debug/runtime-window (not in production).
+  if (process.env.NODE_ENV !== 'production') app.use(requestCounter);
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(requestLogger);
@@ -303,6 +306,8 @@ export function attachGun(server: HttpServer): any {
   // (they re-hydrated into V8 until phones crashed out of memory — transient-signal-store-filter.ts).
   if (embedded.enabled) installTransientSignalStoreFilter(Gun as unknown as Parameters<typeof installTransientSignalStoreFilter>[0]);
 
+  // OPEN-73: count Gun wire traffic by record shape for /api/debug/runtime-window (debug builds).
+  if (process.env.NODE_ENV !== 'production') installGunWireCounter(Gun as unknown as Parameters<typeof installGunWireCounter>[0]);
   const gun = Gun({
     web: server,
     localStorage: false,

@@ -7,6 +7,7 @@ import {
   StarGunConversationTransport,
   type ConversationMessageWire,
 } from './star-gun-conversation-transport';
+import { throttleWhileHidden } from './throttle-while-hidden';
 
 type SupportWire = ConversationMessageWire & { supportMessage?: boolean };
 
@@ -131,9 +132,10 @@ export class TechSupportConversationTransport implements ConversationTransport {
 
     void mergeAndNotify();
 
-    const poll = setInterval(() => {
+    // The live Gun subscription still pushes; the server poll slows while hidden (OPEN-73).
+    const poll = setInterval(throttleWhileHidden(() => {
       void mergeAndNotify();
-    }, 5000);
+    }, 60_000), 5000);
 
     return () => {
       disposed = true;

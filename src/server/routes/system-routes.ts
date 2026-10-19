@@ -82,6 +82,7 @@ import { MicroRoomControlStore } from '../services/micro-room-control-store';
 import { NearbyControlStore } from '../services/nearby-control-store';
 import { NearbyPartitionStore } from '../services/nearby-partition-store';
 import { MapPresenceStore } from '../services/map-presence-store';
+import { captureRuntimeWindow } from '../services/runtime-profiler';
 import { parseMapBounds } from '../../shared/map-presence';
 import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
 import { isPlaceRoomId } from '../../shared/place-rooms';
@@ -1515,6 +1516,20 @@ export function registerSystemRoutes(
         })().catch((error) => res.status(500).json({ error: (error as Error).message }));
       });
     }
+
+    // OPEN-73: what this node does over a window (CPU profile, event-loop use, requests by route).
+    // Loopback-only: meant for adb-forwarded profiling of a phone's embedded node.
+    app.get('/api/debug/runtime-window', (req, res) => {
+      const remoteAddress = String(req.socket.remoteAddress || '');
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remoteAddress)) {
+        res.status(403).json({ error: 'runtime window is loopback-only' });
+        return;
+      }
+      const seconds = Math.max(1, Math.min(120, Number(req.query.seconds) || 30));
+      void captureRuntimeWindow(seconds, req.query.profile !== '0')
+        .then((report) => res.json(report))
+        .catch((error) => res.status(500).json({ error: (error as Error).message }));
+    });
 
     // P2P-V: abuse defense diagnostics (non-secret — no private keys or message bodies)
     app.get('/api/debug/p2p-abuse', (_req, res) => {

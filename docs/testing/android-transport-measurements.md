@@ -61,6 +61,31 @@ profiler or event-loop counters inside the embedded node (OPEN-73).
 The two SIM phones on the same carrier connected host-to-host; the pairs with the Wi-Fi tablet used
 relay, srflx and prflx candidates.
 
+## 2026-10-19, builds 1.0.170–1.0.174 (OPEN-73 idle cost)
+
+Profiling (`E2E_MEASURE_PROFILE=1`) showed the idle cost was not one hot loop but constant churn:
+every phone's embedded node sent ~230 writes a minute to `chatrooms/<room>/users/<id>` and
+`chatroomMembers/<room>/<id>`, because mirroring the hub roster rewrote every member with a fresh
+`lastSeen` on every sync (a 5 s poll per room plus each member-list request). Gun replicated each
+write to the hub, the other phones and every subscribed page. Fixed in 1.0.172
+(`RelayMemberTouchThrottle`): a mirrored member is rewritten only when new, changed, or older than
+60 s — 14 writes a minute. 1.0.173–1.0.174 slow the mailbox, TechSupport and delegate polls while
+the app is paused (MainActivity now tells the page; its WebView kept reporting "visible").
+
+Idle 15 minutes, P30 / C10 / FRD on LAN with the hub, nothing happening:
+
+| Build, screen | P30 mAh | P30 Wi-Fi data | C10 CPU s | FRD CPU s | FRD mAh |
+|---|---|---|---|---|---|
+| 1.0.168, on | 72 | 63 MB | 836 | 765 | 94 |
+| 1.0.172, on | 20 | 9.2 MB | 407 | 446 | 38 |
+| 1.0.172, off | 20 | 8.9 MB | 323 | 526 | 46 |
+| 1.0.174, off | 12.7 | 5.0 MB | 201 | 469 | 31 |
+
+With profilers on (1.0.172, 60 s), the embedded node's thread fell from 23–30 % to 12–17 % of a core;
+the WebView renderer stayed at 24–32 % with the screen on (map drawing). Fresh reconnects: 13 of 15
+succeeded on 1.0.173; the failures are each pair's first reconnect, as in earlier runs (OPEN-74).
+The C10's per-app mAh is unreliable (2–3 mAh at 200–320 CPU s); read its CPU seconds.
+
 ## What the runs found and fixed
 
 - **OPEN-71** (1.0.166): after a reconnect a pair could stay "connected" but exchange nothing, from
@@ -69,7 +94,8 @@ relay, srflx and prflx candidates.
   backgrounded delivery is ~0.4 s.
 - **OPEN-72** (1.0.167–1.0.168): every incoming Talk asked the hub twice whether either side blocked
   the other (~0.9 s each on a phone).
-- **OPEN-73** (1.0.169, partly): idle polling through the embedded node.
+- **OPEN-73** (1.0.169–1.0.174): idle polling and roster rewrites; idle cost down ~80 % on the
+  P30 and C10, ~40 % on the FRD.
 - **OPEN-74** (open): fresh reconnects never succeed over an offline Wi-Fi Direct group.
 
 ## Not measured yet

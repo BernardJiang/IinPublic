@@ -34,6 +34,16 @@ OPEN-70's per-contact connection cost.
 
 Knobs: `E2E_MEASURE_RECONNECTS` (5), `E2E_MEASURE_BACKGROUND_MIN` (5), `E2E_MEASURE_IDLE_MIN` (15).
 
+Diagnostics:
+
+- `E2E_MEASURE_SCREEN_OFF=1` idles with the screens off (a phone in a pocket); otherwise they stay
+  on.
+- `E2E_MEASURE_PROFILE=1` also records, for 60 s of the idle window: a CPU profile of each phone's
+  embedded node with its requests by route and Gun writes by record shape
+  (`GET /api/debug/runtime-window`, loopback-only, debug builds), a CPU profile and main-thread
+  timings of the WebView page over CDP (skipped on Android 7, whose WebView drops the page), and
+  `top` per process and per thread. Profiles are saved as `.cpuprofile` next to the results.
+
 ## Output
 
 `test-results/android-measurements/<mode>-<time>.json`, summarised in
