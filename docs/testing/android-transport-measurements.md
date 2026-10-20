@@ -109,6 +109,23 @@ C10 (owner) and the PH-1 (client; shorter windows for its battery). Profilers on
   `incomingTalksPerMinute` is 24 (Talks from people who are not contacts; an offer over the limit is
   left unanswered and the sender's outbox offers it again). `incomingConnections` stays 8.
 
+## 2026-10-20, build 1.0.182 (P30 back; production attestor key pinned)
+
+No profilers, screens on, 15 minutes idle (mobile data: 5).
+
+| | hub + LAN (P30, C10, FRD) | hub only (P30, C10, FRD) | mobile data (P30 on SIM, C10 on Wi-Fi) |
+|---|---|---|---|
+| Fresh WebRTC connections that succeeded | 15 of 15 (0.5–4.8 s) | 15 of 15 (0.9–1.8 s) | 5 of 5 (3.1–7.6 s) |
+| Sender time per contact, one at a time | – | – | 3.8–4.2 s |
+| Receiver: one Talk accepted after | – | – | 2.7–5.6 s |
+| Talk to the backgrounded C10 | – | – | 0.35 s |
+| Idle, P30 Wi-Fi bytes | 14.7 MB (63 MB on 1.0.168) | 8.4 MB | – |
+| Idle, estimated mAh (P30 / C10 / FRD) | 28 / 38 / 20 (72 / 48 / 94 on 1.0.168) | 15 / 38 / 17 | – |
+| Idle, CPU seconds (C10 / FRD) | 279 / 289 (836 / 765) | 238 / 274 | – |
+
+LAN mode now adds ~6 MB per 15 minutes over hub only (~50 MB on 1.0.168). Four phones
+(`native-app/30`, P30 + C10 + FRD + PH-1): Talks p50 9.4 s, p95 10.2 s (9.6 s on 1.0.180).
+
 ## What the runs found and fixed
 
 - **OPEN-71** (1.0.166): after a reconnect a pair could stay "connected" but exchange nothing, from

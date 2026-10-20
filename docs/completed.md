@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-20
 
+## 2026-10-20 — OPEN-73: an idle phone no longer keeps a CPU core busy
+
+- Found 2026-10-18 by `native-app/39` (1.0.168): idle in Nearby the C10 used 836 and the FRD 765 CPU
+  s per 15 min, the P30 moved 63 MB with LAN discovery on.
+- Fixed in 1.0.169–1.0.182: HTTP signaling polls slow while connected; presence fetched only for
+  unknown keys; unchanged headcounts do not re-render; mirrored hub members rewritten only when
+  changed (`RelayMemberTouchThrottle`); background polls slow while paused; hub roster polls leased
+  (`chatroom-routes.ts`); the native mailbox watch wakes the page's drain (15 s safety drain on
+  phones); quiet TechSupport polls slow down; the map rebuilds only on changed input.
+- 1.0.182, screens on, 15 min idle: C10 279 / FRD 289 CPU s, P30 14.7 MB with LAN (8.4 MB hub
+  only); 28 / 38 / 20 mAh (P30 / C10 / FRD) vs 72 / 48 / 94. Offline Wi-Fi Direct C10 ~195 CPU s (375).
+  Results: `docs/testing/android-transport-measurements.md`.
+
 ## 2026-10-20 — OPEN-74: a fresh WebRTC reconnect works from either side, offline too
 
 - Found 2026-10-18 by `native-app/39`: over an offline Wi-Fi Direct group all five

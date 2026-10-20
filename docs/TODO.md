@@ -870,9 +870,9 @@ phrase complexity into normal use.
     a phone accepts one Talk in ~2.2–3 s, so 24 new Talks a minute from people who are not contacts
     (`IncomingTalkBudget`; an offer over it goes unanswered and the sender's outbox retries) and 8
     incoming connections. Wi-Fi and offline Wi-Fi Direct measured on the C10, FRD and PH-1.
-  - [ ] Mobile-data per-contact cost (`native-app/39` cellular mode) and the four-phone
-    `native-app/30` on 1.0.181: both need the P30 (its SIM), which was off USB on 2026-10-20.
-    Earlier numbers in the measurements doc.
+  - [x] Mobile data and four phones on 1.0.182 (2026-10-20): cellular reconnects 5 of 5, ~4 s per
+    contact, 2.7–5.6 s to accept; `native-app/30` on four phones passes (Talks p50 9.4 s).
+  - Only the deferred items above (credit model, block count, FRD Wi-Fi Direct) remain.
     2026-10-18 first numbers (`docs/testing/android-transport-measurements.md`): a fresh connection
     0.7–1.5 s on Wi-Fi and 2.2–2.9 s across carrier NAT; the sender spends ~3.5 s per contact one at
     a time (mostly waiting for the receiver), and a receiver ~1.5 s accepting one Talk. A 498-contact
@@ -921,47 +921,6 @@ phrase complexity into normal use.
   `phone-path/04` and staged 15a/15b/40/81/82 pass. Still open in the same path: writing the
   incoming cluster (~0.8 s) and `cacheReceivedTalk` (~0.6 s) on the phone, and the sender's 3 s ACK
   timeout is shorter than a phone's ~3.7 s round trip.
-- [ ] **OPEN-73 — An idle phone in Nearby keeps most of a CPU core busy and moves 12–63 MB per 15
-  minutes (found 2026-10-18 by `native-app/39`; first fixes in 1.0.169).** Idle in a three-phone
-  Nearby room on 1.0.168, Android's battery stats showed the C10 using 836 s and the FRD 765 s of
-  CPU in 900 s, and the P30 moving 35 MB in / 28 MB out with LAN discovery on (12 MB with the hub only;
-  0.3 MB offline). The page made ~4.6 requests/s to its embedded node, each relayed to the hub:
-  HTTP signaling polled every 600 ms per WebRTC link even when connected (196 per 2 min with one
-  link), the mesh reconcile fetched up to 200 presence entries on every roster callback (~1/s), and
-  every unchanged headcount callback re-rendered the room list and map, which re-queried map dots.
-  Fixed in 1.0.169: signaling polls every 15 s while connected; presence is fetched only for
-  candidates whose key is unknown; unchanged headcounts do not re-render; map dots for the same view
-  are reused for 20 s. On the host, idle page requests fell from ~550 to ~190 per 2 minutes.
-  - [x] Re-measured on 1.0.169 (2026-10-18): phone idle CPU unchanged (C10 847 s, FRD 719 s per 900 s)
-    and the P30 still moved 57 MB per 15 min with LAN on. The page polling was not the phones' main
-    cost; the busy thread is the embedded node (`Thread-3`).
-  - [x] 2026-10-19: added `GET /api/debug/runtime-window` (CPU profile, requests by route, Gun
-    writes by record shape; loopback-only, debug builds) and `E2E_MEASURE_PROFILE=1` in
-    `native-app/39`. Found every node rewriting each mirrored room member ~4 times a second
-    (`syncMembersFromRelay` → `touchMemberFast` with a fresh `lastSeen`); `RelayMemberTouchThrottle`
-    (1.0.172) cut it from ~230 to 14 writes a minute. 1.0.173–1.0.174 slow the mailbox, TechSupport
-    and delegate polls while the Activity is paused (`__iinpublicNativePaused`; the WebView kept
-    reporting "visible"). Idle 15 min, screen off, 1.0.174: P30 12.7 mAh and 5.0 MB (72 mAh and
-    63 MB on 1.0.168), C10 201 CPU s (836), FRD 469 CPU s (765). Results:
-    `docs/testing/android-transport-measurements.md`.
-  - [x] FRD idle (1.0.181, screen on, profilers on): 215 CPU s per 15 min (24 % of a core; 765 s on
-    1.0.168). Its node's 60 s profile is 95 % idle. The C10's page with the map on screen is idle 56
-    of 60 s.
-  - [x] Hub roster polling is leased (2026-10-20, `chatroom-routes.ts`): a room is polled only
-    while this node's page asked for it within one membership TTL; then the poll stops and the
-    members mirrored from the hub are dropped locally. Integration test in `chatroom-routes.test.ts`.
-  - [x] Remaining pollers (2026-10-20): on a phone the native `MailboxWatcher`'s long-poll wakes
-    the page's drain (`iinpublic-mailbox-changed`) and the page drains every 15 s as a safety net
-    (browsers keep 3 s; a page-held long-poll starved WebRTC signaling under the 6-connection limit,
-    stage2/88). TechSupport messages poll every 30 s once nobody wrote for 2 minutes; delegate
-    grants and recovery every 15 s for ordinary sessions (operators 5 s; invites still every 30 s).
-  - [x] Map (2026-10-20, `chatroom-map-view.ts`): markers, the room source and the people layer are
-    rebuilt only when their inputs change; basemap tile `sourcedata` no longer rebuilds markers;
-    no work while the map is off screen.
-  - [ ] LAN traffic: 63 MB per 15 min on 1.0.168 fell to 5.0 MB on 1.0.174 (the roster rewrites,
-    OPEN-73 above), below 1.0.168's hub-only 12 MB. Confirm with a P30 hub-only vs hub + LAN pair on
-    1.0.181 (only the P30 reports per-app bytes; it was off USB on 2026-10-20), then close OPEN-73.
-  - [x] Offline (Wi-Fi Direct, no hub) the C10: ~195 CPU s per 15 min on 1.0.181 (375 on 1.0.168).
 - [ ] **OPEN-75 — Two light-shard specs fail under parallel load, also on c44fcf80 (found
   2026-10-20 by `test:all`).** Both pass alone and at 2 workers. At 4 workers:
   `stage1/92-location-model-settings` (back to Resident, the Traveler flag stays on past 15 s; and
