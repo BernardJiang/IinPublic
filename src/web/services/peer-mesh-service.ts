@@ -1430,6 +1430,11 @@ export class PeerMeshService {
     return new Set();
   }
 
+  /** Nearby v3 gossip can be sent now: the mesh is in personal mode in a room. */
+  isPersonalReady(): boolean {
+    return this.isPersonal() && !!this.currentRoomId;
+  }
+
   /**
    * Nearby v3: links open only for a reason. Open one to this person now (pin, knock) and wait for
    * it, as a swap does; they need not be on my list. False outside personal mode.

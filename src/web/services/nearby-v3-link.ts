@@ -26,12 +26,18 @@ export type NearbyV3MeshPort = {
   /** `knockedAtMs`: when the knocker signed its knock (it is opening its side of the link then). */
   pinPeer(userId: string, pub: string, ttlMs: number, options?: { fromKnock?: boolean; knockedAtMs?: number }): void;
   isPinned(userId: string): boolean;
+  /** False while the mesh is not in Nearby yet (a room switch in progress): nothing can be sent. */
+  isPersonalReady?(): boolean;
 };
 
 const NEARBY_SEND_TIMEOUT_MS = 8_000;
 
 export class NearbyV3MeshLink implements NearbyV3Link {
   constructor(private readonly mesh: NearbyV3MeshPort) {}
+
+  ready(): boolean {
+    return this.mesh.isPersonalReady?.() ?? true;
+  }
 
   async request(to: NearbyCard, message: unknown, timeoutMs: number): Promise<unknown> {
     return this.mesh.requestNearbyGossip({ userId: to.userId, pub: to.pub }, message as Record<string, unknown>, timeoutMs);

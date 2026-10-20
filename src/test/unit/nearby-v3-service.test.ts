@@ -49,7 +49,9 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
   const heartbeats: string[] = [];
   const random = seededRandom(options.seed ?? 3);
   let dropNext = 0;
+  let linkReady = true;
   const link: NearbyV3Link = {
+    ready: () => linkReady,
     async request(to, message) {
       const phone = phones.get(to.pub);
       if (!phone?.online) return null;
@@ -95,6 +97,8 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
     advance(ms: number) { nowMs += ms; },
     /** The next `count` swap requests get no answer (a link still opening, a busy phone). */
     dropRequests(count: number) { dropNext = count; },
+    /** The mesh is between rooms: nothing can be sent. */
+    setLinkReady(ready: boolean) { linkReady = ready; },
     now: () => nowMs,
     async round() {
       nowMs += config.gossipPeriodMs;
@@ -202,6 +206,39 @@ describe('NearbyV3Service', () => {
     await p0.service.refresh();
     await p0.service.tick();
     expect(p0.service.entries().length).toBeLessThanOrEqual(4);
+  });
+
+  it('does not count swaps it could not send while the mesh was between rooms, and announces after', async () => {
+    // Found on real phones (native-app/38): right after re-entering Nearby the mesh had not joined
+    // yet, both announce swaps "failed" in 0 ms, and a live person was dropped and tombstoned.
+    const net = network(config(), [SD, SD]);
+    const p0 = net.phones.get('p0')!;
+    const p1 = net.phones.get('p1')!;
+    await p0.service.tick();
+    net.setLinkReady(false);
+    await p1.service.refresh();
+    expect(p1.service.stats().failedSwaps).toBe(0);
+    expect(p0.service.entries()).toHaveLength(0);
+    net.setLinkReady(true);
+    await p1.service.tick();
+    expect(p1.service.entries().map((entry) => entry.card.pub)).toEqual(['p0']);
+    expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+  });
+
+  it('takes back a dropped person at once when they reach me directly (proof they are alive)', async () => {
+    const net = network(config(), [SD, SD]);
+    for (const phone of net.phones.values()) await phone.service.tick();
+    const p0 = net.phones.get('p0')!;
+    const p1 = net.phones.get('p1')!;
+    p0.service.reportUnreachable('p1');
+    expect(p0.service.entries()).toHaveLength(0);
+    // The same card from the hub stays out (the tombstone)…
+    await p0.service.offerCard({ ...p1.service.card()!, pub: 'p1' }).catch(() => undefined);
+    // …offerCard is a knock, i.e. p1 itself: that is direct contact, so p1 is back.
+    expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+    p0.service.reportUnreachable('p1');
+    await p1.service.gossipNow(); // p1 swaps with p0
+    expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
   });
 
   it('drops a person who stops answering', async () => {

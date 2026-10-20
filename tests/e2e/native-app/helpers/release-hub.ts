@@ -50,5 +50,5 @@ export async function preparePlacePhone(user: AndroidUser, label: string, locati
     const app = (window as any).__iinpublic_app?.getApp?.();
     await app.updateLocationAndMaybeSwitch({ ...location, timestamp: new Date() });
   }, location);
-  await expect.poll(() => currentRoomId(user.window), { timeout: 60_000 }).toMatch(/^nearby_/);
+  await expect.poll(() => currentRoomId(user.window), { timeout: 60_000 }).toMatch(/^nearby-v3$/);
 }

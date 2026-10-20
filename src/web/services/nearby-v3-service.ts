@@ -37,6 +37,12 @@ export type NearbyV3Link = {
   request(to: NearbyCard, message: NearbyGossipMessage, timeoutMs: number): Promise<unknown>;
   /** Send without waiting for an answer (the swap's last message); falls back to `request`. */
   send?(to: NearbyCard, message: NearbyGossipMessage): Promise<void>;
+  /**
+   * False while nothing can be sent (the mesh is between rooms). A swap is then not tried at all:
+   * found on real phones, an announce right after re-entering Nearby "failed" in 0 ms twice and
+   * dropped a live person.
+   */
+  ready?(): boolean;
 };
 
 export type NearbyV3Position = { point: PublicLocation; traveler: boolean; scope: NearbyCardScope };
@@ -68,6 +74,8 @@ const SWAP_TIMEOUT_MS = 15_000;
  * group sees a new arrival right away instead of one gossip period later for all but one of them.
  */
 const ANNOUNCE_SWAPS = 3;
+/** How soon a tick that found the mesh between rooms tries again. */
+const LINK_WAIT_RETRY_MS = 1_000;
 const MAX_VERIFIED_CACHE = 4_096;
 /** While the list is empty, ask the hub again after this long, doubling up to one gossip period. */
 const EMPTY_RETRY_MIN_MS = 5_000;
@@ -89,6 +97,7 @@ export class NearbyV3Service {
   private emptyRetryMs = EMPTY_RETRY_MIN_MS;
   /** Room for more people than `C`, one page per "Show more people here"; a move resets it. */
   private extraCapacity = 0;
+  private waitingForLink = false;
   private readonly verified = new Map<string, boolean>();
   /** People who did not answer, with the card they had: only a newer card brings them back. */
   private readonly silent = new Map<string, number>();
@@ -120,7 +129,9 @@ export class NearbyV3Service {
 
   /** The public point or scope changed: reissue the card and search again now. */
   refresh(): Promise<void> {
-    return this.tick();
+    return this.tick().then(() => {
+      if (this.waitingForLink) this.schedule(LINK_WAIT_RETRY_MS);
+    });
   }
 
   /**
@@ -148,7 +159,7 @@ export class NearbyV3Service {
    * swapped one, so the person who knocked is on my list before our link is even up.
    */
   offerCard(card: NearbyCard): Promise<void> {
-    return this.ingest([card]);
+    return this.ingest([card], card.pub);
   }
 
   /**
@@ -194,7 +205,7 @@ export class NearbyV3Service {
     if (!list || !this.ownCard) return null;
     if (message.card.scope !== list.ownerInfo.scope) return null;
     if (message.kind === 'nearby-gossip-push') {
-      await this.ingest([message.card, ...message.cards]);
+      await this.ingest([message.card, ...message.cards], fromPub);
       return null;
     }
     if (this.incoming >= config.incomingConnections) {
@@ -219,7 +230,7 @@ export class NearbyV3Service {
         digest: list.digest(nowMs),
         cards: offer.filter((card) => card !== this.ownCard),
       };
-      await this.ingest([message.card]);
+      await this.ingest([message.card], fromPub);
       this.counters.answered += 1;
       return reply;
     } finally {
@@ -237,6 +248,9 @@ export class NearbyV3Service {
       this.ownCard = null;
       return;
     }
+    // The mesh is still joining Nearby: search and announce once it can send (in a second).
+    this.waitingForLink = this.deps.link.ready?.() === false;
+    if (this.waitingForLink) return;
     const config = this.deps.config();
     const nowMs = this.now();
     const list = this.ensureList();
@@ -298,6 +312,7 @@ export class NearbyV3Service {
     const list = this.list;
     const own = this.ownCard;
     if (!list || !own || list.size === 0) return;
+    if (this.deps.link.ready?.() === false) return;
     const config = this.deps.config();
     const random = this.deps.random ?? Math.random;
     const partner = chosen ?? list.entries()[Math.floor(random() * list.size)]!.card;
@@ -325,7 +340,7 @@ export class NearbyV3Service {
     }
     if (reply.kind === 'nearby-gossip-busy') this.counters.busy += 1;
     if (reply.kind !== 'nearby-gossip-reply' || reply.card.pub !== partner.pub) return;
-    await this.ingest([reply.card, ...reply.cards]);
+    await this.ingest([reply.card, ...reply.cards], reply.card.pub);
     const nowMs = this.now();
     const offer = list.offerFor({
       receiver: this.ownerFor(reply.card),
@@ -341,8 +356,14 @@ export class NearbyV3Service {
   }
 
   /** Verify only the cards that would change the list, then merge them. */
-  private async ingest(cards: NearbyCard[]): Promise<void> {
+  /**
+   * `alivePub`: the person who just reached me directly (their swap, push or knock, or their answer
+   * to mine). That is proof they are alive, so it lifts their tombstone; the tombstone only keeps
+   * others' gossip and the hub from bringing back someone who stopped answering.
+   */
+  private async ingest(cards: NearbyCard[], alivePub?: string): Promise<void> {
     const list = this.list;
+    if (alivePub) this.silent.delete(alivePub);
     if (!list || !cards.length) return;
     const fresh = cards.filter((card) => {
       const silentSince = this.silent.get(card.pub);
@@ -457,6 +478,10 @@ export class NearbyV3Service {
       void this.tick().catch((error) => this.log(`tick failed: ${String(error)}`)).finally(() => {
         const config = this.deps.config();
         const regular = Math.min(config.gossipPeriodMs, config.cardReissueMs);
+        if (this.waitingForLink) {
+          this.schedule(LINK_WAIT_RETRY_MS);
+          return;
+        }
         if ((this.list?.size ?? 0) === 0) {
           this.schedule(Math.min(regular, this.emptyRetryMs));
           this.emptyRetryMs = Math.min(regular, this.emptyRetryMs * 2);

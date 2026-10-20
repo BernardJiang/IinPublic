@@ -112,7 +112,7 @@ async function routeToNearby(user: AndroidUser): Promise<string> {
     await app.updateLocationAndMaybeSwitch({ ...location, timestamp: new Date(location.timestamp) });
     return String(app.chatroomService?.getCurrentChatroomId?.() || app.currentChatroomId || '');
   }, LOCATION);
-  expect(roomId).toMatch(/^nearby_v/);
+  expect(roomId).toBe('nearby-v3');
   await forceJoinRoom(user.window, roomId);
   return roomId;
 }
