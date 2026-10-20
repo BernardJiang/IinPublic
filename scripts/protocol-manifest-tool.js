@@ -39,7 +39,8 @@ Usage:
     --signing-key secrets/protocol-release-k3.key.json \\
     --signing-passphrase-file secrets/protocol-release-k3.passphrase \\
     --next-key secrets/protocol-release-k4.key.json \\
-    --effective-at <ISO timestamp> [--capacity 498] [--protocol-epoch 1]
+    --effective-at <ISO timestamp> [--capacity 498] [--protocol-epoch 1] \\
+    [--extensions-file nearby-v3-attestor.json]
 
   npm run protocol:manifest -- inspect --key secrets/protocol-release-k3.key.json
   npm run protocol:manifest -- verify-key --key secrets/protocol-release-k3.key.json \\
@@ -234,7 +235,28 @@ function manifestDefaults(state, modules) {
     requiredCapabilities: latest?.requiredCapabilities || [...runtime.capabilities],
     optionalCapabilities: latest?.optionalCapabilities || [],
     retirementMode: latest?.retirementMode || 'none',
+    extensions: latest?.extensions,
+    criticalExtensions: latest?.criticalExtensions,
   };
+}
+
+/**
+ * The manifest's extensions: the previous manifest's, with each top-level entry of
+ * `--extensions-file` (a JSON object) replacing the entry of the same name. Never critical unless
+ * the previous manifest already marked it so. Extensions are public and must hold no private field.
+ */
+function extensionsOption(options, previous) {
+  const merged = { ...(previous || {}) };
+  const file = options['extensions-file'];
+  if (file) {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('--extensions-file must hold a JSON object of named extensions.');
+    }
+    assertPublicHistory([{ body: { extensions: parsed } }]);
+    Object.assign(merged, parsed);
+  }
+  return Object.keys(merged).length ? merged : undefined;
 }
 
 function loadSigningPair(options, expectedSequence) {
@@ -313,6 +335,9 @@ async function append(options, dependencies = {}) {
     recoveryPolicy: replay.state.recoveryPolicy,
     signatureAlgorithm: modules.protocol.PROTOCOL_MANIFEST_SIGNATURE_ALGORITHM,
   };
+  const extensions = extensionsOption(options, defaults.extensions);
+  if (extensions) body.extensions = extensions;
+  if (defaults.criticalExtensions?.length) body.criticalExtensions = defaults.criticalExtensions;
   const signer = loadSigningPair(options, expectedSequence);
   try {
     if (!replay.state.nextReleaseKeys.some((key) => key.publicKey === signer.pub)) {
@@ -408,6 +433,7 @@ if (require.main === module) {
 module.exports = {
   append,
   assertPublicHistory,
+  extensionsOption,
   clearPrivateFields,
   generate,
   integerOption,

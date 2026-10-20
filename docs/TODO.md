@@ -41,7 +41,8 @@ its ID.
     - [ ] Operator action: place the K3 and K4 vault/passphrase pairs in separate durable offline
       backups, verify restoration, and remove the working copies from the regular development
       machine when the release ceremony no longer needs them. Do not mark custody production-ready
-      merely because the local encrypted files exist.
+      merely because the local encrypted files exist. (2026-10-20: K3 signed M3 and is spent; K4
+      signs M4, which must commit a newly generated K5.)
   - [x] **P0 adaptive shared-room completion (implemented 2026-10-10).** Preserve one common
     room roster/capability while flat geographic groups are repartitioned or coalesced. The signed
     partition manifest is control data, not a parent/child chatroom tree.
@@ -853,8 +854,9 @@ phrase complexity into normal use.
     identity-age rule"): the hub's attestor key signs each UTC day's beacon (`HMAC(seed, day)`) and,
     per key, the day it first saw it; cards carry the age proof; in dense ties keys seen before
     today rank first; swaps carry the beacon for phones without the hub. Unit test
-    `nearby-v3-attestation.test.ts`. Operator step left: pin the production attestor key in the
-    next signed manifest (`extensions['nearby-v3'].attestorKeys`).
+    `nearby-v3-attestation.test.ts`. The production key is pinned by manifest M3 (2026-10-20, K3);
+    its vault is backed up in `secrets/nearby-attestor-production.key.json` and
+    `~/nearby-attestor-key.backup.json` on the VPS.
   - [x] `find-similar-people.spec.ts` hang fixed (2026-10-20): each incoming Talk queued its own
     read–merge–encrypted rewrite of the whole owner envelope; under six browsers a rewrite took
     1–7 s and the queue reached 155 s, so the seeded Talks waited past the timeout. Unchanged

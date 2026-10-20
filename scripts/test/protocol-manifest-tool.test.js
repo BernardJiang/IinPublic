@@ -2,8 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   assertPublicHistory,
+  extensionsOption,
   listOption,
   parseOptions,
   verifyProduction,
@@ -83,4 +87,18 @@ test('production gate requires a verified bridge and a dedicated successor key',
     }),
     /reuses an ordinary release key/,
   );
+});
+
+test('extensions carry forward and an extensions file replaces entries by name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'manifest-ext-'));
+  const file = path.join(dir, 'ext.json');
+  fs.writeFileSync(file, JSON.stringify({ 'nearby-v3': { attestorKeys: [{ keyId: 'k', publicKey: 'p' }] } }));
+  assert.deepEqual(
+    extensionsOption({ 'extensions-file': file }, { other: { a: 1 }, 'nearby-v3': { old: true } }),
+    { other: { a: 1 }, 'nearby-v3': { attestorKeys: [{ keyId: 'k', publicKey: 'p' }] } },
+  );
+  assert.deepEqual(extensionsOption({}, { other: { a: 1 } }), { other: { a: 1 } });
+  assert.equal(extensionsOption({}, undefined), undefined);
+  fs.writeFileSync(file, JSON.stringify({ x: { priv: 'secret' } }));
+  assert.throws(() => extensionsOption({ 'extensions-file': file }, undefined), /Private field priv/);
 });

@@ -970,8 +970,13 @@ dense tie it ranks behind everyone who already existed. Shared code: `nearby-v3-
 - Without today's beacon a phone falls back to the UTC date; without a verifiable age proof a card
   counts as new. Both only weaken the defence, never break a list.
 
-Not done: pinning the production attestor key in a signed manifest (an operator release step), and
-the credit rules for fake accounts (deferred, above).
+The production hub's key is pinned by protocol manifest M3 (2026-10-20, signed with K3; key id
+`63276944e73dbe650db73d40de1a35fb`). Builds that bundle M3 accept beacons and age proofs from that
+key only, so a development or E2E hub's own key is ignored there and those phones fall back to the
+UTC date (harmless). Moving the hub to a new key needs a new manifest listing it. To add one:
+`npm run protocol:manifest -- append ... --extensions-file <file>` with
+`{"nearby-v3": {"attestorKeys": [{"keyId": ..., "publicKey": ...}]}}` (from `GET /api/nearby/v3/beacon`).
+Not done: the credit rules for fake accounts (deferred, above).
 
 #### Open questions before implementation
 
