@@ -9135,6 +9135,9 @@ export class IinPublicApp {
           this.harvestRosterEpubs(members);
           this.observeNearbyRoomRoster(home, members);
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+          // Like every other room switch: without it the mesh stayed in the Place, so Nearby
+          // (personal mode) never came back and the list never searched again (native-app/38).
+          this.syncPeerMeshRoom(home, members);
           const chatroomName = this.getChatroomDisplayName(home);
           this.uiManager.updateStatusBar(
             this.currentUser!.stageName,

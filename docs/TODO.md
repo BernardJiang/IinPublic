@@ -819,6 +819,13 @@ phrase complexity into normal use.
     then the hub's count), "Show more people here", "Sent to N of M". Web e2e `95-nearby-screens`;
     headcount specs now count the list without me.
   - [ ] Phase 5: Places on lists.
+  - [ ] Real phones (2026-10-19, P30 + C10, 1.0.178): native-app 05, 33, 37 and all three of 38
+    pass. Found and fixed: swaps sent while the mesh was between rooms dropped live people; direct
+    contact now lifts a tombstone; 🏠 from a Place never re-synced the mesh, so Nearby never came
+    back. Still to run: 30 (needs four phones; reworked to read Nearby lists) and 39.
+  - [ ] Offline Nearby: "Offline, the phones I can reach are my list" (§3.7 Gossip) is not built —
+    a list starts only from the hub's introductions. Seed it from LAN NSD / Wi-Fi Direct peers
+    (native-app/30's offline branch checks it).
   - [ ] Daily beacon from the signed manifest (today the UTC date); identity-age rule.
   - [ ] Not v3 (found 2026-10-19, same on the pre-v3 commit 4981a03e): `find-similar-people.spec.ts`
     hangs in its reject phase inside `seedIncomingTagTalksForE2e` → `upsertLocalIncomingTalkClusters`

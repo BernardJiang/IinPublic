@@ -32,11 +32,10 @@
 import { test, expect } from '@playwright/test';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
-import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
-import { bootstrapNativeWindow, forceJoinRoom } from './helpers/native-app';
+import { bootstrapNativeWindow, enterNearbyAt, forceJoinRoom, nearbyListIds } from './helpers/native-app';
 import {
   ANDROID_MAIN_ACTIVITY,
   clearAndroidE2ETestProjections,
@@ -50,7 +49,6 @@ import {
 } from './helpers/native-app-android';
 import { findIncomingTalkIdByTitle } from '../helpers/talk-demo-ui';
 import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
-import { isNearbyRoomId } from '../../../src/shared/nearby-rooms';
 
 const execFileAsync = promisify(execFile);
 
@@ -156,26 +154,6 @@ function resolveLanIp(): string {
   throw new Error('No LAN IPv4 address found; set NATIVE_APP_ANDROID_HOST.');
 }
 
-function readRoomMembers(roomId: string): Promise<string[]> {
-  return new Promise((resolve) => {
-    const request = http.get({ host: '127.0.0.1', port: HUB_GUN_PORT, path: `/api/chatrooms/${encodeURIComponent(roomId)}/members`, timeout: 3_000 }, (response) => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk) => { body += chunk; });
-      response.on('end', () => {
-        try {
-          const parsed = JSON.parse(body);
-          resolve(Array.isArray(parsed) ? parsed.map((member: { userId: string }) => member.userId) : []);
-        } catch {
-          resolve([]);
-        }
-      });
-    });
-    request.once('error', () => resolve([]));
-    request.once('timeout', () => { request.destroy(); resolve([]); });
-  });
-}
-
 /** Poll until `check` is true; the elapsed milliseconds, or null on timeout. */
 async function timeUntil(check: () => Promise<boolean>, timeoutMs: number, intervalMs = 500): Promise<number | null> {
   const started = Date.now();
@@ -188,14 +166,7 @@ async function timeUntil(check: () => Promise<boolean>, timeoutMs: number, inter
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function routeToFixedNearby(window: AndroidUser['window']): Promise<string> {
-  const roomId = await window.evaluate(async (location) => {
-    const app = (window as any).__iinpublic_app?.getApp?.();
-    await app.updateLocationAndMaybeSwitch({ ...location, timestamp: new Date(location.timestamp) });
-    return String(app.chatroomService?.getCurrentChatroomId?.() || app.currentChatroomId || '');
-  }, FIXED_LOCATION);
-  expect(isNearbyRoomId(roomId)).toBe(true);
-  await forceJoinRoom(window, roomId);
-  return roomId;
+  return enterNearbyAt(window, FIXED_LOCATION);
 }
 
 async function createTagTalk(phone: Phone, title: string): Promise<{ talkId: string; talkData: any }> {
@@ -486,7 +457,6 @@ test.describe('Native app: transport measurements on real phones', () => {
     }));
     evidence.appVersion = await phones[0]!.user.window.evaluate(() => String((window as any).__IINPUBLIC_VERSION__ || (window as any).__iinpublic_app?.getApp?.()?.appVersion || '')).catch(() => '');
     expect(new Set(phones.map((p) => p.roomId)).size).toBe(1);
-    const roomId = phones[0]!.roomId;
     const allIds = phones.map((p) => p.id);
     const sinceStart = (ms: number | null) => (ms == null ? null : Date.now() - discoveryStartedAt);
 
@@ -498,18 +468,22 @@ test.describe('Native app: transport measurements on real phones', () => {
       evidence.discovery.all = { ...(evidence.discovery.all ?? {}), wifiDirectGroupMs: groupMs };
     }
     if (MODE !== 'cellular' && MODE !== 'wifi-direct') {
+      // Nearby v3: no hub roster; the first phone's list holding everyone else stands in for it.
       evidence.discovery.all = {
-        hubRosterMs: sinceStart(await timeUntil(async () => {
-          const members = new Set(await readRoomMembers(roomId));
-          return allIds.every((id) => members.has(id));
+        firstListMs: sinceStart(await timeUntil(async () => {
+          const ids = new Set(await nearbyListIds(phones[0]!.user.window));
+          return allIds.filter((id) => id !== phones[0]!.id).every((id) => ids.has(id));
         }, 120_000, 250)),
       };
     }
-    const rosterMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate((ids) => {
-      const service = (window as any).__iinpublic_app?.getApp?.()?.chatroomService;
-      const seen = new Set<string>(Array.from(service?.activeMembersForList?.keys?.() || []).map(String));
-      return ids.every((id: string) => seen.has(id));
-    }, allIds)))).every(Boolean), 240_000, 500));
+    // Every phone has everyone else: on its Nearby list, or in the room roster for the cellular
+    // run's synthetic room.
+    const rosterMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map(async (p) => {
+      const seen = MODE === 'cellular'
+        ? new Set<string>(await p.user.window.evaluate(() => Array.from((window as any).__iinpublic_app?.getApp?.()?.chatroomService?.activeMembersForList?.keys?.() || []).map(String)))
+        : new Set<string>(await nearbyListIds(p.user.window));
+      return allIds.filter((id) => id !== p.id).every((id) => seen.has(id));
+    }))).every(Boolean), 240_000, 500));
     evidence.discovery.all = { ...(evidence.discovery.all ?? {}), everyRosterMs: rosterMs };
     if (MODE === 'hub-lan') {
       evidence.discovery.all.lanNsdAllMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate(() => {

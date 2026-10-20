@@ -530,3 +530,31 @@ export async function refreshRoomMembership(page: Page, roomId: string): Promise
     if (!response.ok) throw new Error(`room membership POST failed: ${response.status}`);
   }, roomId);
 }
+
+/**
+ * Nearby v3 (design §3.7): move the phone to `location` and wait until it is in Nearby — its own
+ * list, with no hub roster to join (`forceJoinRoom` would write one). Returns the scope id.
+ */
+export async function enterNearbyAt(
+  page: Page,
+  location: { latitude: number; longitude: number; accuracy: number; timestamp: string | number | Date },
+): Promise<string> {
+  await page.evaluate(async (point) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    if (!app?.currentUser?.id) throw new Error('app user unavailable');
+    await app.updateLocationAndMaybeSwitch({ ...point, timestamp: new Date(point.timestamp) });
+  }, { ...location, timestamp: new Date(location.timestamp).toISOString() });
+  await expect.poll(
+    () => page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || '')),
+    { timeout: 30_000, message: 'phone should be in Nearby' },
+  ).toBe('nearby-v3');
+  return 'nearby-v3';
+}
+
+/** The user ids on this phone's Nearby list (§3.7: each phone's own list, not a room roster). */
+export function nearbyListIds(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const runtime = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3;
+    return (runtime?.service.entries() ?? []).map((entry: { card: { userId: string } }) => String(entry.card.userId));
+  });
+}

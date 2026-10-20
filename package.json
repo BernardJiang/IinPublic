@@ -70,7 +70,6 @@
     "test:e2e:android-three-phone-resync": "npm run build:embedded && E2E_REAL_ANDROID_THREE_PHONE_RESYNC=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/13-android-three-phone-offline-resync.spec.ts",
     "test:e2e:android-four-phone-nearby": "npm run build:embedded && E2E_REAL_ANDROID_FOUR_PHONE_NEARBY=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/30-android-four-phone-nearby.spec.ts",
     "test:e2e:android-three-phone-nearby-wifi-direct": "npm run build:embedded && E2E_REAL_ANDROID_FOUR_PHONE_NEARBY=1 E2E_NEARBY_OFFLINE_WIFI_DIRECT=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/30-android-four-phone-nearby.spec.ts",
-    "test:e2e:android-three-phone-cohorts": "npm run build:embedded && E2E_REAL_ANDROID_THREE_PHONE_COHORTS=1 playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/31-android-three-phone-cohort-traversal.spec.ts",
     "test:e2e:android-protocol-manifest": "node scripts/run-android-protocol-manifest-e2e.mjs",
     "test:e2e:android-sweep": "node scripts/run-android-phone-e2e-sweep.mjs",
     "test:e2e:android-sweep:plan": "node scripts/run-android-phone-e2e-sweep.mjs --plan",

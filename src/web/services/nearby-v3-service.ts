@@ -242,6 +242,7 @@ export class NearbyV3Service {
     const position = this.deps.position();
     const identity = this.deps.identity();
     if (!position || !identity) {
+      if (this.ownCard) this.log('left Nearby (in a Place or no point): my card is withdrawn');
       // Not in Nearby (in a Place, or no point chosen): publish nothing. Coming back searches again
       // and announces with a newly signed card (people who found us silent take only a newer one).
       this.searchedKey = '';
@@ -249,8 +250,10 @@ export class NearbyV3Service {
       return;
     }
     // The mesh is still joining Nearby: search and announce once it can send (in a second).
-    this.waitingForLink = this.deps.link.ready?.() === false;
-    if (this.waitingForLink) return;
+    const waiting = this.deps.link.ready?.() === false;
+    if (waiting && !this.waitingForLink) this.log('waiting for the mesh to join Nearby before searching');
+    this.waitingForLink = waiting;
+    if (waiting) return;
     const config = this.deps.config();
     const nowMs = this.now();
     const list = this.ensureList();
@@ -291,6 +294,7 @@ export class NearbyV3Service {
         if (this.searchedKey && searchKey !== this.searchedKey) this.extraCapacity = 0; // moved: back to C
         this.searchedKey = searchKey;
         await this.ingest(cards);
+        if (announce) this.log(`searched: the hub introduced ${cards.length}, my list has ${list.size}`);
         this.searchedEmpty = list.size === 0;
       } catch (error) {
         this.log(`hub introductions failed: ${String(error)}`);
@@ -300,7 +304,9 @@ export class NearbyV3Service {
     const period = config.gossipPeriodMs * (this.deps.isPaused?.() ? PAUSED_GOSSIP_FACTOR : 1);
     if ((announce || changedCard) && list.size > 0) {
       this.lastGossipAt = nowMs;
-      await Promise.all(list.entries().slice(0, ANNOUNCE_SWAPS).map((entry) => this.gossipOnce(entry.card)));
+      const nearest = list.entries().slice(0, ANNOUNCE_SWAPS);
+      this.log(`announcing to ${nearest.map((entry) => entry.card.userId.slice(0, 8)).join(', ')}`);
+      await Promise.all(nearest.map((entry) => this.gossipOnce(entry.card)));
     } else if (nowMs - this.lastGossipAt >= period) {
       this.lastGossipAt = nowMs;
       await this.gossipOnce();
@@ -335,6 +341,7 @@ export class NearbyV3Service {
       // once more now, and only a second silence drops them. A person who left is still gone
       // within two swap timeouts.
       if (!retry && this.list?.get(partner.pub)) return this.gossipOnce(partner, true);
+      if (this.list?.get(partner.pub)) this.log(`dropped ${partner.userId.slice(0, 8)}: two swaps unanswered`);
       this.reportUnreachable(partner.pub);
       return;
     }

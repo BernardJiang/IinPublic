@@ -423,11 +423,8 @@ try {
           E2E_REAL_ANDROID_FOUR_PHONE_NEARBY: '1',
           E2E_NEARBY_OFFLINE_WIFI_DIRECT: '1',
         });
-        runNative('three-phone nearby cohort traversal', [
-          'tests/e2e/native-app/31-android-three-phone-cohort-traversal.spec.ts',
-        ], { ...threePhoneEnv, E2E_REAL_ANDROID_THREE_PHONE_COHORTS: '1' });
       } else {
-        omissions.push('three-phone resync, Wi-Fi Direct, and cohort gates (need 3 phones)');
+        omissions.push('three-phone resync and Wi-Fi Direct gates (need 3 phones)');
       }
 
       if (devices.length >= 4) {

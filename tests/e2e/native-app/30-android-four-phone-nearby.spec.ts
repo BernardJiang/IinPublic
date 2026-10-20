@@ -15,10 +15,9 @@
 import { test, expect } from '@playwright/test';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
-import * as http from 'http';
 import * as os from 'os';
 import { promisify } from 'util';
-import { bootstrapNativeWindow, forceJoinRoom } from './helpers/native-app';
+import { bootstrapNativeWindow, enterNearbyAt, nearbyListIds } from './helpers/native-app';
 import {
   ANDROID_MAIN_ACTIVITY,
   clearAndroidE2ETestProjections,
@@ -32,7 +31,6 @@ import {
 } from './helpers/native-app-android';
 import { findIncomingTalkIdByTitle } from '../helpers/talk-demo-ui';
 import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
-import { isNearbyRoomId } from '../../../src/shared/nearby-rooms';
 
 const execFileAsync = promisify(execFile);
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
@@ -146,61 +144,24 @@ async function readBattery(serial: string): Promise<BatterySnapshot> {
   };
 }
 
-function readRoomMembers(roomId: string): Promise<Array<{ userId: string; stageName: string }>> {
-  return new Promise((resolve, reject) => {
-    const path = `/api/chatrooms/${encodeURIComponent(roomId)}/members`;
-    const request = http.get({ host: '127.0.0.1', port: HUB_GUN_PORT, path, timeout: 3_000 }, (response) => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk) => { body += chunk; });
-      response.on('end', () => {
-        if (!response.statusCode || response.statusCode >= 400) {
-          reject(new Error(`GET ${path} returned ${response.statusCode}: ${body.slice(0, 200)}`));
-          return;
-        }
-        try {
-          const parsed = JSON.parse(body);
-          resolve(Array.isArray(parsed) ? parsed : []);
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-    request.once('error', reject);
-    request.once('timeout', () => {
-      request.destroy();
-      reject(new Error(`GET ${path} timed out`));
-    });
-  });
-}
-
+/** Nearby v3: every phone at the same public point, each in its own list (no shared room). */
 async function routeToFixedNearby(peer: Omit<Peer, 'roomId'>): Promise<string> {
-  const result = await peer.user.window.evaluate(async (location) => {
-    const app = (window as any).__iinpublic_app?.getApp?.();
-    if (!app?.currentUser?.id) throw new Error('app user unavailable');
-    await app.updateLocationAndMaybeSwitch({ ...location, timestamp: new Date(location.timestamp) });
-    const roomId = String(app.chatroomService?.getCurrentChatroomId?.() || app.currentChatroomId || '');
-    const assignment = app.chatroomService?.getNearbyRoomAssignment?.();
-    const scope = app.activeExchangeRoomController?.getScope?.() || null;
-    return { roomId, assignment, scope };
-  }, FIXED_LOCATION);
-
-  expect(isNearbyRoomId(result.roomId)).toBe(true);
-  expect(result.roomId).not.toBe('global');
-  expect(result.assignment?.roomId).toBe(result.roomId);
-  expect(result.assignment?.localCell).toBeTruthy();
-  // Routing geometry is device-local. The shared active scope may carry the opaque room id and
-  // capability, but never the coordinate or projected local cell used to choose it.
-  const publicScope = JSON.stringify(result.scope || {});
-  expect(publicScope).not.toContain('localCell');
+  const roomId = await enterNearbyAt(peer.user.window, FIXED_LOCATION);
+  // The shared active scope may carry the scope id, but never the coordinate behind it.
+  const publicScope = JSON.stringify(await peer.user.window.evaluate(
+    () => (window as any).__iinpublic_app?.getApp?.()?.activeExchangeRoomController?.getScope?.() || {},
+  ));
   expect(publicScope).not.toContain('latitude');
   expect(publicScope).not.toContain('longitude');
+  return roomId;
+}
 
-  // updateLocationAndMaybeSwitch performs the production transition. Re-entering that exact id
-  // through the test helper only installs the same member/UI callbacks a manual room selection
-  // has; it does not bypass or alter Nearby placement.
-  await forceJoinRoom(peer.user.window, result.roomId);
-  return result.roomId;
+/** How many of the other phones are on each phone's Nearby list. */
+function othersOnEachList(peers: Peer[]): Promise<number[]> {
+  return Promise.all(peers.map(async (peer) => {
+    const ids = new Set(await nearbyListIds(peer.user.window));
+    return peers.filter((other) => other.id !== peer.id && ids.has(other.id)).length;
+  }));
 }
 
 async function waitForIncoming(peer: Peer, title: string, timeoutMs = 120_000): Promise<string> {
@@ -392,7 +353,7 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
     const roomIds = new Set(peers.map((peer) => peer.roomId));
     expect(roomIds.size).toBe(1);
     const [roomId] = roomIds;
-    expect(isNearbyRoomId(roomId)).toBe(true);
+    expect(roomId).toBe('nearby-v3');
 
     if (OFFLINE_WIFI_DIRECT) {
       await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {
@@ -406,25 +367,17 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
         message: `all ${expectedPhoneCount} phones should form one offline Wi-Fi Direct group`,
       }).toEqual(peers.map(() => true));
 
-      await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate((expectedIds) => {
-        const service = (window as any).__iinpublic_app?.getApp?.()?.chatroomService;
-        const ids = new Set<string>(Array.from(service?.activeMembersForList?.keys?.() || []).map(String));
-        return expectedIds.filter((id) => ids.has(id)).length;
-      }, peers.map((candidate) => candidate.id)))), {
+      await expect.poll(() => othersOnEachList(peers), {
         timeout: 180_000,
         intervals: [2_000, 3_000, 5_000],
-        message: `all offline peers should converge on the ${expectedPhoneCount}-person Nearby roster`,
-      }).toEqual(peers.map(() => peers.length));
+        message: `every offline phone should have the other ${expectedPhoneCount - 1} on its Nearby list`,
+      }).toEqual(peers.map(() => peers.length - 1));
     } else {
-      await expect.poll(async () => {
-        const members = await readRoomMembers(roomId);
-        const ids = new Set(members.map((member) => member.userId));
-        return peers.filter((peer) => ids.has(peer.id)).length;
-      }, {
+      await expect.poll(() => othersOnEachList(peers), {
         timeout: 120_000,
         intervals: [1_000, 2_000, 3_000],
-        message: 'hub roster should contain all four Nearby users',
-      }).toBe(4);
+        message: 'every phone should have the other three on its Nearby list',
+      }).toEqual(peers.map(() => peers.length - 1));
 
       // Talks can travel over the hub alone; this proves every phone also found every other over LAN NSD.
       if (!LAN_OFF) await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {
