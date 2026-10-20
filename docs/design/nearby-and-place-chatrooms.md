@@ -613,10 +613,12 @@ send me exactly the cards I would keep, which converges far faster than a secret
 simulation compares both. A public order can be gamed by generating keys until some rank first for
 one victim. Two rules stop that:
 
-- the **daily beacon**, an unpredictable value in the signed protocol manifest, changes every
-  order each day;
-- only identities that existed **before** that beacon count in dense ties. The hub's user record
-  attests the account's creation time.
+- the **daily beacon**, an unpredictable value the hub signs for each UTC day (its key can be
+  pinned by the signed protocol manifest), changes every order each day;
+- only identities that existed **before** that beacon count first in dense ties. The hub signs the
+  day it first saw each key, and the card carries that proof.
+
+(Implemented 2026-10-20; see "Daily beacon and identity-age rule" under the implementation plan.)
 
 An attacker then has to register fake accounts before knowing where they will rank, which brings
 them back to their population share.
@@ -947,13 +949,36 @@ real-phone run.
    (sent while I was away) no longer stop a returning phone from knocking back, a knock restarts a
    stale session, the broadcast loop and answers reach people outside the list.
 
-Still open from earlier phases: the daily beacon is the UTC date until the manifest carries an
-unpredictable one, and the identity-age rule needs the hub's account creation time.
+Daily beacon and identity-age rule — done (2026-10-20). The hub has an attestor key
+(`NearbyAttestor`, `src/server/services/nearby-attestor.ts`; key and seed in
+`nearby-attestor-<port>/key.json`, created on first start). It signs:
+
+- each UTC day's **beacon**, `HMAC(seed, day)`: nobody can predict it before the day starts, and it
+  is the same after a restart (`GET /api/nearby/v3/beacon`, and in every heartbeat answer);
+- per key, an **age proof**: the UTC day the hub first saw a card for that key. The hub keeps
+  `<day> <sha256(pub)>` lines in `first-seen.log`, never the keys. The proof comes back with each
+  heartbeat; the phone signs it into its next card (`NearbyCard.age`), so nobody can strip it.
+
+Ranking (`nearby-v3-ranking.ts`) is distance, then **keys the hub saw before today first**, then
+`hash(viewer, member, beacon)`. A key ground today against today's beacon is new today, so in a
+dense tie it ranks behind everyone who already existed. Shared code: `nearby-v3-attestation.ts`.
+
+- A phone learns the attestor key from its hub and keeps it. A signed manifest may pin the accepted
+  keys (`extensions['nearby-v3'].attestorKeys`); then a phone accepts no other.
+- Swaps carry the sender's beacon, so phones that cannot reach the hub still agree on the day's
+  order; a beacon is taken only if it verifies and is for today.
+- Without today's beacon a phone falls back to the UTC date; without a verifiable age proof a card
+  counts as new. Both only weaken the defence, never break a list.
+
+Not done: pinning the production attestor key in a signed manifest (an operator release step), and
+the credit rules for fake accounts (deferred, above).
 
 #### Open questions before implementation
 
-- Real connection cost per contact on phones and over mobile data (the model has no timing).
-- Exact incoming limits per phone.
+- Real connection cost per contact over mobile data (Wi-Fi and offline Wi-Fi Direct measured
+  2026-10-20: ~4 s per contact one at a time, ~2.5 s for the receiver to accept a Talk).
+- (Settled 2026-10-20: incoming limits — 8 connections and 24 new Talks a minute from people who are
+  not contacts; an offer over the limit goes unanswered and the sender retries. Manifest values.)
 - The credit model for fake accounts (above).
 - Whether 30 s gossip periods are affordable on battery; the model counts cards, not radio time.
 - (Settled: no migration. There is no official release yet, so v3 replaced v2 outright.)

@@ -21,6 +21,27 @@ describe('throttleWhileHidden', () => {
     expect(fn).toHaveBeenCalledTimes(5);
   });
 
+  it('slows a visible poll to its own quiet interval when one is given', () => {
+    let now = 0;
+    let quiet = false;
+    const fn = jest.fn();
+    const tick = throttleWhileHidden(fn, 120_000, {
+      isHidden: () => false,
+      now: () => now,
+      visibleMs: () => (quiet ? 30_000 : 0),
+    });
+    tick(); now += 5_000; tick();
+    expect(fn).toHaveBeenCalledTimes(2);
+    quiet = true;
+    for (let i = 0; i < 5; i += 1) { now += 5_000; tick(); }
+    expect(fn).toHaveBeenCalledTimes(2);
+    now += 5_000; tick();
+    expect(fn).toHaveBeenCalledTimes(3);
+    quiet = false;
+    now += 5_000; tick();
+    expect(fn).toHaveBeenCalledTimes(4);
+  });
+
   it('treats a paused Android Activity as hidden', () => {
     const page = globalThis as unknown as { window?: { __iinpublicNativePaused?: boolean } | undefined };
     const hadWindow = 'window' in page;

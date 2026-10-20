@@ -119,53 +119,94 @@ function persistIncomingTalkClusterToLocalGun(
   return persistIncomingTalkClustersToLocalGun(gunService, receiverUserId, [cluster]);
 }
 
+/** Key-order-independent: a stored (hydrated) cluster and a freshly merged one list keys differently. */
+function clusterFingerprint(cluster: IncomingTalkClusterWire): string {
+  const sortKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sortKeys);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value as Record<string, unknown>).sort()
+      .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])]));
+  };
+  const { senders, talkIds, identityAliases, ...rest } = cluster;
+  const plain: Record<string, unknown> = { ...rest };
+  delete plain.sendersJson;
+  delete plain.talkIdsJson;
+  delete plain.identityAliasesJson;
+  return JSON.stringify(sortKeys({ ...plain, senders: senders || {}, talkIds: talkIds || {}, identityAliases: identityAliases || {} }));
+}
+
+type EnvelopeBatch = { clusters: Map<string, IncomingTalkClusterWire>; done: Promise<void> };
+const ownerEnvelopeNextBatch = new WeakMap<WebGunService, EnvelopeBatch>();
+
+/**
+ * Every incoming Talk (and every UI refresh) asks for its cluster to be saved, and each save is a
+ * read, merge and encrypted rewrite of the whole owner envelope. One queued rewrite per request
+ * fell behind under load: six browsers on one host took 1–7 s per rewrite and the queue reached
+ * 155 s, so a later save (find-similar-people's seeded Talks) waited until the spec timed out.
+ * Requests that arrive while a rewrite is running now join the next one, which writes them all.
+ */
 function persistIncomingTalkClustersToLocalGun(
   gunService: WebGunService,
   receiverUserId: string,
   clusters: IncomingTalkClusterWire[],
 ): Promise<void> {
-  const queued = (ownerEnvelopeWriteQueues.get(gunService) || Promise.resolve())
-    .catch(() => undefined)
-    .then(async () => {
-      const current = await readOwnerEnvelopeClusters(gunService, receiverUserId);
-      const byIdentity = new Map(current.map((item) => [item.identityKey, item]));
-      let changed = false;
-      for (const cluster of clusters) {
-        const stored = byIdentity.get(cluster.identityKey);
-        // Server/UI refreshes mirror their current rows back through this helper. Rewriting an
-        // identical row changes updatedAt, fires the owner-envelope subscription, refreshes the
-        // UI again, and creates a write/refresh feedback loop (especially costly on Android).
-        if (stored && JSON.stringify(serializeCluster(stored)) === JSON.stringify(serializeCluster(cluster))) {
-          continue;
-        }
-        byIdentity.set(cluster.identityKey, cluster);
-        changed = true;
-      }
-      if (!changed) return;
-      const envelope: OwnerIncomingTalkEnvelope = {
-        version: 1,
-        clustersJson: JSON.stringify([...byIdentity.values()].map(serializeCluster)),
-        updatedAt: new Date().toISOString(),
-      };
-      await gunService.putPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, envelope);
-      // putPrivate() already applied this envelope to the local Gun graph — the read-back
-      // below is a paranoid double-check, not the real commit. In this deployment (relay-only
-      // hub, no local persistence) an older store on a freshly-written key could hang for its full
-      // multi-second timeout and reject even though the write succeeded, which used to turn a
-      // successful incoming-talk mirror into a reported delivery failure. Log and continue.
-      try {
-        const verified = await gunService.getPrivateLocal(
-          OWNER_INCOMING_TALK_PRIVATE_KEY,
-        ) as OwnerIncomingTalkEnvelope | null;
-        if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {
-          console.warn(`incoming talk envelope read-back inconclusive (continuing — write already committed locally): ${clusters.map((c) => c.identityKey).join(',')}`);
-        }
-      } catch (error) {
-        console.warn(`incoming talk envelope read-back timed out (continuing — write already committed locally): ${clusters.map((c) => c.identityKey).join(',')}`, error);
-      }
-    });
-  ownerEnvelopeWriteQueues.set(gunService, queued);
-  return queued;
+  let batch = ownerEnvelopeNextBatch.get(gunService);
+  if (!batch) {
+    const pending = new Map<string, IncomingTalkClusterWire>();
+    const done = (ownerEnvelopeWriteQueues.get(gunService) || Promise.resolve())
+      .catch(() => undefined)
+      .then(() => {
+        // From here on, new requests start the next batch.
+        if (ownerEnvelopeNextBatch.get(gunService)?.clusters === pending) ownerEnvelopeNextBatch.delete(gunService);
+        return writeOwnerEnvelope(gunService, receiverUserId, [...pending.values()]);
+      });
+    batch = { clusters: pending, done };
+    ownerEnvelopeNextBatch.set(gunService, batch);
+    ownerEnvelopeWriteQueues.set(gunService, done);
+  }
+  for (const cluster of clusters) batch.clusters.set(cluster.identityKey, cluster);
+  return batch.done;
+}
+
+async function writeOwnerEnvelope(
+  gunService: WebGunService,
+  receiverUserId: string,
+  clusters: IncomingTalkClusterWire[],
+): Promise<void> {
+  const current = await readOwnerEnvelopeClusters(gunService, receiverUserId);
+  const byIdentity = new Map(current.map((item) => [item.identityKey, item]));
+  let changed = false;
+  for (const cluster of clusters) {
+    const stored = byIdentity.get(cluster.identityKey);
+    // Server/UI refreshes mirror their current rows back through this helper. Rewriting an
+    // identical row changes updatedAt, fires the owner-envelope subscription, refreshes the
+    // UI again, and creates a write/refresh feedback loop (especially costly on Android).
+    if (stored && clusterFingerprint(stored) === clusterFingerprint(cluster)) continue;
+    byIdentity.set(cluster.identityKey, cluster);
+    changed = true;
+  }
+  if (!changed) return;
+  const envelope: OwnerIncomingTalkEnvelope = {
+    version: 1,
+    clustersJson: JSON.stringify([...byIdentity.values()].map(serializeCluster)),
+    updatedAt: new Date().toISOString(),
+  };
+  await gunService.putPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, envelope);
+  // putPrivate() already applied this envelope to the local Gun graph — the read-back
+  // below is a paranoid double-check, not the real commit. In this deployment (relay-only
+  // hub, no local persistence) an older store on a freshly-written key could hang for its full
+  // multi-second timeout and reject even though the write succeeded, which used to turn a
+  // successful incoming-talk mirror into a reported delivery failure. Log and continue.
+  try {
+    const verified = await gunService.getPrivateLocal(
+      OWNER_INCOMING_TALK_PRIVATE_KEY,
+    ) as OwnerIncomingTalkEnvelope | null;
+    if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {
+      console.warn(`incoming talk envelope read-back inconclusive (continuing — write already committed locally): ${clusters.map((c) => c.identityKey).join(',')}`);
+    }
+  } catch (error) {
+    console.warn(`incoming talk envelope read-back timed out (continuing — write already committed locally): ${clusters.map((c) => c.identityKey).join(',')}`, error);
+  }
 }
 
 export async function upsertLocalIncomingTalkClusters(

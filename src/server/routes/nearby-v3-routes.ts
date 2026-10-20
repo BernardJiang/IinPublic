@@ -4,6 +4,7 @@ import { nearbyV3ConfigFromManifest, type NearbyV3Config } from '../../shared/ne
 import { BUNDLED_PROTOCOL_MANIFEST_HISTORY } from '../../shared/production-protocol-manifest';
 import { parseMapBounds } from '../../shared/map-dots';
 import { NearbyV3Hub } from '../services/nearby-v3-hub';
+import type { NearbyAttestor } from '../services/nearby-attestor';
 import { NEARBY_KNOCK_MAX_WAIT_MS, type NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
 
 /**
@@ -25,11 +26,25 @@ export function registerNearbyV3Routes(
   deps: {
     hub: NearbyV3Hub;
     knocks: NearbyKnockMailbox;
+    /** Signs the daily beacon and each key's first-seen day (§3.7 "Ranking"). */
+    attestor?: () => NearbyAttestor;
     /** Forwards to the hub; returns false when this server is the hub. */
     relay: (res: express.Response, path: string, method: 'GET' | 'POST', body?: unknown, timeoutMs?: number) => Promise<boolean>;
   },
 ): void {
   const { hub, knocks, relay } = deps;
+  // Created on first use: a phone's embedded node forwards these to the hub and never needs one.
+  const attestor = deps.attestor;
+
+  // Today's beacon and the key that signs it; also in every heartbeat answer.
+  app.get('/api/nearby/v3/beacon', async (_req, res) => {
+    if (await relay(res, '/api/nearby/v3/beacon', 'GET')) return;
+    if (!attestor) {
+      res.json({ beacon: null, attestor: null });
+      return;
+    }
+    res.json({ beacon: await attestor().beacon(), attestor: attestor().key });
+  });
 
   app.post('/api/nearby/v3/knocks', async (req, res) => {
     if (await relay(res, '/api/nearby/v3/knocks', 'POST', req.body || {})) return;
@@ -58,7 +73,14 @@ export function registerNearbyV3Routes(
   app.post('/api/nearby/v3/card', async (req, res) => {
     if (await relay(res, '/api/nearby/v3/card', 'POST', req.body || {})) return;
     try {
-      res.json(await hub.heartbeat(req.body?.card));
+      const result = await hub.heartbeat(req.body?.card);
+      if (!attestor) {
+        res.json(result);
+        return;
+      }
+      const signer = attestor();
+      const [beacon, age] = await Promise.all([signer.beacon(), signer.ageProof(String(req.body.card.pub))]);
+      res.json({ ...result, beacon, age, attestor: signer.key });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }

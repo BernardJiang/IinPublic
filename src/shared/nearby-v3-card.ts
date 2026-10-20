@@ -1,3 +1,4 @@
+import { parseNearbyAgeProof, type NearbyAgeProof } from './nearby-v3-attestation';
 import { isPublicLocation, type PublicLocation } from './public-location';
 import { portableSha256Hex } from './portable-sha256';
 import {
@@ -28,6 +29,11 @@ export type NearbyCard = {
   scope: NearbyCardScope;
   issuedAt: string;
   expiresAt: string;
+  /**
+   * The hub's signed "first seen on" day for this key (nearby-v3-attestation.ts). Signed into the
+   * card, so a gossiper cannot strip it; whoever ranks the card verifies it separately.
+   */
+  age?: NearbyAgeProof;
   proof: SignedP2PEnvelopeProof;
 };
 
@@ -51,6 +57,7 @@ function signingPayload(card: Omit<NearbyCard, 'proof'>): unknown {
     scope: card.scope,
     issuedAt: card.issuedAt,
     expiresAt: card.expiresAt,
+    ...(card.age ? { age: card.age } : {}),
   };
 }
 
@@ -62,6 +69,7 @@ export async function createNearbyCard(input: {
   traveler?: boolean;
   scope?: NearbyCardScope;
   lifetimeMs: number;
+  age?: NearbyAgeProof | null;
   now?: Date;
 }): Promise<NearbyCard> {
   const now = input.now ?? new Date();
@@ -76,6 +84,7 @@ export async function createNearbyCard(input: {
     scope: input.scope ?? 'nearby',
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + input.lifetimeMs).toISOString(),
+    ...(input.age && input.age.pub === input.pair.pub ? { age: input.age } : {}),
   };
   if (!unsigned.userId || !unsigned.pub) throw new Error('a Nearby card needs userId and pub');
   if (!isPublicLocation(unsigned.point)) throw new Error('a Nearby card point must be a public grid centre');
@@ -102,6 +111,7 @@ export function parseNearbyCard(value: unknown): NearbyCard | null {
     || !isNearbyCardScope(card.scope)
     || typeof card.issuedAt !== 'string' || !Number.isFinite(Date.parse(card.issuedAt))
     || typeof card.expiresAt !== 'string' || !Number.isFinite(Date.parse(card.expiresAt))
+    || (card.age !== undefined && (!parseNearbyAgeProof(card.age) || card.age.pub !== card.pub))
     || !card.proof || typeof card.proof !== 'object'
     || card.proof.pub !== card.pub
     || card.proof.timestamp !== card.issuedAt) return null;

@@ -13,7 +13,17 @@ import {
   type NearbyGossipReply,
 } from '../../shared/nearby-v3-gossip';
 import { NearbyList, type NearbyListEntry, type NearbyListOwner } from '../../shared/nearby-v3-list';
-import { nearbyDailyBeacon } from '../../shared/nearby-v3-ranking';
+import {
+  isEstablishedBefore,
+  isNearbyAttestorKey,
+  nearbyBeaconString,
+  nearbyUtcDay,
+  verifyNearbyAgeProof,
+  verifyNearbyBeacon,
+  type NearbyAgeProof,
+  type NearbyAttestorKey,
+  type NearbyBeacon,
+} from '../../shared/nearby-v3-attestation';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import type { PublicLocation } from '../../shared/public-location';
 
@@ -27,8 +37,11 @@ import type { PublicLocation } from '../../shared/public-location';
  * Everything outside the list logic is injected: the hub client, the peer link, signing, storage and
  * the clock, so the whole cycle runs in unit tests.
  */
+/** What the hub adds to a heartbeat answer (unverified until the service checks it). */
+export type NearbyHubHeartbeat = { beacon?: unknown; age?: unknown; attestor?: unknown };
+
 export type NearbyV3Hub = {
-  heartbeat(card: NearbyCard): Promise<void>;
+  heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat | void>;
   introductions(input: { point: { latitude: number; longitude: number }; scope: NearbyCardScope; excludePub: string }): Promise<NearbyCard[]>;
 };
 
@@ -60,6 +73,11 @@ export type NearbyV3ServiceDeps = {
    */
   localBoard?: { post(card: NearbyCard): void; watch(point: { latitude: number; longitude: number }): void };
   verify?: (card: unknown, maxLifetimeMs: number, now: Date) => Promise<boolean>;
+  /**
+   * Attestor keys a signed manifest pins (`extensions['nearby-v3'].attestorKeys`). Empty or absent:
+   * the key the hub announces is trusted and kept.
+   */
+  pinnedAttestorKeys?: () => readonly NearbyAttestorKey[];
   sign?: typeof createNearbyCard;
   storage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   now?: () => number;
@@ -71,6 +89,9 @@ export type NearbyV3ServiceDeps = {
 };
 
 export const NEARBY_V3_STORAGE_KEY = 'iinpublic_nearby_v3_list_v1';
+/** The hub's attestor key, today's beacon and my own age proof (§3.7 "Ranking"). */
+export const NEARBY_V3_ATTESTATION_STORAGE_KEY = 'iinpublic_nearby_v3_attestation_v1';
+const MAX_ATTESTOR_KEYS = 4;
 const PAUSED_GOSSIP_FACTOR = 4;
 /** Covers opening a new link (WebRTC gives up after 10 s) plus the answer. */
 const SWAP_TIMEOUT_MS = 15_000;
@@ -112,6 +133,12 @@ export class NearbyV3Service {
   private hubReachable = true;
   private lastLocalPostAt = 0;
   private readonly verified = new Map<string, boolean>();
+  /** `pub|issuedAt` → the verified first-seen day of that card's key, or null (none or invalid). */
+  private readonly ageSince = new Map<string, string | null>();
+  private attestorKeys: NearbyAttestorKey[] = [];
+  private beacon: NearbyBeacon | null = null;
+  private ownAge: NearbyAgeProof | null = null;
+  private attestationLoaded = false;
   /** People who did not answer, with the card they had: only a newer card brings them back. */
   private readonly silent = new Map<string, number>();
   private readonly deps: NearbyV3ServiceDeps;
@@ -268,6 +295,7 @@ export class NearbyV3Service {
     const config = this.deps.config();
     if (!list || !this.ownCard) return null;
     if (message.card.scope !== list.ownerInfo.scope) return null;
+    if (message.kind === 'nearby-gossip-request' && message.beacon) await this.adoptBeacon(message.beacon);
     if (message.kind === 'nearby-gossip-push') {
       await this.ingest([message.card, ...message.cards], fromPub);
       return null;
@@ -293,6 +321,7 @@ export class NearbyV3Service {
         card: this.ownCard,
         digest: list.digest(nowMs),
         cards: offer.filter((card) => card !== this.ownCard),
+        ...(this.beacon ? { beacon: this.beacon } : {}),
       };
       await this.ingest([message.card], fromPub);
       this.counters.answered += 1;
@@ -313,6 +342,11 @@ export class NearbyV3Service {
       this.ownCard = null;
       return;
     }
+    // Build (or restore) the list first: it pushes the roster that makes the app's mesh join
+    // Nearby. Checking the mesh first deadlocked a reloaded page, whose mesh joins only on that
+    // push (stage2/01: after a re-login the user waited for the mesh forever).
+    const list = this.ensureList();
+    if (!list) return;
     // The mesh is still joining Nearby: search and announce once it can send (in a second).
     const waiting = this.deps.link.ready?.() === false;
     if (waiting && !this.waitingForLink) this.log('waiting for the mesh to join Nearby before searching');
@@ -320,8 +354,6 @@ export class NearbyV3Service {
     if (waiting) return;
     const config = this.deps.config();
     const nowMs = this.now();
-    const list = this.ensureList();
-    if (!list) return;
     if (list.prune(nowMs)) this.changed();
 
     // A changed name, point or traveler flag reaches the nearest person at once (below); a plain
@@ -386,6 +418,7 @@ export class NearbyV3Service {
       traveler: position.traveler,
       scope: position.scope,
       lifetimeMs: config.cardLifetimeMs,
+      age: this.ownAge,
       now: new Date(nowMs),
     });
     // I moved while it was being signed (left a Place, say): this card is already out of date and
@@ -395,7 +428,10 @@ export class NearbyV3Service {
       || current.point.latitude !== card.point.latitude || current.point.longitude !== card.point.longitude) return false;
     this.ownCard = card;
     await this.deps.hub.heartbeat(card).then(
-      () => this.setHubReachable(true),
+      async (answer) => {
+        this.setHubReachable(true);
+        if (answer) await this.absorbHeartbeat(answer, card.pub);
+      },
       (error) => {
         this.log(`hub heartbeat failed: ${String(error)}`);
         this.setHubReachable(false);
@@ -422,6 +458,7 @@ export class NearbyV3Service {
         version: 1,
         card: own,
         digest: list.digest(this.now()),
+        ...(this.beacon ? { beacon: this.beacon } : {}),
       }, SWAP_TIMEOUT_MS);
     } catch {
       answer = null;
@@ -440,6 +477,7 @@ export class NearbyV3Service {
     }
     if (reply.kind === 'nearby-gossip-busy') this.counters.busy += 1;
     if (reply.kind !== 'nearby-gossip-reply' || reply.card.pub !== partner.pub) return;
+    if (reply.beacon) await this.adoptBeacon(reply.beacon);
     await this.ingest([reply.card, ...reply.cards], reply.card.pub);
     const nowMs = this.now();
     const offer = list.offerFor({
@@ -474,7 +512,11 @@ export class NearbyV3Service {
     });
     const useful = list.useful(fresh, this.now());
     const valid: NearbyCard[] = [];
-    for (const card of useful) if (await this.isValid(card)) valid.push(card);
+    for (const card of useful) {
+      if (!await this.isValid(card)) continue;
+      await this.checkAge(card);
+      valid.push(card);
+    }
     if (!valid.length) return;
     const result = list.merge(valid, this.now());
     if (result.added || result.refreshed || result.dropped) this.changed();
@@ -504,11 +546,113 @@ export class NearbyV3Service {
       || card.point.latitude !== position.point.latitude
       || card.point.longitude !== position.point.longitude
       || card.point.precisionMeters !== position.point.precisionMeters
+      || (!!this.ownAge && card.age?.since !== this.ownAge.since)
       || nowMs - nearbyCardIssuedAtMs(card) >= config.cardReissueMs;
   }
 
   private ownerFor(card: NearbyCard): NearbyListOwner {
-    return { pub: card.pub, point: card.point, scope: card.scope, beacon: nearbyDailyBeacon(this.now()) };
+    return { pub: card.pub, point: card.point, scope: card.scope, beacon: this.beaconString(), isEstablished: this.isEstablished };
+  }
+
+  private beaconString(): string {
+    return nearbyBeaconString(this.beacon, this.now());
+  }
+
+  /** In dense ties, keys the hub saw before today rank first (§3.7 "Ranking"). */
+  private readonly isEstablished = (card: NearbyCard): boolean =>
+    isEstablishedBefore(this.ageSince.get(`${card.pub}|${card.issuedAt}`), nearbyUtcDay(this.now()));
+
+  /** Today's beacon, the hub's key and my age proof, from a heartbeat answer. */
+  private async absorbHeartbeat(answer: NearbyHubHeartbeat, ownPub: string): Promise<void> {
+    this.loadAttestation();
+    let changed = false;
+    if (isNearbyAttestorKey(answer.attestor) && !this.attestorKeys.some((key) => key.keyId === (answer.attestor as NearbyAttestorKey).keyId)) {
+      const pinned = this.deps.pinnedAttestorKeys?.() ?? [];
+      if (!pinned.length || pinned.some((key) => key.keyId === (answer.attestor as NearbyAttestorKey).keyId)) {
+        this.attestorKeys = [answer.attestor as NearbyAttestorKey, ...this.attestorKeys].slice(0, MAX_ATTESTOR_KEYS);
+        this.log(`learned the hub's attestor key ${this.attestorKeys[0]!.keyId.slice(0, 8)}`);
+        changed = true;
+        // Ages that could not be checked before can be now.
+        for (const [key, since] of this.ageSince) if (since === null) this.ageSince.delete(key);
+      }
+    }
+    if (await this.adoptBeacon(answer.beacon)) changed = true;
+    if (answer.age && (await verifyNearbyAgeProof(answer.age, ownPub, this.keys()))
+      && (answer.age as NearbyAgeProof).since !== this.ownAge?.since) {
+      this.ownAge = answer.age as NearbyAgeProof;
+      changed = true;
+    }
+    if (changed) {
+      this.saveAttestation();
+      await this.recheckAges();
+    }
+  }
+
+  /** Take a verified beacon for today that I do not have yet; true when it changed my order. */
+  private async adoptBeacon(value: unknown): Promise<boolean> {
+    if (!value) return false;
+    this.loadAttestation();
+    const today = nearbyUtcDay(this.now());
+    if (this.beacon?.day === today) return false;
+    const beacon = await verifyNearbyBeacon(value, this.keys());
+    if (!beacon || beacon.day !== today) return false;
+    this.beacon = beacon;
+    this.saveAttestation();
+    this.log(`today's beacon ${beacon.value.slice(0, 8)} (${beacon.day})`);
+    return true;
+  }
+
+  private keys(): NearbyAttestorKey[] {
+    const pinned = this.deps.pinnedAttestorKeys?.() ?? [];
+    return pinned.length ? this.attestorKeys.filter((key) => pinned.some((pin) => pin.keyId === key.keyId)).concat(
+      pinned.filter((pin) => !this.attestorKeys.some((key) => key.keyId === pin.keyId)),
+    ) : this.attestorKeys;
+  }
+
+  private async checkAge(card: NearbyCard): Promise<void> {
+    const key = `${card.pub}|${card.issuedAt}`;
+    if (this.ageSince.has(key)) return;
+    const since = card.age ? await verifyNearbyAgeProof(card.age, card.pub, this.keys()) : null;
+    this.ageSince.set(key, since);
+    if (this.ageSince.size > MAX_VERIFIED_CACHE) this.ageSince.delete(this.ageSince.keys().next().value as string);
+  }
+
+  /** Verify the ages of the cards on my list again (a key was learned), then re-rank. */
+  private async recheckAges(): Promise<void> {
+    const list = this.list;
+    if (!list) return;
+    for (const entry of list.entries()) await this.checkAge(entry.card);
+    list.setOwner({ ...list.ownerInfo, beacon: this.beaconString(), isEstablished: this.isEstablished });
+    this.changed();
+  }
+
+  private loadAttestation(): void {
+    if (this.attestationLoaded) return;
+    this.attestationLoaded = true;
+    try {
+      const raw = this.deps.storage?.getItem(NEARBY_V3_ATTESTATION_STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { keys?: unknown; beacon?: unknown; age?: unknown };
+      if (Array.isArray(saved.keys)) this.attestorKeys = saved.keys.filter(isNearbyAttestorKey).slice(0, MAX_ATTESTOR_KEYS);
+      // Trusted as stored: both were verified before they were saved, and the card that carries
+      // the age proof is checked again by everyone who ranks it.
+      if (saved.beacon && typeof saved.beacon === 'object') this.beacon = saved.beacon as NearbyBeacon;
+      if (saved.age && typeof saved.age === 'object') this.ownAge = saved.age as NearbyAgeProof;
+    } catch {
+      // Unreadable: learned again from the next heartbeat.
+    }
+  }
+
+  private saveAttestation(): void {
+    try {
+      this.deps.storage?.setItem(NEARBY_V3_ATTESTATION_STORAGE_KEY, JSON.stringify({
+        keys: this.attestorKeys,
+        beacon: this.beacon,
+        age: this.ownAge,
+      }));
+    } catch {
+      // Storage unavailable: kept in memory.
+    }
   }
 
   /** The list for the current position, created or re-ranked when the owner, scope or day changed. */
@@ -516,11 +660,13 @@ export class NearbyV3Service {
     const position = this.deps.position();
     const identity = this.deps.identity();
     if (!position || !identity) return null;
+    this.loadAttestation();
     const owner: NearbyListOwner = {
       pub: identity.pair.pub,
       point: position.point,
       scope: position.scope,
-      beacon: nearbyDailyBeacon(this.now()),
+      beacon: this.beaconString(),
+      isEstablished: this.isEstablished,
     };
     const capacity = this.deps.config().capacity + this.extraCapacity;
     if (this.list && this.list.ownerInfo.pub === owner.pub && this.list.ownerInfo.scope !== owner.scope) {

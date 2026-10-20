@@ -261,7 +261,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.chatroom-item.current-room .current-room-badge')).toHaveText('当前');
     await p.locator('.chatroom-item.current-room').click();
     await afterNav();
-    await expect(p.locator('#current-chatroom-status')).toContainText('位成员');
+    // Nearby is my own list (§3.7): "附近 N 人 · M 人在线", not a room's member count.
+    await expect(p.locator('#current-chatroom-status')).toContainText('人在线');
     // Back is an icon now; the translation lives on its tooltip.
     await expect(p.locator('#back-to-chatrooms')).toHaveAttribute('title', '返回');
     await p.locator('#back-to-chatrooms').click();

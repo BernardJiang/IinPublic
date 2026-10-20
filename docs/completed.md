@@ -1,6 +1,21 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-12
+Last updated: 2026-10-20
+
+## 2026-10-20 — OPEN-74: a fresh WebRTC reconnect works from either side, offline too
+
+- Found 2026-10-18 by `native-app/39`: over an offline Wi-Fi Direct group all five
+  `session.reconnect()` attempts failed and the next Talk took 36 s; online, each pair's first
+  reconnect failed. The answering phone applied the fresh offer to its old, still-"connected"
+  RTCPeerConnection, which refuses a new DTLS identity; desktop Chrome hides this because it tells
+  the far side at once that a connection closed, which the phones' relay-only path does not.
+- Fix (`p2p-webrtc-session.ts`): a new offer while a connection already has one is answered on a
+  fresh connection (a replayed offer is ignored); an answering phone that rebuilds its side asks
+  the other for a fresh offer (`restart` signal, ignored when stale or seen); the Wi-Fi Direct switch,
+  where both sides rebuild, asks for none.
+- Verified on 1.0.181: 5 of 5 fresh reconnects over offline Wi-Fi Direct (C10 + PH-1, 4.8–6.0 s) and
+  5 of 5 on hub + LAN (C10 + FRD, 0.9–1.2 s). Unit `p2p-session-fresh-offer.test.ts`; journey
+  `phone-path/07b-reconnect-from-either-side`.
 
 ## 2026-10-12 — Map view reaches people again (member card, tap to move)
 

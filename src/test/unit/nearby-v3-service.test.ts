@@ -381,3 +381,34 @@ describe('leaving a Place while a swap hangs (phone-path J-PLACE-11)', () => {
     await Promise.all([entering, leaving]);
   });
 });
+
+describe('a page whose mesh joins Nearby only when the list pushes its roster (stage2/01)', () => {
+  it('pushes the roster while waiting for the mesh, so the search is not stuck', async () => {
+    let nowMs = START;
+    const hub = new HubStore(NEARBY_V3_DEFAULTS, nowMs);
+    const searches: number[] = [];
+    let meshJoined = false;
+    const service = new NearbyV3Service({
+      config: () => NEARBY_V3_DEFAULTS,
+      identity: () => ({ userId: 'user-me', pair: { pub: 'me', priv: 'x' } as SeaSigningPair }),
+      position: () => ({ point: SD, traveler: false, scope: 'nearby' }),
+      hub: {
+        async heartbeat(card) { hub.ingest(card, nowMs); },
+        async introductions(input) { searches.push(nowMs); return hub.introductions({ ...input, now: new Date(nowMs) }).cards; },
+      },
+      // The app's mesh joins Nearby when the roster (my list) is pushed: onChange below.
+      link: { ready: () => meshJoined, request: async () => null },
+      onChange: () => { meshJoined = true; },
+      sign: fakeSign as never,
+      verify: async () => true,
+      now: () => nowMs,
+      log: () => undefined,
+    });
+    await service.tick();
+    nowMs += 1_000;
+    await service.tick();
+    expect(meshJoined).toBe(true);
+    // Searched on both ticks: nobody else is around, so the empty list asks the hub again.
+    expect(searches.length).toBeGreaterThan(0);
+  });
+});

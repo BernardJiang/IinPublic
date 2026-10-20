@@ -86,6 +86,29 @@ the WebView renderer stayed at 24–32 % with the screen on (map drawing). Fresh
 succeeded on 1.0.173; the failures are each pair's first reconnect, as in earlier runs (OPEN-74).
 The C10's per-app mAh is unreliable (2–3 mAh at 200–320 CPU s); read its CPU seconds.
 
+## 2026-10-20, build 1.0.181 (OPEN-73 pollers and map, OPEN-74 reconnects)
+
+The P30 was off USB, so hub + LAN ran on the C10 and the Honor FRD, and offline Wi-Fi Direct on the
+C10 (owner) and the PH-1 (client; shorter windows for its battery). Profilers on, screens on.
+
+| | hub + LAN (C10, FRD) | Wi-Fi Direct, hub unreachable (C10, PH-1) |
+|---|---|---|
+| Fresh WebRTC connections that succeeded | 5 of 5 (0.90–1.24 s) | 5 of 5 (4.8–6.0 s); none of 5 on 1.0.168 |
+| Sender time per contact, one at a time | 4.0–4.2 s | 3.8–4.1 s |
+| Receiver: one Talk accepted after | 3.0–3.2 s | 2.4–2.7 s |
+| All at once (one receiver), until received | 2.2–2.3 s | 2.2–2.3 s |
+| Idle CPU seconds per 15 min | C10 174 (407 on 1.0.172), FRD 215 (446–469 on 1.0.172–174, 765 on 1.0.168) | C10 ~195 (65 per 5 min; 375 on 1.0.168) |
+| Embedded node, 60 s profile | 95 % idle on both; ~50 requests a minute (mailbox 6, delegate grants 3–4) | – |
+| C10 page, 60 s profile (map on screen) | 56 of 60 s idle | – |
+
+- **OPEN-74** fixed: the phone that answered offers applied a fresh offer to its old connection,
+  which refuses a new DTLS identity; it now answers on a fresh connection, and an answering phone
+  that rebuilds asks for a new offer. Unit test `p2p-session-fresh-offer.test.ts`; journey
+  `phone-path/07b`.
+- **Incoming limit** chosen from the receiver times above: a phone accepts one Talk in ~2.2–3 s, so
+  `incomingTalksPerMinute` is 24 (Talks from people who are not contacts; an offer over the limit is
+  left unanswered and the sender's outbox offers it again). `incomingConnections` stays 8.
+
 ## What the runs found and fixed
 
 - **OPEN-71** (1.0.166): after a reconnect a pair could stay "connected" but exchange nothing, from
@@ -96,7 +119,8 @@ The C10's per-app mAh is unreliable (2–3 mAh at 200–320 CPU s); read its CPU
   the other (~0.9 s each on a phone).
 - **OPEN-73** (1.0.169–1.0.174): idle polling and roster rewrites; idle cost down ~80 % on the
   P30 and C10, ~40 % on the FRD.
-- **OPEN-74** (open): fresh reconnects never succeed over an offline Wi-Fi Direct group.
+- **OPEN-74** (1.0.181): fresh reconnects never succeeded over an offline Wi-Fi Direct group, and
+  each pair's first one failed online; 5 of 5 succeed in both modes now.
 
 ## Not measured yet
 

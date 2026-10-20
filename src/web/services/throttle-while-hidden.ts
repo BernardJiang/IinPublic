@@ -16,13 +16,19 @@ export function isPageHidden(): boolean {
 export function throttleWhileHidden(
   fn: () => void,
   hiddenMs: number,
-  options: { isHidden?: () => boolean; now?: () => number } = {},
+  options: {
+    isHidden?: () => boolean;
+    now?: () => number;
+    /** While visible, run at most this often (0 or absent: every tick). Read on every tick. */
+    visibleMs?: () => number;
+  } = {},
 ): () => void {
   const isHidden = options.isHidden ?? isPageHidden;
   const now = options.now ?? Date.now;
   let lastRun = Number.NEGATIVE_INFINITY;
   return () => {
-    if (isHidden() && now() - lastRun < hiddenMs) return;
+    const minimum = isHidden() ? hiddenMs : (options.visibleMs?.() ?? 0);
+    if (now() - lastRun < minimum) return;
     lastRun = now();
     fn();
   };

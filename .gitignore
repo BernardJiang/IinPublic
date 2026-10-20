@@ -82,3 +82,4 @@ test-logs/
 android/keystore.properties
 *.jks
 *.keystore
+nearby-attestor*/

@@ -142,6 +142,14 @@ type MapState = {
   awaitingListFit?: boolean;
   /** Zoom that fits my current room; "center on me" returns to it. */
   roomZoom?: number | undefined;
+  /**
+   * What the room markers, the room source and the people layer were last built from. The room
+   * list re-renders the map often and MapLibre fires `sourcedata`/`idle` on every tile; rebuilding
+   * every DOM marker each time kept a phone's WebView busy with the map open (OPEN-73).
+   */
+  markerSignature?: string | undefined;
+  sourceSignature?: string | undefined;
+  userDotSignature?: string | undefined;
 };
 
 /** A room with no area of its own (Contacts only, custom rooms) shows my neighbourhood. */
@@ -443,6 +451,7 @@ function clusterMarkerElement(
 function clearMarkers(state: MapState): void {
   state.markers.forEach((marker) => marker.remove());
   state.markers = [];
+  state.markerSignature = undefined;
 }
 
 /**
@@ -466,13 +475,24 @@ function addCurrentHierarchyMarker(maplibre: MapLibre, state: MapState): void {
 
 function rebuildHtmlMarkers(maplibre: MapLibre, state: MapState): number {
   if (!state.loaded) return 0;
-  clearMarkers(state);
-  const roomsById = new Map(state.options.rooms.map((room) => [room.id, room]));
-  const seen = new Set<string>();
-
   const renderedFeatures = state.map.queryRenderedFeatures({
     layers: [CLUSTER_LAYER_ID, ROOM_LAYER_ID],
   });
+  const signature = JSON.stringify([
+    state.options.currentChatroom,
+    state.map.getZoom() < EMPTY_PLACE_MIN_ZOOM,
+    state.options.rooms.map((room) => [room.id, room.name, room.memberCount, room.visitCount, room.uniqueVisitorCount, room.location]),
+    renderedFeatures.map((feature) => [
+      feature.geometry.type === 'Point' ? feature.geometry.coordinates : null,
+      feature.properties?.cluster_id ?? feature.properties?.chatroomId,
+      feature.properties?.point_count,
+    ]),
+  ]);
+  if (signature === state.markerSignature && renderedFeatures.length > 0) return renderedFeatures.length;
+  state.markerSignature = signature;
+  clearMarkers(state);
+  const roomsById = new Map(state.options.rooms.map((room) => [room.id, room]));
+  const seen = new Set<string>();
   state.options.container.dataset.mapRenderedFeatureCount = String(renderedFeatures.length);
   for (const feature of renderedFeatures) {
     if (feature.geometry.type !== 'Point') continue;
@@ -519,7 +539,12 @@ function rebuildHtmlMarkers(maplibre: MapLibre, state: MapState): number {
 function updateSource(state: MapState): void {
   if (!state.loaded) return;
   const source = state.map.getSource(SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined;
-  source?.setData(chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom));
+  const data = chatroomsToGeoJson(clusteredRooms(state.options), state.options.currentChatroom);
+  const signature = JSON.stringify(data);
+  // Unchanged rooms: setData would only re-cluster and fire another round of marker rebuilds.
+  if (!source || signature === state.sourceSignature) return;
+  state.sourceSignature = signature;
+  source.setData(data);
 }
 
 /** Fit the view to me and the people on my list; false while there is no one to fit. */
@@ -684,7 +709,8 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
       }
     };
     // Register before addSource so the first fast in-memory GeoJSON load event cannot be missed.
-    map.on('sourcedata', refreshMarkers);
+    // Only my room source: basemap tiles fire `sourcedata` constantly while they load.
+    map.on('sourcedata', (event: { sourceId?: string }) => { if (event.sourceId === SOURCE_ID) refreshMarkers(); });
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
     map.on('moveend', () => scheduleUserDots(maplibre, state));
@@ -770,6 +796,7 @@ function clearUserDots(state: MapState): void {
   state.userDotTimer = undefined;
   state.userDotMarkers.forEach((marker) => marker.remove());
   state.userDotMarkers = [];
+  state.userDotSignature = undefined;
   (state.map.getSource(USER_DENSITY_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)
     ?.setData(densityGeoJson([]) as never);
   const legend = state.options.container.querySelector<HTMLElement>('.chatroom-map-user-legend');
@@ -911,15 +938,22 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
     }
   }
   if (request !== state.userDotRequest || stateByContainer.get(state.options.container) !== state) return;
-  state.userDotMarkers.forEach((marker) => marker.remove());
   const showStrangers = state.map.getZoom() >= STRANGER_DOT_MIN_ZOOM;
+  const groups = groupUserDots(source, dots).filter((group) => showStrangers || group.kind !== 'other');
+  const signature = JSON.stringify([groups, density]);
+  if (signature === state.userDotSignature && state.userDotMarkers.length === groups.length) {
+    ensureUserDotLegend(state, source);
+    return;
+  }
+  state.userDotSignature = signature;
+  state.userDotMarkers.forEach((marker) => marker.remove());
   // Green dot: who is it (card). Yellow dot: they are outside my room, so it is a tap on that point.
   const onTap = (group: UserDotGroup): (() => void) | undefined => {
     if (group.kind === 'room' && state.options.roomMemberCard) return () => showRoomMemberCard(maplibre, state, group);
     if (group.kind === 'other') return () => handleMapTap(maplibre, state, group.latitude, group.longitude);
     return undefined;
   };
-  state.userDotMarkers = groupUserDots(source, dots).filter((group) => showStrangers || group.kind !== 'other').map((group) =>
+  state.userDotMarkers = groups.map((group) =>
     new maplibre.Marker({ element: userDotElement(source, group, onTap(group)) })
       .setLngLat([group.longitude, group.latitude])
       .addTo(state.map));
@@ -928,6 +962,11 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
   ensureUserDotLegend(state, source);
   state.options.container.dataset.userDotCount = String(dots.length);
   state.options.container.dataset.userDensityCells = String(density.length);
+}
+
+function isMapOnScreen(container: HTMLElement): boolean {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false;
+  return container.isConnected && container.getClientRects().length > 0;
 }
 
 export async function renderChatroomMap(options: ChatroomMapOptions): Promise<void> {
@@ -946,6 +985,9 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
       state = createMap(maplibre, options);
     } else {
       state.options = options;
+      // Not on screen (another tab, the list view, the page hidden): nothing to draw now. The next
+      // render once it is shown uses these options.
+      if (!isMapOnScreen(options.container)) return;
     }
     await state.ready;
     updateSource(state);

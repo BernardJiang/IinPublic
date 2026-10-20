@@ -801,11 +801,12 @@ phrase complexity into normal use.
     me although I am not on theirs (incoming limit); gossip over the mesh DataChannel. A block stops
     Talks only, never gossip or knocks (otherwise the blocker vanishes from the blocked person's
     list at once and gives himself away).
-  - [ ] Phase 3: Nearby is the personal list everywhere (2026-10-19, done: `nearby-v3` scope, no hub
+  - [x] Phase 3: Nearby is the personal list everywhere (2026-10-19, done: `nearby-v3` scope, no hub
     roster or chat; broadcast loop with adaptive concurrency; knock on link open; unreachable people
     leave the list and come back only with a newer card; the hub introduces only phones heartbeating
     in the last two periods; all 13 phone-path journeys pass, 6.6 min vs 9.1 on v2). Web e2e suites
-    and "Sent to N of M" done; still to do: real phones.
+    and "Sent to N of M" done. Real phones: 05, 33, 37, 38, 30 (four phones) on 1.0.178–1.0.180;
+    33 and 38 again on 1.0.181 (C10 + FRD, 2026-10-20); 39 on 1.0.181 above.
   - [x] No compatibility (product owner 2026-10-19: no official release yet): the v2 code is removed
     (2026-10-19; partition, cohorts and their mesh frame, control presence, micro-rooms, capacity
     splits and evictions, routing, map presence, Nearby in the room list — now Places only; server
@@ -829,10 +830,12 @@ phrase complexity into normal use.
     cards); a phone that went home kept its Place card while a slow swap held its tick (the runtime
     now watches its position, a refresh reissues at once and drops a card signed for a position it
     already left); an emptied Place vanished from "Places near you" behind a stale local count.
-  - [ ] The room-wide mesh overlay (rotating K of a hub roster, `maxNeighbors`) now serves no
-    scope: Nearby and Places are personal lists and Contacts-only leaves the mesh. Its K=1 sub-cases
-    were dropped from web specs `talks-matching/01`/`02` (2026-10-19); the code is still in
-    `peer-mesh-service.ts`. Remove it.
+  - [x] Room-wide mesh overlay removed (2026-10-20): the rotating K window
+    (`direct-talk-scheduler.ts`), `maxNeighbors`, the room-candidate FIFO, peer exchange (PEX: the
+    `peer-exchange` frame, `peer-exchange.ts`, `PeerExchangeCacheStore`) and the libp2p discovery
+    fallback are gone. Outside a personal list (Contacts only: a DM warm-up, a Talk's recipients)
+    the mesh links to the members it was given, at most 64. `talks-matching/06` now rejoins in that
+    explicit mode.
   - [x] Verified 2026-10-19 on 1.0.180: Jest 3,149; phone path 13/13 (5.8 min); web Place, room
     list and mesh specs 21/21; real phones: native-app 33 and 38 (P30 + C10), 30 on four phones
     (P30, C10, Honor FRD, PH-1; Talks 8.7–10.3 s, p50 9.6 s).
@@ -846,22 +849,36 @@ phrase complexity into normal use.
     Wi-Fi Direct passes with the P30 + C10 (found each other in ~2 s; Talks 7.6 s / 5.7 s).
   - [ ] **Deferred (product owner 2026-10-19):** Wi-Fi Direct on the Honor FRD-L04 (Android 7): in the 3-phone offline run it never started
     offline discovery (no `[nearby-offline]` events); the other two formed a group without it.
-  - [ ] Daily beacon from the signed manifest (today the UTC date); identity-age rule.
-  - [ ] Not v3 (found 2026-10-19, same on the pre-v3 commit 4981a03e): `find-similar-people.spec.ts`
-    hangs in its reject phase inside `seedIncomingTagTalksForE2e` → `upsertLocalIncomingTalkClusters`
-    (local Gun writes) while six browsers' direct DM sessions time out; the test hits its 7-minute
-    limit.
-  - [ ] Measure per-contact connection cost and broadcast-loop time on the five phones, over Wi-Fi
-    and mobile data, and choose the incoming limits.
+  - [x] Daily beacon and identity-age rule (2026-10-20, design §3.7 "Daily beacon and
+    identity-age rule"): the hub's attestor key signs each UTC day's beacon (`HMAC(seed, day)`) and,
+    per key, the day it first saw it; cards carry the age proof; in dense ties keys seen before
+    today rank first; swaps carry the beacon for phones without the hub. Unit test
+    `nearby-v3-attestation.test.ts`. Operator step left: pin the production attestor key in the
+    next signed manifest (`extensions['nearby-v3'].attestorKeys`).
+  - [x] `find-similar-people.spec.ts` hang fixed (2026-10-20): each incoming Talk queued its own
+    read–merge–encrypted rewrite of the whole owner envelope; under six browsers a rewrite took
+    1–7 s and the queue reached 155 s, so the seeded Talks waited past the timeout. Unchanged
+    clusters also counted as changed (key order). Saves arriving during a rewrite now join the next
+    one, and clusters compare key-order-free (`client-incoming-talk-mirror.ts`, unit tests). The
+    spec passes in ~1 min.
+  - [x] Found by the web suites (2026-10-20): a reloaded page never searched Nearby — the service
+    waited for the mesh before pushing the roster that makes the mesh join (stage2/01, stage3/02;
+    unit test in `nearby-v3-service.test.ts`). Stale v2 copy fixed in stage1/00.
+  - [x] Incoming limits chosen (2026-10-20, 1.0.181, `docs/testing/android-transport-measurements.md`):
+    a phone accepts one Talk in ~2.2–3 s, so 24 new Talks a minute from people who are not contacts
+    (`IncomingTalkBudget`; an offer over it goes unanswered and the sender's outbox retries) and 8
+    incoming connections. Wi-Fi and offline Wi-Fi Direct measured on the C10, FRD and PH-1.
+  - [ ] Mobile-data per-contact cost (`native-app/39` cellular mode) and the four-phone
+    `native-app/30` on 1.0.181: both need the P30 (its SIM), which was off USB on 2026-10-20.
+    Earlier numbers in the measurements doc.
     2026-10-18 first numbers (`docs/testing/android-transport-measurements.md`): a fresh connection
     0.7–1.5 s on Wi-Fi and 2.2–2.9 s across carrier NAT; the sender spends ~3.5 s per contact one at
     a time (mostly waiting for the receiver), and a receiver ~1.5 s accepting one Talk. A 498-contact
     loop needs overlapping sends; incoming limits not chosen yet.
-  - [ ] Implement: cards, the hub's statistics/pyramid/introduction sample, gossip, the adaptive
-    broadcast loop with per-peer inventories, incoming limits, Places on the same lists, the
-    daily beacon and identity-age rule, map/list/headcount UI, and the epoch migration.
-  - [ ] Remove the v2 partition lineage, cohort control plane, Place seat claims, map-presence index
-    and the Nearby `K` schedule once no v2 release is supported.
+  - [x] Implement: cards, hub statistics/pyramid/introductions, gossip, the adaptive broadcast
+    loop, Places on lists, the daily beacon and identity-age rule, map/list/headcount UI (phases
+    1–5 and 2026-10-20). No epoch migration: there is no v2 release to stay compatible with.
+  - [x] v2 removed (2026-10-19, see "No compatibility" above).
   - **Interim v2 problem, if v3 is delayed:** every 15 s control heartbeat re-uploads the phone's
     whole cached split chain (`nearby-pre-admission-client.ts` `rehydrationBundle`, up to 7.5 MB),
     and each split record at C = 498 is 540 KB (499 signed presences; checking one takes 0.6 s on
@@ -925,21 +942,32 @@ phrase complexity into normal use.
     reporting "visible"). Idle 15 min, screen off, 1.0.174: P30 12.7 mAh and 5.0 MB (72 mAh and
     63 MB on 1.0.168), C10 201 CPU s (836), FRD 469 CPU s (765). Results:
     `docs/testing/android-transport-measurements.md`.
-  - [ ] FRD (Android 7) still uses ~50 % of a core while idle; the WebView renderer uses 24–32 %
-    with the screen on (map drawing). Next: profile the FRD's node (no CDP on Android 7) and stop
-    map rendering while the Chatrooms map is not in view.
-  - [ ] Each phone's node still polls the hub roster every 5 s for every room it ever joined
-    (`observeRelayRoom`); stopping it on leave broke the Place list after leaving (phone-path/01),
-    so it needs a local roster clean-up on leave first.
-  - [ ] Remaining pollers: mailbox every 3 s; TechSupport messages, delegate grants and recovery
-    every 5 s each (`techsupport-conversation-transport.ts`); room members every 5 s.
-  - [ ] LAN mode adds ~50 MB per 15 minutes over hub-only (likely Gun replication between phones).
-  - [ ] Offline (Wi-Fi Direct, no hub) the C10 still used 375 s of CPU in 900 s: find the rest.
-- [ ] **OPEN-74 — A fresh WebRTC reconnect never succeeds over an offline Wi-Fi Direct group
-  (found 2026-10-18 by `native-app/39`).** With the hub unreachable, P30 (owner) and C10 (client)
-  formed a group in 11.4 s and their mesh link confirmed in 17.5 s, but all five
-  `session.reconnect()` attempts failed ("WebRTC connection failed"), and the next Talk took 36 s
-  while the link recovered by itself. The app uses `reconnect()` for the Wi-Fi Direct relay switch.
+  - [x] FRD idle (1.0.181, screen on, profilers on): 215 CPU s per 15 min (24 % of a core; 765 s on
+    1.0.168). Its node's 60 s profile is 95 % idle. The C10's page with the map on screen is idle 56
+    of 60 s.
+  - [x] Hub roster polling is leased (2026-10-20, `chatroom-routes.ts`): a room is polled only
+    while this node's page asked for it within one membership TTL; then the poll stops and the
+    members mirrored from the hub are dropped locally. Integration test in `chatroom-routes.test.ts`.
+  - [x] Remaining pollers (2026-10-20): on a phone the native `MailboxWatcher`'s long-poll wakes
+    the page's drain (`iinpublic-mailbox-changed`) and the page drains every 15 s as a safety net
+    (browsers keep 3 s; a page-held long-poll starved WebRTC signaling under the 6-connection limit,
+    stage2/88). TechSupport messages poll every 30 s once nobody wrote for 2 minutes; delegate
+    grants and recovery every 15 s for ordinary sessions (operators 5 s; invites still every 30 s).
+  - [x] Map (2026-10-20, `chatroom-map-view.ts`): markers, the room source and the people layer are
+    rebuilt only when their inputs change; basemap tile `sourcedata` no longer rebuilds markers;
+    no work while the map is off screen.
+  - [ ] LAN traffic: 63 MB per 15 min on 1.0.168 fell to 5.0 MB on 1.0.174 (the roster rewrites,
+    OPEN-73 above), below 1.0.168's hub-only 12 MB. Confirm with a P30 hub-only vs hub + LAN pair on
+    1.0.181 (only the P30 reports per-app bytes; it was off USB on 2026-10-20), then close OPEN-73.
+  - [x] Offline (Wi-Fi Direct, no hub) the C10: ~195 CPU s per 15 min on 1.0.181 (375 on 1.0.168).
+- [ ] **OPEN-75 — Two light-shard specs fail under parallel load, also on c44fcf80 (found
+  2026-10-20 by `test:all`).** Both pass alone and at 2 workers. At 4 workers:
+  `stage1/92-location-model-settings` (back to Resident, the Traveler flag stays on past 15 s; and
+  the next test's settings wait times out), and `stage2/29-messaging-semantics` (11 of 12 messages
+  within 25 s; it failed both repeats on c44fcf80). Also `stage2/95-device-sync-continuous`: failed
+  in two of three full `test:all` runs on 1.0.181 but passes 4 of 4 at 4 workers on both 1.0.181 and
+  c44fcf80, so it is not attributed yet. Find whether these are slow GPS/DM/sync paths under load or
+  real bugs.
 - [x] **OPEN-69 — Small C strands full groups in very dense places (found 2026-10-17 by the capacity
   experiment; guarded 2026-10-17: production refuses a signed manifest with C < 128,
   `production-protocol-manifest.ts`, unit test in `protocol-manifest.test.ts`).** Below everyone's privacy floor a group splits only by halving identity lanes, so a

@@ -2,8 +2,8 @@
  * L3 acceptance increment: mesh re-forms after hub API loss mid-session.
  *
  * We simulate hub loss by aborting presence/member API calls in all three browsers,
- * tear down each peer's current overlay, rejoin with explicit peer IDs,
- * and verify mesh-ping still propagates.
+ * tear down each peer's current overlay, rejoin with explicit peer IDs (the mesh's explicit-members
+ * mode, as Contacts only uses; Nearby itself links on demand), and verify mesh-ping still propagates.
  */
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
@@ -117,61 +117,41 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
       { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
 
-    const p2pNodeEnabled = await pageTom.evaluate(() => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      return !!app?.p2pRuntimeFlags?.p2pNodeEnabled;
-    });
-
     await Promise.all([blockHubApi(pageTom), blockHubApi(pageJerry), blockHubApi(pageBob)]);
 
     // Tear down and re-form overlay after hub API loss.
-    await pageTom.evaluate(async ([jId, bId, selfOnlyMode]: [string, string, boolean]) => {
+    await pageTom.evaluate(async ([jId, bId]: [string, string]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      const members = selfOnlyMode
-        ? [{ userId: app.currentUser?.id }]
-        : [
-            { userId: app.currentUser?.id },
-            { userId: jId },
-            { userId: bId },
-          ];
-      await mesh.joinRoom(roomId, members);
-    }, [jerryId, bobId, p2pNodeEnabled]);
+      const members = [{ userId: app.currentUser?.id }, { userId: jId }, { userId: bId }];
+      // Explicit links to the named peers: Nearby's own mode links only on demand (§3.7).
+      await mesh.joinRoom(roomId, members, { personal: false, replace: true });
+    }, [jerryId, bobId]);
 
-    await pageJerry.evaluate(async ([tId, bId, selfOnlyMode]: [string, string, boolean]) => {
+    await pageJerry.evaluate(async ([tId, bId]: [string, string]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      const members = selfOnlyMode
-        ? [{ userId: app.currentUser?.id }]
-        : [
-            { userId: app.currentUser?.id },
-            { userId: tId },
-            { userId: bId },
-          ];
-      await mesh.joinRoom(roomId, members);
-    }, [tomId, bobId, p2pNodeEnabled]);
+      const members = [{ userId: app.currentUser?.id }, { userId: tId }, { userId: bId }];
+      // Explicit links to the named peers: Nearby's own mode links only on demand (§3.7).
+      await mesh.joinRoom(roomId, members, { personal: false, replace: true });
+    }, [tomId, bobId]);
 
-    await pageBob.evaluate(async ([tId, jId, selfOnlyMode]: [string, string, boolean]) => {
+    await pageBob.evaluate(async ([tId, jId]: [string, string]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      const members = selfOnlyMode
-        ? [{ userId: app.currentUser?.id }]
-        : [
-            { userId: app.currentUser?.id },
-            { userId: tId },
-            { userId: jId },
-          ];
-      await mesh.joinRoom(roomId, members);
-    }, [tomId, jerryId, p2pNodeEnabled]);
+      const members = [{ userId: app.currentUser?.id }, { userId: tId }, { userId: jId }];
+      // Explicit links to the named peers: Nearby's own mode links only on demand (§3.7).
+      await mesh.joinRoom(roomId, members, { personal: false, replace: true });
+    }, [tomId, jerryId]);
 
     await expect
       .poll(

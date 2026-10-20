@@ -1,11 +1,12 @@
 import type { NearbyCard, NearbyCardScope } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
+import type { NearbyAttestorKey } from '../../shared/nearby-v3-attestation';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import type { PublicLocation } from '../../shared/public-location';
 import type { NearbyListEntry } from '../../shared/nearby-v3-list';
 import { nearbyKnockChannel, type NearbyKnock } from '../../shared/nearby-v3-knock';
 import { GunNearbyKnockChannel, GunNearbyLocalBoard, NearbyKnockGate, NearbyV3MeshLink, type NearbyV3MeshPort } from './nearby-v3-link';
-import { NearbyV3Service, type NearbyV3Hub } from './nearby-v3-service';
+import { NearbyV3Service, type NearbyHubHeartbeat, type NearbyV3Hub } from './nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
 
 /**
@@ -66,7 +67,7 @@ export class HttpNearbyKnockChannel {
 export class FetchNearbyV3Hub implements NearbyV3Hub {
   constructor(private readonly apiBase: () => string) {}
 
-  async heartbeat(card: NearbyCard): Promise<void> {
+  async heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat> {
     const response = await fetch(`${this.apiBase()}/api/nearby/v3/card`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -76,6 +77,7 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
       const body = await response.json().catch(() => null) as { error?: unknown } | null;
       throw new Error(`hub refused the card (${response.status}${body?.error ? `: ${String(body.error)}` : ''})`);
     }
+    return await response.json().catch(() => ({})) as NearbyHubHeartbeat;
   }
 
   async introductions(input: { point: { latitude: number; longitude: number }; scope: string; excludePub: string }): Promise<NearbyCard[]> {
@@ -109,6 +111,8 @@ export type NearbyV3RuntimeDeps = {
   userId: string;
   stageName: () => string;
   config: () => NearbyV3Config;
+  /** Hub attestor keys the signed manifest pins (empty: trust the hub's announced key). */
+  pinnedAttestorKeys?: () => readonly NearbyAttestorKey[];
   /** Where my card says I am, and in which scope: Nearby, or a Place (`place:<id>`, at its pin). */
   position: () => { point: PublicLocation; traveler: boolean; scope?: NearbyCardScope } | null;
   isPaused?: () => boolean;
@@ -138,6 +142,7 @@ export class NearbyV3Runtime {
     });
     this.service = new NearbyV3Service({
       config: deps.config,
+      ...(deps.pinnedAttestorKeys ? { pinnedAttestorKeys: deps.pinnedAttestorKeys } : {}),
       identity: () => {
         const local = this.pair();
         return local?.pub && local.priv ? { userId: deps.userId, pair: local, stageName: deps.stageName() } : null;

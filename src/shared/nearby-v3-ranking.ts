@@ -2,11 +2,12 @@ import { portableSha256Hex } from './portable-sha256';
 
 /**
  * How a viewer orders the people on their nearby list (§3.7 "Ranking"): nearer first, by the
- * distance between public points (people in the same square tie at 0), then the viewer's own hash
- * order `hash(viewer, member, daily beacon)`. The order is public on purpose: a gossip partner can
- * rank cards the way I would and send me exactly the ones I would keep.
+ * distance between public points (people in the same square tie at 0); among equals, keys the hub
+ * saw before today's beacon first (the identity-age rule); then the viewer's own hash order
+ * `hash(viewer, member, daily beacon)`. The order is public on purpose: a gossip partner can rank
+ * cards the way I would and send me exactly the ones I would keep.
  */
-export type NearbyRankKey = { distanceMeters: number; tie: string };
+export type NearbyRankKey = { distanceMeters: number; newcomer: boolean; tie: string };
 
 const EARTH_RADIUS_METERS = 6_371_000;
 
@@ -24,9 +25,9 @@ export function publicPointDistanceMeters(
 }
 
 /**
- * The value every viewer mixes into their order for one day, so a key ground to rank first for one
- * victim stops working the next day. Until the signed manifest carries an unpredictable beacon
- * (OPEN-70), it is the UTC date: everyone agrees on it, but it can be predicted.
+ * The fallback for the value every viewer mixes into their order for one day: the UTC date, which
+ * everyone agrees on but anyone can predict. The real one is the hub's signed beacon
+ * (`nearbyBeaconString` in nearby-v3-attestation.ts); this is used while a phone has none for today.
  */
 export function nearbyDailyBeacon(now: Date | number = Date.now()): string {
   const day = new Date(typeof now === 'number' ? now : now.getTime()).toISOString().slice(0, 10);
@@ -43,14 +44,18 @@ export function nearbyRankKey(input: {
   memberPub: string;
   memberPoint: { latitude: number; longitude: number };
   beacon: string;
+  /** The member's key existed before today's beacon (a verified age proof). */
+  memberEstablished?: boolean;
 }): NearbyRankKey {
   return {
     distanceMeters: publicPointDistanceMeters(input.viewerPoint, input.memberPoint),
+    newcomer: input.memberEstablished !== true,
     tie: nearbyRankTie(input.viewerPub, input.memberPub, input.beacon),
   };
 }
 
 export function compareNearbyRankKeys(a: NearbyRankKey, b: NearbyRankKey): number {
   if (a.distanceMeters !== b.distanceMeters) return a.distanceMeters - b.distanceMeters;
+  if (a.newcomer !== b.newcomer) return a.newcomer ? 1 : -1;
   return a.tie < b.tie ? -1 : a.tie > b.tie ? 1 : 0;
 }

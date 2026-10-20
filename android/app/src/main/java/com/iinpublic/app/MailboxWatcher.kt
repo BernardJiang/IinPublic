@@ -219,6 +219,8 @@ internal class MailboxWatcher(private val context: Context, private val port: In
             val (changed, _, latest) = result
             if (latest.isNotBlank()) prefs.edit().putString(LATEST_PREF, latest).apply()
             if (changed) {
+                // A live page drains now; its own timer only polls slowly (OPEN-73).
+                MainActivity.notifyMailboxChanged()
                 // The network interrupt woke the CPU; keep it up while the poll posts the notification.
                 val wakeLock = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
                     .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IinPublic:mailbox-wait")

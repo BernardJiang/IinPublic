@@ -44,7 +44,12 @@ export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
 type SignalPayload =
   | { type: 'offer'; sdp: RTCSessionDescriptionInit; offerId?: string }
   | { type: 'answer'; sdp: RTCSessionDescriptionInit; offerId?: string }
-  | { type: 'ice'; candidate: RTCIceCandidateInit | null; offerId?: string };
+  | { type: 'ice'; candidate: RTCIceCandidateInit | null; offerId?: string }
+  /** The answering side rebuilt its connection and asks the offering side for a fresh offer. */
+  | { type: 'restart'; requestId: string; at: number };
+
+/** A restart request older than this is a replay from the signaling queue, not a live request. */
+const RESTART_REQUEST_MAX_AGE_MS = 20_000;
 
 /** Binary ↔ base64 helpers for streaming attachment chunks over the text DataChannel. */
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -477,6 +482,8 @@ export class P2PConversationSession {
   private onLinkUpgradeMessage: ((message: unknown) => void | Promise<void>) | null = null;
   /** OPEN-36 Wi-Fi Direct link: config for the next RTCPeerConnection (setIceConfigOverride). */
   private iceConfigOverride: RTCConfiguration | null = null;
+  /** Restart requests already acted on (the signaling queue may deliver one twice). */
+  private readonly handledRestarts = new Set<string>();
 
   constructor(private config: P2PSessionConfig) {
     this.signaling = new CompositeSignalingTransport([
@@ -536,11 +543,36 @@ export class P2PConversationSession {
    * An ICE restart on the live connection is not enough: Chrome keeps the working old pair selected
    * and never even checks the new lower-priority relay pairs (verified on Android WebView).
    */
-  reconnect(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS): Promise<void> {
+  reconnect(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS, options: { requestOffer?: boolean } = {}): Promise<void> {
     this.closeTransport();
     this.connectPromise = null;
     this.setState('idle');
-    return this.ensureConnected(timeoutMs);
+    const connected = this.ensureConnected(timeoutMs);
+    // The answering side cannot offer: ask the other side for a fresh offer (OPEN-74). Its old
+    // connection would otherwise stay up until ICE notices ours is gone, ~30 s later. Not when
+    // the other side reconnects anyway (the Wi-Fi Direct switch: `requestOffer: false`).
+    if (!this.config.isInitiator && options.requestOffer !== false) {
+      const request: SignalPayload = { type: 'restart', requestId: `restart_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`, at: Date.now() };
+      void this.postSignal('connection-state', request).catch(() => undefined);
+    }
+    return connected;
+  }
+
+  /**
+   * The other side rebuilt its connection (a fresh offer, or a restart request): rebuild ours to
+   * match without reporting 'idle' — the Wi-Fi Direct link treats an idle active link as lost and
+   * would reconnect on its own, undoing the switch.
+   */
+  private async rebuildForRemote(): Promise<void> {
+    this.closeTransport();
+    this.connectPromise = null;
+    this._state = 'idle';
+    const attempt = this.ensureConnected();
+    void attempt.catch(() => undefined);
+    // start() is async up to the new RTCPeerConnection; wait until it exists.
+    for (let i = 0; i < 100 && !this.pc && (this._state as P2PConnectionState) === 'connecting'; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
 
   /** P2P-Q: Returns a snapshot of the handshake negotiation diagnostics. */
@@ -825,6 +857,7 @@ export class P2PConversationSession {
           reject(new Error('WebRTC connection timeout'));
         }
       }, timeoutMs);
+      (timer as { unref?: () => void }).unref?.();
 
       const finish = () => {
         clearTimeout(timer);
@@ -1486,8 +1519,26 @@ export class P2PConversationSession {
 
   private async handleRemoteSignal(payload: SignalPayload): Promise<void> {
     if (!this.pc) return;
+    if (payload.type === 'restart') {
+      if (!this.config.isInitiator || this.handledRestarts.has(payload.requestId)) return;
+      if (!Number.isFinite(payload.at) || Math.abs(Date.now() - payload.at) > RESTART_REQUEST_MAX_AGE_MS) return;
+      this.handledRestarts.add(payload.requestId);
+      await this.rebuildForRemote();
+      return;
+    }
     if (payload.type === 'offer') {
       if (this.makingOffer) return;
+      // The same offer again (the signaling queue replays, or both subscriptions deliver it while
+      // the first copy is still being answered): already handled.
+      if (payload.offerId && payload.offerId === this.currentOfferId) return;
+      // A new offer while this connection already has one: the other side rebuilt its connection
+      // (reconnect, the Wi-Fi Direct switch). Applying it to this connection fails — its DTLS
+      // identity is new — so every first reconnect failed until ICE gave up on the old one
+      // (OPEN-74). Answer it on a fresh connection instead.
+      if (this.remoteDescriptionSet || this.pc.signalingState !== 'stable') {
+        await this.rebuildForRemote();
+        if (!this.pc) return;
+      }
       // Track which offer generation we are answering so the initiator can
       // correlate our answer (and discard answers to retired offers).
       this.currentOfferId = payload.offerId ?? null;

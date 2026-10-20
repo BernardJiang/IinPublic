@@ -79,6 +79,7 @@ import {
 } from '../../shared/techsupport-delegate-invite';
 import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import { NearbyV3Hub } from '../services/nearby-v3-hub';
+import { NearbyAttestor } from '../services/nearby-attestor';
 import { NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
 import { hubNearbyV3Config, registerNearbyV3Routes } from './nearby-v3-routes';
 import { captureRuntimeWindow } from '../services/runtime-profiler';
@@ -243,6 +244,8 @@ export function registerSystemRoutes(
   const presenceByUserId = new Map<string, PresenceRecord>();
   const nearbyV3Hub = new NearbyV3Hub(hubNearbyV3Config(), Date.now(), (placeId) => onPlaceActive?.(placeId));
   const nearbyKnockMailbox = new NearbyKnockMailbox();
+  let nearbyAttestor: NearbyAttestor | null = null;
+  const getNearbyAttestor = () => (nearbyAttestor ??= new NearbyAttestor());
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -402,7 +405,7 @@ export function registerSystemRoutes(
   };
 
   // Nearby v3 (docs/design/nearby-and-place-chatrooms.md §3.7): cards, introductions, statistics.
-  registerNearbyV3Routes(app, { hub: nearbyV3Hub, knocks: nearbyKnockMailbox, relay: relayToHub });
+  registerNearbyV3Routes(app, { hub: nearbyV3Hub, knocks: nearbyKnockMailbox, attestor: getNearbyAttestor, relay: relayToHub });
 
   // Room list: every room with ≥ 1 person, nearest first (or busiest / most room), paged.
   app.get('/api/active-rooms', async (req, res) => {
@@ -1388,6 +1391,7 @@ export function registerSystemRoutes(
           if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
           nearbyV3Hub.clear();
           nearbyKnockMailbox.clear();
+          nearbyAttestor?.clear();
           clearForTesting?.();
           await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();

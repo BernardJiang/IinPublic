@@ -31,7 +31,8 @@ import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-clie
 import { BlockStatusCache } from '../services/block-status-cache';
 import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
 import { NearbyV3Runtime } from '../services/nearby-v3-runtime';
-import { nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
+import { nearbyV3AttestorKeysFromManifest, nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
+import { IncomingTalkBudget } from '../../shared/incoming-talk-budget';
 import { placesMissingFromCatalogue } from '../ui/room-list-view';
 import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
 import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
@@ -170,7 +171,6 @@ import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner }
 import { P2PPresenceClient } from '../services/p2p-presence-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
-import { PeerExchangeCacheStore } from '../services/peer-exchange-cache-store';
 import { WebMailboxClient } from '../services/web-mailbox-client';
 import { getOrCreateLibp2pMeshSession } from '../services/p2p-libp2p-mesh-session';
 import { eraseDevice } from '../services/device-wipe';
@@ -288,6 +288,8 @@ type MailboxSupportQuestionPayload = {
 
 /** Debounce for automatic same-room catch-up to one peer (link flaps, roster heartbeats). */
 const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
+/** On a phone the native mailbox watch wakes a drain; the page's own drain is a safety net. */
+const NATIVE_MAILBOX_SAFETY_DRAIN_MS = 15_000;
 
 /**
  * The room protocol baseline. Outside production a local-debug/E2E capacity (`?e2e_capacity=`)
@@ -397,6 +399,8 @@ export class IinPublicApp {
   private protocolActivationTimer: ReturnType<typeof setTimeout> | null = null;
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
+  private mailboxChangedListener: (() => void) | undefined;
+  private readonly incomingTalkBudget = new IncomingTalkBudget(() => this.nearbyV3Config().incomingTalksPerMinute);
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
   /** docs/TODO.md OPEN-29 — live subscription that keeps the local recovery-anchor cache fresh. */
   private techSupportRecoveryAnchorUnsubscribe: (() => void) | null = null;
@@ -1880,6 +1884,7 @@ export class IinPublicApp {
       userId: user.id,
       stageName: () => this.currentUser?.stageName || user.id,
       config: () => this.nearbyV3Config(extensions),
+      pinnedAttestorKeys: () => nearbyV3AttestorKeysFromManifest(extensions ? { extensions } : null),
       position: () => {
         const roomId = this.currentChatroomId;
         // In a Place my card is scoped to it and sits at its public pin, so every member is "at"
@@ -3134,11 +3139,14 @@ export class IinPublicApp {
         return { initial: config.broadcastInitialConcurrency, max: config.broadcastMaxConcurrency };
       },
       onPersonalPeerUnreachable: (_userId, pub) => this.nearbyV3?.unreachable(pub),
+      admitTalkOffer: (authorUserId) => {
+        const contacts = this.currentUser?.knownPeople;
+        if (Array.isArray(contacts) && contacts.some((known) => known?.userId === authorUserId)) return true;
+        return this.incomingTalkBudget.tryAdmit(Date.now());
+      },
       ...(this.protocolManifestController
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
-      getMaxRoomCandidates: () => this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
-        ?? baselineRoomCheckpoint().chatroomCapacity,
       authoritativeDirectTalkDelivery: this.p2pRuntimeFlags.p2pDirectTalkDelivery,
       onTalkDeliveryAck: (payload, recipientUserId) => {
         this.noteNearbyDelivery(payload.talkId, recipientUserId);
@@ -3164,14 +3172,8 @@ export class IinPublicApp {
         await this.syncActiveRoomProtocolCheckpoint();
       },
       forwardingSettings: loadConnectivitySettings().forwarding,
-      peerExchangeCache: new PeerExchangeCacheStore(this.gunService),
-      isPeerExchangeAllowed: (userId) => !(this.currentUser?.blockedUserIds ?? []).includes(userId),
-      // Keep the E2E mesh dense enough for the 20-peer saturation scenario while
-      // still using the production default cap (12) outside that harness.
-      ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 12 } : {}),
       ...(this.p2pRuntimeFlags.p2pNodeEnabled
         ? {
-            getDiscoveryUserIds: async () => this.getDiscoveryFallbackUserIdsForActiveRoom(),
             createSession: (params) =>
               createFallbackMeshSession({
                 primaryFactory: () =>
@@ -3265,13 +3267,6 @@ export class IinPublicApp {
     });
     (this as any).peerMeshService = this.peerMeshService;
     return this.peerMeshService;
-  }
-
-  private getDiscoveryFallbackUserIdsForActiveRoom(): string[] {
-    const roomId = this.peerMeshService?.getDiagnostics().roomId || this.currentChatroomId;
-    if (!roomId) return [];
-    const found = this.roomDiscoveredUserIds.get(roomId);
-    return found ? [...found] : [];
   }
 
   private async resolveDiscoveredUserIds(
@@ -3455,12 +3450,21 @@ export class IinPublicApp {
   private startMailboxPolling(): void {
     this.registerNativeMailboxWatch();
     if (this.mailboxPollTimer) return;
-    // While hidden (screen off, backgrounded) the native mailbox watch covers delivery; poll
-    // once a minute instead of every 3 s through the embedded node (OPEN-73).
+    // On a phone the native mailbox watch keeps a long-poll open and wakes a drain the moment an
+    // envelope arrives ('iinpublic-mailbox-changed'), so the page polls only as a safety net
+    // (OPEN-73: every 3 s was ~20 requests a minute through the embedded node while idle). The
+    // page does not hold a long-poll itself: a browser allows six connections per host, and one
+    // more held open starved WebRTC signaling (stage2/88's deal confirmation never arrived).
+    // While hidden it polls once a minute.
+    const native = this.hasNativeMailboxWatch();
+    if (native && !this.mailboxChangedListener) {
+      this.mailboxChangedListener = () => { void this.drainMailbox().catch(() => {}); };
+      window.addEventListener('iinpublic-mailbox-changed', this.mailboxChangedListener);
+    }
     this.mailboxPollTimer = setInterval(throttleWhileHidden(() => {
       void this.drainMailbox().catch(() => {});
       void this.retryFailedMailboxPosts().catch(() => {});
-    }, 60_000), 3_000);
+    }, 60_000), native ? NATIVE_MAILBOX_SAFETY_DRAIN_MS : 3_000);
   }
 
   /**
@@ -3469,6 +3473,11 @@ export class IinPublicApp {
    * and posts a "new activity" notification; this page still does every decrypt/drain on open.
    * A no-op in browsers and on builds without the bridge method.
    */
+  private hasNativeMailboxWatch(): boolean {
+    const bridge = (window as unknown as { IinPublicNearby?: { setMailboxWatch?: unknown } }).IinPublicNearby;
+    return typeof bridge?.setMailboxWatch === 'function';
+  }
+
   private registerNativeMailboxWatch(): void {
     const userId = this.currentUser?.id;
     const bridge = (window as unknown as { IinPublicNearby?: { setMailboxWatch?: (id: string) => void } }).IinPublicNearby;
@@ -5093,7 +5102,7 @@ export class IinPublicApp {
 
   private techSupportRelayPollTimer: ReturnType<typeof setInterval> | undefined;
   private techSupportRelayPollInFlight = false;
-  private techSupportTargetedInviteTick = 0;
+  private techSupportTargetedInviteCheckedAt = 0;
 
   /**
    * docs/TODO.md K7 follow-on: a native (embedded-node) device has no generic Gun peering to the
@@ -5118,7 +5127,8 @@ export class IinPublicApp {
         for (const grant of grants) this.handleVerifiedDelegateGrant(grant);
         // Targeted (remote) delegate invites: candidates look for one addressed to them, the
         // master looks for the resulting requests. Slower cadence (~30s) — invites last days.
-        if (this.techSupportTargetedInviteTick++ % 6 === 0) {
+        if (Date.now() - this.techSupportTargetedInviteCheckedAt >= 30_000) {
+          this.techSupportTargetedInviteCheckedAt = Date.now();
           await this.checkIncomingTargetedDelegateInvite(apiBase);
           await this.pollTargetedDelegateInviteRequests(apiBase);
         }
@@ -5142,8 +5152,11 @@ export class IinPublicApp {
       }
     };
     void tick();
-    // Delegate grants and the recovery anchor change only during an incident (OPEN-73).
-    this.techSupportRelayPollTimer = setInterval(throttleWhileHidden(() => void tick(), 120_000), 5_000);
+    // Delegate grants and the recovery anchor change only during an incident (OPEN-73): an
+    // ordinary session reads them every 15 s; operators, who answer and audit, every 5 s.
+    this.techSupportRelayPollTimer = setInterval(throttleWhileHidden(() => void tick(), 120_000, {
+      visibleMs: () => (this.currentUser && this.isTechSupportOperatorSession() ? 0 : 15_000),
+    }), 5_000);
   }
 
   private stopTechSupportDelegateRelayPolling(): void {

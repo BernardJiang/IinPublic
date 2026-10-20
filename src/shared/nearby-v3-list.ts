@@ -24,6 +24,11 @@ export type NearbyListOwner = {
   point: { latitude: number; longitude: number };
   scope: NearbyCardScope;
   beacon: string;
+  /**
+   * Whether a card's key existed before today's beacon (its age proof verified). The list is pure
+   * and synchronous, so the caller verifies proofs and answers here; absent, everyone is new.
+   */
+  isEstablished?: (card: NearbyCard) => boolean;
 };
 
 export type NearbyListEntry = {
@@ -74,7 +79,7 @@ export class NearbyList {
     return this.byPub.has(pub);
   }
 
-  rankOf(card: Pick<NearbyCard, 'pub' | 'point'>): NearbyRankKey {
+  rankOf(card: NearbyCard): NearbyRankKey {
     const placeScoped = this.owner.scope !== 'nearby';
     return nearbyRankKey({
       viewerPub: this.owner.pub,
@@ -82,6 +87,7 @@ export class NearbyList {
       memberPub: card.pub,
       memberPoint: placeScoped ? this.owner.point : card.point,
       beacon: this.owner.beacon,
+      memberEstablished: this.owner.isEstablished?.(card) === true,
     });
   }
 

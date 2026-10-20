@@ -1,6 +1,6 @@
 import express from 'express';
 import request from 'supertest';
-import { registerChatroomRoutes } from '../../server/routes/chatroom-routes';
+import { RELAY_ROOM_LEASE_MS, registerChatroomRoutes } from '../../server/routes/chatroom-routes';
 import { PlaceCreationConflictError } from '../../shared/place-lifecycle';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 
@@ -296,6 +296,33 @@ describe('chatroom routes', () => {
       stageName: 'Remote',
       lastSeen: expect.any(String),
     });
+  });
+
+  it('polls a room\'s hub roster only while this node asks for it, then drops the mirrored members (OPEN-73)', async () => {
+    const hubRelayClient = {
+      listMembers: jest.fn().mockResolvedValue([{ userId: 'remote_1', stageName: 'Remote' }]),
+      addMember: jest.fn().mockResolvedValue(undefined),
+      touchMember: jest.fn().mockResolvedValue(undefined),
+      removeMember: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EmbeddedHubRelayClientLike;
+    const { app, manager } = buildApp({ hubRelayClient });
+    manager.dropRelayedMembers = jest.fn().mockResolvedValue(undefined);
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      await request(app).get('/api/chatrooms/global/members');
+      const listMembers = hubRelayClient.listMembers as jest.Mock;
+      expect(listMembers).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(listMembers).toHaveBeenCalledTimes(4);
+      // Nobody asks for three minutes: the poll stops and the hub's members leave the local roster.
+      await jest.advanceTimersByTimeAsync(RELAY_ROOM_LEASE_MS + 5_000);
+      const calls = listMembers.mock.calls.length;
+      expect(manager.dropRelayedMembers).toHaveBeenCalledWith('global', ['remote_1']);
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(listMembers.mock.calls.length).toBe(calls);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('merges explicit hub relay members into the local members endpoint', async () => {

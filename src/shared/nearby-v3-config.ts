@@ -1,3 +1,5 @@
+import { isNearbyAttestorKey, type NearbyAttestorKey } from './nearby-v3-attestation';
+
 /**
  * Nearby v3 tunables (docs/design/nearby-and-place-chatrooms.md §3.7). Every value can be changed by
  * the signed protocol manifest without a new release: `C` is the manifest's `chatroomCapacity`, the
@@ -45,7 +47,8 @@ export const NEARBY_V3_DEFAULTS: Readonly<NearbyV3Config> = Object.freeze({
   hubCellSample: 64,
   pyramidFinestLevel: 15,
   incomingConnections: 8,
-  incomingTalksPerMinute: 60,
+  // A phone accepts one Talk in ~2.2–3 s (native-app/39, 2026-10-20): about 24 a minute.
+  incomingTalksPerMinute: 24,
   broadcastInitialConcurrency: 4,
   broadcastMaxConcurrency: 16,
 });
@@ -96,4 +99,14 @@ export function nearbyV3ConfigFromManifest(manifest: {
   }
   config.broadcastInitialConcurrency = Math.min(config.broadcastInitialConcurrency, config.broadcastMaxConcurrency);
   return config;
+}
+
+/**
+ * Hub attestor keys a manifest pins (`extensions['nearby-v3'].attestorKeys`, §3.7 "Ranking"). Empty:
+ * a phone trusts the key its hub announces.
+ */
+export function nearbyV3AttestorKeysFromManifest(manifest: { extensions?: Record<string, unknown> } | null | undefined): NearbyAttestorKey[] {
+  const extension = manifest?.extensions?.[NEARBY_V3_MANIFEST_EXTENSION] as { attestorKeys?: unknown } | undefined;
+  const keys = extension && typeof extension === 'object' ? extension.attestorKeys : undefined;
+  return Array.isArray(keys) ? keys.filter(isNearbyAttestorKey).slice(0, 8) : [];
 }

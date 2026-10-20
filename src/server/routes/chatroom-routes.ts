@@ -8,6 +8,14 @@ import type { EmbeddedHubRelayClientLike, RelayRoomMember } from '../../node-app
 import { isValidChatroomMapLocation } from '../../shared/chatroom-map-geojson';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 
+/** How often a room's hub roster is re-read while it is wanted. */
+const RELAY_ROOM_POLL_MS = 5_000;
+/**
+ * A room nobody here asked about for this long is no longer polled: a page in the room heartbeats
+ * at least every TTL / 3 and reads members every 5 s, so one membership TTL is a safe margin.
+ */
+export const RELAY_ROOM_LEASE_MS = ROOM_MEMBERSHIP_TTL_SECONDS * 1000;
+
 type RegisterChatroomRoutesDeps = {
   chatroomManager: ChatroomManager;
   /**
@@ -22,6 +30,8 @@ export function registerChatroomRoutes(
   { chatroomManager, hubRelayClient }: RegisterChatroomRoutesDeps,
 ): void {
   const relayPollTimers = new Map<string, ReturnType<typeof setInterval>>();
+  /** When this node's page last asked for each room's members (join, touch or a members read). */
+  const relayRoomWantedAt = new Map<string, number>();
 
   /**
    * A Place is a per-member list (docs/design/nearby-and-place-chatrooms.md §3.7 "Places in v3"):
@@ -85,13 +95,36 @@ export function registerChatroomRoutes(
     }
   };
 
+  /**
+   * Poll a room's hub roster only while this node's page still asks for it (OPEN-73): every room
+   * ever joined used to be polled every 5 s for the life of the app. A lapsed lease stops the poll
+   * and drops the members mirrored from the hub, so the local roster does not keep stale people
+   * (stopping on leave alone left them, and the room list read them after leaving).
+   */
   const observeRelayRoom = (chatroomId: string): void => {
-    if (!hubRelayClient || relayPollTimers.has(chatroomId)) return;
+    if (!hubRelayClient) return;
+    relayRoomWantedAt.set(chatroomId, Date.now());
+    if (relayPollTimers.has(chatroomId)) return;
     const timer = setInterval(() => {
+      if (Date.now() - (relayRoomWantedAt.get(chatroomId) ?? 0) > RELAY_ROOM_LEASE_MS) {
+        void stopObservingRelayRoom(chatroomId);
+        return;
+      }
       void syncMembersFromRelayBestEffort(chatroomId);
-    }, 5_000);
+    }, RELAY_ROOM_POLL_MS);
     timer.unref?.();
     relayPollTimers.set(chatroomId, timer);
+  };
+
+  const stopObservingRelayRoom = async (chatroomId: string): Promise<void> => {
+    const timer = relayPollTimers.get(chatroomId);
+    if (timer) clearInterval(timer);
+    relayPollTimers.delete(chatroomId);
+    relayRoomWantedAt.delete(chatroomId);
+    const mirrored = relayedMemberIds.get(chatroomId);
+    relayedMemberIds.delete(chatroomId);
+    relayTouches.forget(chatroomId);
+    if (mirrored?.size) await chatroomManager.dropRelayedMembers(chatroomId, [...mirrored]).catch(() => undefined);
   };
 
   const writeRelayJoin = async (

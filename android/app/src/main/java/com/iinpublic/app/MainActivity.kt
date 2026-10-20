@@ -464,6 +464,18 @@ class MainActivity : AppCompatActivity() {
         /** OPEN-38: true while the UI is visible — MailboxWatcher stays quiet then. */
         @Volatile
         internal var isInForeground = false
+
+        /** Runs JavaScript in the live page, if there is one (any thread). */
+        @Volatile
+        private var pageScript: ((String) -> Unit)? = null
+
+        /**
+         * OPEN-73: MailboxWatcher's long-poll saw a new envelope; the page drains at once instead of
+         * polling every 3 s through the embedded node.
+         */
+        internal fun notifyMailboxChanged() {
+            pageScript?.invoke("window.dispatchEvent(new Event('iinpublic-mailbox-changed'));")
+        }
     }
 
     private fun wifiDirectLinkQuery(): String {
@@ -512,6 +524,8 @@ class MainActivity : AppCompatActivity() {
         // Activity returns from HOME (observed on Android 14 hardware). Tell the SPA explicitly so
         // it can rebuild stale WebRTC room links and drain pending encrypted mailbox work.
         if (::webView.isInitialized) {
+            val page = webView
+            pageScript = { script -> page.post { page.evaluateJavascript(script, null) } }
             webView.post {
                 webView.evaluateJavascript("window.__iinpublicNativePaused = false; window.dispatchEvent(new Event('iinpublic-native-resume'));", null)
             }
@@ -532,6 +546,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         // The connected-device foreground service, not this Activity, owns nearby discovery.
         // Detach only the UI event sink; "Always" mode continues across Activity recreation.
+        pageScript = null
         nearbyBridge.detach()
         webView.destroy()
         super.onDestroy()
