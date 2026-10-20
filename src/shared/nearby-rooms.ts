@@ -1,3 +1,5 @@
+import { isPlaceRoomId } from './place-rooms';
+
 /**
  * Nearby scopes (docs/design/nearby-and-place-chatrooms.md §3.7). Nearby is not a shared room: it
  * is each phone's own list of the people nearest to it, so it has one local scope id and no hub
@@ -52,7 +54,20 @@ export function isLocalOnlyRoomScope(value: string | null | undefined): boolean 
   return value === CONTACTS_ONLY_SCOPE_ID;
 }
 
-/** Scopes with no hub roster, membership writes or chat: Contacts only and Nearby. */
+/**
+ * Scopes whose members are each person's own list (§3.7): Nearby, and a Place ("Places in v3":
+ * members find each other the same way, with cards scoped to the Place).
+ */
+export function isPersonalListScope(value: string | null | undefined): boolean {
+  return isNearbyRoomId(value) || isPlaceRoomId(String(value || ''));
+}
+
+/** Scopes with no hub roster or membership writes: Contacts only and the personal-list scopes. */
 export function hasNoHubRoster(value: string | null | undefined): boolean {
-  return isLocalOnlyRoomScope(value) || isNearbyRoomId(value);
+  return isLocalOnlyRoomScope(value) || isPersonalListScope(value);
+}
+
+/** Only a Place keeps a shared chat feed (`chatrooms/<placeId>/messages`); Nearby has none. */
+export function hasRoomChat(value: string | null | undefined): boolean {
+  return isPlaceRoomId(String(value || ''));
 }

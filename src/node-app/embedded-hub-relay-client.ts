@@ -2,17 +2,11 @@ import { classifyServerConnectorPath } from '../shared/p2p-runtime';
 import type { User } from '../shared/types';
 import type { TechSupportStoredMessage } from '../server/services/techsupport-message-store';
 import type { MailboxEnvelope } from '../server/services/mailbox-store';
-import type { PlaceAdmissionClaim } from '../shared/place-admission-evidence';
 
 export type RelayRoomMember = {
   userId: string;
   stageName: string;
   isTraveler?: boolean;
-};
-
-export type PlaceAdmissionReservation = {
-  reservationToken: string;
-  expiresAt: string;
 };
 
 export class EmbeddedHubRelayRequestError extends Error {
@@ -45,7 +39,6 @@ export type TouchMemberOptions = {
   stageName?: string;
   lastSeen?: string;
   isTraveler?: boolean;
-  admissionClaim?: PlaceAdmissionClaim;
 };
 
 export type RelayTurnCredentials = {
@@ -62,15 +55,7 @@ export interface EmbeddedHubRelayClientLike {
     userId: string,
     stageName?: string,
     isTraveler?: boolean,
-    reservationToken?: string,
   ): Promise<void>;
-  reservePlaceMember?(
-    chatroomId: string,
-    userId: string,
-    stageName?: string,
-    isTraveler?: boolean,
-    admissionClaim?: PlaceAdmissionClaim,
-  ): Promise<PlaceAdmissionReservation>;
   touchMember(chatroomId: string, userId: string, options?: TouchMemberOptions): Promise<void>;
   removeMember(chatroomId: string, userId: string): Promise<void>;
   listSignalingFrames(conversationId: string, recipientPub?: string): Promise<SignalingRelayFrame[]>;
@@ -172,6 +157,7 @@ export interface EmbeddedHubRelayClientLike {
     path: string,
     method: 'GET' | 'POST',
     body?: unknown,
+    timeoutMs?: number,
   ): Promise<{ status: number; body: unknown }>;
   /**
    * Places are public signed descriptors that every device must be able to list, so a room
@@ -202,7 +188,7 @@ export function assertRelayMetadataPath(path: string[] | string): void {
 
 /**
  * Room membership calls get longer than the default timeout: the hub answers an empty room only
- * after its storage reads time out (~2.6 s), so the first person entering a new Place timed out.
+ * after its storage reads time out (~2.6 s), so the first person entering a new room timed out.
  */
 export const ROOM_MEMBERSHIP_TIMEOUT_MS = 8_000;
 
@@ -244,7 +230,6 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     userId: string,
     stageName?: string,
     isTraveler = false,
-    reservationToken?: string,
   ): Promise<void> {
     assertRelayMetadataPath(['chatrooms', chatroomId, 'users', userId]);
     await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
@@ -254,31 +239,8 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
         userId,
         stageName: stageName || userId,
         isTraveler,
-        ...(reservationToken ? { reservationToken } : {}),
       }),
     }, ROOM_MEMBERSHIP_TIMEOUT_MS);
-  }
-
-  async reservePlaceMember(
-    chatroomId: string,
-    userId: string,
-    stageName?: string,
-    isTraveler = false,
-    admissionClaim?: PlaceAdmissionClaim,
-  ): Promise<PlaceAdmissionReservation> {
-    assertRelayMetadataPath(['chatrooms', chatroomId, 'users', userId]);
-    const response = await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        stageName: stageName || userId,
-        isTraveler,
-        reserveOnly: true,
-        ...(admissionClaim ? { admissionClaim } : {}),
-      }),
-    }, ROOM_MEMBERSHIP_TIMEOUT_MS);
-    return response.json() as Promise<PlaceAdmissionReservation>;
   }
 
   async touchMember(
@@ -526,11 +488,12 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     path: string,
     method: 'GET' | 'POST',
     body?: unknown,
+    timeoutMs?: number,
   ): Promise<{ status: number; body: unknown }> {
     if (!/^\/api\/(?:active-rooms|nearby\/v3)(?:\/|\?|$)/.test(path)) {
       throw new Error(`embedded hub relay refuses path "${path}"`);
     }
-    return this.forwardJson(path, method, body);
+    return this.forwardJson(path, method, body, timeoutMs);
   }
 
   async publishChatroom(body: unknown): Promise<{ status: number; body: unknown }> {

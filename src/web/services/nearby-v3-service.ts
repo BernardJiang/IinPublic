@@ -103,6 +103,11 @@ export class NearbyV3Service {
   /** Room for more people than `C`, one page per "Show more people here"; a move resets it. */
   private extraCapacity = 0;
   private waitingForLink = false;
+  /**
+   * The list of the scope I left (Nearby while I visit a Place, or a Place's), so returning restores
+   * it at once instead of starting over; cards that expired meanwhile drop on merge.
+   */
+  private stashedByScope = new Map<string, NearbyCard[]>();
   /** The hub answered the last heartbeat or search; false = offline, so the local board is used. */
   private hubReachable = true;
   private lastLocalPostAt = 0;
@@ -135,8 +140,29 @@ export class NearbyV3Service {
     this.timer = null;
   }
 
+  /** My card is for a scope or point I am no longer at (or I left Nearby and still have one). */
+  cardIsOutOfPlace(): boolean {
+    const card = this.ownCard;
+    if (!card) return false;
+    const position = this.deps.position();
+    if (!position) return true;
+    return card.scope !== position.scope || card.traveler !== position.traveler
+      || card.point.latitude !== position.point.latitude || card.point.longitude !== position.point.longitude;
+  }
+
   /** The public point or scope changed: reissue the card and search again now. */
-  refresh(): Promise<void> {
+  async refresh(): Promise<void> {
+    // A tick can be waiting on slow swaps (two 15 s timeouts to someone who left). My new scope or
+    // point reaches the hub now, not after them: otherwise the hub keeps introducing me in the
+    // Place I left (phone-path J-PLACE-11).
+    if (this.ticking) {
+      const position = this.deps.position();
+      const identity = this.deps.identity();
+      const config = this.deps.config();
+      if (position && identity && this.cardIsOutOfPlace()) await this.reissueCard(position, identity, this.now(), config);
+      // Then a fresh tick for the new position, not the one already running for the old.
+      await this.ticking?.catch(() => undefined);
+    }
     return this.tick().then(() => {
       if (this.waitingForLink) this.schedule(LINK_WAIT_RETRY_MS);
     });
@@ -300,32 +326,9 @@ export class NearbyV3Service {
 
     // A changed name, point or traveler flag reaches the nearest person at once (below); a plain
     // reissue before expiry travels with the next regular swap.
-    let changedCard = false;
-    if (this.cardIsStale(position, identity.userId, nowMs, config)) {
-      const previous = this.ownCard;
-      const sign = this.deps.sign ?? createNearbyCard;
-      this.ownCard = await sign({
-        userId: identity.userId,
-        pair: identity.pair,
-        ...(identity.stageName ? { stageName: identity.stageName } : {}),
-        point: position.point,
-        traveler: position.traveler,
-        scope: position.scope,
-        lifetimeMs: config.cardLifetimeMs,
-        now: new Date(nowMs),
-      });
-      changedCard = !!previous && (previous.stageName !== this.ownCard.stageName
-        || previous.traveler !== this.ownCard.traveler
-        || previous.point.latitude !== this.ownCard.point.latitude
-        || previous.point.longitude !== this.ownCard.point.longitude);
-      await this.deps.hub.heartbeat(this.ownCard).then(
-        () => this.setHubReachable(true),
-        (error) => {
-          this.log(`hub heartbeat failed: ${String(error)}`);
-          this.setHubReachable(false);
-        },
-      );
-    }
+    const changedCard = this.cardIsStale(position, identity.userId, nowMs, config)
+      ? await this.reissueCard(position, identity, nowMs, config)
+      : false;
 
     const searchKey = `${position.scope}|${position.point.latitude}|${position.point.longitude}`;
     let announce = false;
@@ -364,6 +367,44 @@ export class NearbyV3Service {
       await this.gossipOnce();
     }
     this.persist();
+  }
+
+  /** Sign and post a new card; true when people should hear of the change at once. */
+  private async reissueCard(
+    position: NearbyV3Position,
+    identity: NonNullable<ReturnType<NearbyV3ServiceDeps['identity']>>,
+    nowMs: number,
+    config: NearbyV3Config,
+  ): Promise<boolean> {
+    const previous = this.ownCard;
+    const sign = this.deps.sign ?? createNearbyCard;
+    const card = await sign({
+      userId: identity.userId,
+      pair: identity.pair,
+      ...(identity.stageName ? { stageName: identity.stageName } : {}),
+      point: position.point,
+      traveler: position.traveler,
+      scope: position.scope,
+      lifetimeMs: config.cardLifetimeMs,
+      now: new Date(nowMs),
+    });
+    // I moved while it was being signed (left a Place, say): this card is already out of date and
+    // must not reach the hub after the newer one.
+    const current = this.deps.position();
+    if (!current || current.scope !== card.scope || current.traveler !== card.traveler
+      || current.point.latitude !== card.point.latitude || current.point.longitude !== card.point.longitude) return false;
+    this.ownCard = card;
+    await this.deps.hub.heartbeat(card).then(
+      () => this.setHubReachable(true),
+      (error) => {
+        this.log(`hub heartbeat failed: ${String(error)}`);
+        this.setHubReachable(false);
+      },
+    );
+    return !!previous && (previous.stageName !== card.stageName
+      || previous.traveler !== card.traveler
+      || previous.point.latitude !== card.point.latitude
+      || previous.point.longitude !== card.point.longitude);
   }
 
   private async gossipOnce(chosen?: NearbyCard, retry = false): Promise<void> {
@@ -482,6 +523,17 @@ export class NearbyV3Service {
       beacon: nearbyDailyBeacon(this.now()),
     };
     const capacity = this.deps.config().capacity + this.extraCapacity;
+    if (this.list && this.list.ownerInfo.pub === owner.pub && this.list.ownerInfo.scope !== owner.scope) {
+      // A Place's members are not my Nearby list (and the other way round): one list per scope.
+      this.stashedByScope.set(this.list.ownerInfo.scope, this.list.entries().map((entry) => entry.card));
+      this.list = new NearbyList(owner, { capacity });
+      this.listCapacity = capacity;
+      const stashed = this.stashedByScope.get(owner.scope) ?? [];
+      this.stashedByScope.delete(owner.scope);
+      if (stashed.length) this.list.merge(stashed, this.now());
+      this.changed();
+      return this.list;
+    }
     if (!this.list || this.list.ownerInfo.pub !== owner.pub || this.listCapacity !== capacity) {
       const previous = this.list?.ownerInfo.pub === owner.pub ? this.list.entries().map((entry) => entry.card) : this.load(owner.pub);
       this.list = new NearbyList(owner, { capacity });

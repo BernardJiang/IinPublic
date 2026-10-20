@@ -17,7 +17,7 @@ export type ActiveRoomSummary = {
 };
 
 export type ActiveRoomsView = {
-  /** Distinct people in any Place (TechSupport is a Contact and never counted). */
+  /** Everyone online (the hub's count, Nearby and Places; TechSupport is a Contact, never counted). */
   totalOnline: number;
   totalRooms: number;
   rooms: ActiveRoomSummary[];
@@ -58,7 +58,10 @@ export function bearingDegrees(
 }
 
 export function summarizeActiveRooms(input: {
-  rooms: ReadonlyArray<{ roomId: string; memberIds: readonly string[] }>;
+  /** Places and how many people are in each now (the hub's v3 counts). */
+  rooms: ReadonlyArray<{ roomId: string; memberCount: number }>;
+  /** Everyone online; defaults to the sum over the listed Places. */
+  totalOnline?: number;
   /** A Place's public pin and name. */
   placeOf: (roomId: string) => { name: string; latitude?: number; longitude?: number } | undefined;
   origin?: { latitude: number; longitude: number };
@@ -68,14 +71,14 @@ export function summarizeActiveRooms(input: {
   currentRoomId?: string;
   sort?: ActiveRoomSort;
 }): ActiveRoomsView {
-  const online = new Set<string>();
+  let inPlaces = 0;
   const summaries: ActiveRoomSummary[] = [];
   for (const room of input.rooms) {
     if (!isPlaceRoomId(room.roomId)) continue;
-    const memberIds = [...new Set(room.memberIds)];
-    memberIds.forEach((id) => online.add(id));
-    if (memberIds.length === 0 && room.roomId !== input.currentRoomId) continue;
-    const summary: ActiveRoomSummary = { roomId: room.roomId, kind: 'place', memberCount: memberIds.length };
+    const memberCount = Math.max(0, Math.floor(room.memberCount));
+    inPlaces += memberCount;
+    if (memberCount === 0 && room.roomId !== input.currentRoomId) continue;
+    const summary: ActiveRoomSummary = { roomId: room.roomId, kind: 'place', memberCount };
     const place = input.placeOf(room.roomId);
     if (place?.name) summary.name = place.name;
     if (Number.isFinite(place?.latitude) && Number.isFinite(place?.longitude)) {
@@ -102,7 +105,7 @@ export function summarizeActiveRooms(input: {
   const offset = Math.max(0, Math.floor(input.offset ?? 0));
   const limit = Math.max(1, Math.min(ACTIVE_ROOMS_MAX_PAGE, Math.floor(input.limit ?? ACTIVE_ROOMS_PAGE)));
   return {
-    totalOnline: online.size,
+    totalOnline: input.totalOnline ?? inPlaces,
     totalRooms: summaries.filter((room) => room.memberCount > 0).length,
     rooms: summaries.slice(offset, offset + limit),
     hasMore: offset + limit < summaries.length,

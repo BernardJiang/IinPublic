@@ -208,7 +208,7 @@ describe('system routes', () => {
     const card = await request(app).post('/api/nearby/v3/card').send({ card: 'signed' });
     expect(card.status).toBe(400);
     expect(card.body).toEqual({ error: 'bad card' });
-    expect(forwardHubApi).toHaveBeenNthCalledWith(2, '/api/nearby/v3/card', 'POST', { card: 'signed' });
+    expect(forwardHubApi).toHaveBeenNthCalledWith(2, '/api/nearby/v3/card', 'POST', { card: 'signed' }, undefined);
   });
 
   it('serves the retired v2 Nearby endpoints no more', async () => {

@@ -15,7 +15,6 @@ export type RoomListRow = ActiveRoomSummary & {
   context: string;
   /** Places keep their type icon (🏪 / 💬); Nearby rows have none — it would carry no meaning. */
   icon: string;
-  full: boolean;
 };
 
 type T = (key: UiTranslationKey) => string;
@@ -50,12 +49,12 @@ export function relativeRoomLabel(room: Pick<ActiveRoomSummary, 'distanceMeters'
 }
 
 /**
- * Name every room and mark full ones. Two rows that would read the same get " · 2", " · 3"… so
+ * Name every room. Two rows that would read the same get " · 2", " · 3"… so
  * they can be told apart without exposing any room id.
  */
 export function roomListRows(
   view: ActiveRoomsView,
-  input: { t: T; capacity: number; currentRoomId: string; currentName: string; placeIcon?: (roomId: string) => string },
+  input: { t: T; currentRoomId: string; currentName: string; placeIcon?: (roomId: string) => string },
 ): RoomListRow[] {
   const seen = new Map<string, number>();
   return view.rooms.map((room) => {
@@ -77,7 +76,6 @@ export function roomListRows(
         ? [input.t('roomListPlaceTag'), relative].filter(Boolean).join(' · ')
         : city,
       icon: room.kind === 'place' ? input.placeIcon?.(room.roomId) ?? '💬' : '',
-      full: room.memberCount >= input.capacity,
     };
   });
 }
@@ -133,17 +131,15 @@ export function emptyPlaceRows(
         displayName: place.name || input.t('roomListPlaceFallback'),
         context: [input.t('roomListPlaceTag'), relativeRoomLabel(summary, input.t)].filter(Boolean).join(' · '),
         icon: input.placeIcon(place.type),
-        full: false,
       };
     });
   rows.sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
   return rows.slice(0, EMPTY_PLACES_NEAR_LIMIT);
 }
 
-/** "1 / 3 people" (· "Full"). */
-export function roomMetaText(row: RoomListRow, capacity: number, t: T): string {
-  const people = t('roomListPeople').replace('{count}', String(row.memberCount)).replace('{capacity}', String(capacity));
-  return row.full ? `${people} · ${t('roomListFull')}` : people;
+/** "3 people". A Place is never full (§3.7 "Places in v3"), so there is no capacity to show. */
+export function roomMetaText(row: RoomListRow, t: T): string {
+  return t('roomListPeople').replace('{count}', String(row.memberCount));
 }
 
 /** Header: everyone online, how many rooms, and the sort choice. */
@@ -167,20 +163,20 @@ export function renderRoomListHeader(view: ActiveRoomsView | undefined, sort: Ac
     </div>`;
 }
 
-/** One row; full rooms are shown but cannot be entered. */
-export function renderRoomListRow(row: RoomListRow, capacity: number, t: T, escapeHtml: (value: string) => string): string {
-  return `<div class="chatroom-item room-list-row ${row.full ? 'room-list-full' : ''}"
+/** One row. */
+export function renderRoomListRow(row: RoomListRow, t: T, escapeHtml: (value: string) => string): string {
+  return `<div class="chatroom-item room-list-row"
        data-chatroom-id="${escapeHtml(row.roomId)}"
        data-room-kind="place"
        data-testid="room-list-row"
        ${row.latitude !== undefined ? `data-lat="${row.latitude}" data-lng="${row.longitude}"` : ''}
-       ${row.full ? 'aria-disabled="true"' : 'role="button" tabindex="0"'}>
+       role="button" tabindex="0">
       ${row.icon ? `<div class="chatroom-icon">${row.icon}</div>` : ''}
       <div class="chatroom-info">
         <div class="chatroom-name">${escapeHtml(row.displayName)}</div>
         ${row.context ? `<div class="chatroom-description">${escapeHtml(row.context)}</div>` : ''}
-        <div class="chatroom-flat-metrics"><span class="chatroom-headcount">${escapeHtml(roomMetaText(row, capacity, t))}</span></div>
+        <div class="chatroom-flat-metrics"><span class="chatroom-headcount">${escapeHtml(roomMetaText(row, t))}</span></div>
       </div>
-      <div class="chatroom-arrow">${row.full ? '' : '›'}</div>
+      <div class="chatroom-arrow">›</div>
     </div>`;
 }

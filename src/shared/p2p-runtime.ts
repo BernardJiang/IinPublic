@@ -744,14 +744,6 @@ export function classifyServerConnectorPath(path: string[] | string): ServerConn
       reason: 'Chatrooms carry routing announcements and membership metadata only.',
     };
   }
-  if (root === 'place-admission-claims') {
-    return {
-      kind: 'relay-metadata',
-      serverCanPersistBody: false,
-      deprecatedPublicPath: false,
-      reason: 'Signed, expiring Place seat claims are public capacity-control metadata only.',
-    };
-  }
   if (root === 'talks' && third === 'responses') {
     return {
       kind: 'legacy-public-talk-response',
@@ -1350,11 +1342,6 @@ export const STAR_GUN_PATH_CLASSIFICATIONS = [
     path: 'chatrooms/{chatroomId}',
     category: 'durable-public',
     purpose: 'Automatic and custom chatroom metadata plus current membership map.',
-  },
-  {
-    path: 'place-admission-claims/{roomHash}/{identityHash}',
-    category: 'relay-only',
-    purpose: 'Signed, expiring Place capacity evidence used to reconcile partitioned indexes.',
   },
   {
     path: 'talks/{talkId}',

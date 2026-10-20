@@ -250,8 +250,8 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
       techSupportStore: this.techSupportStore,
+      onPlaceActive: (placeId) => { void this.chatroomManager.markPlaceActive(placeId).catch(() => undefined); },
       activeRoomSource: {
-        list: () => this.chatroomManager.listActiveRooms(),
         placeOf: async (roomId) => {
           const meta = await this.chatroomManager.getChatroomMeta(roomId);
           if (!meta) return undefined;

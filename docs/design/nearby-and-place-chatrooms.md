@@ -831,6 +831,25 @@ unchanged.
 
 Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contacts carry it.
 
+**Implemented (2026-10-19).** A Place is a list scoped `place:<placeId>`:
+
+- In a Place my card sits at the Place pin, snapped to the 1 km grid, so every member ranks the
+  others by hash order alone (`position()` in `src/web/app/app.ts`). Entering a Place stashes my
+  Nearby list; going back restores it (`NearbyV3Service.ensureList`).
+- No seats: entering is a list switch plus a visit record (§4.2). The hub refuses roster calls
+  for a Place (`PLACE_HAS_NO_ROSTER`); `place-admission-claims` and the `place-admission-evidence`
+  module are gone.
+- The hub counts Place-scoped card heartbeats. `placeCounts()` (the live cards there, or the
+  window count for a crowd larger than the sample) feeds `GET /api/active-rooms`, and a card also
+  marks the Place visited, which keeps it live. A Place empties in the list as soon as its people
+  leave: the runtime notices a new scope or point within a second and reissues the card at once. The online total counts everyone once,
+  whichever list they are on.
+- The Place's chat feed (`chatrooms/<placeId>/messages`) is kept (`hasRoomChat`). A Place's
+  headcount includes me; Nearby's does not. The room list shows "N people", never "Full", and
+  "Sent to N of M" works in a Place too.
+- A card that moves (into a Place, back to Nearby, to a new point) leaves the hub's old samples at
+  once, so the hub stops introducing someone where they were.
+
 #### What v3 removes
 
 - the adaptive partition lineage, split and merge records and the server's partition store (§3.1);
@@ -894,6 +913,12 @@ real-phone run.
    sides filter them), never card gossip or knocks: otherwise the blocker would vanish from the
    blocked person's list at the moment of the block and give himself away. Gossip rides the
    mesh as one-hop `nearby-gossip` frames. Journey `phone-path/08`.
+   A knock goes two ways (2026-10-19): on Gun's `p2p-signal`, which reaches phones on the same
+   LAN, and through the hub's knock mailbox (`POST /api/nearby/v3/knocks`, read by a long poll on
+   `GET /api/nearby/v3/knocks/<channel>`; `nearby-knock-mailbox.ts`). A phone's embedded node
+   reaches the hub over HTTP only, so before the mailbox no knock ever crossed between two phones;
+   it went unnoticed while both sides had each other's card. The hub verifies each knock, keeps at
+   most 32 per recipient for one minute, in memory only.
 3. **Broadcast loop and the app's Nearby (in progress).** Nearby is the local scope
    `NEARBY_V3_ROOM_ID` (`nearby-v3`): its members are my list, the hub keeps no roster for it, and
    it has no chat. The app's mesh runs in personal mode there: links open only to pinned peers and
@@ -959,6 +984,10 @@ the shared Nearby room covering that point. Joining a named Place instead stops 
 before joining the Place's explicit audience. **Return home** recomputes or restores the home
 encounter location and clears traveler state. A travel point or selected Place may persist across
 restart, but the UI must keep that state visible.
+
+> **Superseded by "Places in v3" (§3.7, implemented 2026-10-19).** A Place is never full: the
+> first-`C` seat claims, two-phase reservations, partition reconciliation and the "Nearby around a
+> full Place" offer below were removed. The rest of this section is kept as history.
 
 Place rooms also use `C`. They do not subdivide by the visitors' physical locations because remote
 visitors deliberately chose the same destination. The initial simple rule is: when a Place is full,

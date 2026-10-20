@@ -186,43 +186,20 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
         .toBeGreaterThan(0);
     }
 
-    // --- Sub-case: K=1 sparse path for Tom ---
-    // Re-join with maxNeighbors:1 so Tom's graph is a path Tom→(Jerry or Bob).
-    // The announce must reach the non-direct peer via a forward hop.
-    await pageTom.evaluate(async ([jId, bId]: string[]) => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      const mesh = app?.peerMeshService;
-      if (!mesh) return;
-      const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
-      (mesh as any).opts = { ...(mesh as any).opts, maxNeighbors: 1 };
-      await mesh.joinRoom(roomId, [
-        { userId: app.currentUser?.id },
-        { userId: jId },
-        { userId: bId },
-      ]);
-    }, [jerryId, bobId]);
+    // (The K=1 sparse-path sub-case was removed 2026-10-19: Places are personal lists now, links
+    // open per person, and no scope runs the K-bounded room overlay it shrank.)
 
-    await afterAction();
-    await afterSync();
-
-    // Tom should have exactly 1 neighbor slot (K=1 bound)
-    const tomNeighborCount = await pageTom.evaluate(() => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      return app?.peerMeshService?.getDiagnostics?.()?.neighborCount ?? -1;
-    });
-    expect(tomNeighborCount).toBeLessThanOrEqual(1);
-
-    // Wait for the neighbor to be connected before broadcasting
+    // An announce goes only to manifest-ready neighbors: wait until Tom's links to both are ready.
     await expect
-      .poll(
-        () =>
-          pageTom.evaluate(() => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-          }),
-        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: no connected neighbor (K=1)' },
-      )
-      .toBeGreaterThan(0);
+      .poll(() => pageTom!.evaluate((ids: string[]) => {
+        const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService as any;
+        const ready: Set<string> | undefined = mesh?.manifestReadyPeerIds;
+        const linked = [...(mesh?.neighbors?.values?.() ?? [])]
+          .filter((neighbor: any) => neighbor.connected && (!mesh?.protocolManifestController || ready?.has(neighbor.userId)))
+          .map((neighbor: any) => String(neighbor.userId));
+        return ids.every((id) => linked.includes(id));
+      }, [jerryId, bobId]), { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: links to both peers never became ready' })
+      .toBe(true);
 
     // --- Tom broadcasts a find-similar talk via the mesh ---
     // Use a stable talkId so assertions can look it up in diagnostics.

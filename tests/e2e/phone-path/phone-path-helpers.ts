@@ -197,9 +197,10 @@ export async function returnHome(page: Page): Promise<void> {
 
 /** Member public keys of a room as the HUB sees them (not the phone's local view). */
 export async function hubRoomMembers(request: APIRequestContext, roomId: string): Promise<string[]> {
-  if (roomId === 'nearby-v3') {
-    // Nearby is a personal list with no hub roster (§3.7): who the hub would introduce here.
-    const intro = await request.post(`${phonePathURL('hub')}/api/nearby/v3/introductions`, { data: { point: JOURNEY_COORDS } });
+  if (roomId === 'nearby-v3' || roomId.startsWith('place_')) {
+    // Nearby and Places are personal lists with no hub roster (§3.7): who the hub would introduce.
+    const scope = roomId === 'nearby-v3' ? 'nearby' : `place:${roomId}`;
+    const intro = await request.post(`${phonePathURL('hub')}/api/nearby/v3/introductions`, { data: { point: JOURNEY_COORDS, scope } });
     if (!intro.ok()) return [];
     const body = await intro.json().catch(() => ({})) as { cards?: Array<{ userId?: string }> };
     return (body.cards ?? []).map((card) => String(card.userId || '')).filter(Boolean);

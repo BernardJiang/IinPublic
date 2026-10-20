@@ -74,7 +74,7 @@ describe('flat Nearby and Places list', () => {
     expect(current?.querySelector('.chatroom-icon')).toBeNull(); // no meaningless pin
     const rows = Array.from(document.querySelectorAll('[data-testid="room-list-row"]'));
     expect(rows.map((row) => row.querySelector('.chatroom-name')?.textContent?.trim())).toEqual(['Bean There Café', 'Echo Park']);
-    expect(rows[0]?.textContent).toContain('46 / 498 people');
+    expect(rows[0]?.textContent).toContain('46 people');
     expect(rows[0]?.querySelector('.chatroom-description')?.textContent).toMatch(/^Place · [\d.]+ (km|mi) SW$/);
     expect(rows.every((row) => row.getAttribute('data-room-kind') === 'place')).toBe(true);
     expect(document.querySelector('.chatroom-expand-icon')).toBeNull();
@@ -103,14 +103,16 @@ describe('flat Nearby and Places list', () => {
     expect(emit).not.toHaveBeenCalledWith('travelNearbyAtPoint', expect.anything());
   });
 
-  it('shows a full Place greyed out and does not enter it', () => {
+  it('never shows a Place as full: a busy one is entered like any other (§3.7 "Places in v3")', () => {
     const emit = jest.fn();
-    render({ activeRooms: { ...ROOMS, rooms: [...ROOMS.rooms, { roomId: FULL_ID, kind: 'place', name: 'Arena', memberCount: 498, latitude: 36.17, longitude: -115.14, distanceMeters: 400_000, bearingDegrees: 45 }] }, emit });
-    const full = document.querySelector(`.chatroom-item[data-chatroom-id="${FULL_ID}"]`) as HTMLElement;
-    expect(full.getAttribute('aria-disabled')).toBe('true');
-    expect(full.textContent).toContain('Full');
-    full.click();
-    expect(emit).not.toHaveBeenCalled();
+    render({ activeRooms: { ...ROOMS, rooms: [...ROOMS.rooms, { roomId: FULL_ID, kind: 'place', name: 'Arena', memberCount: 2_000, latitude: 36.17, longitude: -115.14, distanceMeters: 400_000, bearingDegrees: 45 }] }, emit });
+    const busy = document.querySelector(`.chatroom-item[data-chatroom-id="${FULL_ID}"]`) as HTMLElement;
+    expect(busy.getAttribute('aria-disabled')).toBeNull();
+    expect(busy.textContent).toContain('2000 people');
+    expect(busy.textContent).not.toContain('Full');
+    document.body.insertAdjacentHTML('beforeend', '<div id="chatroom-members-list"></div><div id="current-chatroom-title"></div>');
+    busy.click();
+    expect(emit).toHaveBeenCalledWith('chatroomChanged', FULL_ID);
   });
 
   it('shows the Place as the current group while inside it', () => {
@@ -134,10 +136,12 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(document.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('0 near you');
   });
 
-  it('shows "Sent to N of M" for the latest Nearby broadcast', () => {
+  it('shows "Sent to N of M" for the latest broadcast, in Nearby and in a Place (both are my list)', () => {
     render({ nearbyBroadcastProgress: { sent: 120, total: 498 } });
     expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')?.textContent).toBe('Sent to 120 of 498');
-    render({ currentChatroom: PLACE_ID, nearbyBroadcastProgress: { sent: 120, total: 498 } });
+    render({ currentChatroom: PLACE_ID, nearbyBroadcastProgress: { sent: 3, total: 7 } });
+    expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')?.textContent).toBe('Sent to 3 of 7');
+    render({ currentChatroom: 'local_contacts_only_v1', nearbyBroadcastProgress: { sent: 3, total: 7 } });
     expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
   });
 

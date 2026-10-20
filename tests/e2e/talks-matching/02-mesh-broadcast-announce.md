@@ -11,25 +11,23 @@ or the author itself) do NOT receive the announcement.
 
 ## Flow
 
-1. Tom, Jerry, and Bob bootstrap in the Global chatroom with `e2e_mesh_talks=1`.
-2. Presence settles; the app calls `syncPeerMeshRoom`, each peer connects to ≤ K neighbors.
-3. **K=1 sparse path sub-case:** Tom re-joins with `maxNeighbors:1`; his graph is a single
-   edge to one neighbor (Jerry or Bob, determined by `localeCompare` sort).  Tom's broadcast
-   must still reach the non-direct peer via one forward hop.
-4. Tom calls `peerMeshService.broadcastTalk(...)` directly — this sends a `talk-announce`
+1. Tom, Jerry, and Bob bootstrap with `e2e_mesh_talks=1` and enter one new Place together.
+2. Each warms links to the other two; Tom waits until his links to both are manifest-ready (an
+   announce goes only to ready neighbors).
+3. Tom calls `peerMeshService.broadcastTalk(...)` directly — this sends a `talk-announce`
    flood + a `talk-body` flood over the DataChannel overlay.  The `publishRoomTalkBodyRendezvous`
    Gun write is intentionally suppressed (step 2 displacement).
-5. **Durable assertions (not toasts):** poll `getApp().meshAnnounceDiagnostics.received`
+4. **Durable assertions (not toasts):** poll `getApp().meshAnnounceDiagnostics.received`
    (populated by the `onTalkAnnounce` callback before the body pull completes):
    - Jerry: `received` contains `{ talkId, authorId: tomId }`.
-   - Bob: same — even if Bob is the non-direct peer that received the frame via a relay hop.
-6. **Ineligible peer assertion:** Tom's own announce must NOT appear in Tom's
+   - Bob: same.
+5. **Ineligible peer assertion:** Tom's own announce must NOT appear in Tom's
    `meshAnnounceDiagnostics.received` — the `not-self` guard in `handleLocalFrame` drops
    frames whose `authorId === localUserId`.
-7. **Gun invariant assertion:** each browser reads local Gun and asserts `peerTalkOffers/*`,
+6. **Gun invariant assertion:** each browser reads local Gun and asserts `peerTalkOffers/*`,
    `p2pMeshTalkBodies/*`, and `talks/*` are all **strictly empty** (zero) — `createTalk` now
    writes only to `myAuthoredTalks` localStorage (P0 step 7); no Gun creation write ever fires.
-8. Cleanup: `finalCleanupPages` + `shutdownThreeBrowsers`.
+7. Cleanup: `finalCleanupPages` + `shutdownThreeBrowsers`.
 
 ## Displaced Gun writes
 
@@ -85,4 +83,5 @@ body-delivery paths (mesh flood + Gun rendezvous) keep author identity:
 - `authorId === localUserId` guard in `handleLocalFrame` (talk-announce branch) ensures the
   author does not receive their own announce.
 - Seen-set dedup prevents re-delivery of the same `msgId` even via multiple hops.
-- K=1 path-graph case proves gossip forwarding works across a sparse topology.
+- The K=1 sparse-path sub-case was removed on 2026-10-19: no scope runs the K-bounded room overlay
+  any more.

@@ -6,7 +6,6 @@ import SEA from 'gun/sea';
 import { LocationPrivacy } from '../../../../src/shared/location';
 import { parseAnchorCell } from '../../../../src/shared/place-rooms';
 import { createSignedPlaceDescriptor } from '../../../../src/shared/place-descriptor';
-import { createPlaceAdmissionClaim } from '../../../../src/shared/place-admission-evidence';
 
 // Rooms are ownerless, content-addressed Places: the creator signs a descriptor and the room id
 // is the descriptor's CID (chatroom-manager.ts createChatroom); unsigned creates are refused.
@@ -134,24 +133,12 @@ test.describe('Chatroom custom/business API scripts', () => {
     });
     expect(invalidAdd.status()).toBe(400);
 
-    // A Place seat is two steps: a signed admission claim reserves it, the token then joins.
-    const admissionClaim = await createPlaceAdmissionClaim({
-      roomId: id,
-      userId: 'member_user_1',
-      pair: await SEA.pair(),
-      capacity: 50, // CHATROOM_MAX_CAPACITY of the E2E hub (playwright.config.ts)
-    });
-    const reserveRes = await request.post(`${base}/api/chatrooms/${encodeURIComponent(id)}/members`, {
-      data: { userId: 'member_user_1', stageName: 'MemberOne', reserveOnly: true, admissionClaim },
-    });
-    expect(reserveRes.ok(), await reserveRes.text()).toBeTruthy();
-    const { reservationToken } = (await reserveRes.json()) as { reservationToken: string };
-    expect(reservationToken).toBeTruthy();
-
+    // A Place is each member's own list (§3.7 "Places in v3"): the hub keeps no roster for it.
     const addRes = await request.post(`${base}/api/chatrooms/${encodeURIComponent(id)}/members`, {
-      data: { userId: 'member_user_1', stageName: 'MemberOne', reservationToken },
+      data: { userId: 'member_user_1', stageName: 'MemberOne' },
     });
-    expect(addRes.ok(), await addRes.text()).toBeTruthy();
+    expect(addRes.status()).toBe(410);
+    expect(((await addRes.json()) as { code?: string }).code).toBe('PLACE_HAS_NO_ROSTER');
 
     const removeRes = await request.delete(`${base}/api/chatrooms/${encodeURIComponent(id)}/members/member_user_1`);
     expect(removeRes.ok(), await removeRes.text()).toBeTruthy();

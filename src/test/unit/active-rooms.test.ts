@@ -9,13 +9,14 @@ const pins: Record<string, { name: string; latitude: number; longitude: number }
   [LAJOLLA]: { name: 'Cove', latitude: 32.85, longitude: -117.27 }, // ~17 km
   [LA]: { name: 'Echo Park', latitude: 34.05, longitude: -118.24 }, // ~180 km
 };
+// The hub's per-Place card counts (§3.7 "Places in v3").
 const rooms = [
-  { roomId: LA, memberIds: ['c1', 'c2', 'c3'] },
-  { roomId: CAFE, memberIds: ['a1', 'a2'] },
-  { roomId: LAJOLLA, memberIds: ['b1', 'a1'] },
-  { roomId: 'place_0.00_0.00_abcdefabcdef', memberIds: [] },
-  // A retired v2 Nearby group still in the hub's roster: Nearby is never a listed room (§3.7).
-  { roomId: 'nearby_v2_e1_0123456789abcdef01234567', memberIds: ['z1', 'z2'] },
+  { roomId: LA, memberCount: 3 },
+  { roomId: CAFE, memberCount: 2 },
+  { roomId: LAJOLLA, memberCount: 2 },
+  { roomId: 'place_0.00_0.00_abcdefabcdef', memberCount: 0 },
+  // Nearby is never a listed room (§3.7): only Place ids are listed.
+  { roomId: 'nearby-v3', memberCount: 2 },
 ];
 const summarize = (extra: Partial<Parameters<typeof summarizeActiveRooms>[0]> = {}) => summarizeActiveRooms({
   rooms,
@@ -29,8 +30,9 @@ describe('room list (active Places)', () => {
     const view = summarize();
     expect(view.rooms.map((room) => room.roomId)).toEqual([CAFE, LAJOLLA, LA]);
     expect(view.totalRooms).toBe(3);
-    // Distinct people across every Place (a1 is in two); the retired group's members are not counted.
-    expect(view.totalOnline).toBe(6);
+    // Without the hub's total, everyone in a listed Place; Nearby's people are not counted.
+    expect(view.totalOnline).toBe(7);
+    expect(summarize({ totalOnline: 12 }).totalOnline).toBe(12);
     expect(view.rooms[0]).toEqual(expect.objectContaining({ kind: 'place', name: 'Bean There Café', memberCount: 2 }));
     expect(view.rooms[1]!.distanceMeters!).toBeGreaterThan(15_000);
     expect(view.rooms[2]!.bearingDegrees!).toBeGreaterThan(270);
@@ -47,7 +49,7 @@ describe('room list (active Places)', () => {
     expect(page.rooms).toHaveLength(2);
     expect(page.hasMore).toBe(true);
     const unplaced = summarizeActiveRooms({
-      rooms: [{ roomId: 'place_9.99_9.99_abcdefabcdef', memberIds: ['ghost'] }, { roomId: LA, memberIds: ['c1'] }],
+      rooms: [{ roomId: 'place_9.99_9.99_abcdefabcdef', memberCount: 1 }, { roomId: LA, memberCount: 1 }],
       placeOf: (id) => pins[id],
       origin: SD,
     });

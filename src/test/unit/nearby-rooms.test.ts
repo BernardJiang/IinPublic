@@ -1,7 +1,9 @@
 import {
   CONTACTS_ONLY_SCOPE_ID,
   hasNoHubRoster,
+  hasRoomChat,
   isLocalOnlyRoomScope,
+  isPersonalListScope,
   isNearbyPublicMode,
   isNearbyRoomId,
   nearbyBasePrecisionMeters,
@@ -17,11 +19,17 @@ describe('Nearby scopes (§3.7)', () => {
     expect(isNearbyRoomId('place_32.71_-117.17_abcdefabcdef')).toBe(false);
   });
 
-  test('Nearby and Contacts only have no hub roster; Places do', () => {
+  test('Nearby and Places are personal lists with no hub roster; only a Place has a chat feed', () => {
+    const place = 'place_32.71_-117.17_abcdefabcdef';
     expect(hasNoHubRoster(NEARBY_V3_ROOM_ID)).toBe(true);
     expect(hasNoHubRoster(CONTACTS_ONLY_SCOPE_ID)).toBe(true);
+    expect(hasNoHubRoster(place)).toBe(true);
     expect(isLocalOnlyRoomScope(NEARBY_V3_ROOM_ID)).toBe(false);
-    expect(hasNoHubRoster('place_32.71_-117.17_abcdefabcdef')).toBe(false);
+    expect(isPersonalListScope(NEARBY_V3_ROOM_ID)).toBe(true);
+    expect(isPersonalListScope(place)).toBe(true);
+    expect(isPersonalListScope(CONTACTS_ONLY_SCOPE_ID)).toBe(false);
+    expect(hasRoomChat(place)).toBe(true);
+    expect(hasRoomChat(NEARBY_V3_ROOM_ID)).toBe(false);
   });
 
   test('each public privacy mode snaps the public point to its own precision', () => {

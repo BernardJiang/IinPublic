@@ -88,7 +88,6 @@
     "peer-headshot-cache.test.ts",
     "peer-mesh-service.test.ts",
     "peer-talk-delivery.test.ts",
-    "place-admission-timeouts.test.ts",
     "place-descriptor.test.ts",
     "place-lifecycle.test.ts",
     "platform-capability-matrix.test.ts",
@@ -503,7 +502,7 @@
       "reason": "fails under the portable runtime in host Node as embedded Node 18: NearbyOfflineService › starts LAN discovery with the rotating id and, offline, peers Gun with each LAN phone once: CustomEvent is not defined"
     },
     {
-      "file": "nearby-place-fallback.test.ts",
+      "file": "nearby-at-pin.test.ts",
       "reason": "needs a DOM test environment"
     },
     {
@@ -545,10 +544,6 @@
     {
       "file": "person-picker-dialogs.test.ts",
       "reason": "needs a DOM test environment"
-    },
-    {
-      "file": "place-admission-evidence.test.ts",
-      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
     },
     {
       "file": "presence-durable-row.test.ts",

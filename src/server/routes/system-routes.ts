@@ -79,6 +79,7 @@ import {
 } from '../../shared/techsupport-delegate-invite';
 import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
 import { NearbyV3Hub } from '../services/nearby-v3-hub';
+import { NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
 import { hubNearbyV3Config, registerNearbyV3Routes } from './nearby-v3-routes';
 import { captureRuntimeWindow } from '../services/runtime-profiler';
 import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
@@ -155,11 +156,12 @@ type RegisterSystemRoutesDeps = {
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
   /** S3 explicit relay mode: embedded local nodes mirror relay-only metadata upstream. */
   hubRelayClient?: EmbeddedHubRelayClientLike;
-  /** The room list (shared/active-rooms.ts): live rooms and Place pins from the room manager. */
+  /** The room list (shared/active-rooms.ts): Place pins from the room manager; counts come from the v3 hub. */
   activeRoomSource?: {
-    list: () => Array<{ roomId: string; memberIds: string[] }>;
     placeOf: (roomId: string) => Promise<{ name: string; latitude?: number; longitude?: number } | undefined>;
   };
+  /** A member's card for a Place reached the v3 hub: keep the Place live (§4.2). */
+  onPlaceActive?: (placeId: string) => void;
   /** Durable, radisk-backed store for the support message thread — see
    * techsupport-durable-store.ts's doc comment. Falls back to the plain in-memory
    * TechSupportMessageStore when omitted (test callers that don't need real persistence). */
@@ -221,6 +223,7 @@ export function registerSystemRoutes(
     abuseDefenseConfig,
     hubRelayClient,
     activeRoomSource,
+    onPlaceActive,
     techSupportStore,
     verifyTechSupportDelegateGrant = verifyDelegateGrant,
     verifyTechSupportRecoveryAnchor = verifyRecoveryAnchor,
@@ -238,7 +241,8 @@ export function registerSystemRoutes(
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
   const signalingByConversation = new Map<string, SignalingRelayFrame[]>();
   const presenceByUserId = new Map<string, PresenceRecord>();
-  const nearbyV3Hub = new NearbyV3Hub(hubNearbyV3Config());
+  const nearbyV3Hub = new NearbyV3Hub(hubNearbyV3Config(), Date.now(), (placeId) => onPlaceActive?.(placeId));
+  const nearbyKnockMailbox = new NearbyKnockMailbox();
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -386,10 +390,10 @@ export function registerSystemRoutes(
   });
 
   // Forward to the hub when this node is a relay (phones), else answer locally.
-  const relayToHub = async (res: express.Response, path: string, method: 'GET' | 'POST', body?: unknown): Promise<boolean> => {
+  const relayToHub = async (res: express.Response, path: string, method: 'GET' | 'POST', body?: unknown, timeoutMs?: number): Promise<boolean> => {
     if (!hubRelayClient?.forwardHubApi) return false;
     try {
-      const relayed = await hubRelayClient.forwardHubApi(path, method, body);
+      const relayed = await hubRelayClient.forwardHubApi(path, method, body, timeoutMs);
       res.status(relayed.status).json(relayed.body);
     } catch (error) {
       res.status(503).json({ error: (error as Error).message });
@@ -398,7 +402,7 @@ export function registerSystemRoutes(
   };
 
   // Nearby v3 (docs/design/nearby-and-place-chatrooms.md §3.7): cards, introductions, statistics.
-  registerNearbyV3Routes(app, { hub: nearbyV3Hub, relay: relayToHub });
+  registerNearbyV3Routes(app, { hub: nearbyV3Hub, knocks: nearbyKnockMailbox, relay: relayToHub });
 
   // Room list: every room with ≥ 1 person, nearest first (or busiest / most room), paged.
   app.get('/api/active-rooms', async (req, res) => {
@@ -415,7 +419,7 @@ export function registerSystemRoutes(
     const origin = Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
       ? { latitude, longitude }
       : undefined;
-    const rooms = activeRoomSource.list();
+    const rooms = nearbyV3Hub.placeCounts().map(({ placeId, count }) => ({ roomId: placeId, memberCount: count }));
     const places = new Map<string, { name: string; latitude?: number; longitude?: number }>();
     await Promise.all(rooms.filter((room) => isPlaceRoomId(room.roomId)).map(async (room) => {
       const place = await activeRoomSource.placeOf(room.roomId).catch(() => undefined);
@@ -424,6 +428,7 @@ export function registerSystemRoutes(
     const currentRoomId = typeof query.current === 'string' ? query.current : undefined;
     res.json(summarizeActiveRooms({
       rooms,
+      totalOnline: nearbyV3Hub.online(),
       placeOf: (roomId) => places.get(roomId),
       ...(origin ? { origin } : {}),
       ...(currentRoomId ? { currentRoomId } : {}),
@@ -1382,6 +1387,7 @@ export function registerSystemRoutes(
           gun._.graph = {};
           if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
           nearbyV3Hub.clear();
+          nearbyKnockMailbox.clear();
           clearForTesting?.();
           await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();

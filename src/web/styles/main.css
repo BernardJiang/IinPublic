@@ -1126,11 +1126,6 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   color: inherit;
 }
 
-.room-list-row.room-list-full {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 /* People on the map: ★ me (larger), green = my room (can exchange Talks), yellow = others. */
 .chatroom-map-user-dot {
   display: inline-flex;

@@ -338,3 +338,46 @@ describe('NearbyV3Service', () => {
     expect(restarted.service.entries().map((entry) => entry.card.pub).sort()).toEqual(['p1', 'p2']);
   });
 });
+
+describe('leaving a Place while a swap hangs (phone-path J-PLACE-11)', () => {
+  it('posts my new card at once instead of after the swaps time out', async () => {
+    const nowMs = START;
+    const cfg = config();
+    const hub = new HubStore(cfg, nowMs);
+    const other = await fakeSign({ userId: 'user-o', pair: { pub: 'o' } as SeaSigningPair, point: SD, scope: 'place:cafe', lifetimeMs: cfg.cardLifetimeMs, now: new Date(nowMs) });
+    hub.ingest(other, nowMs);
+    const pending: Array<() => void> = [];
+    let left = false;
+    let position: NearbyV3Position = { point: SD, traveler: false, scope: 'place:cafe' };
+    const service = new NearbyV3Service({
+      config: () => cfg,
+      identity: () => ({ userId: 'user-me', pair: { pub: 'me', priv: 'x' } as SeaSigningPair }),
+      position: () => position,
+      hub: {
+        async heartbeat(card) { hub.ingest(card, nowMs); },
+        async introductions(input) { return hub.introductions({ ...input, now: new Date(nowMs) }).cards; },
+      },
+      // The other person has left: the announce swap hangs until its timeout.
+      link: { request: () => (left ? Promise.resolve(null) : new Promise((resolve) => { pending.push(() => resolve(null)); })) },
+      sign: fakeSign as never,
+      verify: async () => true,
+      now: () => nowMs,
+      log: () => undefined,
+    });
+    const placeIntro = () => hub.introductions({ point: SD, scope: 'place:cafe', now: new Date(nowMs) }).cards.map((card) => card.pub);
+
+    const entering = service.tick(); // posts my Place card, finds o, announces (and hangs)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(placeIntro()).toContain('me');
+
+    position = { point: SD, traveler: false, scope: 'nearby' };
+    const leaving = service.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(placeIntro()).not.toContain('me');
+    expect(service.card()?.scope).toBe('nearby');
+
+    left = true;
+    pending.forEach((resolve) => resolve());
+    await Promise.all([entering, leaving]);
+  });
+});

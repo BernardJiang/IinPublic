@@ -16,7 +16,7 @@ describe('Places near you', () => {
       placeIcon: () => '🏪',
     });
     expect(rows.map((row) => row.roomId)).toEqual(['near', 'far']);
-    expect(rows[0]).toMatchObject({ kind: 'place', memberCount: 0, icon: '🏪', full: false });
+    expect(rows[0]).toMatchObject({ kind: 'place', memberCount: 0, icon: '🏪' });
     expect(rows[0].context).toMatch(/^Place · /);
   });
 

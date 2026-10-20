@@ -23,8 +23,6 @@ import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '.
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import {
-  PlaceAdmissionUnavailableError,
-  PlaceRoomFullError,
   WebChatroomService,
   chatroomCapacityTestOverride,
 } from '../services/web-chatroom-service';
@@ -68,6 +66,8 @@ import {
   isLocalOnlyRoomScope,
   NEARBY_V3_ROOM_ID,
   hasNoHubRoster,
+  hasRoomChat,
+  isPersonalListScope,
   isNearbyPublicMode,
   isNearbyRoomId,
   type NearbyPrivacyMode,
@@ -365,7 +365,6 @@ export class IinPublicApp {
   private nearbyV3: NearbyV3Runtime | null = null;
   /** The latest Nearby broadcast, for "Sent to N of M". */
   private nearbyBroadcast: { talkIds: Set<string>; total: number; delivered: Set<string> } | null = null;
-  private lastMeshRoomId: string | null = null;
   /** Last published home square (hysteresis memory for `publicHomeLocation`). */
   private lastPublicHomeLocation: PublicLocation | null = null;
   /** A Nearby-at-a-pin visit waiting for `chatroomChanged` to commit it. */
@@ -1103,27 +1102,6 @@ export class IinPublicApp {
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
-    this.chatroomService.setPlaceAdmissionLostListener((placeId, capacity) => {
-      this.travelModeActive = false;
-      this.travelChatroomId = undefined;
-      this.travelNearbyPoint = undefined;
-      this.pendingNearbyTravel = undefined;
-      this.persistTravelModeStateToStorage();
-      this.uiManager.setTravelModeState({
-        active: false,
-        ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
-      });
-      this.refreshNearbyPoint();
-      this.currentChatroomId = CONTACTS_ONLY_SCOPE_ID;
-      localStorage.setItem('iinpublic_last_chatroom', CONTACTS_ONLY_SCOPE_ID);
-      this.uiManager.setCurrentChatroomId(CONTACTS_ONLY_SCOPE_ID);
-      const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
-      this.uiManager.showNotification(
-        uiText(language, 'chatroomPlaceReconciled').replace('{capacity}', String(capacity)),
-        'warning',
-      );
-      this.offerNearbyAroundFullPlace(placeId);
-    });
     // Travel is room-membership metadata, not a private UI decoration: peers in the room must
     // agree that a user deliberately visiting away from their saved home is a traveler.
     this.chatroomService.setMembershipTravelerResolver((chatroomId) => {
@@ -1903,19 +1881,33 @@ export class IinPublicApp {
       stageName: () => this.currentUser?.stageName || user.id,
       config: () => this.nearbyV3Config(extensions),
       position: () => {
-        // Only while Nearby is the active audience; inside a Place this phone is not on Nearby.
-        if (!isNearbyRoomId(this.currentChatroomId)) return null;
+        const roomId = this.currentChatroomId;
+        // In a Place my card is scoped to it and sits at its public pin, so every member is "at"
+        // the Place and the order is the hash order alone (§3.7 "Places in v3").
+        if (roomId && isPlaceRoomId(roomId)) {
+          const pin = this.uiManager.getCustomChatroomMeta(roomId)?.location;
+          const lat = Number(pin?.latitude);
+          const lng = Number(pin?.longitude);
+          const point = Number.isFinite(lat) && Number.isFinite(lng)
+            ? snapPublicLocation({ latitude: lat, longitude: lng }, 1_000)
+            : this.nearbyPublicPoint();
+          return point ? { point, traveler: this.appearsAsTraveler(), scope: `place:${roomId}` as const } : null;
+        }
+        if (!isNearbyRoomId(roomId)) return null;
         const point = this.nearbyPublicPoint();
         return point ? { point, traveler: this.appearsAsTraveler() } : null;
       },
       isPaused: isPageHidden,
       onRoster: (members) => {
-        // Like a shared room's roster, the Nearby roster includes me.
+        const scopeId = this.currentChatroomId;
+        if (!scopeId || !isPersonalListScope(scopeId)) return;
+        // Like a shared room's roster, the roster includes me.
         const me = this.currentUser;
         const roster = me ? [...members, { userId: me.id, stageName: me.stageName || me.id, isTraveler: this.appearsAsTraveler() }] : members;
-        this.chatroomService.pushPersonalRoster(roster, me?.id);
-        // "N near you" is my list (§3.7), without me.
-        this.applyChatroomMemberCount(NEARBY_V3_ROOM_ID, new Set(members.map((member) => member.userId)).size);
+        this.chatroomService.pushPersonalRoster(roster, me?.id, scopeId);
+        // "N near you" is my list without me (§3.7); a Place counts everyone in it, me included.
+        const people = new Set(members.map((member) => member.userId)).size;
+        this.applyChatroomMemberCount(scopeId, isPlaceRoomId(scopeId) ? people + 1 : people);
       },
     });
     const runtime = this.nearbyV3;
@@ -2384,10 +2376,7 @@ export class IinPublicApp {
           this.currentUser.stageName,
         );
         const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-        const message = error instanceof PlaceRoomFullError
-          ? uiText(language, 'chatroomPlaceStartupFull').replace('{capacity}', String(error.capacity))
-          : uiText(language, 'chatroomPlaceStartupUnavailable');
-        this.uiManager.showNotification(message, 'warning');
+        this.uiManager.showNotification(uiText(language, 'chatroomPlaceStartupUnavailable'), 'warning');
         console.warn(`Saved Place ${rejectedPlace} could not be entered; opened ${chatroomId}:`, error);
       } else {
         console.warn('Chatroom join encountered an error (non-fatal):', error);
@@ -2429,7 +2418,7 @@ export class IinPublicApp {
     }
 
     // Contacts-only has no public room graph.
-    if (!hasNoHubRoster(chatroomId)) this.subscribeToMessages(chatroomId);
+    this.subscribeToMessages(chatroomId);
 
     // Subscribe to chatroom talks
 
@@ -2677,7 +2666,7 @@ export class IinPublicApp {
     if (!me?.id || !peerId || !mesh) return false;
     const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || CONTACTS_ONLY_SCOPE_ID;
     // Nearby: the mesh runs on my list; open just this link instead of replacing the roster.
-    if (isNearbyRoomId(chatroomId)) return mesh.openPersonalLink(peerId);
+    if (isPersonalListScope(chatroomId)) return mesh.openPersonalLink(peerId);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
         const activeIds = await this.chatroomService.getActiveMembers(chatroomId);
@@ -2958,23 +2947,6 @@ export class IinPublicApp {
     }
     this.pendingNearbyTravel = { location, placeId, placeName };
     this.uiManager.emit('chatroomChanged', NEARBY_V3_ROOM_ID);
-  }
-
-  /** Offer, but never automatically enter, Nearby around a full public Place pin. */
-  private offerNearbyAroundFullPlace(placeId: string): void {
-    if (!this.currentUser) return;
-    const place = this.uiManager.getCustomChatroomMeta(placeId);
-    const latitude = Number(place?.location?.latitude);
-    const longitude = Number(place?.location?.longitude);
-    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
-      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
-    const location: GPSCoordinate = { latitude, longitude, accuracy: 0, timestamp: new Date() };
-    const placeName = String(place?.name || this.getChatroomDisplayName(placeId));
-    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-    const label = uiText(language, 'chatroomNearbyAroundPlace').replace('{place}', placeName);
-    this.uiManager.showLocationRoomSuggestion(label, () => {
-      this.beginNearbyTravel(location, placeId, placeName);
-    });
   }
 
   /**
@@ -3421,9 +3393,8 @@ export class IinPublicApp {
           ...members,
           { userId: this.currentUser.id, stageName: this.currentUser.stageName },
         ];
-    const personal = isNearbyRoomId(chatroomId);
-    if (personal && this.lastMeshRoomId !== chatroomId) this.nearbyV3?.refresh();
-    this.lastMeshRoomId = chatroomId;
+    // The Nearby runtime notices a new scope itself (it watches its position) and reissues my card.
+    const personal = isPersonalListScope(chatroomId);
     void mesh.joinRoom(chatroomId, withSelf, { personal, replace: personal })
       .then(() => {
         for (const member of members) this.catchUpPeerInActiveRoom(member.userId, chatroomId, member.stageName);
@@ -5882,8 +5853,8 @@ export class IinPublicApp {
    * This allows showing headcount badges for rooms the user hasn't visited
    */
   private subscribeToMessages(chatroomId: string): void {
-    // Nearby has no shared chat feed (§3.7); Contacts only has none either.
-    if (hasNoHubRoster(chatroomId)) return;
+    // Only a Place keeps a shared chat feed (§3.7); Nearby and Contacts only have none.
+    if (!hasRoomChat(chatroomId)) return;
     console.log('💬 Subscribing to chatroom messages:', chatroomId);
     const gun = this.gunService.getGun();
 
@@ -6558,7 +6529,7 @@ export class IinPublicApp {
     if (!mesh) return false;
     const chatroomId = this.chatroomService.getCurrentChatroomId();
     // Nearby keeps its list as the roster: the broadcast loop opens links for queued Talks itself.
-    if (chatroomId && !isNearbyRoomId(chatroomId)) {
+    if (chatroomId && !isPersonalListScope(chatroomId)) {
       await mesh.joinRoom(chatroomId, [
         { userId: me.id, stageName: me.stageName },
         ...members,
@@ -7359,7 +7330,8 @@ export class IinPublicApp {
    */
   /** "Sent to N of M" (§3.7): count delivery acks from the people on my list as the loop reaches them. */
   private startNearbyBroadcastProgress(chatroomId: string, talkIds: readonly string[], total: number): void {
-    if (!isNearbyRoomId(chatroomId)) return;
+    // Nearby and Places are both my list (§3.7 "Places in v3"): the same progress applies.
+    if (!isPersonalListScope(chatroomId)) return;
     const previous = this.nearbyBroadcast;
     // The same Talks again (a retried send of the same broadcast) keep the deliveries counted so far.
     const same = previous && previous.talkIds.size === talkIds.length && talkIds.every((id) => previous.talkIds.has(id));
@@ -9129,7 +9101,7 @@ export class IinPublicApp {
         await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
         this.currentChatroomId = home;
         localStorage.setItem('iinpublic_last_chatroom', home);
-        if (!hasNoHubRoster(home)) this.subscribeToMessages(home);
+        this.subscribeToMessages(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
           this.harvestRosterEpubs(members);
@@ -9301,13 +9273,7 @@ export class IinPublicApp {
         } catch (error) {
           if (previousChatroomId) this.uiManager.setCurrentChatroomId(previousChatroomId);
           const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-          const message = error instanceof PlaceRoomFullError
-            ? uiText(language, 'chatroomPlaceFull').replace('{capacity}', String(error.capacity))
-            : error instanceof PlaceAdmissionUnavailableError
-              ? uiText(language, 'chatroomPlaceAdmissionUnavailable')
-              : uiText(language, 'chatroomSwitchFailed');
-          this.uiManager.showNotification(message, 'warning');
-          if (error instanceof PlaceRoomFullError) this.offerNearbyAroundFullPlace(chatroomId);
+          this.uiManager.showNotification(uiText(language, 'chatroomSwitchFailed'), 'warning');
           if (nearbyTravelRequest) this.pendingNearbyTravel = undefined;
           console.warn(`Chatroom switch to ${chatroomId} was rejected:`, error);
           return;

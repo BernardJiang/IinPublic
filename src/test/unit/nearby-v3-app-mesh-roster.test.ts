@@ -28,10 +28,10 @@ describe('Nearby keeps the mesh roster as my list', () => {
     expect(mesh.joinRoom).not.toHaveBeenCalled();
   });
 
-  it('still joins a Place room roster to warm a link there', async () => {
+  it('warms a link in a Place the same way: a Place is my list too', async () => {
     const { app, mesh } = appWithMesh('place_32.71_-117.17_abcdefabcdef');
     expect(await app.warmMeshConnectionToPeer('peer', 'Peer')).toBe(true);
-    expect(mesh.joinRoom).toHaveBeenCalled();
-    expect(mesh.openPersonalLink).not.toHaveBeenCalled();
+    expect(mesh.openPersonalLink).toHaveBeenCalledWith('peer');
+    expect(mesh.joinRoom).not.toHaveBeenCalled();
   });
 });

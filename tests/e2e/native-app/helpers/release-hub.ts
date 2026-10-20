@@ -1,7 +1,6 @@
 /**
  * A hub with the release chatroom capacity on the Mac's LAN address, and phones prepared to create
- * Places against it. The native-app config's own hub uses capacity 50, which a phone's release web
- * bundle refuses for Place admission; a fresh install also has no contacts, so the contact minimum
+ * Places against it, configured like the release hub. A fresh install has no contacts, so the contact minimum
  * for creating a Place is lifted through the E2E query parameter. Used by native-app/33 and /38.
  */
 import { expect } from '@playwright/test';

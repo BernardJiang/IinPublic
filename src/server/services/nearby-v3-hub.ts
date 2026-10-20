@@ -20,7 +20,15 @@ import {
  *
  * It never stores or serves anyone's nearby list.
  */
-type CountWindow = { index: number; salt: Buffer; seen: Set<string>; cells: Map<string, number>; total: number };
+/** `seen` holds a person once (the total); `seenAt`, once per list and point (the cell counts). */
+type CountWindow = {
+  index: number;
+  salt: Buffer;
+  seen: Set<string>;
+  seenAt: Set<string>;
+  cells: Map<string, number>;
+  total: number;
+};
 
 export type NearbyIntroductions = {
   cards: NearbyCard[];
@@ -42,12 +50,21 @@ export class NearbyV3Hub {
   private current: CountWindow;
   private previous: CountWindow | null = null;
   private samples = new Map<string, Map<string, NearbyCard>>();
-  /** pub → when its last heartbeat arrived; only recent ones are introduced. */
-  private lastHeartbeat = new Map<string, number>();
+  /**
+   * pub → when its last heartbeat arrived and which samples hold its card; only recent ones are
+   * introduced, and a card that moves (into a Place, back to Nearby, to a new point) leaves the
+   * samples it was in.
+   */
+  private lastHeartbeat = new Map<string, { atMs: number; cells: string[] }>();
   /** userId → pub while that user's card is live, so another key cannot speak for them. */
   private owners = new Map<string, { pub: string; expiresAtMs: number }>();
 
-  constructor(config: NearbyV3Config, nowMs = Date.now()) {
+  constructor(
+    config: NearbyV3Config,
+    nowMs = Date.now(),
+    /** A member's card for a Place arrived: the Place is in use (§4.2 liveness). */
+    private readonly onPlaceCard?: (placeId: string) => void,
+  ) {
     this.config = config;
     this.current = this.newWindow(this.windowIndex(nowMs));
   }
@@ -84,13 +101,26 @@ export class NearbyV3Hub {
     const hashed = createHash('sha256').update(this.current.salt).update(card.pub).digest('base64');
     if (!this.current.seen.has(hashed)) {
       this.current.seen.add(hashed);
-      if (card.scope === 'nearby') this.current.total += 1;
+      // Everyone online, in Nearby or in a Place ("M online", §3.7).
+      this.current.total += 1;
+    }
+    const at = `${card.scope}|${card.point.latitude},${card.point.longitude}`;
+    const hashedAt = createHash('sha256').update(this.current.salt).update(card.pub).update('\n').update(at).digest('base64');
+    if (!this.current.seenAt.has(hashedAt)) {
+      // Someone entering a Place counts there in this window, not only from the next one.
+      this.current.seenAt.add(hashedAt);
       for (const cell of cells) this.current.cells.set(cell, (this.current.cells.get(cell) ?? 0) + 1);
     }
+    const previous = this.lastHeartbeat.get(card.pub);
+    for (const cell of previous?.cells ?? []) {
+      const sample = cells.includes(cell) ? undefined : this.samples.get(cell);
+      if (sample?.delete(card.pub) && !sample.size) this.samples.delete(cell);
+    }
     this.lastHeartbeat.delete(card.pub);
-    this.lastHeartbeat.set(card.pub, nowMs);
+    this.lastHeartbeat.set(card.pub, { atMs: nowMs, cells });
     while (this.lastHeartbeat.size > MAX_SAMPLES) this.lastHeartbeat.delete(this.lastHeartbeat.keys().next().value as string);
     for (const cell of cells) this.addSample(cell, card);
+    if (card.scope !== 'nearby') this.onPlaceCard?.(card.scope.slice('place:'.length));
     return { accepted: true, online: this.online(nowMs) };
   }
 
@@ -98,6 +128,24 @@ export class NearbyV3Hub {
   count(cellId: string, nowMs = Date.now()): number {
     this.roll(nowMs);
     return Math.max(this.current.cells.get(cellId) ?? 0, this.previous?.cells.get(cellId) ?? 0);
+  }
+
+  /**
+   * People in each Place with anyone in it (the room list, §3.7 "Places in v3"): those whose card
+   * is live there now, so a Place empties the moment its people leave. Only a crowd larger than the
+   * sample falls back to the window count.
+   */
+  placeCounts(nowMs = Date.now()): Array<{ placeId: string; count: number }> {
+    this.roll(nowMs);
+    const ids = new Set<string>();
+    for (const window of [this.current, this.previous]) {
+      for (const key of window?.cells.keys() ?? []) if (key.startsWith('place:')) ids.add(key);
+    }
+    return [...ids].map((key) => {
+      const live = this.liveSample(key, nowMs).length;
+      const count = live < this.config.hubCellSample ? live : Math.max(live, this.count(key, nowMs));
+      return { placeId: key.slice('place:'.length), count };
+    }).filter((row) => row.count > 0);
   }
 
   online(nowMs = Date.now()): number {
@@ -177,7 +225,7 @@ export class NearbyV3Hub {
     const recent = nowMs - 2 * this.config.cardReissueMs;
     for (const [pub, card] of sample) {
       if (Date.parse(card.expiresAt) <= nowMs) sample.delete(pub);
-      else if ((this.lastHeartbeat.get(pub) ?? 0) >= recent) live.push(card);
+      else if ((this.lastHeartbeat.get(pub)?.atMs ?? 0) >= recent) live.push(card);
     }
     if (!sample.size) this.samples.delete(cellId);
     return live;
@@ -199,7 +247,7 @@ export class NearbyV3Hub {
   }
 
   private newWindow(index: number): CountWindow {
-    return { index, salt: randomBytes(16), seen: new Set(), cells: new Map(), total: 0 };
+    return { index, salt: randomBytes(16), seen: new Set(), seenAt: new Set(), cells: new Map(), total: 0 };
   }
 
   private roll(nowMs: number): void {

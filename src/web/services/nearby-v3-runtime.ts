@@ -1,8 +1,9 @@
-import type { NearbyCard } from '../../shared/nearby-v3-card';
+import type { NearbyCard, NearbyCardScope } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import type { PublicLocation } from '../../shared/public-location';
 import type { NearbyListEntry } from '../../shared/nearby-v3-list';
+import { nearbyKnockChannel, type NearbyKnock } from '../../shared/nearby-v3-knock';
 import { GunNearbyKnockChannel, GunNearbyLocalBoard, NearbyKnockGate, NearbyV3MeshLink, type NearbyV3MeshPort } from './nearby-v3-link';
 import { NearbyV3Service, type NearbyV3Hub } from './nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
@@ -12,6 +13,56 @@ import type { WebGunService } from './web-gun-service';
  * own mesh carries gossip and Talks; while Nearby is active it runs in personal mode with the list
  * as its roster (`NEARBY_V3_ROOM_ID`).
  */
+/**
+ * Knocks through the hub's mailbox (`/api/nearby/v3/knocks`). A phone reaches the hub over HTTP
+ * only, so the Gun channel carries knocks between phones on one LAN, and this carries them
+ * everywhere else. The receiver long-polls its own channel.
+ */
+/** How often the runtime checks whether my scope or point changed. */
+const POSITION_WATCH_MS = 1_000;
+
+export class HttpNearbyKnockChannel {
+  constructor(private readonly apiBase: () => string) {}
+
+  async send(knock: NearbyKnock): Promise<void> {
+    await fetch(`${this.apiBase()}/api/nearby/v3/knocks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ knock }),
+    });
+  }
+
+  listen(localPub: string, onKnock: (knock: unknown) => void): () => void {
+    let stopped = false;
+    let controller: AbortController | null = null;
+    let cursor = 0;
+    const channel = nearbyKnockChannel(localPub);
+    const loop = async () => {
+      while (!stopped) {
+        controller = new AbortController();
+        try {
+          const response = await fetch(
+            `${this.apiBase()}/api/nearby/v3/knocks/${channel}?after=${cursor}&waitMs=20000`,
+            { cache: 'no-store', signal: controller.signal },
+          );
+          if (!response.ok) throw new Error(`knocks failed (${response.status})`);
+          const body = await response.json() as { knocks?: unknown[]; cursor?: unknown };
+          if (Number.isFinite(Number(body.cursor))) cursor = Number(body.cursor);
+          for (const knock of body.knocks ?? []) onKnock(knock);
+        } catch {
+          // Hub unreachable (or stopped): try again shortly; offline, the Gun channel still works.
+          if (!stopped) await new Promise((resolve) => setTimeout(resolve, 5_000));
+        }
+      }
+    };
+    void loop();
+    return () => {
+      stopped = true;
+      controller?.abort();
+    };
+  }
+}
+
 export class FetchNearbyV3Hub implements NearbyV3Hub {
   constructor(private readonly apiBase: () => string) {}
 
@@ -58,9 +109,10 @@ export type NearbyV3RuntimeDeps = {
   userId: string;
   stageName: () => string;
   config: () => NearbyV3Config;
-  position: () => { point: PublicLocation; traveler: boolean } | null;
+  /** Where my card says I am, and in which scope: Nearby, or a Place (`place:<id>`, at its pin). */
+  position: () => { point: PublicLocation; traveler: boolean; scope?: NearbyCardScope } | null;
   isPaused?: () => boolean;
-  /** The list changed: it is the Nearby roster. */
+  /** The list changed: it is the roster of the current scope (Nearby or the Place). */
   onRoster: (members: NearbyV3RosterMember[], entries: readonly NearbyListEntry[]) => void;
 };
 
@@ -68,14 +120,19 @@ export class NearbyV3Runtime {
   readonly service: NearbyV3Service;
   readonly hub: FetchNearbyV3Hub;
   private readonly knocks: GunNearbyKnockChannel;
+  private readonly hubKnocks: HttpNearbyKnockChannel;
   /** Offline Nearby: cards posted by phones that cannot reach the hub, read around my point. */
   private readonly board: GunNearbyLocalBoard;
   private readonly gate: NearbyKnockGate;
   private stopKnocks: (() => void) | null = null;
+  private stopHubKnocks: (() => void) | null = null;
+  private positionWatch: ReturnType<typeof setInterval> | null = null;
+  private refreshing = false;
 
   constructor(private readonly deps: NearbyV3RuntimeDeps) {
     this.hub = new FetchNearbyV3Hub(deps.apiBase);
     this.knocks = new GunNearbyKnockChannel(deps.gunService.getGun() as never);
+    this.hubKnocks = new HttpNearbyKnockChannel(deps.apiBase);
     this.board = new GunNearbyLocalBoard(deps.gunService.getGun() as never, (card) => {
       void this.service.localCard(card).catch(() => undefined);
     });
@@ -87,7 +144,7 @@ export class NearbyV3Runtime {
       },
       position: () => {
         const position = deps.position();
-        return position ? { ...position, scope: 'nearby' } : null;
+        return position ? { ...position, scope: position.scope ?? 'nearby' } : null;
       },
       hub: this.hub,
       link: new NearbyV3MeshLink(deps.mesh),
@@ -116,8 +173,19 @@ export class NearbyV3Runtime {
 
   start(): void {
     const localPub = this.pair()?.pub;
-    if (localPub && !this.stopKnocks) this.stopKnocks = this.knocks.listen(localPub, (knock) => { void this.gate.receive(knock); });
+    // The gate drops a knock seen before, so one that comes both ways counts once.
+    const receive = (knock: unknown) => { void this.gate.receive(knock); };
+    if (localPub && !this.stopKnocks) this.stopKnocks = this.knocks.listen(localPub, receive);
+    if (localPub && !this.stopHubKnocks) this.stopHubKnocks = this.hubKnocks.listen(localPub, receive);
     this.service.start();
+    // My card must say where I am now: entering or leaving a Place, or moving, reissues it at once,
+    // whichever path changed it. Compared with the card itself, not with the last position seen: a
+    // visit shorter than one check still left a Place card at the hub (phone-path J-PLACE-11).
+    this.positionWatch ??= setInterval(() => {
+      if (this.refreshing || !this.service.cardIsOutOfPlace()) return;
+      this.refreshing = true;
+      void this.service.refresh().catch(() => undefined).finally(() => { this.refreshing = false; });
+    }, POSITION_WATCH_MS);
   }
 
   stop(): void {
@@ -125,6 +193,10 @@ export class NearbyV3Runtime {
     this.board.stop();
     this.stopKnocks?.();
     this.stopKnocks = null;
+    this.stopHubKnocks?.();
+    this.stopHubKnocks = null;
+    if (this.positionWatch) clearInterval(this.positionWatch);
+    this.positionWatch = null;
   }
 
   /** The public point changed (moved, traveled, privacy setting). */
@@ -136,7 +208,8 @@ export class NearbyV3Runtime {
   async knock(peer: { userId: string; pub: string }): Promise<void> {
     const local = this.pair();
     if (!local?.pub || !local.priv) return;
-    await this.knocks.send({ fromUserId: this.deps.userId, pair: local, toPub: peer.pub, card: this.service.card() });
+    const knock = await this.knocks.send({ fromUserId: this.deps.userId, pair: local, toPub: peer.pub, card: this.service.card() });
+    await this.hubKnocks.send(knock).catch(() => undefined);
   }
 
   /** Mesh hook: a gossip message from a direct neighbor. */

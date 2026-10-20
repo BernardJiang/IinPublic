@@ -85,15 +85,56 @@ describe('Nearby v3 hub', () => {
   });
 
   it('keeps Places separate from Nearby and shows heat cells for a map view', () => {
-    const hub = new NearbyV3Hub(config(), NOW);
+    const active: string[] = [];
+    const hub = new NearbyV3Hub(config(), NOW, (placeId) => active.push(placeId));
     hub.ingest(card('a', SD), NOW);
     hub.ingest(card('b', SD, NOW, 'place:cafe'), NOW);
-    expect(hub.online(NOW)).toBe(1);
+    // Everyone online counts once, whichever list they are on; a Place's count feeds the room list.
+    expect(hub.online(NOW)).toBe(2);
+    expect(hub.placeCounts(NOW)).toEqual([{ placeId: 'cafe', count: 1 }]);
+    expect(active).toEqual(['cafe']);
     expect(hub.introductions({ point: SD, scope: 'place:cafe', now: new Date(NOW) }).cards.map((entry) => entry.pub)).toEqual(['b']);
     expect(hub.introductions({ point: SD, now: new Date(NOW) }).cards.map((entry) => entry.pub)).toEqual(['a']);
     const stats = hub.stats({ west: -118, south: 32, east: -116, north: 34 }, NOW);
     expect(stats.heat).toEqual([expect.objectContaining({ count: 1 })]);
     expect(hub.stats({ west: 0, south: 0, east: 10, north: 10 }, NOW).heat).toEqual([]);
+  });
+});
+
+describe('Nearby v3 hub when a card moves between lists', () => {
+  const intro = (hub: NearbyV3Hub, scope?: string) =>
+    hub.introductions({ point: SD, ...(scope ? { scope } : {}), now: new Date(NOW + 2_000) }).cards.map((entry) => entry.pub);
+
+  it('stops introducing me where I was as soon as I heartbeat somewhere else', () => {
+    const hub = new NearbyV3Hub(config(), NOW);
+    hub.ingest(card('a', SD), NOW);
+    hub.ingest(card('b', SD), NOW);
+    // a enters a Place: she is introduced there, and no longer in Nearby.
+    hub.ingest(card('a', SD, NOW + 1_000, 'place:cafe'), NOW + 1_000);
+    expect(intro(hub, 'place:cafe')).toEqual(['a']);
+    expect(intro(hub)).toEqual(['b']);
+    // …and back home: out of the Place's sample at once.
+    hub.ingest(card('a', SD, NOW + 2_000), NOW + 2_000);
+    expect(intro(hub, 'place:cafe')).toEqual([]);
+    expect(intro(hub).sort()).toEqual(['a', 'b']);
+    // Moving to another city leaves the old cells too: what is left of a is her card in LA, which
+    // the search reaches only by climbing (two people are far fewer than C).
+    hub.ingest(card('a', LA, NOW + 2_000), NOW + 2_000);
+    const fine = pyramidCellIds(SD, NEARBY_V3_DEFAULTS.pyramidFinestLevel)[0]!;
+    expect((hub as any).samples.get(fine)?.has('a') ?? false).toBe(false);
+    const cards = hub.introductions({ point: SD, now: new Date(NOW + 2_000) }).cards.filter((entry) => entry.pub === 'a');
+    expect(cards.map((entry) => entry.point)).toEqual([LA]);
+  });
+
+  it('counts me in a Place I enter mid-window, and once in the online total', () => {
+    const hub = new NearbyV3Hub(config(), NOW);
+    hub.ingest(card('a', SD), NOW);
+    hub.ingest(card('a', SD, NOW + 1_000, 'place:cafe'), NOW + 1_000);
+    expect(hub.placeCounts(NOW + 1_000)).toEqual([{ placeId: 'cafe', count: 1 }]);
+    expect(hub.online(NOW + 1_000)).toBe(1);
+    // Back home: the Place is empty at once, not two count windows later (phone-path J-PLACE-11).
+    hub.ingest(card('a', SD, NOW + 2_000), NOW + 2_000);
+    expect(hub.placeCounts(NOW + 2_000)).toEqual([]);
   });
 });
 

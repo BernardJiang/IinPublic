@@ -4,7 +4,6 @@ import { emptyPlaceRows, renderRoomListHeader, renderRoomListRow, roomListRows, 
 import { getRoomListSort, setRoomListSort } from '../services/active-rooms-client';
 import { showEncounterLocationPicker } from './encounter-location-picker';
 import { getActiveChatroomHierarchy, getFlatChatroomList, type FlatChatroomNode } from '../../shared/chatroom-hierarchy';
-import { CONFIG } from '../../shared/config';
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { avatarInnerHtml } from './profile-avatar';
@@ -13,7 +12,7 @@ import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId, isPersonalListScope } from '../../shared/nearby-rooms';
 import { getL1TileInfo, parseTileId, tileBounds, tileCenter, TILE_BOTTOM_LAYER } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
@@ -242,7 +241,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   const allChatrooms = Array.from(new Map(
     [...(currentNode ? [currentNode] : []), ...customNodes].map((room) => [room.id, room]),
   ).values());
-  const capacity = CONFIG.CHATROOM_MAX_CAPACITY;
   // Nearby is my own list (§3.7): "People near you", no pin icon.
   if (currentNode && currentIsNearby) {
     currentNode.name = deps.text('nearbyPeopleNearYou');
@@ -252,7 +250,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   const roomRows = deps.activeRooms
     ? roomListRows(deps.activeRooms, {
         t: deps.text,
-        capacity,
         currentRoomId: deps.currentChatroom,
         currentName: currentNode?.name || '',
         placeIcon: (roomId) => {
@@ -268,7 +265,9 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       ? { origin: { latitude: selfPoint.latitude, longitude: selfPoint.longitude } }
       : placedPoint ? { origin: { latitude: placedPoint.latitude, longitude: placedPoint.longitude } } : {}),
     excludeIds: new Set([deps.currentChatroom, ...roomRows.map((row) => row.roomId)]),
-    memberCount: (roomId) => deps.chatroomMemberCounts.get(roomId) || 0,
+    // The hub's room list says who is in a Place now (rows with people are excluded above); this
+    // phone's own count for a Place it left can be stale and hid the emptied Place (phone-path 01).
+    memberCount: (roomId) => (deps.activeRooms ? 0 : deps.chatroomMemberCounts.get(roomId) || 0),
     placeIcon: (type) => customRoomIcon(type === 'business' ? 'business' : 'custom'),
   });
   const sort = getRoomListSort();
@@ -279,7 +278,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   const renderRoomRow = (room: FlatChatroomNode, isCurrentRoom: boolean): string => {
       const memberCount = deps.chatroomMemberCounts.get(room.id) || 0;
       const visitCounts = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
-      const showCapacity = room.id !== CONTACTS_ONLY_SCOPE_ID;
+      const showCount = room.id !== CONTACTS_ONLY_SCOPE_ID;
       return `
         <div class="chatroom-item ${isCurrentRoom ? 'current-room' : ''}" 
              data-chatroom-id="${room.id}" 
@@ -295,9 +294,8 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
             <div class="chatroom-flat-metrics">
               ${isNearbyRoomId(room.id)
                 ? `<span class="chatroom-headcount" data-testid="nearby-headcount">${deps.escapeHtml(nearbyHeadcountText(deps, memberCount))}</span>`
-                : showCapacity ? `<span class="chatroom-headcount">${deps.text('roomListPeople')
-                  .replace('{count}', String(memberCount))
-                  .replace('{capacity}', String(CONFIG.CHATROOM_MAX_CAPACITY))}</span>` : ''}
+                : showCount ? `<span class="chatroom-headcount">${deps.text('roomListPeople')
+                  .replace('{count}', String(memberCount))}</span>` : ''}
               ${isPlaceRoomId(room.id) ? `<span class="chatroom-visitcount">${deps.text('chatroomVisits').replace('{count}', String(visitCounts.visitCount))}</span>` : ''}
             </div>
           </div>
@@ -311,7 +309,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <section class="chatroom-flat-section" data-testid="current-group-section">
       <h2 class="chatroom-flat-heading">${deps.text('chatroomCurrentGroupHeading')}</h2>
       ${currentNode ? renderRoomRow(currentNode, true) : ''}
-      ${currentIsNearby && deps.nearbyBroadcastProgress
+      ${isPersonalListScope(deps.currentChatroom) && deps.nearbyBroadcastProgress
         ? `<p class="chatroom-flat-progress" data-testid="nearby-broadcast-progress" role="status">${deps.escapeHtml(deps.text('nearbySentProgress')
           .replace('{sent}', String(deps.nearbyBroadcastProgress.sent))
           .replace('{total}', String(deps.nearbyBroadcastProgress.total)))}</p>`
@@ -326,13 +324,13 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <section class="chatroom-flat-section" data-testid="rooms-near-you-section">
       <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
       ${roomRows.length
-        ? roomRows.map((row) => renderRoomListRow(row, capacity, deps.text, deps.escapeHtml)).join('')
+        ? roomRows.map((row) => renderRoomListRow(row, deps.text, deps.escapeHtml)).join('')
         : `<p class="chatroom-flat-empty">${deps.text(deps.activeRooms ? 'roomListEmpty' : 'roomListLoading')}</p>`}
       ${deps.activeRooms?.hasMore ? `<button type="button" class="btn" id="room-list-more" data-testid="room-list-more">${deps.text('roomListShowMore')}</button>` : ''}
     </section>
     ${emptyPlaces.length ? `<section class="chatroom-flat-section" data-testid="places-near-you-section">
       <h2 class="chatroom-flat-heading">${deps.text('roomListPlacesNearHeading')}</h2>
-      ${emptyPlaces.map((row) => renderRoomListRow(row, capacity, deps.text, deps.escapeHtml)).join('')}
+      ${emptyPlaces.map((row) => renderRoomListRow(row, deps.text, deps.escapeHtml)).join('')}
     </section>` : ''}`;
 
   document.getElementById('chatroom-encounter-location-set')?.addEventListener('click', () => {
@@ -451,9 +449,8 @@ export function toggleChatroomExpanded(deps: ChatroomsViewDeps, chatroomId: stri
   deps.renderChatroomList();
 }
 
-/** Tap a room (list row or map pin): enter it and show its members. Full Places stay shut. */
-function enterRoom(deps: ChatroomsViewDeps, chatroomId: string, row: RoomListRow | undefined): void {
-  if (row?.full) return;
+/** Tap a room (list row or map pin): enter it and show its members. */
+function enterRoom(deps: ChatroomsViewDeps, chatroomId: string, _row: RoomListRow | undefined): void {
   showChatroomDetail(deps, chatroomId);
 }
 

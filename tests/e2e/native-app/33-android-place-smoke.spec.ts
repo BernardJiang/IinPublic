@@ -6,9 +6,7 @@
  * empty Place under "Places near you" and can enter it again.
  *
  * The phones talk to a hub this spec starts on the Mac's LAN address with the release capacity
- * (498) — never www.iinpublic.com, so no public, undeletable Place is created. The native-app
- * config's own hub uses capacity 50, which the release web bundle on the phone does not accept for
- * Place admission.
+ * (498) — never www.iinpublic.com, so no public, undeletable Place is created.
  *
  * Opt-in and destructive: clears IinPublic app data on both phones.
  *   E2E_REAL_ANDROID_PLACE_SMOKE=1 NATIVE_APP_ANDROID_SERIALS=<serial1>,<serial2> \

@@ -95,17 +95,17 @@ function blockStatus(page: Page, viewer: string, peer: string): Promise<{ blocke
   }, { v: viewer, p: peer });
 }
 
-/** Members of a room as the hub lists them. */
 /**
- * Who the hub knows in this room. Nearby is a personal list (§3.7) with no hub roster: there, the
- * people the hub would introduce to a newcomer at the journey's point.
+ * Who the hub knows in this room. Nearby and Places are personal lists (§3.7) with no hub roster:
+ * there, the people the hub would introduce to a newcomer at the journey's point.
  */
 async function hubRoomMembers(hubUrl: string, roomId: string): Promise<string[]> {
-  if (roomId === 'nearby-v3') {
+  if (roomId === 'nearby-v3' || roomId.startsWith('place_')) {
+    const scope = roomId === 'nearby-v3' ? 'nearby' : `place:${roomId}`;
     const res = await fetch(`${hubUrl}/api/nearby/v3/introductions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ point: { latitude: 32.7157, longitude: -117.1611 } }),
+      body: JSON.stringify({ point: { latitude: 32.7157, longitude: -117.1611 }, scope }),
     }).catch(() => null);
     if (!res?.ok) return [];
     const body = await res.json().catch(() => ({})) as { cards?: Array<{ userId?: string }> };
@@ -203,9 +203,9 @@ export async function leaveJourney(alice: TestActor, bob: TestActor, options: { 
   await openCurrentRoom(bob.page);
   await expect(memberItem(bob.page, aliceId)).toHaveCount(0, { timeout: 45_000 });
   await expect.poll(() => roomHeadcount(bob.page), { timeout: 45_000, message: 'Bob\'s headcount did not drop' }).toBe(together - 1);
-  // A shared room's hub roster drops her at once. Nearby has none: the hub's introduction sample
+  // A shared room's hub roster drops her at once. Nearby and Places have none: the hub's introduction sample
   // keeps her card until it expires (§3.7), and Bob's own list is what matters.
-  const personal = roomId === 'nearby-v3';
+  const personal = roomId === 'nearby-v3' || roomId.startsWith('place_');
   if (!personal) await expect.poll(() => hubRoomMembers(options.hubUrl, roomId), { timeout: 30_000 }).not.toContain(aliceId);
 
   // She comes back: Bob sees her again.

@@ -818,8 +818,25 @@ phrase complexity into normal use.
     unused browse tree removed), "People near you", "N near you · M online" (my list without me,
     then the hub's count), "Show more people here", "Sent to N of M". Web e2e `95-nearby-screens`;
     headcount specs now count the list without me.
-  - [ ] Phase 5: Places on lists.
-  - [ ] Real phones (2026-10-19, P30 + C10, 1.0.178): native-app 05, 33, 37 and all three of 38
+  - [x] Phase 5 (2026-10-19): Places on lists (design §3.7 "Places in v3", "Implemented"). A Place
+    is a list scoped `place:<id>` with my card at its pin; no seats, reservations or reconciliation
+    (Place admission code, `place-admission-claims` and the "Nearby around a full Place" offer
+    removed; the hub refuses Place roster calls with `PLACE_HAS_NO_ROSTER`); the hub's Place counts
+    feed the room list and mark the Place visited; the chat feed is kept; no "Full" rooms. Found and
+    fixed: knocks never crossed between phones (Gun only; now also a hub mailbox, long-polled);
+    the hub kept introducing people in the list they had left, and counted a Place newcomer only
+    from the next window; a Place's count lingered two windows after everyone left (now the live
+    cards); a phone that went home kept its Place card while a slow swap held its tick (the runtime
+    now watches its position, a refresh reissues at once and drops a card signed for a position it
+    already left); an emptied Place vanished from "Places near you" behind a stale local count.
+  - [ ] The room-wide mesh overlay (rotating K of a hub roster, `maxNeighbors`) now serves no
+    scope: Nearby and Places are personal lists and Contacts-only leaves the mesh. Its K=1 sub-cases
+    were dropped from web specs `talks-matching/01`/`02` (2026-10-19); the code is still in
+    `peer-mesh-service.ts`. Remove it.
+  - [x] Verified 2026-10-19 on 1.0.180: Jest 3,149; phone path 13/13 (5.8 min); web Place, room
+    list and mesh specs 21/21; real phones: native-app 33 and 38 (P30 + C10), 30 on four phones
+    (P30, C10, Honor FRD, PH-1; Talks 8.7–10.3 s, p50 9.6 s).
+  - [x] Real phones (2026-10-19, P30 + C10, 1.0.178): native-app 05, 33, 37 and all three of 38
     pass. Found and fixed: swaps sent while the mesh was between rooms dropped live people; direct
     contact now lifts a tombstone; 🏠 from a Place never re-synced the mesh, so Nearby never came
     back. Still to run: 30 (needs four phones; reworked to read Nearby lists) and 39.

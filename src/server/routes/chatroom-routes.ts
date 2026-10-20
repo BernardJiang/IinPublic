@@ -1,28 +1,15 @@
 import { isPlaceLive, PlaceCreationConflictError, type PlaceLifecycleRow } from '../../shared/place-lifecycle';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
-import { CONFIG } from '../../shared/config';
-import { randomUUID } from 'crypto';
 import type express from 'express';
 import { ChatroomManager } from '../services/chatroom-manager';
 import { RelayMemberTouchThrottle } from '../services/relay-member-touch-throttle';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
-import {
-  EmbeddedHubRelayRequestError,
-  type EmbeddedHubRelayClientLike,
-  type RelayRoomMember,
-} from '../../node-app/embedded-hub-relay-client';
+import type { EmbeddedHubRelayClientLike, RelayRoomMember } from '../../node-app/embedded-hub-relay-client';
 import { isValidChatroomMapLocation } from '../../shared/chatroom-map-geojson';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
-import {
-  reconcilePlaceAdmissionEvidence,
-  verifyPlaceAdmissionClaim,
-  type PlaceAdmissionClaim,
-} from '../../shared/place-admission-evidence';
 
 type RegisterChatroomRoutesDeps = {
   chatroomManager: ChatroomManager;
-  /** Test seam only; production always uses the release-wide global capacity. */
-  chatroomCapacity?: number;
   /**
    * S3 native explicit relay mode: embedded local nodes keep app graph local,
    * but mirror room-membership metadata to the configured upstream hub.
@@ -32,43 +19,19 @@ type RegisterChatroomRoutesDeps = {
 
 export function registerChatroomRoutes(
   app: express.Application,
-  { chatroomManager, hubRelayClient, chatroomCapacity = CONFIG.CHATROOM_MAX_CAPACITY }: RegisterChatroomRoutesDeps,
+  { chatroomManager, hubRelayClient }: RegisterChatroomRoutesDeps,
 ): void {
   const relayPollTimers = new Map<string, ReturnType<typeof setInterval>>();
-  const placeAdmissionTails = new Map<string, Promise<void>>();
-  const placeReservations = new Map<string, Map<string, {
-    userId: string;
-    token: string;
-    expiresAtMs: number;
-    claim: PlaceAdmissionClaim;
-  }>>();
-  const placeReservationTtlMs = 15_000;
 
   /**
-   * Serialize admissions to one Place within this room index. This is not represented as a room
-   * owner or moderator: it merely makes the release-wide C check and roster write one operation.
-   * Other indexes can temporarily disagree during a partition, as FR-CR-19 already permits.
+   * A Place is a per-member list (docs/design/nearby-and-place-chatrooms.md §3.7 "Places in v3"):
+   * people find each other by Place-scoped cards at `/api/nearby/v3`, and the hub keeps no roster,
+   * seats or capacity for it.
    */
-  const serializePlaceAdmission = async <T>(chatroomId: string, operation: () => Promise<T>): Promise<T> => {
-    const previous = placeAdmissionTails.get(chatroomId) ?? Promise.resolve();
-    const result = previous.catch(() => undefined).then(operation);
-    const tail = result.then(() => undefined, () => undefined);
-    placeAdmissionTails.set(chatroomId, tail);
-    try {
-      return await result;
-    } finally {
-      if (placeAdmissionTails.get(chatroomId) === tail) placeAdmissionTails.delete(chatroomId);
-    }
-  };
-
-  const livePlaceReservations = (chatroomId: string, now = Date.now()) => {
-    const reservations = placeReservations.get(chatroomId) ?? new Map();
-    for (const [userId, reservation] of reservations) {
-      if (reservation.expiresAtMs <= now) reservations.delete(userId);
-    }
-    if (reservations.size > 0) placeReservations.set(chatroomId, reservations);
-    else placeReservations.delete(chatroomId);
-    return reservations;
+  const refusePlaceRoster = (chatroomId: string, res: express.Response): boolean => {
+    if (!isPlaceRoomId(chatroomId)) return false;
+    res.status(410).json({ error: 'a Place has no hub roster; post a Place-scoped card', code: 'PLACE_HAS_NO_ROSTER' });
+    return true;
   };
 
   const mergeMembers = (
@@ -136,11 +99,10 @@ export function registerChatroomRoutes(
     userId: string,
     stageName?: string,
     isTraveler?: boolean,
-    reservationToken?: string,
   ): Promise<void> => {
     if (!hubRelayClient) return;
-    if (typeof isTraveler === 'boolean' || reservationToken) {
-      await hubRelayClient.addMember(chatroomId, userId, stageName, isTraveler, reservationToken);
+    if (typeof isTraveler === 'boolean') {
+      await hubRelayClient.addMember(chatroomId, userId, stageName, isTraveler);
     } else {
       await hubRelayClient.addMember(chatroomId, userId, stageName);
     }
@@ -164,7 +126,7 @@ export function registerChatroomRoutes(
   const mirrorRelayTouch = async (
     chatroomId: string,
     userId: string,
-    options: { stageName?: string; lastSeen?: string; isTraveler?: boolean; admissionClaim?: PlaceAdmissionClaim },
+    options: { stageName?: string; lastSeen?: string; isTraveler?: boolean },
   ): Promise<void> => {
     if (!hubRelayClient) return;
     try {
@@ -225,13 +187,7 @@ export function registerChatroomRoutes(
         res.status(400).json({ error: 'userId is required' });
         return;
       }
-      if (isPlaceRoomId(req.params.id)) {
-        res.status(410).json({
-          error: 'Place admission requires the capacity-aware members endpoint',
-          code: 'PLACE_ADMISSION_REQUIRED',
-        });
-        return;
-      }
+      if (refusePlaceRoster(req.params.id, res)) return;
       await chatroomManager.joinChatroom(req.params.id, userId);
       res.json({ success: true });
     } catch (error) {
@@ -341,6 +297,7 @@ export function registerChatroomRoutes(
 
   app.get('/api/chatrooms/:id/members', async (req, res) => {
     try {
+      if (refusePlaceRoster(req.params.id, res)) return;
       observeRelayRoom(req.params.id);
       const remoteMembers = await syncMembersFromRelayBestEffort(req.params.id);
       const members = await chatroomManager.getActiveMembersWithStageName(req.params.id);
@@ -352,190 +309,24 @@ export function registerChatroomRoutes(
 
   app.post('/api/chatrooms/:id/members', async (req, res) => {
     try {
-      const { userId, stageName, isTraveler, reserveOnly, reservationToken, admissionClaim } = req.body as {
+      const { userId, stageName, isTraveler } = req.body as {
         userId: string;
         stageName?: string;
         isTraveler?: boolean;
-        reserveOnly?: boolean;
-        reservationToken?: string;
-        admissionClaim?: unknown;
       };
       if (!userId) {
         res.status(400).json({ error: 'userId is required' });
         return;
       }
       const chatroomId = req.params.id;
-      const addLocalMember = async (): Promise<void> => {
-        if (typeof isTraveler === 'boolean') {
-          await chatroomManager.addMemberFast(chatroomId, userId, stageName, isTraveler);
-        } else {
-          // Keep older clients/test doubles source-compatible; absence means the pre-marker shape.
-          await chatroomManager.addMemberFast(chatroomId, userId, stageName);
-        }
-      };
-      const addMemberBestEffort = async (): Promise<void> => {
-        await addLocalMember();
-        await mirrorRelayJoin(chatroomId, userId, stageName, isTraveler);
-      };
-
-      if (isPlaceRoomId(chatroomId)) {
-        if (reserveOnly === true) {
-          const claimResult = await verifyPlaceAdmissionClaim(admissionClaim, {
-            roomId: chatroomId,
-            capacity: chatroomCapacity,
-          });
-          if (!claimResult.ok || claimResult.claim.userId !== userId) {
-            res.status(400).json({ error: claimResult.ok ? 'Place admission identity mismatch' : claimResult.reason });
-            return;
-          }
-          const admission = claimResult.claim;
-          const reservation = await serializePlaceAdmission(chatroomId, async () => {
-            let remoteMembers: RelayRoomMember[] = [];
-            if (hubRelayClient) {
-              try {
-                remoteMembers = await syncMembersFromRelay(chatroomId);
-              } catch {
-                return { status: 'unavailable' as const };
-              }
-            }
-            // A relayed node decides from the hub's set only; its own read is ~2.6 s on an empty
-            // room (OPEN-58), so skip it.
-            const activeMembers = hubRelayClient
-              ? remoteMembers
-              : await chatroomManager.getActiveMembersWithStageName(chatroomId);
-            const alreadyPresent = activeMembers.some((member) => member.userId === userId);
-            const reservations = livePlaceReservations(chatroomId);
-            const existing = reservations.get(userId);
-            if (alreadyPresent) {
-              if (existing) reservations.delete(userId);
-              await chatroomManager.publishPlaceAdmissionClaim(admission);
-              return {
-                status: 'reserved' as const,
-                token: existing?.token || randomUUID(),
-                expiresAtMs: existing?.expiresAtMs || Date.now() + placeReservationTtlMs,
-                claim: existing?.claim || admission,
-              };
-            }
-            if (existing) {
-              // Preserve the original seat order for this reservation, but publish its freshest
-              // liveness proof when the client retries the same two-phase move.
-              if (existing.claim.pub === admission.pub && existing.claim.enteredAt === admission.enteredAt) {
-                existing.claim = admission;
-                await chatroomManager.publishPlaceAdmissionClaim(admission);
-              }
-              return {
-                status: 'reserved' as const,
-                token: existing.token,
-                expiresAtMs: existing.expiresAtMs,
-                claim: existing.claim,
-              };
-            }
-            const networkClaims = await chatroomManager.listPlaceAdmissionClaims(chatroomId);
-            const reconciliation = await reconcilePlaceAdmissionEvidence({
-              roomId: chatroomId,
-              capacity: chatroomCapacity,
-              evidence: [...networkClaims, ...[...reservations.values()].map((entry) => entry.claim), admission],
-            });
-            if (!reconciliation.winners.some((claim) => claim.userId === userId)
-              || activeMembers.length + reservations.size >= chatroomCapacity) {
-              return { status: 'full' as const };
-            }
-
-            let token: string = randomUUID();
-            let expiresAtMs = Date.now() + placeReservationTtlMs;
-            if (hubRelayClient) {
-              if (!hubRelayClient.reservePlaceMember) return { status: 'unavailable' as const };
-              try {
-                const upstream = await hubRelayClient.reservePlaceMember(
-                  chatroomId,
-                  userId,
-                  stageName,
-                  isTraveler,
-                  admission,
-                );
-                token = upstream.reservationToken;
-                expiresAtMs = Date.parse(upstream.expiresAt);
-                if (!token || !Number.isFinite(expiresAtMs)) return { status: 'unavailable' as const };
-              } catch (error) {
-                return error instanceof EmbeddedHubRelayRequestError && error.status === 409
-                  ? { status: 'full' as const }
-                  : { status: 'unavailable' as const };
-              }
-            }
-            reservations.set(userId, { userId, token, expiresAtMs, claim: admission });
-            placeReservations.set(chatroomId, reservations);
-            await chatroomManager.publishPlaceAdmissionClaim(admission);
-            return { status: 'reserved' as const, token, expiresAtMs, claim: admission };
-          });
-          if (reservation.status === 'full') {
-            res.status(409).json({ error: 'Place is full', code: 'PLACE_FULL', capacity: chatroomCapacity });
-            return;
-          }
-          if (reservation.status === 'unavailable') {
-            res.status(503).json({
-              error: 'Place admission could not be verified',
-              code: 'PLACE_ADMISSION_UNAVAILABLE',
-            });
-            return;
-          }
-          res.json({
-            success: true,
-            reservationToken: reservation.token,
-            expiresAt: new Date(reservation.expiresAtMs).toISOString(),
-          });
-          return;
-        }
-
-        const admission = await serializePlaceAdmission(chatroomId, async () => {
-          let remoteMembers: RelayRoomMember[] = [];
-          if (hubRelayClient) {
-            try {
-              // A distributed phone must obtain the hub's current active set before claiming a
-              // Place seat. Nearby remains available when the hub cannot be reached.
-              remoteMembers = await syncMembersFromRelay(chatroomId);
-            } catch {
-              return 'unavailable' as const;
-            }
-          }
-          const activeMembers = hubRelayClient
-            ? remoteMembers
-            : await chatroomManager.getActiveMembersWithStageName(chatroomId);
-          const alreadyPresent = activeMembers.some((member) => member.userId === userId);
-          const reservation = livePlaceReservations(chatroomId).get(userId);
-          if (!alreadyPresent && (!reservation || reservation.token !== reservationToken)) {
-            return 'reservation-required' as const;
-          }
-          try {
-            // Commit at the deciding hub before exposing local active presence. The token already
-            // occupies capacity but is not room membership, so the client can stop its old room
-            // before this point without racing another C+1 entrant.
-            await writeRelayJoin(chatroomId, userId, stageName, isTraveler, reservationToken);
-          } catch (error) {
-            return error instanceof EmbeddedHubRelayRequestError && error.status === 409
-              ? 'reservation-required' as const
-              : 'unavailable' as const;
-          }
-          await addLocalMember();
-          livePlaceReservations(chatroomId).delete(userId);
-          return 'accepted' as const;
-        });
-        if (admission === 'reservation-required') {
-          res.status(409).json({
-            error: 'Place admission reservation is missing or expired',
-            code: 'PLACE_ADMISSION_REQUIRED',
-          });
-          return;
-        }
-        if (admission === 'unavailable') {
-          res.status(503).json({
-            error: 'Place admission could not be verified',
-            code: 'PLACE_ADMISSION_UNAVAILABLE',
-          });
-          return;
-        }
+      if (refusePlaceRoster(chatroomId, res)) return;
+      if (typeof isTraveler === 'boolean') {
+        await chatroomManager.addMemberFast(chatroomId, userId, stageName, isTraveler);
       } else {
-        await addMemberBestEffort();
+        // Keep older clients/test doubles source-compatible; absence means the pre-marker shape.
+        await chatroomManager.addMemberFast(chatroomId, userId, stageName);
       }
+      await mirrorRelayJoin(chatroomId, userId, stageName, isTraveler);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -544,87 +335,18 @@ export function registerChatroomRoutes(
 
   app.patch('/api/chatrooms/:id/members/:userId', async (req, res) => {
     try {
-      const { stageName, lastSeen, isTraveler, admissionClaim } = req.body as {
+      if (refusePlaceRoster(req.params.id, res)) return;
+      const { stageName, lastSeen, isTraveler } = req.body as {
         stageName?: string;
         lastSeen?: string;
         isTraveler?: boolean;
-        admissionClaim?: unknown;
       };
       const options: { stageName?: string; lastSeen?: string; isTraveler?: boolean } = {};
       if (stageName !== undefined) options.stageName = stageName;
       if (lastSeen !== undefined) options.lastSeen = lastSeen;
       if (isTraveler !== undefined) options.isTraveler = isTraveler;
-      if (isPlaceRoomId(req.params.id)) {
-        const refreshed = await serializePlaceAdmission(req.params.id, async () => {
-          const members = await chatroomManager.getActiveMembersWithStageName(req.params.id);
-          if (!members.some((member) => member.userId === req.params.userId)) return 'missing' as const;
-          const claimResult = await verifyPlaceAdmissionClaim(admissionClaim, {
-            roomId: req.params.id,
-            capacity: chatroomCapacity,
-          });
-          if (!claimResult.ok || claimResult.claim.userId !== req.params.userId) return 'invalid' as const;
-          await chatroomManager.publishPlaceAdmissionClaim(claimResult.claim);
-          const networkClaims = await chatroomManager.listPlaceAdmissionClaims(req.params.id);
-          const reconciliation = await reconcilePlaceAdmissionEvidence({
-            roomId: req.params.id,
-            capacity: chatroomCapacity,
-            evidence: networkClaims,
-          });
-          const loserIds = new Set(reconciliation.losers.map((claim) => claim.userId));
-          for (const member of members) {
-            if (loserIds.has(member.userId)) await chatroomManager.leaveChatroom(req.params.id, member.userId);
-          }
-          if (loserIds.has(req.params.userId)) return 'lost' as const;
-          if (hubRelayClient) {
-            try {
-              // A phone's embedded index cannot decide against an isolated local graph. The hub
-              // evaluates the same portable claim against its merged evidence; propagate its
-              // explicit reconciliation result instead of swallowing it as best-effort metadata.
-              await hubRelayClient.touchMember(req.params.id, req.params.userId, {
-                ...options,
-                admissionClaim: claimResult.claim,
-              });
-            } catch (error) {
-              if (error instanceof EmbeddedHubRelayRequestError && error.status === 409) {
-                try {
-                  const body = JSON.parse(error.responseBody) as { code?: unknown };
-                  return body.code === 'PLACE_RECONCILED_OUT' ? 'lost' as const : 'invalid' as const;
-                } catch {
-                  return 'invalid' as const;
-                }
-              }
-              return 'unavailable' as const;
-            }
-          }
-          await chatroomManager.touchMemberFast(req.params.id, req.params.userId, options);
-          return 'accepted' as const;
-        });
-        if (refreshed === 'lost') {
-          res.status(409).json({
-            error: 'Place exceeded capacity after admission evidence merged',
-            code: 'PLACE_RECONCILED_OUT',
-            capacity: chatroomCapacity,
-          });
-          return;
-        }
-        if (refreshed === 'unavailable') {
-          res.status(503).json({
-            error: 'Place admission could not be verified',
-            code: 'PLACE_ADMISSION_UNAVAILABLE',
-          });
-          return;
-        }
-        if (refreshed !== 'accepted') {
-          res.status(409).json({
-            error: 'Place admission is required before a membership heartbeat',
-            code: 'PLACE_ADMISSION_REQUIRED',
-          });
-          return;
-        }
-      } else {
-        await chatroomManager.touchMemberFast(req.params.id, req.params.userId, options);
-        await mirrorRelayTouch(req.params.id, req.params.userId, options);
-      }
+      await chatroomManager.touchMemberFast(req.params.id, req.params.userId, options);
+      await mirrorRelayTouch(req.params.id, req.params.userId, options);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -633,19 +355,8 @@ export function registerChatroomRoutes(
 
   app.delete('/api/chatrooms/:id/members/:userId', async (req, res) => {
     try {
-      if (isPlaceRoomId(req.params.id)) {
-        await serializePlaceAdmission(req.params.id, async () => {
-          livePlaceReservations(req.params.id).delete(req.params.userId);
-          const claims = await chatroomManager.listPlaceAdmissionClaims(req.params.id);
-          const ownClaim = claims.find((claim) => claim.userId === req.params.userId);
-          if (ownClaim) await chatroomManager.removePlaceAdmissionClaim(req.params.id, ownClaim.pub);
-          await chatroomManager.leaveChatroom(req.params.id, req.params.userId);
-          await mirrorRelayLeave(req.params.id, req.params.userId);
-        });
-      } else {
-        await chatroomManager.leaveChatroom(req.params.id, req.params.userId);
-        await mirrorRelayLeave(req.params.id, req.params.userId);
-      }
+      await chatroomManager.leaveChatroom(req.params.id, req.params.userId);
+      await mirrorRelayLeave(req.params.id, req.params.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

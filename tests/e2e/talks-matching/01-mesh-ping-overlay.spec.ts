@@ -155,49 +155,16 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
       { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
 
-    // --- Sub-case 2: K=1 sparse path — re-join with maxNeighbors:1 ---
-    // Override opts.maxNeighbors in-place, then call joinRoom with current room members.
-    // This tests the forwarding rule: Tom's ping must reach Bob via one hop through Jerry.
-    await pageTom.evaluate(async ([jId, bId]: string[]) => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      const mesh = app?.peerMeshService;
-      if (!mesh) return;
-      const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
-      // Override degree bound to K=1
-      (mesh as any).opts = { ...(mesh as any).opts, maxNeighbors: 1 };
-      // Provide member list with known peers so joinRoom can select one neighbor
-      await mesh.joinRoom(roomId, [
-        { userId: app.currentUser?.id },
-        { userId: jId },
-        { userId: bId },
-      ]);
-    }, [jerryId, bobId]);
+    // (The K=1 sparse-path sub-case was removed 2026-10-19: Places are personal lists now, links
+    // open per person, and no scope runs the K-bounded room overlay it shrank.)
 
-    await afterAction();
-    await afterSync();
-
-    // Tom should have exactly 1 neighbor slot (K=1 bound)
-    const tomNeighborCount = await pageTom.evaluate(() => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      return app?.peerMeshService?.getDiagnostics?.()?.neighborCount ?? -1;
-    });
-    expect(tomNeighborCount).toBeLessThanOrEqual(1);
-
-    // Wait until the whole path is ready before sending: a ping goes only to manifest-ready
-    // neighbors and is not queued (OPEN-56: sent on a link that was connected but not yet
-    // manifest-ready, it reached nobody). So Tom's one neighbor must be ready, and that neighbor
-    // must have a ready link to the third peer to relay through.
-    const pages: Record<string, Page> = { [tomId]: pageTom, [jerryId]: pageJerry, [bobId]: pageBob };
+    // A ping goes only to manifest-ready neighbors and is not queued (OPEN-56): wait until Tom's
+    // links to both peers are ready.
     await expect
-      .poll(
-        async () => {
-          const [relay] = await readyLinks(pageTom!);
-          if (!relay || !pages[relay]) return false;
-          const third = relay === jerryId ? bobId : jerryId;
-          return (await readyLinks(pages[relay])).includes(third);
-        },
-        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: no ready path to both peers (K=1)' },
-      )
+      .poll(async () => {
+        const ready = await readyLinks(pageTom!);
+        return ready.includes(jerryId) && ready.includes(bobId);
+      }, { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: links to both peers never became ready' })
       .toBe(true);
 
     // --- Step 3: Tom sends mesh-ping ---
@@ -233,7 +200,7 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
     // Tom polls pongedOrigins — proves round-trip reachability from both peers
     // Pongs are addressed to Tom, and authoritative direct delivery never relays a
     // recipient-addressed frame through a third peer (forwardFrame). So Tom hears a pong from each
-    // peer it is directly linked to; the relayed ping above already proves multi-hop reach.
+    // peer it is directly linked to.
     await expect
       .poll(
         () =>
