@@ -6,6 +6,7 @@ import {
   type NearbyKnock,
 } from '../../shared/nearby-v3-knock';
 import type { NearbyCard } from '../../shared/nearby-v3-card';
+import { nearbyLocalPostChannel, nearbyLocalReadChannels } from '../../shared/nearby-v3-local';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import type { NearbyV3Link } from './nearby-v3-service';
 
@@ -133,5 +134,55 @@ export class GunNearbyKnockChannel {
       stopped = true;
       try { ref.off?.(); } catch { /* ignore */ }
     };
+  }
+}
+
+/**
+ * The offline board (`nearby-v3-local.ts`): post my card while the hub is unreachable, and read the
+ * cards posted in my cell and the eight around it. One node per poster (keyed by pub), so a repost
+ * replaces the old card.
+ */
+export class GunNearbyLocalBoard {
+  private watched = new Map<string, () => void>();
+
+  constructor(private readonly gun: GunLike, private readonly onCard: (card: unknown) => void) {}
+
+  post(card: NearbyCard): void {
+    this.gun.get('p2p-signal').get(nearbyLocalPostChannel(card.point)).get(card.pub).put({ frame: JSON.stringify(card) });
+  }
+
+  /** Read the channels around `point`; reading moves with the point and stops for cells left. */
+  watch(point: { latitude: number; longitude: number }): void {
+    const wanted = new Set(nearbyLocalReadChannels(point));
+    for (const [channel, stop] of this.watched) {
+      if (!wanted.has(channel)) {
+        stop();
+        this.watched.delete(channel);
+      }
+    }
+    for (const channel of wanted) {
+      if (this.watched.has(channel)) continue;
+      let stopped = false;
+      const ref = this.gun.get('p2p-signal').get(channel).map();
+      ref.on((data, key) => {
+        if (stopped || !key || key.startsWith('_') || !data || typeof data !== 'object') return;
+        const frame = (data as { frame?: unknown }).frame;
+        if (typeof frame !== 'string') return;
+        try {
+          this.onCard(JSON.parse(frame));
+        } catch {
+          // Not a card.
+        }
+      });
+      this.watched.set(channel, () => {
+        stopped = true;
+        try { ref.off?.(); } catch { /* ignore */ }
+      });
+    }
+  }
+
+  stop(): void {
+    for (const stop of this.watched.values()) stop();
+    this.watched.clear();
   }
 }

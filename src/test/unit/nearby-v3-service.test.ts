@@ -50,6 +50,8 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
   const random = seededRandom(options.seed ?? 3);
   let dropNext = 0;
   let linkReady = true;
+  let hubDown = false;
+  const posted: NearbyCard[] = [];
   const link: NearbyV3Link = {
     ready: () => linkReady,
     async request(to, message) {
@@ -74,10 +76,25 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
       }),
       position: () => phone.position,
       hub: {
-        async heartbeat(card) { heartbeats.push(card.pub); hub.ingest(card, nowMs); },
-        async introductions(input) { return hub.introductions({ ...input, now: new Date(nowMs) }).cards; },
+        async heartbeat(card) {
+          if (hubDown) throw new Error('hub unreachable');
+          heartbeats.push(card.pub);
+          hub.ingest(card, nowMs);
+        },
+        async introductions(input) {
+          if (hubDown) throw new Error('hub unreachable');
+          return hub.introductions({ ...input, now: new Date(nowMs) }).cards;
+        },
       },
       link,
+      // The board as Gun peered over a LAN: every other phone reads what one posts.
+      localBoard: {
+        post(card) {
+          posted.push(card);
+          for (const other of phones.values()) if (other !== phone && other.online) void other.service.localCard(card);
+        },
+        watch() {},
+      },
       sign: fakeSign as never,
       verify: async (card) => (card as NearbyCard).proof?.pub === (card as NearbyCard).pub,
       storage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => { storage.set(key, value); } },
@@ -97,6 +114,9 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
     advance(ms: number) { nowMs += ms; },
     /** The next `count` swap requests get no answer (a link still opening, a busy phone). */
     dropRequests(count: number) { dropNext = count; },
+    /** The hub cannot be reached (no Internet). */
+    setHubDown(down: boolean) { hubDown = down; },
+    posted,
     /** The mesh is between rooms: nothing can be sent. */
     setLinkReady(ready: boolean) { linkReady = ready; },
     now: () => nowMs,
@@ -239,6 +259,29 @@ describe('NearbyV3Service', () => {
     p0.service.reportUnreachable('p1');
     await p1.service.gossipNow(); // p1 swaps with p0
     expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+  });
+
+  it('finds people nearby without the hub through the local board, and stops posting once it is back', async () => {
+    const net = network(config(), [SD, SD, SD]);
+    net.setHubDown(true);
+    const [p0, p1, p2] = ['p0', 'p1', 'p2'].map((pub) => net.phones.get(pub)!);
+    for (const phone of [p0, p1, p2]) await phone!.service.tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const phone of [p0, p1, p2]) {
+      expect(phone!.service.isHubReachable()).toBe(false);
+      expect(phone!.service.entries().map((entry) => entry.card.pub).sort()).toEqual(
+        ['p0', 'p1', 'p2'].filter((pub) => pub !== phone!.service.card()!.pub),
+      );
+    }
+    const postsWhileOffline = net.posted.length;
+    expect(postsWhileOffline).toBeGreaterThanOrEqual(3);
+    net.setHubDown(false);
+    net.advance(NEARBY_V3_DEFAULTS.cardReissueMs);
+    for (const phone of [p0, p1, p2]) await phone!.service.tick();
+    expect(p0.service.isHubReachable()).toBe(true);
+    net.advance(NEARBY_V3_DEFAULTS.gossipPeriodMs);
+    for (const phone of [p0, p1, p2]) await phone!.service.tick();
+    expect(net.posted.length).toBe(postsWhileOffline);
   });
 
   it('drops a person who stops answering', async () => {

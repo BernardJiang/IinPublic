@@ -823,9 +823,12 @@ phrase complexity into normal use.
     pass. Found and fixed: swaps sent while the mesh was between rooms dropped live people; direct
     contact now lifts a tombstone; 🏠 from a Place never re-synced the mesh, so Nearby never came
     back. Still to run: 30 (needs four phones; reworked to read Nearby lists) and 39.
-  - [ ] Offline Nearby: "Offline, the phones I can reach are my list" (§3.7 Gossip) is not built —
-    a list starts only from the hub's introductions. Seed it from LAN NSD / Wi-Fi Direct peers
-    (native-app/30's offline branch checks it).
+  - [x] Offline Nearby (2026-10-19): a phone that cannot reach the hub posts its card on a local
+    board (`nearby-v3-local.ts`, `GunNearbyLocalBoard`: a Gun channel per level-10 cell under
+    `p2p-signal`); phones read the 3×3 block around them. Real phones: native-app/30 offline over
+    Wi-Fi Direct passes with the P30 + C10 (found each other in ~2 s; Talks 7.6 s / 5.7 s).
+  - [ ] Wi-Fi Direct on the Honor FRD-L04 (Android 7): in the 3-phone offline run it never started
+    offline discovery (no `[nearby-offline]` events); the other two formed a group without it.
   - [ ] Daily beacon from the signed manifest (today the UTC date); identity-age rule.
   - [ ] Not v3 (found 2026-10-19, same on the pre-v3 commit 4981a03e): `find-similar-people.spec.ts`
     hangs in its reject phase inside `seedIncomingTagTalksForE2e` → `upsertLocalIncomingTalkClusters`

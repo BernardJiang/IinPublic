@@ -3,7 +3,7 @@ import type { NearbyV3Config } from '../../shared/nearby-v3-config';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import type { PublicLocation } from '../../shared/public-location';
 import type { NearbyListEntry } from '../../shared/nearby-v3-list';
-import { GunNearbyKnockChannel, NearbyKnockGate, NearbyV3MeshLink, type NearbyV3MeshPort } from './nearby-v3-link';
+import { GunNearbyKnockChannel, GunNearbyLocalBoard, NearbyKnockGate, NearbyV3MeshLink, type NearbyV3MeshPort } from './nearby-v3-link';
 import { NearbyV3Service, type NearbyV3Hub } from './nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
 
@@ -68,12 +68,17 @@ export class NearbyV3Runtime {
   readonly service: NearbyV3Service;
   readonly hub: FetchNearbyV3Hub;
   private readonly knocks: GunNearbyKnockChannel;
+  /** Offline Nearby: cards posted by phones that cannot reach the hub, read around my point. */
+  private readonly board: GunNearbyLocalBoard;
   private readonly gate: NearbyKnockGate;
   private stopKnocks: (() => void) | null = null;
 
   constructor(private readonly deps: NearbyV3RuntimeDeps) {
     this.hub = new FetchNearbyV3Hub(deps.apiBase);
     this.knocks = new GunNearbyKnockChannel(deps.gunService.getGun() as never);
+    this.board = new GunNearbyLocalBoard(deps.gunService.getGun() as never, (card) => {
+      void this.service.localCard(card).catch(() => undefined);
+    });
     this.service = new NearbyV3Service({
       config: deps.config,
       identity: () => {
@@ -86,6 +91,7 @@ export class NearbyV3Runtime {
       },
       hub: this.hub,
       link: new NearbyV3MeshLink(deps.mesh),
+      localBoard: this.board,
       storage: typeof localStorage !== 'undefined' ? localStorage : null,
       ...(deps.isPaused ? { isPaused: deps.isPaused } : {}),
       onChange: (entries) => {
@@ -116,6 +122,7 @@ export class NearbyV3Runtime {
 
   stop(): void {
     this.service.stop();
+    this.board.stop();
     this.stopKnocks?.();
     this.stopKnocks = null;
   }
@@ -147,6 +154,7 @@ export class NearbyV3Runtime {
       list: this.service.entries().map((entry) => ({ userId: entry.card.userId, distanceMeters: entry.key.distanceMeters })),
       card: this.service.card()?.issuedAt ?? null,
       stats: this.service.stats(),
+      hubReachable: this.service.isHubReachable(),
     };
   }
 

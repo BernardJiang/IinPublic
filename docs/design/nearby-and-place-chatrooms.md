@@ -694,7 +694,12 @@ it only triggers that swap; the mailbox carries their Talks meanwhile (implement
 2026-10-19: dropping people on link failures emptied six live lists under load). A knock carries
 the knocker's card, so the person knocked has the knocker on their list before the link is up.
 Gossip uses whatever link exists: Internet, LAN, Bluetooth or Wi-Fi Direct. Offline, the phones I
-can reach are my list.
+can reach are my list: a phone that cannot reach the hub posts its signed card on a **local board**,
+a Gun channel per level-10 map cell (about 39 km) under `p2p-signal`, which every node keeps in
+memory only. Offline its Gun is peered only with the phones it found over LAN or Wi-Fi Direct, so
+only they read it; each reads its own cell and the eight around it, merges the cards like
+introductions and swaps with anyone new at once. Back online it stops posting
+(`nearby-v3-local.ts`, `GunNearbyLocalBoard`).
 
 **Beyond `C`:** "Show more people here" asks people on my list for cards ranked by my order,
 skipping the ones I already hold. It is orderly and repeatable, but not guaranteed complete.

@@ -54,6 +54,11 @@ export type NearbyV3ServiceDeps = {
   position: () => NearbyV3Position | null;
   hub: NearbyV3Hub;
   link: NearbyV3Link;
+  /**
+   * Offline Nearby (`nearby-v3-local.ts`): post my card while the hub is unreachable; read the cards
+   * posted around my point (they come back through `localCard`).
+   */
+  localBoard?: { post(card: NearbyCard): void; watch(point: { latitude: number; longitude: number }): void };
   verify?: (card: unknown, maxLifetimeMs: number, now: Date) => Promise<boolean>;
   sign?: typeof createNearbyCard;
   storage?: Pick<Storage, 'getItem' | 'setItem'> | null;
@@ -98,6 +103,9 @@ export class NearbyV3Service {
   /** Room for more people than `C`, one page per "Show more people here"; a move resets it. */
   private extraCapacity = 0;
   private waitingForLink = false;
+  /** The hub answered the last heartbeat or search; false = offline, so the local board is used. */
+  private hubReachable = true;
+  private lastLocalPostAt = 0;
   private readonly verified = new Map<string, boolean>();
   /** People who did not answer, with the card they had: only a newer card brings them back. */
   private readonly silent = new Map<string, number>();
@@ -174,6 +182,36 @@ export class NearbyV3Service {
     const random = this.deps.random ?? Math.random;
     const partners = [...list.entries()].sort(() => random() - 0.5).slice(0, ANNOUNCE_SWAPS);
     await Promise.all(partners.map((entry) => this.gossipOnce(entry.card)));
+  }
+
+  /**
+   * A card from the local board (offline Nearby): merged like an introduction (not proof its owner
+   * is alive, so a tombstone stays). Someone new is asked for a swap at once, so they get my card
+   * even if only one of us is offline (and so posting).
+   */
+  async localCard(value: unknown): Promise<void> {
+    const list = this.list;
+    const own = this.ownCard;
+    const card = value as NearbyCard;
+    if (!list || !own || !card || typeof card !== 'object' || card.pub === own.pub || card.scope !== own.scope) return;
+    const known = list.get(card.pub);
+    await this.ingest([card]);
+    if (!known && list.get(card.pub)) {
+      this.log(`found ${card.userId.slice(0, 8)} nearby without the hub`);
+      await this.gossipOnce(card);
+    }
+  }
+
+  /** False while the hub is unreachable (offline Nearby uses the local board). */
+  isHubReachable(): boolean {
+    return this.hubReachable;
+  }
+
+  private setHubReachable(reachable: boolean): void {
+    if (reachable === this.hubReachable) return;
+    this.hubReachable = reachable;
+    this.lastLocalPostAt = 0;
+    this.log(reachable ? 'hub reachable again' : 'hub unreachable: posting my card on the local board');
   }
 
   /** Swaps started, failed (partner dropped), refused busy, and swaps this phone answered. */
@@ -280,7 +318,13 @@ export class NearbyV3Service {
         || previous.traveler !== this.ownCard.traveler
         || previous.point.latitude !== this.ownCard.point.latitude
         || previous.point.longitude !== this.ownCard.point.longitude);
-      await this.deps.hub.heartbeat(this.ownCard).catch((error) => this.log(`hub heartbeat failed: ${String(error)}`));
+      await this.deps.hub.heartbeat(this.ownCard).then(
+        () => this.setHubReachable(true),
+        (error) => {
+          this.log(`hub heartbeat failed: ${String(error)}`);
+          this.setHubReachable(false);
+        },
+      );
     }
 
     const searchKey = `${position.scope}|${position.point.latitude}|${position.point.longitude}`;
@@ -288,6 +332,7 @@ export class NearbyV3Service {
     if (searchKey !== this.searchedKey || list.size === 0) {
       try {
         const cards = await this.deps.hub.introductions({ point: position.point, scope: position.scope, excludePub: identity.pair.pub });
+        this.setHubReachable(true);
         // A newcomer (or someone who just moved) swaps with the nearest few people at once, so the
         // people around learn of them now rather than at their next period.
         announce = searchKey !== this.searchedKey || this.searchedEmpty;
@@ -298,7 +343,14 @@ export class NearbyV3Service {
         this.searchedEmpty = list.size === 0;
       } catch (error) {
         this.log(`hub introductions failed: ${String(error)}`);
+        this.setHubReachable(false);
       }
+    }
+
+    this.deps.localBoard?.watch(position.point);
+    if (!this.hubReachable && this.ownCard && (changedCard || nowMs - this.lastLocalPostAt >= config.gossipPeriodMs)) {
+      this.lastLocalPostAt = nowMs;
+      this.deps.localBoard?.post(this.ownCard);
     }
 
     const period = config.gossipPeriodMs * (this.deps.isPaused?.() ? PAUSED_GOSSIP_FACTOR : 1);
