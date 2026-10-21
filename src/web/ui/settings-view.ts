@@ -679,7 +679,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <label><input id="settings-connectivity-free-first" type="checkbox" ${connectivity.freeFirst ? 'checked' : ''}> Free routes first</label>
             <label><input id="settings-connectivity-direct-first" type="checkbox" ${connectivity.directFirst ? 'checked' : ''}> Direct routes first</label>
             <label><input id="settings-connectivity-battery-aware" type="checkbox" ${connectivity.batteryAware ? 'checked' : ''}> Battery-aware</label>
-            <label><input id="settings-connectivity-wifi-forwarding" type="checkbox" ${connectivity.wifiOnlyForwarding ? 'checked' : ''}> Forward peer traffic only over Wi-Fi/local routes</label>
+            <label><input id="settings-connectivity-wifi-forwarding" type="checkbox" ${connectivity.wifiOnlyForwarding ? 'checked' : ''}> Allow peer forwarding over Wi-Fi/local routes</label>
             <label>Identity reveal
               <select id="settings-connectivity-identity-reveal" class="form-input">
                 <option value="matches-only" ${connectivity.identityReveal === 'matches-only' ? 'selected' : ''}>Only after a Talk match</option>
