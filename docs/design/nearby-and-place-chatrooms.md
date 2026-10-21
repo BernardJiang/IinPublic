@@ -852,8 +852,8 @@ unchanged.
 - **Members find each other the same way as Nearby**, scoped to the Place: the hub keeps the
   Place's headcount and a bounded sample of its members' cards, and members gossip cards tagged with
   the Place id. Inside a Place everyone is "at" the Place, so ranking is my hash order alone.
-- **Up to `C` members:** everyone's list is everyone, so the Place behaves exactly like a shared
-  room, including its chat feed (`chatrooms/<placeId>/messages`).
+- **Up to `C` members:** everyone's list is everyone, so the Place behaves like a shared room.
+  Its casual public chat is a bounded recent feed, not a lifetime replicated Gun map.
 - **Above `C`:** each member sees their own 498, in their own order, and can page for more. A Place
   is **never full**. The v1 first-`C` seat claims, two-phase reservation and reconciliation losses,
   and the §4.1 cohort extension are no longer needed.
@@ -886,9 +886,13 @@ Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contac
   marks the Place visited, which keeps it live. A Place empties in the list as soon as its people
   leave: the runtime notices a new scope or point within a second and reissues the card at once. The online total counts everyone once,
   whichever list they are on.
-- The Place's chat feed (`chatrooms/<placeId>/messages`) is kept (`hasRoomChat`). A Place's
-  headcount includes me; Nearby's does not. The room list shows "N people", never "Full", and
-  "Sent to N of M" works in a Place too.
+- The Place's chat feed is kept (`hasRoomChat`), but OPEN-80 replaced the unbounded
+  `chatrooms/<placeId>/messages` Gun map with `GET/POST /api/chatrooms/:id/messages`. The hub keeps
+  only the latest `4 × C` messages and returns at most 50 per opaque-cursor poll; if a busy Place
+  produces more than one page between polls, recency wins and the middle is deliberately skipped.
+  Embedded Android nodes forward the endpoint to the hub, and an unavailable hub fails explicitly.
+  A Place's headcount includes me; Nearby's does not. The room list shows "N people", never "Full",
+  and "Sent to N of M" works in a Place too.
 - A card that moves (into a Place, back to Nearby, to a new point) leaves the hub's old samples at
   once, so the hub stops introducing someone where they were.
 
@@ -976,8 +980,8 @@ real-phone run.
    "N near you · M online" — N is my list without me, M the hub's count; the room-list header uses
    M too. A Nearby broadcast shows "Sent to N of M" under the Nearby row, counting delivery acks.
    Nearby has no chat feed. Web e2e `stage2-two-user/95-nearby-screens`.
-5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, chat kept for Places;
-   seat claims and cohorts go.
+5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, bounded recent chat kept for
+   Places; seat claims and cohorts go.
 6. **Removal of v2 — done (2026-10-19)** (no epoch switch, no compatibility): the partition
    lineage, cohort control plane and its mesh frame, control presence, micro-rooms, capacity splits
    and evictions, room routing, map presence and the Nearby part of the room list (now Places

@@ -3,8 +3,9 @@ import request from 'supertest';
 import { RELAY_ROOM_LEASE_MS, registerChatroomRoutes } from '../../server/routes/chatroom-routes';
 import { PlaceCreationConflictError } from '../../shared/place-lifecycle';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
+import { PlaceChatStore } from '../../server/services/place-chat-store';
 
-function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike } = {}) {
+function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike; placeChatStore?: PlaceChatStore } = {}) {
   const app = express();
   app.use(express.json());
   const manager = {
@@ -22,6 +23,7 @@ function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike } = {})
   registerChatroomRoutes(app, {
     chatroomManager: manager,
     ...(options.hubRelayClient ? { hubRelayClient: options.hubRelayClient } : {}),
+    ...(options.placeChatStore ? { placeChatStore: options.placeChatStore } : {}),
   });
   return { app, manager };
 }
@@ -153,6 +155,27 @@ describe('chatroom routes', () => {
     expect(manager.joinChatroom).not.toHaveBeenCalled();
     expect(relay.addMember).not.toHaveBeenCalled();
     expect(relay.listMembers).not.toHaveBeenCalled();
+  });
+
+  it('serves a bounded recent Place chat page and rejects chat on non-Places', async () => {
+    const store = new PlaceChatStore(20);
+    const { app } = buildApp({ placeChatStore: store });
+    const message = {
+      id: 'message_1', text: 'hello', senderId: 'user_1', senderName: 'One',
+      timestamp: '2027-01-15T08:00:00.000Z',
+    };
+    const posted = await request(app).post(`/api/chatrooms/${placeRoomId}/messages`).send(message);
+    expect(posted.status).toBe(201);
+    expect(posted.body.message).toEqual(message);
+
+    const listed = await request(app).get(`/api/chatrooms/${placeRoomId}/messages?limit=5`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.messages).toEqual([message]);
+    expect(typeof listed.body.cursor).toBe('string');
+
+    const rejected = await request(app).post('/api/chatrooms/nearby-v3/messages').send(message);
+    expect(rejected.status).toBe(410);
+    expect(rejected.body.code).toBe('ROOM_HAS_NO_CHAT');
   });
 
   function placeRelayDouble(overrides: Partial<EmbeddedHubRelayClientLike>): EmbeddedHubRelayClientLike {

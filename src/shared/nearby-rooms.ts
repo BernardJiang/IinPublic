@@ -67,7 +67,7 @@ export function hasNoHubRoster(value: string | null | undefined): boolean {
   return isLocalOnlyRoomScope(value) || isPersonalListScope(value);
 }
 
-/** Only a Place keeps a shared chat feed (`chatrooms/<placeId>/messages`); Nearby has none. */
+/** Only a Place keeps a shared chat feed (bounded HTTP pages since OPEN-80); Nearby has none. */
 export function hasRoomChat(value: string | null | undefined): boolean {
   return isPlaceRoomId(String(value || ''));
 }

@@ -490,7 +490,10 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     body?: unknown,
     timeoutMs?: number,
   ): Promise<{ status: number; body: unknown }> {
-    if (!/^\/api\/(?:active-rooms|nearby\/v3)(?:\/|\?|$)/.test(path)) {
+    if (
+      !/^\/api\/(?:active-rooms|nearby\/v3)(?:\/|\?|$)/.test(path)
+      && !/^\/api\/chatrooms\/[^/?]+\/messages(?:\?|$)/.test(path)
+    ) {
       throw new Error(`embedded hub relay refuses path "${path}"`);
     }
     return this.forwardJson(path, method, body, timeoutMs);

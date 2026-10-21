@@ -84,8 +84,7 @@ its ID.
     changes reset it, and catch-up sends active Talks to the selected group. Contacts now derive
     online dots and the **Online now** filter from bounded hub card-heartbeat queries. Verified by
     focused unit tests, Jest 3,174, light E2E 284/284, four-browser `stage4/08`, and `native-app/30`
-    on P30, C10, Honor FRD and PH-1 (Talks 7.4–14.9 s). OPEN-80 tracks the remaining unbounded
-    big-Place chat-feed problem.
+    on P30, C10, Honor FRD and PH-1 (Talks 7.4–14.9 s).
   - [x] Room-wide mesh overlay removed (2026-10-20): the rotating K window
     (`direct-talk-scheduler.ts`), `maxNeighbors`, the room-candidate FIFO, peer exchange (PEX: the
     `peer-exchange` frame, `peer-exchange.ts`, `PeerExchangeCacheStore`) and the libp2p discovery
@@ -132,11 +131,6 @@ its ID.
     loop, Places on lists, the daily beacon and identity-age rule, map/list/headcount UI (phases
     1–5 and 2026-10-20). No epoch migration: there is no v2 release to stay compatible with.
   - [x] v2 removed (2026-10-19, see "No compatibility" above).
-- [ ] **OPEN-80 — Bound a big Place's chat feed (found 2026-10-20 while designing groups).** Talks
-  in a Place reach at most `C` people per sender, but its chat feed (`chatrooms/<placeId>/messages`)
-  is one shared Gun path that every member syncs in full, so an arena Place with 10,000 members
-  carries every message to everyone. Decide: show only messages from my own group, page by
-  recency, or cap the feed to `C` members; then implement with a scale test.
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport
   is substantially ready (multiple OUT Talks, Nearby v3, delayed mailbox replies, Android offline

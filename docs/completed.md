@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-21
 
+## 2026-10-21 — OPEN-80 bounded the public Place chat feed
+
+- Replaced the lifetime-replicated `chatrooms/<placeId>/messages` Gun map with bounded recent
+  `GET/POST /api/chatrooms/:id/messages` pages. The hub retains at most `4 × C` messages per Place
+  and returns at most 50 per poll; opaque cursors deliver new messages without replaying history.
+- If more than one page arrives between polls, the client receives the newest page and reports an
+  overrun instead of downloading an unbounded backlog. The recent casual feed is intentionally
+  ephemeral across a hub restart.
+- Android embedded nodes forward the route to the hub. When the hub is unavailable, Place chat
+  fails explicitly instead of creating a divergent phone-local public history.
+- The old Gun message subscription and writes are gone. Unit/integration coverage includes strict
+  wire validation, cursor/dedup behavior, route behavior, the browser client, and a 10,000-message
+  scale test proving retention stays at `4 × C` and one response stays at 50 messages.
+
 ## 2026-10-21 — Meet new people (groups) and Contacts online dots
 
 - Product owner (2026-10-20): never grow a list past `C`; a button switches to the next `C` people,

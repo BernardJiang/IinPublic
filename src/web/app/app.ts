@@ -26,6 +26,7 @@ import {
   WebChatroomService,
   chatroomCapacityTestOverride,
 } from '../services/web-chatroom-service';
+import { PlaceChatClient } from '../services/place-chat-client';
 import { WebTalkService } from '../services/web-talk-service';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
 import { BlockStatusCache } from '../services/block-status-cache';
@@ -326,6 +327,8 @@ export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
   private chatroomService: WebChatroomService;
+  private placeChatClient: PlaceChatClient;
+  private placeChatUnsubscribe: (() => void) | null = null;
   private talkService: WebTalkService;
   private conversationService: WebConversationService;
   private contentNodeService: WebContentNodeService;
@@ -1112,6 +1115,7 @@ export class IinPublicApp {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
     this.chatroomService = new WebChatroomService(this.gunService);
+    this.placeChatClient = new PlaceChatClient(() => this.getBackendApiBase());
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
@@ -5885,32 +5889,27 @@ export class IinPublicApp {
    * This allows showing headcount badges for rooms the user hasn't visited
    */
   private subscribeToMessages(chatroomId: string): void {
+    this.placeChatUnsubscribe?.();
+    this.placeChatUnsubscribe = null;
     // Only a Place keeps a shared chat feed (§3.7); Nearby and Contacts only have none.
     if (!hasRoomChat(chatroomId)) return;
     console.log('💬 Subscribing to chatroom messages:', chatroomId);
-    const gun = this.gunService.getGun();
-
-    gun
-      .get('chatrooms')
-      .get(chatroomId)
-      .get('messages')
-      .map()
-      .on((messageData: any, messageId: string) => {
-        if (messageId.startsWith('_')) return; // Skip Gun.js metadata
-
-        console.log('📨 Received message:', messageData);
-
-        if (messageData && messageData.text) {
-          // Display the message in UI
+    this.placeChatUnsubscribe = this.placeChatClient.subscribe(
+      chatroomId,
+      (messages, dropped) => {
+        if (dropped) console.warn('Place chat skipped older messages that exceeded one bounded page');
+        for (const messageData of messages) {
           this.uiManager.displayChatroomMessage({
             id: messageData.id,
             text: messageData.text,
-            senderName: messageData.senderName || 'Unknown',
+            senderName: messageData.senderName,
             timestamp: messageData.timestamp,
             isOwnMessage: messageData.senderId === this.currentUser?.id,
           });
         }
-      });
+      },
+      (error) => console.warn('Place chat poll failed:', error),
+    );
   }
 
   /** `talkId::authorId::contentIdentity` — one key per revision of a talk from one author. */
@@ -8883,11 +8882,11 @@ export class IinPublicApp {
           timestamp: new Date().toISOString(),
         };
 
-        // Store message in Gun.js
-        const gun = this.gunService.getGun();
-        gun.get('chatrooms').get(chatroomId).get('messages').get(message.id).put(message);
+        const stored = await this.placeChatClient.send(chatroomId, message);
+        // The next bounded poll dedupes this id; render immediately for responsive sending.
+        this.uiManager.displayChatroomMessage({ ...stored, isOwnMessage: true });
 
-        console.log('✅ Message sent:', message);
+        console.log('✅ Message sent:', stored);
         this.uiManager.showNotification(this.uiManager.formatMessageSent(), 'success');
       } catch (error) {
         console.error('Failed to send message:', error);
