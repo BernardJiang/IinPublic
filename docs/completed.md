@@ -1,6 +1,29 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-20
+Last updated: 2026-10-21
+
+## 2026-10-21 — Meet new people (groups) and Contacts online dots
+
+- Product owner (2026-10-20): never grow a list past `C`; a button switches to the next `C` people,
+  because the reason to move on is having talked to them already, and matches are in Contacts
+  (unlimited, with online status). A new group and a new Place share one model (design §3.7
+  "Meeting new people in groups").
+- A group is a page of the owner's own order: "Meet new people" takes the last person's rank key as
+  a boundary and the list keeps only cards ranked after it (`NearbyListOwner.after`); swap requests
+  and replies carry the boundary so partners offer only people past it; a later group short of `C`
+  asks the hub again once per gossip period. The group is kept per scope for the day (a new beacon
+  or a move starts at group 1); "Back to group 1"; "You've met everyone here for now" after two
+  empty searches. "Show more people here" (list growth) is removed.
+- Room screen (Nearby and Places): group bar with **Meet new people** (in-page confirmation) and
+  **Back to group 1**; my active Talks reach the new group through the existing room catch-up.
+- Online dots: `POST /api/nearby/v3/online` (≤ 500 ids; online = card heartbeat within two reissue
+  periods; phones forward it) replaces the presence registry, which held only the newest 200 records
+  in one scope and never saw phones. Contacts filter **Online now**; refreshed every minute.
+- Verified: unit tests (list paging, wire boundary, service groups/restart/next day/per-Place, hub
+  online, contacts filter, group bar), Jest 3,174, full light E2E shard 284/284, `stage4/08`
+  (four browsers, C = 2), and `native-app/30` on P30, C10, Honor FRD and PH-1 (1.0.187: ring Talks
+  7.4–14.9 s, group round trip and online query through each phone's node).
+- Follow-up filed: OPEN-80 (a big Place's chat feed is unbounded).
 
 ## 2026-10-20 — A phone back from a network outage rejoined Nearby only at the next card reissue
 
