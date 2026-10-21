@@ -138,6 +138,33 @@ describe('settings view extraction', () => {
     renderSettingsView(user, deps);
 
     expect(document.querySelector('#settings-jump-menu')).not.toBeNull();
+    const menuItems = Array.from(
+      document.querySelectorAll<HTMLElement>('.settings-jump-menu-item'),
+      (item) => item.dataset.target,
+    );
+    expect(menuItems).toEqual([
+      'settings-section-profile',
+      'settings-section-appearance',
+      'settings-section-languages',
+      'settings-section-talk-behavior',
+      'settings-section-content-filters',
+      'settings-section-distance-home',
+      'settings-section-credit',
+      'settings-section-linked-devices',
+      'settings-section-connectivity',
+      'settings-section-download-app',
+      'settings-storage-inspector',
+      'settings-section-erase-device',
+      'settings-section-support-delegate',
+      'settings-section-help',
+    ]);
+    expect(Array.from(document.querySelectorAll('.settings-jump-menu-group-label'), (label) => label.textContent)).toEqual([
+      'Personalization',
+      'Talks & discovery',
+      'Identity & trust',
+      'App & data',
+      'Support',
+    ]);
     expect(document.querySelector('#settings-section-languages')).not.toBeNull();
     expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
