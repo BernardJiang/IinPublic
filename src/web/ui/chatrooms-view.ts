@@ -18,6 +18,7 @@ import { getL1TileInfo, parseTileId, tileBounds, tileCenter, TILE_BOTTOM_LAYER }
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
 import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
+import { getActiveMatchCollectionSession } from '../services/match-collection-session';
 
 type ChatroomMember = {
   userId: string;
@@ -274,6 +275,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     placeIcon: (type) => customRoomIcon(type === 'business' ? 'business' : 'custom'),
   });
   const sort = getRoomListSort();
+  const activeCollection = getActiveMatchCollectionSession();
 
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;
@@ -312,6 +314,17 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <section class="chatroom-flat-section" data-testid="current-group-section">
       <h2 class="chatroom-flat-heading">${deps.text('chatroomCurrentGroupHeading')}</h2>
       ${currentNode ? renderRoomRow(currentNode, true) : ''}
+      ${currentNode
+        ? `<div class="chatroom-flat-empty" data-testid="match-collection-card">
+            <strong>${deps.escapeHtml(deps.text(activeCollection ? 'matchCollectionActiveTitle' : 'matchCollectionTitle'))}</strong>
+            <p>${deps.escapeHtml(activeCollection
+              ? deps.text('matchCollectionActiveSummary')
+                .replace('{people}', String(activeCollection.reachedPeerIds.length))
+                .replace('{matches}', String(activeCollection.results.filter((result) => result.outcome === 'match').length))
+              : deps.text('matchCollectionHelp'))}</p>
+            <button type="button" class="btn ${activeCollection ? '' : 'primary-btn'}" id="match-collection-toggle" data-testid="match-collection-toggle">${deps.escapeHtml(deps.text(activeCollection ? 'matchCollectionStop' : 'matchCollectionStart'))}</button>
+          </div>`
+        : ''}
       ${isPersonalListScope(deps.currentChatroom) && deps.nearbyBroadcastProgress
         ? `<p class="chatroom-flat-progress" data-testid="nearby-broadcast-progress" role="status">${deps.escapeHtml(deps.text('nearbySentProgress')
           .replace('{sent}', String(deps.nearbyBroadcastProgress.sent))
@@ -343,6 +356,16 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       initial: placed?.auto ? { latitude: placed.latitude, longitude: placed.longitude } : null,
       // The app re-resolves the shared Nearby room on ENCOUNTER_LOCATION_EVENT.
       onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
+    });
+  });
+  document.getElementById('match-collection-toggle')?.addEventListener('click', () => {
+    if (activeCollection) {
+      deps.emit('endMatchCollection', {});
+      return;
+    }
+    deps.emit('startMatchCollection', {
+      scopeId: deps.currentChatroom,
+      label: currentNode?.name || deps.text('matchCollectionDefaultLabel'),
     });
   });
 

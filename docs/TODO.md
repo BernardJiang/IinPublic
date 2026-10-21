@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-20.
+Last reconciled: 2026-10-21.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -79,6 +79,13 @@ its ID.
     cards); a phone that went home kept its Place card while a slow swap held its tick (the runtime
     now watches its position, a refresh reissues at once and drops a card signed for a position it
     already left); an emptied Place vanished from "Places near you" behind a stale local count.
+  - [x] Phase 6 (2026-10-21, 1.0.187): **Meet new people** pages the owner's ranked Nearby/Place
+    list without ever growing it past `C`; **Back to group 1** restores the first page, scope/day
+    changes reset it, and catch-up sends active Talks to the selected group. Contacts now derive
+    online dots and the **Online now** filter from bounded hub card-heartbeat queries. Verified by
+    focused unit tests, Jest 3,174, light E2E 284/284, four-browser `stage4/08`, and `native-app/30`
+    on P30, C10, Honor FRD and PH-1 (Talks 7.4–14.9 s). OPEN-80 tracks the remaining unbounded
+    big-Place chat-feed problem.
   - [x] Room-wide mesh overlay removed (2026-10-20): the rotating K window
     (`direct-talk-scheduler.ts`), `maxNeighbors`, the room-candidate FIFO, peer exchange (PEX: the
     `peer-exchange` frame, `peer-exchange.ts`, `PeerExchangeCacheStore`) and the libp2p discovery
@@ -130,6 +137,53 @@ its ID.
   is one shared Gun path that every member syncs in full, so an arena Place with 10,000 members
   carries every message to everyone. Decide: show only messages from my own group, page by
   recency, or cap the feed to `C` members; then implement with a scale test.
+- [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
+  collect replies, then review the few people who matter most (started 2026-10-20).** The transport
+  is substantially ready (multiple OUT Talks, Nearby v3, delayed mailbox replies, Android offline
+  links and background mode), but the product still treats the activity as unrelated broadcasts,
+  replies and Contacts. The shipping gate is one continuous, resumable workflow with an honest
+  summary and useful ranking. Do not call the use case ready from the 498-person simulation alone:
+  physical qualification currently covers four phones, ordinary GPS is not continuously refreshed,
+  and much matching logic still lives in the WebView.
+  - [x] **G1 — Durable outing identity and evidence (first slice, 2026-10-20).** Add a bounded,
+    versioned local collection-session store; snapshot the active scope, selected Talk ids and
+    blurred public point; associate each intended peer + Talk delivery with the active outing; keep
+    late match/mismatch/ignore results attached after Stop or process restart; stamp the existing
+    local exchange projection with the collection id. Focused unit tests cover delayed replies,
+    receiver narrowing, repeated encounters and corrupt storage.
+  - [ ] **G2 — One Start/Stop collection control.** Put the control beside the current Nearby/Place
+    group, show elapsed time / people reached / replies / matches, restore an active outing after a
+    restart, and make Broadcast clearly feed it. Starting a new outing ends the previous one; Stop
+    freezes the send/location context but continues accepting late replies.
+    - [x] First control slice (2026-10-20): the current-group card starts/stops a session, restores
+      its durable active state, and reports people reached plus matches; Broadcast and catch-up
+      deliveries feed the session. Still needed: elapsed/pending/reply counts, stronger Broadcast
+      affordance, and the review transition.
+  - [ ] **G3 — Correct place and time semantics.** Snapshot a freshly confirmed, privacy-blurred
+    location at send time rather than relying on `Talk.authorLocation` from Talk creation; retain
+    distance-at-encounter; handle indoor/no-GPS and subway movement without pretending the reading
+    is precise; define when a moving outing rolls to a new area.
+  - [ ] **G4 — Materialized outing review.** Add a collection detail screen with reached, pending,
+    matched, mismatched and late counts; preserve repeated peer + Talk outcomes instead of the
+    current latest-only `peerId::talkId` projection; link each person to their replies and chat;
+    allow pin, dismiss and private notes.
+  - [ ] **G5 — Importance-aware ranking.** Let the author mark Talks/questions as important or
+    must-have, then rank within this outing by must-have failures, weighted answer strength,
+    matched-Talk breadth, trust/relationship, distance-at-encounter and freshness. Reuse the
+    weighted `find-similar` primitives rather than the Contacts tab's current fixed relevance
+    formula. Explain the top reasons and never silently hide candidates.
+  - [ ] **G6 — Real background collection.** Move the minimum receive/match/outbox/session work out
+    of the Android WebView into the foreground-service path, survive screen-off and process death,
+    reconcile without duplicate outcomes, and disclose vendor battery restrictions. "Always" mode
+    must resume the exact active outing; "While open" must say collection is paused.
+  - [ ] **G7 — Qualification gate.** Add a deterministic 498-person model for ranking and storage,
+    a 10–20 simulated-client outing, and physical Android runs for walking movement, subway/no-GPS,
+    Wi-Fi ↔ cellular ↔ offline transitions, screen-off, restart, delayed replies and repeated
+    encounters. Keep the existing four-phone test, but do not use it as the crowd-scale claim.
+  - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
+    auto-answers, add actionable pending states, finish Nearby credit/block-count defenses before a
+    public dense-place launch, and treat iOS as unsupported until its native background/discovery
+    work is qualified.
 - [ ] **OPEN-76 — Physical transport, radio and battery measurements (carried over from OPEN-40
   G2.5 and its P1 discovery item on 2026-10-20).** The 2026-10-18/20 rounds
   (`docs/testing/android-transport-measurements.md`) cover hub, LAN, offline Wi-Fi Direct and mobile

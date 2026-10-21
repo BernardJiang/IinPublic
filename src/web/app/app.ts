@@ -163,6 +163,12 @@ import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import {
+  endMatchCollectionSession,
+  recordMatchCollectionDelivery,
+  recordMatchCollectionExchange,
+  startMatchCollectionSession,
+} from '../services/match-collection-session';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
@@ -6045,6 +6051,9 @@ export class IinPublicApp {
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
     console.log(`[RESP-RECORD] talk=${talkId.slice(-8)} peer=${peerId.slice(0, 8)} outcome=${outcome} dir=${meta?.direction || 'sent'}`);
+    const collectionTag = meta?.direction === 'received'
+      ? null
+      : recordMatchCollectionExchange(peerId, talkId, outcome);
     try {
       const raw = localStorage.getItem('localTalkExchanges');
       const exchanges = raw ? JSON.parse(raw) : {};
@@ -6066,6 +6075,7 @@ export class IinPublicApp {
         ...(meta?.responseId ? { responseId: meta.responseId } : {}),
         ...(meta?.version !== undefined ? { version: meta.version } : {}),
         ...(meta?.respondedAt ? { respondedAt: meta.respondedAt } : {}),
+        ...(collectionTag || {}),
       };
       localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
     } catch {
@@ -8441,6 +8451,28 @@ export class IinPublicApp {
       },
     );
 
+    this.uiManager.on(
+      'startMatchCollection',
+      (data: { label?: string; scopeId?: string }) => {
+        const scopeId = String(data.scopeId || this.chatroomService.getCurrentChatroomId() || '').trim();
+        if (!scopeId) return;
+        const point = this.nearbyPublicPoint();
+        startMatchCollectionSession({
+          label: String(data.label || this.uiText('matchCollectionDefaultLabel')),
+          scopeId,
+          talkIds: this.uiManager.getBroadcastableTalkIds(),
+          ...(point ? { point } : {}),
+        });
+        this.uiManager.showChatroomList();
+        this.uiManager.showNotification(this.uiText('matchCollectionStarted'), 'success');
+      },
+    );
+    this.uiManager.on('endMatchCollection', () => {
+      if (!endMatchCollectionSession()) return;
+      this.uiManager.showChatroomList();
+      this.uiManager.showNotification(this.uiText('matchCollectionEnded'), 'success');
+    });
+
     // Broadcast broadcastable OUT talks: server register + Gun announce (current chatroom only)
     this.uiManager.on(
       'broadcastTalk',
@@ -8511,6 +8543,11 @@ export class IinPublicApp {
             ? (data.members ?? []).filter((member) =>
               !!member.userId && member.userId !== this.currentUser!.id && member.userId !== TECHSUPPORT_ROOT_USER_ID)
             : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          recordMatchCollectionDelivery({
+            talkIds: broadcastableIds,
+            peerIds: receivers.map((receiver) => receiver.userId),
+            ...(data.talkReceiverIds ? { talkReceiverIds: data.talkReceiverIds } : {}),
+          });
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
