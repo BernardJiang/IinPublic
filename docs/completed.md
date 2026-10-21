@@ -2,6 +2,103 @@
 
 Last updated: 2026-10-20
 
+## 2026-10-20 — A phone back from a network outage rejoined Nearby only at the next card reissue
+
+- Found by the rewritten `native-app/13` on 1.0.185 (P30, C10, PH-1): the P30's Wi-Fi went off, the
+  C10 sent it a Talk, Wi-Fi came back, and the Talk had not arrived 120 s later.
+- Cause (`nearby-v3-service.ts`): while offline, the P30's swaps to everyone failed, so it
+  tombstoned every person on its list; the others tombstoned it too. A tombstone lifts only on a
+  newer card or direct contact, cards are reissued every 3 min, and the C10's outbox retries only a
+  live neighbor — so both sides waited for the next reissue (up to 3 min) before relisting.
+- Fix: when the hub becomes reachable again the phone clears its own tombstones (they came from its
+  own outage), then reissues its card and announces it to the nearest people, whose direct contact
+  lifts their tombstones at once.
+- Unit test `nearby-v3-service.test.ts` "a phone back from an outage rejoins at once" (fails
+  without the fix); journeys `native-app/13` (passes on 1.0.186, three phones) and `stage3/81`.
+
+## 2026-10-20 — OPEN-59 closed
+
+- [x] **OPEN-59 (closed 2026-10-20) — Run the core-logic suite on Android, not only on the Mac host (started
+  2026-10-14).** `npm run test:all` remains the authoritative host suite: server, scale,
+  cross-browser, and desktop tests do not belong inside a phone. The Android layer instead runs
+  the same serializable core contracts in Jest, Node 18, the real app WebView, and embedded Node,
+  then ports user journeys behind a runtime-neutral actor interface. Full design and commands:
+  `docs/testing/android-core-test-plan.md`.
+  - [x] Inventory every current Jest/E2E file by execution lane and conversion disposition
+    (`npm run test:android:coverage`; machine-readable output with
+    `npm run --silent test:android:coverage -- --json`).
+  - [x] Add the first six deterministic portable contracts: release ordering, room-capacity
+    FIFO, contact audience, question defaults, Nearby location policy, and block-pair keys.
+  - [x] Build identical WebView and Node 18 bundles and prove the Jest/Node/headless-Chromium
+    baseline without a phone (`npm run test:android:core:host`).
+  - [x] Add a small `TestActor` interface for new browser/Android-neutral journeys and a bundle
+    runner which accepts either kind of actor.
+  - [x] Add a gated Playwright spec which runs the contracts in both runtimes of the actual
+    installed Android app (injected WebView bundle + embedded-Node endpoint) and attaches their
+    JSON results; add plan/core/full-sweep commands. The full sweep keeps mixed-release tests first
+    and portable latest-version parity last.
+  - [x] Add the embedded-Node bridge. It is fixed-function (no arbitrary evaluation), requires an
+    explicit E2E flag passed through a debug build, listens through the existing loopback server,
+    rejects non-loopback callers, and remains absent when the flag is off or `NODE_ENV=production`.
+  - [x] Run the new WebView + embedded-Node parity spec on the supported real-phone matrix
+    (2026-10-14): 6/6 contracts passed in both runtimes on all four devices — VOG-L29 Android 10 /
+    WebView 153, PH-1 Android 10 / WebView 154, FRD-L04 Android 7 / WebView 61, and C10 Android 14 /
+    WebView 153; embedded Node is v18.20.4. The first run correctly exposed that `addScriptTag`
+    violates the production CSP; the harness now uses its authenticated adb/CDP evaluation channel
+    without weakening app headers, and the complete four-device rerun passed.
+  - [x] Run the repaired current-version physical journeys (2026-10-15). Four-phone online Nearby
+    convergence passed with a four-Talk ring plus delivery after backgrounding (five deliveries,
+    9.6–18.6 s, median 13.3 s). Website↔phone identity linking passed cancellation, signatures,
+    replay rejection, restart persistence, and unlink. Three-phone room isolation/offline resync
+    passed, as did capacity-3 cohort splitting, manual traversal, Talk delivery, and background
+    recovery. The final four-phone WebView/embedded-Node parity rerun again passed 6/6 in both
+    runtimes on every phone.
+  - [x] Make physical bootstrap deterministic on slow/moving WebViews: dismiss the location picker
+    both before and after first Chatrooms entry, and invoke setup-only navigation through each real
+    button listener instead of waiting for an animated bounding box. Also ensure
+    `test:android:full` still runs latest-version portable parity last when an earlier journey fails.
+  - [x] Step 1 of the conversion plan (2026-10-17, `docs/testing/android-core-test-plan.md`): 92
+    real unit files (1,155 tests: match engine, intake filters, reputation, room routing, Nearby
+    partitions and certificates, P2P trust, manifests, SEA-signed records, TechSupport) run
+    unchanged in each phone's WebView and embedded Node through a Jest-compatible runtime;
+    `native-app/34` requires the host's exact test ids. `suites.json` records why each other file
+    stays host-only. The first phone runs found two embedded-Node-only bugs, both fixed with host
+    unit tests (`embedded-node-runtime-gaps.test.ts`): `sha256Hex` threw `crypto is not defined`
+    (Node 18 has no global WebCrypto), and the dirty-word filter missed fullwidth letters (no ICU,
+    so NFKC is a no-op). Also fixed a 1-in-16 flaky tamper in `nearby-partition.test.ts`.
+  - [x] Grow step 1: `jest.fn`/`jest.spyOn` in the portable runtime (119 files are excluded only
+    for `jest.*`).
+    → Done 2026-10-17/18 (1.0.161-164): `portable-jest/mocks.ts` adds jest.fn/spyOn, the call and
+    return matchers, and modern fake timers; web imports are allowed (the WebView runs them anyway).
+    148 files / 1,546 tests now run on phones (was 92 / 1,155). On a phone the suite runs in a
+    sandbox, because fake timers would otherwise capture the live app's timers: a same-origin
+    iframe in the WebView (not about:blank: gun/sea redirects any non-https, non-localhost page to
+    https and navigated it) and a worker thread in embedded Node. Selection emulates embedded
+    Node 18 (no global crypto/CustomEvent/…, no `\p{}` regex literals without ICU) and checks every
+    test id against real Jest; the phones' runs found each of these gaps first.
+  - [x] Step 2: the two-person journeys behind `TestActor` (2026-10-18). `tests/e2e/journeys/` holds
+    the bodies; phone-path/02 and /04 run them with host phone nodes and native-app/37 and /38 with
+    two real phones: talk → answer → match → P2P chat, mismatch, block, and leave (all pass on
+    P30+C10, PH-1+C10 and Honor FRD+C10). They run in `test:android:full` beside the cellular gate.
+    Found on the way (test harness): at phone width Broadcast sits in the "…" overflow, and a tap on
+    the Talk editor's checkbox can land while the keyboard moves the layout.
+  - [x] Step 3 (2026-10-20): `tests/e2e/journeys/nearby-ring-journey.ts` (J-NEARBY-01–03: everyone
+    lists everyone, a Talk ring, a backgrounded receiver) runs in `staged/stage4/07` with four
+    browsers (passes, ring Talks 5–6 s) and in `native-app/30` on phones (refactored; not yet
+    re-run on hardware). `native-app/13` was still on v2 (custom rooms, Global); it now runs the
+    shared J-NEARBY-04/05 offline-resync journey, also in `staged/stage3/81` (passes). The v2
+    split/capacity/cohort journeys went with v2.
+  - [x] Real phones (2026-10-20): `native-app/30` passes on P30, C10, Honor FRD and PH-1 (1.0.185;
+    ring Talks 10.6–11.7 s, backgrounded C10 8.2 s). `native-app/13` passes on P30, C10 and PH-1
+    (1.0.186) after the outage-rejoin fix below. Keep mass, server-only, browser-engine,
+    and desktop-native coverage on the host.
+  - [x] Merge Jest, host bundle, WebView, embedded-Node, and journey results into one durable
+    per-device coverage report; make unexpected coverage loss fail CI/release qualification.
+    → Done 2026-10-18: every sweep ends with a per-phone table (contracts and unit tests per
+    runtime, same ids as host, and every other step that names the phone), saved as
+    `playwright-report-android/coverage.md` and `.json`. `src/test/support/portable-jest/
+    coverage-floor.json` (148 files / 1,546 tests) fails the core phase on any drop below it.
+
 ## 2026-10-20 — OPEN-78: pre-release migration code removed
 
 Product owner (2026-10-20): no installed tester build needs the one-time imports kept "until the

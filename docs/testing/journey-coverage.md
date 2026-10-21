@@ -64,8 +64,8 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-NEARBY-01 | Several people nearby each have all the others on their own list | ✅ `stage4/07` | ◐ `phone-path/08` (two people) | ✅ `native-app/30` |
 | J-NEARBY-02 | Each person's Talk reaches the next person in a ring | ✅ `stage4/07` | — | ✅ `native-app/30` |
 | J-NEARBY-03 | A Talk sent to a backgrounded phone is there when it comes back | — (needs the Android shell) | — | ✅ `native-app/30` |
-| J-NEARBY-04 | Three people send Talks at once; each receives the other two | ✅ `stage3/81` | — | ⏳ `native-app/13` (rewritten for v3 2026-10-20) |
-| J-NEARBY-05 | A Talk sent while someone is offline arrives when they return; the others carry on | ◐ `stage3/81` (browser offline may keep WebRTC up) | — | ⏳ `native-app/13` |
+| J-NEARBY-04 | Three people send Talks at once; each receives the other two | ✅ `stage3/81` | — | ✅ `native-app/13` (1.0.186) |
+| J-NEARBY-05 | A Talk sent while someone is offline arrives when they return; the others carry on | ◐ `stage3/81` (browser offline may keep WebRTC up) | — | ✅ `native-app/13` (1.0.186) |
 | J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | ✅ `phone-path/04` | — |
 | **Places** | | | | |
 | J-PLACE-01 | Create a Place; the creator stands in it | ✅ `stage1/54-place-creation-rules` | ✅ `phone-path/01` | ✅ `native-app/33` |

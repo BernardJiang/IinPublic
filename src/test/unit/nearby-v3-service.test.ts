@@ -56,12 +56,13 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
     ready: () => linkReady,
     async request(to, message) {
       const phone = phones.get(to.pub);
-      if (!phone?.online) return null;
+      const from = (message as { card?: NearbyCard }).card?.pub ?? '';
+      // An offline phone reaches no one, and no one reaches it.
+      if (!phone?.online || phones.get(from)?.online === false) return null;
       if (dropNext > 0) {
         dropNext -= 1;
         return null;
       }
-      const from = (message as { card?: NearbyCard }).card?.pub ?? '';
       return phone.service.handleMessage(from, JSON.parse(JSON.stringify(message)));
     },
   };
@@ -77,12 +78,12 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
       position: () => phone.position,
       hub: {
         async heartbeat(card) {
-          if (hubDown) throw new Error('hub unreachable');
+          if (hubDown || !phone.online) throw new Error('hub unreachable');
           heartbeats.push(card.pub);
           hub.ingest(card, nowMs);
         },
         async introductions(input) {
-          if (hubDown) throw new Error('hub unreachable');
+          if (hubDown || !phone.online) throw new Error('hub unreachable');
           return hub.introductions({ ...input, now: new Date(nowMs) }).cards;
         },
       },
@@ -311,6 +312,36 @@ describe('NearbyV3Service', () => {
     await net.phones.get('p1')!.service.tick();
     await p0.service.tick();
     expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+  });
+
+  it('a phone back from an outage rejoins at once, not at the next reissue (native-app/13)', async () => {
+    const net = network(config(), [SD, SD, SD]);
+    const [p0, p1, p2] = ['p0', 'p1', 'p2'].map((pub) => net.phones.get(pub)!);
+    for (const phone of [p0, p1, p2]) await phone.service.tick();
+    for (const phone of [p0, p1, p2]) await phone.service.tick();
+    const listOf = (phone: Phone) => phone.service.entries().map((entry) => entry.card.pub).sort();
+    expect(listOf(p1)).toEqual(['p0', 'p2']);
+
+    // p0 loses its network: the others find it silent, and it finds them silent.
+    p0.online = false;
+    for (let i = 0; i < 12 && (listOf(p0).length || listOf(p1).includes('p0') || listOf(p2).includes('p0')); i += 1) {
+      net.advance(NEARBY_V3_DEFAULTS.gossipPeriodMs);
+      for (const phone of [p0, p1, p2]) await phone.service.tick();
+    }
+    expect(listOf(p0)).toEqual([]);
+    expect(listOf(p1)).toEqual(['p2']);
+    await p0.service.tick(); // an empty list asks the hub, which it cannot reach
+    expect(p0.service.isHubReachable()).toBe(false);
+
+    // Back online, well inside one reissue period: two passes put everyone back on every list.
+    p0.online = true;
+    net.advance(1_000);
+    await p0.service.tick();
+    await p0.service.tick();
+    expect(p0.service.isHubReachable()).toBe(true);
+    expect(listOf(p0)).toEqual(['p1', 'p2']);
+    expect(listOf(p1)).toEqual(['p0', 'p2']);
+    expect(listOf(p2)).toEqual(['p0', 'p1']);
   });
 
   it('answers "busy" past its incoming limit', async () => {

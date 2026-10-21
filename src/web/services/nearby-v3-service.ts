@@ -131,6 +131,8 @@ export class NearbyV3Service {
   private stashedByScope = new Map<string, NearbyCard[]>();
   /** The hub answered the last heartbeat or search; false = offline, so the local board is used. */
   private hubReachable = true;
+  /** The hub just became reachable again: reissue and announce on the next pass. */
+  private backOnline = false;
   private lastLocalPostAt = 0;
   private readonly verified = new Map<string, boolean>();
   /** `pub|issuedAt` → the verified first-seen day of that card's key, or null (none or invalid). */
@@ -264,6 +266,13 @@ export class NearbyV3Service {
     if (reachable === this.hubReachable) return;
     this.hubReachable = reachable;
     this.lastLocalPostAt = 0;
+    if (reachable) {
+      // Back from an outage: the people I found silent were silent because I was offline, so their
+      // tombstones go. The next pass reissues my card and announces it, which lifts mine on their
+      // side (they found me silent too); otherwise we rejoin only at the next reissue (3 min).
+      this.silent.clear();
+      this.backOnline = true;
+    }
     this.log(reachable ? 'hub reachable again' : 'hub unreachable: posting my card on the local board');
   }
 
@@ -358,8 +367,10 @@ export class NearbyV3Service {
 
     // A changed name, point or traveler flag reaches the nearest person at once (below); a plain
     // reissue before expiry travels with the next regular swap.
-    const changedCard = this.cardIsStale(position, identity.userId, nowMs, config)
-      ? await this.reissueCard(position, identity, nowMs, config)
+    const backOnline = this.backOnline;
+    this.backOnline = false;
+    const changedCard = backOnline || this.cardIsStale(position, identity.userId, nowMs, config)
+      ? (await this.reissueCard(position, identity, nowMs, config)) || backOnline
       : false;
 
     const searchKey = `${position.scope}|${position.point.latitude}|${position.point.longitude}`;
