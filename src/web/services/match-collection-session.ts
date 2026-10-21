@@ -20,11 +20,28 @@ export type MatchCollectionPoint = {
   precisionMeters: number;
 };
 
+export type MatchCollectionLocationSample = {
+  id: string;
+  capturedAt: string;
+  source: 'gps' | 'traveler' | 'place' | 'unavailable';
+  point?: MatchCollectionPoint;
+  /** Exact GPS accuracy is never stored; this is the public grid size when a point exists. */
+  precisionMeters?: number;
+  /** True when this send moved into a different public grid cell from the previous send. */
+  areaChanged?: boolean;
+};
+
 export type MatchCollectionResult = {
   peerId: string;
   talkId: string;
   outcome: MatchCollectionOutcome;
   capturedAt: string;
+};
+
+export type MatchCollectionPeerReview = {
+  pinned?: boolean;
+  dismissed?: boolean;
+  note?: string;
 };
 
 export type MatchCollectionSession = {
@@ -38,6 +55,32 @@ export type MatchCollectionSession = {
   talkIds: string[];
   reachedPeerIds: string[];
   results: MatchCollectionResult[];
+  peerReviews?: Record<string, MatchCollectionPeerReview>;
+  locationSamples?: MatchCollectionLocationSample[];
+};
+
+export type MatchCollectionSummary = {
+  reached: number;
+  deliveries: number;
+  replies: number;
+  pending: number;
+  matches: number;
+  mismatches: number;
+  ignored: number;
+  late: number;
+  elapsedMs: number;
+};
+
+export type MatchCollectionReviewPerson = {
+  peerId: string;
+  talkIds: string[];
+  pending: number;
+  results: MatchCollectionResult[];
+  latestOutcomes: Array<{ talkId: string; outcome: MatchCollectionOutcome; capturedAt: string; late: boolean }>;
+  pinned: boolean;
+  dismissed: boolean;
+  note: string;
+  encounterDistancesMeters: number[];
 };
 
 type DeliveryAssociation = {
@@ -45,6 +88,8 @@ type DeliveryAssociation = {
   peerId: string;
   talkId: string;
   sentAt: string;
+  locationSampleId?: string;
+  encounterDistanceMeters?: number;
 };
 
 type MatchCollectionStore = {
@@ -96,6 +141,38 @@ function normalizeSession(value: unknown): MatchCollectionSession | null {
         return [{ peerId, talkId, outcome: result.outcome, capturedAt }];
       }).slice(-MAX_RESULTS_PER_SESSION)
     : [];
+  const peerReviews = row.peerReviews && typeof row.peerReviews === 'object'
+    ? Object.fromEntries(Object.entries(row.peerReviews).flatMap(([peerIdInput, candidate]) => {
+        const peerId = clean(peerIdInput);
+        if (!peerId || !candidate || typeof candidate !== 'object') return [];
+        const review = candidate as MatchCollectionPeerReview;
+        const note = clean(review.note).slice(0, 2_000);
+        return [[peerId, {
+          ...(review.pinned ? { pinned: true } : {}),
+          ...(review.dismissed ? { dismissed: true } : {}),
+          ...(note ? { note } : {}),
+        }]];
+      }))
+    : {};
+  const locationSamples = Array.isArray(row.locationSamples)
+    ? row.locationSamples.flatMap((candidate): MatchCollectionLocationSample[] => {
+        if (!candidate || typeof candidate !== 'object') return [];
+        const sample = candidate as Partial<MatchCollectionLocationSample>;
+        const id = clean(sample.id);
+        const capturedAt = clean(sample.capturedAt);
+        if (!id || !capturedAt || Number.isNaN(Date.parse(capturedAt))) return [];
+        if (sample.source !== 'gps' && sample.source !== 'traveler'
+          && sample.source !== 'place' && sample.source !== 'unavailable') return [];
+        const point = validPoint(sample.point) ? sample.point : undefined;
+        return [{
+          id,
+          capturedAt,
+          source: sample.source,
+          ...(point ? { point, precisionMeters: point.precisionMeters } : {}),
+          ...(sample.areaChanged ? { areaChanged: true } : {}),
+        }];
+      }).slice(-500)
+    : [];
   return {
     version: 1,
     id,
@@ -109,6 +186,8 @@ function normalizeSession(value: unknown): MatchCollectionSession | null {
       ? [...new Set(row.reachedPeerIds.map(clean).filter(Boolean))]
       : [],
     results,
+    ...(Object.keys(peerReviews).length ? { peerReviews } : {}),
+    ...(locationSamples.length ? { locationSamples } : {}),
   };
 }
 
@@ -129,7 +208,18 @@ function readStore(): MatchCollectionStore {
           const talkId = clean(row.talkId);
           const sentAt = clean(row.sentAt);
           if (!sessionIds.has(sessionId) || !peerId || !talkId || !sentAt || Number.isNaN(Date.parse(sentAt))) return [];
-          return [{ sessionId, peerId, talkId, sentAt }];
+          const locationSampleId = clean(row.locationSampleId);
+          const encounterDistanceMeters = Number(row.encounterDistanceMeters);
+          return [{
+            sessionId,
+            peerId,
+            talkId,
+            sentAt,
+            ...(locationSampleId ? { locationSampleId } : {}),
+            ...(Number.isFinite(encounterDistanceMeters) && encounterDistanceMeters >= 0
+              ? { encounterDistanceMeters }
+              : {}),
+          }];
         }).slice(-MAX_ASSOCIATIONS)
       : [];
     const activeSessionId = clean(parsed.activeSessionId);
@@ -169,6 +259,113 @@ export function listMatchCollectionSessions(): MatchCollectionSession[] {
 export function getActiveMatchCollectionSession(): MatchCollectionSession | null {
   const store = readStore();
   return store.sessions.find((session) => session.id === store.activeSessionId && !session.endedAt) ?? null;
+}
+
+export function getLatestMatchCollectionSession(): MatchCollectionSession | null {
+  return readStore().sessions.at(-1) ?? null;
+}
+
+export function getMatchCollectionSession(sessionIdInput: string): MatchCollectionSession | null {
+  const sessionId = clean(sessionIdInput);
+  return readStore().sessions.find((session) => session.id === sessionId) ?? null;
+}
+
+function latestResultsByPair(results: MatchCollectionResult[]): Map<string, MatchCollectionResult> {
+  const latest = new Map<string, MatchCollectionResult>();
+  for (const result of results) latest.set(`${result.peerId}\u0000${result.talkId}`, result);
+  return latest;
+}
+
+export function summarizeMatchCollectionSession(
+  sessionId: string,
+  now: Date = new Date(),
+): MatchCollectionSummary | null {
+  const store = readStore();
+  const session = store.sessions.find((candidate) => candidate.id === sessionId);
+  if (!session) return null;
+  const associations = store.associations.filter((row) => row.sessionId === session.id);
+  const latestResults = [...latestResultsByPair(session.results).values()];
+  const repliedPairs = new Set(latestResults.map((row) => `${row.peerId}\u0000${row.talkId}`));
+  const endedAtMs = session.endedAt ? Date.parse(session.endedAt) : now.getTime();
+  const startedAtMs = Date.parse(session.startedAt);
+  const endedBoundary = session.endedAt ? Date.parse(session.endedAt) : Number.POSITIVE_INFINITY;
+  return {
+    reached: session.reachedPeerIds.length,
+    deliveries: associations.length,
+    replies: repliedPairs.size,
+    pending: Math.max(0, associations.length - repliedPairs.size),
+    matches: latestResults.filter((row) => row.outcome === 'match').length,
+    mismatches: latestResults.filter((row) => row.outcome === 'mismatch').length,
+    ignored: latestResults.filter((row) => row.outcome === 'ignore').length,
+    late: latestResults.filter((row) => Date.parse(row.capturedAt) > endedBoundary).length,
+    elapsedMs: Math.max(0, endedAtMs - startedAtMs),
+  };
+}
+
+export function getMatchCollectionReviewPeople(sessionIdInput: string): MatchCollectionReviewPerson[] {
+  const sessionId = clean(sessionIdInput);
+  const store = readStore();
+  const session = store.sessions.find((candidate) => candidate.id === sessionId);
+  if (!session) return [];
+  const associations = store.associations.filter((row) => row.sessionId === session.id);
+  const endedAtMs = session.endedAt ? Date.parse(session.endedAt) : Number.POSITIVE_INFINITY;
+  return session.reachedPeerIds.map((peerId) => {
+    const peerAssociations = associations.filter((row) => row.peerId === peerId);
+    const results = session.results.filter((row) => row.peerId === peerId);
+    const latest = [...latestResultsByPair(results).values()];
+    const repliedTalkIds = new Set(latest.map((row) => row.talkId));
+    const review = session.peerReviews?.[peerId];
+    return {
+      peerId,
+      talkIds: [...new Set(peerAssociations.map((row) => row.talkId))],
+      pending: peerAssociations.filter((row) => !repliedTalkIds.has(row.talkId)).length,
+      results,
+      latestOutcomes: latest.map((result) => ({
+        talkId: result.talkId,
+        outcome: result.outcome,
+        capturedAt: result.capturedAt,
+        late: Date.parse(result.capturedAt) > endedAtMs,
+      })),
+      pinned: Boolean(review?.pinned),
+      dismissed: Boolean(review?.dismissed),
+      note: clean(review?.note),
+      encounterDistancesMeters: peerAssociations.flatMap((row) => (
+        row.encounterDistanceMeters === undefined ? [] : [row.encounterDistanceMeters]
+      )),
+    };
+  });
+}
+
+export function updateMatchCollectionPeerReview(
+  sessionIdInput: string,
+  peerIdInput: string,
+  patch: MatchCollectionPeerReview,
+): MatchCollectionSession | null {
+  const sessionId = clean(sessionIdInput);
+  const peerId = clean(peerIdInput);
+  const store = readStore();
+  const session = store.sessions.find((candidate) => candidate.id === sessionId);
+  if (!session || !peerId || !session.reachedPeerIds.includes(peerId)) return null;
+  const previous = session.peerReviews?.[peerId] ?? {};
+  const note = patch.note === undefined ? clean(previous.note) : clean(patch.note).slice(0, 2_000);
+  const nextReview: MatchCollectionPeerReview = {
+    ...(patch.pinned ?? previous.pinned ? { pinned: true } : {}),
+    ...(patch.dismissed ?? previous.dismissed ? { dismissed: true } : {}),
+    ...(note ? { note } : {}),
+  };
+  const peerReviews = { ...session.peerReviews, [peerId]: nextReview };
+  const next = { ...session, peerReviews };
+  store.sessions = store.sessions.map((candidate) => candidate.id === session.id ? next : candidate);
+  writeStore(store);
+  return next;
+}
+
+export function formatMatchCollectionDuration(elapsedMs: number): string {
+  const minutes = Math.max(0, Math.floor(elapsedMs / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
 }
 
 export function startMatchCollectionSession(
@@ -224,6 +421,8 @@ export function recordMatchCollectionDelivery(input: {
   talkIds: string[];
   peerIds: string[];
   talkReceiverIds?: Record<string, string[]>;
+  location?: { source: MatchCollectionLocationSample['source']; point?: MatchCollectionPoint };
+  peerPoints?: Record<string, MatchCollectionPoint>;
 }, now: Date = new Date()): MatchCollectionSession | null {
   const store = readStore();
   const activeId = store.activeSessionId;
@@ -240,16 +439,62 @@ export function recordMatchCollectionDelivery(input: {
     }
   }
   const sentAt = now.toISOString();
+  const locationPoint = input.location?.point && validPoint(input.location.point) ? input.location.point : undefined;
+  const previousPoint = [...(session.locationSamples ?? [])].reverse().find((sample) => sample.point)?.point;
+  const areaChanged = Boolean(locationPoint && previousPoint && (
+    locationPoint.latitude !== previousPoint.latitude
+    || locationPoint.longitude !== previousPoint.longitude
+    || locationPoint.precisionMeters !== previousPoint.precisionMeters
+  ));
+  const locationSample: MatchCollectionLocationSample | undefined = input.location ? {
+    id: `location_${now.getTime().toString(36)}_${(session.locationSamples?.length ?? 0).toString(36)}`,
+    capturedAt: sentAt,
+    source: input.location.source,
+    ...(locationPoint ? { point: { ...locationPoint }, precisionMeters: locationPoint.precisionMeters } : {}),
+    ...(areaChanged ? { areaChanged: true } : {}),
+  } : undefined;
   const pairKeys = new Set(intendedPairs.map(({ talkId, peerId }) => `${peerId}\u0000${talkId}`));
   store.associations = [
     ...store.associations.filter((row) => !pairKeys.has(`${row.peerId}\u0000${row.talkId}`)),
-    ...intendedPairs.map(({ talkId, peerId }) => ({ sessionId: session.id, talkId, peerId, sentAt })),
+    ...intendedPairs.map(({ talkId, peerId }) => {
+      const peerPoint = input.peerPoints?.[peerId];
+      const encounterDistanceMeters = locationPoint && validPoint(peerPoint)
+        ? Math.round(distanceMeters(locationPoint, peerPoint))
+        : undefined;
+      return {
+        sessionId: session.id,
+        talkId,
+        peerId,
+        sentAt,
+        ...(locationSample ? { locationSampleId: locationSample.id } : {}),
+        ...(encounterDistanceMeters !== undefined ? { encounterDistanceMeters } : {}),
+      };
+    }),
   ];
   const reachedPeerIds = [...new Set([...session.reachedPeerIds, ...intendedPairs.map((pair) => pair.peerId)])];
-  const next = { ...session, talkIds: [...new Set([...session.talkIds, ...talkIds])], reachedPeerIds };
+  const next = {
+    ...session,
+    talkIds: [...new Set([...session.talkIds, ...talkIds])],
+    reachedPeerIds,
+    ...(locationSample ? { locationSamples: [...(session.locationSamples ?? []), locationSample].slice(-500) } : {}),
+  };
   store.sessions = store.sessions.map((candidate) => candidate.id === session.id ? next : candidate);
   writeStore(store);
   return next;
+}
+
+function distanceMeters(
+  first: Pick<MatchCollectionPoint, 'latitude' | 'longitude'>,
+  second: Pick<MatchCollectionPoint, 'latitude' | 'longitude'>,
+): number {
+  const earthRadiusMeters = 6_371_000;
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(second.latitude - first.latitude);
+  const longitudeDelta = radians(second.longitude - first.longitude);
+  const a = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(first.latitude)) * Math.cos(radians(second.latitude))
+    * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.asin(Math.sqrt(a));
 }
 
 /** Preserve an outcome in its original outing, even if that outing has since ended. */
@@ -268,10 +513,10 @@ export function recordMatchCollectionExchange(
   const session = store.sessions.find((candidate) => candidate.id === association.sessionId);
   if (!session) return null;
   const capturedAt = now.toISOString();
-  const results = [
-    ...session.results.filter((row) => row.peerId !== peerId || row.talkId !== talkId),
-    { peerId, talkId, outcome, capturedAt },
-  ].slice(-MAX_RESULTS_PER_SESSION);
+  // Preserve the timeline: a peer can revise an answer, or the same Talk can be encountered more
+  // than once during one outing. G4's review must not collapse those events to latest-only.
+  const results = [...session.results, { peerId, talkId, outcome, capturedAt }]
+    .slice(-MAX_RESULTS_PER_SESSION);
   store.sessions = store.sessions.map((candidate) => candidate.id === session.id ? { ...session, results } : candidate);
   writeStore(store);
   return {
@@ -280,4 +525,3 @@ export function recordMatchCollectionExchange(
     collectionStartedAt: session.startedAt,
   };
 }
-

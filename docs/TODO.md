@@ -137,35 +137,42 @@ its ID.
   links and background mode), but the product still treats the activity as unrelated broadcasts,
   replies and Contacts. The shipping gate is one continuous, resumable workflow with an honest
   summary and useful ranking. Do not call the use case ready from the 498-person simulation alone:
-  physical qualification currently covers four phones, ordinary GPS is not continuously refreshed,
-  and much matching logic still lives in the WebView.
+  physical qualification currently covers four phones and minimum matching/session work still
+  lives in the WebView.
   - [x] **G1 — Durable outing identity and evidence (first slice, 2026-10-20).** Add a bounded,
     versioned local collection-session store; snapshot the active scope, selected Talk ids and
     blurred public point; associate each intended peer + Talk delivery with the active outing; keep
     late match/mismatch/ignore results attached after Stop or process restart; stamp the existing
     local exchange projection with the collection id. Focused unit tests cover delayed replies,
     receiver narrowing, repeated encounters and corrupt storage.
-  - [ ] **G2 — One Start/Stop collection control.** Put the control beside the current Nearby/Place
+  - [x] **G2 — One Start/Stop collection control (2026-10-21).** Put the control beside the current Nearby/Place
     group, show elapsed time / people reached / replies / matches, restore an active outing after a
     restart, and make Broadcast clearly feed it. Starting a new outing ends the previous one; Stop
     freezes the send/location context but continues accepting late replies.
-    - [x] First control slice (2026-10-20): the current-group card starts/stops a session, restores
-      its durable active state, and reports people reached plus matches; Broadcast and catch-up
-      deliveries feed the session. Still needed: elapsed/pending/reply counts, stronger Broadcast
-      affordance, and the review transition.
-  - [ ] **G3 — Correct place and time semantics.** Snapshot a freshly confirmed, privacy-blurred
+    The restored card now reports elapsed/reached/replies/pending/matches, has a primary Broadcast
+    action using the existing audited send path, and opens the latest outing review. Starting a new
+    outing still ends the previous one; late replies continue to attach after Stop.
+  - [x] **G3 — Correct place and time semantics (2026-10-21).** Snapshot a freshly confirmed, privacy-blurred
     location at send time rather than relying on `Talk.authorLocation` from Talk creation; retain
     distance-at-encounter; handle indoor/no-GPS and subway movement without pretending the reading
-    is precise; define when a moving outing rolls to a new area.
-  - [ ] **G4 — Materialized outing review.** Add a collection detail screen with reached, pending,
+    is precise; define when a moving outing rolls to a new area. Each send now records GPS,
+    traveler, Place or unavailable explicitly; only the public snapped cell is stored. Encounter
+    distance uses the peer's public Nearby card, and a changed public cell starts a new area segment
+    inside the same outing.
+  - [x] **G4 — Materialized outing review (2026-10-21).** Add a collection detail screen with reached, pending,
     matched, mismatched and late counts; preserve repeated peer + Talk outcomes instead of the
     current latest-only `peerId::talkId` projection; link each person to their replies and chat;
-    allow pin, dismiss and private notes.
-  - [ ] **G5 — Importance-aware ranking.** Let the author mark Talks/questions as important or
+    allow pin, dismiss and private notes. Review preserves the repeated outcome timeline, exposes
+    late/location evidence, links each row to the existing replies + DM view, and persists local-only
+    pin/dismiss/note state.
+  - [x] **G5 — Importance-aware ranking (2026-10-21).** Let the author mark Talks/questions as important or
     must-have, then rank within this outing by must-have failures, weighted answer strength,
     matched-Talk breadth, trust/relationship, distance-at-encounter and freshness. Reuse the
     weighted `find-similar` primitives rather than the Contacts tab's current fixed relevance
-    formula. Explain the top reasons and never silently hide candidates.
+    formula. Explain the top reasons and never silently hide candidates. Talk and question editors
+    now persist Normal/Important/Must-have weights; outing ranking uses shared `matchScore`, hard
+    failures, breadth, relationship history, blurred encounter distance and freshness. The default
+    review includes every person and explains its leading signals; pin/dismiss are explicit.
   - [ ] **G6 — Real background collection.** Move the minimum receive/match/outbox/session work out
     of the Android WebView into the foreground-service path, survive screen-off and process death,
     reconcile without duplicate outcomes, and disclose vendor battery restrictions. "Always" mode
@@ -174,10 +181,19 @@ its ID.
     a 10–20 simulated-client outing, and physical Android runs for walking movement, subway/no-GPS,
     Wi-Fi ↔ cellular ↔ offline transitions, screen-off, restart, delayed replies and repeated
     encounters. Keep the existing four-phone test, but do not use it as the crowd-scale claim.
+    - [x] Deterministic host gates (2026-10-21): 498-person delivery/storage/review and a 16-client
+      moving outing with pending, cold-start, delayed and repeated cases
+      (`match-collection-scale.test.ts`, `match-collection-outing-model.ts`).
+    - [ ] Physical Android outing matrix above remains required; the host models are not a
+      crowd-scale or background-runtime claim.
   - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
     auto-answers, add actionable pending states, finish Nearby credit/block-count defenses before a
     public dense-place launch, and treat iOS as unsupported until its native background/discovery
     work is qualified.
+    - [x] Cold-start pending pairs are measured in the 16-client model; review has a default-visible
+      **Needs follow-up** filter and opens the person's existing replies/chat directly.
+    - [ ] Nearby credit/block-count defenses remain the explicitly deferred OPEN-70 product-policy
+      work; iOS remains unsupported until its separate native qualification exists.
 - [ ] **OPEN-76 — Physical transport, radio and battery measurements (carried over from OPEN-40
   G2.5 and its P1 discovery item on 2026-10-20).** The 2026-10-18/20 rounds
   (`docs/testing/android-transport-measurements.md`) cover hub, LAN, offline Wi-Fi Direct and mobile

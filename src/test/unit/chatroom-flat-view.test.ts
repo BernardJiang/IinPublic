@@ -140,7 +140,11 @@ describe('flat Nearby and Places list', () => {
     recordMatchCollectionDelivery({ talkIds: ['talk-a'], peerIds: ['alice', 'bob'] });
     recordMatchCollectionExchange('alice', 'talk-a', 'match');
     render({ emit });
-    expect(document.querySelector('[data-testid="match-collection-card"]')?.textContent).toContain('2 reached · 1 matched so far');
+    expect(document.querySelector('[data-testid="match-collection-summary"]')?.textContent).toContain('2 reached · 1 replies · 1 pending · 1 matches');
+    (document.querySelector('[data-testid="match-collection-broadcast"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('broadcastMatchCollection', {});
+    (document.querySelector('[data-testid="match-collection-review"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('reviewMatchCollection', expect.objectContaining({ sessionId: expect.any(String) }));
     (document.querySelector('[data-testid="match-collection-toggle"]') as HTMLButtonElement).click();
     expect(emit).toHaveBeenCalledWith('endMatchCollection', {});
   });

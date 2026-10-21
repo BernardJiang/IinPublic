@@ -21,6 +21,7 @@ import { WebAttestationService } from '../services/web-attestation-service';
 import { OFFICIAL_APPLICATION_ID, OFFICIAL_SIGNING_IDENTITY_HASH } from '../../shared/official-build-credential';
 import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
+import { showMatchCollectionReviewDialog } from '../ui/match-collection-review-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import {
   WebChatroomService,
@@ -40,7 +41,7 @@ import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-setti
 import { QUIET_GPS_REFRESH_MS, quietStateFor, shouldRefreshQuietGps, type QuietState } from '../../shared/quiet-places';
 import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
-import { publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
+import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
@@ -166,6 +167,7 @@ import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWak
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import {
   endMatchCollectionSession,
+  getActiveMatchCollectionSession,
   recordMatchCollectionDelivery,
   recordMatchCollectionExchange,
   startMatchCollectionSession,
@@ -1883,6 +1885,35 @@ export class IinPublicApp {
     if (!travel) return home;
     const precision = publicLocationPrecisionMeters(this.effectiveNearbyMode());
     return precision === null ? null : snapPublicLocation(travel, precision);
+  }
+
+  /**
+   * OPEN-81 G3: capture the outing's location when a send actually happens. Exact GPS and its raw
+   * accuracy never enter the collection store; only the normal public grid cell is retained.
+   */
+  private async matchCollectionSendLocation(chatroomId: string): Promise<{
+    source: 'gps' | 'traveler' | 'place' | 'unavailable';
+    point?: PublicLocation;
+  }> {
+    if (isPlaceRoomId(chatroomId)) {
+      const pin = this.uiManager.getCustomChatroomMeta(chatroomId)?.location;
+      const latitude = Number(pin?.latitude);
+      const longitude = Number(pin?.longitude);
+      return Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? { source: 'place', point: snapPublicLocation({ latitude, longitude }, 1_000) }
+        : { source: 'unavailable' };
+    }
+    if (usesSelfDefinedEncounterLocation() || this.travelModeActive) {
+      const point = this.nearbyPublicPoint();
+      return point ? { source: 'traveler', point } : { source: 'unavailable' };
+    }
+    try {
+      const fix = await readDeviceLocation();
+      const point = publicLocationFor(fix, this.effectiveNearbyMode());
+      return point ? { source: 'gps', point } : { source: 'unavailable' };
+    } catch {
+      return { source: 'unavailable' };
+    }
   }
 
   private startNearbyV3(): void {
@@ -8325,6 +8356,7 @@ export class IinPublicApp {
                 ...(talkFields.expiresAt !== undefined ? { expiresAt: talkFields.expiresAt } : {}),
                 ...(talkFields.locationRadiusMiles !== undefined ? { locationRadiusMiles: talkFields.locationRadiusMiles } : {}),
                 ...(talkFields.matchThreshold !== undefined ? { matchThreshold: talkFields.matchThreshold } : {}),
+                ...(talkFields.collectionImportance !== undefined ? { collectionImportance: talkFields.collectionImportance } : {}),
               }),
               ...(ipfsAttachments ? { ipfsAttachments } : {}),
               ...(authorLocation ? { authorLocation } : {}),
@@ -8471,6 +8503,18 @@ export class IinPublicApp {
       this.uiManager.showChatroomList();
       this.uiManager.showNotification(this.uiText('matchCollectionEnded'), 'success');
     });
+    this.uiManager.on('broadcastMatchCollection', () => {
+      this.uiManager.broadcastTalksFromCurrentRoom();
+    });
+    this.uiManager.on('reviewMatchCollection', (data: { sessionId?: string }) => {
+      const sessionId = String(data.sessionId || '').trim();
+      if (!sessionId) return;
+      showMatchCollectionReviewDialog({
+        sessionId,
+        text: (key) => this.uiText(key),
+        openPerson: (peerId) => this.uiManager.openUserConversationFirst(peerId, peerId),
+      });
+    });
 
     // Broadcast broadcastable OUT talks: server register + Gun announce (current chatroom only)
     this.uiManager.on(
@@ -8542,10 +8586,19 @@ export class IinPublicApp {
             ? (data.members ?? []).filter((member) =>
               !!member.userId && member.userId !== this.currentUser!.id && member.userId !== TECHSUPPORT_ROOT_USER_ID)
             : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          const activeCollection = getActiveMatchCollectionSession();
+          const collectionLocation = activeCollection
+            ? await this.matchCollectionSendLocation(chatroomId)
+            : undefined;
+          const peerPoints = activeCollection
+            ? Object.fromEntries(this.nearbyV3?.service.entries().map((entry) => [entry.card.userId, entry.card.point]) ?? [])
+            : undefined;
           recordMatchCollectionDelivery({
             talkIds: broadcastableIds,
             peerIds: receivers.map((receiver) => receiver.userId),
             ...(data.talkReceiverIds ? { talkReceiverIds: data.talkReceiverIds } : {}),
+            ...(collectionLocation ? { location: collectionLocation } : {}),
+            ...(peerPoints ? { peerPoints } : {}),
           });
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);

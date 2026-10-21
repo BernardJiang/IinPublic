@@ -19,6 +19,7 @@ export interface RouteEditorQuestion {
   builtIn?: BuiltInQuestionSpec;
   reciprocalTagContext?: boolean;
   tagKind?: 'simple';
+  collectionImportance?: 'important' | 'must-have';
   /** False until the author edits the accepted answer independently of the question text. */
   matchAnswerDirty?: boolean;
 }
@@ -60,6 +61,7 @@ export function initializeRouteEditorQuestions(
       ...(question.builtIn ? { builtIn: question.builtIn } : {}),
       ...(question.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
       ...(question.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
+      ...(question.collectionImportance ? { collectionImportance: question.collectionImportance } : {}),
       // Rehydrated text is already authored and must not be overwritten by question mirroring.
       matchAnswerDirty: true,
     }));
@@ -231,6 +233,7 @@ export function collectRouteEditorQuestions(
         builtIn: question.builtIn,
         ...(question.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
         ...(question.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
+        ...(question.collectionImportance ? { collectionImportance: question.collectionImportance } : {}),
       };
     }
 
@@ -257,6 +260,7 @@ export function collectRouteEditorQuestions(
       }),
       ...(question.reciprocalTagContext ? { reciprocalTagContext: true } : {}),
       ...(question.tagKind === 'simple' ? { tagKind: 'simple' as const } : {}),
+      ...(question.collectionImportance ? { collectionImportance: question.collectionImportance } : {}),
     };
   });
 

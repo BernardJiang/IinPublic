@@ -58,7 +58,7 @@ export type SaveCreatedTalkDeps = {
  * are otherwise invisible to those stores.
  */
 export function saveCreatedTalk(
-  talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null },
+  talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null; collectionImportance?: 'important' | 'must-have' },
   options: { selfAnswers: { questionId: string; answerId: string }[] },
   deps: SaveCreatedTalkDeps,
 ): void {
@@ -76,6 +76,7 @@ export function saveCreatedTalk(
     disabled: uncheckedTag,
     expiresAt: talk.expiresAt ?? undefined,
     locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
+    collectionImportance: talk.collectionImportance,
     lastInteraction: new Date().toISOString(),
   };
   setMyTalks(myTalks);

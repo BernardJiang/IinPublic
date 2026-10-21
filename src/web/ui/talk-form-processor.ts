@@ -79,6 +79,10 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
       ? null
       : parseInt(locationSelect.value, 10);
   const sendToChatroom = sendToChatroomCheck?.checked !== false;
+  const collectionImportanceValue = (document.getElementById('talk-collection-importance') as HTMLSelectElement | null)?.value;
+  const collectionImportance = collectionImportanceValue === 'important' || collectionImportanceValue === 'must-have'
+    ? collectionImportanceValue
+    : undefined;
 
   let questions: any[];
   const selfAnswers: { questionId: string; answerId: string }[] = [];
@@ -118,6 +122,7 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
       {
         id: 'q_0',
         text: keyword,
+        ...(collectionImportance ? { collectionImportance } : {}),
         ...(isPairTag ? { reciprocalTagContext: true } : { tagKind: 'simple' as const }),
         answers: [
           { id: 'a_0_match', text: answerWord, isMatch: true, isTerminal: true },
@@ -183,6 +188,7 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
     createdAt: new Date(),
     isTemplate: false,
     usageCount: 0,
+    ...(collectionImportance ? { collectionImportance } : {}),
   };
   let fixed: any;
   try {
@@ -207,6 +213,7 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
       language,
       expiresAt: expiresAt ?? undefined,
       locationRadiusMiles: locationRadiusMiles ?? undefined,
+      collectionImportance,
       lastInteraction: new Date().toISOString(),
     });
     deps.emit('updateTalk', {
@@ -220,6 +227,7 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
       expiresAt,
       locationRadiusMiles,
       matchThreshold,
+      collectionImportance,
       selfAnswers,
     });
   } else {
@@ -249,6 +257,7 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
       expiresAt,
       locationRadiusMiles,
       matchThreshold,
+      collectionImportance,
       selfAnswers,
       ...(mediaFile ? { mediaFile } : {}),
       ...(reviseSourceTalk ? { reviseSourceTalk } : {}),

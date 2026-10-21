@@ -270,6 +270,14 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
               <option value="1d">${text('editorOneDay', 'One day')}</option>
             </select>
           </div>
+          <div class="form-group">
+            <label class="form-label" for="talk-collection-importance">${text('matchCollectionImportanceLabel' as UiTranslationKey, 'Collection priority')}</label>
+            <select class="form-input" id="talk-collection-importance">
+              <option value="">${text('matchCollectionImportanceNormal' as UiTranslationKey, 'Normal')}</option>
+              <option value="important" ${existingTalk?.collectionImportance === 'important' ? 'selected' : ''}>${text('matchCollectionImportanceImportant' as UiTranslationKey, 'Important')}</option>
+              <option value="must-have" ${existingTalk?.collectionImportance === 'must-have' ? 'selected' : ''}>${text('matchCollectionImportanceMustHave' as UiTranslationKey, 'Must-have')}</option>
+            </select>
+          </div>
           <div class="form-group" id="talk-location-group">
             <label class="form-label">${text('editorLocation', 'Location')}</label>
             <select class="form-input" id="talk-location-radius" aria-label="Location radius">
@@ -319,6 +327,10 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           if (questionItem) {
             const textInput = questionItem.querySelector('.question-text') as HTMLInputElement | null;
             if (textInput) textInput.value = q.text || '';
+            const importanceSelect = questionItem.querySelector('.question-collection-importance') as HTMLSelectElement | null;
+            if (importanceSelect && (q.collectionImportance === 'important' || q.collectionImportance === 'must-have')) {
+              importanceSelect.value = q.collectionImportance;
+            }
             if (q.reciprocalTagContext) {
               const reciprocalCheckbox = questionItem.querySelector('.question-reciprocal-tag') as HTMLInputElement | null;
               if (reciprocalCheckbox) reciprocalCheckbox.checked = true;
@@ -364,7 +376,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
             // Pair tag, builtIn) live inside a collapsed <details> by default — open it whenever
             // any of them already has a non-default value, so reopening a saved talk (or a
             // picked template) never hides a value the author would have to hunt for.
-            if (q.reciprocalTagContext || q.tagKind === 'simple' || q.builtIn?.kind || q.answerSelectionMode === 'multiple') {
+            if (q.reciprocalTagContext || q.tagKind === 'simple' || q.builtIn?.kind || q.answerSelectionMode === 'multiple' || q.collectionImportance) {
               const advancedDetails = questionItem.querySelector('.question-advanced') as HTMLDetailsElement | null;
               if (advancedDetails) advancedDetails.open = true;
             }
