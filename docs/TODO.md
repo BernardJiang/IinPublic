@@ -177,6 +177,11 @@ its ID.
     of the Android WebView into the foreground-service path, survive screen-off and process death,
     reconcile without duplicate outcomes, and disclose vendor battery restrictions. "Always" mode
     must resume the exact active outing; "While open" must say collection is paused.
+    - [ ] Architecture boundary confirmed 2026-10-21: `MailboxWatcher` intentionally reads only
+      opaque envelope ids, while the SEA pair remains behind `NativeCustodyBridge` and the Nearby
+      bridge exposes no identity authority. Real off-WebView matching therefore needs a reviewed
+      app-owned decrypt/match boundary between Android Keystore custody and the embedded foreground
+      node; an id-only notification/checkpoint must not be mislabeled as background collection.
   - [ ] **G7 — Qualification gate.** Add a deterministic 498-person model for ranking and storage,
     a 10–20 simulated-client outing, and physical Android runs for walking movement, subway/no-GPS,
     Wi-Fi ↔ cellular ↔ offline transitions, screen-off, restart, delayed replies and repeated
