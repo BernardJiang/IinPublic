@@ -29,6 +29,11 @@ export type NearbyListOwner = {
    * and synchronous, so the caller verifies proofs and answers here; absent, everyone is new.
    */
   isEstablished?: (card: NearbyCard) => boolean;
+  /**
+   * Group boundary (§3.7 "Meeting new people in groups"): the rank key of the last person of my
+   * previous group. Only cards ranked after it belong on the list; absent, this is group 1.
+   */
+  after?: NearbyRankKey;
 };
 
 export type NearbyListEntry = {
@@ -92,8 +97,9 @@ export class NearbyList {
   }
 
   /**
-   * The owner moved, changed scope, or a new day's beacon began: re-rank everything. A scope change
-   * empties the list, since cards from another scope do not belong on it.
+   * The owner moved, changed scope, moved to another group, or a new day's beacon began: re-rank
+   * everything. A scope change empties the list, since cards from another scope do not belong on
+   * it; a group boundary drops everyone at or before it.
    */
   setOwner(owner: NearbyListOwner): void {
     if (owner.scope !== this.owner.scope) {
@@ -101,8 +107,16 @@ export class NearbyList {
       this.sorted = [];
     }
     this.owner = { ...owner };
-    for (const entry of this.byPub.values()) entry.key = this.rankOf(entry.card);
+    for (const [pub, entry] of this.byPub) {
+      entry.key = this.rankOf(entry.card);
+      if (!this.pastBoundary(entry.key)) this.byPub.delete(pub);
+    }
     this.resort();
+  }
+
+  /** The rank key of the last person on the list (the next group's boundary), or null when empty. */
+  lastKey(): NearbyRankKey | null {
+    return this.sorted.at(-1)?.key ?? null;
   }
 
   /** The cards in `cards` that would enter the list or refresh a copy on it. */
@@ -207,7 +221,12 @@ export class NearbyList {
   }
 
   private accepts(card: NearbyCard, nowMs: number): boolean {
-    return card.pub !== this.owner.pub && card.scope === this.owner.scope && isNearbyCardLive(card, nowMs);
+    return card.pub !== this.owner.pub && card.scope === this.owner.scope && isNearbyCardLive(card, nowMs)
+      && (!this.owner.after || this.pastBoundary(this.rankOf(card)));
+  }
+
+  private pastBoundary(key: NearbyRankKey): boolean {
+    return !this.owner.after || compareNearbyRankKeys(key, this.owner.after) > 0;
   }
 
   private dropExpired(nowMs: number): void {

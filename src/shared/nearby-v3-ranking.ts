@@ -59,3 +59,15 @@ export function compareNearbyRankKeys(a: NearbyRankKey, b: NearbyRankKey): numbe
   if (a.newcomer !== b.newcomer) return a.newcomer ? 1 : -1;
   return a.tie < b.tie ? -1 : a.tie > b.tie ? 1 : 0;
 }
+
+/**
+ * A rank key from the wire (a group boundary in a swap): shape-checked, or null. The tie is the
+ * 16-hex prefix `nearbyRankTie` produces.
+ */
+export function parseNearbyRankKey(value: unknown): NearbyRankKey | null {
+  if (!value || typeof value !== 'object') return null;
+  const key = value as Partial<NearbyRankKey>;
+  if (typeof key.distanceMeters !== 'number' || !Number.isFinite(key.distanceMeters) || key.distanceMeters < 0) return null;
+  if (typeof key.newcomer !== 'boolean' || typeof key.tie !== 'string' || !/^[0-9a-f]{16}$/.test(key.tie)) return null;
+  return { distanceMeters: key.distanceMeters, newcomer: key.newcomer, tie: key.tie };
+}

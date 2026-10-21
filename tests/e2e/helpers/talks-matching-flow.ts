@@ -368,6 +368,8 @@ export async function bootstrapUser(
   // staged/stage5 capacity, find-similar) starve later cold bootstraps past the 10s default
   // (see timing.ts waitForAppReady doc) — those callers pass a larger budget here.
   appReadyTimeoutMs?: number,
+  /** Another app URL (e.g. a small `e2e_capacity`); default the stable-chatroom URL. */
+  appUrl: string = webAppURLStableChatroom(),
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     viewport: { width: 640, height: 1000 },
@@ -377,7 +379,7 @@ export async function bootstrapUser(
   attachFilteredConsoleLog(page, label);
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
   await injectIdbClear(page);
-  await gotoWebApp(page, webAppURLStableChatroom(), appReadyTimeoutMs);
+  await gotoWebApp(page, appUrl, appReadyTimeoutMs);
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');

@@ -125,6 +125,11 @@ its ID.
     loop, Places on lists, the daily beacon and identity-age rule, map/list/headcount UI (phases
     1–5 and 2026-10-20). No epoch migration: there is no v2 release to stay compatible with.
   - [x] v2 removed (2026-10-19, see "No compatibility" above).
+- [ ] **OPEN-80 — Bound a big Place's chat feed (found 2026-10-20 while designing groups).** Talks
+  in a Place reach at most `C` people per sender, but its chat feed (`chatrooms/<placeId>/messages`)
+  is one shared Gun path that every member syncs in full, so an arena Place with 10,000 members
+  carries every message to everyone. Decide: show only messages from my own group, page by
+  recency, or cap the feed to `C` members; then implement with a scale test.
 - [ ] **OPEN-76 — Physical transport, radio and battery measurements (carried over from OPEN-40
   G2.5 and its P1 discovery item on 2026-10-20).** The 2026-10-18/20 rounds
   (`docs/testing/android-transport-measurements.md`) cover hub, LAN, offline Wi-Fi Direct and mobile

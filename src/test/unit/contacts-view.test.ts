@@ -50,6 +50,10 @@ describe('Contacts ranking and relationship filters', () => {
         <option value="partner">Partner</option>
         <option value="custom">Custom</option>
       </select>
+      <select id="contacts-filter-presence">
+        <option value="all">Online or not</option>
+        <option value="online">Online now</option>
+      </select>
       <select id="contacts-sort-order">
         <option value="weighted">Relevance score</option>
         <option value="matches">Matched talks</option>
@@ -204,6 +208,16 @@ describe('Contacts ranking and relationship filters', () => {
     document.querySelector<HTMLButtonElement>('[data-contact-user-id="weak"] .contact-pin-button')?.click();
     rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
     expect(rows).toEqual(['Strong', 'Weak']);
+  });
+
+  it('"Online now" shows only contacts whose app reached the hub lately (§3.7 "Contacts online")', async () => {
+    (document.getElementById('contacts-filter-presence') as HTMLSelectElement).value = 'online';
+    await displayContactsList({ ...deps(), isUserOnline: (userId: string) => userId === 'weak' });
+
+    const rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
+    expect(rows).toEqual(['Weak']);
+    expect(document.querySelector('.presence-indicator.online')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem('iinpublic_contacts_tab_state') || '{}').presence ?? 'online').toBe('online');
   });
 
   it('can filter the list to a saved partner relationship', async () => {

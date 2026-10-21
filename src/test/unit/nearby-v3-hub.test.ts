@@ -61,6 +61,15 @@ describe('Nearby v3 hub', () => {
     expect(hub.online(start + 2 * window + 1)).toBe(0);
   });
 
+  it('answers which users are online: a heartbeat within two reissue periods, by user id only', () => {
+    const hub = new NearbyV3Hub(config(), NOW);
+    hub.ingest(card('a', SD), NOW);
+    hub.ingest(card('b', LA, NOW, 'place:cafe'), NOW);
+    expect(hub.onlineUserIds(['user-a', 'user-b', 'user-nobody'], NOW + 1)).toEqual(['user-a', 'user-b']);
+    const stale = NOW + 2 * NEARBY_V3_DEFAULTS.cardReissueMs + 1;
+    expect(hub.onlineUserIds(['user-a', 'user-b'], stale)).toEqual([]);
+  });
+
   it('stops introducing a phone that missed two heartbeats, although its card is still valid', () => {
     const hub = new NearbyV3Hub(config(), NOW);
     hub.ingest(card('a', SD), NOW);

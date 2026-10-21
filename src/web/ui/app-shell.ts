@@ -111,6 +111,10 @@ export function renderAppShell(
                   <option value="matched">Matched</option>
                   <option value="unmatched">Not matched</option>
                 </select>
+                <select class="form-input" id="contacts-filter-presence" data-testid="contacts-filter-presence" style="flex:0 0 140px;">
+                  <option value="all">Online or not</option>
+                  <option value="online">Online now</option>
+                </select>
                 <select class="form-input" id="contacts-sort-order" style="flex:0 0 150px;">
                   <option value="recent">Recent</option>
                   <option value="talks">Talk count</option>
@@ -551,6 +555,8 @@ export function applyAppShellTranslations(
     ['#contacts-filter-outcome option[value="all"]', 'contactsOutcomeAll'],
     ['#contacts-filter-outcome option[value="matched"]', 'contactsOutcomeMatched'],
     ['#contacts-filter-outcome option[value="unmatched"]', 'contactsOutcomeUnmatched'],
+    ['#contacts-filter-presence option[value="all"]', 'contactsPresenceAll'],
+    ['#contacts-filter-presence option[value="online"]', 'contactsPresenceOnline'],
     ['#contacts-sort-order option[value="recent"]', 'recent'],
     ['#contacts-sort-order option[value="talks"]', 'talkCount'],
     ['#contacts-sort-order option[value="matches"]', 'matchedTalks'],

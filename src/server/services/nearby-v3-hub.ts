@@ -148,6 +148,20 @@ export class NearbyV3Hub {
     }).filter((row) => row.count > 0);
   }
 
+  /**
+   * Which of these users are online (§3.7 "Contacts online"): their card's key heartbeated within
+   * two reissue periods. Answers only yes or no per id, never where.
+   */
+  onlineUserIds(userIds: readonly string[], nowMs = Date.now()): string[] {
+    const window = 2 * this.config.cardReissueMs;
+    return userIds.filter((userId) => {
+      const owner = this.owners.get(userId);
+      if (!owner || owner.expiresAtMs <= nowMs) return false;
+      const last = this.lastHeartbeat.get(owner.pub);
+      return !!last && nowMs - last.atMs <= window;
+    });
+  }
+
   online(nowMs = Date.now()): number {
     this.roll(nowMs);
     return Math.max(this.current.total, this.previous?.total ?? 0);

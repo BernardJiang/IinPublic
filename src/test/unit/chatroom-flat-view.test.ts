@@ -145,7 +145,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
   });
 
-  it('lists the people on my list without me, with "Show more people here"', () => {
+  it('lists the people on my group without me, with the group bar and its confirmed switch', async () => {
     document.body.innerHTML = '<div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>';
     const emit = jest.fn();
     const counts = new Map<string, number>();
@@ -169,8 +169,45 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(counts.get(NEARBY_ID)).toBe(2);
     expect(document.getElementById('current-chatroom-status')?.textContent).toBe('2 near you · 7 online');
     expect(document.querySelectorAll('.chatroom-member-item')).toHaveLength(2);
-    (document.querySelector('[data-testid="nearby-show-more"]') as HTMLButtonElement).click();
-    expect(emit).toHaveBeenCalledWith('nearbyShowMore', undefined);
+    // The group bar (§3.7 "Meeting new people in groups"): group 1, and a confirmed switch.
+    expect(document.querySelector('[data-testid="nearby-group-title"]')?.textContent).toBe('Group 1 · the people nearest you');
+    expect(document.querySelector('[data-testid="nearby-back-to-first-group"]')).toBeNull();
+    (document.querySelector('[data-testid="nearby-meet-new-people"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent).toContain('Swap these 2 people for the next people near you.');
+    (document.querySelector('[data-testid="nearby-meet-cancel"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')).toBeNull();
+    expect(emit).not.toHaveBeenCalledWith('nearbyMeetNewPeople');
+    (document.querySelector('[data-testid="nearby-meet-new-people"]') as HTMLButtonElement).click();
+    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
+  });
+
+  it('shows the group, "Back to group 1" and the end of the groups', () => {
+    const emit = jest.fn();
+    const deps = {
+      currentChatroom: NEARBY_ID,
+      chatroomMemberCounts: new Map(),
+      chatroomVisitCounts: new Map(),
+      matchedUserIds: new Set(),
+      customChatrooms: [],
+      nearbyGroup: { group: 3, exhausted: true },
+      setCurrentChatroomMembers: jest.fn(),
+      renderChatroomList: jest.fn(),
+      escapeHtml: (value: string) => value,
+      emit,
+      text: (key: string) => uiText('en', key as never),
+      isUserOnline: () => false,
+      formatDate: () => '',
+      currentUserId: 'me',
+      apiBase: '',
+    } as never;
+    updateChatroomMembers(deps, [{ userId: 'me', stageName: 'Me' }], 'me');
+    expect(document.querySelector('[data-testid="nearby-group-title"]')?.textContent).toBe('Group 3 · the next people near you');
+    expect(document.querySelector('[data-testid="nearby-group-note"]')?.textContent).toBe("You've met everyone here for now.");
+    expect(document.querySelector('[data-testid="nearby-meet-new-people"]')).toBeNull();
+    (document.querySelector('[data-testid="nearby-back-to-first-group"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('nearbyBackToFirstGroup');
   });
 });
 

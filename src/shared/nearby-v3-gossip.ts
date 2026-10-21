@@ -1,6 +1,7 @@
 import { parseNearbyBeacon, type NearbyBeacon } from './nearby-v3-attestation';
 import { parseNearbyCard, type NearbyCard } from './nearby-v3-card';
 import type { NearbyDigest } from './nearby-v3-list';
+import { parseNearbyRankKey, type NearbyRankKey } from './nearby-v3-ranking';
 
 /**
  * Wire messages of one Nearby v3 gossip swap (§3.7 "Gossip"), three in all:
@@ -10,7 +11,8 @@ import type { NearbyDigest } from './nearby-v3-list';
  *   initiator → partner   push     { card, cards }             my offer for the partner
  *
  * A request and a reply may also carry the sender's signed daily beacon, so phones that cannot
- * reach the hub still agree on today's order.
+ * reach the hub still agree on today's order, and the sender's group boundary (`after`), so the
+ * other side offers only people past it (§3.7 "Meeting new people in groups").
  *
  * Every card inside is still checked by the receiver (signature, lifetime, scope) before it can
  * enter a list; these parsers check shape and size only.
@@ -21,6 +23,7 @@ export type NearbyGossipRequest = {
   card: NearbyCard;
   digest: NearbyDigest;
   beacon?: NearbyBeacon;
+  after?: NearbyRankKey;
 };
 export type NearbyGossipReply = {
   kind: 'nearby-gossip-reply';
@@ -29,6 +32,7 @@ export type NearbyGossipReply = {
   digest: NearbyDigest;
   cards: NearbyCard[];
   beacon?: NearbyBeacon;
+  after?: NearbyRankKey;
 };
 export type NearbyGossipPush = { kind: 'nearby-gossip-push'; version: 1; card: NearbyCard; cards: NearbyCard[] };
 /** "Not now": the partner is at its incoming limit; try someone else. */
@@ -70,7 +74,8 @@ export function parseNearbyGossipMessage(value: unknown): NearbyGossipMessage | 
   const card = parseNearbyCard(message.card);
   if (!card) return null;
   const beacon = parseNearbyBeacon(message.beacon);
-  const withBeacon = beacon ? { beacon } : {};
+  const after = parseNearbyRankKey(message.after);
+  const withBeacon = { ...(beacon ? { beacon } : {}), ...(after ? { after } : {}) };
   if (message.kind === 'nearby-gossip-request') {
     const digest = parseDigest(message.digest);
     return digest ? { kind: 'nearby-gossip-request', version: 1, card, digest, ...withBeacon } : null;

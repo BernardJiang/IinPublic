@@ -33,6 +33,7 @@ import type { TestActor } from '../helpers/test-actor';
 import {
   backgroundDeliveryJourney,
   everyoneListsEveryone,
+  groupRoundTripJourney,
   othersOnEachList,
   ringTalkJourney,
   type NearbyParticipant,
@@ -348,5 +349,12 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
     console.log(`[four-phone-nearby] backgrounding ${receiver.device.name} (API ${receiver.sdk})`);
     deliveryMs.push(await backgroundDeliveryJourney(participant(author), participant(receiver), runId, roomId));
     console.log(`[four-phone-nearby] post-background delivery to ${receiver.device.name} verified`);
+
+    // J-NEARBY-06/07: groups and online dots on the phones (shared with stage4/08 in browsers).
+    if (!OFFLINE_WIFI_DIRECT) {
+      const people = peers.map(participant);
+      await groupRoundTripJourney(people[0]!, people.slice(1));
+      console.log(`[four-phone-nearby] group round trip and online query on ${peers[0]!.device.name} verified`);
+    }
   });
 });
