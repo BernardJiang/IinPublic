@@ -214,6 +214,7 @@ class MainActivity : AppCompatActivity() {
         nearbyBridge = NearbyJavascriptBridge(this, webView)
         webView.addJavascriptInterface(nearbyBridge, "IinPublicNearby")
         webView.addJavascriptInterface(NativeCustodyBridge(this), "IinPublicCustody")
+        webView.addJavascriptInterface(BackgroundAgentJavascriptBridge(), "IinPublicBackground")
         webView.addJavascriptInterface(NativeAttestationBridge(this), "IinPublicAttestation")
         // targetSdk 35+ forces edge-to-edge on Android 15+: without this the top bar sits under
         // the status bar / camera cutout and the bottom nav under the gesture bar. Pad a container

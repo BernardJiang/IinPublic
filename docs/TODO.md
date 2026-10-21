@@ -173,15 +173,26 @@ its ID.
     now persist Normal/Important/Must-have weights; outing ranking uses shared `matchScore`, hard
     failures, breadth, relationship history, blurred encounter distance and freshness. The default
     review includes every person and explains its leading signals; pin/dismiss are explicit.
-  - [ ] **G6 — Real background collection.** Move the minimum receive/match/outbox/session work out
+  - [x] **G6 — Real background collection (2026-10-21, code gate).** Move the minimum receive/match/outbox/session work out
     of the Android WebView into the foreground-service path, survive screen-off and process death,
     reconcile without duplicate outcomes, and disclose vendor battery restrictions. "Always" mode
     must resume the exact active outing; "While open" must say collection is paused.
-    - [ ] Architecture boundary confirmed 2026-10-21: `MailboxWatcher` intentionally reads only
-      opaque envelope ids, while the SEA pair remains behind `NativeCustodyBridge` and the Nearby
-      bridge exposes no identity authority. Real off-WebView matching therefore needs a reviewed
-      app-owned decrypt/match boundary between Android Keystore custody and the embedded foreground
-      node; an id-only notification/checkpoint must not be mislabeled as background collection.
+    - [x] The reviewed boundary is now implemented: Android keeps approved policy in a
+      Keystore-encrypted store, reads the SEA pair through an app-internal custody method (never the
+      new WebView bridge), and provisions a bearer-protected loopback processor in the embedded
+      foreground node. It decrypts Talk mailbox bodies/responses, enforces room/intake/contact/age/
+      block policy, uses only exact pre-approved auto-answers, durably relays the response outbox,
+      classifies matches and binds late responses to the snapshotted outing.
+    - [x] Reconciliation is encrypted, persistent and idempotent: the native processor journals
+      before mailbox acknowledgement; WebView resume replays through the existing Talk/ledger
+      handlers and acknowledges only completed events. The active room, outing associations and
+      policy survive ordinary Android process recreation. Rejected/blocked mail is consumed rather
+      than waking repeatedly; unsupported non-Talk mail remains for the foreground UI.
+    - [x] Product disclosure distinguishes **Always — background Talk exchange** from **While open —
+      pauses in background**, states that a persistent notification is used, and warns that vendor
+      battery savers can still delay/stop delivery unless unrestricted battery use is allowed.
+      Host SEA-cycle, authorization, durable-relay, policy, mailbox-relay and packaged-mobile gates
+      pass. Physical screen-off/process-death/vendor qualification remains explicitly under G7.
   - [ ] **G7 — Qualification gate.** Add a deterministic 498-person model for ranking and storage,
     a 10–20 simulated-client outing, and physical Android runs for walking movement, subway/no-GPS,
     Wi-Fi ↔ cellular ↔ offline transitions, screen-off, restart, delayed replies and repeated

@@ -37,6 +37,7 @@ object NodeBridge {
         hubUrl: String,
         disableLanDiscovery: Boolean,
         enablePortableCoreTests: Boolean,
+        backgroundAgentToken: String,
     )
 
     /** Called by NodeForegroundService.onStartCommand(). */
@@ -48,6 +49,7 @@ object NodeBridge {
         hubUrl: String,
         disableLanDiscovery: Boolean,
         enablePortableCoreTests: Boolean,
+        backgroundAgentToken: String,
     ) {
         if (started) return
         started = true
@@ -64,6 +66,7 @@ object NodeBridge {
             hubUrl,
             disableLanDiscovery,
             enablePortableCoreTests,
+            backgroundAgentToken,
         )
     }
 

@@ -115,6 +115,8 @@ export interface EmbeddedHubRelayClientLike {
    */
   postMailboxEnvelope(recipientId: string, envelope: { id: string; ciphertext: string; ttlMs?: number }): Promise<void>;
   listMailboxEnvelopes(recipientId: string): Promise<MailboxEnvelope[]>;
+  /** Ack a hub envelope after this embedded node has durably processed it. */
+  deleteMailboxEnvelope?(recipientId: string, envelopeId: string): Promise<void>;
   /** OPEN-44: the hub's mailbox long-poll (ids only). Optional for test doubles. */
   waitMailbox?(recipientId: string, since: string, timeoutMs: number, signal?: AbortSignal):
     Promise<{ changed: boolean; ids: string[]; latest: string }>;
@@ -424,6 +426,13 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     return Array.isArray(body.envelopes)
       ? (body.envelopes.filter((e): e is MailboxEnvelope => !!e && typeof e === 'object') as MailboxEnvelope[])
       : [];
+  }
+
+  async deleteMailboxEnvelope(recipientId: string, envelopeId: string): Promise<void> {
+    await this.request(
+      `/api/mailbox/${encodeURIComponent(recipientId)}/${encodeURIComponent(envelopeId)}`,
+      { method: 'DELETE' },
+    );
   }
 
   async waitMailbox(

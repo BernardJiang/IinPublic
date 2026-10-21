@@ -3121,11 +3121,14 @@ export class IinPublicApp {
       }, 2_000);
     });
     // Settings switches (both on by default) apply immediately.
-    window.addEventListener(NEARBY_SETTINGS_EVENT, () => service.updateSettings({
-      wifiDirect: getNearbyWifiDirectEnabled(),
-      bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
-      lan: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
-    }));
+    window.addEventListener(NEARBY_SETTINGS_EVENT, () => {
+      service.updateSettings({
+        wifiDirect: getNearbyWifiDirectEnabled(),
+        bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+        lan: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
+      });
+      this.syncNativeBackgroundAgent();
+    });
     // Awareness: the Settings screen shows what nearby mode is doing right now.
     const statusTimer = setInterval(() => {
       const el = document.getElementById('settings-nearby-status');
@@ -3503,6 +3506,8 @@ export class IinPublicApp {
 
   private startMailboxPolling(): void {
     this.registerNativeMailboxWatch();
+    this.syncNativeBackgroundAgent();
+    void this.replayNativeBackgroundEvents();
     if (this.mailboxPollTimer) return;
     // On a phone the native mailbox watch keeps a long-poll open and wakes a drain the moment an
     // envelope arrives ('iinpublic-mailbox-changed'), so the page polls only as a safety net
@@ -3540,6 +3545,112 @@ export class IinPublicApp {
       bridge.setMailboxWatch(userId);
     } catch {
       /* native shell without the watcher — nothing to register */
+    }
+  }
+
+  /**
+   * G6: give the app-owned foreground processor only the user's already-approved exact rules and
+   * current room/session state. The SEA pair never crosses this JS bridge; Android reads it from
+   * Keystore custody and provisions the loopback-only embedded node itself.
+   */
+  private syncNativeBackgroundAgent(): void {
+    const bridge = (window as unknown as {
+      IinPublicBackground?: { configure?: (configJson: string) => boolean };
+    }).IinPublicBackground;
+    if (!this.currentUser?.id || typeof bridge?.configure !== 'function') return;
+    const parseMap = (key: string): Record<string, any> => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch { return {}; }
+    };
+    const flattened = parseMap('flattenedAnswerPreferences');
+    const answerRules = Object.values(flattened).flatMap((entry: any) => {
+      if ((entry?.mode !== 'auto' && entry?.mode !== 'whenever') || !entry?.questionText) return [];
+      const allAnswers = Array.isArray(entry.allAnswers) ? entry.allAnswers : [];
+      const answerTexts = allAnswers.map((answer: any) => String(answer?.text || '')).filter(Boolean);
+      const selectedAnswerTexts = Array.isArray(entry.answerTexts) && entry.answerTexts.length > 0
+        ? entry.answerTexts.map(String)
+        : [String(entry.answerText || '')].filter(Boolean);
+      if (answerTexts.length === 0 || selectedAnswerTexts.length === 0) return [];
+      return [{
+        questionText: String(entry.questionText),
+        answerTexts,
+        selectedAnswerTexts,
+        selectionMode: entry.answerSelectionMode === 'multiple' ? 'multiple' : 'single',
+      }];
+    });
+    const settings = loadConnectivitySettings();
+    const myTalks = getMyTalks();
+    const authoredTalks = Object.fromEntries(Object.entries(myTalks)
+      .filter(([, entry]) => entry.role === 'created'));
+    try {
+      bridge.configure(JSON.stringify({
+        version: 1,
+        enabled: settings.nearbyMode === 'always',
+        userId: this.currentUser.id,
+        stageName: this.currentUser.stageName,
+        activeRoomId: this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || '',
+        autoAnswerEnabled: this.uiManager.getChatbotEnabled(),
+        answerRules,
+        chatbotTemplates: parseMap('chatbotTemplates'),
+        authoredTalks,
+        matchCollectionStore: localStorage.getItem('iinpublic_match_collection_sessions_v1') || undefined,
+        intakeFilters: getTalkIntakeFilters(),
+        knownContactIds: (this.currentUser.knownPeople || []).map((person) => person.userId),
+        travelerIds: [...this.roomTravelerIds],
+        ageVerified: !!this.currentUser.reputation?.ageVerified,
+      }));
+    } catch {
+      // Older native shells and a full native policy store are both non-fatal to the foreground UI.
+    }
+  }
+
+  /** Reconcile the encrypted native journal through the same idempotent UI handlers. */
+  private async replayNativeBackgroundEvents(): Promise<void> {
+    const bridge = (window as unknown as {
+      IinPublicBackground?: {
+        events?: () => string;
+        acknowledge?: (idsJson: string) => boolean;
+      };
+    }).IinPublicBackground;
+    if (!this.currentUser?.id || typeof bridge?.events !== 'function') return;
+    let events: any[] = [];
+    try {
+      const parsed = JSON.parse(bridge.events());
+      events = Array.isArray(parsed?.events) ? parsed.events : [];
+    } catch { return; }
+    const acknowledged: string[] = [];
+    for (const event of events) {
+      try {
+        if (event?.kind === 'incoming-talk' && event.payload) {
+          const accepted = await this.handleMeshTalkBody(event.payload, { suppressAutoReply: true });
+          if (accepted && Array.isArray(event.answers) && event.answers.length > 0) {
+            const talkData = { ...event.payload.talkData, id: event.payload.talkId, authorId: event.payload.authorId };
+            const outcome = checkIfMatch(talkData, event.answers) ? 'match' : 'mismatch';
+            this.uiManager.recordChatbotAnsweredTalk(talkData, event.answers, outcome);
+            await this.submitTalkResponsePairDirect({
+              talkId: event.payload.talkId,
+              talkData,
+              answers: event.answers,
+              isChatbotResponse: true,
+              authorId: event.payload.authorId,
+              authorName: event.payload.authorName || event.payload.authorId,
+              isAutoResponse: true,
+            });
+          }
+        } else if (event?.kind === 'talk-response' && event.payload) {
+          await this.handleMeshTalkResponse(event.payload);
+        } else {
+          continue;
+        }
+        if (event.id) acknowledged.push(String(event.id));
+      } catch (error) {
+        console.warn('[BackgroundAgent] Native event retained for retry:', error);
+      }
+    }
+    if (acknowledged.length > 0 && typeof bridge.acknowledge === 'function') {
+      try { bridge.acknowledge(JSON.stringify(acknowledged)); } catch { /* retry on next resume */ }
     }
   }
 
@@ -4227,7 +4338,10 @@ export class IinPublicApp {
     return this.talkService.getTalkWithRetry(talkId, { attempts: 12, gapMs: 300, deadlineMs: 4_000 });
   }
 
-  private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
+  private async handleMeshTalkBody(
+    payload: P2PMeshTalkBodyPayload,
+    options: { suppressAutoReply?: boolean } = {},
+  ): Promise<boolean> {
     if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
     const activeRoom = this.activeExchangeRoomController?.getActiveRoom();
     const currentRoomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId;
@@ -4295,12 +4409,14 @@ export class IinPublicApp {
       isOwnTalk: false,
       fullTalk: talkData,
     });
-    this.maybeAutoChatbotReplyToAnnouncer(
-      payload.talkId,
-      talkData,
-      payload.authorId,
-      payload.authorName || 'Unknown',
-    );
+    if (!options.suppressAutoReply) {
+      this.maybeAutoChatbotReplyToAnnouncer(
+        payload.talkId,
+        talkData,
+        payload.authorId,
+        payload.authorName || 'Unknown',
+      );
+    }
     return true;
   }
 
@@ -8061,6 +8177,7 @@ export class IinPublicApp {
       void this.applyNearbyPrivacyMode(settings).catch((error) => {
         this.uiManager.showNotification(`Could not change nearby audience: ${(error as Error).message}`, 'error');
       });
+      this.syncNativeBackgroundAgent();
     });
 
     this.uiManager.on('conversationAdded', (data: { conversationId: string }) => {
@@ -8494,12 +8611,14 @@ export class IinPublicApp {
           talkIds: this.uiManager.getBroadcastableTalkIds(),
           ...(point ? { point } : {}),
         });
+        this.syncNativeBackgroundAgent();
         this.uiManager.showChatroomList();
         this.uiManager.showNotification(this.uiText('matchCollectionStarted'), 'success');
       },
     );
     this.uiManager.on('endMatchCollection', () => {
       if (!endMatchCollectionSession()) return;
+      this.syncNativeBackgroundAgent();
       this.uiManager.showChatroomList();
       this.uiManager.showNotification(this.uiText('matchCollectionEnded'), 'success');
     });
@@ -8600,6 +8719,7 @@ export class IinPublicApp {
             ...(collectionLocation ? { location: collectionLocation } : {}),
             ...(peerPoints ? { peerPoints } : {}),
           });
+          this.syncNativeBackgroundAgent();
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
@@ -8884,6 +9004,7 @@ export class IinPublicApp {
         (globalThis as any).__iinpublic_lastTalkCompletion = completion;
         try {
           await completion;
+          this.syncNativeBackgroundAgent();
         } catch (error) {
           console.error('Failed to handle talk completion:', error);
         }
@@ -9482,6 +9603,7 @@ export class IinPublicApp {
       // otherwise the UI and server roster show the new room while presence, mailbox scoping,
       // LAN discovery, and Wi-Fi Direct remain silently bound to no public room.
       if (!isLocalOnlyRoomScope(chatroomId)) await this.activateRoomExchange(chatroomId);
+      this.syncNativeBackgroundAgent();
     });
 
     // Handle Gun.js real-time updates
@@ -9526,10 +9648,13 @@ export class IinPublicApp {
       }
       void this.drainMailbox().catch(() => {});
       void this.retryFailedMailboxPosts().catch(() => {});
+      this.syncNativeBackgroundAgent();
+      void this.replayNativeBackgroundEvents();
     };
     window.addEventListener('iinpublic-native-resume', recoverAfterForeground);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
+        this.syncNativeBackgroundAgent();
         this.userService.setUserStatus(this.currentUser!.id, 'away');
         if (loadConnectivitySettings().nearbyMode === 'while-open') {
           this.nearbyOfflineService?.dispose();

@@ -631,13 +631,13 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
           },
           `<div style="display:grid;gap:10px;" data-testid="settings-nearby">
             <div id="settings-nearby-status" role="status" data-testid="settings-nearby-status" style="font-weight:600;"></div>
-            <label>Nearby exchange
+            <label>${deps.t('settingsNearbyExchange')}
               <select id="settings-nearby-mode" class="form-input" data-testid="settings-nearby-mode">
-                <option value="off" ${connectivity.nearbyMode === 'off' ? 'selected' : ''}>Off</option>
-                <option value="while-open" ${connectivity.nearbyMode === 'while-open' ? 'selected' : ''}>While IinPublic is open</option>
-                <option value="always" ${connectivity.nearbyMode === 'always' ? 'selected' : ''}>Always (persistent notification)</option>
+                <option value="off" ${connectivity.nearbyMode === 'off' ? 'selected' : ''}>${deps.t('settingsNearbyModeOff')}</option>
+                <option value="while-open" ${connectivity.nearbyMode === 'while-open' ? 'selected' : ''}>${deps.t('settingsNearbyModeWhileOpen')}</option>
+                <option value="always" ${connectivity.nearbyMode === 'always' ? 'selected' : ''}>${deps.t('settingsNearbyModeAlways')}</option>
               </select>
-              <small>Applies to the one active room. Changing rooms is always manual.</small>
+              <small>${deps.t('settingsNearbyModeHelp')}</small>
             </label>
             ${renderNearbyProviderRow('cellular', 'settingsNearbyCellular', 'settingsNearbyCellularHelp', deps.t)}
             ${renderNearbyProviderRow('lan', 'settingsNearbyLan', 'settingsNearbyLanHelp', deps.t)}

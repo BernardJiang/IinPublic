@@ -37,6 +37,8 @@ import { resolveEmbeddedNodeConfig } from '../shared/embedded-node-config';
 import { EmbeddedHubRelayClient } from '../node-app/embedded-hub-relay-client';
 import { isLoopbackEmbeddedNode, resolveTlsMode } from './tls-mode';
 import { registerLocalLinkRoutes } from './routes/local-link-routes';
+import { BackgroundTalkAgent } from './services/background-talk-agent';
+import { registerBackgroundAgentRoutes } from './routes/background-agent-routes';
 
 /**
  * Create the HTTP(S) server the app listens on.
@@ -93,6 +95,7 @@ class IinPublicServer {
   private techSupportAnnouncements!: TechSupportAnnouncementService;
   private hubRelayClient?: EmbeddedHubRelayClient;
   private lanGunDiscovery?: LanGunDiscovery;
+  private backgroundTalkAgent?: BackgroundTalkAgent;
 
   private mailboxStore = new MailboxStore();
   private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -293,6 +296,20 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
+
+    const backgroundAgentToken = String(process.env.IINPUBLIC_BACKGROUND_AGENT_TOKEN || '');
+    if (isLoopbackEmbeddedNode(process.env) && backgroundAgentToken.length >= 32) {
+      const localPort = Number(process.env.IINPUBLIC_LOCAL_PORT || process.env.PORT || 8088);
+      const dataDir = process.env.IINPUBLIC_DATA_DIR || process.cwd();
+      this.backgroundTalkAgent = new BackgroundTalkAgent(
+        `http://127.0.0.1:${localPort}`,
+        path.join(dataDir, 'background-agent-journal.sea'),
+        this.hubRelayClient
+          ? (recipientId, envelope) => this.hubRelayClient!.postMailboxEnvelope(recipientId, envelope)
+          : undefined,
+      );
+      registerBackgroundAgentRoutes(this.app, this.backgroundTalkAgent, backgroundAgentToken);
+    }
 
     registerTurnRoutes(this.app, {
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),

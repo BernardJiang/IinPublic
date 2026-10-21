@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.SecureRandom
 
 /**
  * Hosts the embedded Node (Gun P2P) runtime via nodejs-mobile as an Android
@@ -162,6 +163,27 @@ class NodeForegroundService : Service() {
             serviceInstance?.mailboxWatcher?.setRecipient(userId)
         }
 
+        internal fun configureBackgroundAgent(configJson: String): Boolean {
+            return try {
+                val agent = serviceInstance?.backgroundAgent ?: return false
+                agent.configure(configJson)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        internal fun backgroundAgentEvents(): String =
+            serviceInstance?.backgroundAgent?.eventsBlocking()
+                ?: JSONObject().put("events", JSONArray()).toString()
+
+        internal fun acknowledgeBackgroundAgentEvents(idsJson: String): Boolean =
+            serviceInstance?.backgroundAgent?.acknowledgeBlocking(idsJson) ?: false
+
+        internal fun backgroundAgentStatus(): String =
+            serviceInstance?.backgroundAgent?.statusBlocking()
+                ?: JSONObject().put("provisioned", false).put("enabled", false).put("pendingEvents", 0).toString()
+
         internal fun networkPathState(): JSONObject = serviceInstance?.networkPathState()
             ?: JSONObject().put("version", 1).put("connected", false).put("metered", true)
     }
@@ -188,6 +210,10 @@ class NodeForegroundService : Service() {
     }
     private lateinit var nearbyManager: NearbyConnectivityManager
     private var mailboxWatcher: MailboxWatcher? = null
+    private lateinit var backgroundAgent: BackgroundAgentCoordinator
+    private val backgroundAgentToken: String by lazy {
+        ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -217,7 +243,10 @@ class NodeForegroundService : Service() {
             override fun onWifiDirectService(deviceAddress: String, txt: Map<String, String>) =
                 nearbyListener?.onWifiDirectService(deviceAddress, txt) ?: Unit
         })
-        mailboxWatcher = MailboxWatcher(applicationContext, LOCAL_PORT).also { it.start() }
+        backgroundAgent = BackgroundAgentCoordinator(applicationContext, LOCAL_PORT, backgroundAgentToken)
+        mailboxWatcher = MailboxWatcher(applicationContext, LOCAL_PORT) {
+            backgroundAgent.drainBlocking()
+        }.also { it.start() }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -317,6 +346,7 @@ class NodeForegroundService : Service() {
                 hubUrl,
                 disableLanDiscovery,
                 enablePortableCoreTests,
+                backgroundAgentToken,
             )
         }.start()
     }

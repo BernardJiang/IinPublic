@@ -57,7 +57,8 @@ static pthread_mutex_t g_once_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
  * Java: NodeBridge.nativeStartNode(dataDir, scriptPath, port, hubUrl,
- *                                  disableLanDiscovery, enablePortableCoreTests)
+ *                                  disableLanDiscovery, enablePortableCoreTests,
+ *                                  backgroundAgentToken)
  *   dataDir    — writable sandbox dir (assets unpacked here)
  *   scriptPath — entry point inside dataDir ("main.js")
  *   port       — loopback HTTP port for Express / WebView
@@ -74,7 +75,8 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
         jint port,
         jstring hub_j,
         jboolean disable_lan_discovery,
-        jboolean enable_portable_core_tests)
+        jboolean enable_portable_core_tests,
+        jstring background_agent_token_j)
 {
     pthread_mutex_lock(&g_once_lock);
 
@@ -101,6 +103,9 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
     env->ReleaseStringUTFChars(hub_j, hub);
     setenv("IINPUBLIC_LAN_DISCOVERY_ENABLED", disable_lan_discovery ? "0" : "1", 1);
     setenv("IINPUBLIC_E2E_PORTABLE_CORE", enable_portable_core_tests ? "1" : "0", 1);
+    const char* background_agent_token = env->GetStringUTFChars(background_agent_token_j, nullptr);
+    setenv("IINPUBLIC_BACKGROUND_AGENT_TOKEN", background_agent_token, 1);
+    env->ReleaseStringUTFChars(background_agent_token_j, background_agent_token);
 
     // Port (used by embedded-node config resolution)
     {
