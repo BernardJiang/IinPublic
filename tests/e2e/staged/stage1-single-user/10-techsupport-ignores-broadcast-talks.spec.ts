@@ -81,7 +81,7 @@ test.describe('TechSupport ignores broadcast talks entirely (docs/TODO.md K5, in
 
     // Only Alice occupies this Nearby room. TechSupport has no room presence or headcount floor.
     const headcountOnAlice = alicePage.locator('.chatroom-item.current-room .chatroom-headcount');
-    await expect(headcountOnAlice).toContainText('1', { timeout: 20_000 });
+    await expect(headcountOnAlice).toContainText('0 near you', { timeout: 20_000 });
 
     // `waitForChatroomMemberCountViaApi` (used internally by clickBroadcastUntilBulkAck's default
     // peer-count wait) deliberately excludes TECHSUPPORT_ROOT_USER_ID from its receiver count,

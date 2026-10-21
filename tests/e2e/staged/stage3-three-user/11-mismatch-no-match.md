@@ -8,7 +8,7 @@ covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Two users: Tom and Jerry, both in the "Global" chatroom.
+Two users: Tom and Jerry, both in the shared Nearby room.
 
 1. **Tom creates a talk** called "E2E Mismatch No Match Flow" (question: "Want to play tennis?" with Yes=match, No=ignore)
 2. **Tom broadcasts** the talk

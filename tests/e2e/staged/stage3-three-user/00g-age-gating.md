@@ -8,7 +8,7 @@ covers: SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Tom, Jerry, and Bob join Global.**
+1. **Tom, Jerry, and Bob join the shared Nearby room.**
 2. **Jerry is age-verified via API vouches** (3 sequential `POST /api/users/:id/age-verify` calls).
 3. **Bob remains unverified.**
 4. **Tom creates an adult talk** (`isAdult = true`) and broadcasts it.

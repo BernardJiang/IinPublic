@@ -63,8 +63,6 @@ export function getDefaultTalkIntakeFilters(seedLanguages?: string[]): TalkIntak
   return {
     contactsOnlyTalks: false,
     allowedLanguages: Array.isArray(seedLanguages) && seedLanguages.length > 0 ? seedLanguages : ['en'],
-    minDistanceMiles: 0,
-    maxDistanceMiles: 50,
     requireGoodGrammar: true,
     blockDirtyWords: true,
     allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
@@ -179,7 +177,8 @@ export function haversineMilesBetween(
 export function intakeFilterRejectReasons(
   subject: IncomingTalkFilterSubject,
   filters: TalkIntakeFilters,
-  currentLocation?: GPSCoordinate,
+  /** Unused since the distance filter was removed (the room defines who is in range). */
+  _currentLocation?: GPSCoordinate,
   receiverContext?: ReceiverIntakeContext,
 ): string[] {
   // Expiry check: reject before any other filter so expired bodies are never cached.
@@ -209,20 +208,6 @@ export function intakeFilterRejectReasons(
     const sentAt = new Date(subject.updatedAt || subject.createdAt || 0).getTime();
     const minTime = new Date(filters.sentAfter).getTime();
     if (!Number.isNaN(sentAt) && !Number.isNaN(minTime) && sentAt < minTime) return ['intake_sent_after'];
-  }
-
-  if (
-    currentLocation &&
-    subject.authorLocation &&
-    (typeof filters.minDistanceMiles === 'number' || typeof filters.maxDistanceMiles === 'number')
-  ) {
-    const distance = haversineMilesBetween(currentLocation, subject.authorLocation);
-    if (typeof filters.minDistanceMiles === 'number' && distance < filters.minDistanceMiles) {
-      return ['intake_min_distance'];
-    }
-    if (typeof filters.maxDistanceMiles === 'number' && distance > filters.maxDistanceMiles) {
-      return ['intake_max_distance'];
-    }
   }
 
   const subjectText = buildSubjectText(subject);

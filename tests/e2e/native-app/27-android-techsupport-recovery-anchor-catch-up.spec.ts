@@ -7,8 +7,9 @@
  * Gun sync with the hub. This spec checks the installed app's end state whichever path lands
  * first; spec 91 (stage1) covers the browser.
  *
- * Records are signed in this Node process with the real recovery key from `.env.local`
- * (`TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`); the spec skips without it. Only "now" records are posted
+ * Records are signed in this Node process with the real recovery key — its vault via
+ * `TECHSUPPORT_RECOVERY_KEY_FILE` (cold storage attached) or the legacy plaintext
+ * `TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`; the spec skips without either. Only "now" records are posted
  * and none revoke a key. App data is NOT reset — the spec only seeds and finally removes the
  * recovery cache key, so the phone keeps its identity.
  */
@@ -65,7 +66,7 @@ async function seedCache(user: AndroidUser, record: RecoveryAnchorRecord): Promi
 
 for (const serial of SERIALS) {
   test.describe(`Android recovery-anchor catch-up on ${serial}`, () => {
-    test.skip(!RECOVERY_PAIR, 'Set TECHSUPPORT_RECOVERY_SEA_PAIR_JSON in .env.local to run this recovery-anchor spec.');
+    test.skip(!RECOVERY_PAIR, 'Set TECHSUPPORT_RECOVERY_KEY_FILE (+ its passphrase file) or TECHSUPPORT_RECOVERY_SEA_PAIR_JSON to run this recovery-anchor spec.');
     let user: AndroidUser | undefined;
 
     test.afterEach(async () => {

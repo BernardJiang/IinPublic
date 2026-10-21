@@ -45,7 +45,7 @@ test.describe('Talks matching — job seeker route (multi-browser)', () => {
     const company = await bootstrapUser(browsers[0]!, 'Company', 'HR Co');
     sessions.push({ label: 'Company', context: company.context, page: company.page });
     const { page: co } = company;
-    await co.click('.chatroom-item:has-text("Global")');
+    await co.click('.chatroom-item.current-room');
     await waitForTabActive(co, 'chatrooms');
 
     const raw = prepareValidatedJobRouteTalk();

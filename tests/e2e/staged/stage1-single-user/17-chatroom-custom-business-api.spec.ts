@@ -2,10 +2,27 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { waitForGunApiReady } from '../../helpers/clear-database';
 import { gunBaseURL } from '../../helpers/ports';
+import SEA from 'gun/sea';
+import { LocationPrivacy } from '../../../../src/shared/location';
+import { parseAnchorCell } from '../../../../src/shared/place-rooms';
+import { createSignedPlaceDescriptor } from '../../../../src/shared/place-descriptor';
 
-// Rooms are ownerless and the relay assigns the id (chatroom-manager.ts createChatroom); a
-// client-supplied id is ignored outside unit tests.
-const SERVER_ROOM_ID = /^room_[0-9a-f]{40}$/;
+// Rooms are ownerless, content-addressed Places: the creator signs a descriptor and the room id
+// is the descriptor's CID (chatroom-manager.ts createChatroom); unsigned creates are refused.
+const SERVER_ROOM_ID = /^place_b[a-z2-7]+$/;
+// A local room is anchored to its creator's blurred ~1 km cell (San Diego here).
+const ANCHOR_CELL = LocationPrivacy.blurLocation({ latitude: 32.7157, longitude: -117.1611 }).region;
+
+async function signedDescriptor(name: string, placeType: 'business' | 'custom', description?: string) {
+  const anchor = parseAnchorCell(ANCHOR_CELL)!;
+  return createSignedPlaceDescriptor({
+    name,
+    placeType,
+    ...(description !== undefined ? { description } : {}),
+    location: { latitude: anchor.latitude, longitude: anchor.longitude },
+    pair: await SEA.pair(),
+  });
+}
 
 test.describe('Chatroom custom/business API scripts', () => {
   test.beforeAll(async ({ e2eWorkerSlot: _ws }) => {
@@ -33,9 +50,11 @@ test.describe('Chatroom custom/business API scripts', () => {
       data: {
         name: 'Neighborhood Buy/Sell',
         type: 'custom',
+        anchorCell: ANCHOR_CELL,
         createdBy,
         description: 'Local custom room',
         capacity: 120,
+        descriptor: await signedDescriptor('Neighborhood Buy/Sell', 'custom', 'Local custom room'),
       },
     });
     expect(createRes.ok(), await createRes.text()).toBeTruthy();
@@ -61,6 +80,8 @@ test.describe('Chatroom custom/business API scripts', () => {
       data: {
         name: 'Coffee Shop Live',
         type: 'business',
+        anchorCell: ANCHOR_CELL,
+        descriptor: await signedDescriptor('Coffee Shop Live', 'business'),
         createdBy: ownerId,
         businessInfo: {
           brandName: 'Coffee Shop',
@@ -96,7 +117,13 @@ test.describe('Chatroom custom/business API scripts', () => {
     const base = gunBaseURL();
 
     const createRes = await request.post(`${base}/api/chatrooms`, {
-      data: { name: 'Members Room', type: 'custom', createdBy: 'owner_members_1' },
+      data: {
+        name: 'Members Room',
+        type: 'custom',
+        createdBy: 'owner_members_1',
+        anchorCell: ANCHOR_CELL,
+        descriptor: await signedDescriptor('Members Room', 'custom'),
+      },
     });
     expect(createRes.ok(), await createRes.text()).toBeTruthy();
     const { id } = (await createRes.json()) as { id: string };
@@ -106,10 +133,12 @@ test.describe('Chatroom custom/business API scripts', () => {
     });
     expect(invalidAdd.status()).toBe(400);
 
+    // A Place is each member's own list (§3.7 "Places in v3"): the hub keeps no roster for it.
     const addRes = await request.post(`${base}/api/chatrooms/${encodeURIComponent(id)}/members`, {
       data: { userId: 'member_user_1', stageName: 'MemberOne' },
     });
-    expect(addRes.ok(), await addRes.text()).toBeTruthy();
+    expect(addRes.status()).toBe(410);
+    expect(((await addRes.json()) as { code?: string }).code).toBe('PLACE_HAS_NO_ROSTER');
 
     const removeRes = await request.delete(`${base}/api/chatrooms/${encodeURIComponent(id)}/members/member_user_1`);
     expect(removeRes.ok(), await removeRes.text()).toBeTruthy();

@@ -76,13 +76,13 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     await createSimpleFlowTalk(pageTom, 'Tom Out Talk', 'Do you want to join Tom?');
@@ -141,7 +141,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await afterAction();
 
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item[data-chatroom-id="global"]');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
     const jerryMember = pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryMember).toBeVisible({ timeout: 15000 });

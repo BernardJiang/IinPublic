@@ -1,9 +1,42 @@
+import { parsePublicLocationRegion } from './public-location';
 import { GPSCoordinate, BlurredLocation } from './types';
 
 /**
  * Location privacy utilities for IinPublic
  * Manages GPS coordinates and location blurring for privacy
  */
+/** A platform fix this recent is used without asking the WebView at all. */
+export const NATIVE_FRESH_FIX_MS = 2 * 60_000;
+/**
+ * After the WebView's geolocation fails or times out, a platform fix this recent still counts: a
+ * few hours old (blurred to at least ~1 km anyway) beats a random city. Indoors the P30 had only a
+ * 5-hour-old fix and no network location provider (2026-10-20).
+ */
+export const NATIVE_FALLBACK_FIX_MS = 24 * 60 * 60_000;
+
+/**
+ * The Android app's own last-known fix (`IinPublicNearby.lastLocation()`, which also asks the GPS
+ * for a fresh one), when it is at most `maxAgeMs` old; null in a browser or without a fix.
+ */
+export function nativeLastLocation(maxAgeMs: number, nowMs: number = Date.now()): GPSCoordinate | null {
+  try {
+    const bridge = (globalThis as { IinPublicNearby?: { lastLocation?: () => string } }).IinPublicNearby;
+    if (typeof bridge?.lastLocation !== 'function') return null;
+    const raw = bridge.lastLocation();
+    if (!raw) return null;
+    const fix = JSON.parse(raw) as { latitude?: unknown; longitude?: unknown; accuracy?: unknown; timeMs?: unknown };
+    const latitude = Number(fix.latitude);
+    const longitude = Number(fix.longitude);
+    const timeMs = Number(fix.timeMs);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+    if (!Number.isFinite(timeMs) || nowMs - timeMs > maxAgeMs) return null;
+    const accuracy = Number(fix.accuracy);
+    return { latitude, longitude, accuracy: Number.isFinite(accuracy) ? accuracy : 1000, timestamp: new Date(timeMs) };
+  } catch {
+    return null;
+  }
+}
+
 export class LocationPrivacy {
 
   /**
@@ -52,6 +85,11 @@ export class LocationPrivacy {
    * recovering or publishing a device's exact GPS fix.
    */
   static coordinateFromRegion(region: string): GPSCoordinate | null {
+    // Current form (public-location.ts): the exact public square centre and its size.
+    const cell = parsePublicLocationRegion(region);
+    if (cell) {
+      return { latitude: cell.latitude, longitude: cell.longitude, accuracy: cell.precisionMeters, timestamp: new Date(0) };
+    }
     const match = /^region_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)$/.exec(String(region || ''));
     if (!match) return null;
     const latitude = Math.round((Number(match[1]) + 0.005) * 1_000_000) / 1_000_000;
@@ -175,6 +213,11 @@ export class LocationPrivacy {
     if (typeof globalThis !== 'undefined' && 
         'navigator' in globalThis && 
         'geolocation' in (globalThis as any).navigator) {
+      // Android app: the platform's own fix, when it is recent, answers at once. The WebView's
+      // geolocation goes through Google Play services, which on the Huawei P30 never answered while
+      // the phone's GPS had a 5 m fix (2026-10-20); it stays the first choice otherwise.
+      const fresh = nativeLastLocation(NATIVE_FRESH_FIX_MS);
+      if (fresh) return fresh;
       const nav = (globalThis as any).navigator;
       return new Promise((resolve, reject) => {
         nav.geolocation.getCurrentPosition(
@@ -187,7 +230,15 @@ export class LocationPrivacy {
             });
           },
           (error: any) => {
-            reject(new Error(`Location error: ${error.message}`));
+            // A slow or failed WebView fix: take the platform's, if it has a reasonably recent one.
+            const fallback = error?.code !== 1 ? nativeLastLocation(NATIVE_FALLBACK_FIX_MS) : null;
+            if (fallback) {
+              resolve(fallback);
+              return;
+            }
+            // Keep the GeolocationPositionError code: 1 (PERMISSION_DENIED) means a saved fix can
+            // no longer be refreshed, which callers treat differently from a slow or failed fix.
+            reject(Object.assign(new Error(`Location error: ${error.message}`), { code: error?.code }));
           },
           {
             enableHighAccuracy: true,

@@ -9,7 +9,7 @@ covers: SPEC-7.9, SPEC-13.1  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Setup:** Three browsers launched — Tom, Jerry, and Bob. All three join the "Global" chatroom.
+1. **Setup:** Three browsers launched — Tom, Jerry, and Bob. All three join the shared Nearby room.
 
 2. **Tom creates two talks** via the company page demo:
    - **"Tennis"** talk: "Want a tennis partner?" with answers "Yes, lets play." (match) and "No thanks." (ignore)

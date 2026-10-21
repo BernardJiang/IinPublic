@@ -59,7 +59,7 @@ const TEST_GROUP_CREDENTIALS = deriveOfflineGroupCredentials(TEST_ROOM_SCOPE);
 const scopedTxt = (input: Parameters<typeof encodeNearbyTxt>[0]) => encodeNearbyTxt({ ...input, roomToken: TEST_ROOM_SCOPE.roomToken });
 const scopedBle = (input: Parameters<typeof encodeBlePresence>[0]) => encodeBlePresence({ ...input, roomToken: TEST_ROOM_SCOPE.roomToken });
 
-function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDirectAllowed?: boolean } = {}) {
+function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDirectAllowed?: boolean; roomPeers?: { count: number; pubs: string[] } | null } = {}) {
   const events = new EventTarget();
   const native = new FakeNative();
   const { bridge, calls, advertised } = fakeBridge(options.readiness);
@@ -69,6 +69,7 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
   const gaps: NearbyReadinessGap[] = [];
   let now = 1_000_000;
   let hubReachable = options.hubReachable ?? false;
+  let roomPeers = options.roomPeers;
   const service = new NearbyOfflineService({
     localPub: 'local-pub',
     getRoomScope: () => TEST_ROOM_SCOPE,
@@ -81,6 +82,7 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
     hubReachable: async () => hubReachable,
     requestPermission: () => native.requestPermission(),
     wifiDirectAllowed: options.wifiDirectAllowed ?? true,
+    ...(options.roomPeers !== undefined ? { getRoomPeers: () => roomPeers ?? null } : {}),
     onReadinessGap: (gap) => gaps.push(gap),
     events,
     now: () => now,
@@ -90,6 +92,7 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
   return {
     service, events, native, calls, advertised, gunPeers, iceServers, relayStarts, gaps,
     setHub: (value: boolean) => { hubReachable = value; },
+    setRoomPeers: (value: { count: number; pubs: string[] } | null) => { roomPeers = value; },
     advance: (ms: number) => { now += ms; },
     tick: () => (service as unknown as { tick(): Promise<void> }).tick(),
     emitLan: (transportId: string, endpoint: string, roomTokenPrefix = TEST_ROOM_SCOPE.roomToken.slice(0, 8)) => events.dispatchEvent(new CustomEvent('iinpublic-nearby-candidate', {
@@ -102,8 +105,32 @@ function setup(options: { hubReachable?: boolean; readiness?: Readiness; wifiDir
 }
 
 describe('NearbyOfflineService', () => {
-  it('starts LAN discovery with the rotating id and peers Gun with each LAN phone once', async () => {
-    const t = setup({ hubReachable: true });
+  it('leaves a room group from an earlier room token so the current group can form', async () => {
+    const t = setup();
+    // The OS keeps a Wi-Fi Direct group after the app is killed or its data cleared.
+    t.native.set({ state: 'owner', networkName: 'DIRECT-iP-364d6efa71ae0ea9', clientCount: 1 });
+    await t.service.start();
+    expect(t.native.left).toBe(1);
+    expect(t.native.state.state).toBe('idle');
+    t.service.dispose();
+  });
+
+  it('keeps the current room group and other apps\' Wi-Fi Direct groups', async () => {
+    const ours = setup();
+    ours.native.set({ state: 'owner', networkName: TEST_GROUP_CREDENTIALS.networkName, clientCount: 1 });
+    await ours.service.start();
+    expect(ours.native.left).toBe(0);
+    ours.service.dispose();
+
+    const foreign = setup();
+    foreign.native.set({ state: 'client', networkName: 'DIRECT-xy-ScreenMirror' });
+    await foreign.service.start();
+    expect(foreign.native.left).toBe(0);
+    foreign.service.dispose();
+  });
+
+  it('starts LAN discovery with the rotating id and, offline, peers Gun with each LAN phone once', async () => {
+    const t = setup();
     await t.service.start();
     const id = await rotatingNearbyId('local-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
     expect(t.calls).toContain(`lan:8088:${id}:${TEST_ROOM_SCOPE.roomToken.slice(0, 8)}`);
@@ -122,6 +149,36 @@ describe('NearbyOfflineService', () => {
     await t.service.start();
     expect(t.calls).not.toContain('wd-start');
     expect(t.native.permissionRequests).toBe(0);
+    t.service.dispose();
+  });
+
+  it('never exposes group credentials or the room capability in diagnostics', async () => {
+    const t = setup();
+    await t.service.start();
+    t.emitRecord(scopedTxt({
+      id: '000000000000',
+      canHost: true,
+      joinByCredential: true,
+      hostScore: 3,
+      port: 9090,
+      group: hostGroup,
+    }));
+    await t.tick();
+
+    let serialized = JSON.stringify(t.service.getDiagnostics());
+    expect(serialized).not.toContain(TEST_GROUP_CREDENTIALS.passphrase);
+    expect(serialized).not.toContain(TEST_ROOM_SCOPE.roomToken);
+    expect(serialized).toContain('"action":"join"');
+
+    t.native.set({
+      state: 'owner',
+      networkName: TEST_GROUP_CREDENTIALS.networkName,
+      passphrase: TEST_GROUP_CREDENTIALS.passphrase,
+      localIp: '192.168.49.1',
+    });
+    serialized = JSON.stringify(t.service.getDiagnostics());
+    expect(serialized).not.toContain(TEST_GROUP_CREDENTIALS.passphrase);
+    expect(serialized).toContain(TEST_GROUP_CREDENTIALS.networkName);
     t.service.dispose();
   });
 
@@ -147,6 +204,34 @@ describe('NearbyOfflineService', () => {
     t.service.dispose();
     expect(t.native.left).toBe(1);
     expect(t.iceServers.at(-1)).toBeNull();
+  });
+
+  it('does not make the one-way observer compete with the peer it is waiting for', async () => {
+    const t = setup();
+    await t.service.start();
+    // This peer wins the normal election, but never reports that it started hosting. This models
+    // A hearing B while B missed A and entered singleton backoff on real hardware.
+    const silentWinner = () => t.emitBle(scopedBle({
+      id: '000000000000',
+      canHost: true,
+      joinByCredential: true,
+      hostScore: 3,
+      hosting: false,
+    }));
+    silentWinner();
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+
+    t.advance(44_999);
+    silentWinner();
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+
+    t.advance(1);
+    silentWinner();
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+    t.service.dispose();
   });
 
   it('joins an advertised group and peers Gun with the owner node', async () => {
@@ -261,14 +346,24 @@ describe('NearbyOfflineService BLE presence', () => {
 describe('NearbyOfflineService Wi-Fi-only fallback', () => {
   const phone = (address: string, groupOwner = false) => ({ address, groupOwner, type: '10-0050F204-5' });
 
-  it('does not join or host from unscoped phone sightings', async () => {
+  it('uses a visible owner only to attempt the current room-derived credential', async () => {
     const t = setup();
     await t.service.start();
     t.emitPeers([phone('aa:bb:cc:00:00:01', true)]);
     await t.tick();
-    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
-    t.advance(15_000);
-    t.emitPeers([phone('aa:bb:cc:00:00:01')]);
+    expect(t.native.joined).toEqual([TEST_GROUP_CREDENTIALS]);
+    expect(t.native.created).toHaveLength(0);
+    t.service.dispose();
+  });
+
+  it('never hosts or joins from an unverified non-owner sighting', async () => {
+    const t = setup();
+    await t.service.start();
+    const emitRawPeer = () => t.emitPeers([phone('aa:bb:cc:00:00:01')]);
+    emitRawPeer();
+    await t.tick();
+    t.advance(45_000);
+    emitRawPeer();
     await t.tick();
     expect(t.native.joined).toHaveLength(0);
     expect(t.native.created).toHaveLength(0);
@@ -322,7 +417,7 @@ describe('NearbyOfflineService settings switches and status', () => {
     await t.service.start();
     t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 2, ...TEST_GROUP_CREDENTIALS });
     await flush();
-    expect(t.service.getStatus()).toEqual({ kind: 'wifi-direct', hosting: true, phones: 2, lanPhones: 0 });
+    expect(t.service.getStatus()).toEqual({ kind: 'wifi-direct', online: false, hosting: true, phones: 2, lanPhones: 0 });
     t.service.updateSettings({ wifiDirect: false, bluetooth: true });
     expect(t.native.left).toBe(1);
     expect(t.calls).toContain('wd-stop');
@@ -395,8 +490,26 @@ describe('NearbyOfflineService join retry', () => {
 });
 
 describe('NearbyOfflineService keeps Gun peers alive', () => {
-  it('re-asserts LAN peers and the group owner every tick, but not a stale group URL', async () => {
+  it('online, sees LAN phones but leaves their Gun links to the hub until the hub is lost', async () => {
     const t = setup({ hubReachable: true });
+    await t.service.start();
+    t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
+    expect(t.service.getStatus()).toEqual({ kind: 'standby', lanPhones: 1 });
+    await t.tick();
+    expect(t.gunPeers).toEqual([]);
+    t.setHub(false);
+    await t.tick();
+    expect(t.gunPeers).toEqual(['http://192.168.10.71:8088/gun']);
+    t.setHub(true);
+    await t.tick();
+    t.gunPeers.length = 0;
+    await t.tick();
+    expect(t.gunPeers).toEqual([]);
+    t.service.dispose();
+  });
+
+  it('re-asserts LAN peers and the group owner every tick, but not a stale group URL', async () => {
+    const t = setup();
     await t.service.start();
     t.emitLan('cccccccccccc', 'http://192.168.10.71:8088/gun');
     t.native.set({ state: 'client', localIp: '192.168.49.185', ownerIp: '192.168.49.1', ...TEST_GROUP_CREDENTIALS });
@@ -409,6 +522,147 @@ describe('NearbyOfflineService keeps Gun peers alive', () => {
     t.gunPeers.length = 0;
     await t.tick();
     expect(t.gunPeers).toEqual(['http://192.168.10.71:8088/gun']);
+    t.service.dispose();
+  });
+});
+
+describe('NearbyOfflineService staged discovery', () => {
+  const legacyBle = (id: string, hosting = false) => `02${id}${TEST_ROOM_SCOPE.roomToken.slice(0, 8)}${(hosting ? 1 : 0 | 2 | 4).toString(16).padStart(2, '0')}`;
+
+  it('a lone online user keeps LAN NSD silent; a second room member starts it', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    expect(t.calls.filter((call) => call.startsWith('lan:'))).toEqual([]);
+    t.setRoomPeers({ count: 1, pubs: ['peer-pub'] });
+    await t.tick();
+    expect(t.calls.filter((call) => call.startsWith('lan:'))).toHaveLength(1);
+    t.setRoomPeers({ count: 0, pubs: [] });
+    await t.tick();
+    expect(t.calls).toContain('lan-stop');
+    t.service.dispose();
+  });
+
+  it('online with permission: advertises an online-flagged beacon, never Wi-Fi Direct', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    const ble = t.calls.filter((call) => call.startsWith('ble:'));
+    expect(ble).toHaveLength(1);
+    const flags = parseInt(ble[0]!.slice(4 + 22, 4 + 24), 16);
+    expect(flags & 16).toBe(16);
+    expect(t.calls).not.toContain('wd-start');
+    expect(t.native.permissionRequests).toBe(0);
+    t.service.dispose();
+  });
+
+  it('online without a granted permission: no beacon and no prompt', async () => {
+    const t = setup({ hubReachable: true, readiness: { permission: false, wifiEnabled: true, locationEnabled: true } });
+    await t.service.start();
+    expect(t.calls.some((call) => call.startsWith('ble:'))).toBe(false);
+    expect(t.native.permissionRequests).toBe(0);
+    t.service.dispose();
+  });
+
+  it('a lone offline phone backs off, then performs a bounded host probe in a later window', async () => {
+    const t = setup({ roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    expect(t.calls).toContain('wd-start');
+    expect(t.service.getStatus().kind).toBe('searching');
+    t.advance(30_000);
+    await t.tick();
+    expect(t.calls).toContain('wd-stop');
+    expect(t.service.getStatus()).toMatchObject({ kind: 'quiet', nextScanInSeconds: 30 });
+    expect(t.native.created).toHaveLength(0);
+    // The beacon keeps advertising (no scan) so an arriving phone still finds this one.
+    expect(t.calls.at(-1)).toMatch(/^ble:03.*:no-scan$/);
+    t.advance(30_000);
+    await t.tick();
+    expect(t.calls.filter((call) => call === 'wd-start')).toHaveLength(2);
+    expect(t.native.created).toEqual([TEST_GROUP_CREDENTIALS]);
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...TEST_GROUP_CREDENTIALS });
+    await flush();
+    await t.tick();
+    t.advance(60_000);
+    await t.tick();
+    expect(t.native.left).toBe(1);
+    t.service.dispose();
+  });
+
+  it('never forms a group for a prefix-only (legacy) sighting of an unknown phone', async () => {
+    const t = setup({ roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    t.emitBle(legacyBle('000000000000'));
+    t.emitBle(legacyBle('ffffffffffff', true));
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+    expect(t.native.joined).toHaveLength(0);
+    t.service.dispose();
+  });
+
+  it('a roster-bound legacy sighting is eligible (mixed-release window)', async () => {
+    const peerId = await rotatingNearbyId('peer-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
+    const t = setup({ roomPeers: { count: 1, pubs: ['peer-pub'] } });
+    await t.service.start();
+    t.emitBle(legacyBle(peerId));
+    await t.tick();
+    const localId = await rotatingNearbyId('local-pub', 1_000_000, TEST_ROOM_SCOPE.roomToken);
+    const expectHost = [localId, peerId].sort()[0] === localId;
+    expect(t.native.created).toHaveLength(expectHost ? 1 : 0);
+    t.service.dispose();
+  });
+
+  it('network-free: an offline phone links with a nearby online phone to exchange Talks', async () => {
+    const t = setup({ roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    // Id 000… outranks any local id, so the online phone is the elected host and we wait for it.
+    t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 3, hosting: true, online: true }));
+    await t.tick();
+    expect(t.native.joined).toEqual([TEST_GROUP_CREDENTIALS]);
+    t.service.dispose();
+  });
+
+  it('two online phones never form a Wi-Fi Direct group; the hub is their route', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 1, pubs: [] } });
+    await t.service.start();
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 0, hosting: false, online: true }));
+    await t.tick();
+    expect(t.native.created).toHaveLength(0);
+    expect(t.calls).not.toContain('wd-start');
+    t.service.dispose();
+  });
+
+  it('an online phone links with an offline same-room phone it sees nearby, then frees the radio when it leaves', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
+    await t.service.start();
+    expect(t.calls).not.toContain('wd-start');
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 0, hosting: false }));
+    await t.tick();
+    expect(t.calls).toContain('wd-start');
+    expect(t.native.created).toEqual([TEST_GROUP_CREDENTIALS]);
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 1, ...TEST_GROUP_CREDENTIALS });
+    await flush();
+    expect(t.service.getStatus()).toMatchObject({ kind: 'wifi-direct', online: true, hosting: true });
+    // Still serving: the offline phone's beacon stays fresh.
+    t.advance(60_000);
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 0, hosting: false }));
+    await t.tick();
+    expect(t.native.left).toBe(0);
+    // Gone: its sightings expire, then after the dwell the bridge leaves the group.
+    t.advance(120_000);
+    await t.tick();
+    t.advance(60_000);
+    await t.tick();
+    expect(t.native.left).toBe(1);
+    t.service.dispose();
+  });
+
+  it('turning the LAN switch off stops NSD right away', async () => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 2, pubs: [] } });
+    await t.service.start();
+    expect(t.calls.some((call) => call.startsWith('lan:'))).toBe(true);
+    t.service.updateSettings({ wifiDirect: true, bluetooth: true, lan: false });
+    expect(t.calls).toContain('lan-stop');
+    await t.tick();
+    expect(t.calls.filter((call) => call.startsWith('lan:'))).toHaveLength(1);
     t.service.dispose();
   });
 });

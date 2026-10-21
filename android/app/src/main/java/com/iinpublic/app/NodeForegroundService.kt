@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -40,6 +41,8 @@ class NodeForegroundService : Service() {
         const val HUB_GUN_URL_EXTRA = "hub_gun_url"
         /** Test-only isolation switch; normal app launches retain LAN peer discovery. */
         const val DISABLE_LAN_DISCOVERY_EXTRA = "disable_lan_discovery"
+        /** Debug-build-only fixed core contract endpoint; never honored by release builds. */
+        const val PORTABLE_CORE_TESTS_EXTRA = "portable_core_tests"
         const val ACTION_CONFIGURE_NEARBY = "com.iinpublic.app.CONFIGURE_NEARBY"
         const val ACTION_PAUSE_NEARBY = "com.iinpublic.app.PAUSE_NEARBY"
         const val ACTION_STOP_NEARBY = "com.iinpublic.app.STOP_NEARBY"
@@ -243,7 +246,7 @@ class NodeForegroundService : Service() {
             }
         }
         persistNearbyState()
-        startForeground(NOTIF_ID, buildNotification())
+        promoteToForeground()
         if (nearbyMode == "always" && !nearbyPaused) restoreNearbyCheckpoint()
         if (!nodeStarted) {
             nodeStarted = true
@@ -253,13 +256,38 @@ class NodeForegroundService : Service() {
             // that need a different hub, same as any fresh launch.
             val hubUrl = intent?.getStringExtra(HUB_GUN_URL_EXTRA)?.takeIf { it.isNotBlank() } ?: HUB_GUN_URL
             val disableLanDiscovery = intent?.getBooleanExtra(DISABLE_LAN_DISCOVERY_EXTRA, false) == true
-            startEmbeddedNode(hubUrl, disableLanDiscovery)
+            val enablePortableCoreTests = BuildConfig.DEBUG
+                && intent?.getBooleanExtra(PORTABLE_CORE_TESTS_EXTRA, false) == true
+            startEmbeddedNode(hubUrl, disableLanDiscovery, enablePortableCoreTests)
         }
         // Preserve the launch configuration if Android restarts this process. START_STICKY
         // supplies a null Intent, which silently changed an adb-selected test hub back to the
         // production hub after a process restart. Redelivery keeps the original hub_gun_url;
         // an ordinary later app launch still sends its own fresh, production-default Intent.
         return START_REDELIVER_INTENT
+    }
+
+    /**
+     * Run as `connectedDevice` only. The two-arg startForeground() claims every manifest type,
+     * including `dataSync`, which Android 15+ caps at 6 h per 24 h: once a day's quota ran out,
+     * Android 16 called onTimeout and killed the app ~10 s after opening it
+     * (ForegroundServiceDidNotStopInTimeException). `connectedDevice` has no time cap, and its
+     * prerequisite (CHANGE_WIFI_STATE, a normal permission) is always granted.
+     */
+    private fun promoteToForeground() {
+        val notification = buildNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val promoted = runCatching {
+                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            }.isSuccess
+            if (promoted) return
+        }
+        startForeground(NOTIF_ID, notification)
+    }
+
+    /** Android 15+: a time-capped FGS type ran out. Stop in time instead of being killed. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopSelf()
     }
 
     override fun onDestroy() {
@@ -269,7 +297,11 @@ class NodeForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun startEmbeddedNode(hubUrl: String, disableLanDiscovery: Boolean) {
+    private fun startEmbeddedNode(
+        hubUrl: String,
+        disableLanDiscovery: Boolean,
+        enablePortableCoreTests: Boolean,
+    ) {
         val dataDir = filesDir.absolutePath + "/node-data"
         java.io.File(dataDir).mkdirs()
 
@@ -277,7 +309,15 @@ class NodeForegroundService : Service() {
             // NodeBridge.startProject unpacks assets then calls the JNI shim.
             // The native side sets IINPUBLIC_* env vars and spawns a pthread
             // that runs node::Start().
-            NodeBridge.startProject(this, "main.js", LOCAL_PORT, dataDir, hubUrl, disableLanDiscovery)
+            NodeBridge.startProject(
+                this,
+                "main.js",
+                LOCAL_PORT,
+                dataDir,
+                hubUrl,
+                disableLanDiscovery,
+                enablePortableCoreTests,
+            )
         }.start()
     }
 

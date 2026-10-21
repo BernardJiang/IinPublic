@@ -5,6 +5,8 @@
  *   POST   /api/mailbox/:recipientId          store a ciphertext envelope
  *   GET    /api/mailbox/:recipientId          list non-expired envelopes
  *   DELETE /api/mailbox/:recipientId/:id      ack/delete after successful local processing
+ *   GET    /api/mailbox/:recipientId/wait     long-poll: ids only, answered when an envelope newer
+ *                                             than `since` exists/arrives or after `timeoutMs`
  *
  * The server NEVER sees plaintext — ciphertext is an opaque string produced by the sender
  * using SEA ECDH against the recipient's epub key. The server only knows {recipientId,
@@ -63,12 +65,37 @@ type MailboxLike = {
   getQueueSizes(): Record<string, number> | Promise<Record<string, number>>;
 };
 
+/** OPEN-44 long-poll bounds. Below common proxy/idle limits; one network wake per window. */
+export const MAILBOX_WAIT_DEFAULT_MS = 4 * 60_000;
+export const MAILBOX_WAIT_MAX_MS = 9 * 60_000;
+const MAILBOX_WAITERS_PER_RECIPIENT = 8;
+
+export type MailboxWaitResult = { changed: boolean; ids: string[]; latest: string };
+
+/** Envelopes stored after `since` (ISO), and the newest createdAt overall. */
+export function mailboxWaitSnapshot(envelopes: readonly MailboxEnvelope[], since: string): MailboxWaitResult {
+  const sinceMs = Date.parse(since);
+  const ids = envelopes.map((envelope) => envelope.id).filter(Boolean);
+  const latest = envelopes.reduce((max, envelope) => (envelope.createdAt > max ? envelope.createdAt : max), since || '');
+  const changed = envelopes.some((envelope) =>
+    !Number.isFinite(sinceMs) || Date.parse(envelope.createdAt) > sinceMs);
+  return { changed: since === '' ? ids.length > 0 : changed, ids, latest };
+}
+
 export function registerMailboxRoutes(
   app: express.Application,
   { mailboxStore, techSupportStore, hubRelayClient, nodeEnv }: RegisterMailboxRoutesDeps,
 ): void {
   const storeFor = (recipientId: string): MailboxLike =>
     recipientId === TECHSUPPORT_ROOT_USER_ID && techSupportStore ? techSupportStore : mailboxStore;
+  // OPEN-44: open long-polls per recipient, woken by a store for that recipient.
+  const waiters = new Map<string, Set<() => void>>();
+  const wakeWaiters = (recipientId: string): void => {
+    const set = waiters.get(recipientId);
+    if (!set) return;
+    waiters.delete(recipientId);
+    for (const wake of set) wake();
+  };
 
   // ── POST /api/mailbox/:recipientId ────────────────────────────────────────
   // Store a ciphertext envelope for an offline recipient.
@@ -117,6 +144,7 @@ export function registerMailboxRoutes(
         res.status(429).json({ error: result.reason });
         return;
       }
+      wakeWaiters(recipientId);
       // docs/TODO.md K7 follow-on: an embedded node's local store (generic or TechSupport's own
       // durable one) is invisible to every other device/process without this — found via a real
       // Honor-phone-as-delegate test where her fan-out envelope never reached the shared hub.
@@ -156,6 +184,76 @@ export function registerMailboxRoutes(
       res.json({ recipientId, envelopes, count: envelopes.length });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // ── GET /api/mailbox/:recipientId/wait ────────────────────────────────────
+  // OPEN-44: a phone whose vendor power layer withholds every background timer can still be woken
+  // by incoming network data. Its always-on service keeps this request open; the response (ids
+  // only, never ciphertext) arrives the moment an envelope is stored for it, or at the timeout,
+  // when it simply re-asks. An embedded node forwards the wait to the hub, where senders post.
+  app.get('/api/mailbox/:recipientId/wait', async (req, res) => {
+    try {
+      const recipientId = String(req.params.recipientId || '').trim();
+      if (!recipientId) {
+        res.status(400).json({ error: 'recipientId is required' });
+        return;
+      }
+      const since = typeof req.query.since === 'string' ? req.query.since.slice(0, 40) : '';
+      const requested = Number(req.query.timeoutMs);
+      const timeoutMs = Number.isFinite(requested) && requested > 0
+        ? Math.min(MAILBOX_WAIT_MAX_MS, requested)
+        : MAILBOX_WAIT_DEFAULT_MS;
+      const snapshot = async (): Promise<MailboxWaitResult> =>
+        mailboxWaitSnapshot(await storeFor(recipientId).list(recipientId), since);
+      const now = await snapshot();
+      if (now.changed) {
+        res.json(now);
+        return;
+      }
+      const set = waiters.get(recipientId) ?? new Set<() => void>();
+      if (set.size >= MAILBOX_WAITERS_PER_RECIPIENT) {
+        res.status(429).json({ error: 'too many waiters for this recipient' });
+        return;
+      }
+      const hubAbort = new AbortController();
+      let finished = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = async (fromHub?: MailboxWaitResult): Promise<void> => {
+        if (finished) return;
+        finished = true;
+        if (timer) clearTimeout(timer);
+        set.delete(wake);
+        hubAbort.abort();
+        const local = await snapshot().catch(() => now);
+        const result: MailboxWaitResult = fromHub
+          ? {
+              changed: local.changed || fromHub.changed,
+              ids: [...new Set([...local.ids, ...fromHub.ids])],
+              latest: fromHub.latest > local.latest ? fromHub.latest : local.latest,
+            }
+          : local;
+        if (!res.headersSent) res.json(result);
+      };
+      const wake = (): void => { void finish(); };
+      set.add(wake);
+      waiters.set(recipientId, set);
+      timer = setTimeout(() => { void finish(); }, timeoutMs);
+      (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+      req.on('close', () => {
+        if (finished) return;
+        finished = true;
+        if (timer) clearTimeout(timer);
+        set.delete(wake);
+        hubAbort.abort();
+      });
+      if (hubRelayClient?.waitMailbox) {
+        void hubRelayClient.waitMailbox(recipientId, since, timeoutMs, hubAbort.signal)
+          .then((remote) => finish(remote))
+          .catch(() => undefined);
+      }
+    } catch (error) {
+      if (!res.headersSent) res.status(400).json({ error: (error as Error).message });
     }
   });
 

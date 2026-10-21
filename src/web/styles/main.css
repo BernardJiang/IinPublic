@@ -552,6 +552,43 @@ button:focus:not(:focus-visible) {
   display: none;
 }
 
+/* Room status: name on line 1, "N users · M matches" on line 2; tap to read it all wrapped. */
+#status-bar-text {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+#status-bar-text .status-bar-name,
+#status-bar-text .status-bar-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#status-bar-text .status-bar-meta {
+  font-size: 0.78em;
+  font-weight: 500;
+  color: var(--text-secondary, #4b5563);
+}
+
+#status-bar-text .status-bar-sep {
+  display: none;
+}
+
+#status-bar-text.status-bar-expanded .status-bar-name,
+#status-bar-text.status-bar-expanded .status-bar-meta {
+  white-space: normal;
+}
+
+/* While a room's member list is open, its own heading names the room: show only the counts. */
+body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
+  display: none;
+}
+
 /* View Container */
 .view-container {
   flex: 1;
@@ -936,35 +973,6 @@ button:focus:not(:focus-visible) {
   border-top: 1px solid rgba(255, 255, 255, 0.25);
 }
 
-.status-broadcast-btn {
-  width: auto;
-  padding: 8px 14px;
-  background: var(--accent);
-  color: white;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  font-size: 0.95em;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.status-broadcast-btn:hover {
-  background: var(--accent-hover);
-}
-
-.status-broadcast-btn:active {
-  transform: translateY(0);
-}
-
-.status-broadcast-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -1059,6 +1067,10 @@ button:focus:not(:focus-visible) {
   appearance: none;
 }
 
+.chatroom-map-marker.empty-place {
+  opacity: 0.55;
+}
+
 .chatroom-map-marker.current-room {
   background: #16803c;
   box-shadow: 0 0 0 4px rgb(22 128 60 / 30%), 0 2px 8px rgb(0 0 0 / 35%);
@@ -1084,6 +1096,123 @@ button:focus:not(:focus-visible) {
   pointer-events: none;
 }
 
+/* Room list header: everyone online and the sort choice. Full rooms are shown but greyed. */
+.room-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 4px 2px;
+  font-size: 0.92em;
+}
+
+.room-list-total {
+  font-weight: 700;
+}
+
+.room-list-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary, #4b5563);
+}
+
+.room-list-sort select {
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong, #d1d5db);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+
+/* People on the map: ★ me (larger), green = my room (can exchange Talks), yellow = others. */
+.chatroom-map-user-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
+  color: #111827;
+  font: 700 9px/1 system-ui, sans-serif;
+}
+
+.chatroom-map-user-dot[data-count]:not([data-count="1"]) {
+  width: 20px;
+  height: 20px;
+}
+
+.chatroom-map-user-dot-room {
+  background: #16a34a;
+  color: #fff;
+}
+
+.chatroom-map-user-dot-other {
+  background: #facc15;
+}
+
+.chatroom-map-user-dot-self {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: #f59e0b;
+  font-size: 28px;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 1px 3px rgb(0 0 0 / 55%);
+}
+
+.chatroom-map-user-dot {
+  position: relative;
+}
+
+.chatroom-map-user-dot-traveler {
+  position: absolute;
+  top: -9px;
+  right: -10px;
+  color: #1e293b;
+  font: 700 11px/1 system-ui, sans-serif;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+}
+
+.chatroom-map-user-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 30px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--text-primary, #111827);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 20%);
+  font-size: 0.8em;
+  pointer-events: none;
+}
+
+.chatroom-map-user-legend[hidden] {
+  display: none;
+}
+
+.chatroom-map-user-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chatroom-map-user-legend-swatch.chatroom-map-user-dot-self {
+  width: 14px;
+  height: 14px;
+  font-size: 15px;
+}
+
 /* Tapped tile on the room map: its name and an Enter button, pinned at the tap point. */
 .chatroom-map-tile-card {
   display: flex;
@@ -1105,6 +1234,111 @@ button:focus:not(:focus-visible) {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chatroom-map-member-card {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(280px, 80vw);
+  max-width: none;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 8px;
+  cursor: default;
+}
+
+.chatroom-map-member {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 4px 10px;
+  align-items: start;
+}
+
+.chatroom-map-member + .chatroom-map-member {
+  padding-top: 8px;
+  border-top: 1px solid var(--border, rgb(0 0 0 / 10%));
+}
+
+.chatroom-map-member-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #16803c;
+  color: #fff;
+  font-weight: 600;
+}
+
+.chatroom-map-member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chatroom-map-member-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chatroom-map-member-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatroom-map-member-status,
+.chatroom-map-member-details span {
+  color: var(--text-secondary, #4b5563);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.chatroom-map-member-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.chatroom-map-member-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
+.chatroom-map-member-actions button {
+  flex: 1;
+}
+
+.chatroom-map-member-profile {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--border, rgb(0 0 0 / 15%));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chatroom-map-user-dot[role="button"] {
+  cursor: pointer;
+}
+
+/* My own star is not tappable; let taps reach a roommate's dot drawn under it. */
+.chatroom-map-user-dot-self {
+  pointer-events: none;
+}
+
+/* A 14 px dot is a hard tap target on a phone: widen the hit area without changing the dot. */
+.chatroom-map-user-dot[role="button"]::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
 }
 
 .chatroom-map-tile-enter {
@@ -1174,6 +1408,111 @@ button:focus:not(:focus-visible) {
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
+}
+
+.chatroom-flat-section + .chatroom-flat-section {
+  margin-top: 22px;
+}
+
+.chatroom-flat-heading {
+  margin: 4px 8px 10px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Nearby (§3.7): "Sent to N of M" under my Nearby row; "Show more people here" under my list. */
+.chatroom-flat-progress {
+  margin: 4px 12px 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+/* §3.7 "Meeting new people in groups": the group bar above the people, Nearby and Places alike. */
+.nearby-group-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.nearby-group-title {
+  font-weight: 600;
+}
+
+.nearby-group-note {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 0.88rem;
+}
+
+.nearby-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nearby-meet-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.nearby-meet-confirm-card {
+  width: min(440px, 96vw);
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.2);
+}
+
+.nearby-meet-confirm-title {
+  font-size: 1.05em;
+  font-weight: 700;
+}
+
+.nearby-meet-confirm-body {
+  margin: 8px 0 16px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.nearby-meet-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chatroom-flat-empty {
+  margin: 0 8px;
+  padding: 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+}
+
+.chatroom-flat-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+  color: var(--text-tertiary);
+  font-size: 0.82rem;
 }
 
 .chatroom-item:hover {
@@ -1254,7 +1593,7 @@ button:focus:not(:focus-visible) {
 }
 
 .chatroom-headcount {
-  margin-left: 8px;
+  margin-left: 0;
   padding: 2px 8px;
   background: var(--success-soft);
   color: var(--success-text);
@@ -1672,6 +2011,28 @@ button:focus:not(:focus-visible) {
   color: var(--accent-text);
   background: var(--accent-soft);
   opacity: 1;
+}
+
+.list-pin-button.talk-copy-button.is-copied {
+  position: relative;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  opacity: 1;
+}
+
+.list-pin-button.talk-copy-button.is-copied::after {
+  content: '✓';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--success);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
 }
 
 .answer-question-item {

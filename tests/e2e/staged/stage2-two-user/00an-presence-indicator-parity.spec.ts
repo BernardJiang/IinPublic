@@ -62,9 +62,9 @@ test.describe('Presence indicator parity: Contacts tab vs chatroom member list',
 
     const jerryId = await pageJerry.evaluate(() => String((window as any).__iinpublic_app.getApp().currentUser.id));
 
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     // --- Chatroom member list: Jerry's row has a presence dot, default "away" ---

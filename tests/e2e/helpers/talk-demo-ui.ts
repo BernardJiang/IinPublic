@@ -30,6 +30,26 @@ async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Physical Android WebViews occasionally stall in Playwright's pointer pipeline after the
+ * target is already visible/stable (usually while scrolling fixed app-bar controls). Keep the
+ * normal user-like click first, then invoke that same element's DOM click as a bounded hardware
+ * fallback. Browser E2E remains on the normal path.
+ */
+async function clickWithPhysicalWebViewFallback(
+  page: Page,
+  selector: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  await page.locator(selector).click({ timeout: timeoutMs }).catch(async () => {
+    await page.evaluate((target) => {
+      const element = document.querySelector<HTMLElement>(target);
+      if (!element) throw new Error(`Click target unavailable: ${target}`);
+      element.click();
+    }, selector);
+  });
+}
+
 // (waitForChatroomMemberCountViaApi is re-exported once at the bottom of this file.)
 
 async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: number }): Promise<void> {
@@ -37,9 +57,20 @@ async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: n
   const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
 
   if (!(await preamble.isVisible().catch(() => false))) {
+    // On a phone-width screen the app bar moves Broadcast (priority 3) into the "…" overflow
+    // panel, as it does New Room and Return Home (phone-path helpers' clickAppBarAction).
+    const overflow = page.locator('#app-bar-overflow-btn');
+    if (!(await broadcastBtn.isVisible().catch(() => false)) && await overflow.isVisible().catch(() => false)) {
+      await overflow.evaluate((element) => (element as HTMLButtonElement).click());
+      await expect(page.locator('#app-bar-overflow-panel')).toHaveClass(/\bopen\b/);
+    }
     await expect(broadcastBtn).toBeVisible({ timeout: 10_000 });
-    await broadcastBtn.click({ timeout: 8_000 }).catch(() => {
-      // Audience preview can open the preamble while the click is in flight.
+    await broadcastBtn.click({ timeout: 8_000 }).catch(async () => {
+      // Audience preview can open the preamble while the click is in flight. Otherwise the click
+      // timed out on actionability: a phone's bottom bar keeps resizing with presence updates, so
+      // fire the production listener directly (as the nav helpers do).
+      if (await preamble.isVisible().catch(() => false)) return;
+      await broadcastBtn.evaluate((element) => (element as HTMLButtonElement).click()).catch(() => {});
     });
     await afterSync();
   }
@@ -134,7 +165,9 @@ export async function broadcastFromGlobalChatroom(
   opts?: { minGunPeers?: number; requirePreambleUi?: boolean },
 ): Promise<void> {
   const { waitForTabActive } = await import('./talks-matching-flow');
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  await page.locator('.nav-btn[data-view="chatrooms"]').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await waitForTabActive(page, 'chatrooms');
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
@@ -162,7 +195,12 @@ export async function clickBroadcastUntilBulkAck(
     stepStart = Date.now();
   };
   const { waitForTabActive } = await import('./talks-matching-flow');
-  await page.click('.nav-btn[data-view="chatrooms"]');
+  // Presence/headcount updates can continuously resize the bottom bar on a physical WebView.
+  // This helper validates broadcast behavior, not pointer hit-testing, so invoke the production
+  // navigation listener without waiting for a stable bounding box.
+  await page.locator('.nav-btn[data-view="chatrooms"]').evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   await waitForTabActive(page, 'chatrooms');
   // A single synchronous isVisible() read right after the tab click can catch a transient
   // render gap (the detail view briefly unmounts/remounts on tab-switch) even when the caller
@@ -183,7 +221,10 @@ export async function clickBroadcastUntilBulkAck(
   const loc = page.locator('[data-testid="broadcast-bulk-ack"]');
   const genBefore = Number(await loc.getAttribute('data-broadcast-bulk-gen'));
   const start = Number.isFinite(genBefore) ? genBefore : 0;
-  await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
+  // Direct delivery goes over the mesh and the next step checks the room through the page. The
+  // probe targets 127.0.0.1:8080+slot, which phone-path, native and public-hub runs never serve,
+  // so it waited out its full 10 s on every broadcast there (spec 29: Talks took ~14 s, 2026-10-17).
+  if (!isDirectTalkDeliveryE2e()) await waitForGunApiReady(E2E_ASSERT_TIMEOUT_MS).catch(() => {});
   perfMark('gun-api-ready');
   const requestedMinSent = opts?.minSent;
   const minPeers = opts?.minGunPeers ?? (requestedMinSent === 0 ? 0 : 1);
@@ -332,14 +373,14 @@ export async function submitTalkEditorAndWaitForOut(
   titleSubstring: string,
   timeoutMs = E2E_ASSERT_TIMEOUT_MS,
 ): Promise<void> {
-  await page.click('#talk-submit-btn');
+  await clickWithPhysicalWebViewFallback(page, '#talk-submit-btn');
   await page.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: timeoutMs });
   await waitForOutgoingTalkRow(page, titleSubstring, timeoutMs);
   await afterCreateTalkBeforeBroadcast();
 }
 
 export async function waitForOutgoingTalkRow(page: Page, titleSubstring: string, timeoutMs = 120_000): Promise<string> {
-  await page.click('.nav-btn[data-view="talks"]');
+  await clickWithPhysicalWebViewFallback(page, '.nav-btn[data-view="talks"]');
   await expect(page.locator('.nav-btn[data-view="talks"].active')).toBeVisible({ timeout: 15_000 });
   await afterSync();
   const row = page.locator('.talk-list-item[data-role="created"]').filter({ hasText: titleSubstring });
@@ -578,13 +619,13 @@ export async function createTagTalkViaEditor(
   page: Page,
   opts: CreateTagTalkViaEditorOpts,
 ): Promise<{ title: string; talkId: string; talkData: any }> {
-  await page.click('.nav-btn[data-view="talks"]');
+  await clickWithPhysicalWebViewFallback(page, '.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   // A transient toast (e.g. "Talk saved...", an incoming-talk notification) can momentarily
   // intercept this click in a busy/heavily-seeded session — Playwright's own retry already
   // handles it once the toast fades; `timeoutMs` just widens the retry budget for a caller
   // that knows its page is unusually noisy.
-  await page.click('#create-talk-btn', { timeout: opts.timeoutMs });
+  await clickWithPhysicalWebViewFallback(page, '#create-talk-btn');
   await page.waitForSelector('#talk-editor-form');
 
   await page.fill('#talk-title', opts.title);

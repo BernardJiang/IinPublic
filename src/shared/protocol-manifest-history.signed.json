@@ -1,0 +1,96 @@
+[
+  {
+    "body": {
+      "kind": "iinpublic-protocol-manifest",
+      "formatVersion": 1,
+      "networkId": "iinpublic-production",
+      "sequence": 2,
+      "previousManifestHash": "5dd8d51169367e526ffaf9580c9e5cebbece8d6bb770f2b17243d7cc09bc1f43",
+      "protocolEpoch": 1,
+      "effectiveAt": "2026-10-12T00:00:00.000Z",
+      "minimumManifestEngine": 1,
+      "minimumRoomProtocol": 1,
+      "chatroomCapacity": 498,
+      "requiredCapabilities": [
+        "manifest-relay-v1",
+        "room-presence-v2",
+        "room-scoped-discovery-v1",
+        "sparse-room-mesh-v1"
+      ],
+      "optionalCapabilities": [],
+      "retirementMode": "none",
+      "nextReleaseKeys": [
+        {
+          "keyId": "8e9d36b195d631c47f2bb6286e553499eb52da963d9d297a3544363d778f2c62",
+          "algorithm": "p256-sha256",
+          "publicKey": "iyx5nU3H1Zt2883FhWdqgBQZSVZ6Jj21VygW8tyUYaE.jcW8Gr6AGYrQ2KLLWDr3jz8LkqXhPKdPuUGkVf3oKWQ"
+        }
+      ],
+      "recoveryPolicy": {
+        "threshold": 1,
+        "keys": [
+          {
+            "keyId": "9fb95f13f196dec5dd8ca0c8a424823208ba8298f748f77b3b63090aa7f246f6",
+            "algorithm": "p256-sha256",
+            "publicKey": "IgR2RyMBPxKONffDvQT_EMPi2k77UEF8Nr-yzQPdvMQ.EtjJL3g78nzDa9TMQP4l2EREqRDLzEUcUzmn4V7YJ9Y"
+          }
+        ]
+      },
+      "signatureAlgorithm": "p256-sha256"
+    },
+    "signerKeyId": "90205b256a66dac5b454cde64638a9f7614b7ff6a3800dd38181f8b508908a3a",
+    "signature": "Gp_rQeTBsHT1jYF86aeZSM3HexodgC96BNCvF03W50Tgcbl7ctdsPgwLwEgU0IUqIr-Y9fu1mbla_nTYGmz3iw"
+  },
+  {
+    "body": {
+      "kind": "iinpublic-protocol-manifest",
+      "formatVersion": 1,
+      "networkId": "iinpublic-production",
+      "sequence": 3,
+      "previousManifestHash": "b1975bcc853e8c4bbc3006992c5819b83adc330c641974cb7385ea2b83dd617a",
+      "protocolEpoch": 1,
+      "effectiveAt": "2026-10-20T19:44:21.000Z",
+      "minimumManifestEngine": 1,
+      "minimumRoomProtocol": 1,
+      "chatroomCapacity": 498,
+      "requiredCapabilities": [
+        "manifest-relay-v1",
+        "room-presence-v2",
+        "room-scoped-discovery-v1",
+        "sparse-room-mesh-v1"
+      ],
+      "optionalCapabilities": [],
+      "retirementMode": "none",
+      "nextReleaseKeys": [
+        {
+          "keyId": "8488a89b81aa1d7256da9dcc4ea53340aa8f7f03a4cf2a14ef367a0c36ed6edf",
+          "algorithm": "p256-sha256",
+          "publicKey": "FpcpHcqdDfmzWoYZ7pp9HJr7lp9WdRWL3Gt_WAMWvTI.O90vvAQmFNgmfncPDw6eexc_M2KSZkUEzJl0yIyUtwI"
+        }
+      ],
+      "recoveryPolicy": {
+        "threshold": 1,
+        "keys": [
+          {
+            "keyId": "9fb95f13f196dec5dd8ca0c8a424823208ba8298f748f77b3b63090aa7f246f6",
+            "algorithm": "p256-sha256",
+            "publicKey": "IgR2RyMBPxKONffDvQT_EMPi2k77UEF8Nr-yzQPdvMQ.EtjJL3g78nzDa9TMQP4l2EREqRDLzEUcUzmn4V7YJ9Y"
+          }
+        ]
+      },
+      "signatureAlgorithm": "p256-sha256",
+      "extensions": {
+        "nearby-v3": {
+          "attestorKeys": [
+            {
+              "keyId": "63276944e73dbe650db73d40de1a35fb",
+              "publicKey": "kUXTHDJ94m0kfWZzyjCN3M8lj_J5IA8dFxBimgADF_M.IvKyls4cMpkvNKkV5JRoZxpmakP9ACeo4JS2LClwTU8"
+            }
+          ]
+        }
+      }
+    },
+    "signerKeyId": "8e9d36b195d631c47f2bb6286e553499eb52da963d9d297a3544363d778f2c62",
+    "signature": "6MYh6dNaV1liySOY3iqiW3a5x7SIGsjUgGvRQW5nI7H8lNFQd44KorNpnFErZd3V0gQq1ojkb2Gy9OGHStBsWA"
+  }
+]

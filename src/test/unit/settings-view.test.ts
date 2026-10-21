@@ -9,7 +9,8 @@ import {
   type SettingsViewDeps,
 } from '../../web/ui/settings-view';
 import { uiText } from '../../web/ui/ui-translations';
-import { getAutoAnswerScope, getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
+import { getEncounterLocation, setEncounterLocation } from '../../web/services/encounter-location';
+import { getAutoAnswerScope, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -96,6 +97,9 @@ function controlsDeps(overrides: Partial<SettingsControlsDeps> = {}): SettingsCo
   };
 }
 
+// Tests that simulate a GPS-less website set this; never leak it into the next test.
+afterEach(() => { delete (window as any).__test_location; });
+
 describe('settings view extraction', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -125,7 +129,10 @@ describe('settings view extraction', () => {
 
   it('renders the complete settings shell and runs the existing post-render lifecycle', () => {
     document.body.innerHTML = '<div id="settings-content"></div>';
-    const deps = viewDeps({ settingsActiveSectionId: 'settings-section-languages' });
+    const deps = viewDeps({
+      settingsActiveSectionId: 'settings-section-languages',
+      currentLocation: { latitude: 32.7157, longitude: -117.1611, accuracy: 20, timestamp: new Date() },
+    });
     const user = makeUser({ stageName: '<Settings>', languages: ['EN', 'zh'] });
 
     renderSettingsView(user, deps);
@@ -135,6 +142,24 @@ describe('settings view extraction', () => {
     expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
     expect(document.querySelector<HTMLSelectElement>('#settings-auto-answer-scope')?.value).toBe('whenever');
+    const nearbyPrivacy = document.querySelector<HTMLSelectElement>('#settings-nearby-privacy-mode');
+    // Area size only: "Location off" became Traveler and "Contacts only" a Talk audience.
+    expect(Array.from(nearbyPrivacy?.options ?? [], (option) => option.value)).toEqual([
+      'close-nearby',
+      'neighborhood',
+      'citywide',
+      'regional',
+    ]);
+    expect(nearbyPrivacy?.textContent).not.toContain('Radio nearby');
+    expect(document.querySelector('[data-testid="settings-location-source"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="settings-quiet-places"]')).not.toBeNull();
+    expect(document.querySelector('#settings-min-distance')).toBeNull();
+    expect(document.querySelector('#settings-section-distance-home')?.textContent).toContain(
+      'exact GPS stays on this device',
+    );
+    expect(document.querySelector('#settings-section-distance-home')?.textContent).not.toContain(
+      '32.',
+    );
     expect(document.querySelector<HTMLInputElement>('#settings-stage-name-input')?.value).toBe(
       '<Settings>',
     );
@@ -146,12 +171,11 @@ describe('settings view extraction', () => {
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-languages');
   });
 
-  it('shows contacts-only Talk exchange off by default and checked when enabled', () => {
+  it('shows the Talk audience as Everyone by default and Contacts only when enabled', () => {
+    const checked = () => document.querySelector<HTMLInputElement>('input[name="settings-talk-audience"]:checked')?.value;
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(makeUser(), viewDeps());
-    expect(
-      document.querySelector<HTMLInputElement>('#settings-contacts-only-talks')?.checked,
-    ).toBe(false);
+    expect(checked()).toBe('everyone');
 
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(
@@ -164,9 +188,7 @@ describe('settings view extraction', () => {
       }),
       viewDeps(),
     );
-    expect(
-      document.querySelector<HTMLInputElement>('#settings-contacts-only-talks')?.checked,
-    ).toBe(true);
+    expect(checked()).toBe('contacts');
   });
 
   it('does nothing when the settings root is absent', () => {
@@ -234,7 +256,7 @@ describe('settings view extraction', () => {
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
   });
 
-  it('shows the nearby switches only in the Android app, both on by default', () => {
+  it('shows the four discovery provider switches only in the Android app, all on by default', () => {
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(makeUser(), viewDeps());
     expect(document.querySelector('#settings-section-nearby')).toBeNull();
@@ -244,9 +266,37 @@ describe('settings view extraction', () => {
       document.body.innerHTML = '<div id="settings-content"></div>';
       renderSettingsView(makeUser(), viewDeps());
       expect(document.querySelector('#settings-section-nearby')).not.toBeNull();
-      expect(document.querySelector<HTMLInputElement>('#settings-nearby-wifi-direct')?.checked).toBe(true);
-      expect(document.querySelector<HTMLInputElement>('#settings-nearby-bluetooth')?.checked).toBe(true);
+      for (const kind of ['cellular', 'lan', 'wifi-direct', 'bluetooth']) {
+        expect(document.querySelector<HTMLInputElement>(`#settings-nearby-${kind}`)?.checked).toBe(true);
+        expect(document.querySelector(`[data-testid="settings-nearby-${kind}-state"]`)?.getAttribute('data-availability')).toBe('on');
+      }
       expect(document.querySelector('#settings-nearby-status')).not.toBeNull();
+    } finally {
+      delete (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby;
+    }
+  });
+
+  it('shows unavailable and permission states per provider without disabling the others', () => {
+    (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby = {
+      startLanDiscovery: () => undefined,
+      nearbyReadiness: () => JSON.stringify({ permission: true, bluetoothPermission: false, wifiEnabled: true, bluetoothEnabled: true, wifiDirect: true, joinByCredential: true, ble: true }),
+    };
+    try {
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      const state = (kind: string) => document.querySelector(`[data-testid="settings-nearby-${kind}-state"]`)?.getAttribute('data-availability');
+      expect(state('bluetooth')).toBe('permission-denied');
+      expect(state('wifi-direct')).toBe('on');
+      expect(state('lan')).toBe('on');
+
+      (window as unknown as { IinPublicNearby: { nearbyReadiness: () => string } }).IinPublicNearby.nearbyReadiness = () =>
+        JSON.stringify({ permission: true, wifiEnabled: true, wifiDirect: true, joinByCredential: false, ble: true });
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      expect(state('wifi-direct')).toBe('unsupported');
+      expect(document.querySelector<HTMLInputElement>('#settings-nearby-wifi-direct')?.disabled).toBe(true);
+      expect(state('lan')).toBe('on');
+      expect(document.querySelector<HTMLInputElement>('#settings-nearby-lan')?.disabled).toBe(false);
     } finally {
       delete (window as unknown as { IinPublicNearby?: unknown }).IinPublicNearby;
     }
@@ -268,6 +318,62 @@ describe('settings view extraction', () => {
     expect(getNearbyWifiDirectEnabled()).toBe(true);
   });
 
+  it('the Cellular and LAN switches persist independently', () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="settings-nearby-cellular" checked>
+      <input type="checkbox" id="settings-nearby-lan" checked>`;
+    bindSettingsControls(controlsDeps());
+    const internet = document.getElementById('settings-nearby-cellular') as HTMLInputElement;
+    internet.checked = false;
+    internet.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(getNearbyProviderEnabled('cellular')).toBe(false);
+    expect(getNearbyProviderEnabled('lan')).toBe(true);
+    internet.checked = true;
+    internet.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(getNearbyProviderEnabled('cellular')).toBe(true);
+  });
+
+  it('website: shows the encounter location without echoing the coordinate, and clears it', () => {
+    // Without a test location the website has no GPS, so it is always a Traveler at a chosen point.
+    (window as any).__test_location = 'none';
+    localStorage.removeItem('iinpublic_encounter_location_v1');
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(makeUser(), viewDeps());
+    const status = () => document.querySelector('[data-testid="settings-encounter-location-status"]');
+    expect(status()?.getAttribute('data-set')).toBe('false');
+    expect(document.querySelector('#settings-encounter-location-set')).not.toBeNull();
+    expect(document.querySelector('#settings-encounter-location-clear')).toBeNull();
+
+    setEncounterLocation(51.50135, -0.14189);
+    const rerender = jest.fn(() => {
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      bindSettingsControls(controlsDeps({ renderSettingsView: rerender }));
+    });
+    rerender();
+    expect(status()?.getAttribute('data-set')).toBe('true');
+    expect(document.querySelector('[data-testid="settings-encounter-location"]')?.textContent).not.toContain('51.50');
+    (document.querySelector('#settings-encounter-location-clear') as HTMLButtonElement).click();
+    expect(getEncounterLocation()).toBeNull();
+    expect(status()?.getAttribute('data-set')).toBe('false');
+
+    (document.querySelector('#settings-encounter-location-set') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="encounter-location-modal"]')).not.toBeNull();
+    document.querySelector('[data-testid="encounter-location-modal"]')?.remove();
+  });
+
+  it('phone app: no encounter-location block (confirmed blurred GPS instead)', () => {
+    const previous = window.location.href;
+    window.history.replaceState(null, '', '/?native_platform=android');
+    try {
+      document.body.innerHTML = '<div id="settings-content"></div>';
+      renderSettingsView(makeUser(), viewDeps());
+      expect(document.querySelector('[data-testid="settings-encounter-location"]')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', previous);
+    }
+  });
+
   it('stores one Auto scope for all answers', () => {
     document.body.innerHTML = `
       <select id="settings-auto-answer-scope">
@@ -283,21 +389,27 @@ describe('settings view extraction', () => {
     expect(getAutoAnswerScope()).toBe('whenever');
   });
 
-  it('persists and emits the contacts-only Talk exchange preference', () => {
+  it('persists and emits the Talk audience (Residents only, then Contacts only)', () => {
     document.body.innerHTML = `
-      <input type="checkbox" id="settings-contacts-only-talks">
+      <input type="radio" name="settings-talk-audience" value="everyone" checked>
+      <input type="radio" name="settings-talk-audience" value="residents">
+      <input type="radio" name="settings-talk-audience" value="contacts">
       <input type="checkbox" id="settings-grammar-filter">
       <input type="checkbox" id="settings-dirty-words-filter">
     `;
     const user = makeUser();
     const deps = controlsDeps({ currentUser: user });
     bindSettingsControls(deps);
+    const choose = (value: string) => {
+      const radio = document.querySelector(`input[name="settings-talk-audience"][value="${value}"]`) as HTMLInputElement;
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change', { bubbles: true }));
+    };
 
-    const checkbox = document.getElementById('settings-contacts-only-talks') as HTMLInputElement;
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-
-    expect(user.talkFilters?.contactsOnlyTalks).toBe(true);
+    choose('residents');
+    expect(user.talkFilters).toEqual(expect.objectContaining({ residentsOnlyTalks: true, contactsOnlyTalks: false }));
+    choose('contacts');
+    expect(user.talkFilters).toEqual(expect.objectContaining({ residentsOnlyTalks: false, contactsOnlyTalks: true }));
     expect(deps.emit).toHaveBeenCalledWith(
       'updateTalkFilters',
       expect.objectContaining({ contactsOnlyTalks: true }),

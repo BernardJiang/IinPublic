@@ -265,14 +265,14 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam BuySell');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await pageAdam.click('.chatroom-item:has-text("Global")');
+    await pageAdam.click('.chatroom-item.current-room');
     await afterSync();
     await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve BuySell');
     contextEve = eve.context;
     pageEve = eve.page;
-    await pageEve.click('.chatroom-item:has-text("Global")');
+    await pageEve.click('.chatroom-item.current-room');
     await afterSync();
     await enableChatbot(pageEve);
 
@@ -363,14 +363,14 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam Collision');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await pageAdam.click('.chatroom-item:has-text("Global")');
+    await pageAdam.click('.chatroom-item.current-room');
     await afterSync();
     await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve Collision');
     contextEve = eve.context;
     pageEve = eve.page;
-    await pageEve.click('.chatroom-item:has-text("Global")');
+    await pageEve.click('.chatroom-item.current-room');
     await afterSync();
     await enableChatbot(pageEve);
 

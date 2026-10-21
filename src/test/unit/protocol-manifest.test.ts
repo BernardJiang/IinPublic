@@ -1,3 +1,4 @@
+import { nearbyV3AttestorKeysFromManifest } from '../../shared/nearby-v3-config';
 import SEA from 'gun/sea';
 import { portableSha256Hex } from '../../shared/portable-sha256';
 import {
@@ -21,6 +22,11 @@ import {
   type ProtocolManifestRuntimePolicy,
   type ProtocolManifestTrustState,
 } from '../../shared/protocol-manifest';
+import {
+  BUNDLED_PROTOCOL_MANIFEST_HISTORY,
+  PRODUCTION_PROTOCOL_MANIFEST_ANCHOR,
+  PRODUCTION_PROTOCOL_MANIFEST_RUNTIME,
+} from '../../shared/production-protocol-manifest';
 
 type Pair = { pub: string; priv: string };
 
@@ -346,6 +352,17 @@ describe('forward-authorized protocol manifests', () => {
     ]));
   });
 
+  it('production refuses a capacity below 128, which strands full groups in dense places (OPEN-69)', () => {
+    const at = new Date('2026-10-05T00:00:00.000Z');
+    const withCapacity = (capacity: number) => body({ sequence: 2, previousManifestHash: H1, signerForNext: k3, recovery, capacity });
+    expect(evaluateProtocolManifestCompatibility(withCapacity(64), PRODUCTION_PROTOCOL_MANIFEST_RUNTIME, at).reasons)
+      .toContain('chatroom capacity is outside local safety bounds');
+    expect(evaluateProtocolManifestCompatibility(withCapacity(128), PRODUCTION_PROTOCOL_MANIFEST_RUNTIME, at).reasons)
+      .not.toContain('chatroom capacity is outside local safety bounds');
+    expect(evaluateProtocolManifestCompatibility(withCapacity(498), PRODUCTION_PROTOCOL_MANIFEST_RUNTIME, at).reasons)
+      .not.toContain('chatroom capacity is outside local safety bounds');
+  });
+
   it('round-trips a strict durable checkpoint and rejects malformed state', async () => {
     const m2 = await signProtocolManifest(body({
       sequence: 2,
@@ -451,5 +468,30 @@ describe('forward-authorized protocol manifests', () => {
         setItem: (key: string, value: string) => { records.set(key, value); },
       },
     })).rejects.toThrow('checkpoint is invalid');
+  });
+});
+
+describe('production protocol manifest history', () => {
+  it('bridges the shipped legacy genesis anchor into a dedicated next-release key', async () => {
+    const result = await verifyProtocolManifestChain({
+      state: PRODUCTION_PROTOCOL_MANIFEST_ANCHOR,
+      manifests: BUNDLED_PROTOCOL_MANIFEST_HISTORY,
+      runtimePolicy: PRODUCTION_PROTOCOL_MANIFEST_RUNTIME,
+      now: new Date(Date.parse(BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)!.body.effectiveAt) + 1_000),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.state.sequence).toBe(BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.sequence);
+    expect(result.state.sequence).toBeGreaterThanOrEqual(3);
+    expect(result.compatibility?.status).toBe('compatible');
+    // M3 (2026-10-20) pins the production hub's Nearby attestor key.
+    expect(nearbyV3AttestorKeysFromManifest(result.state.latestManifest)).toHaveLength(1);
+    expect(result.state.latestManifest?.chatroomCapacity).toBe(498);
+    expect(result.state.latestManifest?.protocolEpoch).toBe(1);
+    expect(result.state.nextReleaseKeys).toHaveLength(1);
+    expect(result.state.nextReleaseKeys[0]?.publicKey)
+      .not.toBe(PRODUCTION_PROTOCOL_MANIFEST_ANCHOR.nextReleaseKeys[0]?.publicKey);
+    expect(result.state.nextReleaseKeys[0]?.publicKey)
+      .not.toBe(PRODUCTION_PROTOCOL_MANIFEST_ANCHOR.recoveryPolicy.keys[0]?.publicKey);
   });
 });

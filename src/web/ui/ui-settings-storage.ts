@@ -159,22 +159,36 @@ export function saveChatbotTemplate(talkId: string, data: ChatbotTemplate): void
 }
 
 /**
- * OPEN-36 offline nearby switches (Android app). Both default ON; turning one off takes effect
- * immediately (`iinpublic-nearby-settings-changed`, handled in app.ts).
+ * Discovery provider switches (Android app): Internet (cellular), LAN, Wi-Fi Direct, Bluetooth.
+ * All default ON; turning one off takes effect immediately (`iinpublic-nearby-settings-changed`,
+ * handled in app.ts). See `src/shared/nearby-discovery-policy.ts`.
  */
 export const NEARBY_SETTINGS_EVENT = 'iinpublic-nearby-settings-changed';
 
+export type NearbyProviderSetting = 'cellular' | 'lan' | 'wifi-direct' | 'bluetooth';
+
+const NEARBY_PROVIDER_KEYS: Record<NearbyProviderSetting, string> = {
+  cellular: 'iinpublic_nearby_cellular',
+  lan: 'iinpublic_nearby_lan',
+  'wifi-direct': 'iinpublic_nearby_wifi_direct',
+  bluetooth: 'iinpublic_nearby_bluetooth',
+};
+
+export function getNearbyProviderEnabled(kind: NearbyProviderSetting): boolean {
+  try { return localStorage.getItem(NEARBY_PROVIDER_KEYS[kind]) !== '0'; } catch { return true; }
+}
+
 export function getNearbyWifiDirectEnabled(): boolean {
-  try { return localStorage.getItem('iinpublic_nearby_wifi_direct') !== '0'; } catch { return true; }
+  return getNearbyProviderEnabled('wifi-direct');
 }
 
 export function getNearbyBluetoothEnabled(): boolean {
-  try { return localStorage.getItem('iinpublic_nearby_bluetooth') !== '0'; } catch { return true; }
+  return getNearbyProviderEnabled('bluetooth');
 }
 
-export function setNearbySetting(kind: 'wifi-direct' | 'bluetooth', enabled: boolean): void {
+export function setNearbySetting(kind: NearbyProviderSetting, enabled: boolean): void {
   try {
-    localStorage.setItem(kind === 'wifi-direct' ? 'iinpublic_nearby_wifi_direct' : 'iinpublic_nearby_bluetooth', enabled ? '1' : '0');
+    localStorage.setItem(NEARBY_PROVIDER_KEYS[kind], enabled ? '1' : '0');
   } catch { /* storage blocked: the switch applies to this session only */ }
   window.dispatchEvent(new CustomEvent(NEARBY_SETTINGS_EVENT));
 }

@@ -37,6 +37,16 @@ export function saveMyTalk(talkData: MyTalkEntry, deps: SaveMyTalkDeps): void {
   }
 }
 
+/**
+ * Answering auto-copies only a tag talk: accepting a tag (or a tag pair) is the whole answer, and
+ * carrying it on is the point. Any other talk is copied only when the user chooses to. A copy is
+ * broadcastable and a broadcast carries the broadcaster's id (replies are encrypted to them), so an
+ * automatic copy of a buy/sell deal made the buyer offer the seller's side to other buyers (OPEN-55).
+ */
+function autoCopiesOnAnswer(talk: any): boolean {
+  return String(talk?.type || '').toLowerCase() === 'tag';
+}
+
 export function completeTalk(
   talk: any,
   answers: any[],
@@ -80,7 +90,7 @@ export function completeTalk(
              : existingEntry?.role === 'copied' ? 'copied'
              : existingEntry?.role === 'created' ? 'created'
              : meta?.forceCopyToMyTalks && !wasIgnored ? 'copied'
-             : getCopyTalkAutoSave() && !wasIgnored ? 'copied'
+             : getCopyTalkAutoSave() && !wasIgnored && autoCopiesOnAnswer(talk) ? 'copied'
              : 'answered';
   const completedAnswers = answers.map((answer) => ({
     questionId: answer.questionId,

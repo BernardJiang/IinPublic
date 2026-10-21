@@ -21,9 +21,6 @@ process.env.GUN_PEERS = 'http://localhost:8765/gun';
 // gets the real derived cap.
 process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW = '500';
 process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW = '200';
-// The former peered-history import uses a settle window because Gun map enumeration has no
-// completion signal. Unit tests use in-memory doubles, so a short value is sufficient.
-process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS = '20';
 
 // Newer Node releases may expose a partial localStorage global unless they are
 // given --localstorage-file. Tests need the complete browser Storage contract.

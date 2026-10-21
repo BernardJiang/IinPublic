@@ -1,3 +1,4 @@
+import { portableSha256Hex } from './portable-sha256';
 /**
  * Hub-matchmade Wi-Fi Direct link upgrade (TODO OPEN-36).
  *
@@ -71,6 +72,9 @@ export type WifiDirectPlan =
 
 /** Lowercase hex SHA-256 — used for the offline-computable host tie-break. */
 export async function sha256Hex(value: string): Promise<string> {
+  // Android's embedded Node 18 has no global WebCrypto (`crypto is not defined`; found by the
+  // portable unit files on four phones, 2026-10-17). Same digest, pure JS.
+  if (typeof crypto === 'undefined' || !crypto.subtle) return portableSha256Hex(value);
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');

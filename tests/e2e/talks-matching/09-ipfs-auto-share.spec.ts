@@ -23,6 +23,7 @@ import {
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
+import { readLocalConversationMessages } from '../helpers/p2p-transport-e2e';
 import { gunBaseURL, webAppURLStableChatroom } from '../helpers/ports';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
@@ -369,18 +370,21 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: durable share envelope was not queued' },
     ).toBe(true);
 
-    await pageJerry.evaluate(({ cid, messageId, userA, userB }) => {
+    // Lose Jerry's local copy of the share. Pair messages live only in each endpoint's encrypted,
+    // peerless local history now (not a shared pairConversations soul).
+    await pageJerry.evaluate(async ({ cid, messageId }) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      const pairId = [userA, userB].sort().join('__');
-      app.gunService.getGun()
-        .get('pairConversations')
-        .get(pairId)
-        .get(cid)
-        .get('messages')
-        .get(messageId)
-        .put(null);
-    }, { cid: conversationId, messageId: shareMessageId, userA: tomId, userB: jerryId });
+      const key = `conversations/${encodeURIComponent(cid)}/history`;
+      const envelope = await app.gunService.getPrivate(key);
+      const messages = JSON.parse(String(envelope?.messagesJson || '[]')) as Array<{ id: string }>;
+      await app.gunService.putPrivate(key, {
+        ...envelope,
+        messagesJson: JSON.stringify(messages.filter((message) => message.id !== messageId)),
+      });
+    }, { cid: conversationId, messageId: shareMessageId });
     await afterAction();
+    expect((await readLocalConversationMessages(pageJerry, conversationId)).map((message) => message.id))
+      .not.toContain(shareMessageId);
 
     await pageJerry.close();
     pageJerry = undefined;
@@ -392,22 +396,11 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       await app.drainMailbox();
     });
 
+    await subscribeToShareMessages(pageJerry, conversationId, tomId);
     await expect.poll(
-      () => pageJerry!.evaluate(({ cid, messageId, userA, userB }) => {
-        const app = (window as any).__iinpublic_app?.getApp?.() as any;
-        const pairId = [userA, userB].sort().join('__');
-        return new Promise<string>((resolve) => {
-          app.gunService.getGun()
-            .get('pairConversations')
-            .get(pairId)
-            .get(cid)
-            .get('messages')
-            .get(messageId)
-            .once((message: any) => resolve(String(message?.text || '')));
-        });
-      }, { cid: conversationId, messageId: shareMessageId, userA: tomId, userB: jerryId }),
+      async () => (await getShareSnapshot(pageJerry!)).payloads.map((payload) => payload.cid),
       { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: mailbox share not materialized after reconnect' },
-    ).toContain(`\"cid\":\"${attachment.cid}\"`);
+    ).toContain(attachment.cid);
     await expect.poll(
       async () => {
         const response = await fetch(`${gunBaseURL()}/api/mailbox/${encodeURIComponent(jerryId)}`);

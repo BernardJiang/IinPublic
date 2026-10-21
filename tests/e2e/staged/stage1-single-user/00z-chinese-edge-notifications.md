@@ -12,7 +12,7 @@ covers: SPEC-5.4, SPEC-13.1  <!-- auto-seeded; refine by hand -->
 Switches to Chinese UI, then exercises non-tab surfaces — status bar user count text, broadcast confirmation modal, talk response modal, and chatroom creation modal — and verifies every label is in Chinese.
 
 1. **Setup:** Single browser. Switch UI language to `zh`.
-2. **Status bar localization:** Navigate to Chatrooms → click Global room → after sync, status bar shows Chinese user count (e.g., "N 位用户") not English "N user(s)".
+2. **Status bar localization:** Navigate to Chatrooms → open the current Nearby room → after sync, status bar shows Chinese user count (e.g., "N 位用户") not English "N user(s)".
 3. **Broadcast preamble modal:** Create talk "D2 Edge Test Talk" → switch to Talks → broadcast from chatroom. Inject synthetic peer so modal appears. Verify:
    - Cancel button shows "取消"
    - Send Broadcast shows "发送广播"

@@ -32,6 +32,49 @@ const RUN = process.env.E2E_REAL_ANDROID_CELLULAR === '1';
 const HUB = process.env.NATIVE_APP_CELLULAR_HUB?.trim() || 'https://www.iinpublic.com/gun';
 const CELLULAR_SERIAL = process.env.NATIVE_APP_ANDROID_CELLULAR?.trim() || '';
 const WIFI_SERIAL = process.env.NATIVE_APP_ANDROID_WIFI_PEER?.trim() || '';
+/** Diagnostic: keep Wi-Fi on the SIM phone too, to tell a cellular-path failure from a hub one. */
+const BOTH_WIFI = process.env.E2E_CELLULAR_BOTH_WIFI === '1';
+/** Put the peer on mobile data too (it needs a SIM): both phones behind carrier NAT. */
+const PEER_CELLULAR = process.env.E2E_CELLULAR_PEER_TOO === '1';
+
+/** Diagnostic: log where a DM spends its time on both phones (E2E_CELLULAR_DM_TRACE=1). */
+const DM_TRACE = process.env.E2E_CELLULAR_DM_TRACE === '1';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function installDmTrace({ cid, me, other }: { cid: string; me: string; other: string }): Promise<string> {
+  const app = (window as any).__iinpublic_app.getApp();
+  const transport = app.conversationService.transport;
+  const session = await transport.sessionFor(cid, me, other);
+  const t0 = performance.now();
+  const log = (what: string): void => console.log(`[dmtrace] +${Math.round(performance.now() - t0)}ms ${what}`);
+  const wrap = (obj: any, name: string, label = name): void => {
+    const original = obj[name];
+    if (typeof original !== 'function') { log(`no ${label}`); return; }
+    obj[name] = async function (...args: unknown[]) {
+      const start = performance.now();
+      const kind = (args[0] as any)?.type ? ` ${(args[0] as any).type}` : '';
+      try {
+        return await original.apply(this, args);
+      } finally {
+        log(`${label}${kind} ${Math.round(performance.now() - start)}ms (ledgerReady=${session.ledgerReady})`);
+      }
+    };
+  };
+  wrap(session, 'ensureConnected');
+  wrap(session, 'waitForLedgerReady');
+  wrap(session, 'sendChannelFrame');
+  wrap(session, 'handleLedgerState');
+  wrap(session, 'ingestWireMessage');
+  wrap(transport.gunStore, 'putMessageRecord');
+  wrap(transport, 'getUserEpub');
+  wrap(transport, 'getUserPub');
+  const merge = transport.mergeLiveMessages.bind(transport);
+  transport.mergeLiveMessages = (c: string, msgs: unknown[]) => { log(`mergeLiveMessages ${msgs.length}`); return merge(c, msgs); };
+  const state = `state=${session._state} dc=${session.dc?.readyState} ledgerReady=${session.ledgerReady} local=${session.ledgerLocalSent} remote=${session.ledgerRemoteReceived} secure=${!!session.secureSessionKey}`;
+  log(state);
+  return state;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 type Peer = { name: string; serial: string; user: AndroidUser; id: string };
 
@@ -56,7 +99,9 @@ async function onCellularOnly(serial: string): Promise<boolean> {
   const active = out.split('\n').find((line) => /Active default network/i.test(line)) ?? '';
   const netId = active.match(/(\d+)/)?.[1];
   if (!netId) return false;
-  const agent = out.split('\n').find((line) => line.includes(`NetworkAgentInfo{network{${netId}}`)) ?? '';
+  // Android 16 prints `NetworkAgentInfo{network{N} …`; Android 10 `NetworkAgentInfo{ ni{…}  network{N} …`.
+  const agent = out.split('\n').find((line) => line.includes('NetworkAgentInfo{') && line.includes(` network{${netId}}`)
+    || line.includes(`NetworkAgentInfo{network{${netId}}`)) ?? '';
   return /CELLULAR/.test(agent) && !/WIFI/.test(agent);
 }
 
@@ -79,7 +124,7 @@ async function waitForIncoming(peer: Peer, title: string): Promise<string> {
     } catch {
       return false;
     }
-  }, { timeout: 120_000, intervals: [2_000, 3_000, 5_000], message: `${peer.name} should receive "${title}"` }).toBe(true);
+  }, { timeout: 120_000, intervals: [250], message: `${peer.name} should receive "${title}"` }).toBe(true);
   return talkId;
 }
 
@@ -91,9 +136,11 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
 
   test.afterAll(async () => {
     await setWifi(CELLULAR_SERIAL, true).catch(() => {});
+    if (PEER_CELLULAR) await setWifi(WIFI_SERIAL, true).catch(() => {});
     for (const peer of peers) await closeAndroidUser(peer.user);
   });
 
+  // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured first argument
   test.afterEach(async ({}, testInfo) => {
     if (testInfo.status === testInfo.expectedStatus) return;
     for (const peer of peers) {
@@ -107,11 +154,20 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
     test.setTimeout(600_000);
 
     for (const serial of [CELLULAR_SERIAL, WIFI_SERIAL]) await wakeAndUnlock(serial);
-    await setWifi(CELLULAR_SERIAL, false);
-    await expect.poll(() => onCellularOnly(CELLULAR_SERIAL), {
-      timeout: 30_000,
-      message: 'cellular phone should be on mobile data only',
-    }).toBe(true);
+    if (!BOTH_WIFI) {
+      await setWifi(CELLULAR_SERIAL, false);
+      await expect.poll(() => onCellularOnly(CELLULAR_SERIAL), {
+        timeout: 30_000,
+        message: 'cellular phone should be on mobile data only',
+      }).toBe(true);
+    }
+    if (PEER_CELLULAR) {
+      await setWifi(WIFI_SERIAL, false);
+      await expect.poll(() => onCellularOnly(WIFI_SERIAL), {
+        timeout: 30_000,
+        message: 'peer phone should be on mobile data only',
+      }).toBe(true);
+    }
 
     await Promise.all([resetAndroidAppData(CELLULAR_SERIAL), resetAndroidAppData(WIFI_SERIAL)]);
     for (const [name, serial] of [['cellular', CELLULAR_SERIAL], ['wifi', WIFI_SERIAL]] as const) {
@@ -126,7 +182,8 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
     }
     const [cell, wifi] = peers;
     expect(await hubReachableFromPhone(CELLULAR_SERIAL)).toBe(true);
-    expect(await onCellularOnly(CELLULAR_SERIAL)).toBe(true);
+    if (!BOTH_WIFI) expect(await onCellularOnly(CELLULAR_SERIAL)).toBe(true);
+    if (PEER_CELLULAR) expect(await onCellularOnly(WIFI_SERIAL)).toBe(true);
 
     const runId = `cellular-${Date.now()}`;
     await Promise.all(peers.map((peer) => forceJoinRoom(peer.user.window, runId)));
@@ -168,6 +225,15 @@ test.describe('Native app: real cellular phone exchanges Talks and a DM through 
       openConversationViaServer(cell.user.window, cell.id, 'cell-wifi', wifi.id),
       openConversationViaServer(wifi.user.window, wifi.id, 'cell-cellular', cell.id),
     ]);
+    if (DM_TRACE) {
+      for (const peer of [cell, wifi]) {
+        peer.user.window.on('console', (m) => {
+          const line = m.text();
+          if (/\[dmtrace\]|P2P|WebRTC|mailbox|📤/i.test(line)) console.log(`[${peer.name} ${Date.now() % 100000}] ${line.slice(0, 300)}`);
+        });
+        await peer.user.window.evaluate(installDmTrace, { cid: conversationId, me: peer.id, other: peer === cell ? wifi.id : cell.id });
+      }
+    }
     for (const [from, to, text] of [[cell, wifi, `${runId} hello from mobile data`], [wifi, cell, `${runId} hello from wifi`]] as const) {
       await from.user.window.evaluate(async ({ cid, sid, body }) => {
         await (window as any).__iinpublic_app?.getApp?.()?.conversationService.sendMessage(cid, sid, body);

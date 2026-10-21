@@ -221,7 +221,7 @@ test.describe('M4 heavy-user GUI stress', () => {
       {
         const t0 = await browserNow(page);
         await page.locator('.nav-btn[data-view="chatrooms"]').click();
-        await expect(page.locator('.chatroom-item').filter({ hasText: 'Global' }).first()).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
+        await expect(page.locator('.chatroom-item.current-room')).toBeVisible({ timeout: E2E_ASSERT_TIMEOUT_MS });
         await pauseAfterTabSwitch(page, 'chatrooms');
         console.log(`[chatrooms] ok, render=${((await browserNow(page)) - t0).toFixed(0)}ms`);
         await captureScreenshot(page, '04-chatrooms');

@@ -289,7 +289,7 @@
           "filtersJson": 1785114359589
         }
       },
-      "filtersJson": "{\"allowedLanguages\":[\"en\"],\"minDistanceMiles\":0,\"maxDistanceMiles\":50,\"requireGoodGrammar\":true,\"blockDirtyWords\":true,\"allowedTalkTypes\":[\"flow\",\"survey\",\"tag\",\"route\"]}"
+      "filtersJson": "{\"allowedLanguages\":[\"en\"],\"requireGoodGrammar\":true,\"blockDirtyWords\":true,\"allowedTalkTypes\":[\"flow\",\"survey\",\"tag\",\"route\"]}"
     },
     "~Yy2XPqT5R_goVAFQuM8bqWghE3MYu9TmeMmat0VQFTI.ROgLTRi5PDdi57MhCXMXg-vbTv9YvkalE3VwSNRL8rc": {
       "_": {

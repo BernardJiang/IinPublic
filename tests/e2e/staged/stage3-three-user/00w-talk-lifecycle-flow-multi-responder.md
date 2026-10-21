@@ -9,9 +9,9 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.7  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users in Global chatroom exercise the full flow-talk lifecycle with asymmetric responder outcomes: Jerry matches (triggering P2P conversation creation), Bob mismatches (no conversation). Creator Tom sees both in contacts but only Jerry in conversations.
+Three users in the shared Nearby room exercise the full flow-talk lifecycle with asymmetric responder outcomes: Jerry matches (triggering P2P conversation creation), Bob mismatches (no conversation). Creator Tom sees both in contacts but only Jerry in conversations.
 
-1. **Setup:** Three browsers — Tom (creator), Jerry (match responder), Bob (mismatch responder). All bootstrapped and joined Global.
+1. **Setup:** Three browsers — Tom (creator), Jerry (match responder), Bob (mismatch responder). All bootstrapped and joined the shared Nearby room.
 2. **Tom creates & broadcasts** flow talk ("Lifecycle Matrix Flow") via company page JSON with match/ignore answers. Waits for 2 Gun peers, broadcasts until bulk ack.
 3. **Jerry matches:** Completes talk via `flowMatchAnswerIds()` → MATCH outcome.
 4. **Bob mismatches:** Completes same talk via `flowIgnoreAnswerIds()` → MISMATCH outcome recorded but no conversation triggered.

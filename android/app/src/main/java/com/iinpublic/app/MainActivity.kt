@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.res.Configuration
+import android.widget.FrameLayout
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -16,6 +18,9 @@ import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -45,19 +50,36 @@ class MainActivity : AppCompatActivity() {
     // peer node keeps working), but the "peer node running" notification is
     // silently suppressed, which makes the long-running service look like it
     // could be killed by the OS sooner since the user has no visible cue it's
-    // active. We ask once, before starting the service, and proceed either way
+    // active. We ask before starting the service, and proceed either way
     // (the foreground service must start regardless of the answer).
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+    //
+    // Location is asked in the same sheet, ONCE per install (first launch only): Nearby rooms and
+    // the map need a position, but the WebView's own geolocation callback never prompts (see
+    // onGeolocationPermissionsShowPrompt), so without this a fresh Android 13+ install never got
+    // a location and sat in Contacts only with the map on (0, 0).
+    private val startupPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants.any { (permission, granted) -> granted && permission in LOCATION_PERMISSIONS }) {
+                notifyPageLocationGranted()
+            }
             // Granted or denied — either way, start the node now so the app
-            // doesn't block its core function on a notification preference.
+            // doesn't block its core function on a permission preference.
             startNodeService()
             waitForNodeThenLoad()
         }
-    private val nearbyPermissionLauncher =
+    /** OPEN-54: asked again from Settings. A denial Android no longer shows a dialog for (denied
+     *  twice, or "Don't ask again") opens the app's settings page instead; onResume then notices a
+     *  grant made there. */
+    private val locationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-            nearbyBridge.permissionResult(grants)
+            if (grants.any { (permission, granted) -> granted && permission in LOCATION_PERMISSIONS }) {
+                notifyPageLocationGranted()
+            } else if (LOCATION_PERMISSIONS.none { shouldShowRequestPermissionRationale(it) }) {
+                awaitingLocationFromSettings = true
+                openNearbySettings("app")
+            }
         }
+    private var awaitingLocationFromSettings = false
 
     // ── WebView → Android permission / picker bridge ────────────────────────────────────────────
     // A bare WebViewClient handles none of these: getUserMedia is silently denied ("Camera access
@@ -193,18 +215,62 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(nearbyBridge, "IinPublicNearby")
         webView.addJavascriptInterface(NativeCustodyBridge(this), "IinPublicCustody")
         webView.addJavascriptInterface(NativeAttestationBridge(this), "IinPublicAttestation")
-        setContentView(webView)
+        // targetSdk 35+ forces edge-to-edge on Android 15+: without this the top bar sits under
+        // the status bar / camera cutout and the bottom nav under the gesture bar. Pad a container
+        // by the system-bar + cutout insets (and the keyboard, which adjustResize no longer
+        // handles edge-to-edge) so the WebView only gets the safe area.
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(if (isNightMode()) 0xFF121212.toInt() else 0xFFFFFFFF.toInt())
+            addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+            WindowInsetsCompat.CONSUMED
+        }
+        setContentView(root)
+        WindowCompat.getInsetsController(window, root).apply {
+            isAppearanceLightStatusBars = !isNightMode()
+            isAppearanceLightNavigationBars = !isNightMode()
+        }
 
         ensureNotificationPermissionThenStart()
     }
 
-    fun requestNearbyPermissions() {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions += Manifest.permission.NEARBY_WIFI_DEVICES
-        else permissions += Manifest.permission.ACCESS_FINE_LOCATION
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
-        val missing = permissions.distinct().filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
+    private fun isNightMode(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    private fun hasLocationPermission(): Boolean = LOCATION_PERMISSIONS.any {
+        ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun requestLocationPermission() = runOnUiThread {
+        if (hasLocationPermission()) notifyPageLocationGranted()
+        else locationPermissionLauncher.launch(LOCATION_PERMISSIONS.toTypedArray())
+    }
+
+    // Nearby features never open a permission dialog by themselves: the first-launch batch asked
+    // once, and Settings → App permissions leads to the system page after that. These report the
+    // current grants so the feature turns itself on or stays off.
+    fun requestNearbyPermissions() = runOnUiThread { reportNearbyGrants(NEARBY_PERMISSIONS) }
+
+    private fun reportNearbyGrants(permissions: List<String>) {
+        nearbyBridge.permissionResult(permissions.associateWith { isGranted(it) })
+    }
+
+    private fun isGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    /** Settings → App permissions: what Android currently allows, per group. */
+    fun permissionStatus(): String {
+        val notifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || isGranted(Manifest.permission.POST_NOTIFICATIONS)
+        return org.json.JSONObject()
+            .put("notifications", notifications)
+            .put("location", hasLocationPermission())
+            .put("nearby", NEARBY_PERMISSIONS.all { isGranted(it) })
+            .put("camera", isGranted(Manifest.permission.CAMERA))
+            .toString()
     }
 
     fun updateNearbyForegroundMode(mode: String, roomId: String) {
@@ -218,11 +284,9 @@ class MainActivity : AppCompatActivity() {
         else startService(serviceIntent)
     }
 
-    /** Only what Wi-Fi Direct needs (no Bluetooth prompts): asked in context, on the first upgrade. */
+    /** Only what Wi-Fi Direct needs. Reports the grant; never prompts (see requestNearbyPermissions). */
     fun requestWifiDirectPermission() = runOnUiThread {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
-        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) nearbyBridge.permissionResult(mapOf(permission to true))
-        else nearbyPermissionLauncher.launch(arrayOf(permission))
+        reportNearbyGrants(listOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION))
     }
 
     fun openNearbySettings(kind: String) = runOnUiThread {
@@ -240,31 +304,51 @@ class MainActivity : AppCompatActivity() {
     /** OPEN-36 offline nearby: Wi-Fi Direct + BLE presence. Android 12+ shows these as one
      *  "Nearby devices" prompt; Android 10–11 need only Location (BLE there is install-time). */
     fun requestOfflineNearbyPermission() = runOnUiThread {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions += Manifest.permission.NEARBY_WIFI_DEVICES
-        else permissions += Manifest.permission.ACCESS_FINE_LOCATION
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE)
-        val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) nearbyBridge.permissionResult(permissions.associateWith { true }) else nearbyPermissionLauncher.launch(missing.toTypedArray())
+        reportNearbyGrants(NEARBY_PERMISSIONS.filter { it != Manifest.permission.BLUETOOTH_CONNECT })
     }
 
     private fun ensureNotificationPermissionThenStart() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            // Pre-Android 13: POST_NOTIFICATIONS is a normal (install-time)
-            // permission, nothing to request at runtime.
-            startNodeService()
-            waitForNodeThenLoad()
-            return
+        val missing = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            // Pre-Android 13 POST_NOTIFICATIONS is install-time; nothing to ask.
+            missing += Manifest.permission.POST_NOTIFICATIONS
         }
-        val granted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
+        val prefs = getSharedPreferences(FIRST_LAUNCH_PREFS, MODE_PRIVATE)
+        if (!prefs.getBoolean(PERMISSION_BATCH_ASKED_PREF, false)) {
+            // Every runtime permission the app needs, asked together ONCE per install, whatever the
+            // answers (camera excepted: asked on the first QR scan). Android shows one dialog per
+            // group, back to back; nothing prompts by itself after this — Settings → App
+            // permissions opens the system page. Installs that already answered the older
+            // location-only sheet are not asked for location again. Automation (no human to answer)
+            // passes skip_first_launch_location and is treated as already asked — in debug builds
+            // only: a release build always asks (AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts).
+            val locationAsked = prefs.getBoolean(LOCATION_ASKED_PREF, false)
+            prefs.edit().putBoolean(PERMISSION_BATCH_ASKED_PREF, true).putBoolean(LOCATION_ASKED_PREF, true).apply()
+            val skip = AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts(
+                BuildConfig.DEBUG,
+                intent?.getBooleanExtra(SKIP_FIRST_LAUNCH_LOCATION_EXTRA, false) == true,
+            )
+            if (!skip) {
+                if (!locationAsked) missing += LOCATION_PERMISSIONS.filter { !isGranted(it) }
+                missing += NEARBY_PERMISSIONS.filter {
+                    !isGranted(it) && it !in missing && !(locationAsked && it in LOCATION_PERMISSIONS)
+                }
+            }
+        }
+        if (missing.isEmpty()) {
             startNodeService()
             waitForNodeThenLoad()
         } else {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            startupPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
+    /** The page may have booted while the sheet was open; its background fix was denied then. */
+    private fun notifyPageLocationGranted() {
+        if (!::webView.isInitialized) return
+        webView.post {
+            webView.evaluateJavascript("window.dispatchEvent(new Event('iinpublic-location-granted'))", null)
         }
     }
 
@@ -274,11 +358,24 @@ class MainActivity : AppCompatActivity() {
         // --es hub_gun_url "http://<host>:<port>/gun"` overrides the production default so this
         // device dials a local/test hub instead — see docs/testing/manual-platform-test-plan.md.
         // Absent in normal (Play Store / sideloaded) launches, so production behavior is unchanged.
-        this.intent?.getStringExtra(NodeForegroundService.HUB_GUN_URL_EXTRA)?.let { override ->
+        // Test-only network isolation must never alter a production launch. MainActivity is the
+        // exported launcher, so merely documenting these Intent extras as "debug only" is not a
+        // security boundary: another app could otherwise redirect the relay or suppress LAN.
+        AndroidLaunchNetworkPolicy.hubOverride(
+            BuildConfig.DEBUG,
+            this.intent?.getStringExtra(NodeForegroundService.HUB_GUN_URL_EXTRA),
+        )?.let { override ->
             intent.putExtra(NodeForegroundService.HUB_GUN_URL_EXTRA, override)
         }
-        if (this.intent?.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false) == true) {
+        if (AndroidLaunchNetworkPolicy.disableLanDiscovery(
+                BuildConfig.DEBUG,
+                this.intent?.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false) == true,
+            )) {
             intent.putExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, true)
+        }
+        if (BuildConfig.DEBUG
+            && this.intent?.getBooleanExtra(NodeForegroundService.PORTABLE_CORE_TESTS_EXTRA, false) == true) {
+            intent.putExtra(NodeForegroundService.PORTABLE_CORE_TESTS_EXTRA, true)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -321,6 +418,8 @@ class MainActivity : AppCompatActivity() {
                         webView.loadUrl(
                             "http://127.0.0.1:$port/?native_platform=android" +
                                 "&app_version=${BuildConfig.VERSION_NAME}" +
+                                // Debug APKs use the small debug Place-creation threshold (CONFIG).
+                                (if (BuildConfig.DEBUG) "&app_debug=1" else "") +
                                 "&perf_process_launch_ms=$activityLaunchEpochMs" +
                                 "&perf_node_health_ready_ms=$nodeHealthReadyEpochMs" +
                                 wifiDirectLinkQuery()
@@ -342,15 +441,53 @@ class MainActivity : AppCompatActivity() {
     /** Device testing: `adb shell am start ... --ez wifi_direct_link true|false` toggles the
      *  OPEN-36 Wi-Fi Direct link flag (the web side persists it in localStorage). */
     internal companion object {
+        private const val FIRST_LAUNCH_PREFS = "iinpublic_first_launch_v1"
+        private const val LOCATION_ASKED_PREF = "location_asked"
+        private const val PERMISSION_BATCH_ASKED_PREF = "permission_batch_asked"
+        /** Wi-Fi Direct + Bluetooth: one "Nearby devices" group on Android 12+; Location before that
+         *  (Bluetooth is install-time there). */
+        private val NEARBY_PERMISSIONS: List<String> = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            else add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(Manifest.permission.BLUETOOTH_SCAN)
+                add(Manifest.permission.BLUETOOTH_ADVERTISE)
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        }
+        /** Test harness: no human can answer the first-launch location sheet. */
+        const val SKIP_FIRST_LAUNCH_LOCATION_EXTRA = "skip_first_launch_location"
+        const val SKIP_FIRST_RUN_TOUR_EXTRA = "skip_first_run_tour"
+        // FINE is declared with maxSdkVersion 32 — on 33+ asking for it would be auto-denied.
+        private val LOCATION_PERMISSIONS =
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2)
+                listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            else listOf(Manifest.permission.ACCESS_COARSE_LOCATION)
         private const val WIFI_DIRECT_LINK_EXTRA = "wifi_direct_link"
         private const val DROP_REMOTE_CANDIDATES_EXTRA = "p2p_drop_remote_candidates"
 
         /** OPEN-38: true while the UI is visible — MailboxWatcher stays quiet then. */
         @Volatile
         internal var isInForeground = false
+
+        /** Runs JavaScript in the live page, if there is one (any thread). */
+        @Volatile
+        private var pageScript: ((String) -> Unit)? = null
+
+        /**
+         * OPEN-73: MailboxWatcher's long-poll saw a new envelope; the page drains at once instead of
+         * polling every 3 s through the embedded node.
+         */
+        internal fun notifyMailboxChanged() {
+            pageScript?.invoke("window.dispatchEvent(new Event('iinpublic-mailbox-changed'));")
+        }
     }
 
     private fun wifiDirectLinkQuery(): String {
+        // Every query override below exists only to isolate physical E2E paths. A release always
+        // boots with the production defaults: internet relay, LAN, Wi-Fi Direct, and BLE enabled;
+        // the user's persisted Settings choices are then applied by the web app.
+        if (!AndroidLaunchNetworkPolicy.allowsTestOverrides(BuildConfig.DEBUG)) return ""
         val launch = intent ?: return ""
         var query = ""
         if (launch.hasExtra(WIFI_DIRECT_LINK_EXTRA)) {
@@ -366,6 +503,8 @@ class MainActivity : AppCompatActivity() {
         if (launch.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false)) query += "&nearby_lan=0"
         // Debug only (`--ez disable_ble_presence true`): exercise the Wi-Fi-only discovery paths.
         if (launch.getBooleanExtra("disable_ble_presence", false)) query += "&nearby_ble=0"
+        // Debug only (`--ez skip_first_run_tour true`): no first-run tour (test automation).
+        if (launch.getBooleanExtra(SKIP_FIRST_RUN_TOUR_EXTRA, false)) query += "&skip_tour=1"
         return query
     }
 
@@ -384,16 +523,37 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         isInForeground = true
+        if (awaitingLocationFromSettings && hasLocationPermission()) {
+            awaitingLocationFromSettings = false
+            notifyPageLocationGranted()
+        }
+        // Android WebView does not consistently emit the browser visibilitychange event when an
+        // Activity returns from HOME (observed on Android 14 hardware). Tell the SPA explicitly so
+        // it can rebuild stale WebRTC room links and drain pending encrypted mailbox work.
+        if (::webView.isInitialized) {
+            val page = webView
+            pageScript = { script -> page.post { page.evaluateJavascript(script, null) } }
+            webView.post {
+                webView.evaluateJavascript("window.__iinpublicNativePaused = false; window.dispatchEvent(new Event('iinpublic-native-resume'));", null)
+            }
+        }
     }
 
     override fun onPause() {
         isInForeground = false
+        // The page's visibilityState stays "visible" when the screen turns off or the app goes to
+        // the background (this Activity never pauses the WebView). Tell the SPA, so background
+        // polls can slow down (OPEN-73); JavaScript keeps running for mesh delivery.
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript("window.__iinpublicNativePaused = true; window.dispatchEvent(new Event('iinpublic-native-pause'));", null)
+        }
         super.onPause()
     }
 
     override fun onDestroy() {
         // The connected-device foreground service, not this Activity, owns nearby discovery.
         // Detach only the UI event sink; "Always" mode continues across Activity recreation.
+        pageScript = null
         nearbyBridge.detach()
         webView.destroy()
         super.onDestroy()

@@ -61,7 +61,7 @@ export interface LinkableSession {
   sendLinkUpgradeMessage(message: unknown): Promise<void>;
   getSelectedCandidatePair(): Promise<SelectedCandidatePair | null>;
   setIceConfigOverride(config: RTCConfiguration | null): void;
-  reconnect(timeoutMs?: number): Promise<void>;
+  reconnect(timeoutMs?: number, options?: { requestOffer?: boolean }): Promise<void>;
 }
 
 /** The embedded node's loopback TURN relay (`/api/local-link/relay`), bound to the group address. */
@@ -473,7 +473,8 @@ export class WifiDirectLinkService {
     this.setPhase(peer, 'switching');
     peer.session.setIceConfigOverride(peer.relayConfig);
     peer.overrideApplied = true;
-    peer.session.reconnect(this.opts.switchTimeoutMs ?? 15_000)
+    // Both ends switch (the initiator a moment later), so the responder asks for no extra offer.
+    peer.session.reconnect(this.opts.switchTimeoutMs ?? 15_000, { requestOffer: false })
       .then(() => this.verifyPath(peer, 1))
       .catch(() => this.fail(peer, 'switch-failed', { notify: false }));
   }

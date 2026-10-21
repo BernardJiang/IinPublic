@@ -48,7 +48,7 @@ test.describe('TechSupport — Contacts-only and away with no device running', (
     // 1. TechSupport is not a synthetic room member or headcount floor.
     const headcount = page.locator('.chatroom-item.current-room .chatroom-headcount');
     await headcount.waitFor({ state: 'visible', timeout: 15000 });
-    await expect(headcount).toContainText('1', { timeout: 20000 });
+    await expect(headcount).toContainText('0 near you', { timeout: 20000 });
 
     // 2. Contacts tab: the built-in support contact is listed, and its presence indicator
     // reads away — settled, not a transient "checking" state (defaults to away, only flips on

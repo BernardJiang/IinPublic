@@ -1,33 +1,33 @@
-# Mesh-ping overlay (three browsers, sparse DataChannel graph)
+# Mesh-ping overlay (three browsers in one Place)
 
 covers: SPEC-19.4, SPEC-3.12  <!-- auto-seeded; refine by hand -->
 
-**Features tested:** P0 step 1 — three browser peers form a sparse DataChannel overlay via
-`PeerMeshService.joinRoom` (seeded from Socket.IO room presence), and an originator's `mesh-ping`
-reaches every other peer via store-and-forward gossip **with zero `talks/*` or `peerTalkOffers/*`
-Gun writes**.
+**Features tested:** P0 step 1 — three browser peers in one Place (a personal list, §3.7 "Places
+in v3") link to each other, and an originator's `mesh-ping` reaches every other peer **with zero
+`talks/*` or `peerTalkOffers/*` Gun writes**.
 
 **Run:** `npx playwright test tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts`
 
 ## Flow
 
-1. Tom, Jerry, and Bob bootstrap in the Global chatroom with `e2e_mesh_talks=1`.
-2. Presence settles; the app calls `syncPeerMeshRoom`, each peer connects to ≤ K neighbors.
-3. **Full-mesh sub-case (default K=3):** each peer has at least 1 connected neighbor.
-4. **Sparse path sub-case (K=1):** Tom re-joins with `maxNeighbors:1`; graph becomes a path
-   A–B–C. Tom's ping still reaches Bob via one forward hop through Jerry (or vice-versa).
-5. Tom calls `peerMeshService.sendPing('p0-step1')`.
-6. **Durable assertions (not toasts):** poll `getApp().meshPingDiagnostics` (populated by
+1. Tom, Jerry, and Bob bootstrap with `e2e_mesh_talks=1` and enter one new Place together, then
+   opt in to third-party mesh forwarding (off by default).
+2. Each peer warms links to the other two; each has at least 1 connected neighbor, and Tom's
+   links to both are manifest-ready (a ping goes only to ready neighbors and is not queued).
+3. Tom calls `peerMeshService.sendPing('p0-step1')`.
+4. **Durable assertions (not toasts):** poll `getApp().meshPingDiagnostics` (populated by
    `onPing`/`onPong` callbacks) — no transient UI notifications.
    - Jerry and Bob: `lastPingFrom` contains Tom's userId.
-   - Tom: `pongedOrigins` contains both Jerry's and Bob's userIds.
-7. **Invariant assertion:** each browser reads local Gun and asserts `peerTalkOffers` and `talks`
+   - Tom: `pongedOrigins` contains every peer Tom is directly linked to. Pongs are addressed to
+     Tom, and authoritative direct delivery never relays an addressed frame through a third peer.
+5. **Invariant assertion:** each browser reads local Gun and asserts `peerTalkOffers` and `talks`
    subtrees are empty — proves the ping path never touches forbidden Gun paths.
-8. Cleanup: `finalCleanupPages` + `shutdownThreeBrowsers`.
+6. Cleanup: `finalCleanupPages` + `shutdownThreeBrowsers`.
 
 ## Key design invariants verified
 
-- Overlay seeded from Socket.IO room presence only — no `talks/*` or `peerTalkOffers/*` reads.
+- Links come from the Place's members (my list), with no `talks/*` or `peerTalkOffers/*` reads.
 - `mesh-ping` is pure DataChannel: `sendPing` → `buildFrame` → `rememberAndFanout` → `sendMeshFrame`.
 - Seen-set dedup prevents re-delivery of the same `msgId`.
-- K=1 path-graph case proves gossip forwarding works across a sparse topology.
+- The K=1 sparse-path sub-case was removed on 2026-10-19: no scope runs the K-bounded room overlay
+  any more.

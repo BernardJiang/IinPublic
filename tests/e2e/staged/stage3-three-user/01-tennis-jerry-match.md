@@ -8,7 +8,7 @@ covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Two users: Tom and Jerry, both in the "Global" chatroom.
+Two users: Tom and Jerry, both in the shared Nearby room.
 
 1. **Tom creates a talk** called "Tennis Partner" with the question: "Want a tennis partner?" (Yes = match, No = ignore)
 2. **Tom broadcasts** the talk to everyone in the room

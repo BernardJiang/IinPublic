@@ -1,4 +1,4 @@
-import { applyConnectivityPreset, connectivityDiagnosticsText, connectivityStatusText, defaultConnectivitySettings, loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings } from '../../web/ui/connectivity-settings';
+import { applyConnectivityPreset, connectivityDiagnosticsText, connectivityStatusText, defaultConnectivitySettings, loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration } from '../../web/ui/connectivity-settings';
 import { MeshForwardingPolicy } from '../../shared/mesh-forwarding-policy';
 import { ConnectionManager, pathScore, type PathInfo } from '../../shared/connection-manager';
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
@@ -9,7 +9,8 @@ describe('connectivity UI settings', () => {
     expect(defaultConnectivitySettings()).toMatchObject({ nearbyPrivacyMode: 'neighborhood', forwarding: { enabled: false, wifiForwarding: false, cellularForwarding: false, lowBatteryPause: true, cellularByteBudget: 0 } });
     expect(applyConnectivityPreset('data-saver')).toMatchObject({ meteredPermission: 'wait-for-free' });
     expect(applyConnectivityPreset('private').forwarding.enabled).toBe(false);
-    expect(applyConnectivityPreset('private').nearbyPrivacyMode).toBe('contacts-only');
+    // Private: the widest area (Contacts only is now a Talk audience, not a location).
+    expect(applyConnectivityPreset('private').nearbyPrivacyMode).toBe('regional');
     for (const preset of ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as const) expect(applyConnectivityPreset(preset).preset).toBe(preset);
   });
   test('persists policy without transport identities', () => {
@@ -24,6 +25,31 @@ describe('connectivity UI settings', () => {
     expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
     localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({ preset: 'automatic' }));
     expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
+    localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({
+      ...defaultConnectivitySettings(), nearbyPrivacyMode: 'radio-nearby',
+    }));
+    expect(loadConnectivitySettings().nearbyPrivacyMode).toBe('neighborhood');
+  });
+  test('persists broad area sizes and the Traveler location source', () => {
+    for (const nearbyPrivacyMode of ['citywide', 'regional'] as const) {
+      saveConnectivitySettings({ ...defaultConnectivitySettings(), nearbyPrivacyMode, locationSource: 'traveler' });
+      expect(loadConnectivitySettings()).toEqual(expect.objectContaining({ nearbyPrivacyMode, locationSource: 'traveler' }));
+    }
+  });
+  test('migrates retired Location off to Traveler and Contacts only to the Talk audience', () => {
+    localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({
+      ...defaultConnectivitySettings(), nearbyPrivacyMode: 'location-off',
+    }));
+    expect(loadConnectivitySettings()).toEqual(expect.objectContaining({ nearbyPrivacyMode: 'neighborhood', locationSource: 'traveler' }));
+    expect(takeLegacyPrivacyMigration()).toBe('location-off');
+    expect(loadConnectivitySettings().locationSource).toBe('traveler');
+    expect(takeLegacyPrivacyMigration()).toBeNull();
+
+    localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({
+      ...defaultConnectivitySettings(), nearbyPrivacyMode: 'contacts-only',
+    }));
+    expect(loadConnectivitySettings()).toEqual(expect.objectContaining({ nearbyPrivacyMode: 'neighborhood', locationSource: 'resident' }));
+    expect(takeLegacyPrivacyMigration()).toBe('contacts-only');
   });
   test('formats compact active status', () => {
     expect(connectivityStatusText({ directness: 'direct', interface: 'wifi', metered: false })).toBe('direct; wifi; free');

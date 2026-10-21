@@ -60,4 +60,42 @@ describe('user routes', () => {
     });
     expect(hubRelayClient.getPublicUser).toHaveBeenCalledWith('browser_1');
   });
+
+  describe('blocks on a phone node (phone-path 04, 2026-10-14)', () => {
+    const build = (hub: Partial<EmbeddedHubRelayClientLike>, local = { blocked: false, blockedBy: false }) => {
+      const app = express();
+      app.use(express.json());
+      const userService = {
+        blockUser: jest.fn().mockResolvedValue({ changed: true }),
+        unblockUser: jest.fn().mockResolvedValue({ changed: true }),
+        getBlockStatus: jest.fn().mockResolvedValue({ ...local, eitherBlocked: local.blocked || local.blockedBy }),
+      };
+      const hubRelayClient = buildHubRelayClient(hub);
+      registerUserRoutes(app, { userService: userService as any, hubRelayClient });
+      return { app, hubRelayClient };
+    };
+
+    it('forwards a block and an unblock to the hub', async () => {
+      const setBlock = jest.fn().mockResolvedValue(undefined);
+      const { app } = build({ setBlock });
+      await request(app).post('/api/users/bob/blocks').send({ targetId: 'alice' }).expect(200);
+      await request(app).delete('/api/users/bob/blocks/alice').expect(200);
+      expect(setBlock).toHaveBeenNthCalledWith(1, 'bob', 'alice', true);
+      expect(setBlock).toHaveBeenNthCalledWith(2, 'bob', 'alice', false);
+    });
+
+    it('reports a block made on another device, which only the hub knows', async () => {
+      const getBlockStatus = jest.fn().mockResolvedValue({ blocked: false, blockedBy: true });
+      const { app } = build({ getBlockStatus });
+      const res = await request(app).get('/api/users/alice/block-status/bob').expect(200);
+      expect(res.body).toEqual({ blocked: false, blockedBy: true, eitherBlocked: true });
+    });
+
+    it('keeps its own answer when the hub cannot be reached', async () => {
+      const getBlockStatus = jest.fn().mockRejectedValue(new Error('offline'));
+      const { app } = build({ getBlockStatus }, { blocked: true, blockedBy: false });
+      const res = await request(app).get('/api/users/bob/block-status/alice').expect(200);
+      expect(res.body).toEqual({ blocked: true, blockedBy: false, eitherBlocked: true });
+    });
+  });
 });

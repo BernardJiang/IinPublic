@@ -15,9 +15,10 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../helpers/talks-matching-browsers';
-import { bootstrapUser, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
+import { bootstrapUser, enableMeshForwarding, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { enterNewPlaceTogether } from '../helpers/nearby-v3';
 
 /** Collect all non-metadata keys under a Gun root over a 500ms window. */
 const COLLECT_GUN_WINDOW_MS = 500;
@@ -28,6 +29,17 @@ type MeshPingDiagnostics = {
   lastPingFrom: string | null;
   lastPongFrom: string | null;
 };
+
+/** Neighbors that are connected and have finished the manifest handshake (talk-ready). */
+function readyLinks(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService as any;
+    const ready: Set<string> | undefined = mesh?.manifestReadyPeerIds;
+    return [...(mesh?.neighbors?.values?.() ?? [])]
+      .filter((neighbor: any) => neighbor.connected && (!mesh?.protocolManifestController || ready?.has(neighbor.userId)))
+      .map((neighbor: any) => String(neighbor.userId));
+  });
+}
 
 /** Timeout for WebRTC overlay formation and ping propagation (per design §7 R-d). */
 const MESH_E2E_TIMEOUT_MS = 30_000;
@@ -127,54 +139,33 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
     await afterSync();
     await afterSync();
 
+    // Room-wide mesh topology (a bounded overlay, forwarding through a neighbor) belongs to shared
+    // rooms: Places. Nearby is each user's own list and opens links only for a reason (§3.7).
+    await enterNewPlaceTogether([pageTom, pageJerry, pageBob], `Mesh Ping Overlay ${Date.now()}`);
+    await afterSync();
+
     // --- Sub-case 1: actively warm mesh links until ≥1 connected neighbor on each peer ---
     // ensureMeshNeighbors re-issues warmMeshConnectionToPeer while polling, so a
     // timed-out first WebRTC cycle under parallel load recovers instead of flaking.
+    // Pings relay through a third peer; that forwarding is opt-in (off by default).
+    await enableMeshForwarding([pageTom, pageJerry, pageBob]);
     await ensureMeshNeighbors([
       { label: 'Tom', page: pageTom, otherIds: [jerryId, bobId] },
       { label: 'Jerry', page: pageJerry, otherIds: [tomId, bobId] },
       { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
 
-    // --- Sub-case 2: K=1 sparse path — re-join with maxNeighbors:1 ---
-    // Override opts.maxNeighbors in-place, then call joinRoom with current room members.
-    // This tests the forwarding rule: Tom's ping must reach Bob via one hop through Jerry.
-    await pageTom.evaluate(async ([jId, bId]: string[]) => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      const mesh = app?.peerMeshService;
-      if (!mesh) return;
-      const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
-      // Override degree bound to K=1
-      (mesh as any).opts = { ...(mesh as any).opts, maxNeighbors: 1 };
-      // Provide member list with known peers so joinRoom can select one neighbor
-      await mesh.joinRoom(roomId, [
-        { userId: app.currentUser?.id },
-        { userId: jId },
-        { userId: bId },
-      ]);
-    }, [jerryId, bobId]);
+    // (The K=1 sparse-path sub-case was removed 2026-10-19: Places are personal lists now, links
+    // open per person, and no scope runs the K-bounded room overlay it shrank.)
 
-    await afterAction();
-    await afterSync();
-
-    // Tom should have exactly 1 neighbor slot (K=1 bound)
-    const tomNeighborCount = await pageTom.evaluate(() => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      return app?.peerMeshService?.getDiagnostics?.()?.neighborCount ?? -1;
-    });
-    expect(tomNeighborCount).toBeLessThanOrEqual(1);
-
-    // Wait for that 1 neighbor to be connected before sending the ping
+    // A ping goes only to manifest-ready neighbors and is not queued (OPEN-56): wait until Tom's
+    // links to both peers are ready.
     await expect
-      .poll(
-        () =>
-          pageTom.evaluate(() => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            return app?.peerMeshService?.getDiagnostics?.()?.connectedNeighborCount ?? 0;
-          }),
-        { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: no connected neighbor (K=1)' },
-      )
-      .toBeGreaterThan(0);
+      .poll(async () => {
+        const ready = await readyLinks(pageTom!);
+        return ready.includes(jerryId) && ready.includes(bobId);
+      }, { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 500], message: 'Tom: links to both peers never became ready' })
+      .toBe(true);
 
     // --- Step 3: Tom sends mesh-ping ---
     await afterAction();
@@ -207,34 +198,25 @@ test.describe('Mesh-ping overlay — three browser peers, zero Gun writes', () =
     }
 
     // Tom polls pongedOrigins — proves round-trip reachability from both peers
+    // Pongs are addressed to Tom, and authoritative direct delivery never relays a
+    // recipient-addressed frame through a third peer (forwardFrame). So Tom hears a pong from each
+    // peer it is directly linked to.
     await expect
       .poll(
         () =>
-          pageTom.evaluate((jId: string) => {
+          pageTom.evaluate(() => {
             const app = (window as any).__iinpublic_app?.getApp?.() as any;
+            const mesh = app?.peerMeshService as any;
             const diag = app?.meshPingDiagnostics as MeshPingDiagnostics | undefined;
-            return diag?.pongedOrigins?.includes(jId) ?? false;
-          }, jerryId),
+            const linked = [...(mesh?.neighbors?.values?.() ?? [])]
+              .filter((neighbor: any) => neighbor.connected)
+              .map((neighbor: any) => String(neighbor.userId));
+            return linked.length > 0 && linked.every((userId) => diag?.pongedOrigins?.includes(userId));
+          }),
         {
           timeout: MESH_E2E_TIMEOUT_MS,
           intervals: [200, 400, 800],
-          message: 'Tom: no pong from Jerry',
-        },
-      )
-      .toBe(true);
-
-    await expect
-      .poll(
-        () =>
-          pageTom.evaluate((bId: string) => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            const diag = app?.meshPingDiagnostics as MeshPingDiagnostics | undefined;
-            return diag?.pongedOrigins?.includes(bId) ?? false;
-          }, bobId),
-        {
-          timeout: MESH_E2E_TIMEOUT_MS,
-          intervals: [200, 400, 800],
-          message: 'Tom: no pong from Bob',
+          message: 'Tom: no pong from a directly linked peer',
         },
       )
       .toBe(true);

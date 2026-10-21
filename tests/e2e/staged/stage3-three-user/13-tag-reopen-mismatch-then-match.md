@@ -8,7 +8,7 @@ covers: SPEC-3.5, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Two users: Alice and Tom, both in the "Global" chatroom.
+Two users: Alice and Tom, both in the shared Nearby room.
 
 ### Step 1: Alice broadcasts a tag
 

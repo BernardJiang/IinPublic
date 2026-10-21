@@ -112,9 +112,12 @@ export class P2PPresenceClient {
     pair?: SeaSigningPair;
     getRoomScope?: () => ActiveRoomScope | null;
     getRoomEnteredAt?: () => string | null;
+    /** False while the only uplink is one the user excluded from discovery (cellular). */
+    isDiscoveryAllowed?: () => boolean;
   }): Promise<void> {
     this.stopHeartbeat();
     const beat = () => {
+      if (input.isDiscoveryAllowed && !input.isDiscoveryAllowed()) return;
       const roomScope = input.getRoomScope?.();
       if (input.getRoomScope && !roomScope) return;
       const enteredAt = input.getRoomEnteredAt?.();
@@ -125,7 +128,9 @@ export class P2PPresenceClient {
     const initialScope = input.getRoomScope?.();
     if (input.getRoomScope && !initialScope) throw new Error('active room scope is required for presence');
     const enteredAt = input.getRoomEnteredAt?.();
-    await this.register({ ...input, ...(initialScope ? { roomScope: initialScope } : {}), ...(enteredAt ? { enteredAt } : {}) });
+    if (!input.isDiscoveryAllowed || input.isDiscoveryAllowed()) {
+      await this.register({ ...input, ...(initialScope ? { roomScope: initialScope } : {}), ...(enteredAt ? { enteredAt } : {}) });
+    }
     this.heartbeatTimer = setInterval(beat, this.options.heartbeatMs ?? 30_000);
   }
 

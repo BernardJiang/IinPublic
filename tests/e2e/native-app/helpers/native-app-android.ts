@@ -78,7 +78,13 @@ export async function collectAndroidDiagnostics(serial: string): Promise<{
  * This prevents identities, rate-limit ledgers, and Radisk state from earlier manual/test
  * sessions from changing the result of the matrix. The APK remains installed.
  */
-export async function resetAndroidAppData(serial: string): Promise<void> {
+/**
+ * Wipe the app's data. Location is then granted again by default: test launches skip the one-time
+ * permission dialogs (`skip_first_launch_location`), so a wiped phone used to keep no location and
+ * sit at a random point on the map long after the run (2026-10-20). A spec that tests the
+ * permission dialogs themselves passes `grantLocation: false`.
+ */
+export async function resetAndroidAppData(serial: string, options: { grantLocation?: boolean } = {}): Promise<void> {
   const result = await execFileAsync(
     'adb',
     ['-s', serial, 'shell', 'pm', 'clear', ANDROID_PACKAGE],
@@ -88,6 +94,13 @@ export async function resetAndroidAppData(serial: string): Promise<void> {
     throw new Error(
       `Failed to clear ${ANDROID_PACKAGE} data on ${serial}: ${String(result.stdout || result.stderr).trim()}`,
     );
+  }
+  if (options.grantLocation === false) return;
+  const sdk = Number(String((await execFileAsync('adb', ['-s', serial, 'shell', 'getprop', 'ro.build.version.sdk'], { timeout: 5_000 })).stdout).trim());
+  // Fine location is declared only up to Android 12L (maxSdkVersion 32); coarse everywhere.
+  const permissions = ['android.permission.ACCESS_COARSE_LOCATION', ...(sdk <= 32 ? ['android.permission.ACCESS_FINE_LOCATION'] : [])];
+  for (const permission of permissions) {
+    await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'grant', ANDROID_PACKAGE, permission], { timeout: 5_000 }).catch(() => undefined);
   }
 }
 
@@ -379,10 +392,14 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
     ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
     { timeout: 5_000 },
   );
+  await wakeAndroidScreen(serial);
   await execFileAsync('adb', [
     '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
     '--es', 'hub_gun_url', options.hubGunUrl,
+    '--ez', 'skip_first_launch_location', 'true',
+    '--ez', 'skip_first_run_tour', 'true',
     ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+    ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
   ], { timeout: 5_000 });
 
   let lastError: unknown;
@@ -406,7 +423,10 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
         await execFileAsync('adb', [
           '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
           '--es', 'hub_gun_url', options.hubGunUrl,
+          '--ez', 'skip_first_launch_location', 'true',
+          '--ez', 'skip_first_run_tour', 'true',
           ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+          ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
         ], { timeout: 5_000 }).catch(() => undefined);
       }
     }
@@ -437,6 +457,8 @@ export type LaunchAndroidUserOptions = {
   resetAppData?: boolean;
   /** Keep a controlled matrix isolated from unrelated mDNS-advertised IinPublic nodes. */
   disableLanDiscovery?: boolean;
+  /** Enable the fixed, loopback-only embedded-Node parity endpoint in a debug APK. */
+  enablePortableCoreTests?: boolean;
   /** adb device serial (from `adb devices`) — required when more than one device/emulator
    *  is attached; the first detected device is used otherwise. */
   deviceSerial?: string;
@@ -481,12 +503,16 @@ export async function launchAndroidUser(options: LaunchAndroidUserOptions): Prom
     ['-s', serial, 'shell', 'am', 'force-stop', ANDROID_PACKAGE],
     { timeout: 5_000 },
   );
+  await wakeAndroidScreen(serial);
   await execFileAsync(
     'adb',
     [
       '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
       '--es', 'hub_gun_url', options.hubGunUrl,
+      '--ez', 'skip_first_launch_location', 'true',
+      '--ez', 'skip_first_run_tour', 'true',
       ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
+      ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
     ],
     { timeout: 5_000 },
   );
@@ -533,4 +559,25 @@ export async function closeAndroidUser(user: AndroidUser | undefined): Promise<v
     6_000,
   );
   await disposeAndroidTransport(user);
+  // The phones sit on USB with "stay awake while charging" on, so a screen left on stays on
+  // between runs and wears the battery (user request 2026-10-18). The next launch wakes it.
+  await sleepAndroidScreen(user.deviceSerial);
+}
+
+/** Turn the screen off now (it stays off until something wakes it). */
+export async function sleepAndroidScreen(serial: string): Promise<void> {
+  await settleWithin(
+    execFileAsync('adb', ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_SLEEP'], { timeout: 5_000 }),
+    6_000,
+  );
+}
+
+/**
+ * Turn the screen on and dismiss a swipe-only lock screen. A phone with a PIN or password stays
+ * locked: native specs need the lock set to None or Swipe on every test phone.
+ */
+export async function wakeAndroidScreen(serial: string): Promise<void> {
+  for (const args of [['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) {
+    await settleWithin(execFileAsync('adb', ['-s', serial, 'shell', ...args], { timeout: 5_000 }), 6_000);
+  }
 }

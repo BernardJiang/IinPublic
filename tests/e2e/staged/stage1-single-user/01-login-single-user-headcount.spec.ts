@@ -79,7 +79,7 @@ test.describe('Login — single user headcount', () => {
     // Greeting text/signature correctness is 03-support-greeting-signed.spec.ts's job (K2,
     // docs/TODO.md) — this spec only proves the contact exists and headcount holds.
 
-    const expectedHeadcount = '1';
+    const expectedHeadcount = '0 near you'; // my Nearby list, without me (§3.7)
     const headcount = page.locator('.chatroom-item.current-room .chatroom-headcount');
     await headcount.waitFor({ state: 'visible', timeout: 15000 });
     await expect(headcount).toContainText(expectedHeadcount, { timeout: 20000 });

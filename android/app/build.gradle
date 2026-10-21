@@ -3,6 +3,14 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Test-only ABI subset for phone sweeps (scripts/lib/android-test-abis.mjs).
+def testAbis = (System.getenv('IINPUBLIC_ANDROID_ABIS') ?: '').split(',').collect { it.trim() }.findAll { it }
+gradle.taskGraph.whenReady { graph ->
+    if (testAbis && graph.allTasks.any { it.name.toLowerCase().contains('release') }) {
+        throw new GradleException("IINPUBLIC_ANDROID_ABIS=${testAbis.join(',')} is for test builds only; unset it to build a release.")
+    }
+}
+
 android {
     namespace 'com.iinpublic.app'
     // Play Console requires targeting the latest API level for new releases (currently 36,
@@ -14,15 +22,18 @@ android {
         applicationId "com.iinpublic.app"
         minSdk 24
         targetSdk 36
-        versionCode 1000123
-        versionName "1.0.123"
+        versionCode 1000187
+        versionName "1.0.187"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // NDK: embed only the ABIs we have libnode.so for and ship with CMake glue
         ndkVersion = "25.1.8937393"
         ndk {
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+            // A phone sweep sets IINPUBLIC_ANDROID_ABIS to its phones' ABIs (all arm64-v8a so
+            // far): libnode.so is ~50 MB per ABI, so a one-ABI test APK is ~55 MB instead of 204 MB
+            // and installs about 3x faster over USB. Release tasks refuse it (see below).
+            abiFilters(*(testAbis ?: ["armeabi-v7a", "arm64-v8a", "x86_64"]))
         }
         externalNativeBuild {
             cmake {
@@ -187,4 +198,11 @@ task stageNodePublic(type: Sync) {
     }
     into("${projectDir}/src/main/assets/nodejs-project/public")
 }
-preBuild.dependsOn stageNodeProject, stageNodeDist, stageNodePublic
+// Debug APKs only: the unit files that run unchanged on the phone in embedded Node
+// (scripts/build-portable-core-test-bundle.mjs; served by /api/test/portable-core when the E2E flag
+// is set). src/debug/assets merges into debug builds alone, so release APKs never carry them.
+task stageNodeDeviceTests(type: Sync) {
+    from("${repoRoot}/dist/device-tests") { include 'portable-jest-node.cjs' }
+    into("${projectDir}/src/debug/assets/nodejs-project/device-tests")
+}
+preBuild.dependsOn stageNodeProject, stageNodeDist, stageNodePublic, stageNodeDeviceTests

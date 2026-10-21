@@ -187,6 +187,50 @@ journalctl -u iinpublic -f
 Once systemd manages production, normally do not run `npm start`
 manually.
 
+### Delegate roster watcher (added 2026-10-11)
+
+docs/TODO.md OPEN-32: `scripts/monitor-delegate-roster.sh` runs every 2 minutes. Each run appends
+one JSON line to `~/IinPublic/delegate-roster-monitor.jsonl` with:
+- the delegate-grant, revocation and FAQ counts the relay serves;
+- `rosterSource`: `fresh` normally, `cache` when the empty-read glitch happened and the route served
+  its cached roster;
+- the relay's RSS and uptime.
+
+The log caps itself at roughly 30 days of lines. Find glitches with
+`grep '"rosterSource":"cache"' ~/IinPublic/delegate-roster-monitor.jsonl`.
+
+``` ini
+# /etc/systemd/system/iinpublic-roster-monitor.service
+[Unit]
+Description=IinPublic delegate roster watcher (docs/TODO.md OPEN-32)
+After=iinpublic.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/IinPublic
+ExecStart=/home/ubuntu/IinPublic/scripts/monitor-delegate-roster.sh
+```
+
+``` ini
+# /etc/systemd/system/iinpublic-roster-monitor.timer
+[Unit]
+Description=Run the IinPublic delegate roster watcher every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+``` bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now iinpublic-roster-monitor.timer
+```
+
 ### Release-checksum monitor (added 2026-09-27)
 
 Turns the point-in-time `npm run release:verify-checksums` check (see "Release integrity" in

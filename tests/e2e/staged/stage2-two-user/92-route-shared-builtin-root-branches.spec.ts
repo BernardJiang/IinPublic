@@ -63,12 +63,12 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
     const alice = await bootstrapUser(browserAlice, 'Alice', 'AliceRoute');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'BobRoute');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
 
     // ── Alice builds the route talk ────────────────────────────────────────────────────
     await pageAlice.click('.nav-btn[data-view="talks"]');
@@ -146,7 +146,7 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
 
     // ── Bob receives it, walks the shared root, picks Notebook, and matches ───────────────
     await ensureChatroomList(pageAlice);
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await clickBroadcastUntilBulkAck(pageAlice);
 
     // Route talks show a "this leads to: <next question>" preview + explicit Continue button

@@ -6,6 +6,23 @@ import { isPlaceRoomId } from '../../shared/place-rooms';
 import SEA from 'gun/sea';
 
 describe('signed content-addressed Place descriptors', () => {
+  test('verifies on a runtime without global WebCrypto (Android embedded Node)', async () => {
+    const pair = await SEA.pair();
+    const descriptor = await createSignedPlaceDescriptor({
+      name: 'Claude test shop',
+      placeType: 'business',
+      location: { latitude: -22.85, longitude: -43.07 },
+      pair,
+    });
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true, writable: true });
+    try {
+      await expect(verifySignedPlaceDescriptor(descriptor)).resolves.toMatchObject({ ok: true });
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'crypto', original);
+    }
+  });
+
   test('verifies provenance without granting room authority', async () => {
     const pair = await SEA.pair();
     const descriptor = await createSignedPlaceDescriptor({

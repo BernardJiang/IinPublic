@@ -3,12 +3,20 @@ import { IinPublicApp } from './app/app';
 import { applyDevStageSeed } from './dev-stage-seeds';
 import { isDevStageZeroResolved, isDevTechSupportDriver, resolveDevStageSeed } from './dev-stage-env';
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
-import { LocationPrivacy } from '../shared/location';
+import { LocationPrivacy, NATIVE_FRESH_FIX_MS, nativeLastLocation } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
 import { PASSWORD_FREE_CUSTODY_DATABASE_NAME } from './services/identity-password-free-custody-store';
-import { getCachedLocation, setCachedLocation } from './services/location-cache';
+import { getCachedLocation } from './services/location-cache';
+
+/** How long a first-run phone waits for its GPS fix before appearing at a random Traveler point. */
+const GPS_FIX_FALLBACK_MS = 15_000;
+/** After a failed first fix on a phone, look for the platform GPS's fresh fix this often, this many times. */
+const NATIVE_FIX_RETRY_MS = 30_000;
+const NATIVE_FIX_RETRIES = 3;
+import { encounterLocationCoordinate, getEncounterLocation, isLocationPermissionDenied, keepEarlierBrowserEncounterChoice, usesSelfDefinedEncounterLocation } from './services/encounter-location';
 import { markStartupPhase } from './performance/startup-metrics';
+import { loadConnectivitySettings } from './ui/connectivity-settings';
 
 const STAGE_ZERO_BOOT_KEY = 'iinpublic_stage_zero_boot';
 
@@ -72,7 +80,10 @@ class WebApp {
 
       let location: GPSCoordinate;
       let locationConfirmed = true;
-      if (USE_TEST_LOCATION) {
+      // A user who chose Traveler appears at their chosen point even in dev/test builds.
+      keepEarlierBrowserEncounterChoice();
+      const chosenTraveler = loadConnectivitySettings().locationSource === 'traveler';
+      if (USE_TEST_LOCATION && !chosenTraveler) {
         // Check if test has set a custom location
         const customLocation = (window as any).__test_location;
         if (customLocation === 'none') {
@@ -99,6 +110,14 @@ class WebApp {
           };
           console.log('🧪 Using default TEST location:', location.latitude, location.longitude);
         }
+      } else if (usesSelfDefinedEncounterLocation()) {
+        // A Traveler ✈ (by choice, or a device that cannot read location): the encounter location
+        // (Settings → Set encounter location on map) is the only location. Without one, the app
+        // places the device at a random point after boot (placeLocationlessDeviceOnMap).
+        const encounter = getEncounterLocation();
+        location = encounter ? encounterLocationCoordinate(encounter) : LocationPrivacy.getMockLocation();
+        locationConfirmed = encounter !== null;
+        console.log(encounter ? '📍 Using the self-defined encounter location' : '📍 No encounter location set — Contacts only');
       } else {
         // Cache-first UI: never block first paint on geolocation — a permission prompt, a slow
         // GPS fix, or a device with no GPS at all would otherwise leave the user staring at the
@@ -148,15 +167,43 @@ class WebApp {
    * something this non-essential to using the app.
    */
   private resolveRealLocationInBackground(): void {
+    // OPEN-53: no real fix (denied, failed, or a permission sheet still open) → Traveler at a random
+    // point after a short wait instead of Contacts only; a fix that lands later still replaces it.
+    // On timeout the browser/OS prompt may still be open, so place the device without the picker.
+    const fallback = setTimeout(() => this.app.handleGpsFixUnavailable({ askToPick: false }), GPS_FIX_FALLBACK_MS);
     void LocationPrivacy.getCurrentLocation()
       .then((location) => {
-        setCachedLocation(location);
+        clearTimeout(fallback);
         console.log('📍 Real location resolved:', location.latitude.toFixed(3), location.longitude.toFixed(3));
-        this.app.updateCurrentLocation(location);
+        this.app.applyRealGpsFix(location);
       })
       .catch((error) => {
-        console.warn('📍 Could not resolve real location (keeping cached/placeholder):', error);
+        clearTimeout(fallback);
+        console.warn('📍 Could not resolve real location (keeping cached, else a random Traveler point):', error);
+        // Denied (location turned off for the app since the last session): the saved fix can't be
+        // refreshed, so the phone is a Traveler and Settings offers "Use my location" (OPEN-54),
+        // instead of sitting at its old position with no way back (2026-10-17, native-app/35).
+        this.app.handleGpsFixUnavailable(isLocationPermissionDenied(error) ? { force: true } : {});
+        if (!isLocationPermissionDenied(error)) this.retryNativeFix();
       });
+  }
+
+  /**
+   * On a phone the first try also asked the platform GPS for a fresh fix (`IinPublicNearby
+   * .lastLocation`), which usually lands within seconds: take it then instead of keeping a random
+   * point until the next launch (Huawei P30 indoors, 2026-10-20).
+   */
+  private retryNativeFix(attempt = 1): void {
+    if (attempt > NATIVE_FIX_RETRIES) return;
+    setTimeout(() => {
+      const fix = nativeLastLocation(NATIVE_FRESH_FIX_MS);
+      if (fix) {
+        console.log('📍 Real location resolved from the platform GPS:', fix.latitude.toFixed(3), fix.longitude.toFixed(3));
+        this.app.applyRealGpsFix(fix);
+        return;
+      }
+      this.retryNativeFix(attempt + 1);
+    }, NATIVE_FIX_RETRY_MS);
   }
 
   private async clearBrowserStageState(): Promise<void> {

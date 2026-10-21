@@ -21,4 +21,11 @@ class MailboxWatcherTest {
         val seen = MailboxWatcher.nextSeen(emptyList())
         assertEquals(setOf("a"), MailboxWatcher.newIds(listOf("a"), seen))
     }
+
+    @Test
+    fun waitRetryBacksOffWithinBounds() {
+        assertEquals(5_000L, MailboxWatcher.nextWaitRetry(0L))
+        assertEquals(10_000L, MailboxWatcher.nextWaitRetry(5_000L))
+        assertEquals(300_000L, MailboxWatcher.nextWaitRetry(250_000L))
+    }
 }

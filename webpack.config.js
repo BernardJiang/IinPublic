@@ -29,12 +29,15 @@ const isDevBuild = process.argv.some(
   (arg, i, all) => arg === '--mode=development' || (arg === 'development' && all[i - 1] === '--mode'),
 );
 const DEV_CHATROOM_MAX_CAPACITY = isDevBuild ? '3' : '';
+// Contacts needed to create a Place: 3 in local debug, release default (100) otherwise.
+const DEV_PLACE_CREATE_MIN_CONTACTS = isDevBuild ? '3' : '';
 
 const BUNDLED_ENV_KEYS = [
   'DISABLE_HMR',
   'TEST_ALL_PORT_OFFSET',
   'CHATROOM_MAX_CAPACITY',
   'CHATROOM_ENABLE_FIFO',
+  'PLACE_CREATE_MIN_CONTACTS',
   'IINPUBLIC_STAGE_SEED',
   'IINPUBLIC_STAGE_ZERO_MAX_GLOBAL',
   'IINPUBLIC_PRESENCE_TTL_SECONDS',
@@ -57,11 +60,13 @@ const BUNDLED_ENV_KEYS = [
   'IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW',
   'IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL',
   'IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW',
-  'IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS',
   // TODO §J: how long the sender waits for a device-handoff ack before giving up
   // (app.ts's handoffAckTimeoutMs) — shrunk for E2E so a real send→ack round trip
   // doesn't wait the full production timeout.
   'IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS',
+  // Physical mixed-release gate: build the release-1 fixture with the same manifest engine but
+  // without bundled successor manifests. Never set for an ordinary distribution.
+  'IINPUBLIC_E2E_PROTOCOL_RELEASE1',
 ];
 
 module.exports = {
@@ -140,6 +145,9 @@ module.exports = {
     // block below), so every real build — dev, production, the VPS — shows the real version.
     new webpack.DefinePlugin({
       'process.env.IINPUBLIC_APP_VERSION': JSON.stringify(require('./package.json').version),
+      'process.env.IINPUBLIC_E2E_PROTOCOL_RELEASE1': JSON.stringify(
+        process.env.IINPUBLIC_E2E_PROTOCOL_RELEASE1 || '',
+      ),
     }),
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
@@ -160,6 +168,9 @@ module.exports = {
             ),
             'process.env.CHATROOM_MAX_CAPACITY': JSON.stringify(
               process.env.CHATROOM_MAX_CAPACITY || '50',
+            ),
+            'process.env.PLACE_CREATE_MIN_CONTACTS': JSON.stringify(
+              process.env.PLACE_CREATE_MIN_CONTACTS || '0',
             ),
             'process.env.CHATROOM_ENABLE_FIFO': JSON.stringify(
               process.env.CHATROOM_ENABLE_FIFO !== undefined
@@ -220,9 +231,6 @@ module.exports = {
             // reproduced live: it crashed every real browser/WebView boot immediately after the
             // bundle loaded (module-level code, so it throws before the app's own first log
             // line). Both DefinePlugin AND EnvironmentPlugin branches need every such key.
-            'process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS': JSON.stringify(
-              process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS || '',
-            ),
             'process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS': JSON.stringify(
               process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS || '',
             ),
@@ -231,6 +239,7 @@ module.exports = {
       : [
           new webpack.EnvironmentPlugin({
             CHATROOM_MAX_CAPACITY: process.env.CHATROOM_MAX_CAPACITY || DEV_CHATROOM_MAX_CAPACITY,
+            PLACE_CREATE_MIN_CONTACTS: process.env.PLACE_CREATE_MIN_CONTACTS || DEV_PLACE_CREATE_MIN_CONTACTS,
             CHATROOM_ENABLE_FIFO: process.env.CHATROOM_ENABLE_FIFO || 'true',
             // Web client reads this in web-gun-service (AXE off for e2e only). Must be defined here
             // so the bundle does not reference bare `process` in the browser (webpack 5).
@@ -259,7 +268,6 @@ module.exports = {
             IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW: process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW || '',
             IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL: process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || '',
             IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW: process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || '',
-            IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS: process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS || '',
             IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS: process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS || '',
           }),
         ]),

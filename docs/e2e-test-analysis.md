@@ -76,7 +76,7 @@ Five filter dimensions tested independently:
 | Filter Dimension | Spec File |
 |---------------|-----------|
 | Language | `00m-language-intake-filter` |
-| Distance | `00n-distance-intake-filter` |
+| Distance | removed 2026-10-11 (the room defines who is in range) |
 | Content (blocked terms) | `00o-content-intake-filter` |
 | Custom phrase + cutoff | `00p-custom-cutoff-intake-filter` |
 | Talk type | `00t-talk-type-intake-filter` |

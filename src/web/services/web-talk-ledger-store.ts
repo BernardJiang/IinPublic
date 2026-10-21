@@ -76,9 +76,10 @@ export function applyTalkLedgerEvent(event: LedgerEvent): TalkLedgerDoc {
 export function applyEdgeGateForPeer(
   peerId: string,
   nowMs: number,
+  talkId?: string,
 ): { ok: boolean; rejectedBy: string[] } {
   const doc = loadTalkLedger();
-  const result = applyEdgeGate(doc, peerId, nowMs);
+  const result = applyEdgeGate(doc, peerId, nowMs, talkId);
   if (result.ok) {
     saveTalkLedger(doc);
   }

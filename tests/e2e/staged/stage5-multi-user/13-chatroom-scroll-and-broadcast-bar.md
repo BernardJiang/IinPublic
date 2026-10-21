@@ -9,7 +9,7 @@ covers: SPEC-3.3, SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Setup:** Single browser. An "Owner" user and 7 "Peer" users all log in with a compact viewport (640x540) and enter the Global chatroom.
+1. **Setup:** Single browser. An "Owner" user and 7 "Peer" users all log in with a compact viewport (640x540) and enter the shared Nearby room.
 
 2. **Verification — 7 member items** appear in the chatroom member list.
 

@@ -26,6 +26,7 @@ import {
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 
 const TITLE_A = 'E2E Edited Auto A';
 const TITLE_B = 'E2E Edited Auto B';
@@ -67,6 +68,17 @@ async function continueRoutePreview(page: Page): Promise<void> {
     await next.click();
     await afterAction();
   }
+}
+
+/**
+ * Answered talks live under IN as history, behind the "Answered" filter (the list opens on
+ * "Unanswered"). Since OPEN-55 only tag talks are copied into OUT on answer, so the 🤖 row of an
+ * auto-answered Flow/Survey/Route talk is found here, not among the outgoing rows.
+ */
+async function showAnsweredTalks(page: Page): Promise<void> {
+  await openCollapsedFilters(page, 'talks-filter-toggle');
+  await page.locator('#talks-filter-completion').selectOption('answered');
+  await afterAction();
 }
 
 /** Answer the listed (still-open) questions of the response dialog with Yes / Auto. */
@@ -154,7 +166,7 @@ test.describe('Edited talk is answered fully automatically', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
@@ -165,7 +177,7 @@ test.describe('Edited talk is answered fully automatically', () => {
       const text = m.text();
       if (text.includes('Chatbot auto-reply')) autoReplyLogs.push(text);
     });
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     // 1. Talk A (Sunday): Jerry answers all three with Auto.
@@ -207,6 +219,7 @@ test.describe('Edited talk is answered fully automatically', () => {
       pageJerry.locator('.talk-list-item[data-role="incoming"].talk-incoming-new').filter({ hasText: TITLE_A }),
     ).toHaveCount(0, { timeout: 15_000 });
     // The record: the edited talk shows as answered by the chatbot (🤖), with no user action.
+    await showAnsweredTalks(pageJerry);
     const botRow = pageJerry.locator('.talk-list-item[data-answered-by="chatbot"]').filter({ hasText: TITLE_A });
     await expect(botRow).toHaveCount(1, { timeout: 15_000 });
     await expect(botRow.locator('[data-testid="talk-answered-by-chatbot"]')).toBeVisible();
@@ -230,12 +243,12 @@ test.describe('Edited talk is answered fully automatically', () => {
       const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
       contextTom = tom.context;
       pageTom = tom.page;
-      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
       await afterSync();
       const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
       contextJerry = jerry.context;
       pageJerry = jerry.page;
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
 
       await create(pageTom, titleA, [Q1, Q2, Q3_OLD]);
@@ -259,9 +272,11 @@ test.describe('Edited talk is answered fully automatically', () => {
       // Fully automatic: no dialog, and a 🤖 record of it.
       await pageJerry.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(pageJerry, 'talks');
+      await showAnsweredTalks(pageJerry);
       const botRow = pageJerry.locator('.talk-list-item[data-answered-by="chatbot"]').filter({ hasText: titleA });
       await expect(botRow).toHaveCount(1, { timeout: 60_000 });
       await expect(pageJerry.locator('#talk-response-modal')).toHaveCount(0);
+      await pageJerry.locator('#talks-filter-completion').selectOption('unanswered');
       await expect(
         pageJerry.locator('.talk-list-item[data-role="incoming"].talk-incoming-new').filter({ hasText: titleA }),
       ).toHaveCount(0);
@@ -296,12 +311,12 @@ test.describe('Edited talk is answered fully automatically', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     await fillThreeQuestionFlow(pageTom, title, Q3_OLD);

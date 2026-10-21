@@ -51,7 +51,7 @@ async function bootstrapCompactUser(
   }, stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
-  await page.click('.chatroom-item[data-chatroom-id="global"]');
+  await page.click('.chatroom-item.current-room');
   await afterSync();
   attachE2eBrowserTabLabel(page, label);
   return { context, page };
@@ -118,7 +118,7 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
     await afterSync();
     await waitForGunPeerCountInRoom(owner.page, 'global', 7);
     await ensureChatroomList(owner.page);
-    await owner.page.click('.chatroom-item[data-chatroom-id="global"]');
+    await owner.page.click('.chatroom-item.current-room');
     await afterSync();
 
     const peers = peerMemberItems(owner.page);

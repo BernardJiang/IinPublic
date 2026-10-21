@@ -10,7 +10,7 @@ type PrivateServiceHarness = {
     getPrivate: jest.Mock<Promise<unknown>, [string]>;
   };
   privateWriteQueue: Promise<void>;
-  getLegacyReplicatedPrivate: jest.Mock<Promise<unknown>, [string]>;
+  getGun: jest.Mock;
 };
 
 function harness(): PrivateServiceHarness {
@@ -22,7 +22,8 @@ function harness(): PrivateServiceHarness {
     getPrivate: jest.fn().mockResolvedValue(null),
   };
   service.privateWriteQueue = Promise.resolve();
-  service.getLegacyReplicatedPrivate = jest.fn().mockResolvedValue(null);
+  // The peered control Gun must never be touched by owner-private reads or writes.
+  service.getGun = jest.fn(() => { throw new Error('peered Gun used for private data'); });
   return service;
 }
 
@@ -39,30 +40,26 @@ describe('WebGunService private/control Gun boundary', () => {
       title: 'Private question',
       updatedAt: '2026-10-09T12:00:00.000Z',
     });
-    expect(service.getLegacyReplicatedPrivate).not.toHaveBeenCalled();
+    expect(service.getGun).not.toHaveBeenCalled();
   });
 
-  test('a local private read never consults the peered compatibility namespace', async () => {
+  test('a local private read never consults the peered graph', async () => {
     const service = harness();
     service.bridge.getPrivate.mockResolvedValue({ title: 'Local copy' });
 
     await expect(service.getPrivate('talks/talk-1')).resolves.toEqual({ title: 'Local copy' });
 
-    expect(service.getLegacyReplicatedPrivate).not.toHaveBeenCalled();
+    expect(service.getGun).not.toHaveBeenCalled();
   });
 
-  test('a legacy peered ciphertext is imported into local Gun exactly once', async () => {
+  test('a missing key is null at once — no pre-split peered import (OPEN-78)', async () => {
     const service = harness();
-    const legacy = { title: 'Migrated copy', createdAt: new Date('2026-10-08T09:30:00.000Z') };
-    service.getLegacyReplicatedPrivate.mockResolvedValue(legacy);
 
-    await expect(service.getPrivate('talks/talk-1')).resolves.toBe(legacy);
+    await expect(service.getPrivate('incomingTalkClusters')).resolves.toBeNull();
 
-    expect(service.getLegacyReplicatedPrivate).toHaveBeenCalledWith('talks/talk-1');
-    expect(service.bridge.putPrivate).toHaveBeenCalledWith('talks/talk-1', {
-      title: 'Migrated copy',
-      createdAt: '2026-10-08T09:30:00.000Z',
-    });
+    expect(service.bridge.getPrivate).toHaveBeenCalledTimes(1);
+    expect(service.bridge.putPrivate).not.toHaveBeenCalled();
+    expect(service.getGun).not.toHaveBeenCalled();
   });
 
   test('fails closed instead of replicating when the local private store is unavailable', async () => {

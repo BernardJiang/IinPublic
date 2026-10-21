@@ -11,7 +11,7 @@ covers: SPEC-7.9  <!-- auto-seeded; refine by hand -->
 
 Two users: Tom and Jerry. After matching on a talk, Jerry should appear in Tom's Contacts with "Stranger" default label. Tom then edits relationship to "Friend", verifies the UI update, navigates away and back, and confirms persistence. Additional relationships tested by injecting raw data programmatically.
 
-1. **Setup:** Two headless Chromium browsers for Tom & Jerry in Global chatroom.
+1. **Setup:** Two headless Chromium browsers for Tom & Jerry in the shared Nearby room.
 2. **Tom creates flow talk** `"Tennis Partner"` → broadcasts it.
 3. **Jerry answers match branch.** Status bar shows ≥1 match on both pages.
 4. **Stranger default:** Tom opens Contacts → Jerry appears in list with "stranger" meta label. Detail view confirms Stranger status.

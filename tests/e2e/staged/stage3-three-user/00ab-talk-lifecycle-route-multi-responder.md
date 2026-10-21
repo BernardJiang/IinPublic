@@ -9,7 +9,7 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.7  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users: Tom, Jerry, and Bob, all in the "Global" chatroom.
+Three users: Tom, Jerry, and Bob, all in the shared Nearby room.
 
 1. **Tom creates a route talk** using `makeRouteTalk(RUN_ID)` with title `E2E FourTypes Route 900402` via the company page.
 2. **Tom broadcasts** the route talk to everyone in the room, confirming 2 distinct Gun peers and waiting for bulk ACK.

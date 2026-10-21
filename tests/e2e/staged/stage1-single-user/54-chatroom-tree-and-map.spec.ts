@@ -46,34 +46,34 @@ test.describe('Nearby and Places list/map views', () => {
       await page!.locator('#back-to-chatrooms').click();
       await afterNav();
     }
-    await page!.locator('[data-testid="chatroom-tree-view-btn"]').click();
+    await page!.locator('[data-testid="chatroom-list-view-btn"]').click();
   };
 
   test('list exposes one Nearby audience and no Global/tree/capacity shards', async () => {
     await openList();
     const currentRoomId = await page!.evaluate(() =>
       (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '');
-    expect(currentRoomId).toMatch(/^nearby_v1_/);
+    expect(currentRoomId).toMatch(/^nearby-v3$/);
 
     const current = page!.locator(`.chatroom-item[data-chatroom-id="${currentRoomId}"]`);
     await expect(current).toBeVisible();
     await expect(current).toHaveClass(/current-room/);
-    await expect(current).toContainText('Nearby');
+    await expect(current).toContainText('People near you');
     await expect(page!.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id*="_part_"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-expand-icon')).toHaveCount(0);
   });
 
-  test('map shades and focuses the local Nearby area without enabling retired tile travel', async () => {
+  test('map focuses on me without a shaded Nearby area or retired tile travel', async () => {
     await openList();
     await page!.locator('[data-testid="chatroom-map-view-btn"]').click();
     const map = page!.locator('[data-testid="chatroom-map"]');
     await expect(map).toBeVisible();
     await expect(map).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
-    await expect(map).toHaveAttribute('data-nearby-area-visible', 'true');
-    await expect(page!.locator('#chatroom-map-status')).toContainText('shaded Nearby area');
-    await expect(page!.locator('#chatroom-map-status')).toContainText(/\d+(?:\.\d+)? (?:m|km)/);
+    // Nearby is my own list, not an area: nothing is shaded (§3.7 "Map, list and headcounts").
+    await expect(map).not.toHaveAttribute('data-nearby-area-visible', 'true');
+    await expect(page!.locator('#chatroom-map-status')).not.toContainText('shaded Nearby area');
     await expect(page!.locator('#return-home-btn')).toBeDisabled();
 
     const box = (await map.boundingBox())!;

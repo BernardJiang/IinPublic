@@ -21,6 +21,45 @@ Keep these specs narrow. Browser E2E remains the broad UI/regression layer;
 native app E2E should cover packaging, embedded-node startup, profile
 isolation, and mixed browser/app topology.
 
+## Android physical-phone sweep
+
+`npm run test:all` covers core logic and simulated browser E2E; it does not opt in to destructive
+physical-phone gates. Run the availability-aware hardware sweep separately:
+
+```bash
+# Inspect the exact order without changing a phone.
+npm run test:e2e:android-sweep:plan
+
+# Clears IinPublic test-app data, changes Wi-Fi/sleep state, and can take well over an hour.
+npm run test:e2e:android-sweep
+```
+
+The sweep deliberately runs the signed protocol-manifest mixed-release test first. It then builds
+and installs the ordinary latest APK before all current-version tests, and installs that latest APK
+again in a final cleanup step even if a test fails. Thus a release-1 fixture is never the intended
+final state of a selected phone.
+
+By default the runner uses only connected phones listed in `tests/matrix/devices.json`. Reserve a
+specific set (and avoid phones owned by another test process) with:
+
+```bash
+NATIVE_APP_ANDROID_SERIALS=serial1,serial2,serial3 npm run test:e2e:android-sweep
+```
+
+Two phones run the mixed-release, one-phone, cross-runtime, matrix, and sleep/wake gates. A third
+adds offline/resync, offline Wi-Fi Direct, and cohort traversal. A fourth adds online four-phone
+nearby convergence. A phone with a ready SIM adds the cellular gate 29 (that phone on mobile data,
+against the public hub); a second SIM phone adds 29 again with both phones on mobile data. The two-person
+journeys 37/38 (shared with phone-path/02 and /04) run beside the cellular gate. Spec 36
+(runtime permissions asked once at first launch) runs last, on every phone at once. Missing tiers
+are reported as "not scheduled," not silently shown as passing. The sweep continues after an individual gate fails, prints one failure summary,
+and exits nonzero after restoring the latest APK.
+
+Tests that require a human-created topology or credentials remain separate: TechSupport key
+fixtures (08/09/27, run only when `.env.local` holds the keys), and Android plus remote
+Windows/Ubuntu live-peer scenarios. They are not safe to infer from attached phones and therefore
+are not part of the automatic sweep.
+
 ## macOS app and host gates
 
 The durable app-to-browser leave scenario is safe for an ordinary local run:
@@ -107,4 +146,3 @@ NATIVE_APP_ANDROID_HOST=192.168.10.50 \
 npx playwright test --config tests/e2e/native-app/playwright.config.ts \
   tests/e2e/native-app/26-android-camera-and-file-permissions.spec.ts
 ```
-

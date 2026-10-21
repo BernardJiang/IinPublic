@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha256';
+
 /**
  * src/shared/merkle-checkpoint.ts
  *
@@ -20,8 +22,8 @@
  * construction) so the O(log N) proof claim is actually true. The design note flags this
  * spec inconsistency explicitly; treat this file as the corrected implementation.
  *
- * Uses globalThis.crypto.subtle (Web Crypto API) — available in Node 18+ and all modern
- * browsers, no additional dependencies (same as cid.ts).
+ * Hashes with pure-JS SHA-256 (@noble/hashes), same as cid.ts: the Android embedded Node
+ * has no global `crypto`.
  */
 
 /**
@@ -31,8 +33,7 @@
  */
 export async function sha256Hex(input: string): Promise<string> {
   const encoded = new TextEncoder().encode(input);
-  const digestBuffer = await globalThis.crypto.subtle.digest('SHA-256', encoded);
-  return bytesToHex(new Uint8Array(digestBuffer));
+  return bytesToHex(sha256(encoded));
 }
 
 function bytesToHex(bytes: Uint8Array): string {

@@ -250,6 +250,19 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
       techSupportStore: this.techSupportStore,
+      onPlaceActive: (placeId) => { void this.chatroomManager.markPlaceActive(placeId).catch(() => undefined); },
+      activeRoomSource: {
+        placeOf: async (roomId) => {
+          const meta = await this.chatroomManager.getChatroomMeta(roomId);
+          if (!meta) return undefined;
+          const location = meta.location as { latitude?: number; longitude?: number } | undefined;
+          return {
+            name: String(meta.name || ''),
+            ...(Number.isFinite(location?.latitude) ? { latitude: Number(location!.latitude) } : {}),
+            ...(Number.isFinite(location?.longitude) ? { longitude: Number(location!.longitude) } : {}),
+          };
+        },
+      },
     });
 
     registerUserRoutes(this.app, {

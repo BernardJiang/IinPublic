@@ -53,7 +53,7 @@ test.describe('Peer actions in AppBar', () => {
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item:has-text("Global")');
+    await page.click('.chatroom-item.current-room');
     await afterSync();
     return { context, page };
   }

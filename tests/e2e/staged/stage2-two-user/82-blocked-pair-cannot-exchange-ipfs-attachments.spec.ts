@@ -63,9 +63,9 @@ test.describe('Blocked pair cannot exchange IPFS attachments', () => {
     contextBob = bob.context;
     pageBob = bob.page;
 
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterSync();
-    await pageBob.click('.chatroom-item:has-text("Global")');
+    await pageBob.click('.chatroom-item.current-room');
     await afterSync();
 
     const aliceUserId = await pageAlice.evaluate(
@@ -78,9 +78,10 @@ test.describe('Blocked pair cannot exchange IPFS attachments', () => {
     expect(bobUserId).toBeTruthy();
 
     // Bob blocks Alice — either direction is sufficient (resolveBlockStatusEitherWay checks both).
-    await pageBob.evaluate(async (targetId) => {
-      const app = (window as any).__iinpublic_app?.getApp();
-      await app.userService.blockUser(app.currentUser.id, targetId);
+    // Through the app's own block action, which also clears its one-minute block-status cache: the
+    // pair's Nearby link may already have cached "not blocked" (it is warmed when a link opens).
+    await pageBob.evaluate((targetId) => {
+      (window as any).__iinpublic_app?.getApp()?.uiManager.emit('setUserBlocked', { userId: targetId, blocked: true });
     }, aliceUserId);
 
     // The shared dependency all four Part C call sites rely on.

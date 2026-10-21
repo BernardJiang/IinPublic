@@ -1,7 +1,7 @@
 {
   "name": "iinpublic-desktop",
   "productName": "IinPublic",
-  "version": "1.0.123",
+  "version": "1.0.187",
   "description": "IinPublic desktop app — Electron shell hosting the embedded P2P node",
   "main": "main.js",
   "author": {
@@ -12,6 +12,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "dist:dir": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win --x64",
     "dist:win:arm64": "electron-builder --win --arm64",

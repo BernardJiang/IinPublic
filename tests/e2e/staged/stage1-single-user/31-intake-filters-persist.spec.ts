@@ -110,15 +110,9 @@ test.describe('Settings: intake filters persist across reload', () => {
     await afterSync();
     await backToSettingsMenu(page);
 
-    // 3. Set distance filters (defaults: min=0, max=50)
-    await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-    const minDistanceInput = page.locator('#settings-min-distance');
-    const maxDistanceInput = page.locator('#settings-max-distance');
-    await minDistanceInput.fill('10');
-    await minDistanceInput.evaluate((el: any) => el.dispatchEvent(new Event('change', { bubbles: true })));
-    await afterSync();
-    await maxDistanceInput.fill('25');
-    await maxDistanceInput.evaluate((el: any) => el.dispatchEvent(new Event('change', { bubbles: true })));
+    // 3. Talk audience (default: everyone in my room → Residents only)
+    await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
+    await page.locator('[data-testid="settings-talk-audience-residents"]').check();
     await afterSync();
     await backToSettingsMenu(page);
 
@@ -174,12 +168,9 @@ test.describe('Settings: intake filters persist across reload', () => {
     await expect(customBlockedAfterReload).toHaveValue('badword1, badword2', { timeout: 5000 });
     await backToSettingsMenu(page);
 
-    // Verify distance filters persisted
-    await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-    const minDistanceAfterReload = page.locator('#settings-min-distance');
-    const maxDistanceAfterReload = page.locator('#settings-max-distance');
-    await expect(minDistanceAfterReload).toHaveValue('10', { timeout: 5000 });
-    await expect(maxDistanceAfterReload).toHaveValue('25', { timeout: 5000 });
+    // Verify the Talk audience persisted
+    await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
+    await expect(page.locator('[data-testid="settings-talk-audience-residents"]')).toBeChecked({ timeout: 5000 });
     await backToSettingsMenu(page);
 
     // Verify allowed-languages selection persisted ('en' default plus added 'zh')

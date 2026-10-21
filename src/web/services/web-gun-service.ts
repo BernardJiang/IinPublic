@@ -35,10 +35,9 @@ import { detectNativeCustodyBridge } from '../../shared/native-custody-bridge';
 
 type PasswordFreeCustodyManager = BrowserPasswordFreeCustodyManager | NativePasswordFreeCustodyManager;
 
-const KEYPAIR_STORAGE = 'iinpublic_keypair';
 export const KEY_CUSTODY_STORAGE = 'iinpublic_key_custody_v1';
 /**
- * K3 (docs/TODO.md): distinct from KEYPAIR_STORAGE/KEY_CUSTODY_STORAGE so the TechSupport
+ * K3 (docs/TODO.md): distinct from KEY_CUSTODY_STORAGE so the TechSupport
  * device identity never collides with, or gets migrated into, the device's own ordinary
  * identity. Populated only by development/E2E launchers; production bundles reject and erase it.
  * Never populated by the web bundle itself.
@@ -334,12 +333,10 @@ export class WebGunService extends EventEmitter {
         }
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
-        localStorage.removeItem(KEYPAIR_STORAGE);
       },
       writeAndVerify: async (expectedPair) => {
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
-        localStorage.removeItem(KEYPAIR_STORAGE);
         await this.persistCustodyRecord(expectedPair as GunPair);
         const committed = this.readCustodyRecord();
         const actualPair = committed ? await this.unwrapKeypairFromStorage(committed) : null;
@@ -369,7 +366,6 @@ export class WebGunService extends EventEmitter {
       clear: async () => {
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
-        localStorage.removeItem(KEYPAIR_STORAGE);
       },
       readPair: async () => {
         const record = this.readCustodyRecord();
@@ -742,7 +738,6 @@ export class WebGunService extends EventEmitter {
     if (typeof localStorage === 'undefined') return;
     const record = await this.wrapKeypairForStorage(pair, existing);
     localStorage.setItem(KEY_CUSTODY_STORAGE, JSON.stringify(record));
-    localStorage.removeItem(KEYPAIR_STORAGE);
   }
 
   /* ── Core graph operations (direct Gun — backward compat) ──────── */
@@ -947,32 +942,9 @@ export class WebGunService extends EventEmitter {
     await this.bridge.putPrivate(key, this.serializeDates(data));
   }
 
-  /**
-   * Read one record from the pre-split private namespace on the peered Gun graph. This path is
-   * migration-only: new writes go exclusively to the local worker store above. A successful
-   * read is copied locally by getPrivate(), after which future reads no longer touch the peer.
-   */
-  private async getLegacyReplicatedPrivate(key: string): Promise<any> {
-    const pair = this.seaPair;
-    if (!pair) return null;
-    const SEA = getSEA();
-    const parts = key.split('/').filter(Boolean);
-    let ref = this.gun.user().get('private');
-    for (const part of parts) {
-      ref = ref.get(part);
-    }
-    const raw = await new Promise<any>((resolve) => {
-      const timeout = setTimeout(() => resolve(null), 4000);
-      ref.once((value: any) => {
-        clearTimeout(timeout);
-        resolve(value ?? null);
-      });
-    });
-    if (!raw) return null;
-    const decrypted = await SEA.decrypt(raw as string, pair);
-    if (!decrypted) return null;
-    const parsed = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
-    return this.deserializeDates(parsed);
+  /** A brand-new identity: everything it will ever own lives in the local private store. */
+  private async createFreshPair(): Promise<GunPair> {
+    return await getSEA().pair() as GunPair;
   }
 
   /** Read and decrypt from the current user's private namespace. */
@@ -985,15 +957,7 @@ export class WebGunService extends EventEmitter {
     }
 
     const local = await this.bridge.getPrivate(key);
-    if (local !== null && local !== undefined) return this.deserializeDates(local);
-
-    // Upgrade compatibility: import the former peered ciphertext once. Historical remote
-    // replicas cannot be recalled, but this device stops reading the peer after the local copy
-    // exists and never publishes subsequent updates there.
-    const legacy = await this.getLegacyReplicatedPrivate(key);
-    if (legacy === null || legacy === undefined) return null;
-    await this.bridge.putPrivate(key, this.serializeDates(legacy));
-    return legacy;
+    return local === null || local === undefined ? null : this.deserializeDates(local);
   }
 
   /** Subscribe to decrypted owner-private data in the local-only worker Gun. */
@@ -1180,15 +1144,10 @@ export class WebGunService extends EventEmitter {
       }
     }
 
-    let legacyRaw: string | null = null;
     let existingCustody: KeyCustodyRecord | null = null;
     try {
-      if (typeof localStorage !== 'undefined') {
-        legacyRaw = localStorage.getItem(KEYPAIR_STORAGE);
-        existingCustody = this.readCustodyRecord();
-      }
+      if (typeof localStorage !== 'undefined') existingCustody = this.readCustodyRecord();
     } catch {
-      legacyRaw = null;
       existingCustody = null;
     }
     let pair: GunPair | null = null;
@@ -1215,21 +1174,9 @@ export class WebGunService extends EventEmitter {
               ? '🔐 Loaded SEA identity from non-extractable browser custody'
               : '🔐 Migrated SEA identity to non-extractable browser custody');
           } else {
-            if (legacyRaw) {
-              try {
-                pair = JSON.parse(legacyRaw) as GunPair;
-              } catch {
-                pair = null;
-              }
-            }
-            if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) {
-              pair = await SEA.pair();
-              console.log('🔐 Created new local SEA identity');
-            } else {
-              console.log('🔐 Migrating legacy plaintext SEA identity');
-            }
+            pair = await this.createFreshPair();
+            console.log('🔐 Created new local SEA identity');
             await passwordFreeManager.writeAndVerify(pair as SeaPrivateIdentityMaterial);
-            localStorage.removeItem(KEYPAIR_STORAGE);
             pairStoredInV3 = true;
             console.log('🔐 SEA identity stored with non-extractable browser custody');
           }
@@ -1270,16 +1217,8 @@ export class WebGunService extends EventEmitter {
         if (custodyPair) {
           pair = custodyPair;
           console.log('🔐 Loaded SEA identity from v1 encrypted custody');
-        } else if (legacyRaw) {
-          try {
-            pair = JSON.parse(legacyRaw) as GunPair;
-            if (!pair?.pub || !pair?.epub || !pair?.priv || !pair?.epriv) pair = await SEA.pair();
-          } catch {
-            pair = await SEA.pair();
-          }
-          console.log('🔐 Migrated legacy SEA identity');
         } else {
-          pair = await SEA.pair();
+          pair = await this.createFreshPair();
           console.log('🔐 Created new local SEA identity');
         }
       }
@@ -1294,12 +1233,6 @@ export class WebGunService extends EventEmitter {
         console.log('🔐 SEA identity custody v1 stored');
       } catch (error) {
         console.warn('⚠️ Encrypted SEA key custody unavailable — keeping pair in memory only:', error);
-        try {
-          if (typeof localStorage !== 'undefined') localStorage.removeItem(KEYPAIR_STORAGE);
-        } catch {
-          /* ignore */
-        }
-        /* ignore quota / private mode */
       }
     }
 

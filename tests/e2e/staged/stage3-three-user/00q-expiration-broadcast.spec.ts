@@ -99,13 +99,13 @@ test.describe('Talk expiration broadcast behavior', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Expiration Sender');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Expiration Receiver');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     const liveTitle = 'Expiration Active Delivery';

@@ -10,6 +10,11 @@ const webPort = gunPort - 8080 + 3001;
 // health check refuses unconditionally regardless of server health.
 assertNotFetchForbiddenPort(gunPort, 'native-app playwright.config.ts gunPort');
 assertNotFetchForbiddenPort(webPort, 'native-app playwright.config.ts webPort');
+// The web app maps only pages on 3001-4000 to their hub (web-gun-service deriveGunHubUrlFromLocation);
+// above that a browser peer looks for Gun on the static server and never meets the phones.
+if (webPort < 3001 || webPort > 4000) {
+  throw new Error(`NATIVE_APP_E2E_GUN_PORT=${gunPort} puts the web page on ${webPort}, outside 3001-4000; use a hub port of 8080-9079`);
+}
 const runId = (process.env.E2E_RUN_ID || '').replace(/[^A-Za-z0-9._-]/g, '');
 const blobOutputDir = path.join(
   repoRoot,

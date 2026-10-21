@@ -1,4 +1,4 @@
-import { DirectTalkDeliveryOutbox } from '../../web/services/direct-talk-delivery-outbox';
+import { DIRECT_TALK_OUTBOX_MAX_ENTRIES, DIRECT_TALK_OUTBOX_TTL_MS, DirectTalkDeliveryOutbox } from '../../web/services/direct-talk-delivery-outbox';
 import type { P2PMeshTalkBodyPayload } from '../../shared/p2p-mesh-protocol';
 import type { WebGunService } from '../../web/services/web-gun-service';
 
@@ -53,5 +53,34 @@ describe('DirectTalkDeliveryOutbox', () => {
     await outbox.enqueue('nearby:test', 'bob', payload('talk-1', 'hash-2'));
     expect((await outbox.list()).map((entry) => entry.contentHash)).toEqual(['hash-1', 'hash-2']);
   });
-});
 
+  it('expires entries for receivers who never come back and stays bounded', async () => {
+    const gun = memoryGun();
+    let now = Date.parse('2026-10-01T00:00:00.000Z');
+    const outbox = new DirectTalkDeliveryOutbox(gun, () => now);
+    await outbox.enqueue('nearby:test', 'gone', payload('talk-old', 'hash-old'));
+    now += DIRECT_TALK_OUTBOX_TTL_MS - 1;
+    await outbox.enqueue('nearby:test', 'bob', payload('talk-new', 'hash-new'));
+    expect((await outbox.list()).map((entry) => entry.recipientUserId).sort()).toEqual(['bob', 'gone']);
+    now += 2;
+    expect((await outbox.list()).map((entry) => entry.recipientUserId)).toEqual(['bob']);
+  });
+
+  it('drops the oldest entries past the hard size bound', async () => {
+    const values = new Map<string, unknown>();
+    const gun = {
+      getPrivate: async (key: string) => values.get(key) ?? null,
+      putPrivate: async (key: string, value: unknown) => { values.set(key, value); },
+    } as unknown as WebGunService;
+    const base = Date.parse('2026-10-01T00:00:00.000Z');
+    const seeded = Array.from({ length: DIRECT_TALK_OUTBOX_MAX_ENTRIES + 3 }, (_, index) => ({
+      version: 1, key: `k${index}`, roomId: 'nearby:test', recipientUserId: `u${index}`, talkId: 't', contentHash: 'h',
+      payload: payload('t', 'h'), createdAt: new Date(base + index).toISOString(), updatedAt: new Date(base + index).toISOString(), attemptCount: 0,
+    }));
+    values.set('directTalkDeliveryOutbox', { version: 1, entriesJson: JSON.stringify(seeded), updatedAt: new Date(base).toISOString() });
+    const outbox = new DirectTalkDeliveryOutbox(gun, () => base + 10_000);
+    const entries = await outbox.list();
+    expect(entries).toHaveLength(DIRECT_TALK_OUTBOX_MAX_ENTRIES);
+    expect(entries[0]!.key).toBe('k3');
+  });
+});

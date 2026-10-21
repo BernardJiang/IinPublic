@@ -134,18 +134,9 @@ describe('talk intake filters', () => {
       timestamp: new Date('2026-04-28T12:00:00.000Z'),
     };
 
-    expect(
-      talkPassesIntakeFilters(cluster, { ...baseFilters, maxDistanceMiles: 1 }, me),
-    ).toBe(true);
-    expect(
-      talkPassesIntakeFilters(cluster, { ...baseFilters, minDistanceMiles: 10 }, me),
-    ).toBe(false);
-    expect(
-      talkPassesIntakeFilters(
-        { ...cluster, authorLocation: { latitude: me.latitude, longitude: me.longitude } },
-        { ...baseFilters, minDistanceMiles: 10 },
-        me,
-      ),
-    ).toBe(false);
+    // The distance filter was removed: the room defines who is in range, so a Talk is never
+    // hidden for being near or far.
+    expect(talkPassesIntakeFilters(cluster, baseFilters, me)).toBe(true);
+    expect(talkPassesIntakeFilters({ ...cluster, authorLocation: { latitude: 51.5, longitude: -0.12 } }, baseFilters, me)).toBe(true);
   });
 });

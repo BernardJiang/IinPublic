@@ -11,7 +11,7 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-7.9  <!-- auto-seeded; refine by hand -->
 
 Two users (Tom creates + broadcasts, Jerry answers). Neither has contacted the other before. After Jerry matches Tom's talk, Tom's Contacts list should show Jerry as a new entry labeled "Stranger". This verifies the contact-creation side effect of a successful talk match between unknown peers.
 
-1. **Setup:** Two browsers — Tom and Jerry joined Global chatroom.
+1. **Setup:** Two browsers — Tom and Jerry joined the shared Nearby room.
 2. **Tom creates flow talk** ("Lifecycle Stranger Match") with match/ignore answers via company page JSON API.
 3. **Broadcast delivered:** Waits for Gun peer awareness (≥1 distinct peer). Clicks broadcast until bulk ack.
 4. **Jerry matches:** Completes the incoming talk with match answer IDs → recorded as MATCH outcome.

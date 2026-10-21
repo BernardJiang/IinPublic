@@ -8,7 +8,7 @@ covers: SPEC-3.9  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Tom, Jerry, and Bob join Global.**
+1. **Tom, Jerry, and Bob join the shared Nearby room.**
 2. **Tom creates a survey talk** (restaurant preferences).
 3. **Jerry and Bob submit survey responses** with different answer sets.
 4. **Tom opens survey analytics** from the created talk row.

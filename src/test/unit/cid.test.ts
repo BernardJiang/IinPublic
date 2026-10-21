@@ -55,6 +55,22 @@ describe('canonicalSerialize', () => {
 });
 
 describe('computeCIDv1', () => {
+  it('hashes with standard SHA-256, matching node:crypto', async () => {
+    const { createHash } = await import('crypto');
+    const obj = { kind: 'TEST', name: 'Café 咖啡', n: 1 };
+    const cid = await computeCIDv1(obj);
+    const expectedDigest = createHash('sha256').update(canonicalSerialize(obj) as string, 'utf8').digest('hex');
+    // base32 'b' + <0x01 0x a9 0x02 (dag-json varint)> + <0x12 0x20> + digest
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+    let bits = 0; let value = 0; const bytes: number[] = [];
+    for (const ch of cid.slice(1)) {
+      value = (value << 5) | alphabet.indexOf(ch); bits += 5;
+      if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
+    }
+    const hex = bytes.slice(-32).map((b) => b.toString(16).padStart(2, '0')).join('');
+    expect(hex).toBe(expectedDigest);
+  });
+
   it('returns a string starting with "b" (base32 multibase prefix)', async () => {
     const cid = await computeCIDv1({ kind: 'TEST', value: 42 });
     expect(typeof cid).toBe('string');

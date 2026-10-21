@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -49,9 +50,26 @@ if (missing.length) {
   throw new Error(`Configured devices are unavailable: ${missing.map((device) => `${device.name} (${device.serial})`).join(', ')}`);
 }
 
-const failures = [];
-for (const device of devices) {
-  console.log(`[android-matrix] installing ${device.name} (${device.serial})`);
+// A sweep installs the same APK more than once (after the mixed-release gate, and again as its
+// final restore). Phones whose installed base.apk already has this APK's MD5 are skipped
+// (ANDROID_INSTALL_FORCE=1 reinstalls). The rest install one at a time: the test phones share one
+// USB hub, and four parallel installs of the 204 MB APK all but one timed out at 5 min.
+const force = process.env.ANDROID_INSTALL_FORCE === '1';
+const localMd5 = crypto.createHash('md5').update(fs.readFileSync(apkPath)).digest('hex');
+
+function installedMd5(serial) {
+  try {
+    const apk = execFileSync('adb', ['-s', serial, 'shell', 'pm', 'path', 'com.iinpublic.app'], { encoding: 'utf8', timeout: 15_000 })
+      .split(/\r?\n/).find((line) => line.startsWith('package:'))?.slice('package:'.length).trim();
+    if (!apk) return '';
+    const out = execFileSync('adb', ['-s', serial, 'shell', 'md5sum', apk], { encoding: 'utf8', timeout: 60_000 });
+    return out.trim().split(/\s+/)[0] || '';
+  } catch {
+    return '';
+  }
+}
+
+function install(device) {
   try {
     execFileSync('adb', ['-s', device.serial, 'install', '--no-streaming', '-r', apkPath], {
       cwd: repoRoot,
@@ -59,15 +77,30 @@ for (const device of devices) {
       timeout: installTimeoutMs,
       killSignal: 'SIGTERM',
     });
+    return '';
   } catch (error) {
     const timedOut = error?.code === 'ETIMEDOUT' || error?.signal === 'SIGTERM';
-    const reason = timedOut
-      ? `timed out after ${installTimeoutMs}ms`
-      : `failed${error?.status == null ? '' : ` with exit code ${error.status}`}`;
-    failures.push(`${device.name} (${device.serial}): ${reason}`);
-    console.error(`[android-matrix] ${reason}; continuing to the next configured device`);
+    return timedOut ? `timed out after ${installTimeoutMs}ms` : `failed${error?.status == null ? '' : ` with exit code ${error.status}`}`;
   }
 }
+
+const pending = [];
+for (const device of devices) {
+  if (!force && installedMd5(device.serial) === localMd5) {
+    console.log(`[android-matrix] ${device.name} (${device.serial}) already has this APK (md5 ${localMd5.slice(0, 12)}); skipped`);
+  } else {
+    pending.push(device);
+  }
+}
+const startedAt = Date.now();
+const results = pending.map((device) => {
+  console.log(`[android-matrix] installing ${device.name} (${device.serial})`);
+  const failure = install(device);
+  if (failure) console.error(`[android-matrix] ${failure}; continuing to the next configured device`);
+  return failure;
+});
+const failures = pending.flatMap((device, index) => results[index] ? [`${device.name} (${device.serial}): ${results[index]}`] : []);
+if (pending.length) console.log(`[android-matrix] ${pending.length - failures.length} of ${pending.length} install(s) done in ${Math.round((Date.now() - startedAt) / 1000)}s`);
 
 if (failures.length) {
   throw new Error(`Android matrix installation incomplete:\n- ${failures.join('\n- ')}`);

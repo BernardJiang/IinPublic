@@ -98,10 +98,33 @@ describe('completeTalk', () => {
     expect(d.showNotification).toHaveBeenCalledWith('talksIgnored', 'info');
   });
 
-  it('marks role "copied" when copy-autosave is on and no answer was an ignore', () => {
+  it('marks an answered tag talk "copied" when copy-autosave is on', () => {
     localStorage.setItem('copyTalkAutoSave', 'true');
     const d = deps();
-    completeTalk(talk(), [{ questionId: 'q1', answerId: 'yes' }], 'match', undefined, d);
+    completeTalk(talk({ type: 'tag' }), [{ questionId: 'q1', answerId: 'yes' }], 'match', undefined, d);
+    expect(getMyTalks().t1.role).toBe('copied');
+  });
+
+  it('never auto-copies a non-tag talk, so a buyer never re-broadcasts a sell deal (OPEN-55)', () => {
+    localStorage.setItem('copyTalkAutoSave', 'true');
+    const d = deps();
+    const sellTalk = talk({
+      questions: [
+        { id: 'q_0', text: 'sell', reciprocalTagContext: true, answers: [{ id: 'a0', text: 'buy', nextQuestionId: 'q_1' }] },
+        { id: 'q_1', text: 'Is it used?', answers: [{ id: 'yes', text: 'Yes', isMatch: true }] },
+      ],
+    });
+    completeTalk(sellTalk, [{ questionId: 'q_0', answerId: 'a0' }, { questionId: 'q_1', answerId: 'yes' }], 'match', undefined, d);
+    expect(getMyTalks().t1.role).toBe('answered');
+    for (const type of ['survey', 'route']) {
+      completeTalk(talk({ id: `t-${type}`, type }), [{ questionId: 'q1', answerId: 'yes' }], 'match', undefined, d);
+      expect(getMyTalks()[`t-${type}`].role).toBe('answered');
+    }
+  });
+
+  it('still copies a non-tag talk the user chose to copy', () => {
+    const d = deps();
+    completeTalk(talk(), [{ questionId: 'q1', answerId: 'yes' }], 'match', { forceCopyToMyTalks: true }, d);
     expect(getMyTalks().t1.role).toBe('copied');
   });
 

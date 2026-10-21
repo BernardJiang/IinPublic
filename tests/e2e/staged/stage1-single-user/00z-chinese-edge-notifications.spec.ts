@@ -56,7 +56,7 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     // --- Status bar: join a chatroom and verify user count is in Chinese ---
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    const globalRoom = p.locator('.chatroom-item:has-text("Global")').first();
+    const globalRoom = p.locator('.chatroom-item.current-room').first();
     await globalRoom.waitFor({ state: 'visible', timeout: 30_000 });
     await globalRoom.click();
     await afterSync();

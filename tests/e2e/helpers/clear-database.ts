@@ -199,6 +199,12 @@ export async function seedTechSupportRootBaseline(): Promise<void> {
 export async function injectIdbClear(page: Page): Promise<void> {
   await page.addInitScript(async () => {
     try {
+      // Once per browser context, not on every navigation: private data (contacts, blocklist,
+      // profile) now lives only in this device's local Gun, so wiping it on a reload would
+      // simulate data loss no real user sees. A spec that clears localStorage gets a fresh
+      // device again, IndexedDB included.
+      if (localStorage.getItem('__iinpublic_e2e_idb_cleared') === '1') throw new Error('already cleared');
+      localStorage.setItem('__iinpublic_e2e_idb_cleared', '1');
       const dbs = await indexedDB.databases?.();
       if (dbs) {
         for (const db of dbs) {

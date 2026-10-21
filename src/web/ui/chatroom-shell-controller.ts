@@ -1,5 +1,6 @@
 import type { User } from '../../shared/types';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { CONFIG } from '../../shared/config';
 import { escapeHtml } from './ui-formatters';
 import { avatarInnerHtml } from './profile-avatar';
 import {
@@ -11,6 +12,9 @@ import {
 import { normalizeStringList, normalizeTalkFilterShape } from './settings-view';
 import type { CustomChatroomDraft } from './custom-chatroom-dialogs';
 
+import { createMapUserDots, type MapUserDotSource, type RoomMemberCardSource } from './chatroom-map-view';
+import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
+import type { QuestionAnswer } from '../../shared/types';
 type ChatroomsViewDeps = Parameters<typeof renderChatrooms>[0];
 
 export type ChatroomShellControllerDeps = {
@@ -24,7 +28,8 @@ export type ChatroomShellControllerDeps = {
   getExpandedChatrooms: () => Set<string>;
   getMatchedUserIds: () => Set<string>;
   getCustomChatrooms: () => CustomChatroomRow[];
-  getNearbyMapArea?: () => ChatroomsViewDeps['nearbyMapArea'];
+  getTravelModeActive: () => boolean;
+  /** Group 2 supplies the network-backed model; Group 1 keeps a truthful one-group local shell. */
   setSessionUser: (user: User) => void;
   setCurrentUserId: (userId: string) => void;
   setChatroomBrowseMode: (mode: ChatroomsViewDeps['chatroomBrowseMode']) => void;
@@ -37,6 +42,10 @@ export type ChatroomShellControllerDeps = {
   syncReturnHomeButton: () => void;
   syncAppBarOverflow: () => void;
   openPeerDetail: (userId: string, stageName: string) => void;
+  /** The peer's profile page (the map card's Profile button); Message uses openPeerDetail. */
+  openPeerProfile?: (userId: string, stageName: string) => void;
+  /** Public profile foundation (photo, languages, profile rows) for the map member card. */
+  getPublicProfileFoundation?: (userId: string) => Promise<{ headshot?: string | null; languagesJson?: string; profileJson?: string } | null>;
   rememberPeerName: (userId: string, stageName: string) => void;
   showCreateCustomChatroomDialog: () => Promise<CustomChatroomDraft | null>;
   /** The creator's blurred ~1 km cell (`region_<lat>_<lng>`), or null without a confirmed GPS fix. */
@@ -55,13 +64,64 @@ export type ChatroomShellControllerDeps = {
 export type ChatroomShellController = ReturnType<typeof createChatroomShellController>;
 
 export function createChatroomShellController(deps: ChatroomShellControllerDeps) {
-  let controller: {
-    renderChatroomList: () => void;
-    showChatroomDetail: (chatroomId: string) => void;
+  /** Set by the app once Nearby runs: my point (★) and a loader for my list's dots and the heat. */
+  let mapUserDotSource: MapUserDotSource | undefined;
+  let roomMembers: ReadonlyArray<{ userId: string; stageName?: string; isTraveler?: boolean }> = [];
+
+  const parseList = <T>(json: string | undefined): T[] => {
+    try {
+      const parsed = JSON.parse(json || '[]');
+      return Array.isArray(parsed) ? parsed as T[] : [];
+    } catch {
+      return [];
+    }
   };
 
+  /** Green dot → who is it: name, presence, match, then photo/languages/public profile lines. */
+  const roomMemberCard = (): RoomMemberCardSource => ({
+    describe: (userId) => {
+      const member = roomMembers.find((candidate) => candidate.userId === userId);
+      return {
+        stageName: member?.stageName || userId.slice(0, 8),
+        online: deps.isUserOnline(userId),
+        matched: deps.getMatchedUserIds().has(userId),
+        traveler: member?.isTraveler === true,
+      };
+    },
+    loadProfile: async (userId) => {
+      const foundation = await deps.getPublicProfileFoundation?.(userId).catch(() => null);
+      const headshot = foundation?.headshot ?? (await deps.resolvePeerHeadshot?.(userId).catch(() => null)) ?? null;
+      if (!foundation && !headshot) return null;
+      // Only rows any viewer may see; contacts-only and private rows never reach the map.
+      const rows = filterProfileAttributesForViewer(parseList<QuestionAnswer>(foundation?.profileJson), { viewerIsContact: false });
+      return {
+        headshot,
+        languages: parseList<string>(foundation?.languagesJson).filter((language) => typeof language === 'string'),
+        highlights: rows
+          .filter((row) => row && typeof row.question === 'string' && typeof row.answer === 'string' && row.answer.trim())
+          .map((row) => `${row.question.trim()}: ${row.answer.trim()}`),
+      };
+    },
+    message: deps.openPeerDetail,
+    profile: (userId, stageName) => (deps.openPeerProfile ?? deps.openPeerDetail)(userId, stageName),
+    text: {
+      message: deps.t('mapMemberMessage'),
+      profile: deps.t('mapMemberProfile'),
+      online: deps.t('presenceOnline'),
+      away: deps.t('presenceAway'),
+      matched: deps.t('mapMemberMatched'),
+      traveler: deps.t('chatroomTraveler'),
+    },
+  });
+  let activeRooms: ChatroomsViewDeps['activeRooms'];
+  let nearbyOnline: number | undefined;
+  let nearbyBroadcastProgress: ChatroomsViewDeps['nearbyBroadcastProgress'];
+  let nearbyGroup: ChatroomsViewDeps['nearbyGroup'];
+
   const viewDeps = (): ChatroomsViewDeps => {
-    const nearbyMapArea = deps.getNearbyMapArea?.();
+    const mapUserDots = mapUserDotSource
+      ? createMapUserDots(mapUserDotSource, deps.getCurrentUserId(), roomMembers, deps.t)
+      : undefined;
     return {
       currentChatroom: deps.getCurrentChatroom(),
     chatroomMemberCounts: deps.getChatroomMemberCounts(),
@@ -70,7 +130,12 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     expandedChatrooms: deps.getExpandedChatrooms(),
     matchedUserIds: deps.getMatchedUserIds(),
     customChatrooms: deps.getCustomChatrooms(),
-      ...(nearbyMapArea ? { nearbyMapArea } : {}),
+    travelModeActive: deps.getTravelModeActive(),
+      ...(mapUserDots ? { mapUserDots, roomMemberCard: roomMemberCard() } : {}),
+      ...(activeRooms ? { activeRooms } : {}),
+      ...(nearbyOnline !== undefined ? { nearbyOnline } : {}),
+      ...(nearbyBroadcastProgress ? { nearbyBroadcastProgress } : {}),
+      ...(nearbyGroup ? { nearbyGroup } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
       deps.setCurrentChatroom(chatroomId);
@@ -78,7 +143,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     },
     setCurrentChatroomMembers: deps.setCurrentChatroomMembers,
     escapeHtml,
-    renderChatroomList: () => controller.renderChatroomList(),
+    renderChatroomList: () => renderChatroomList(),
     openPeerDetail: deps.openPeerDetail,
     emit: deps.emit,
     currentUserId: deps.getCurrentUserId(),
@@ -106,6 +171,10 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     currentUserId: string,
   ): void => {
     deps.setCurrentUserId(currentUserId);
+    // Someone joined or left my room: refresh the room list so every headcount stays current.
+    const memberKey = members.map((member) => member.userId).sort().join(',');
+    if (memberKey !== roomMembers.map((member) => member.userId).sort().join(',')) deps.emit('activeRoomsRefresh', {});
+    roomMembers = members;
     for (const member of members) {
       if (member.userId && member.stageName) deps.rememberPeerName(member.userId, member.stageName);
     }
@@ -119,6 +188,16 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     const anchorCell = deps.getAnchorCell?.() ?? null;
     if (!anchorCell) {
       deps.showNotification(deps.t('chatroomCreateNeedsLocation'), 'error');
+      return;
+    }
+    // Only established users may create a Place (docs/design/nearby-and-place-chatrooms.md §4.2).
+    const contactCount = (deps.getCurrentUser()?.knownPeople || [])
+      .filter((person) => person?.userId && !isTechSupportId(person.userId)).length;
+    if (contactCount < CONFIG.PLACE_CREATE_MIN_CONTACTS) {
+      deps.showNotification(deps.tf('chatroomCreateNeedsContacts', {
+        required: CONFIG.PLACE_CREATE_MIN_CONTACTS,
+        count: contactCount,
+      }), 'error');
       return;
     }
     const payload = await deps.showCreateCustomChatroomDialog();
@@ -154,6 +233,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     }
     const headerTitle = document.getElementById('header-title');
     if (headerTitle) headerTitle.textContent = '';
+    delete document.body.dataset.chatroomDetail;
     renderChatroomList();
     deps.syncReturnHomeButton();
   };
@@ -193,9 +273,40 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     }
   };
 
-  controller = { renderChatroomList, showChatroomDetail };
+  /** The room list from the hub; re-render whichever chatroom view is showing. */
+  const setActiveRooms = (view: NonNullable<ChatroomsViewDeps['activeRooms']>): void => {
+    activeRooms = view;
+    renderChatroomList();
+  };
+
+  const setNearbyOnline = (online: number): void => {
+    if (online === nearbyOnline) return;
+    nearbyOnline = online;
+    renderChatroomList();
+  };
+
+  const setNearbyBroadcastProgress = (progress: ChatroomsViewDeps['nearbyBroadcastProgress'] | null): void => {
+    nearbyBroadcastProgress = progress ?? undefined;
+    renderChatroomList();
+  };
+
+  /** Kept for the next member render; the roster push that follows a group change re-renders. */
+  const setNearbyGroup = (group: ChatroomsViewDeps['nearbyGroup'] | null): void => {
+    nearbyGroup = group ?? undefined;
+  };
+
+  const setMapUserDotSource = (source: MapUserDotSource | null): void => {
+    mapUserDotSource = source ?? undefined;
+    if (deps.getChatroomBrowseMode() === 'map') renderChatroomList();
+  };
+
   return {
     handleCreateCustomChatroomClick,
+    setMapUserDotSource,
+    setActiveRooms,
+    setNearbyOnline,
+    setNearbyBroadcastProgress,
+    setNearbyGroup,
     renderChatroomList,
     showChatroomDetail,
     showChatroomList,

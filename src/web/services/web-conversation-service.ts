@@ -104,6 +104,34 @@ export type ConversationTransport = {
 };
 
 
+function parseDealConfirmedBy(json: unknown): string[] {
+  if (typeof json !== 'string') return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Deal confirmations only ever grow, so a peer's snapshot is merged, never copied over: a copy let a
+ * confirmation made before (or a stale snapshot arriving after) the peer's own be silently lost.
+ * The peer can only add its own confirmation, never one on the local user's behalf.
+ * Returns undefined when there is nothing to store.
+ */
+export function mergeRemoteDealConfirmations(
+  localJson: unknown,
+  remoteJson: unknown,
+  senderUserId: string,
+): string | undefined {
+  const local = parseDealConfirmedBy(localJson);
+  const senderConfirmed = parseDealConfirmedBy(remoteJson).includes(senderUserId);
+  if (typeof localJson !== 'string' && typeof remoteJson !== 'string') return undefined;
+  const merged = senderConfirmed && !local.includes(senderUserId) ? [...local, senderUserId] : local;
+  return JSON.stringify(merged);
+}
+
 export class WebConversationService {
   private transport: ConversationTransport;
   private readonly supportTransport: TechSupportConversationTransport;
@@ -238,6 +266,11 @@ export class WebConversationService {
       || value.senderUserId !== otherUserId
       || value.recipientUserId !== ownerUserId) return;
     const existing = await this.metadataRepository.get(ownerUserId, conversationId);
+    const dealConfirmedByJson = mergeRemoteDealConfirmations(
+      existing?.dealConfirmedByJson,
+      value.dealConfirmedByJson,
+      otherUserId,
+    );
     await this.metadataRepository.upsert(ownerUserId, {
       ...(existing || {}),
       conversationId,
@@ -253,9 +286,7 @@ export class WebConversationService {
       updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
       transportMode: 'direct-p2p',
       dealEligible: value.dealEligible === true || existing?.dealEligible === true,
-      ...(typeof value.dealConfirmedByJson === 'string'
-        ? { dealConfirmedByJson: value.dealConfirmedByJson }
-        : {}),
+      ...(dealConfirmedByJson !== undefined ? { dealConfirmedByJson } : {}),
       ...(typeof value.matchScore === 'number' ? { matchScore: value.matchScore } : {}),
       ...(typeof value.matchTotal === 'number' ? { matchTotal: value.matchTotal } : {}),
     });
@@ -689,40 +720,8 @@ export class WebConversationService {
     return this.gunMessageStore.putMessageRecord(conversationId, wire, opts);
   }
 
-  /**
-   * One-shot snapshot of user's conversations from Gun.
-   *
-   * Uses .map().once() so Gun resolves each child soul-reference before invoking
-   * the callback. Calling .once() directly on the parent node returns a map of
-   * opaque soul references ({#: '...'}), which have no otherUserId and get
-   * filtered out — use .map().once() (same pattern as listKnownPeople) to get
-   * the actual conversation objects.
-   */
-  private async getLegacyUserConversationsSnapshot(userId: string): Promise<any[]> {
-    const gun = this.gunService.getGun();
-    const items: any[] = [];
-    return new Promise((resolve) => {
-      gun
-        .get(`users/${userId}`)
-        .get('conversations')
-        .map()
-        .once((conversationData: any, conversationId: string) => {
-          if (!conversationId || conversationId.startsWith('_')) return;
-          if (!conversationData || typeof conversationData !== 'object') return;
-          if (!conversationData.otherUserId) return;
-          items.push({
-            ...conversationData,
-            conversationId: conversationData.conversationId || conversationId,
-          });
-        });
-      // Allow Gun time to resolve all child nodes before resolving.
-      setTimeout(() => resolve(items), 500);
-    });
-  }
-
+  /** One-shot snapshot of the user's conversations from the local encrypted metadata store. */
   async getUserConversationsSnapshot(userId: string): Promise<any[]> {
-    const legacy = await this.getLegacyUserConversationsSnapshot(userId);
-    await this.metadataRepository.importLegacyOnce(userId, legacy);
     return this.metadataRepository.list(userId);
   }
 

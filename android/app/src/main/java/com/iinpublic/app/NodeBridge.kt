@@ -36,6 +36,7 @@ object NodeBridge {
         port: Int,
         hubUrl: String,
         disableLanDiscovery: Boolean,
+        enablePortableCoreTests: Boolean,
     )
 
     /** Called by NodeForegroundService.onStartCommand(). */
@@ -46,6 +47,7 @@ object NodeBridge {
         dataDirPath: String,
         hubUrl: String,
         disableLanDiscovery: Boolean,
+        enablePortableCoreTests: Boolean,
     ) {
         if (started) return
         started = true
@@ -55,7 +57,14 @@ object NodeBridge {
         unpackIfNeeded(context, File(nodeDataDir))
 
         android.util.Log.i("NodeBridge", "calling nativeStartNode(port=$nodePort, hub=$hubUrl)")
-        nativeStartNode(nodeDataDir, scriptInProject, nodePort, hubUrl, disableLanDiscovery)
+        nativeStartNode(
+            nodeDataDir,
+            scriptInProject,
+            nodePort,
+            hubUrl,
+            disableLanDiscovery,
+            enablePortableCoreTests,
+        )
     }
 
     /* ── asset unpacking ──────────────────────────────────────────────── */

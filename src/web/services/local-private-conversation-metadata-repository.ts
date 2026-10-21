@@ -22,7 +22,6 @@ type MetadataEnvelope = {
   version: 1;
   ownerUserId: string;
   recordsJson: string;
-  legacyImportedAt?: string;
   updatedAt: string;
 };
 
@@ -74,19 +73,6 @@ export class LocalPrivateConversationMetadataRepository {
     });
   }
 
-  async importLegacyOnce(ownerUserId: string, records: LocalConversationMetadata[]): Promise<boolean> {
-    const existing = await this.readEnvelope(ownerUserId);
-    if (existing?.legacyImportedAt) return false;
-    await this.mutate(ownerUserId, (current) => {
-      for (const record of records) {
-        if (!record?.conversationId || !record.otherUserId) continue;
-        current[record.conversationId] = { ...record, ...current[record.conversationId] };
-      }
-      return current;
-    }, true);
-    return true;
-  }
-
   subscribe(ownerUserId: string, callback: (records: LocalConversationMetadata[]) => void): () => void {
     return this.gun.subscribePrivate(this.key(ownerUserId), (raw) => callback(Object.values(parseRecords(raw))));
   }
@@ -94,7 +80,6 @@ export class LocalPrivateConversationMetadataRepository {
   private mutate(
     ownerUserId: string,
     update: (records: Record<string, LocalConversationMetadata>) => Record<string, LocalConversationMetadata>,
-    markLegacyImported = false,
   ): Promise<void> {
     let queues = writeQueues.get(this.gun);
     if (!queues) {
@@ -110,9 +95,6 @@ export class LocalPrivateConversationMetadataRepository {
         version: 1,
         ownerUserId,
         recordsJson: JSON.stringify(records),
-        ...(current?.legacyImportedAt || markLegacyImported
-          ? { legacyImportedAt: current?.legacyImportedAt || now }
-          : {}),
         updatedAt: now,
       } satisfies MetadataEnvelope);
     });

@@ -2,6 +2,7 @@ import {
   encodeBlePresence,
   encodeNearbyTxt,
   deriveOfflineGroupCredentials,
+  OFFLINE_GROUP_NAME_PREFIX,
   lanGunPeerUrl,
   NEARBY_LAN_TTL_MS,
   NEARBY_RECORD_TTL_MS,
@@ -12,9 +13,18 @@ import {
   type WifiDirectPeerSighting,
   type WifiOnlyPlan,
   rotatingNearbyId,
+  verifyNearbyTxtProof,
   type NearbyRecord,
   type OfflineGroupPlan,
 } from '../../shared/nearby-offline';
+import {
+  DiscoveryPolicy,
+  discoveryProviderAvailability,
+  NearbyCandidateRegistry,
+  type DiscoveryPolicyDecision,
+  type DiscoveryReadiness,
+  type DiscoveryStage,
+} from '../../shared/nearby-discovery-policy';
 import type { ActiveRoomScope } from '../../shared/active-exchange-room';
 import { joinableCredentials } from '../../shared/wifi-direct-link';
 import type { LocalLinkRelay, WifiDirectNative, WifiDirectNativeState } from './wifi-direct-link-service';
@@ -52,17 +62,22 @@ export type NearbyStatus =
   | { kind: 'standby'; lanPhones: number }
   | { kind: 'off'; lanPhones: number }
   | { kind: 'searching'; lanPhones: number }
-  | { kind: 'wifi-direct'; hosting: boolean; phones: number | null; lanPhones: number };
+  /** Offline and nobody found: beacon only, the next scan window is backed off. */
+  | { kind: 'quiet'; lanPhones: number; nextScanInSeconds: number }
+  /** `online`: this phone reaches the hub and links with offline nearby phones to exchange Talks. */
+  | { kind: 'wifi-direct'; online: boolean; hosting: boolean; phones: number | null; lanPhones: number };
 
 export type NearbyReadinessGap = 'permission' | 'wifi' | 'location' | 'bluetooth';
 
 export type NearbyOfflineEvent =
-  | { type: 'lan-peer'; id: string; url: string }
+  | { type: 'lan-peer'; url: string }
   | { type: 'wd-record'; id: string; hosting: boolean; via: 'ble' | 'dns-sd' }
   | { type: 'plan'; plan: OfflineGroupPlan }
   | { type: 'fallback'; plan: WifiOnlyPlan }
   | { type: 'group'; state: WifiDirectNativeState['state']; localIp?: string; ownerIp?: string }
-  | { type: 'wifi-direct'; active: boolean; reason?: string };
+  | { type: 'wifi-direct'; active: boolean; reason?: string }
+  | { type: 'stale-group-left'; networkName: string }
+  | { type: 'stage'; stage: DiscoveryStage; lanNsd: boolean; bleScan: boolean; wifiDirectDiscovery: boolean };
 
 export type NearbyOfflineServiceOptions = {
   localPub: string;
@@ -75,12 +90,19 @@ export type NearbyOfflineServiceOptions = {
   localRelay: LocalLinkRelay;
   addGunPeer: (url: string) => void;
   setLocalLinkIceServer: (server: RTCIceServer | null) => void;
+  /** The hub is reachable over a path the policy allows for discovery (Internet switch, metering). */
   hubReachable: () => Promise<boolean>;
+  /**
+   * The other members of the active room's signed roster: how many, and their SEA pubs. Drives LAN
+   * NSD (silent for a lone user) and binds rotating radio ids to identities. Omitted or null =
+   * unknown, and LAN discovery stays on.
+   */
+  getRoomPeers?: () => { count: number; pubs: readonly string[] } | null;
   /** Wi-Fi Direct + BLE permissions, asked in context the first time the phone is offline. */
   requestPermission: () => Promise<boolean>;
   /** False when the user explicitly turned Wi-Fi Direct off. */
   wifiDirectAllowed: boolean;
-  /** Device testing only (`?nearby_lan=0`): skip NSD so one LAN can exercise Wi-Fi Direct. */
+  /** The LAN provider switch (and `?nearby_lan=0` for device testing). */
   lanDiscovery?: boolean;
   /** Device testing only (`?nearby_ble=0`): skip BLE presence to exercise the Wi-Fi-only paths. */
   blePresence?: boolean;
@@ -97,6 +119,11 @@ const GROUP_RETRY_MS = 20_000;
 /** A join gets the native join timeout (hinted 35 s + unhinted retry) before replanning. */
 const JOIN_WAIT_MS = 75_000;
 const CREATE_WAIT_MS = 20_000;
+/** A phone that hears absolutely nobody may itself be the one others can hear. During a later scan
+ * window it briefly hosts the credential-protected room group, allowing a one-way observer to
+ * join. The first window remains scan-only, so a genuinely lone phone does not form immediately. */
+const SINGLETON_HOST_PROBE_MS = 45_000;
+const SINGLETON_HOST_PROBE_TEARDOWN_MS = 60_000;
 /** An owner with no clients this long removes its group. */
 const EMPTY_GROUP_TEARDOWN_MS = 3 * 60_000;
 /** Back online this long: the offline group is no longer needed and is left. */
@@ -105,18 +132,34 @@ const ONLINE_LEAVE_GROUP_MS = 60_000;
 const FALLBACK_OWNER_COOLDOWN_MS = 5 * 60_000;
 
 /**
- * OPEN-36 offline mode (see `src/shared/nearby-offline.ts`). LAN discovery always runs and peers
- * the page's Gun with other phones' nodes. Wi-Fi Direct discovery runs only while the hub is
- * unreachable: a phone online keeps using the hub (and the hub-matchmade link upgrade), so it never
- * forms groups with strangers or spends battery scanning.
+ * OPEN-36 offline mode (see `src/shared/nearby-offline.ts`), driven by the staged
+ * `DiscoveryPolicy` (`src/shared/nearby-discovery-policy.ts`):
+ * - LAN NSD peers the page's Gun with other phones' nodes, but only while the active room has
+ *   another member or the hub is unavailable — a lone online user stays silent.
+ * - The BLE beacon advertises whenever Bluetooth is on (and, online, already permitted); scans are
+ *   duty-cycled with a quiet-singleton backoff.
+ * - Wi-Fi Direct is network-free: offline it runs in scan windows; online it stays idle until an
+ *   OFFLINE same-room phone needs a link so the two can exchange Talks (bridging that phone on to
+ *   the hub is deferred). A group
+ *   forms only for a proof-verified (or roster-bound) same-room phone the LAN does not reach.
+ * Every sighting goes through one `NearbyCandidateRegistry`, so a phone seen over LAN, BLE and
+ * DNS-SD (and across id rotations) is one logical peer.
  */
 export class NearbyOfflineService {
   private readonly now: () => number;
   private readonly events: EventTarget;
   private id = '';
-  private readonly lanIds = new Map<string, number>();
+  private readonly registry = new NearbyCandidateRegistry({ ttlMs: NEARBY_RECORD_TTL_MS * 2, lanTtlMs: NEARBY_LAN_TTL_MS });
+  private readonly policy = new DiscoveryPolicy();
+  private lastDecision: DiscoveryPolicyDecision | null = null;
+  private lanRunning = false;
+  private lanAllowed: boolean;
+  private bleState = '';
   private readonly peeredUrls = new Set<string>();
-  private readonly records = new Map<string, NearbyRecord>();
+  /** LAN phones seen over NSD. Gun-peered only while the hub is unreachable (see `peerLanPhones`). */
+  private readonly lanUrls = new Set<string>();
+  /** Hub reachability from the last tick; null before the first. */
+  private hubOnline: boolean | null = null;
   private wifiDirectActive = false;
   private permissionDenied = false;
   private reportedGaps = new Set<NearbyReadinessGap>();
@@ -127,6 +170,8 @@ export class NearbyOfflineService {
   private relayAddress: string | null = null;
   private emptySince: number | null = null;
   private lastPlan: OfflineGroupPlan | null = null;
+  private singletonSince: number | null = null;
+  private singletonProbeGroup = false;
   private lastFallback: WifiOnlyPlan['action'] = 'none';
   private readonly wdPeers = new Map<string, WifiDirectPeerSighting>();
   private readonly ownerCooldown = new Map<string, number>();
@@ -161,12 +206,26 @@ export class NearbyOfflineService {
     if (!url || !peerId || !roomToken || !/^[a-f0-9]{8}$/.test(advertisedRoomPrefix)
       || !roomToken.startsWith(advertisedRoomPrefix)
       || peerId === this.id || peerId.endsWith(`-${this.id}`)) return;
-    this.lanIds.set(peerId, this.now());
-    if (this.peeredUrls.has(url)) return;
-    this.peeredUrls.add(url);
-    this.opts.addGunPeer(url);
-    this.opts.onEvent?.({ type: 'lan-peer', id: peerId, url });
+    this.registry.observe({ source: 'lan', discoveryId: peerId.slice(-12), seenAt: this.now(), roomVerified: false, route: url });
+    this.lanUrls.add(url);
+    this.peerLanPhones();
   };
+
+  /**
+   * Direct Gun links to LAN phones only while the hub is unreachable. Online, every LAN phone is
+   * already reached through the hub, and a full LAN mesh on top floods each write between every
+   * pair: on four phones it slowed Talk delivery from ~12 s to minutes and lost the backgrounded
+   * receiver's Talk (native-app/30, 2026-10-11). NSD keeps running online as proximity evidence.
+   */
+  private peerLanPhones(): void {
+    if (this.hubOnline !== false) return;
+    for (const url of this.lanUrls) {
+      if (this.peeredUrls.has(url)) continue;
+      this.peeredUrls.add(url);
+      this.opts.addGunPeer(url);
+      this.opts.onEvent?.({ type: 'lan-peer', url });
+    }
+  }
 
   private readonly serviceEvent = (event: Event): void => {
     const detail = (event as CustomEvent<{ txt?: unknown; deviceAddress?: unknown }>).detail;
@@ -174,11 +233,8 @@ export class NearbyOfflineService {
     const roomToken = this.opts.getRoomScope()?.roomToken;
     if (!record || !roomToken || !record.roomToken || !roomToken.startsWith(record.roomToken) || record.id === this.id) return;
     if (record.hostingHint) record.group = deriveOfflineGroupCredentials(this.opts.getRoomScope()!);
-    const previous = this.records.get(record.id);
-    this.records.set(record.id, record);
-    if (!previous || !!previous.group !== !!record.group) {
-      this.opts.onEvent?.({ type: 'wd-record', id: record.id, hosting: !!record.group, via: 'dns-sd' });
-    }
+    record.roomVerified = verifyNearbyTxtProof(record, roomToken);
+    this.observeRecord(record, 'dns-sd');
   };
 
   private readonly peersEvent = (event: Event): void => {
@@ -202,16 +258,28 @@ export class NearbyOfflineService {
     const roomToken = this.opts.getRoomScope()?.roomToken;
     const record = roomToken ? parseBlePresence(detail?.payload, this.now(), this.opts.port, roomToken) : null;
     if (!record || record.id === this.id) return;
-    const previous = this.records.get(record.id);
-    this.records.set(record.id, record);
-    if (!previous || !!previous.group !== !!record.group) {
-      this.opts.onEvent?.({ type: 'wd-record', id: record.id, hosting: !!record.group, via: 'ble' });
-    }
+    this.observeRecord(record, 'ble');
   };
+
+  private observeRecord(record: NearbyRecord, via: 'ble' | 'dns-sd'): void {
+    const previous = this.registry.list(this.now()).find((peer) => peer.discoveryIds.includes(record.id))?.record;
+    const peer = this.registry.observe({
+      source: via,
+      discoveryId: record.id,
+      seenAt: record.seenAt,
+      roomVerified: record.roomVerified === true,
+      ...(record.deviceAddress ? { route: record.deviceAddress } : {}),
+      record,
+    });
+    if (!previous || !!previous.group !== !!record.group) {
+      this.opts.onEvent?.({ type: 'wd-record', id: record.id, hosting: !!peer.record?.group, via });
+    }
+  }
 
   constructor(private readonly opts: NearbyOfflineServiceOptions) {
     this.wifiDirectAllowed = opts.wifiDirectAllowed;
     this.blePresence = opts.blePresence !== false;
+    this.lanAllowed = opts.lanDiscovery !== false;
     this.now = opts.now ?? Date.now;
     this.events = opts.events ?? window;
   }
@@ -226,9 +294,6 @@ export class NearbyOfflineService {
     this.events.addEventListener('iinpublic-nearby-ble', this.bleEvent);
     this.events.addEventListener('iinpublic-nearby-wd-peers', this.peersEvent);
     this.unsubscribeNative = this.opts.native.onState((state) => { void this.handleGroupState(state); });
-    if (this.opts.lanDiscovery !== false) {
-      this.opts.bridge.startLanDiscovery(this.opts.port, this.id, scope.roomToken.slice(0, 8));
-    }
     this.timer = setInterval(() => { void this.tick(); }, this.opts.tickMs ?? 5_000);
     // A group left over from before a restart (Android keeps it) still needs its relay and peer —
     // and must not be re-created by the planner, which would drop its clients.
@@ -241,62 +306,102 @@ export class NearbyOfflineService {
    * The user's Settings switches (both on by default). Wi-Fi Direct off: stop scanning and leave the
    * offline group right away. Bluetooth off: stop the presence beacon; Wi-Fi discovery remains.
    */
-  updateSettings(settings: { wifiDirect: boolean; bluetooth: boolean }): void {
-    const bleChanged = settings.bluetooth !== this.blePresence;
+  updateSettings(settings: { wifiDirect: boolean; bluetooth: boolean; lan?: boolean }): void {
     this.blePresence = settings.bluetooth;
     this.wifiDirectAllowed = settings.wifiDirect;
+    if (settings.lan !== undefined) this.lanAllowed = settings.lan;
+    this.policy.reset();
+    if (!settings.lan && settings.lan !== undefined) this.applyLan(false);
+    if (!settings.bluetooth) this.applyBle(false, false);
     if (!settings.wifiDirect) {
       const state = this.opts.native.getState();
       if ((state.state === 'owner' || state.state === 'client') && state.networkName === this.currentCredentials()?.networkName) {
         this.ownsGroup = false;
+        this.singletonProbeGroup = false;
         this.opts.native.leaveGroup();
       }
       if (this.wifiDirectActive) this.stopWifiDirect('disabled-in-settings');
-      return;
     }
-    if (bleChanged && this.wifiDirectActive) {
-      if (!settings.bluetooth) this.opts.bridge.stopBlePresence();
-      this.lastAdvertised = '';
-      this.advertise();
-    }
+    void this.tick();
+  }
+
+  /** Room change or an explicit retry: forget the quiet-singleton backoff. */
+  resetDiscoveryBackoff(): void {
+    this.policy.reset();
+    this.singletonSince = null;
     void this.tick();
   }
 
   /** Plain-language state for the Settings screen. */
   getStatus(): NearbyStatus {
     const state = this.opts.native.getState();
-    const lanPhones = this.peeredUrls.size === 0 ? 0 : [...this.peeredUrls].filter((url) => !url.includes('192.168.49.')).length;
+    const lanPhones = this.lanUrls.size;
     if ((state.state === 'owner' || state.state === 'client') && state.networkName === this.currentCredentials()?.networkName) {
       return {
         kind: 'wifi-direct',
+        online: this.isOnlineStage(),
         hosting: state.state === 'owner',
         // Only the host knows how many phones joined.
         phones: state.state === 'owner' ? state.clientCount ?? 0 : null,
         lanPhones,
       };
     }
-    if (this.wifiDirectActive) return { kind: 'searching', lanPhones };
     if (!this.wifiDirectAllowed) return { kind: 'off', lanPhones };
+    if (this.lastDecision?.stage === 'offline-quiet') {
+      return { kind: 'quiet', lanPhones, nextScanInSeconds: Math.max(0, Math.round((this.lastDecision.nextReviewAt - this.now()) / 1000)) };
+    }
+    if (this.wifiDirectActive || this.lastDecision?.stage === 'offline-searching' || this.lastDecision?.stage === 'offline-peers') {
+      return { kind: 'searching', lanPhones };
+    }
     return { kind: 'standby', lanPhones };
   }
 
   getDiagnostics(): Record<string, unknown> {
     const now = this.now();
+    const nativeState = this.opts.native.getState();
+    // The Android owner state contains the active group passphrase, and a join plan contains both
+    // that credential and the full room capability used to derive it. Diagnostics are commonly
+    // attached to E2E failures and copied into support reports, so expose only routing/status data.
+    const { passphrase: _passphrase, ...safeGroupState } = nativeState;
+    const safeLastPlan = this.lastPlan?.action === 'join'
+      ? {
+        action: 'join',
+        record: {
+          id: this.lastPlan.record.id,
+          port: this.lastPlan.record.port,
+          joinByCredential: this.lastPlan.record.joinByCredential,
+          hostScore: this.lastPlan.record.hostScore,
+          hosting: true,
+          ...(this.lastPlan.record.deviceAddress ? { deviceAddress: this.lastPlan.record.deviceAddress } : {}),
+        },
+      }
+      : this.lastPlan;
     return {
       id: this.id,
-      lanPeers: [...this.lanIds.entries()].map(([id, at]) => ({ id, ageSeconds: Math.round((now - at) / 1000) })),
+      lanPeers: [...this.registry.lanIds(now)],
       gunPeers: [...this.peeredUrls],
       wifiDirectActive: this.wifiDirectActive,
       permissionDenied: this.permissionDenied,
-      records: [...this.records.values()].map((record) => ({
-        id: record.id,
-        hosting: !!record.group,
-        joinByCredential: record.joinByCredential,
-        ageSeconds: Math.round((now - record.seenAt) / 1000),
+      stage: this.lastDecision?.stage ?? null,
+      lanNsd: this.lanRunning,
+      backoff: this.policy.getBackoffState(),
+      // One row per logical peer: sightings over LAN/BLE/DNS-SD and across id rotations merge.
+      peers: this.registry.list(now).map((peer) => ({
+        ids: peer.discoveryIds,
+        identityBound: !!peer.seaPub,
+        eligible: peer.eligible,
+        onLan: peer.onLan,
+        sources: peer.sources,
+        hosting: !!peer.record?.group,
+        ageSeconds: Math.round((now - peer.lastSeenAt) / 1000),
       })),
-      group: this.opts.native.getState(),
+      wifiDirectPeerSightings: {
+        total: [...this.wdPeers.values()].filter((peer) => now - peer.seenAt <= 30_000).length,
+        owners: [...this.wdPeers.values()].filter((peer) => now - peer.seenAt <= 30_000 && peer.groupOwner).length,
+      },
+      group: safeGroupState,
       relayAddress: this.relayAddress,
-      lastPlan: this.lastPlan,
+      lastPlan: safeLastPlan,
     };
   }
 
@@ -310,10 +415,10 @@ export class NearbyOfflineService {
     this.events.removeEventListener('iinpublic-nearby-wd-peers', this.peersEvent);
     this.unsubscribeNative?.();
     this.opts.bridge.stopLanDiscovery();
-    if (this.wifiDirectActive) {
-      this.opts.bridge.stopWifiDirectServiceDiscovery();
-      this.opts.bridge.stopBlePresence();
-    }
+    this.lanRunning = false;
+    if (this.wifiDirectActive) this.opts.bridge.stopWifiDirectServiceDiscovery();
+    if (this.wifiDirectActive || this.bleState) this.opts.bridge.stopBlePresence();
+    this.bleState = '';
     if (this.ownsGroup) this.opts.native.leaveGroup();
     this.opts.setLocalLinkIceServer(null);
   }
@@ -325,27 +430,83 @@ export class NearbyOfflineService {
     this.ticking = true;
     try {
       await this.refreshId();
+      const scope = this.opts.getRoomScope();
+      const roster = this.opts.getRoomPeers?.() ?? null;
+      if (scope && roster) this.registry.bindRoster(roster.pubs, scope.roomToken, this.now());
       this.prune();
       this.reassertGunPeers();
       // Offline groups need Android 10+ (app-chosen credentials); older phones use the LAN path only.
       const caps = this.opts.native.capabilities();
-      if (!this.wifiDirectAllowed || this.permissionDenied || !caps.wifiDirect || !caps.joinByCredential) return;
+      const readiness = this.readRawReadiness();
+      const env = { nativeBridge: true, readiness, permissionDenied: this.permissionDenied };
+      const wifiDirectUsable = discoveryProviderAvailability('wifi-direct', this.wifiDirectAllowed, env) !== 'unsupported'
+        && this.wifiDirectAllowed && !this.permissionDenied && caps.wifiDirect && caps.joinByCredential;
       const state = this.opts.native.getState();
       const inGroup = state.state === 'owner' || state.state === 'client';
-      const offline = !(await this.opts.hubReachable().catch(() => false));
-      if (this.disposed) return;
-      this.onlineSince = offline ? null : (this.onlineSince ?? this.now());
-      if (!offline && inGroup && state.networkName === this.currentCredentials()?.networkName
-        && this.now() - this.onlineSince! >= ONLINE_LEAVE_GROUP_MS) {
-        // Online again: the hub path (and the hub-matchmade upgrade) take over; free the radio.
-        this.onlineSince = null;
+      const ourGroup = inGroup && state.networkName === this.currentCredentials()?.networkName;
+      // A room group from an earlier room token or app process (the OS keeps a Wi-Fi Direct group
+      // after the app is killed or its data cleared) is never ours: leave it, or it blocks hosting
+      // and joining the current room's group forever. Other apps' groups are left alone.
+      if (inGroup && !ourGroup && state.networkName?.startsWith(OFFLINE_GROUP_NAME_PREFIX)) {
         this.ownsGroup = false;
+        this.singletonProbeGroup = false;
+        this.opts.onEvent?.({ type: 'stale-group-left', networkName: state.networkName });
         this.opts.native.leaveGroup();
-        if (this.wifiDirectActive) this.stopWifiDirect('hub-reachable');
         return;
       }
-      if (offline && !this.wifiDirectActive) await this.startWifiDirect();
-      else if (!offline && this.wifiDirectActive && !inGroup) this.stopWifiDirect('hub-reachable');
+      const offline = !(await this.opts.hubReachable().catch(() => false));
+      if (this.disposed) return;
+      this.hubOnline = !offline;
+      this.peerLanPhones();
+      const now = this.now();
+      // Online, the beacon runs only with an already-granted permission: no OS prompt mid-exchange.
+      const bleAvailable = discoveryProviderAvailability('bluetooth', this.blePresence, env);
+      // The beacon is the Wi-Fi Direct rendezvous, so it needs a phone that can join by credential.
+      const bleUsable = this.blePresence && bleAvailable !== 'unsupported' && !this.permissionDenied
+        && caps.wifiDirect && caps.joinByCredential
+        && (offline ? true : bleAvailable === 'on' && readiness?.permission === true);
+      const lanIds = this.registry.lanIds(now);
+      // Network-free: any eligible phone the LAN does not reach needs a link while we are offline;
+      // while we reach the hub, only an OFFLINE phone does (so we can exchange Talks; online pairs
+      // use the hub).
+      const groupCandidates = this.registry.eligibleRecords(now)
+        .filter((record) => record.id !== this.id && !lanIds.has(record.id) && record.joinByCredential
+          && (offline || !record.online)).length;
+      const decision = this.policy.decide({
+        now,
+        lan: this.lanAllowed,
+        wifiDirect: wifiDirectUsable,
+        bluetooth: bleUsable,
+        hubForDiscovery: !offline,
+        roomPeerCount: roster ? roster.count : null,
+        radioPeers: this.registry.freshCount(now),
+        groupCandidates,
+        inGroup: ourGroup,
+      });
+      if (decision.stage !== this.lastDecision?.stage || decision.lanNsd !== this.lastDecision.lanNsd
+        || decision.bleScan !== this.lastDecision.bleScan || decision.wifiDirectDiscovery !== this.lastDecision.wifiDirectDiscovery) {
+        this.opts.onEvent?.({ type: 'stage', stage: decision.stage, lanNsd: decision.lanNsd, bleScan: decision.bleScan, wifiDirectDiscovery: decision.wifiDirectDiscovery });
+      }
+      this.lastDecision = decision;
+      this.applyLan(decision.lanNsd);
+      // Online with no offline phone left to exchange with: the hub path (and the hub-matchmade upgrade)
+      // serve everyone; free the radio after a dwell.
+      this.onlineSince = !offline && ourGroup && groupCandidates === 0 ? (this.onlineSince ?? now) : null;
+      if (this.onlineSince !== null && now - this.onlineSince >= ONLINE_LEAVE_GROUP_MS) {
+        this.onlineSince = null;
+        this.ownsGroup = false;
+        this.singletonProbeGroup = false;
+        this.opts.native.leaveGroup();
+        if (this.wifiDirectActive) this.stopWifiDirect('hub-reachable');
+        this.applyBle(decision.bleAdvertise, decision.bleScan);
+        return;
+      }
+      if (decision.wifiDirectDiscovery && !this.wifiDirectActive) await this.startWifiDirect();
+      else if (!decision.wifiDirectDiscovery && this.wifiDirectActive && !inGroup) {
+        this.stopWifiDirect(offline ? 'quiet-backoff' : 'hub-reachable');
+      }
+      if (this.disposed) return;
+      this.applyBle(decision.bleAdvertise && !this.permissionDenied, decision.bleScan && !(inGroup && offline));
       if (!this.wifiDirectActive) return;
       this.advertise();
       if (inGroup) {
@@ -353,29 +514,104 @@ export class NearbyOfflineService {
         return this.maybeTearDown(state);
       }
       if (state.state === 'forming' || state.state === 'joining' || this.now() < this.busyUntil) return;
-      this.plan(offline);
+      this.plan(decision.groupFormation, offline);
     } finally {
       this.ticking = false;
     }
   }
 
-  private plan(offline: boolean): void {
+  private isOnlineStage(): boolean {
+    return this.lastDecision?.stage?.startsWith('online') === true;
+  }
+
+  /** LAN NSD (advertise + discover) on or off; restarted with every id rotation while on. */
+  private applyLan(wanted: boolean): void {
+    const scope = this.opts.getRoomScope();
+    if (wanted && scope && this.id) {
+      if (this.lanRunning) return;
+      this.lanRunning = true;
+      this.opts.bridge.startLanDiscovery(this.opts.port, this.id, scope.roomToken.slice(0, 8));
+    } else if (this.lanRunning) {
+      this.lanRunning = false;
+      this.opts.bridge.stopLanDiscovery();
+    }
+  }
+
+  /** The BLE beacon: advertise (cheap) and, inside scan windows, scan. */
+  private applyBle(advertiseWanted: boolean, scan: boolean): void {
+    const scope = this.opts.getRoomScope();
+    if (!advertiseWanted || !scope || !this.id) {
+      if (this.bleState) {
+        this.bleState = '';
+        this.opts.bridge.stopBlePresence();
+      }
+      return;
+    }
     const caps = this.opts.native.capabilities();
+    const state = this.opts.native.getState();
+    const hosting = state.state === 'owner' && !!state.networkName && state.networkName === this.currentCredentials()?.networkName;
+    const payload = encodeBlePresence({
+      id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore,
+      roomToken: scope.roomToken, hosting, online: this.isOnlineStage(),
+    });
+    const next = `${payload}|${scan}`;
+    if (next === this.bleState) return;
+    this.bleState = next;
+    this.opts.bridge.startBlePresence(payload, scan);
+  }
+
+  private plan(mayForm: boolean, offline: boolean): void {
+    const caps = this.opts.native.capabilities();
+    const now = this.now();
+    // Only proof-verified or roster-bound phones: a short room prefix can collide or be replayed.
     const plan = planOfflineGroup({
       self: { id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore },
-      records: [...this.records.values()],
-      lanIds: new Set(this.lanIds.keys()),
-      now: this.now(),
+      // Every eligible phone takes part in the election (online ones too) so all sides agree on
+      // one host; whether to act at all is the policy's `groupFormation`.
+      records: this.registry.eligibleRecords(now),
+      lanIds: this.registry.lanIds(now),
+      now,
     });
+    if (plan.action !== 'none' || plan.reason !== 'no-offline-peers') this.singletonSince = null;
     if (plan.action !== this.lastPlan?.action || (plan.action === 'join' && this.lastPlan?.action === 'join' && plan.record.id !== this.lastPlan.record.id)) {
       this.opts.onEvent?.({ type: 'plan', plan });
     }
     this.lastPlan = plan;
-    if (!offline) return;
     if (plan.action === 'none' && plan.reason === 'no-offline-peers') {
-      this.fallback(offline, this.opts.native.getState());
-      return;
+      // A scoped credential join to an already-visible owner is safe even though the policy has
+      // no proof-verified candidate to elect as a *new* host (see fallback's boundary comment).
+      if (this.fallback(offline, this.opts.native.getState())) return;
+      // "Singleton" must mean that every discovery route is quiet. A raw P2P sighting cannot
+      // authenticate a room member, but it is still enough evidence that this phone is the
+      // one-way observer rather than the unheard peer. Let the unheard peer perform the bounded
+      // host probe; once it becomes an owner, this observer can join with room credentials.
+      const hasRecentRawPeer = [...this.wdPeers.values()]
+        .some((peer) => now - peer.seenAt <= 30_000);
+      if (hasRecentRawPeer) {
+        this.singletonSince = null;
+        return;
+      }
+      if (!offline) {
+        this.singletonSince = null;
+        return;
+      }
+      if (caps.wifiDirect && caps.joinByCredential) {
+        this.singletonSince ??= now;
+        if (now - this.singletonSince >= SINGLETON_HOST_PROBE_MS) {
+          const credentials = this.currentCredentials();
+          if (!credentials) return;
+          this.singletonSince = null;
+          this.singletonProbeGroup = true;
+          this.ownsGroup = true;
+          this.busyUntil = now + CREATE_WAIT_MS;
+          this.opts.onEvent?.({ type: 'plan', plan: { action: 'host' } });
+          this.lastPlan = { action: 'host' };
+          this.opts.native.createGroup(credentials);
+          return;
+        }
+      }
     }
+    if (!mayForm) return;
     if (plan.action === 'host') {
       const credentials = this.currentCredentials();
       if (!credentials) return;
@@ -392,11 +628,13 @@ export class NearbyOfflineService {
 
   /** Wi-Fi-only path when neither BLE nor DNS-SD has reported anyone. Returns true if it acted. */
   private fallback(offline: boolean, state: WifiDirectNativeState): boolean {
-    // Plain P2P peer sightings carry no authenticated room capability. Joining an arbitrary
-    // nearby group would cross the hard room boundary, so room-scoped mode deliberately waits
-    // for BLE/DNS-SD carrying the opaque token instead.
-    if (this.opts.getRoomScope()) return false;
-    if (!offline || this.lanIds.size > 0) return false;
+    // Plain P2P sightings do not prove room membership, so they may never cause an uncredentialed
+    // classic join or elect a host. They may, however, trigger an Android 10+ credential join to a
+    // *visible owner* using credentials derived from this phone's authenticated room capability.
+    // A foreign group rejects that WPA2 credential; after a successful join, signed room/mesh
+    // checks still gate all data. This is the liveness path when BLE/DNS-SD discovery is one-way.
+    if (!this.opts.getRoomScope()) return false;
+    if (!offline || this.registry.lanIds(this.now()).size > 0) return false;
     const now = this.now();
     const plan = planWifiOnlyFallback({
       state: state.state === 'owner' ? 'owner' : 'idle',
@@ -414,7 +652,7 @@ export class NearbyOfflineService {
     switch (plan.action) {
       case 'none':
         return false;
-      case 'join':
+      case 'join': {
         const joinCredentials = this.currentCredentials();
         if (!joinCredentials) return false;
         this.ownsGroup = true;
@@ -422,17 +660,18 @@ export class NearbyOfflineService {
         this.busyUntil = now + JOIN_WAIT_MS;
         this.opts.native.joinGroup(joinCredentials);
         return true;
-      case 'host':
-        const hostCredentials = this.currentCredentials();
-        if (!hostCredentials) return false;
-        this.ownsGroup = true;
-        this.busyUntil = now + CREATE_WAIT_MS;
-        this.opts.native.createGroup(hostCredentials);
-        return true;
+      }
+      case 'host': {
+        // A non-owner raw sighting contains no authenticated host-election record. Never turn it
+        // into a competing group; the separately bounded singleton probe applies only when there
+        // are literally no recent sightings on any route.
+        return false;
+      }
       case 'leave-and-join':
         // Our empty group loses to the other owner; the next idle tick joins it.
         this.emptySince = null;
         this.ownsGroup = false;
+        this.singletonProbeGroup = false;
         this.busyUntil = now + 3_000;
         this.opts.native.leaveGroup();
         return true;
@@ -441,10 +680,16 @@ export class NearbyOfflineService {
 
   private maybeTearDown(state: WifiDirectNativeState): void {
     if (!this.ownsGroup || state.state !== 'owner') { this.emptySince = null; return; }
-    if ((state.clientCount ?? 0) > 0) { this.emptySince = null; return; }
+    if ((state.clientCount ?? 0) > 0) {
+      this.emptySince = null;
+      this.singletonProbeGroup = false;
+      return;
+    }
     this.emptySince ??= this.now();
-    if (this.now() - this.emptySince < EMPTY_GROUP_TEARDOWN_MS) return;
+    const teardownMs = this.singletonProbeGroup ? SINGLETON_HOST_PROBE_TEARDOWN_MS : EMPTY_GROUP_TEARDOWN_MS;
+    if (this.now() - this.emptySince < teardownMs) return;
     this.emptySince = null;
+    this.singletonProbeGroup = false;
     this.ownsGroup = false;
     this.opts.native.leaveGroup();
   }
@@ -480,9 +725,8 @@ export class NearbyOfflineService {
   private stopWifiDirect(reason: string): void {
     this.wifiDirectActive = false;
     this.lastAdvertised = '';
-    this.records.clear();
+    this.registry.clearRadioRecords();
     this.opts.bridge.stopWifiDirectServiceDiscovery();
-    this.opts.bridge.stopBlePresence();
     this.opts.onEvent?.({ type: 'wifi-direct', active: false, reason });
   }
 
@@ -500,17 +744,12 @@ export class NearbyOfflineService {
       : null;
     const self = { id: this.id, canHost: caps.wifiDirect, joinByCredential: caps.joinByCredential, hostScore: caps.hostScore };
     const inGroup = state.state === 'owner' || state.state === 'client';
-    const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, roomToken: scope.roomToken, group }));
+    const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, roomToken: scope.roomToken, group, online: this.isOnlineStage() }));
     const advertisementState = txt + (inGroup ? '|in-group' : '');
+    if (this.bleState) this.applyBle(true, !inGroup && (this.lastDecision?.bleScan ?? true));
     if (advertisementState === this.lastAdvertised) return;
     this.lastAdvertised = advertisementState;
     this.opts.bridge.advertiseWifiDirectService(txt);
-    if (this.blePresence) {
-      this.opts.bridge.startBlePresence(
-        encodeBlePresence({ ...self, roomToken: scope.roomToken, hosting: !!group }),
-        !inGroup,
-      );
-    }
   }
 
   // ── Group state ───────────────────────────────────────────────────────────────────────────
@@ -555,6 +794,7 @@ export class NearbyOfflineService {
         this.opts.setLocalLinkIceServer(null);
       }
       this.ownsGroup = false;
+      this.singletonProbeGroup = false;
       this.joinedRecord = null;
       this.emptySince = null;
       if (state.state === 'failed') {
@@ -581,6 +821,8 @@ export class NearbyOfflineService {
       : null;
     for (const url of this.peeredUrls) {
       if (url.includes('://192.168.49.') && url !== ownerUrl) continue;
+      // LAN phones only while offline (see `peerLanPhones`); a link made offline lapses online.
+      if (this.hubOnline !== false && this.lanUrls.has(url)) continue;
       this.opts.addGunPeer(url);
     }
     if (ownerUrl && !this.peeredUrls.has(ownerUrl)) {
@@ -595,19 +837,24 @@ export class NearbyOfflineService {
     const next = await rotatingNearbyId(this.opts.localPub, this.now(), scope.roomToken);
     if (next === this.id || this.disposed) return;
     this.id = next;
-    if (this.opts.lanDiscovery !== false) {
-      this.opts.bridge.startLanDiscovery(this.opts.port, this.id, scope.roomToken.slice(0, 8));
-    }
+    if (this.lanRunning) this.opts.bridge.startLanDiscovery(this.opts.port, this.id, scope.roomToken.slice(0, 8));
     this.advertise();
   }
 
   private prune(): void {
     const now = this.now();
-    for (const [id, at] of this.lanIds) if (now - at > NEARBY_LAN_TTL_MS) this.lanIds.delete(id);
-    for (const [id, record] of this.records) if (now - record.seenAt > NEARBY_RECORD_TTL_MS * 2) this.records.delete(id);
+    this.registry.prune(now);
     for (const [address, peer] of this.wdPeers) if (now - peer.seenAt > 60_000) this.wdPeers.delete(address);
     const phones = [...this.wdPeers.values()].some((peer) => now - peer.seenAt <= 30_000 && /^10-/.test(peer.type));
     this.phonesSince = phones ? (this.phonesSince ?? now) : null;
+  }
+
+  private readRawReadiness(): DiscoveryReadiness | null {
+    try {
+      return JSON.parse(this.opts.bridge.nearbyReadiness()) as DiscoveryReadiness;
+    } catch {
+      return null;
+    }
   }
 
   private readReadiness(): NearbyReadiness {

@@ -82,6 +82,28 @@ describe('conversation view and list update extraction', () => {
     expect(deps.showNotification).not.toHaveBeenCalled();
   });
 
+  // talks-matching/08-retraction: a re-sync after the author retracted kept 'withdrawn' but
+  // dropped retractedAt, so the list lost the "match gone" time.
+  it('keeps a withdrawn conversation\'s retraction time when it is re-synced', () => {
+    const conversations: Record<string, any> = {
+      c1: {
+        conversationId: 'c1',
+        otherUserId: 'author',
+        talkId: 'talk-1',
+        status: 'withdrawn',
+        retractedAt: '2026-10-14T12:00:00.000Z',
+        createdAt: '2026-10-14T11:00:00.000Z',
+      },
+    };
+
+    addNewConversation({ conversationId: 'c1', otherUserId: 'author', otherUserName: 'Tom', talkId: 'talk-1' }, listDeps(conversations));
+
+    expect(conversations.c1).toEqual(expect.objectContaining({
+      status: 'withdrawn',
+      retractedAt: '2026-10-14T12:00:00.000Z',
+    }));
+  });
+
   it('marks a new message unread only when its conversation is closed', () => {
     const conversations = {
       c1: { conversationId: 'c1', supportChannel: false, unread: false },

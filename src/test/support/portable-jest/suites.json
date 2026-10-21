@@ -1,0 +1,860 @@
+{
+  "comment": "Unit files run unchanged on phones by src/test/support/portable-jest. Regenerate: node scripts/build-portable-core-test-bundle.mjs --select",
+  "included": [
+    "active-exchange-room.test.ts",
+    "active-rooms.test.ts",
+    "app-update-reminder-view.test.ts",
+    "attachment-metadata.test.ts",
+    "authoritative-data-invariants.test.ts",
+    "block-signal.test.ts",
+    "broadcast-delivery-selection.test.ts",
+    "broadcast-room-record.test.ts",
+    "broadcast-tag-targeting.test.ts",
+    "built-in-comparisons.test.ts",
+    "built-in-question-resolution.test.ts",
+    "challenge-plugins.test.ts",
+    "chatbot-talk-flow.test.ts",
+    "chatroom-capacity-test-override.test.ts",
+    "chatroom-hierarchy-runtime.test.ts",
+    "chatroom-map-geojson.test.ts",
+    "chatroom-map-locations.test.ts",
+    "client-incoming-talk-mirror.test.ts",
+    "closest-match.test.ts",
+    "connection-manager.test.ts",
+    "connectivity-binding-store.test.ts",
+    "connectivity-binding.test.ts",
+    "connectivity-ingress-fuzz.test.ts",
+    "connectivity-intermediary-security.test.ts",
+    "connectivity-protocol-vectors.test.ts",
+    "contact-groups.test.ts",
+    "content-filter-toast.test.ts",
+    "conversation-reconcile.test.ts",
+    "conversation-wakeup.test.ts",
+    "deal-confirmation-merge.test.ts",
+    "delivery-reason-labels.test.ts",
+    "dev-stage-env.test.ts",
+    "device-handoff.test.ts",
+    "device-sync-authorization.test.ts",
+    "device-sync-importer.test.ts",
+    "direct-p2p-conversation-transport.test.ts",
+    "direct-talk-delivery-outbox.test.ts",
+    "direct-talk-scheduler.test.ts",
+    "embedded-gun-browser-storage.test.ts",
+    "embedded-node-config.test.ts",
+    "embedded-node-runtime-gaps.test.ts",
+    "exact-chatbot-memory.test.ts",
+    "financial-data-guard.test.ts",
+    "find-similar.test.ts",
+    "flattened-answer-keys.test.ts",
+    "flow-capture.test.ts",
+    "graph-size-report.test.ts",
+    "gun-chatbot-memory-repository.test.ts",
+    "gun-message-store.test.ts",
+    "gun-talk-repository.test.ts",
+    "handoff-protocol.test.ts",
+    "identity-custody-store.test.ts",
+    "intake-filter-reasons.test.ts",
+    "local-private-conversation-metadata-repository.test.ts",
+    "local-private-conversation-repository.test.ts",
+    "merkle-checkpoint.test.ts",
+    "mesh-forwarding-policy.test.ts",
+    "mesh-frame-policy.test.ts",
+    "mesh-response-step4.test.ts",
+    "message-content-filter.test.ts",
+    "my-most-recent-location-talk.test.ts",
+    "native-password-free-custody.test.ts",
+    "nearby-discovery-policy.test.ts",
+    "nearby-offline.test.ts",
+    "nearby-rooms.test.ts",
+    "p2p-abuse-defense.test.ts",
+    "p2p-handshake.test.ts",
+    "p2p-ice-priority.test.ts",
+    "p2p-libp2p-mesh-invariants.test.ts",
+    "p2p-libp2p-mesh-session.test.ts",
+    "p2p-mesh-session-fallback.test.ts",
+    "p2p-presence.test.ts",
+    "p2p-release-verification.test.ts",
+    "p2p-room-discovery.test.ts",
+    "p2p-runtime.test.ts",
+    "p2p-schema-boot.test.ts",
+    "p2p-schema-migrations.test.ts",
+    "p2p-trust-neighbor-bridge.test.ts",
+    "p2p-trust.test.ts",
+    "peer-discovery-manager.test.ts",
+    "peer-discovery-provider.test.ts",
+    "peer-discovery-providers.test.ts",
+    "peer-exchange-cache-store.test.ts",
+    "peer-exchange.test.ts",
+    "peer-headshot-cache.test.ts",
+    "peer-mesh-service.test.ts",
+    "peer-talk-delivery.test.ts",
+    "place-descriptor.test.ts",
+    "place-lifecycle.test.ts",
+    "platform-capability-matrix.test.ts",
+    "platform-connectivity-adapter.test.ts",
+    "portable-core-contracts.test.ts",
+    "portable-ecdsa.test.ts",
+    "portable-sha256.test.ts",
+    "profile-avatar.test.ts",
+    "profile-privacy.test.ts",
+    "protocol-manifest.test.ts",
+    "public-location.test.ts",
+    "quick-answer-incoming-tag.test.ts",
+    "quiet-places.test.ts",
+    "reputation.test.ts",
+    "room-list-empty-places.test.ts",
+    "selective-gun-sync.test.ts",
+    "semver-compare.test.ts",
+    "settings-section-template.test.ts",
+    "signaling-transport.test.ts",
+    "survey-completeness.test.ts",
+    "tag-opposite-pairs.test.ts",
+    "tag-similarity.test.ts",
+    "talk-contact-policy.test.ts",
+    "talk-content-id.test.ts",
+    "talk-engine.test.ts",
+    "talk-history-restorer.test.ts",
+    "talk-intake-filters.test.ts",
+    "talk-list-metadata.test.ts",
+    "talk-stats.test.ts",
+    "talk-templates.test.ts",
+    "talk-types.test.ts",
+    "talk-wake.test.ts",
+    "techsupport-faq.test.ts",
+    "techsupport-trust-anchors.test.ts",
+    "techsupport-unblockable.test.ts",
+    "techsupport.test.ts",
+    "typed-preference-store.test.ts",
+    "ui-formatters.test.ts",
+    "ui-translations.test.ts",
+    "user-tags.test.ts",
+    "user-utils.test.ts",
+    "visit-counter.test.ts",
+    "web-chatroom-techsupport-floor.test.ts",
+    "web-gun-service-add-peer.test.ts",
+    "web-gun-service-hub-url.test.ts",
+    "web-gun-service-private-boundary.test.ts",
+    "web-ledger-service.test.ts"
+  ],
+  "excluded": [
+    {
+      "file": "actionable-guide-storage.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "android-api-compatibility.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "android-device-config.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"fs\""
+    },
+    {
+      "file": "android-key-attestation.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "android-nearby-adapter.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: Android framework nearby adapter › starts vendor-independent sources and emits unauthenticated upgrade candidates: rejects.toThrow: expected the rejection ReferenceError: crypto is not defined to match \"not ready\""
+    },
+    {
+      "file": "answer-context-migration.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "answer-history-storage.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: getTalkContentKey › is stable for the same question/answer content regardless of unrelated fields: localStorage is not defined"
+    },
+    {
+      "file": "answer-preference-mutations.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "answer-preference-resolution-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "answer-preferences-storage.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "answers-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "app-bar-overflow.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "app-bar.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "app-download-banner.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "app-permissions-settings.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: Settings → App permissions › is shown only when the native shell reports permission status: Cannot set property window of #<Window> which has only a getter"
+    },
+    {
+      "file": "app-shell-controls.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "attachment-hydration.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "attestation-verifier-key-custody.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "broadcast-audience-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "broadcast-audience-preview.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "broadcast-controller.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "broadcast-tag-popularity-store.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "browser-file-save.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "browser-password-free-custody-manager.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "captured-question-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-browse-list.test.ts",
+      "reason": "does not bundle for embedded Node: Error: a Unicode property escape (\\p{...}) regex literal, which embedded Node without ICU cannot compile"
+    },
+    {
+      "file": "chatroom-flat-map-view.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "chatroom-flat-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-info.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-manager.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "chatroom-member-headshots.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-member-indicators.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-message-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "chatroom-shell-controller.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "cid.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"crypto\""
+    },
+    {
+      "file": "connectivity-settings.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "contacts-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "conversation-media-controller.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "conversation-message-cards.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "conversation-record-updates.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "conversation-status-updates.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "conversation-view-updates.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "creator-replies-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "current-chatroom.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "custom-chatroom-dialogs-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "deterministic-connectivity-harness.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "device-sync-conflict-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-sync-contract.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: device sync contract › encrypts the complete manifest and records specifically for the receiving installation: WebCrypto HKDF is unavailable for device sync"
+    },
+    {
+      "file": "device-sync-outbox.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: continuous device sync outbox › keeps edits encrypted and queued while the receiving device is offline: resolves.toEqual: expected {\"ok\":false,\"status\":\"offline\",\"reason\":\"WebCrypto HKDF is unavailable for device sync\",\"pendingCount\":1} to equal {\"ok\":false,\"status\":\"offline\",\"reason\":\"peer offline\",\"pendingCount\":1}"
+    },
+    {
+      "file": "device-wipe-native-custody.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "dirty-word-editor.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "downloads-routes.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "e2e-latency.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "edit-profile-dialog-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "edit-stage-name-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "embedded-hub-relay-client.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: (file failed to load): global is not defined"
+    },
+    {
+      "file": "embedded-node-hub-dial.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "encounter-location.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "erase-device-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "erase-device-flow.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "flow-answer-constraints.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "gun-delivery-repository.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: GunDeliveryRepository › bounds pair-response souls below filesystem filename limits: Buffer is not defined"
+    },
+    {
+      "file": "gun-pubsub-signaler.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: deriveSignalingSharedKey › is a 64-hex SHA-256 digest: Cannot read properties of undefined (reading 'subtle')"
+    },
+    {
+      "file": "http-bootstrap-static.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "identity-link-fragment.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "identity-linking.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: pairing payload + code › rejects legacy and unsupported pairing schemas: Buffer is not defined"
+    },
+    {
+      "file": "identity-password-custody-manager.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "identity-password-custody.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "identity-password-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "identity-password-free-custody-store.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "identity-password-free-custody.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "incoming-talk-notification.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "item-details-popup.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "lan-gun-discovery.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "link-code-qr.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "linked-devices-dialog.test.ts",
+      "reason": "uses jest.mock, jest.requireActual (module mocks stay host-only)"
+    },
+    {
+      "file": "list-pins.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "local-device-metadata.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "local-link-turn-relay.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "local-peer-derivation.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "local-statistics.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "location-cache.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "location-room-suggestion.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "location-settings-use-my-location.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "location.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: LocationPrivacy › getCurrentLocation › should return mock location in test environment: Location error: User denied Geolocation"
+    },
+    {
+      "file": "loopback-probe.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: (file failed to load): global is not defined"
+    },
+    {
+      "file": "matrix-orchestrator.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "modal-accessibility.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "native-attestation-bridge.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "navigate-to-answer.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "nearby-offline-service.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: NearbyOfflineService › starts LAN discovery with the rotating id and, offline, peers Gun with each LAN phone once: CustomEvent is not defined"
+    },
+    {
+      "file": "nearby-at-pin.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "no-inline-baseline-graph.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "notification-badges.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "notification-toast.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "official-build-credential-signature.test.ts",
+      "reason": "uses require()"
+    },
+    {
+      "file": "official-build-credential.test.ts",
+      "reason": "uses require()"
+    },
+    {
+      "file": "onboarding-walkthrough.test.ts",
+      "reason": "uses require()"
+    },
+    {
+      "file": "p2p-secure-session.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
+    },
+    {
+      "file": "peer-controller.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "peer-name-cache.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "person-picker-dialogs.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "presence-durable-row.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "production-topology-contract.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "profile-photo.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: profile photo shrinking › dataUrlByteLength › measures the decoded image, accounting for base64 padding: Buffer is not defined"
+    },
+    {
+      "file": "quick-incoming-talk-actions.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "render-list-progressively.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "resolve-chatroom-title.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "return-home-button.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "route-editor-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "settings-section-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "settings-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "stage0-fixture.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "starter-talk-seeds.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "startup-metrics.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "statistics-dashboard-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "status-bar.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "storage-inspector-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "support-delegate-targeted-invite-views.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "support-inbox-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "support-settings-controller.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "survey-statistics-characterization.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "system-announcement-banner.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "system-announcements.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "talk-broadcast-toggle.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-completion.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-creation-storage.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-deletion.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-detail-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-distance.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: formatTalkDistanceFromAuthor › formats a very close distance as \"<0.1 mi\": toBe: expected \"~0 m\" to be \"<0.1 mi\""
+    },
+    {
+      "file": "talk-editor-controller.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "talk-editor-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-form-processor.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-ledger.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "talk-peer-registration.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-response-dialog-ui.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-revision.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talk-template-picker.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "talks-list-view.test.ts",
+      "reason": "uses jest.isolateModules (module mocks stay host-only)"
+    },
+    {
+      "file": "talks-row-gestures.test.ts",
+      "reason": "uses jest.isolateModules (module mocks stay host-only)"
+    },
+    {
+      "file": "techsupport-baseline.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-conversation-transport.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: TechSupportConversationTransport.subscribeToMessages › keeps a Gun-only message across subsequent poll ticks instead of dropping it: global is not defined"
+    },
+    {
+      "file": "techsupport-delegate-cache.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "techsupport-delegate-invite.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: techsupport-delegate-invite (K7 follow-on) › decodeDelegateInviteCode rejects an unsupported version: Buffer is not defined"
+    },
+    {
+      "file": "techsupport-delegate.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-faq-bundle.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-faq-cache.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "techsupport-faq-entry-cache.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "techsupport-faq-entry.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-faq-seed.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-greeting.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-key-not-bundled.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "techsupport-login.test.ts",
+      "reason": "uses jest.requireActual (module mocks stay host-only)"
+    },
+    {
+      "file": "techsupport-onboarding-tips.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-recovery.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "techsupport-support-ack.test.ts",
+      "reason": "imports host test helpers"
+    },
+    {
+      "file": "tls-mode.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "transient-map-hint.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "transient-signal-store-filter.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "ui-extracted-modules.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "ui-manager-size-budget.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "ui-module-boundaries.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "ui-startup-chatrooms.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "user-detail-view.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "verified-support-messages.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "web-attestation-service.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "web-chatroom-atomic-move.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "web-chatroom-heartbeat.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "web-chatroom-leave-sync.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "web-chatroom-location-assignment.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "web-chatroom-server-roster.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "web-content-node-service.test.ts",
+      "reason": "does not bundle for chrome61: Could not resolve \"dgram\""
+    },
+    {
+      "file": "web-device-handoff-service.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "web-device-sync-service.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "web-identity-link-service.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "web-talk-service-migration.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "web-talk-service-update-authorship.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "web-user-service.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: WebUserService › persists block and unblock state in the public mirror and private profile data: Failed to fetch"
+    },
+    {
+      "file": "wifi-direct-link.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: (file failed to load): crypto is not defined"
+    }
+  ],
+  "hostOnlyTests": {
+    "find-similar.test.ts › find-similar §4 — scale to ~100k (REQ-SIM-NFR-01/02/05) › top-K over a 100k population is fast, bounded, and never O(N²)": "host-calibrated 1 s budget over a 100k population (1,051 ms on the C10, 2026-10-17)"
+  }
+}

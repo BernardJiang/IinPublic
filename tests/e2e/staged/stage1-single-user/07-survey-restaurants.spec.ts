@@ -49,7 +49,7 @@ test.describe('Talks matching — restaurant survey (multi-browser)', () => {
     const company = await bootstrapUser(browsers[0]!, 'Company', 'Food Co');
     sessions.push({ label: 'Company', context: company.context, page: company.page });
     const { page: co } = company;
-    await co.click('.chatroom-item:has-text("Global")');
+    await co.click('.chatroom-item.current-room');
     await waitForTabActive(co, 'chatrooms');
 
     const original = makeRestaurantSurvey();

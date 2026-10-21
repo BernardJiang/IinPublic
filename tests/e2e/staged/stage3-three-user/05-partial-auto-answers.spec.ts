@@ -113,7 +113,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
@@ -121,7 +121,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
     pageJerry = jerry.page;
     // Same-context auto answers are what this spec covers; the app default is "Whenever offered".
     await pageJerry.evaluate(() => localStorage.setItem('iinpublic_auto_answer_scope', 'same-context'));
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     // --- Talk 1 (Sunday): Jerry answers all three with auto mode; match on last ---

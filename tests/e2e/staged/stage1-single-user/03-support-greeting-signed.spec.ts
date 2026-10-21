@@ -14,6 +14,7 @@ import {
   type GreetingLocale,
 } from '../../../../src/shared/techsupport-greeting';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { readLocalConversationMessages } from '../../helpers/p2p-transport-e2e';
 
 async function currentUserId(page: Page): Promise<string> {
   return page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''));
@@ -41,22 +42,20 @@ async function verifyStoredGreeting(record: GreetingRecord) {
 }
 
 /**
- * Reads the stored greeting record(s) via the server export-snapshot. K1 already established
- * that browser-authored `conversations/.../messages/<id>` writes reliably round-trip through
- * this endpoint in the single-relay E2E environment (unlike server-authored chain writes —
- * see the K1 stage0 test). This does not make the server the authority for the greeting (K2:
- * it is authored client-side, into the receiver's own local Gun, and never transmitted) — it
- * is just how this test reads back what the browser already wrote, the same way the deleted
- * `countSupportWelcomeMessages` helper did for the old model.
+ * Reads the stored greeting record(s) from the receiver's own local Gun (K2-2: the greeting is
+ * authored client-side into the receiver's encrypted, peerless store and never transmitted).
  */
-async function readGreetingRecords(userId: string): Promise<GreetingRecord[]> {
+async function readGreetingRecords(page: Page, userId: string): Promise<GreetingRecord[]> {
+  const messages = await readLocalConversationMessages(page, `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${userId}`);
+  return messages.filter((message) => message?.id === `support_welcome_${userId}`) as GreetingRecord[];
+}
+
+/** The greeting must never reach the hub graph. */
+async function hubGreetingSoulCount(userId: string): Promise<number> {
   const res = await fetch(`${gunBaseURL()}/api/test/export-snapshot`);
   expect(res.ok).toBeTruthy();
   const snapshot = (await res.json()) as { gunGraph?: Record<string, any> };
-  const suffix = `/messages/support_welcome_${userId}`;
-  return Object.entries(snapshot.gunGraph || {})
-    .filter(([soul]) => soul.endsWith(suffix))
-    .map(([, record]) => record as GreetingRecord);
+  return Object.keys(snapshot.gunGraph || {}).filter((soul) => soul.includes(`support_welcome_${userId}`)).length;
 }
 
 test.describe('TechSupport — signed greeting renders once and verifies (docs/TODO.md K2)', () => {
@@ -109,7 +108,7 @@ test.describe('TechSupport — signed greeting renders once and verifies (docs/T
     let records: GreetingRecord[] = [];
     await expect
       .poll(async () => {
-        records = await readGreetingRecords(userId);
+        records = await readGreetingRecords(page, userId);
         return records.length;
       }, { timeout: 15_000 })
       .toBe(1);
@@ -119,6 +118,7 @@ test.describe('TechSupport — signed greeting renders once and verifies (docs/T
     const verified = await verifyStoredGreeting(record);
     expect(verified).not.toBeNull();
     expect(verified?.locale).toBe(record.greetingLocale);
+    expect(await hubGreetingSoulCount(userId)).toBe(0);
 
     // 3. Clear storage and re-open: still exactly one greeting, same content, still verifies —
     // the deterministic message id makes the write idempotent (the K2 replacement for
@@ -140,7 +140,7 @@ test.describe('TechSupport — signed greeting renders once and verifies (docs/T
     let reloginRecords: GreetingRecord[] = [];
     await expect
       .poll(async () => {
-        reloginRecords = await readGreetingRecords(userId);
+        reloginRecords = await readGreetingRecords(page, userId);
         return reloginRecords.length;
       }, { timeout: 15_000 })
       .toBe(1);

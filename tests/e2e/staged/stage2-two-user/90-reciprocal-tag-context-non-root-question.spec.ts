@@ -115,14 +115,14 @@ test.describe('Non-root reciprocalTagContext question auto-matches buy/sell stra
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam Reciprocal');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await pageAdam.click('.chatroom-item:has-text("Global")');
+    await pageAdam.click('.chatroom-item.current-room');
     await afterSync();
     await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve Reciprocal');
     contextEve = eve.context;
     pageEve = eve.page;
-    await pageEve.click('.chatroom-item:has-text("Global")');
+    await pageEve.click('.chatroom-item.current-room');
     await afterSync();
     await enableChatbot(pageEve);
 

@@ -14,7 +14,6 @@ import {
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import type { Talk } from '../../../../src/shared/types';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 function talkSet(owner: string, runId: number): Talk[] {
   return [
@@ -128,8 +127,8 @@ async function openFreshPage(context: BrowserContext): Promise<Page> {
   return page;
 }
 
-/** `homeRoom: 'own-grid'` picks the user's own area room (bottom-layer tile, ~78 km). */
-async function configureFirstUser(page: Page, name: string, homeRoom: string): Promise<void> {
+/** Home is the automatic Nearby room (the home-room picker is retired with the tile tree). */
+async function configureFirstUser(page: Page, name: string): Promise<void> {
   await page.click('.nav-btn[data-view="settings"]');
   await afterNav();
 
@@ -147,15 +146,6 @@ async function configureFirstUser(page: Page, name: string, homeRoom: string): P
   await page.locator('.settings-filter-language-option[value="en"]').setChecked(true);
   await page.locator('.settings-filter-language-option[value="zh"]').setChecked(true);
   await page.locator('.settings-filter-language-option[value="zh"]').dispatchEvent('change');
-  await backToSettingsMenu(page);
-
-  await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-  await page.fill('#settings-min-distance', '0');
-  await page.fill('#settings-max-distance', '50');
-  const homeValue = homeRoom === 'own-grid'
-    ? await page.locator('#settings-home-room option[value^="tile_4_"]').first().getAttribute('value')
-    : homeRoom;
-  await page.selectOption('#settings-home-room', homeValue || 'global');
   await backToSettingsMenu(page);
 
   await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
@@ -179,12 +169,12 @@ test.describe('Stage zero N2N smoke', () => {
     await clearGunForStage2Spec();
   });
 
-  test('stage zero Adam configures profile, creates four talks, travels home to San Diego, and persists room on login', async ({ browser }) => {
+  test('stage zero Adam configures profile, creates four talks, visits a Place and returns home, and keeps the Nearby room on reload', async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 760, height: 1100 }, deviceScaleFactor: 1 });
     const page = await openFreshPage(context);
     const runId = Date.now();
 
-    await configureFirstUser(page, 'Adam', 'own-grid');
+    await configureFirstUser(page, 'Adam');
 
     await openSettingsSection(page, SETTINGS_SECTION.profile);
     await expect(page.locator('#settings-stage-name-input')).toHaveValue('Adam');
@@ -204,11 +194,6 @@ test.describe('Stage zero N2N smoke', () => {
         { timeout: 45_000 },
       )
       .toBe('en,zh');
-    await backToSettingsMenu(page);
-
-    await openSettingsSection(page, SETTINGS_SECTION.distanceHome);
-    await expect(page.locator('#settings-min-distance')).toHaveValue('0');
-    await expect(page.locator('#settings-max-distance')).toHaveValue('50');
     await backToSettingsMenu(page);
 
     await openSettingsSection(page, SETTINGS_SECTION.contentFilters);
@@ -261,34 +246,27 @@ test.describe('Stage zero N2N smoke', () => {
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
-    await expect(page.locator('.chatroom-item[data-chatroom-id="global"] .chatroom-headcount')).toContainText('2');
-    // Tree is Global → L1 region tiles → GPS grid rooms; travel targets are grid rooms (map tap).
-    await expect(page.locator('.chatroom-item[data-chatroom-id="tile_1_2_1"]')).toContainText('North America');
-    await expect(page.locator('.chatroom-item[data-chatroom-id="usa"]')).toHaveCount(0);
-    for (const place of [AREA_PLACES.london, AREA_PLACES.tokyo]) {
-      const roomId = await openAreaRoomAt(page, place);
-      await expect
-        .poll(
-          () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''),
-          { timeout: 15_000 },
-        )
-        .toBe(roomId);
-      // Navigate back to the chatroom list. Gun member-count updates can re-render
-      // the DOM and toggle back-to-chatrooms visibility at any time, so we dispatch
-      // the click in JS to bypass Playwright's visibility/wait-for-attached checks.
-      await page.evaluate(() => {
-        document.getElementById('back-to-chatrooms')?.click();
-      });
-      await afterSync();
-    }
+    // Adam is alone in his automatic Nearby room (TechSupport is contacts-only, not counted).
+    await expect(page.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('0 near you');
+    await expect(page.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
+    const currentRoom = () => page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''));
+    const homeRoomId = await currentRoom();
+    expect(homeRoomId).toMatch(/^nearby-v3$/);
+
+    // Travel = visiting a Place; 🏠 brings Adam back to his Nearby room.
+    await page.click('#create-custom-chatroom-btn');
+    await afterNav();
+    await page.locator('[data-testid="custom-room-name-input"]').fill(`Stage Zero Place ${runId}`);
+    await page.locator('[data-testid="custom-room-submit-btn"]').click();
+    await expect.poll(currentRoom, { timeout: 15_000 }).toMatch(/^place_/);
     await page.click('#return-home-btn');
     await afterNav();
-    await expect(page.locator('.chatroom-item.current-room')).toContainText('Around San Diego', { timeout: 45_000 });
+    await expect.poll(currentRoom, { timeout: 15_000 }).toBe(homeRoomId);
 
     await page.reload();
     await page.waitForLoadState('load');
     await afterLoad();
-    await expect(page.locator('#status-bar-text')).toContainText('San Diego', { timeout: 45_000 });
+    await expect.poll(currentRoom, { timeout: 45_000 }).toBe(homeRoomId);
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
     await context.close();

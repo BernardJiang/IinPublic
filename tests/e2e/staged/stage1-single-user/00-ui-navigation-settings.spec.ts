@@ -9,7 +9,6 @@ import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { version as APP_VERSION } from '../../../../package.json';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { AREA_PLACES, areaRoomIdAt, openAreaRoomAt } from '../../helpers/chatroom-nav';
 
 test.describe('UI navigation and settings shell', () => {
   test.describe.configure({ retries: 0 });
@@ -57,20 +56,24 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#top-header #broadcast-talk-btn')).toBeVisible();
     await expect(p.locator('#broadcast-talk-btn .app-bar-btn-icon')).toHaveText('📣');
     await expect(p.locator('body')).not.toContainText('Uses talks from Talks OUT');
-    await expect(p.locator('#return-home-btn')).toBeEnabled();
+    // A fresh user boots straight into their own automatic Nearby room (Global is retired), so
+    // 🏠 has nowhere to return to yet; it enables only inside a Place.
+    await expect(p.locator('#return-home-btn')).toBeDisabled();
     await expect(p.locator('#chatrooms-stats-strip')).toHaveCount(0);
     const duplicateVisitCheck = await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const read = () => app.uiManager.chatroomVisitCounts.get('global')?.visitCount || 0;
+      const roomId = app.currentChatroomId;
+      const read = () => app.uiManager.chatroomVisitCounts.get(roomId)?.visitCount || 0;
       const before = read();
-      await app.chatroomService.switchChatroom(app.currentUser.id, 'global', app.currentUser.stageName);
+      await app.chatroomService.switchChatroom(app.currentUser.id, roomId, app.currentUser.stageName);
       await new Promise((resolve) => setTimeout(resolve, 400));
       const mid = read();
-      await app.chatroomService.switchChatroom(app.currentUser.id, 'global', app.currentUser.stageName);
+      await app.chatroomService.switchChatroom(app.currentUser.id, roomId, app.currentUser.stageName);
       await new Promise((resolve) => setTimeout(resolve, 400));
       return { before, mid, after: read() };
     });
-    expect(duplicateVisitCheck.before).toBeGreaterThan(0);
+    // Nearby is my own list, not a room, so it has no visit counter; a same-room switch adds none.
+    expect(duplicateVisitCheck.before).toBe(0);
     expect(duplicateVisitCheck.mid).toBe(duplicateVisitCheck.before);
     expect(duplicateVisitCheck.after).toBe(duplicateVisitCheck.before);
     await expect
@@ -85,21 +88,6 @@ test.describe('UI navigation and settings shell', () => {
         });
       })
       .toEqual({ compact: true, sameRow: true });
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
-    await p.locator('#back-to-chatrooms').click();
-    await afterNav();
-    await expect
-      .poll(async () => {
-        return p.locator('.chatroom-item[data-chatroom-id="global"]').evaluate((row) => {
-          const style = window.getComputedStyle(row);
-          return {
-            active: row.classList.contains('current-room'),
-            background: style.backgroundImage === 'none' ? style.backgroundColor : style.backgroundImage,
-          };
-        });
-      })
-      .toEqual({ active: false, background: 'rgb(255, 255, 255)' });
-    await expect(p.locator(`.chatroom-item.current-room[data-chatroom-id="${areaRoomIdAt(AREA_PLACES.tokyo)}"]`)).toBeVisible();
 
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
@@ -170,11 +158,13 @@ test.describe('UI navigation and settings shell', () => {
     await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await expect(p.locator('#settings-copy-talk-autosave')).toBeVisible();
     await expect(p.locator('#settings-chatbot-enabled')).toBeVisible();
+    await expect(p.locator('#settings-sent-after')).toBeVisible();
     await backToSettingsMenu(p);
 
+    // Location replaced the home-room picker (Nearby and Places model).
     await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
-    await expect(p.locator('#settings-home-room')).toBeVisible();
-    await expect(p.locator('#settings-sent-after')).toBeVisible();
+    await expect(p.locator('[data-testid="settings-location-source"]')).toBeVisible();
+    await expect(p.locator('#settings-nearby-privacy-mode')).toBeVisible();
     await backToSettingsMenu(p);
 
     await openSettingsSection(p, SETTINGS_SECTION.contentFilters);
@@ -253,15 +243,6 @@ test.describe('UI navigation and settings shell', () => {
     await expect(firstFaqAnswer).toBeVisible();
     await backToSettingsMenu(p);
 
-    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
-    await p.locator('#settings-max-distance').fill('5');
-    await p.locator('#settings-max-distance').press('Tab');
-    await p.locator('#settings-min-distance').fill('10');
-    await p.locator('#settings-min-distance').press('Tab');
-    await expect(p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' })).toBeVisible();
-    await p.locator('.notification').filter({ hasText: '最小距离不能大于最大距离。' }).click();
-    await backToSettingsMenu(p);
-
     await openSettingsSection(p, SETTINGS_SECTION.profile);
     await p.locator('#settings-stage-name-input').fill('a');
     await p.locator('#settings-stage-name-input').press('Tab');
@@ -280,7 +261,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.chatroom-item.current-room .current-room-badge')).toHaveText('当前');
     await p.locator('.chatroom-item.current-room').click();
     await afterNav();
-    await expect(p.locator('#current-chatroom-status')).toContainText('位成员');
+    // Nearby is my own list (§3.7): "附近 N 人 · M 人在线", not a room's member count.
+    await expect(p.locator('#current-chatroom-status')).toContainText('人在线');
     // Back is an icon now; the translation lives on its tooltip.
     await expect(p.locator('#back-to-chatrooms')).toHaveAttribute('title', '返回');
     await p.locator('#back-to-chatrooms').click();
@@ -792,34 +774,12 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#settings-custom-blocked')).toHaveValue('alpha, beta');
     await backToSettingsMenu(p);
 
-    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
+    await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-sent-after').fill('2026-05-01T09:30');
     await expect
       .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
       .toContain('2026-05-01T');
-    await p.locator('#settings-min-distance').fill('51');
-    await p.locator('#settings-max-distance').fill('50');
-    await p.locator('#settings-max-distance').blur();
-    await expect(p.locator('#settings-min-distance')).not.toHaveValue('51');
 
-    // Home choices are Global, region tiles and the user's own area tile — no country/state rooms.
-    await expect(p.locator('#settings-home-room option[value="california"]')).toHaveCount(0);
-    const gridHome = await p.locator('#settings-home-room option[value^="tile_4_"]').first().getAttribute('value');
-    expect(gridHome).toBeTruthy();
-    await p.locator('#settings-home-room').selectOption(gridHome!);
-    await expect
-      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_travel_home')))
-      .toBe(gridHome);
-    await expect(p.locator('#return-home-btn')).toBeEnabled();
-
-    await p.locator('#settings-home-room').selectOption('global');
-    await expect
-      .poll(async () => p.evaluate(() => localStorage.getItem('iinpublic_travel_home')))
-      .toBe('global');
-    await p.locator('.nav-btn[data-view="chatrooms"]').click();
-    await afterNav();
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
-    await expect(p.locator('#return-home-btn')).toBeEnabled();
   });
 
   test('Settings menu shows the running app version', async () => {
@@ -884,7 +844,7 @@ test.describe('UI navigation and settings shell', () => {
       .toEqual({ description, headline });
   });
 
-  test('auto-copy keeps answered talks in OUT and stores flat answer history', async () => {
+  test('answering stores flat history; auto-save copies only accepted tags into OUT', async () => {
     const p = page!;
 
     await p.locator('.nav-btn[data-view="settings"]').click();
@@ -926,7 +886,8 @@ test.describe('UI navigation and settings shell', () => {
       };
     });
 
-    expect(result.role).toBe('copied');
+    // Auto-save is on, but a Flow talk is copied only by the user's choice (row 📋, OPEN-55).
+    expect(result.role).toBe('answered');
     expect(result.outTitle).toBe('Flat History Incoming Talk');
     expect(result.historyCount).toBe(1);
     expect(result.record.title).toBe('Flat History Incoming Talk');
@@ -943,38 +904,37 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
-    await expect(p.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'Flat History Incoming Talk' })).toBeVisible();
+    await expect(p.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'Flat History Incoming Talk' })).toHaveCount(0);
 
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
     await expect(p.locator('#answers-content')).toContainText('Preferred campus food?');
     await expect(p.locator('#answers-content')).toContainText('Tacos');
 
+    const answerTag = (id: string, title: string) => p.evaluate(({ talkId, talkTitle }) => {
+      const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
+      const talk = {
+        id: talkId,
+        title: talkTitle,
+        type: 'tag',
+        authorId: 'sender-tag',
+        questions: [{ id: 'q2', text: talkTitle, answers: [{ id: 'a2', text: talkTitle, isMatch: true }] }],
+      };
+      ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: talkTitle, mode: 'manual' }], 'match');
+      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      return {
+        copiedRole: myTalks[talkId]?.role,
+        historyTitles: Object.values(history).map((record: any) => record.title),
+      };
+    }, { talkId: id, talkTitle: title });
+    expect((await answerTag('incoming_tag_copy_1', 'hiking')).copiedRole).toBe('copied');
+
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
     await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-copy-talk-autosave').uncheck();
-    const disabledCopyResult = await p.evaluate(() => {
-      const ui = (window as any).__iinpublic_app.getApp().uiManager as any;
-      const talk = {
-        id: 'incoming_no_copy_2',
-        title: 'History Only Incoming Talk',
-        type: 'flow',
-        authorId: 'sender-history-only',
-        questions: [{
-          id: 'q2',
-          text: 'Keep in history only?',
-          answers: [{ id: 'a2', text: 'Yes', isMatch: true }],
-        }],
-      };
-      ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: 'Yes', mode: 'manual' }], 'match');
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
-      return {
-        copiedRole: myTalks.incoming_no_copy_2?.role,
-        historyTitles: Object.values(history).map((record: any) => record.title),
-      };
-    });
+    const disabledCopyResult = await answerTag('incoming_no_copy_2', 'History Only Incoming Talk');
     expect(disabledCopyResult.copiedRole).toBe('answered');
     expect(disabledCopyResult.historyTitles).toContain('History Only Incoming Talk');
     await p.locator('.nav-btn[data-view="talks"]').click();

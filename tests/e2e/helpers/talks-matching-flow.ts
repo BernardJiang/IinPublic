@@ -73,8 +73,6 @@ export async function ensureTechSupportStage0Baseline(): Promise<void> {
       networkRole: TECHSUPPORT_NETWORK_ROLE,
       talkFilters: {
         allowedLanguages: ['en'],
-        minDistanceMiles: 0,
-        maxDistanceMiles: 50,
         requireGoodGrammar: true,
         blockDirtyWords: true,
         allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],
@@ -370,6 +368,8 @@ export async function bootstrapUser(
   // staged/stage5 capacity, find-similar) starve later cold bootstraps past the 10s default
   // (see timing.ts waitForAppReady doc) — those callers pass a larger budget here.
   appReadyTimeoutMs?: number,
+  /** Another app URL (e.g. a small `e2e_capacity`); default the stable-chatroom URL. */
+  appUrl: string = webAppURLStableChatroom(),
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     viewport: { width: 640, height: 1000 },
@@ -379,7 +379,7 @@ export async function bootstrapUser(
   attachFilteredConsoleLog(page, label);
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
   await injectIdbClear(page);
-  await gotoWebApp(page, webAppURLStableChatroom(), appReadyTimeoutMs);
+  await gotoWebApp(page, appUrl, appReadyTimeoutMs);
   await ensureWindowFitsViewport(page, 640, 1000);
   await afterLoad();
   await page.click('.nav-btn[data-view="settings"]');
@@ -713,6 +713,20 @@ export async function openIncomingTalkModalWithAutoAnswers(
     app.uiManager.showTalkResponseDialog(talk, { skipAutoAnswer: false });
   }, talkId);
   await page.waitForSelector('#talk-response-modal .modal-content', { timeout: RESPONSE_MODAL_CONTENT_MS });
+}
+
+/**
+ * Third-party mesh forwarding (relaying frames between two other peers) is an explicit opt-in
+ * since Nearby became the active model (DEFAULT_FORWARDING_SETTINGS in
+ * src/shared/mesh-forwarding-policy.ts). Specs that assert multi-hop relay turn it on per page.
+ */
+export async function enableMeshForwarding(pages: Page[]): Promise<void> {
+  await Promise.all(pages.map((page) => page.evaluate(() => {
+    (window as any).__iinpublic_app?.getApp?.()?.peerMeshService?.updateForwardingSettings?.({
+      enabled: true,
+      wifiForwarding: true,
+    });
+  })));
 }
 
 /**

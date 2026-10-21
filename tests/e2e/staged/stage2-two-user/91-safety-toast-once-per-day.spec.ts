@@ -29,7 +29,7 @@ async function navigateToRoomAndClickBroadcast(page: Page): Promise<void> {
   await afterNav();
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
-    await page.locator('.chatroom-item:has-text("Global")').first().click();
+    await page.locator('.chatroom-item.current-room').first().click();
     await afterSync();
   }
   const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
@@ -87,7 +87,7 @@ async function bootstrapUser(browser: Browser, label: string, stageName: string)
 
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
-  await page.click('.chatroom-item:has-text("Global")');
+  await page.click('.chatroom-item.current-room');
   await afterSync();
   attachE2eBrowserTabLabel(page, label);
   return { context, page };
@@ -138,9 +138,15 @@ test.describe('FR-FIN-1: once-per-day pre-send and post-match safety toasts', ()
     contextAlice = alice.context;
     pageAlice = alice.page;
 
+    // Tom joins first: a broadcast needs a receiver in the room, and the automatic Nearby room no
+    // longer holds TechSupport (Global did), so Alice alone would have nothing to send.
+    const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
+    contextTom = tom.context;
+    pageTom = tom.page;
+
     const t1Toast = pageAlice.locator('[data-safety-toast="pre-send"]');
 
-    // T1, step 1: first broadcast of the session (Alice alone — no peer needed for T1),
+    // T1, step 1: first broadcast of the session,
     // no prior cooldown entry, toast must appear. Checked immediately after the click,
     // before it can auto-dismiss (3s lifetime).
     await createSimpleFlowTalk(pageAlice, 'CC Talk 1', 'Match', 'Ignore', { sendToChatroom: false });
@@ -169,10 +175,6 @@ test.describe('FR-FIN-1: once-per-day pre-send and post-match safety toasts', ()
     await createSimpleFlowTalk(pageAlice, 'CC Talk 3', 'Match', 'Ignore', { sendToChatroom: false });
     await navigateToRoomAndClickBroadcast(pageAlice);
     await expect(t1Toast).toBeVisible({ timeout: 2_500 });
-
-    const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
-    contextTom = tom.context;
-    pageTom = tom.page;
 
     const t2Toast = pageTom.locator('[data-safety-toast="post-match"]');
     const MATCH_ANSWER = 'Yes match';

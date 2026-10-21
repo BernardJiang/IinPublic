@@ -1,6 +1,6 @@
 import { isValidTalkId } from '../../shared/incoming-talk-ids';
 import type { UiTranslationKey } from './ui-translations';
-import type { MyTalkEntry } from './my-talks-storage';
+import { getMyTalks, setMyTalks, type MyTalkEntry } from './my-talks-storage';
 
 /**
  * Shared async full-talk resolution: an incoming cluster carries only `.latestTalkId`/
@@ -127,4 +127,28 @@ export function quickCopyIncomingTalk(
     return;
   }
   resolveIncomingFullTalk(deps.emit, deps.t, deps.showNotification, talkId, identityKeyFallback, finish);
+}
+
+export type UncopyIncomingTalkDeps = {
+  showNotification: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
+  t: (key: UiTranslationKey) => string;
+  refreshTalksList: () => void;
+};
+
+/**
+ * Undoes a copy from the row's 📋 toggle. An answered talk goes back to plain answered history
+ * (its answers stay); a copy made before answering is dropped. Nothing is sent to anyone.
+ */
+export function uncopyIncomingTalk(talkId: string, deps: UncopyIncomingTalkDeps): void {
+  const myTalks = getMyTalks();
+  const existing = myTalks[talkId];
+  if (existing?.role !== 'copied') return;
+  if (Array.isArray(existing.completedAnswers) && existing.completedAnswers.length > 0) {
+    myTalks[talkId] = { ...existing, role: 'answered', lastInteraction: new Date().toISOString() };
+  } else {
+    delete myTalks[talkId];
+  }
+  setMyTalks(myTalks);
+  deps.showNotification(deps.t('talksRemovedFromList'), 'success');
+  deps.refreshTalksList();
 }

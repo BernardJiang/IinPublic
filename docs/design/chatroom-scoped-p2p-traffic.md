@@ -1,13 +1,14 @@
 # Chatroom-Scoped P2P Traffic and Nearby Connectivity
 
-Status: **partially superseded 2026-10-08** by `nearby-and-place-chatrooms.md`
+Status: **partially superseded and refined 2026-10-10** by `nearby-and-place-chatrooms.md`
 Tracking: `OPEN-37`
 Related: Technical Specification §3.3 and §23; `OPEN-36`; `docs/protocol/connectivity-v1.md`
 
-> The one-active-room, global `C`, local `K`, safe-switch, and same-room authorization decisions
-> remain authoritative. Global/tree navigation, FIFO geographic overflow, room-wide gossip, and
-> forwarding enabled by default do not; the replacement uses Nearby geographic subdivision, map
-> Places, and direct encrypted author-to-receiver Talk delivery.
+> Global `C`, local `K`, one shared active room, safe room switching, same-room radio authorization,
+> bounded radio credentials, and direct encrypted author-to-receiver Talk delivery remain
+> authoritative. Visible hierarchy, manual child navigation, FIFO overflow, and capped sparse
+> widening are superseded by flat geographic repartition/coalescing control plus map travel.
+> Explicit content-addressed Places remain rooms.
 
 ## Decision
 
@@ -76,20 +77,16 @@ under the logical room overlay.
 
 ### Membership, navigation, and active exchange are different
 
-- **Known room:** a room shown in the hierarchy, map, history, or saved list.
+- **Known destination:** Nearby, a Place shown in the flat list/map, or a saved Place/travel point.
 - **Membership:** authorization and metadata that allow the user to enter a room.
 - **Active exchange room:** the only room currently allowed to drive discovery and Talk traffic.
 - **Direct conversation:** an on-demand pair channel independent of room broadcasting.
 
-The Global node and oversized parent location nodes become navigation and discovery directories
-when their active population exceeds capacity. They must not expose a million-member live roster
-or form a global mesh. The user enters an eligible child location, business, event, or custom room
-before exchanging Talks.
-
-Confirmed automatic location selects the smallest blurred GPS-grid room as the default active
-exchange room. It must not silently activate several overlapping location levels. Parent, child,
-nearby business, saved, and travelled rooms are not simultaneously active. The user may manually
-select a different room; a placeholder location must never select a false grid.
+A broad group that exceeds capacity is replaced by flat disjoint geographic groups. No broad group
+becomes a user-facing directory, exposes a million-member live roster, or forms a global mesh.
+Confirmed automatic location selects one shared group from the current partition manifest. A Place
+or map-selected travel point is a deliberate alternative; saved and travelled destinations are not
+simultaneously active. A placeholder location must never select a false group.
 
 ### Capacity behavior
 
@@ -99,16 +96,16 @@ select a different room; a placeholder location must never select a false grid.
   active epoch must update rather than operate a conflicting capacity under the same network ID.
 - Each client evaluates admission before publishing its current-room presence or accepting a
   candidate into its active set.
-- An over-capacity room is split into finer child rooms where the hierarchy permits it.
-- The client receives bounded child-room choices; it never downloads the complete parent roster.
+- An over-capacity group is atomically replaced by disjoint geographically compact groups.
+- The client receives one verified replacement plus bounded control summaries; it never downloads
+  the complete old broad-group roster.
 - Presence from the same identity or its linked devices is deduplicated during deterministic
   active-set selection; linked installations do not receive extra room positions.
 - Switching rooms is explicit. IinPublic may suggest a switch but does not silently broaden reach.
 
-The existing FIFO/room-split product rules remain separate admission-algorithm concerns. Whatever
-algorithm is chosen, it must use the same global `C` and preserve the bound presented to peer
-discovery. FIFO gives the creator no protection: if the creator is the longest-staying active
-participant when a new participant is admitted to a full room, the creator is evicted.
+Legacy FIFO/room-split behavior is migration code, not the accepted Nearby product rule. The flat
+partition algorithm must use the same global `C` and preserve the bound presented to peer discovery.
+Place admission remains ownerless: a creator receives no protected or reserved seat.
 
 ### Coordinator-free enforcement limit
 
@@ -159,6 +156,26 @@ Release `N+1` carries a manifest signed offline by the next-release private key 
 was pinned by release `N`. That manifest commits the public key for release `N+2`. Any peer may
 relay the public manifest chain; relaying it grants no authority because every recipient verifies
 the signatures and hashes locally.
+
+#### Production bootstrap completed 2026-10-12
+
+Manifest-aware builds had already shipped with the TechSupport announcement public key in the
+genesis checkpoint before dedicated protocol-release vaults existed. Replacing that compiled root
+would have made those installations unable to authenticate any successor. Production therefore
+uses one explicit compatibility bridge:
+
+- genesis sequence 1 continues to name the historical announcement key as its authorized signer;
+- signed `M2` makes no behavior change (`protocolEpoch=1`, `C=498`) and commits dedicated `K3`;
+- `K3` and `K4` are separate encrypted, sequence-bound protocol-release vaults under the ignored
+  operator `secrets/` directory; they are not TechSupport or package-signing keys;
+- `M3` must be signed by `K3` and commit `K4`; every later manifest follows the same `KN → K(N+1)`
+  rule. The legacy announcement key is rejected by tooling after the one-time `M2` bridge.
+
+The committed public history is `src/shared/protocol-manifest-history.signed.json`. Every server,
+web, desktop, and Android production build verifies the complete history from the immutable
+genesis checkpoint and fails if the bridge is missing, invalid, contains private fields, rolls
+back, forks, or leaves a legacy/recovery key authorized as the next ordinary signer. Operator
+commands and the cold-storage procedure are documented in the production deployment guide.
 
 A release bundles the public signed manifests needed to reach it from the oldest release it still
 expects to encounter. It does not bundle historical private keys. For example, release 3 can send
@@ -226,7 +243,7 @@ already-isolated client aware of that cutoff until an authenticated chain reache
 
 Clients persist the highest accepted sequence and manifest hash, reject rollback, and fail closed
 on two different valid manifests for the same sequence instead of choosing whichever number is
-higher. The normal next-release key should be one-time and rotated in every manifest. Because one
+higher. The normal next-release key is one-time and rotated in every manifest. Because one
 lost or compromised next key must not permanently strand the network, each release also pins a
 separate threshold recovery policy (for example, two of three offline recovery public keys) that
 can revoke/replace the next key. Ordinary release signing and recovery keys must be stored
@@ -349,6 +366,30 @@ does not imply permission to advertise nearby continuously.
 No implementation can guarantee uninterrupted background radio access: the user can revoke a
 permission, disable a radio, force-stop the app, or the operating system can stop work. Every
 exchange therefore persists its outbox, checkpoint, and receipt state and resumes idempotently.
+
+Background capability is intentionally described in three levels:
+
+- While the WebView remains runnable, it can receive and decrypt Talks, run the local chatbot,
+  determine a match, send the response, and post a specific Talk/chatbot notification.
+- If Android freezes the WebView but preserves IinPublic's foreground service, the embedded node
+  and `MailboxWatcher` can receive a content-free wake ping and post only a generic **new
+  activity** notification. They cannot inspect the encrypted Talk or determine that it is a match.
+  Opening IinPublic resumes the direct scheduler, decrypts the Talk locally, runs the chatbot, and
+  then reports any match.
+- If Android or an OEM force-stops the process, no in-process foreground service, alarm, LAN,
+  Wi-Fi Direct, BLE, or open long-poll can run. The sender keeps the encrypted Talk in its bounded
+  direct outbox and retries when the phone returns. A notification during that state requires an
+  operating-system-managed push transport (content-free FCM on Android, for example), which is not
+  currently implemented and would only work when a reachable push/hub path exists. Fully offline
+  delivery cannot wake a force-stopped phone.
+  Product decision (2026-10-17, OPEN-44): no OS push transport. It would add a Google Play
+  Services dependency to a decentralized app. A phone whose vendor force-stops the app while
+  asleep (measured: the C10 tablet, ~90 s after screen-off) shows its Talks and notifications the
+  next time IinPublic is opened; nothing is lost.
+
+`Always` means that native discovery and the embedded node keep trying under a visible persistent
+notification; it does not promise that Android will keep the WebView or even the process alive.
+`While IinPublic is open` remains the battery-friendly default.
 
 ## User experience
 

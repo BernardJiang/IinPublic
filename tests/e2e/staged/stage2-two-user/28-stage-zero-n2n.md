@@ -11,10 +11,11 @@ covers: SPEC-3.5, SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
 Tests the basic Gun.js peer/node data lifecycle to verify the "stage zero" invariant: that a talk created by a user propagates correctly through the local→server replication path and round-trips back as persisted. Acts as regression gate for data-layer plumbing.
 
-1. **Setup:** Launch one browser at 640×1000. Log in as TechSupport, configure settings including name, avatar (🎾), profile language en, distance filters, grammar/dirty-words on, copy-talk autosave on, chatbot enabled, home room selection, then enable P2P local node via Settings → "启用本地节点复选" checkbox.
+1. **Setup:** Launch one browser at 640×1000. Log in as TechSupport, configure settings including name, avatar (🎾), profile language en, distance filters, grammar/dirty-words on, copy-talk autosave on, chatbot enabled (no home-room picker any more — home is the automatic Nearby room), then enable P2P local node via Settings → "启用本地节点复选" checkbox.
 2. **Create 4 talks in bulk:** tag talk (food), flow talk (tennis partner), survey talk (foodies), route talk (job searching). Publish via company page UI and click broadcast until ack'd for each one. Verify myTalks localStorage contains all 4 entries with role "created".
 3. **Validate propagation:** Check that server Gun graph has received the talks by inspecting both `talks` and `peerTalkOffers/techsupport-id` subtrees (count matches). Wait up to 45 seconds for sync.
 4. **Round-trip verify:** Switch to Talks tab → click each talk in myTalks list to open response modal → confirm that title, questions, and answer choices load from persisted graph (not stale local cache).
+5. **Travel and return:** On Chatrooms, Adam is alone in his Nearby room (headcount 1; TechSupport is not counted; no `tile_…` rows). He creates and enters a Place, presses 🏠 to return to the same Nearby room, and after a reload is still in that Nearby room.
 
 ## Verifications:
 

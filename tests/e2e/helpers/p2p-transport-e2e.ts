@@ -152,17 +152,9 @@ export async function prepareDirectP2PConversation(
   return conversationId;
 }
 
-/**
- * Direct-mode DM bodies persist in this endpoint's encrypted, peerless local Gun only.
- * The shared relay graph must contain neither the current pair path nor the legacy path.
- */
-export async function assertLocalPrivateMessageBodies(
-  page: Page,
-  conversationId: string,
-  minMessageNodes = 1,
-  forbiddenPlaintext: string[] = [],
-): Promise<void> {
-  const readLocal = () => page.evaluate(async (cid) => {
+/** Raw message records this endpoint holds for a conversation in its encrypted, peerless local Gun. */
+export async function readLocalConversationMessages(page: Page, conversationId: string): Promise<any[]> {
+  return page.evaluate(async (cid) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
     const envelope = await app?.gunService?.getPrivate?.(
       `conversations/${encodeURIComponent(cid)}/history`,
@@ -175,6 +167,19 @@ export async function assertLocalPrivateMessageBodies(
       return [];
     }
   }, conversationId);
+}
+
+/**
+ * Direct-mode DM bodies persist in this endpoint's encrypted, peerless local Gun only.
+ * The shared relay graph must contain neither the current pair path nor the legacy path.
+ */
+export async function assertLocalPrivateMessageBodies(
+  page: Page,
+  conversationId: string,
+  minMessageNodes = 1,
+  forbiddenPlaintext: string[] = [],
+): Promise<void> {
+  const readLocal = () => readLocalConversationMessages(page, conversationId);
   await expect.poll(async () => (await readLocal()).length, {
     timeout: P2P_E2E_TIMEOUT_MS,
     message: `Expected ${minMessageNodes} local private message(s) for ${conversationId}`,
@@ -243,7 +248,7 @@ export async function waitForHandshakeOk(
       () => getHandshakeDiagnosticsFromPage(page, conversationId),
       { timeout: timeoutMs, message: `Expected handshake ok on ${conversationId}` },
     )
-    .toMatchObject({ handshakeState: 'ok', selectedProtocol: 'iinpublic-p2p-v1' });
+    .toMatchObject({ handshakeState: 'ok', selectedProtocol: 'iinpublic-p2p-v2' });
 }
 
 /** @deprecated Superseded by assertLocalPrivateMessageBodies. */

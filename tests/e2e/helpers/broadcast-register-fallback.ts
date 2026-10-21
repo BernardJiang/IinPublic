@@ -73,11 +73,12 @@ export async function waitForChatroomMemberCountViaApi(
 /** Invoke the app broadcast path directly when the audience-preview UI does not open in time. */
 export async function deliverBroadcastViaAppPath(
   page: Page,
-  opts?: { minReceivers?: number },
+  opts?: { minReceivers?: number; receiverUsers?: Array<{ userId: string; stageName?: string }> },
 ): Promise<{ talksSent: number; receivers: number }> {
   const minReceivers = opts?.minReceivers ?? 1;
+  const receiverUsers = opts?.receiverUsers;
   return page.evaluate(
-    async ({ minRecv }) => {
+    async ({ minRecv, receivers }) => {
       const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
       if (!app?.deliverPendingBroadcastTalksForE2e) {
         throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
@@ -86,11 +87,14 @@ export async function deliverBroadcastViaAppPath(
         window.setTimeout(() => reject(new Error('deliverPendingBroadcastTalksForE2e timed out')), 45_000);
       });
       return Promise.race([
-        app.deliverPendingBroadcastTalksForE2e(minRecv, { skipDeliveryAcks: true }),
+        app.deliverPendingBroadcastTalksForE2e(minRecv, {
+          skipDeliveryAcks: true,
+          ...(Array.isArray(receivers) ? { receiverUsers: receivers } : {}),
+        }),
         timeout,
       ]);
     },
-    { minRecv: minReceivers },
+    { minRecv: minReceivers, receivers: receiverUsers },
   );
 }
 

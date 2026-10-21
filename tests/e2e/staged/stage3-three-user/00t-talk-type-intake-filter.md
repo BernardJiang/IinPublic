@@ -9,9 +9,9 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.2  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Two users (Tom sends, Jerry receives) in Global chatroom. Jerry goes to Settings and unchecks survey, tag, route — leaving only flow enabled. Then Tom creates and broadcasts a tag talk → delivery is blocked before reaching Jerry.
+Two users (Tom sends, Jerry receives) in the shared Nearby room. Jerry goes to Settings and unchecks survey, tag, route — leaving only flow enabled. Then Tom creates and broadcasts a tag talk → delivery is blocked before reaching Jerry.
 
-1. **Setup:** Both users bootstrapped and joined Global.
+1. **Setup:** Both users bootstrapped and joined the shared Nearby room.
 2. **Jerry configures filter:** Unchecks `.settings-talk-filter-type` for survey, tag, route. Flow remains checked. Calls `updateTalkFilters(userId, talkFilters)` to push to Gun graph. Confirms localStorage `allowedTalkTypes === ["flow"]`. Verifies via two separate filter-persist calls (once from currentUser.talkFilters, once rebuilt from localStorage).
 3. **Tom creates tag talk** ("Type Intake Tag Rejected") via `createTagTalk()` which uses the tag-type editor path (different from flow).
 4. **Broadcast rejected:** Tom clicks broadcast → ack shows `talksSent: 0` (rejected by Jerry who has only flow enabled).

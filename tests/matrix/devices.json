@@ -3,17 +3,30 @@
     {
       "name": "android-alice",
       "serial": "DUM0219418001663",
-      "model": "VOG_L29"
+      "model": "VOG_L29",
+      "sim": true
+    },
+    {
+      "name": "android-dana",
+      "serial": "PADC100013000534",
+      "model": "C10"
     },
     {
       "name": "android-bob",
       "serial": "PM1LHMA7A2707315",
-      "model": "PH_1"
+      "model": "PH_1",
+      "sim": true
     },
     {
       "name": "android-charlie",
       "serial": "RNV0217207000190",
       "model": "FRD_L04"
+    },
+    {
+      "name": "android-erin",
+      "serial": "AG2H024712001421",
+      "model": "FCP_AN10",
+      "sim": true
     }
   ]
 }

@@ -8,7 +8,7 @@ covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users: Tom, Jerry, and Bob, all in the "Global" chatroom.
+Three users: Tom, Jerry, and Bob, all in the shared Nearby room.
 
 1. **Tom creates two talks:**
    - "TwoTalks e2e Tennis" (question: "Want tennis?")

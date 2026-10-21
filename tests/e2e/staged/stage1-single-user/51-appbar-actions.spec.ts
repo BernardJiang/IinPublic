@@ -8,7 +8,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { AREA_PLACES, openAreaRoomAt } from '../../helpers/chatroom-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('AppBar actions', () => {
   let context: BrowserContext | undefined;
@@ -59,7 +59,7 @@ test.describe('AppBar actions', () => {
 
   test('📣 broadcast keeps its guard behavior with an empty OUT list', async () => {
     const p = page!;
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
+    await openCurrentChatroom(p);
     await p.locator('#broadcast-talk-btn').click();
     // Empty OUT list → guard toast, same handler as the old text button.
     await expect(p.locator('.notification', { hasText: /no talks to broadcast/i })).toBeVisible({ timeout: 10_000 });
@@ -67,14 +67,23 @@ test.describe('AppBar actions', () => {
 
   test('🏠 return-home enable state carries over and back icon pops one level', async () => {
     const p = page!;
-    await openAreaRoomAt(p, AREA_PLACES.tokyo);
+    // 🏠 enables only away from the automatic Nearby room, i.e. inside a Place (tile travel is retired).
+    await p.locator('.nav-btn[data-view="chatrooms"]').click();
+    await afterNav();
+    await expect(p.locator('#return-home-btn')).toBeDisabled();
+    await p.locator('#create-custom-chatroom-btn').click();
+    await afterNav();
+    await p.locator('[data-testid="custom-room-name-input"]').fill(`AppBar Place ${Date.now()}`);
+    await p.locator('[data-testid="custom-room-submit-btn"]').click();
+    await expect(p.locator('#chatroom-members-list')).toBeVisible({ timeout: 15_000 });
     // Away from home → enabled.
     await expect(p.locator('#return-home-btn')).toBeEnabled();
 
-    // Back pops exactly one level: room detail → room list.
+    // Back pops exactly one level: room detail → room list, and 🏠 stays enabled there.
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
     await expect(p.locator('#chatroom-list-container')).toBeVisible();
     await expect(p.locator('#chatroom-detail-container')).toBeHidden();
+    await expect(p.locator('#return-home-btn')).toBeEnabled();
   });
 });

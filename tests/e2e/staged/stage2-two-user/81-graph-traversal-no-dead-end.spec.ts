@@ -85,7 +85,7 @@ test.describe('Full graph traversal (Chatroom -> Person -> Talk -> Q&A) has no d
       expect(tomId).toBeTruthy();
       await pageJerry.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageJerry, 'chatrooms');
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
       const tomRow = pageJerry.locator(`.chatroom-member-item[data-user-id="${tomId}"]`);
       await expect(tomRow).toBeVisible({ timeout: 20_000 });

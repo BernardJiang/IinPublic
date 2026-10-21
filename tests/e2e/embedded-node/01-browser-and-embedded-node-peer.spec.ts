@@ -269,8 +269,8 @@ test.describe('S3 embedded-node: browser peer <-> embedded-node desktop peer', (
     const pageJerry: Page = jerry.page;
 
     try {
-      await pageTom.click('.chatroom-item:has-text("Global")');
-      await pageJerry.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
+      await pageJerry.click('.chatroom-item.current-room');
       await afterSync();
 
       // Tom creates and broadcasts a simple flow talk from the dev-server origin.
@@ -278,7 +278,7 @@ test.describe('S3 embedded-node: browser peer <-> embedded-node desktop peer', (
         sendToChatroom: false,
       });
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item:has-text("Global")');
+      await pageTom.click('.chatroom-item.current-room');
       await afterSync();
 
       // Wait for the dev-server browser to see at least one other Gun peer —

@@ -26,7 +26,7 @@
  * and authorized (adb devices). See 05-android-device-boots.spec.ts's header for one-time phone
  * setup (USB debugging).
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -77,16 +77,25 @@ async function currentUserPub(page: Page): Promise<string> {
   return page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''));
 }
 
+/**
+ * Click through the DOM once the element is visible. Playwright's pointer click also waits for the
+ * element to be "stable" across animation frames, and a desktop window behind other windows gets
+ * none, so the click timed out in a sweep while the Contacts button sat ready (2026-10-16).
+ */
+async function domClick(locator: Locator): Promise<void> {
+  await expect(locator).toBeVisible({ timeout: 20_000 });
+  await locator.evaluate((element) => (element as HTMLElement).click());
+}
+
 async function askTechSupport(page: Page, question: string): Promise<void> {
-  await page.click('.nav-btn[data-view="contacts"]');
+  await domClick(page.locator('.nav-btn[data-view="contacts"]'));
   await afterNav();
   const supportRow = page.locator(`.contact-support-item[data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
-  await expect(supportRow).toBeVisible({ timeout: 20_000 });
-  await supportRow.locator('.contact-item-name').click();
+  await domClick(supportRow.locator('.contact-item-name'));
   await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
   await page.locator('#conversation-message-input').fill(question);
-  await page.locator('#send-conversation-message').click();
+  await domClick(page.locator('#send-conversation-message'));
   await expect(page.locator('#conversation-messages')).toContainText('will get back to you', { timeout: 15_000 });
 }
 

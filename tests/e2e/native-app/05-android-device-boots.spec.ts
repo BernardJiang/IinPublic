@@ -73,7 +73,10 @@ test.describe('Native app: Android device boot', () => {
       contentType: 'application/json',
     });
 
-    await expect(user.window.locator('#chatroom-list')).toContainText('Global', { timeout: 5_000 });
+    // The room list has no "Global" row since the Nearby/Places list (d0b9c444): the current room
+    // is "Your room" (or Global with no location), so check that the list rendered a room row.
+    // The Chatrooms tab may open on the map, so the list can be rendered but hidden.
+    await expect(user.window.locator('#chatroom-list .chatroom-item').first()).toBeAttached({ timeout: 15_000 });
     await expect(user.window.locator('body')).not.toContainText('Connecting to IinPublic network...', {
       timeout: 45_000,
     });

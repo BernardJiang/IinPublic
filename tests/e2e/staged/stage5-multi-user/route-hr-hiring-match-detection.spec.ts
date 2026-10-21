@@ -142,14 +142,14 @@ test.describe('Route talk: HR hiring — sender correctly detects match vs. mism
     const hrBoot = await bootstrapUser(hrBrowser, 'HR', 'HR Agent');
     hrContext = hrBoot.context;
     hrPage = hrBoot.page;
-    await hrPage.click('.chatroom-item:has-text("Global")');
+    await hrPage.click('.chatroom-item.current-room');
 
     await Promise.all(
       candidates.map(async (c) => {
         const boot = await bootstrapUser(c.browser, c.name, c.stageName);
         c.context = boot.context;
         c.page = boot.page;
-        await c.page.click('.chatroom-item:has-text("Global")');
+        await c.page.click('.chatroom-item.current-room');
       }),
     );
 

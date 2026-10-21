@@ -2,8 +2,8 @@
  * L3 acceptance increment: mesh re-forms after hub API loss mid-session.
  *
  * We simulate hub loss by aborting presence/member API calls in all three browsers,
- * tear down each peer's current overlay, rejoin with explicit peer IDs,
- * and verify mesh-ping still propagates.
+ * tear down each peer's current overlay, rejoin with explicit peer IDs (the mesh's explicit-members
+ * mode, as Contacts only uses; Nearby itself links on demand), and verify mesh-ping still propagates.
  */
 import { chromium, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
@@ -13,7 +13,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../helpers/talks-matching-browsers';
-import { bootstrapUser, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
+import { bootstrapUser, enableMeshForwarding, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 
 type MeshPingDiagnostics = {
@@ -109,67 +109,49 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
       String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
     );
 
+    // Pings relay through a third peer; that forwarding is opt-in (off by default).
+    await enableMeshForwarding([pageTom, pageJerry, pageBob]);
     await ensureMeshNeighbors([
       { label: 'Tom', page: pageTom, otherIds: [jerryId, bobId] },
       { label: 'Jerry', page: pageJerry, otherIds: [tomId, bobId] },
       { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
 
-    const p2pNodeEnabled = await pageTom.evaluate(() => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      return !!app?.p2pRuntimeFlags?.p2pNodeEnabled;
-    });
-
     await Promise.all([blockHubApi(pageTom), blockHubApi(pageJerry), blockHubApi(pageBob)]);
 
     // Tear down and re-form overlay after hub API loss.
-    await pageTom.evaluate(async ([jId, bId, selfOnlyMode]: [string, string, boolean]) => {
+    await pageTom.evaluate(async ([jId, bId]: [string, string]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      const members = selfOnlyMode
-        ? [{ userId: app.currentUser?.id }]
-        : [
-            { userId: app.currentUser?.id },
-            { userId: jId },
-            { userId: bId },
-          ];
-      await mesh.joinRoom(roomId, members);
-    }, [jerryId, bobId, p2pNodeEnabled]);
+      const members = [{ userId: app.currentUser?.id }, { userId: jId }, { userId: bId }];
+      // Explicit links to the named peers: Nearby's own mode links only on demand (§3.7).
+      await mesh.joinRoom(roomId, members, { personal: false, replace: true });
+    }, [jerryId, bobId]);
 
-    await pageJerry.evaluate(async ([tId, bId, selfOnlyMode]: [string, string, boolean]) => {
+    await pageJerry.evaluate(async ([tId, bId]: [string, string]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      const members = selfOnlyMode
-        ? [{ userId: app.currentUser?.id }]
-        : [
-            { userId: app.currentUser?.id },
-            { userId: tId },
-            { userId: bId },
-          ];
-      await mesh.joinRoom(roomId, members);
-    }, [tomId, bobId, p2pNodeEnabled]);
+      const members = [{ userId: app.currentUser?.id }, { userId: tId }, { userId: bId }];
+      // Explicit links to the named peers: Nearby's own mode links only on demand (§3.7).
+      await mesh.joinRoom(roomId, members, { personal: false, replace: true });
+    }, [tomId, bobId]);
 
-    await pageBob.evaluate(async ([tId, jId, selfOnlyMode]: [string, string, boolean]) => {
+    await pageBob.evaluate(async ([tId, jId]: [string, string]) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const mesh = app?.peerMeshService;
       if (!mesh) return;
       const roomId = mesh.getDiagnostics?.()?.roomId ?? 'global';
       mesh.leaveRoom?.();
-      const members = selfOnlyMode
-        ? [{ userId: app.currentUser?.id }]
-        : [
-            { userId: app.currentUser?.id },
-            { userId: tId },
-            { userId: jId },
-          ];
-      await mesh.joinRoom(roomId, members);
-    }, [tomId, jerryId, p2pNodeEnabled]);
+      const members = [{ userId: app.currentUser?.id }, { userId: tId }, { userId: jId }];
+      // Explicit links to the named peers: Nearby's own mode links only on demand (§3.7).
+      await mesh.joinRoom(roomId, members, { personal: false, replace: true });
+    }, [tomId, jerryId]);
 
     await expect
       .poll(
@@ -203,6 +185,21 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
         { timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Bob did not re-form neighbors' },
       )
       .toBeGreaterThan(0);
+
+    // Mesh frames go only to manifest-ready neighbors, and leaveRoom() cleared readiness; a ping
+    // sent before the re-formed links finish the manifest exchange would reach no one.
+    for (const [label, page] of [['Tom', pageTom], ['Jerry', pageJerry], ['Bob', pageBob]] as const) {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const app = (window as any).__iinpublic_app?.getApp?.() as any;
+              return app?.peerMeshService?.getDiagnostics?.()?.manifestReadyNeighborCount ?? 0;
+            }),
+          { timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: `${label}: no manifest-ready neighbor` },
+        )
+        .toBeGreaterThan(0);
+    }
 
     await afterAction();
     await afterSync();
@@ -243,34 +240,25 @@ test.describe('Mesh-ping with hub API down mid-session', () => {
         .toBe(true);
     }
 
+    // Pongs are addressed to Tom, and authoritative direct delivery never relays a
+    // recipient-addressed frame through a third peer (forwardFrame). So Tom hears a pong from each
+    // peer it is directly linked to; the relayed ping above already proves multi-hop reach.
     await expect
       .poll(
         () =>
-          pageTom.evaluate((jId: string) => {
+          pageTom.evaluate(() => {
             const app = (window as any).__iinpublic_app?.getApp?.() as any;
+            const mesh = app?.peerMeshService as any;
             const diag = app?.meshPingDiagnostics as MeshPingDiagnostics | undefined;
-            return diag?.pongedOrigins?.includes(jId) ?? false;
-          }, jerryId),
+            const linked = [...(mesh?.neighbors?.values?.() ?? [])]
+              .filter((neighbor: any) => neighbor.connected)
+              .map((neighbor: any) => String(neighbor.userId));
+            return linked.length > 0 && linked.every((userId) => diag?.pongedOrigins?.includes(userId));
+          }),
         {
           timeout: MESH_E2E_TIMEOUT_MS,
           intervals: [200, 400, 800],
-          message: 'Tom: no pong from Jerry after hub API loss',
-        },
-      )
-      .toBe(true);
-
-    await expect
-      .poll(
-        () =>
-          pageTom.evaluate((bId: string) => {
-            const app = (window as any).__iinpublic_app?.getApp?.() as any;
-            const diag = app?.meshPingDiagnostics as MeshPingDiagnostics | undefined;
-            return diag?.pongedOrigins?.includes(bId) ?? false;
-          }, bobId),
-        {
-          timeout: MESH_E2E_TIMEOUT_MS,
-          intervals: [200, 400, 800],
-          message: 'Tom: no pong from Bob after hub API loss',
+          message: 'Tom: no pong from a directly linked peer after hub API loss',
         },
       )
       .toBe(true);

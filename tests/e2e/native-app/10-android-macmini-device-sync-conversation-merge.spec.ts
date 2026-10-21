@@ -40,7 +40,6 @@ import { configuredAndroidDevices } from './helpers/android-device-config';
 import {
   bootstrapBrowserUserOnOrigin,
   bootstrapNativeWindow,
-  forceJoinGlobal,
   launchNativeUser,
   type NativeUser,
 } from './helpers/native-app';
@@ -257,15 +256,23 @@ test.describe('Native app: Android phone + MacMini Electron app link and merge t
     // 1. Website: an ordinary desktop browser user — the third party both the phone and the
     // MacMini app separately talk to, before either has ever heard of the other.
     websiteBrowser = await chromium.launch({ headless, slowMo: headless ? 0 : delay(50, 150) });
-    website = await bootstrapBrowserUserOnOrigin(websiteBrowser, `http://127.0.0.1:${WEB_PORT}`, 'Website', 'Website');
+    website = await bootstrapBrowserUserOnOrigin(
+      websiteBrowser,
+      `http://127.0.0.1:${WEB_PORT}`,
+      'Website',
+      'Website',
+      { waitForSupportGreeting: false },
+    );
 
     // 2. Android phone: an ordinary registered user with its own independent SEA identity.
     android = await launchAndroidUserViaAdb({ deviceSerial: ANDROID_SERIAL, hubGunUrl: lanHubUrl, resetAppData: true });
     android.window.on('console', (m) => console.log('[Android]:', m.text()));
     android.window.on('pageerror', (e) => console.log('[Android] pageerror:', e.message));
-    const androidId = await bootstrapNativeWindow(android.window, 'Android Phone', { readinessTimeoutMs: 110_000 });
+    const androidId = await bootstrapNativeWindow(android.window, 'Android Phone', {
+      waitForSupportGreeting: false,
+      readinessTimeoutMs: 110_000,
+    });
     expect(androidId).toBeTruthy();
-    await forceJoinGlobal(android.window);
 
     // 3. MacMini app (packaged Electron build): a second, completely independent SEA identity —
     // not yet linked to the phone at all.
@@ -273,9 +280,11 @@ test.describe('Native app: Android phone + MacMini Electron app link and merge t
     electron = await launchNativeUser({ localPort: ELECTRON_LOCAL_PORT, hubGunUrl: loopbackHubUrl, userDataDir });
     electron.window.on('console', (m) => console.log('[MacMini]:', m.text()));
     electron.window.on('pageerror', (e) => console.log('[MacMini] pageerror:', e.message));
-    const macId = await bootstrapNativeWindow(electron.window, 'MacMini', { readinessTimeoutMs: 110_000 });
+    const macId = await bootstrapNativeWindow(electron.window, 'MacMini', {
+      waitForSupportGreeting: false,
+      readinessTimeoutMs: 110_000,
+    });
     expect(macId).toBeTruthy();
-    await forceJoinGlobal(electron.window);
 
     // Baseline conversation count before seeding anything — every user auto-gets a TechSupport
     // welcome conversation at boot (CLAUDE.md: "TechSupport is the built-in first user"), so the

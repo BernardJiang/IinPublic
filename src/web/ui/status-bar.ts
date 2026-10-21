@@ -1,5 +1,19 @@
 import type { UiTranslationKey } from './ui-translations';
 
+/**
+ * Conversations that came from a match: they carry the matched Talk's id. Support channels and
+ * plain DMs opened by tapping a person (talkId 'direct', rule N2a) are not matches — counting the
+ * DM made one tap on a stranger show "1 match" on both people's status bars (phone-path 04,
+ * 2026-10-14).
+ */
+export function countMatchConversations(conversations: Record<string, unknown>): number {
+  return Object.values(conversations).filter((conversation) => {
+    if (!conversation || typeof conversation !== 'object') return false;
+    const { supportChannel, talkId } = conversation as { supportChannel?: unknown; talkId?: unknown };
+    return supportChannel !== true && !!talkId && talkId !== 'direct';
+  }).length;
+}
+
 export type UpdateStatusBarDeps = {
   tf: (key: UiTranslationKey, vars: Record<string, string | number>) => string;
   getTotalMatches: () => number;
@@ -32,7 +46,31 @@ export function updateStatusBar(
     );
     text += ` · ${matchText}`;
   }
-  statusBarText.textContent = text;
+  renderStatusBar(statusBarText, text);
+}
+
+/**
+ * Two short lines that always fit between the app-bar buttons: the room name (bold), then
+ * "N users · M matches" (small). The full line stays in the element's text (" · " separator kept
+ * for screen readers and tests) and in its tooltip; tapping toggles a wrapped, fully readable view.
+ */
+function renderStatusBar(element: HTMLElement, text: string): void {
+  const [name = '', ...rest] = text.split(' · ');
+  const nameEl = document.createElement('span');
+  nameEl.className = 'status-bar-name';
+  nameEl.textContent = name;
+  const sep = document.createElement('span');
+  sep.className = 'status-bar-sep';
+  sep.textContent = ' · ';
+  const metaEl = document.createElement('span');
+  metaEl.className = 'status-bar-meta';
+  metaEl.textContent = rest.join(' · ');
+  element.replaceChildren(nameEl, ...(rest.length > 0 ? [sep, metaEl] : []));
+  element.title = text;
+  if (!element.dataset.expandBound) {
+    element.dataset.expandBound = 'true';
+    element.addEventListener('click', () => element.classList.toggle('status-bar-expanded'));
+  }
 }
 
 /**
@@ -54,8 +92,8 @@ export function syncStatusBarMatchCount(deps: UpdateStatusBarDeps): void {
       totalMatches === 1 ? 'statusBarMatch' : 'statusBarMatches',
       { count: totalMatches },
     );
-    statusBarText.textContent = `${base} · ${matchText}`;
+    renderStatusBar(statusBarText, `${base} · ${matchText}`);
   } else {
-    statusBarText.textContent = base;
+    renderStatusBar(statusBarText, base);
   }
 }

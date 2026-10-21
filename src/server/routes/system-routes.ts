@@ -4,6 +4,7 @@ import type express from 'express';
 import { logger } from '../logger';
 import { clearExactChatbotMemoryCacheForTesting } from '../exact-chatbot-memory-store';
 import { buildGraphSizeReport, unboundedGrowthCategories } from '../../shared/graph-size-report';
+import { runPortableCoreContracts } from '../../shared/portable-core-contracts';
 import type { GunService } from '../services/gun-service';
 import {
   applyP2PNeighborCacheAction,
@@ -77,8 +78,13 @@ import {
   verifyTargetedDelegateInvite,
 } from '../../shared/techsupport-delegate-invite';
 import { isTrustedDmPubWithRecovery } from '../../shared/techsupport-recovery';
-import { MicroRoomControlStore } from '../services/micro-room-control-store';
-import { NearbyControlStore } from '../services/nearby-control-store';
+import { NearbyV3Hub } from '../services/nearby-v3-hub';
+import { NearbyAttestor } from '../services/nearby-attestor';
+import { NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
+import { hubNearbyV3Config, registerNearbyV3Routes } from './nearby-v3-routes';
+import { captureRuntimeWindow } from '../services/runtime-profiler';
+import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
+import { isPlaceRoomId } from '../../shared/place-rooms';
 import {
   FAQ_ENTRIES_ROOT,
   faqEntryRecordPath,
@@ -151,6 +157,12 @@ type RegisterSystemRoutesDeps = {
   abuseDefenseConfig?: import('../../shared/p2p-abuse-defense').AbuseDefenseConfig;
   /** S3 explicit relay mode: embedded local nodes mirror relay-only metadata upstream. */
   hubRelayClient?: EmbeddedHubRelayClientLike;
+  /** The room list (shared/active-rooms.ts): Place pins from the room manager; counts come from the v3 hub. */
+  activeRoomSource?: {
+    placeOf: (roomId: string) => Promise<{ name: string; latitude?: number; longitude?: number } | undefined>;
+  };
+  /** A member's card for a Place reached the v3 hub: keep the Place live (§4.2). */
+  onPlaceActive?: (placeId: string) => void;
   /** Durable, radisk-backed store for the support message thread — see
    * techsupport-durable-store.ts's doc comment. Falls back to the plain in-memory
    * TechSupportMessageStore when omitted (test callers that don't need real persistence). */
@@ -160,6 +172,46 @@ type RegisterSystemRoutesDeps = {
   /** OPEN-29 test seam; production always uses signature verification rooted in compiled anchors. */
   verifyTechSupportRecoveryAnchor?: (value: unknown) => Promise<RecoveryAnchorRecord | null>;
 };
+
+/**
+ * The unit files that run unchanged on a phone (src/test/support/portable-jest; built by
+ * scripts/build-portable-core-test-bundle.mjs). Three levels up from this file is dist/ on the
+ * host and nodejs-project/ in the app; only debug APKs carry device-tests/ (android/app/src/debug
+ * /assets), so a release build reports null. The path is fixed: no request input chooses code.
+ */
+async function runPortableJestBundle(): Promise<unknown> {
+  const bundle = path.resolve(__dirname, '..', '..', '..', 'device-tests', 'portable-jest-node.cjs');
+  if (!fs.existsSync(bundle)) return null;
+  // In a worker thread: the unit files spy on globals and fake setTimeout/Date, which inside this
+  // process would capture the live node's own timers (Gun, presence, relays) and lose them.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { Worker } = require('worker_threads') as typeof import('worker_threads');
+  const worker = new Worker(
+    // A test's stray async error must not end the run (a worker dies on one where this process
+    // has its own handlers, and host Jest carries on); the report lists them instead.
+    `const { parentPort, workerData } = require('worker_threads');
+     const unhandledErrors = [];
+     const record = (error) => { if (unhandledErrors.length < 20) unhandledErrors.push(String(error && error.stack || error).slice(0, 400)); };
+     process.on('unhandledRejection', record);
+     process.on('uncaughtException', record);
+     require(workerData.bundle).runPortableJest().then(
+       (report) => parentPort.postMessage({ report: { ...report, unhandledErrors } }),
+       (error) => parentPort.postMessage({ error: String(error && error.stack || error) }),
+     );`,
+    { eval: true, workerData: { bundle } },
+  );
+  try {
+    const message = await new Promise<{ report?: unknown; error?: string }>((resolve, reject) => {
+      worker.once('message', resolve);
+      worker.once('error', reject);
+      worker.once('exit', (code) => reject(new Error(`portable Jest worker exited with code ${code}`)));
+    });
+    if (message.error) throw new Error(message.error);
+    return message.report;
+  } finally {
+    void worker.terminate();
+  }
+}
 
 export function registerSystemRoutes(
   app: express.Application,
@@ -171,6 +223,8 @@ export function registerSystemRoutes(
     nodeEnv,
     abuseDefenseConfig,
     hubRelayClient,
+    activeRoomSource,
+    onPlaceActive,
     techSupportStore,
     verifyTechSupportDelegateGrant = verifyDelegateGrant,
     verifyTechSupportRecoveryAnchor = verifyRecoveryAnchor,
@@ -188,8 +242,10 @@ export function registerSystemRoutes(
   const relayByConversation = new Map<string, DirectP2PMessageEnvelope[]>();
   const signalingByConversation = new Map<string, SignalingRelayFrame[]>();
   const presenceByUserId = new Map<string, PresenceRecord>();
-  const microRoomControlStore = new MicroRoomControlStore();
-  const nearbyControlStore = new NearbyControlStore();
+  const nearbyV3Hub = new NearbyV3Hub(hubNearbyV3Config(), Date.now(), (placeId) => onPlaceActive?.(placeId));
+  const nearbyKnockMailbox = new NearbyKnockMailbox();
+  let nearbyAttestor: NearbyAttestor | null = null;
+  const getNearbyAttestor = () => (nearbyAttestor ??= new NearbyAttestor());
   const peerAckInbox = new Map<string, PeerAckMessage[]>();
   const peerAckNonces = new BoundedNonceCache();
   const relayNonces = new BoundedNonceCache();
@@ -336,108 +392,53 @@ export function registerSystemRoutes(
     res.json({ peers, count: peers.length });
   });
 
-  app.get('/api/micro-rooms/control/:controlScopeId/certificates', (req, res) => {
-    const controlScopeId = String(req.params.controlScopeId || '');
-    if (!/^grid_[a-f0-9]{24}_control_v1$/.test(controlScopeId)) {
-      res.status(400).json({ error: 'invalid micro-room control scope' });
+  // Forward to the hub when this node is a relay (phones), else answer locally.
+  const relayToHub = async (res: express.Response, path: string, method: 'GET' | 'POST', body?: unknown, timeoutMs?: number): Promise<boolean> => {
+    if (!hubRelayClient?.forwardHubApi) return false;
+    try {
+      const relayed = await hubRelayClient.forwardHubApi(path, method, body, timeoutMs);
+      res.status(relayed.status).json(relayed.body);
+    } catch (error) {
+      res.status(503).json({ error: (error as Error).message });
+    }
+    return true;
+  };
+
+  // Nearby v3 (docs/design/nearby-and-place-chatrooms.md §3.7): cards, introductions, statistics.
+  registerNearbyV3Routes(app, { hub: nearbyV3Hub, knocks: nearbyKnockMailbox, attestor: getNearbyAttestor, relay: relayToHub });
+
+  // Room list: every room with ≥ 1 person, nearest first (or busiest / most room), paged.
+  app.get('/api/active-rooms', async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const passthrough = new URLSearchParams(Object.entries(query)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+    if (await relayToHub(res, `/api/active-rooms?${passthrough}`, 'GET')) return;
+    if (!activeRoomSource) {
+      res.json({ totalOnline: 0, totalRooms: 0, rooms: [], hasMore: false });
       return;
     }
-    const fromGeneration = Number(req.query.fromGeneration ?? 0);
-    if (!Number.isSafeInteger(fromGeneration) || fromGeneration < 0 || fromGeneration > 20) {
-      res.status(400).json({ error: 'invalid micro-room split generation' });
-      return;
-    }
-    const allCertificates = microRoomControlStore.list(controlScopeId);
-    const certificates = allCertificates.filter((certificate) =>
-      certificate.fromSplitGeneration >= fromGeneration);
-    const highestSplitGeneration = allCertificates.length > 0
-      ? allCertificates[allCertificates.length - 1]!.fromSplitGeneration
-      : -1;
-    res.json({ certificates, highestSplitGeneration });
-  });
-
-  app.post('/api/micro-rooms/control/certificates', async (req, res) => {
-    try {
-      const baseGridRoomId = String(req.body?.baseGridRoomId || '');
-      if (!baseGridRoomId || baseGridRoomId.length > 256) {
-        res.status(400).json({ error: 'invalid micro-room base grid' });
-        return;
-      }
-      const certificates = await microRoomControlStore.publishCertificates(
-        baseGridRoomId,
-        Array.isArray(req.body?.certificates) ? req.body.certificates : [],
-      );
-      res.json({ certificates });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.post('/api/micro-rooms/control/presence', async (req, res) => {
-    try {
-      const baseGridRoomId = String(req.body?.baseGridRoomId || '');
-      if (!baseGridRoomId || baseGridRoomId.length > 256) {
-        res.status(400).json({ error: 'invalid micro-room base grid' });
-        return;
-      }
-      if (Array.isArray(req.body?.certificates)) {
-        await microRoomControlStore.publishCertificates(baseGridRoomId, req.body.certificates);
-      }
-      const registration = await microRoomControlStore.register(
-        baseGridRoomId,
-        req.body?.presence,
-      );
-      res.json(registration);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.get('/api/nearby-control/:controlScopeId/certificates', (req, res) => {
-    const controlScopeId = String(req.params.controlScopeId || '');
-    if (!/^nearby_[a-f0-9]{24}_control_v1$/.test(controlScopeId)) {
-      res.status(400).json({ error: 'invalid Nearby control scope' });
-      return;
-    }
-    const roomId = String(req.query.roomId || '');
-    const requestedSplitGeneration = Number(req.query.requestedSplitGeneration);
-    if (!roomId || roomId.length > 256
-      || !Number.isSafeInteger(requestedSplitGeneration)
-      || requestedSplitGeneration < 0
-      || requestedSplitGeneration > 20) {
-      res.status(400).json({ error: 'Nearby room and requested split generation are required' });
-      return;
-    }
-    res.json({
-      certificates: nearbyControlStore.listForRoom(
-        controlScopeId,
-        roomId,
-        requestedSplitGeneration,
-      ),
-    });
-  });
-
-  app.post('/api/nearby-control/certificates', async (req, res) => {
-    try {
-      const certificates = await nearbyControlStore.publishCertificates(
-        Array.isArray(req.body?.certificates) ? req.body.certificates : [],
-      );
-      res.json({ certificates });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.post('/api/nearby-control/presence', async (req, res) => {
-    try {
-      if (Array.isArray(req.body?.certificates)) {
-        await nearbyControlStore.publishCertificates(req.body.certificates);
-      }
-      const registration = await nearbyControlStore.register(req.body?.presence);
-      res.json(registration);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
+    const latitude = Number(query.lat);
+    const longitude = Number(query.lng);
+    const origin = Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+      ? { latitude, longitude }
+      : undefined;
+    const rooms = nearbyV3Hub.placeCounts().map(({ placeId, count }) => ({ roomId: placeId, memberCount: count }));
+    const places = new Map<string, { name: string; latitude?: number; longitude?: number }>();
+    await Promise.all(rooms.filter((room) => isPlaceRoomId(room.roomId)).map(async (room) => {
+      const place = await activeRoomSource.placeOf(room.roomId).catch(() => undefined);
+      if (place) places.set(room.roomId, place);
+    }));
+    const currentRoomId = typeof query.current === 'string' ? query.current : undefined;
+    res.json(summarizeActiveRooms({
+      rooms,
+      totalOnline: nearbyV3Hub.online(),
+      placeOf: (roomId) => places.get(roomId),
+      ...(origin ? { origin } : {}),
+      ...(currentRoomId ? { currentRoomId } : {}),
+      offset: Number(query.offset) || 0,
+      ...(Number(query.limit) > 0 ? { limit: Number(query.limit) } : {}),
+      ...(isActiveRoomSort(query.sort) ? { sort: query.sort } : {}),
+    }));
   });
 
   app.post('/api/presence/ack', async (req, res) => {
@@ -681,6 +682,9 @@ export function registerSystemRoutes(
         { cachedAt: lastNonEmptyDelegateRoster.at },
         '[OPEN-32] /api/support/delegate-grants read back completely empty — serving the last known non-empty roster instead of regressing every client to "grant missing"',
       );
+      // Lets the durable root-cause watcher (scripts/monitor-delegate-roster.sh) see the glitch
+      // even though clients keep getting the cached roster.
+      res.setHeader('X-IinPublic-Roster-Source', 'cache');
       res.json({
         grants: Array.from(lastNonEmptyDelegateRoster.grants.values()),
         revocations: Array.from(lastNonEmptyDelegateRoster.revocations.values()),
@@ -690,6 +694,7 @@ export function registerSystemRoutes(
     if (byPub.size > 0 || revocations.size > 0) {
       lastNonEmptyDelegateRoster = { grants: byPub, revocations, at: new Date().toISOString() };
     }
+    res.setHeader('X-IinPublic-Roster-Source', 'fresh');
     res.json({
       grants: Array.from(byPub.values()),
       revocations: Array.from(revocations.values()),
@@ -719,6 +724,17 @@ export function registerSystemRoutes(
         const remote = await hubRelayClient.listDelegateGrants();
         currentCandidates.push(...remote);
       }
+      // OPEN-32: the same transient empty read that once emptied the GET roster could make an
+      // existing grant look absent here and let an older grant overwrite it. The last verified
+      // roster can only ADD rollback protection (a cached grant never authorizes a write), so it
+      // always takes part in this check.
+      if (lastNonEmptyDelegateRoster) {
+        const cached = lastNonEmptyDelegateRoster.grants.get(grant.delegatePub);
+        if (cached) currentCandidates.push(cached);
+        for (const revocation of lastNonEmptyDelegateRoster.revocations.values()) {
+          if (revocation.delegatePub === grant.delegatePub) currentCandidates.push(revocation);
+        }
+      }
       let current: TechSupportDelegateGrant | null = null;
       for (const raw of currentCandidates) {
         const candidate = await verifyTechSupportDelegateGrant(raw);
@@ -735,6 +751,22 @@ export function registerSystemRoutes(
       }
       if (hubRelayClient?.postDelegateGrant) {
         await hubRelayClient.postDelegateGrant(grant);
+      }
+      // Keep the OPEN-32 cache current, so a later empty read never serves a grant this write
+      // superseded (e.g. hides a revocation that was just stored).
+      if (lastNonEmptyDelegateRoster) {
+        lastNonEmptyDelegateRoster.grants.set(grant.delegatePub, grant);
+        if (grant.revokedAt) {
+          lastNonEmptyDelegateRoster.revocations.set(`${grant.delegatePub}|${grant.issuedAt}|${grant.revokedAt}`, grant);
+        }
+      } else {
+        lastNonEmptyDelegateRoster = {
+          grants: new Map([[grant.delegatePub, grant]]),
+          revocations: grant.revokedAt
+            ? new Map([[`${grant.delegatePub}|${grant.issuedAt}|${grant.revokedAt}`, grant]])
+            : new Map(),
+          at: new Date().toISOString(),
+        };
       }
       res.json({ stored: true, delegatePub: grant.delegatePub, revoked: !!grant.revokedAt });
     } catch (error) {
@@ -1116,6 +1148,46 @@ export function registerSystemRoutes(
 
   // Test-only endpoints (non-production only)
   if (nodeEnv !== 'production') {
+    // OPEN-59: fixed, read-only core parity suite for the Android embedded Node runtime.
+    // The native shell sets this explicit flag only for a debug APK launched by the E2E harness.
+    // There is deliberately no arbitrary-code or arbitrary-module input. Require loopback as a
+    // second boundary because this endpoint is meaningful only to the WebView/adb harness on the
+    // same device, never to LAN or Internet peers.
+    if (process.env.IINPUBLIC_E2E_PORTABLE_CORE === '1') {
+      app.get('/api/test/portable-core', (req, res) => {
+        const remoteAddress = String(req.socket.remoteAddress || '');
+        const isLoopback = remoteAddress === '127.0.0.1'
+          || remoteAddress === '::1'
+          || remoteAddress === '::ffff:127.0.0.1';
+        if (!isLoopback) {
+          res.status(403).json({ error: 'Portable core tests are loopback-only' });
+          return;
+        }
+        void (async () => {
+          res.json({
+            runtime: 'embedded-node',
+            node: process.version,
+            report: runPortableCoreContracts(),
+            jest: await runPortableJestBundle(),
+          });
+        })().catch((error) => res.status(500).json({ error: (error as Error).message }));
+      });
+    }
+
+    // OPEN-73: what this node does over a window (CPU profile, event-loop use, requests by route).
+    // Loopback-only: meant for adb-forwarded profiling of a phone's embedded node.
+    app.get('/api/debug/runtime-window', (req, res) => {
+      const remoteAddress = String(req.socket.remoteAddress || '');
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remoteAddress)) {
+        res.status(403).json({ error: 'runtime window is loopback-only' });
+        return;
+      }
+      const seconds = Math.max(1, Math.min(120, Number(req.query.seconds) || 30));
+      void captureRuntimeWindow(seconds, req.query.profile !== '0')
+        .then((report) => res.json(report))
+        .catch((error) => res.status(500).json({ error: (error as Error).message }));
+    });
+
     // P2P-V: abuse defense diagnostics (non-secret — no private keys or message bodies)
     app.get('/api/debug/p2p-abuse', (_req, res) => {
       res.json(abuseCtx.getDiagnostics());
@@ -1317,7 +1389,9 @@ export function registerSystemRoutes(
           logger.info('Clearing Gun.js in-memory database...');
           gun._.graph = {};
           if (gunService) clearExactChatbotMemoryCacheForTesting(gunService);
-          microRoomControlStore.clear();
+          nearbyV3Hub.clear();
+          nearbyKnockMailbox.clear();
+          nearbyAttestor?.clear();
           clearForTesting?.();
           await onClearDatabase?.();
           const radiskDirs = clearRadiskOnDisk();

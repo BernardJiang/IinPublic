@@ -53,7 +53,7 @@ export async function getReputation(page: Page, userId: string, viewerId: string
 
 export async function enterGlobalChatroom(page: Page): Promise<void> {
   await ensureChatroomList(page);
-  await page.click('.chatroom-item:has-text("Global")');
+  await page.click('.chatroom-item.current-room');
   await page.waitForSelector('.chatroom-member-item', { timeout: 15000 });
   await afterSync();
 }

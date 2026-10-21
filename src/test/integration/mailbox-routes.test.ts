@@ -301,4 +301,53 @@ describe('mailbox routes', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('GET /api/mailbox/:recipientId/wait (OPEN-44 long-poll)', () => {
+    it('answers at once when an envelope newer than `since` exists, with ids only', async () => {
+      const { app } = buildApp();
+      await request(app).post('/api/mailbox/sleeper').send({ id: 'env_wait_1', ciphertext: FAKE_CIPHERTEXT });
+      const res = await request(app).get('/api/mailbox/sleeper/wait').query({ timeoutMs: 50 });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ changed: true, ids: ['env_wait_1'] });
+      expect(typeof res.body.latest).toBe('string');
+      expect(JSON.stringify(res.body)).not.toContain('fakeblob');
+    });
+
+    it('holds the request until an envelope is posted for that recipient', async () => {
+      const { app } = buildApp();
+      const first = await request(app).get('/api/mailbox/sleeper/wait').query({ timeoutMs: 50 });
+      expect(first.body).toMatchObject({ changed: false, ids: [] });
+      const since = new Date(Date.now() - 1).toISOString();
+      const waiting = request(app).get('/api/mailbox/sleeper/wait').query({ since, timeoutMs: 5_000 }).then((r) => r);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Another recipient's mail does not wake it.
+      await request(app).post('/api/mailbox/someone-else').send({ id: 'env_other', ciphertext: FAKE_CIPHERTEXT });
+      const started = Date.now();
+      await request(app).post('/api/mailbox/sleeper').send({ id: 'env_wake', ciphertext: FAKE_CIPHERTEXT });
+      const res = await waiting;
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(res.body).toMatchObject({ changed: true, ids: ['env_wake'] });
+    });
+
+    it('times out with changed:false when nothing arrives', async () => {
+      const { app } = buildApp();
+      const since = new Date().toISOString();
+      const res = await request(app).get('/api/mailbox/sleeper/wait').query({ since, timeoutMs: 60 });
+      expect(res.body).toMatchObject({ changed: false });
+    });
+
+    it('an embedded node forwards the wait to the hub and returns the hub answer', async () => {
+      const app = express();
+      app.use(express.json());
+      const hubRelayClient = {
+        postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
+        listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
+        waitMailbox: jest.fn().mockResolvedValue({ changed: true, ids: ['hub_env'], latest: '2026-10-11T00:00:00.000Z' }),
+      };
+      registerMailboxRoutes(app, { mailboxStore: new MailboxStore(), hubRelayClient: hubRelayClient as never, nodeEnv: 'test' });
+      const res = await request(app).get('/api/mailbox/sleeper/wait').query({ since: '2026-10-10T00:00:00.000Z', timeoutMs: 5_000 });
+      expect(res.body).toEqual({ changed: true, ids: ['hub_env'], latest: '2026-10-11T00:00:00.000Z' });
+      expect(hubRelayClient.waitMailbox).toHaveBeenCalledWith('sleeper', '2026-10-10T00:00:00.000Z', 5_000, expect.anything());
+    });
+  });
 });

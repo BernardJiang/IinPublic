@@ -117,19 +117,19 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     const alice = await bootstrapUser(browserAlice, 'Alice', 'Alice');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterSync();
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     // 2) Alice creates tag "Coffee"
     console.log('\n📍 STEP 2: Alice creates tag "' + TAG_COFFEE + '"');
     await ensureChatroomList(pageAlice);
-    await pageAlice.click('.chatroom-item:has-text("Global")');
+    await pageAlice.click('.chatroom-item.current-room');
     await afterNav();
 
     await pageAlice.click('#create-talk-btn');

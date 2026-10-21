@@ -1,6 +1,5 @@
 import {
   User,
-  GPSCoordinate,
   QuestionAnswer,
   KnownPerson,
   RelationshipLabel,
@@ -8,6 +7,7 @@ import {
   type Reputation,
   type Tag,
 } from '../../shared/types';
+import { publicLocationRegion, type PublicLocation } from '../../shared/public-location';
 import { LocationPrivacy } from '../../shared/location';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { v4 as uuidv4 } from 'uuid';
@@ -318,6 +318,7 @@ export class WebUserService {
     // enforcement, so keep it only in the owner-encrypted preference record and linked-device sync.
     const publicTalkFilters = { ...talkFilters };
     delete publicTalkFilters.contactsOnlyTalks;
+    delete publicTalkFilters.residentsOnlyTalks;
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${userId}`, {
       filtersJson: JSON.stringify(publicTalkFilters),
     });
@@ -627,7 +628,9 @@ export class WebUserService {
     // synced); never let its Gun metadata or a missing id leak out — callers merge, not replace.
     const raw = ((await this.gunService.get(`users/${userId}`)) ?? {}) as User & { _?: unknown };
     const { _: _gunMeta, ...rest } = raw;
-    const user = { ...rest, id: userId } as User;
+    // Contacts are private-only: the public record's `knownPeople: []` comes back from Gun as a
+    // node reference object, which must never stand in for the list when there is no private data.
+    const user = { ...rest, id: userId, knownPeople: Array.isArray(rest.knownPeople) ? rest.knownPeople : [] } as User;
     const reputation = await this.readReputationSubNode(userId);
     const publicProfile = await this.mergePublicProfileFoundation({ ...user, reputation });
     const merged = await this.mergePrivateUserData(publicProfile.user);
@@ -639,11 +642,14 @@ export class WebUserService {
     };
   }
 
-  async updateUserLocation(userId: string, location: GPSCoordinate): Promise<void> {
-    const blurredLocation = LocationPrivacy.blurLocation(location);
+  /**
+   * Publish the public home square (shared/public-location.ts) at the user's privacy setting.
+   * `null` (Contacts only / Location off) clears the public record instead of leaving a stale one.
+   */
+  async updateUserLocation(userId: string, location: PublicLocation | null): Promise<void> {
     await this.gunService.put(
       `users/${userId}/location`,
-      LocationPrivacy.sanitizeBlurredLocation(blurredLocation),
+      LocationPrivacy.sanitizeBlurredLocation({ region: location ? publicLocationRegion(location) : '', chatrooms: [] }),
     );
   }
 

@@ -9,7 +9,7 @@ const getEnv = (key: string, defaultValue: string): string => {
 /**
  * Read a URL search param at module load time (browser only, non-production).
  * Allows e2e tests to override specific CONFIG values per page by navigating to
- * `/?e2e_capacity=3&e2e_fifo=true` without needing a separate webpack build.
+ * `/?e2e_capacity=3` without needing a separate webpack build.
  * Returns null on server / in production.
  */
 const e2eUrlParam = (key: string): string | null => {
@@ -23,27 +23,27 @@ const e2eUrlParam = (key: string): string | null => {
 
 export const CONFIG = {
   // Chatroom settings
-  // Capacity/FIFO rule (one rule for the web bundle, the Node server and the embedded apps):
-  //   release (default)  -> 498, FIFO on
-  //   local debug        -> 3, FIFO on   (webpack `--mode development` and the dev:* scripts bake/export it)
-  //   tests              -> whatever they pass explicitly (CHATROOM_MAX_CAPACITY / CHATROOM_ENABLE_FIFO env,
-  //                         or `?e2e_capacity=` / `?e2e_fifo=` on the page URL)
+  // Capacity C (one rule for the web bundle, the Node server and the embedded apps): the size of
+  // each Nearby list and of a Place.
+  //   release (default)  -> 498
+  //   local debug        -> 3   (webpack `--mode development` and the dev:* scripts bake/export it)
+  //   tests              -> whatever they pass explicitly (CHATROOM_MAX_CAPACITY env or `?e2e_capacity=`)
   // The `process.env.X` reads are static on purpose so webpack can inline them in the browser bundle.
   CHATROOM_MAX_CAPACITY: parseInt(
     e2eUrlParam('e2e_capacity') || process.env.CHATROOM_MAX_CAPACITY || '498',
     10,
   ),
-  CHATROOM_ENABLE_FIFO:
-    (e2eUrlParam('e2e_fifo') || process.env.CHATROOM_ENABLE_FIFO || 'true') !== 'false',
   /**
-   * Two-way routing (docs/design/room-tree-routing.md §4): a thin room promotes its members up
-   * after this dwell (plus up to 60 s jitter), and an eviction blocks promotion back into that room
-   * for this base cooldown (doubling per repeat eviction, capped at 4 h). E2E: `?e2e_promote_ms=`,
-   * `?e2e_cooldown_ms=`.
+   * Contacts a user needs before creating a Place (docs/design/nearby-and-place-chatrooms.md §4.2):
+   * 100 in release; 3 in local debug (webpack dev builds bake it) and in Android debug APKs
+   * (`?app_debug=1`). E2E bundles bake 0 unless a spec passes `?e2e_place_min_contacts=`.
    */
-  CHATROOM_PROMOTE_DWELL_MS: parseInt(e2eUrlParam('e2e_promote_ms') || '180000', 10),
-  CHATROOM_PROMOTE_JITTER_MS: e2eUrlParam('e2e_promote_ms') ? 0 : 60_000,
-  CHATROOM_EVICTION_COOLDOWN_MS: parseInt(e2eUrlParam('e2e_cooldown_ms') || '900000', 10),
+  PLACE_CREATE_MIN_CONTACTS: parseInt(
+    e2eUrlParam('e2e_place_min_contacts')
+      || process.env.PLACE_CREATE_MIN_CONTACTS
+      || (e2eUrlParam('app_debug') === '1' ? '3' : '100'),
+    10,
+  ),
   GLOBAL_CHATROOM_ID: 'global',
   /** Non-geographic overflow family for Global participants who have no confirmed location. */
   GLOBAL_UNKNOWN_CHATROOM_ID: 'global-unknown',

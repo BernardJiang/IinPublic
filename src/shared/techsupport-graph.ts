@@ -16,8 +16,6 @@ export function techSupportBaselineGraph(now: Date = new Date()): Record<string,
   const state = now.getTime();
   const filters = {
     allowedLanguages: ['en'],
-    minDistanceMiles: 0,
-    maxDistanceMiles: 50,
     requireGoodGrammar: true,
     blockDirtyWords: true,
     allowedTalkTypes: ['flow', 'survey', 'tag', 'route'],

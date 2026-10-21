@@ -4,21 +4,19 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterNav, delay, headless } from '../../helpers/timing';
-import { webBaseURL, gunBaseURL } from '../../helpers/ports';
+import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { readLocalConversationMessages } from '../../helpers/p2p-transport-e2e';
 
 const TAMPER_SNIPPET = 'CLICK HERE for a free prize';
 
-async function readGreetingText(userId: string): Promise<string | undefined> {
-  const res = await fetch(`${gunBaseURL()}/api/test/export-snapshot`);
-  expect(res.ok).toBeTruthy();
-  const snapshot = (await res.json()) as { gunGraph?: Record<string, any> };
-  const suffix = `/messages/support_welcome_${userId}`;
-  const [, record] = Object.entries(snapshot.gunGraph || {}).find(([soul]) => soul.endsWith(suffix)) || [];
-  return (record as any)?.text;
+/** The greeting lives only in the receiver's own local Gun (K2-2), never on the hub. */
+async function readGreetingText(page: Page, userId: string): Promise<string | undefined> {
+  const messages = await readLocalConversationMessages(page, `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${userId}`);
+  return messages.find((message) => message?.id === `support_welcome_${userId}`)?.text;
 }
 
 test.describe('TechSupport — tampered greeting suppressed, never rendered (docs/TODO.md K2-3)', () => {
@@ -56,8 +54,8 @@ test.describe('TechSupport — tampered greeting suppressed, never rendered (doc
     const conversationId = `conv_support_${TECHSUPPORT_ROOT_USER_ID}_${userId}`;
 
     // Let the real, genuinely-signed greeting land first (K2's normal path).
-    await expect.poll(() => readGreetingText(userId), { timeout: 15_000 }).toEqual(expect.any(String));
-    const originalText = (await readGreetingText(userId))!;
+    await expect.poll(() => readGreetingText(page, userId), { timeout: 15_000 }).toEqual(expect.any(String));
+    const originalText = (await readGreetingText(page, userId))!;
     expect(originalText).toContain('Welcome to IinPublic');
 
     // A contact click lands on the DM conversation directly (redesign §5, rule N2a) — there

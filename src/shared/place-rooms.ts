@@ -1,7 +1,6 @@
 /**
  * Custom ("place") rooms are LOCAL: each is anchored to the creator's blurred ~1 km GPS cell and
- * lives in the tile tree under that cell's bottom-layer (L4, ~78 km) tile, so eviction and
- * promotion walk it like any other room (docs/design/local-business-rooms.md §3).
+ * is listed under that cell's bottom-layer (L4, ~78 km) tile (docs/design/local-business-rooms.md §3).
  *
  * The anchor is part of the id — `place_<cellLat>_<cellLng>_<hash>` — so every peer derives the
  * room's place in the tree from the id alone. The cell is the already-blurred privacy grid

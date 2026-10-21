@@ -12,7 +12,7 @@ covers: SPEC-13.1  <!-- auto-seeded; refine by hand -->
 A single-user sweep of the entire app shell, verifying each tab and all settings surfaces.
 
 1. **Bottom navigation:** Exactly five tabs — Chatrooms, Contacts, Talks, Me, Settings (no Answers/Statistics tabs).
-2. **Chatrooms tab:** Verifies action bar buttons (New Room, Return Home, Broadcast), no headcount in status bar when empty, duplicate-visit guard (re-joining Global doesn't increment visitCount), Asia room switching, return-home restores correct active-room highlight.
+2. **Chatrooms tab:** Verifies action bar buttons (New Room, Return Home, Broadcast), no headcount in status bar when empty, 🏠 Return Home disabled at boot (the user starts in their own Nearby room), duplicate-visit guard (re-joining the current Nearby room doesn't increment visitCount). Settings: sent-after lives under Talk behavior; Location shows the location source and Nearby privacy (the home-room picker is retired).
 3. **Contacts tab:** Empty state shows "0 contacts from exchanged talks", action bar visible.
 4. **Talks tab — creator replies panel:** Seeds 30 synthetic reply exchanges into localStorage. Verifies pagination (25 of 30 → load more → 30), language filter (zh → 15 rows), group-order toggle, filter persistence to localStorage, and clear-filters reset.
 5. **Me tab:** Shows "Answered question history", filter buttons (All/Auto/Manual/Conditional), no settings controls in Me view.
@@ -29,7 +29,7 @@ A single-user sweep of the entire app shell, verifying each tab and all settings
 - ✅ Me tab merged into Talks — no separate Answers tab; answer history with mode filters visible
 - ✅ Settings controls full surface area: distance bounds, stage name length, photo MIME validation
 - ✅ UI language switch to Chinese propagates to nav labels, persistently stored in localStorage
-- ✅ Copy-talk autosave toggle controls whether answered talks appear in Talks OUT list
+- ✅ Answering a Flow talk never copies it into Talks OUT; the copy-talk autosave toggle controls whether accepted tags are copied
 - ✅ Legacy profile with string-valued fields tolerated and migrated gracefully
 - ✅ Broadcast repeat-sender guard suppresses unchanged talk re-sends
 

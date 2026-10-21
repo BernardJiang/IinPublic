@@ -8,7 +8,7 @@ covers: SPEC-3.6, SPEC-3.4  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users: Tom, Jerry, and Bob, all in the "Global" chatroom.
+Three users: Tom, Jerry, and Bob, all in the shared Nearby room.
 
 1. **Tom creates a multi-question talk** with several branching questions
 2. **Tom broadcasts** to the room

@@ -9,11 +9,6 @@ export type RelayRoomMember = {
   isTraveler?: boolean;
 };
 
-export type PlaceAdmissionReservation = {
-  reservationToken: string;
-  expiresAt: string;
-};
-
 export class EmbeddedHubRelayRequestError extends Error {
   constructor(
     readonly status: number,
@@ -60,14 +55,7 @@ export interface EmbeddedHubRelayClientLike {
     userId: string,
     stageName?: string,
     isTraveler?: boolean,
-    reservationToken?: string,
   ): Promise<void>;
-  reservePlaceMember?(
-    chatroomId: string,
-    userId: string,
-    stageName?: string,
-    isTraveler?: boolean,
-  ): Promise<PlaceAdmissionReservation>;
   touchMember(chatroomId: string, userId: string, options?: TouchMemberOptions): Promise<void>;
   removeMember(chatroomId: string, userId: string): Promise<void>;
   listSignalingFrames(conversationId: string, recipientPub?: string): Promise<SignalingRelayFrame[]>;
@@ -127,6 +115,9 @@ export interface EmbeddedHubRelayClientLike {
    */
   postMailboxEnvelope(recipientId: string, envelope: { id: string; ciphertext: string; ttlMs?: number }): Promise<void>;
   listMailboxEnvelopes(recipientId: string): Promise<MailboxEnvelope[]>;
+  /** OPEN-44: the hub's mailbox long-poll (ids only). Optional for test doubles. */
+  waitMailbox?(recipientId: string, since: string, timeoutMs: number, signal?: AbortSignal):
+    Promise<{ changed: boolean; ids: string[]; latest: string }>;
   /**
    * Generic counterpart to the bespoke relays above, for src/server/routes/graph-relay-routes.ts's
    * small allowlist of opaque-JSON-blob Gun paths (identity-linking, WP5 device-sync — see that
@@ -157,6 +148,32 @@ export interface EmbeddedHubRelayClientLike {
   postAttestationChallenge?(body: unknown): Promise<{ status: number; body: unknown }>;
   postAttestationVerify?(body: unknown): Promise<{ status: number; body: unknown }>;
   getAttestationVerifierKeys?(): Promise<{ status: number; body: unknown }>;
+  /**
+   * OPEN-40-G2: the browser inside a native app talks to its loopback embedded node. Nearby
+   * (cards, introductions, statistics) and the room list are shared hub metadata, so a connected
+   * embedded node forwards them to the hub, keeping the hub's exact status.
+   */
+  forwardHubApi?(
+    path: string,
+    method: 'GET' | 'POST',
+    body?: unknown,
+    timeoutMs?: number,
+  ): Promise<{ status: number; body: unknown }>;
+  /**
+   * Places are public signed descriptors that every device must be able to list, so a room
+   * created on a phone is published at the hub (which verifies it itself) and the phone lists the
+   * hub's rooms. Without these an Android-created Place existed only on its creator's phone.
+   * Optional so existing test doubles keep compiling.
+   */
+  publishChatroom?(body: unknown): Promise<{ status: number; body: unknown }>;
+  listChatrooms?(creatorPub?: string): Promise<unknown[]>;
+  /**
+   * Blocks are pair records the blocked person's device must also see (their peer view shows
+   * "Profile unavailable"). A phone writes them to its own store, which never syncs to the hub in
+   * relay mode, so the node forwards them and asks the hub for status. Optional for test doubles.
+   */
+  setBlock?(blockerId: string, targetId: string, blocked: boolean): Promise<void>;
+  getBlockStatus?(viewerId: string, targetId: string): Promise<{ blocked: boolean; blockedBy: boolean }>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -169,6 +186,12 @@ export function assertRelayMetadataPath(path: string[] | string): void {
   }
 }
 
+/**
+ * Room membership calls get longer than the default timeout: the hub answers an empty room only
+ * after its storage reads time out (~2.6 s), so the first person entering a new room timed out.
+ */
+export const ROOM_MEMBERSHIP_TIMEOUT_MS = 8_000;
+
 export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
   private readonly baseUrl: string;
   private readonly requestTimeoutMs: number;
@@ -180,7 +203,11 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
 
   async listMembers(chatroomId: string): Promise<RelayRoomMember[]> {
     assertRelayMetadataPath(['chatrooms', chatroomId, 'users']);
-    const response = await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`);
+    const response = await this.request(
+      `/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
+      {},
+      ROOM_MEMBERSHIP_TIMEOUT_MS,
+    );
     const rows = (await response.json()) as unknown;
     if (!Array.isArray(rows)) return [];
     return rows
@@ -203,7 +230,6 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     userId: string,
     stageName?: string,
     isTraveler = false,
-    reservationToken?: string,
   ): Promise<void> {
     assertRelayMetadataPath(['chatrooms', chatroomId, 'users', userId]);
     await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
@@ -213,29 +239,8 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
         userId,
         stageName: stageName || userId,
         isTraveler,
-        ...(reservationToken ? { reservationToken } : {}),
       }),
-    });
-  }
-
-  async reservePlaceMember(
-    chatroomId: string,
-    userId: string,
-    stageName?: string,
-    isTraveler = false,
-  ): Promise<PlaceAdmissionReservation> {
-    assertRelayMetadataPath(['chatrooms', chatroomId, 'users', userId]);
-    const response = await this.request(`/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        stageName: stageName || userId,
-        isTraveler,
-        reserveOnly: true,
-      }),
-    });
-    return response.json() as Promise<PlaceAdmissionReservation>;
+    }, ROOM_MEMBERSHIP_TIMEOUT_MS);
   }
 
   async touchMember(
@@ -421,6 +426,27 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       : [];
   }
 
+  async waitMailbox(
+    recipientId: string,
+    since: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<{ changed: boolean; ids: string[]; latest: string }> {
+    const params = new URLSearchParams({ since, timeoutMs: String(timeoutMs) });
+    // Not `request()`: its short timeout would cut the long-poll; the hub ends it at `timeoutMs`.
+    const response = await fetch(
+      `${this.baseUrl}/api/mailbox/${encodeURIComponent(recipientId)}/wait?${params.toString()}`,
+      signal ? { signal } : {},
+    );
+    if (!response.ok) throw new EmbeddedHubRelayRequestError(response.status, '', `mailbox wait failed with ${response.status}`);
+    const body = (await response.json()) as { changed?: unknown; ids?: unknown; latest?: unknown };
+    return {
+      changed: body.changed === true,
+      ids: Array.isArray(body.ids) ? body.ids.map(String) : [],
+      latest: typeof body.latest === 'string' ? body.latest : since,
+    };
+  }
+
   async getGraphBlob(segments: readonly string[]): Promise<unknown | null> {
     const response = await this.request(`/api/relay/graph/${segments.map(encodeURIComponent).join('/')}`);
     const body = (await response.json()) as { data?: unknown };
@@ -458,14 +484,63 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     return this.forwardJson('/api/attestation/verifier-keys', 'GET');
   }
 
+  async forwardHubApi(
+    path: string,
+    method: 'GET' | 'POST',
+    body?: unknown,
+    timeoutMs?: number,
+  ): Promise<{ status: number; body: unknown }> {
+    if (!/^\/api\/(?:active-rooms|nearby\/v3)(?:\/|\?|$)/.test(path)) {
+      throw new Error(`embedded hub relay refuses path "${path}"`);
+    }
+    return this.forwardJson(path, method, body, timeoutMs);
+  }
+
+  async publishChatroom(body: unknown): Promise<{ status: number; body: unknown }> {
+    return this.forwardJson('/api/chatrooms', 'POST', body, ROOM_MEMBERSHIP_TIMEOUT_MS);
+  }
+
+  async setBlock(blockerId: string, targetId: string, blocked: boolean): Promise<void> {
+    const base = `/api/users/${encodeURIComponent(blockerId)}/blocks`;
+    if (blocked) {
+      await this.request(base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId }),
+      });
+    } else {
+      await this.request(`${base}/${encodeURIComponent(targetId)}`, { method: 'DELETE' });
+    }
+  }
+
+  async getBlockStatus(viewerId: string, targetId: string): Promise<{ blocked: boolean; blockedBy: boolean }> {
+    const response = await this.request(
+      `/api/users/${encodeURIComponent(viewerId)}/block-status/${encodeURIComponent(targetId)}`,
+    );
+    const body = (await response.json()) as { blocked?: unknown; blockedBy?: unknown };
+    return { blocked: body.blocked === true, blockedBy: body.blockedBy === true };
+  }
+
+  async listChatrooms(creatorPub?: string): Promise<unknown[]> {
+    const query = creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : '';
+    const response = await this.request(`/api/chatrooms${query}`, {}, ROOM_MEMBERSHIP_TIMEOUT_MS);
+    const rows = (await response.json()) as unknown;
+    return Array.isArray(rows) ? rows : [];
+  }
+
   /**
    * Like `request()` below, but returns the hub's status/body instead of throwing on a non-2xx
    * response — see the doc comment on the three attestation methods above for why this route
    * family needs the real status preserved rather than either a thrown error or a soft fallback.
    */
-  private async forwardJson(path: string, method: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+  private async forwardJson(
+    path: string,
+    method: string,
+    body?: unknown,
+    timeoutMs = this.requestTimeoutMs,
+  ): Promise<{ status: number; body: unknown }> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         method,
@@ -481,9 +556,9 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     }
   }
 
-  private async request(path: string, init: RequestInit = {}): Promise<Response> {
+  private async request(path: string, init: RequestInit = {}, timeoutMs = this.requestTimeoutMs): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,

@@ -1,19 +1,15 @@
 import { GPSCoordinate } from '../../shared/types';
 import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-service';
 import { CONFIG } from '../../shared/config';
-import { ChatroomCapacityController } from './chatroom-capacity-controller';
-import type { EvictionRecord, RoutingAnchor } from '../../shared/room-routing';
-import { parseTileId } from '../../shared/room-tiles';
 import { isPlaceRoomId } from '../../shared/place-rooms';
 import { isTechSupportId } from '../../shared/techsupport';
 import {
   CONTACTS_ONLY_SCOPE_ID,
-  RADIO_NEARBY_SCOPE_ID,
-  deriveNearbyRoomAssignment,
   isLocalOnlyRoomScope,
-  isNearbyRoomId,
+  hasNoHubRoster,
+  isPersonalListScope,
+  NEARBY_V3_ROOM_ID,
   type NearbyPrivacyMode,
-  type NearbyRoomAssignment,
 } from '../../shared/nearby-rooms';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 import {
@@ -50,22 +46,6 @@ export const MEMBERSHIP_KEY_REFRESH_BEATS = 10;
  */
 export const SERVER_MEMBERS_POLL_MS = 5_000;
 
-export class PlaceRoomFullError extends Error {
-  readonly code = 'PLACE_FULL';
-
-  constructor(readonly capacity: number) {
-    super(`Place is full (${capacity} active people)`);
-    this.name = 'PlaceRoomFullError';
-  }
-}
-
-export class PlaceAdmissionUnavailableError extends Error {
-  constructor(message = 'Place admission could not be verified') {
-    super(message);
-    this.name = 'PlaceAdmissionUnavailableError';
-  }
-}
-
 type ChatroomMember = {
   userId: string;
   stageName: string;
@@ -80,6 +60,26 @@ type ChatroomMember = {
 };
 
 /**
+ * What a roster listener reacts to: who is here, their names and keys, and restarts (epoch).
+ * Heartbeats only move `lastSeen`, so they leave this unchanged (OPEN-51: four phones re-emitted
+ * an identical roster 2–3 times a second, and every emit re-ran mesh join, discovery and catch-up).
+ */
+export function memberRosterSignature(members: readonly ChatroomMember[]): string {
+  return members
+    .map((member) => [
+      member.userId,
+      member.stageName,
+      member.isTraveler === true ? 't' : '',
+      member.joinedAt instanceof Date ? member.joinedAt.toISOString() : member.joinedAt || '',
+      member.epub || '',
+      member.pub || '',
+      member.epoch || '',
+    ].join('\u0001'))
+    .sort()
+    .join('\u0002');
+}
+
+/**
  * Identifies this app run in the room roster. When a peer's epoch changes it restarted, and any
  * WebRTC session to it is dead even though the transport may still report "connected" for the
  * ~30–40 s it takes to notice — on hardware that stalled re-linking a restarted phone for minutes.
@@ -89,7 +89,7 @@ export const MEMBERSHIP_RUN_EPOCH = Math.random().toString(36).slice(2, 10);
 /**
  * Local-debug/E2E capacity (CONFIG: dev build value, test env, or `?e2e_capacity=`). Only honoured
  * outside production bundles: in production the signed protocol manifest's capacity always wins,
- * so a URL parameter can never make a client evict other members early.
+ * so a URL parameter can never change a Place's or a Nearby list's size.
  */
 export function chatroomCapacityTestOverride(
   nodeEnv = process.env.NODE_ENV,
@@ -100,37 +100,11 @@ export function chatroomCapacityTestOverride(
   return Number.isSafeInteger(configured) && configured > 0 && configured !== releaseDefault ? configured : null;
 }
 
-const EVICTION_HISTORY_KEY = 'iinpublic_room_eviction_history';
-const ROOM_ARRIVAL_KEY = 'iinpublic_room_arrival';
-
-function readJson<T>(key: string): T | null {
-  try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
-}
-
-function readJsonArray<T>(key: string): T[] {
-  const value = readJson<unknown>(key);
-  return Array.isArray(value) ? (value as T[]) : [];
-}
-
-function writeJson(key: string, value: unknown): void {
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* storage unavailable: routing still works, only the cooldown/arrival memory is lost */
-  }
-}
-
 export class WebChatroomService {
   private currentChatroomId?: string;
   private activeMembersUnsubscribe?: () => void;
   private memberCountSubscriptions: Map<string, () => void> = new Map(); // Track subscriptions for cleanup
   private visitCountSubscriptions: Map<string, () => void> = new Map();
-  private userLocations: Map<string, GPSCoordinate> = new Map(); // Track user locations for FIFO eviction
   /** Live map for the active subscribeToMembers listener — reused when reopening the same room so we never flash empty. */
   private activeMembersForList = new Map<string, ChatroomMember>();
   /** Members currently backed by a fresh Gun record, independently of the REST snapshot. */
@@ -140,6 +114,11 @@ export class WebChatroomService {
   private membersListDebounce: ReturnType<typeof setTimeout> | null = null;
   private membersListCallback?: (members: ChatroomMember[]) => void;
   private membersListenerRoomId: string | undefined = undefined;
+  private personalRoster: ChatroomMember[] = [];
+  private personalSelfUserId: string | undefined;
+  /** Which personal-list scope the pushed roster belongs to (Nearby or a Place). */
+  private personalScopeId: string | undefined;
+  private readonly personalCountCallbacks = new Map<string, Set<(count: number) => void>>();
   private serverMembersPollTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Gun's `.map().on()` only re-fires a member's callback when THAT member's own node is
@@ -163,76 +142,19 @@ export class WebChatroomService {
   private membershipStageNameResolver: (() => string) | null = null;
   /** Set by the app so every join/heartbeat publishes the current room's travel status. */
   private membershipTravelerResolver: ((chatroomId: string) => boolean) | null = null;
-  private homeTileResolver: (() => string | undefined) | null = null;
-  /** Exact grid indices stay in memory for map shading and drift hysteresis only. */
-  private nearbyAssignment: NearbyRoomAssignment | undefined;
-  /** Generation-zero cell stays separate after overflow advances `nearbyAssignment`. */
-  private nearbyRootAssignment: NearbyRoomAssignment | undefined;
-  private promotionStatusListener: ((status: { target: string; blockedUntil: number } | null) => void) | null = null;
 
-  /**
-   * Every room change (manual switch or eviction) runs through this one queue, so two moves can
-   * never interleave. A manual switch is counted the instant it is REQUESTED (before it waits its
-   * turn) so an eviction that has not started yet always sees it and stands down: manual wins.
-   */
+  /** Every room change runs through this one queue, so two moves can never interleave. */
   private moveQueue: Promise<unknown> = Promise.resolve();
-  private manualMovesPending = 0;
+  /** Server leave syncs still in flight, by room. A move does not wait for its leave (OPEN-58);
+   *  a later reserve or join of the same room does, so the DELETE cannot land after it. */
+  private pendingLeaveSyncs = new Map<string, Promise<void>>();
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
   private activeRoomInput: ((roomId: string) => ActivateRoomInput) | null = null;
 
-  /** FIFO capacity: notice-driven, self-eviction cascade (see chatroom-capacity-controller.ts). */
-  private capacity: ChatroomCapacityController;
-
-  constructor(private gunService: WebGunService) {
-    this.capacity = new ChatroomCapacityController({
-      getGun: () => this.gunService.getGun(),
-      fifoEnabled: () => CONFIG.CHATROOM_ENABLE_FIFO,
-      isFreshMember: (memberData) => this.isFreshActiveMember(memberData),
-      getCapacity: () => chatroomCapacityTestOverride()
-        ?? this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
-        ?? CONFIG.CHATROOM_MAX_CAPACITY,
-      getCurrentRoom: () => this.currentChatroomId,
-      getAnchor: (userId) => this.routingAnchor(userId),
-      canAutoPromote: (roomId) => !this.arrivedManually(roomId),
-      countActiveMembers: async (roomId) => (await this.getActiveMembers(roomId)).length,
-      readEvictionHistory: () => readJsonArray<EvictionRecord>(EVICTION_HISTORY_KEY),
-      writeEvictionHistory: (history) => writeJson(EVICTION_HISTORY_KEY, history),
-      onPromotionStatus: (status) => this.promotionStatusListener?.(status),
-      getStageName: (userId) => this.membershipStageNameResolver?.() || this.membershipHeartbeatStageName || userId,
-      moveForEviction: (from, userId, child, stageName, onMoved) =>
-        this.moveForEviction(from, userId, child, stageName, onMoved),
-    });
-  }
+  constructor(private gunService: WebGunService) {}
 
   setMembershipStageNameResolver(resolver: () => string): void {
     this.membershipStageNameResolver = resolver;
-  }
-
-  /** Home tile for routing when the user has no confirmed GPS (docs/design/room-tree-routing.md §5). */
-  setHomeTileResolver(resolver: () => string | undefined): void {
-    this.homeTileResolver = resolver;
-  }
-
-  setPromotionStatusListener(listener: (status: { target: string; blockedUntil: number } | null) => void): void {
-    this.promotionStatusListener = listener;
-  }
-
-  private routingAnchor(userId: string): RoutingAnchor {
-    const location = this.userLocations.get(userId);
-    if (location) return { kind: 'position', latitude: location.latitude, longitude: location.longitude };
-    const home = this.homeTileResolver?.();
-    if (home && parseTileId(home)) return { kind: 'home-tile', tileId: home };
-    return { kind: 'none' };
-  }
-
-  /** A room the user chose by hand (switch/travel) is never left automatically for a bigger one. */
-  private arrivedManually(roomId: string): boolean {
-    const record = readJson<{ room?: string; kind?: string }>(ROOM_ARRIVAL_KEY);
-    return record?.room === roomId && record.kind === 'manual';
-  }
-
-  private recordArrival(roomId: string, kind: 'manual' | 'auto'): void {
-    writeJson(ROOM_ARRIVAL_KEY, { room: roomId, kind });
   }
 
   setMembershipTravelerResolver(resolver: (chatroomId: string) => boolean): void {
@@ -312,37 +234,6 @@ export class WebChatroomService {
     return members?.map((member) => member.userId) ?? [];
   }
 
-  /** The user's automatic Neighborhood room for an explicit "use my location". */
-  async findOptimalChatroom(location: GPSCoordinate): Promise<string> {
-    this.nearbyRootAssignment = deriveNearbyRoomAssignment({
-      location,
-      mode: 'neighborhood',
-      identity: 'local-location-preview',
-      ...(this.nearbyRootAssignment ? { previous: this.nearbyRootAssignment } : {}),
-    });
-    this.nearbyAssignment = this.nearbyRootAssignment;
-    return this.nearbyAssignment.roomId;
-  }
-
-  /** Exact GPS is retained only in this process for local room routing; it is never published. */
-  updateLocalUserLocation(userId: string, location: GPSCoordinate): void {
-    this.userLocations.set(userId, location);
-  }
-
-  /** Local-only routing state used by the signed pre-admission capacity controller. */
-  getNearbyRoomAssignment(): NearbyRoomAssignment | undefined {
-    return this.nearbyAssignment;
-  }
-
-  getNearbyRootAssignment(): NearbyRoomAssignment | undefined {
-    return this.nearbyRootAssignment;
-  }
-
-  /** Accept a locally derived, certificate-verified subdivision before room presence begins. */
-  setNearbyRoomAssignment(assignment: NearbyRoomAssignment): void {
-    this.nearbyAssignment = assignment;
-  }
-
   /** Select a manual Place or derive the automatic Nearby scope; legacy rooms migrate away. */
   async findOptimalChatroomHierarchical(
     location: GPSCoordinate,
@@ -355,45 +246,31 @@ export class WebChatroomService {
     console.log(`  Location: ${location.latitude}, ${location.longitude}`);
     console.log(`  Last chatroom: ${lastChatroomId || 'none (new user)'}`);
 
-    // Only a confirmed fix may route a later Global eviction. The boot placeholder must never
-    // send a GPS-less desktop/phone into a fictional regional room.
-    if (locationConfirmed) this.userLocations.set(userId, location);
-    else this.userLocations.delete(userId);
-
     if (nearbyPrivacyMode === 'contacts-only') return CONTACTS_ONLY_SCOPE_ID;
     if (nearbyPrivacyMode === 'location-off') {
       return lastChatroomId && isPlaceRoomId(lastChatroomId)
         ? lastChatroomId
         : CONTACTS_ONLY_SCOPE_ID;
     }
-    if (nearbyPrivacyMode === 'radio-nearby') return RADIO_NEARBY_SCOPE_ID;
     // A deliberate Place visit survives restart. Legacy Global/tree/grid rooms do not: with a
     // confirmed fix they migrate directly into the current automatic Nearby cell.
     if (lastChatroomId && isPlaceRoomId(lastChatroomId)) return lastChatroomId;
     if (!locationConfirmed) return CONTACTS_ONLY_SCOPE_ID;
-
-    this.nearbyRootAssignment = deriveNearbyRoomAssignment({
-      location,
-      mode: nearbyPrivacyMode,
-      identity: userId,
-      ...(this.nearbyRootAssignment ? { previous: this.nearbyRootAssignment } : {}),
-    });
-    this.nearbyAssignment = this.nearbyRootAssignment;
-    console.log(`  → Automatic Nearby room: ${this.nearbyAssignment.roomId}`);
-    return this.nearbyAssignment.roomId;
+    // Nearby is my personal list (§3.7): one local scope, never a shared room to compute.
+    return NEARBY_V3_ROOM_ID;
   }
 
   async joinChatroom(
     chatroomId: string,
     userId: string,
     stageName?: string,
-    onMoved?: (newChatroomId: string) => void,
-    placeReservationToken?: string,
   ): Promise<void> {
-    if (isLocalOnlyRoomScope(chatroomId)) {
+    await this.pendingLeaveSyncs.get(chatroomId);
+    if (hasNoHubRoster(chatroomId)) {
       this.currentChatroomId = chatroomId;
       this.stopMembershipHeartbeat();
-      this.recordArrival(chatroomId, 'auto');
+      // A Place still counts its visits (§4.2), although its members are now each one's own list.
+      if (isPlaceRoomId(chatroomId)) await this.recordRoomVisit(chatroomId, userId).catch(() => undefined);
       return;
     }
 
@@ -406,23 +283,6 @@ export class WebChatroomService {
       isTraveler: this.membershipTravelerResolver?.(chatroomId) === true,
     };
 
-    // A Place is admitted by the shared room index before any public Gun presence is written.
-    // switchChatroom reserves before stopping the old room and passes the reservation through.
-    if (isPlaceRoomId(chatroomId)) {
-      const reservationToken = placeReservationToken || await this.reservePlaceAdmission(
-        chatroomId,
-        userId,
-        userData.stageName,
-        userData.isTraveler,
-      );
-      await this.commitPlaceAdmission(
-        chatroomId,
-        userId,
-        userData.stageName,
-        userData.isTraveler,
-        reservationToken,
-      );
-    }
     this.currentChatroomId = chatroomId;
 
     console.log(`👥 Joining chatroom: ${chatroomId} as user: ${userId}`);
@@ -440,9 +300,6 @@ export class WebChatroomService {
       });
     });
     if (alreadyActive) {
-      if (!isNearbyRoomId(chatroomId) && !isPlaceRoomId(chatroomId)) {
-        this.watchForEviction(userId, chatroomId, onMoved);
-      }
       await this.syncJoinWithServer(chatroomId, userId, userData.stageName, userData.isTraveler);
       await this.recordRoomVisit(chatroomId, userId);
       this.startMembershipHeartbeat(chatroomId, userId, userData.stageName);
@@ -519,12 +376,6 @@ export class WebChatroomService {
     // Brief pause for Gun peer propagation.
     await new Promise((resolve) => setTimeout(resolve, 150));
 
-    // The rejected FIFO/tree controller remains only for mixed-release legacy rooms. Nearby
-    // subdivision is certificate-driven and geographic; Places reject a full admission rather
-    // than silently moving a participant into `_part_N`.
-    if (!isNearbyRoomId(chatroomId) && !isPlaceRoomId(chatroomId)) {
-      this.watchForEviction(userId, chatroomId, onMoved);
-    }
     this.startMembershipHeartbeat(chatroomId, userId, userData.stageName);
 
     console.log(`✅ Successfully joined chatroom: ${chatroomId}`);
@@ -621,10 +472,11 @@ export class WebChatroomService {
     lastSeen: string,
     isTraveler: boolean,
   ): Promise<void> {
+    if (this.membershipHeartbeatKey !== `${chatroomId}:${userId}`) return;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
-      await fetch(
+      const response = await fetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members/${encodeURIComponent(userId)}`,
         {
           method: 'PATCH',
@@ -633,6 +485,7 @@ export class WebChatroomService {
           signal: controller.signal,
         },
       );
+      void response;
     } catch (error) {
       console.warn('syncMembershipHeartbeatWithServer failed (non-fatal):', error);
     } finally {
@@ -678,74 +531,6 @@ export class WebChatroomService {
    * Reserve a Place seat before leaving the current room. Capacity uncertainty fails closed: an
    * offline client can keep using its current room but cannot safely claim a new Place seat.
    */
-  private async reservePlaceAdmission(
-    chatroomId: string,
-    userId: string,
-    stageName: string,
-    isTraveler: boolean,
-  ): Promise<string> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4_000);
-    try {
-      const response = await fetch(
-        `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, stageName, isTraveler, reserveOnly: true }),
-          signal: controller.signal,
-        },
-      );
-      if (response.status === 409) {
-        const body = await response.json().catch(() => ({})) as { capacity?: unknown };
-        const capacity = Number(body.capacity);
-        throw new PlaceRoomFullError(Number.isSafeInteger(capacity) && capacity > 0
-          ? capacity
-          : CONFIG.CHATROOM_MAX_CAPACITY);
-      }
-      if (!response.ok) {
-        throw new Error(`Place admission unavailable (${response.status})`);
-      }
-      const body = await response.json() as { reservationToken?: unknown };
-      const reservationToken = String(body.reservationToken || '');
-      if (!reservationToken) throw new Error('Place admission returned no reservation token');
-      return reservationToken;
-    } catch (error) {
-      if (error instanceof PlaceRoomFullError) throw error;
-      throw new PlaceAdmissionUnavailableError(
-        `Place admission could not be verified: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  /** Activate a reserved Place seat after the old room has stopped. */
-  private async commitPlaceAdmission(
-    chatroomId: string,
-    userId: string,
-    stageName: string,
-    isTraveler: boolean,
-    reservationToken: string,
-  ): Promise<void> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4_000);
-    try {
-      const response = await fetch(
-        `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, stageName, isTraveler, reservationToken }),
-          signal: controller.signal,
-        },
-      );
-      if (!response.ok) throw new Error(`Place admission commit failed (${response.status})`);
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
   /** Remove the server/relay fast-index row as well as the peer's Gun record. */
   private async syncLeaveWithServer(chatroomId: string, userId: string): Promise<void> {
     const controller = new AbortController();
@@ -843,33 +628,12 @@ export class WebChatroomService {
     }
   }
 
-  /** Start the capacity watch for this room: roster (as owner) and our own eviction notices. */
-  private watchForEviction(
-    userId: string,
-    currentChatroomId: string,
-    onMoved?: (newChatroomId: string) => void,
-  ): void {
-    this.capacity.start(currentChatroomId, userId, onMoved);
-  }
-
-  /**
-   * Set up eviction watcher for a chatroom (public method for use after manual room switches)
-   */
-  setupEvictionWatcher(
-    userId: string,
-    chatroomId: string,
-    onMoved?: (newChatroomId: string) => void,
-  ): void {
-    if (!isNearbyRoomId(chatroomId) && !isPlaceRoomId(chatroomId) && !isLocalOnlyRoomScope(chatroomId)) {
-      this.watchForEviction(userId, chatroomId, onMoved);
-    }
-  }
-
-  async leaveChatroom(chatroomId: string, userId: string): Promise<void> {
+  /** `awaitServer: false` (room moves) returns once the local Gun leave is written; the server
+   *  DELETE finishes in the background. */
+  async leaveChatroom(chatroomId: string, userId: string, opts: { awaitServer?: boolean } = {}): Promise<void> {
     console.log(`🚪 Leaving chatroom: ${chatroomId} as user: ${userId}`);
     this.stopMembershipHeartbeat(chatroomId, userId);
-    this.capacity.stop(chatroomId);
-    if (isLocalOnlyRoomScope(chatroomId)) {
+    if (hasNoHubRoster(chatroomId)) {
       if (this.currentChatroomId === chatroomId) delete this.currentChatroomId;
       return;
     }
@@ -901,7 +665,11 @@ export class WebChatroomService {
     });
     // Best-effort privacy migration for rows written by older releases.
     gun.get('chatrooms').get(chatroomId).get('locations').get(userId).put(null);
-    await this.syncLeaveWithServer(chatroomId, userId);
+    const sync: Promise<void> = this.syncLeaveWithServer(chatroomId, userId).finally(() => {
+      if (this.pendingLeaveSyncs.get(chatroomId) === sync) this.pendingLeaveSyncs.delete(chatroomId);
+    });
+    this.pendingLeaveSyncs.set(chatroomId, sync);
+    if (opts.awaitServer !== false) await sync;
     console.log(`✅ Initiated leave for chatroom: ${chatroomId}`);
   }
 
@@ -913,84 +681,32 @@ export class WebChatroomService {
 
   /**
    * Manual room switch. Atomic with respect to every other move: it waits for any move already
-   * running and always wins over an eviction that has not started. A Place seat is reserved before
-   * the old room stops, so a full-room rejection leaves the active room untouched. After admission,
-   * the old room is stopped before the new room starts.
+   * running. The old room stops before the new one starts. A Place is never full (§3.7 "Places in
+   * v3"), so there is no seat to reserve first.
    */
   async switchChatroom(userId: string, newChatroomId: string, stageName?: string): Promise<void> {
-    this.manualMovesPending += 1;
-    try {
-      await this.runMove(async () => {
-        const from = this.currentChatroomId;
-        // A same-room switch is a no-op, not a revisit: joinChatroom()'s alreadyActive
-        // fast path re-records a visit unconditionally (needed for the page-reload case,
-        // where a fresh service instance has no currentChatroomId to compare against).
-        if (from === newChatroomId) return;
-        const placeReservationToken = isPlaceRoomId(newChatroomId)
-          ? await this.reservePlaceAdmission(
-            newChatroomId,
-            userId,
-            stageName || userId,
-            this.membershipTravelerResolver?.(newChatroomId) === true,
-          )
-          : undefined;
-        const moveMembership = async () => {
-          if (from) await this.leaveChatroom(from, userId);
-          this.currentChatroomId = newChatroomId;
-          this.recordArrival(newChatroomId, 'manual');
-          await this.joinChatroom(newChatroomId, userId, stageName, undefined, placeReservationToken);
-        };
-        try {
-          if (newChatroomId === CONTACTS_ONLY_SCOPE_ID && this.activeExchangeRoomController) {
-            await this.activeExchangeRoomController.leave();
-            await moveMembership();
-          } else if (this.activeExchangeRoomController && this.activeRoomInput) {
-            await this.activeExchangeRoomController.transitionTo(
-              this.activeRoomInput(newChatroomId),
-              moveMembership,
-            );
-          } else {
-            await moveMembership();
-          }
-        } catch (error) {
-          // A pre-admission is a live server seat. Release it if the actual transition fails so a
-          // failed client cannot occupy Place capacity until the normal presence TTL expires.
-          if (placeReservationToken) await this.syncLeaveWithServer(newChatroomId, userId);
-          throw error;
-        }
-      });
-    } finally {
-      this.manualMovesPending -= 1;
-    }
-  }
-
-  /**
-   * Eviction move, run by the evictee itself. Returns false without changing anything when a manual
-   * switch is pending (manual wins) or the user is no longer in `from`.
-   */
-  private async moveForEviction(
-    from: string,
-    userId: string,
-    child: string,
-    stageName: string,
-    onMoved?: (roomId: string) => void,
-  ): Promise<boolean> {
-    if (this.manualMovesPending > 0) return false;
-    return this.runMove(async () => {
-      if (this.manualMovesPending > 0 || this.currentChatroomId !== from) return false;
-      await this.leaveChatroom(from, userId);
-      this.currentChatroomId = child;
-      this.recordArrival(child, 'auto');
-      const gun = this.gunService.getGun();
-      gun.get('chatrooms').get(from).get('users').get(userId).put({ movedTo: child });
-      gun.get('chatrooms').get(from).get('locations').get(userId).put(null);
-      try {
-        await this.joinChatroom(child, userId, stageName, onMoved);
-      } catch (error) {
-        console.warn(`Eviction join into ${child} failed; ${userId} remains disconnected`, error);
-        return false;
+    await this.runMove(async () => {
+      const from = this.currentChatroomId;
+      // A same-room switch is a no-op, not a revisit: joinChatroom()'s alreadyActive
+      // fast path re-records a visit unconditionally (needed for the page-reload case,
+      // where a fresh service instance has no currentChatroomId to compare against).
+      if (from === newChatroomId) return;
+      const moveMembership = async () => {
+        if (from) await this.leaveChatroom(from, userId, { awaitServer: false });
+        this.currentChatroomId = newChatroomId;
+        await this.joinChatroom(newChatroomId, userId, stageName);
+      };
+      if (newChatroomId === CONTACTS_ONLY_SCOPE_ID && this.activeExchangeRoomController) {
+        await this.activeExchangeRoomController.leave();
+        await moveMembership();
+      } else if (this.activeExchangeRoomController && this.activeRoomInput) {
+        await this.activeExchangeRoomController.transitionTo(
+          this.activeRoomInput(newChatroomId),
+          moveMembership,
+        );
+      } else {
+        await moveMembership();
       }
-      return true;
     });
   }
 
@@ -1003,6 +719,9 @@ export class WebChatroomService {
     observeMs = 400,
     _options: { includeTechSupport?: boolean } = {},
   ): Promise<string[]> {
+    if (isPersonalListScope(chatroomId)) {
+      return chatroomId === this.personalScopeId ? [...new Set(this.personalRoster.map((member) => member.userId))] : [];
+    }
     if (isLocalOnlyRoomScope(chatroomId)) return [];
     try {
       const gun = this.gunService.getGun();
@@ -1039,6 +758,44 @@ export class WebChatroomService {
       });
     } catch (error) {
       console.error('Error getting active members:', error);
+      return [];
+    }
+  }
+
+  /**
+   * OPEN-38: members whose record is still marked active but whose heartbeat lapsed less than
+   * `maxLapseMs` ago — typically a phone whose page Android froze while asleep. They never left the
+   * room (an explicit leave clears `isActive`), so a new Talk is still queued for them and a wake
+   * ping lets their device notice it.
+   */
+  async observeLapsedMemberIds(chatroomId: string, maxLapseMs: number, observeMs = 400): Promise<string[]> {
+    if (hasNoHubRoster(chatroomId)) return [];
+    try {
+      const gun = this.gunService.getGun();
+      const lapsed = new Set<string>();
+      return await new Promise((resolve) => {
+        let settled = false;
+        const off = gun
+          .get('chatrooms')
+          .get(chatroomId)
+          .get('users')
+          .map()
+          .on((memberData: any, userId: string) => {
+            if (userId.startsWith('_') || isTechSupportId(userId)) return;
+            const seenAt = Date.parse(String(memberData?.lastSeen || memberData?.joinedAt || ''));
+            const isLapsed = memberData?.isActive === true && this.isDefinitelyStale(memberData)
+              && Number.isFinite(seenAt) && Date.now() - seenAt <= maxLapseMs;
+            if (isLapsed) lapsed.add(userId);
+            else lapsed.delete(userId);
+          });
+        setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          try { off.off(); } catch { /* Gun peer */ }
+          resolve([...lapsed]);
+        }, observeMs);
+      });
+    } catch {
       return [];
     }
   }
@@ -1081,15 +838,44 @@ export class WebChatroomService {
     }
   }
 
+  /**
+   * Nearby v3: my personal list is the Nearby audience. The app pushes it here whenever it changes,
+   * and it reaches the same member callback a shared room's roster would.
+   */
+  pushPersonalRoster(members: ChatroomMember[], selfUserId?: string, scopeId: string = NEARBY_V3_ROOM_ID): void {
+    this.personalRoster = members.slice();
+    this.personalSelfUserId = selfUserId;
+    this.personalScopeId = scopeId;
+    for (const callback of this.personalCountCallbacks.get(scopeId) ?? []) callback(this.personalHeadcount(scopeId));
+    if (this.membersListenerRoomId === scopeId && this.membersListCallback) {
+      this.membersListCallback(this.personalRoster.slice());
+    }
+  }
+
+  /**
+   * Nearby: my list without me (§3.7 "N near you"). A Place: everyone in it, me included. Zero for a
+   * scope I am not in (another Place's count comes from the hub's room list).
+   */
+  private personalHeadcount(scopeId: string): number {
+    if (scopeId !== this.personalScopeId) return 0;
+    const ids = new Set(this.personalRoster.map((member) => member.userId));
+    if (!isPlaceRoomId(scopeId) && this.personalSelfUserId) ids.delete(this.personalSelfUserId);
+    return ids.size;
+  }
+
   subscribeToMembers(
     chatroomId: string,
     callback: (members: ChatroomMember[]) => void,
   ): void {
     this.membersListCallback = callback;
-    if (isLocalOnlyRoomScope(chatroomId)) {
+    if (hasNoHubRoster(chatroomId)) {
       this.activeMembersUnsubscribe?.();
+      delete this.activeMembersUnsubscribe;
       this.membersListenerRoomId = chatroomId;
-      queueMicrotask(() => callback([]));
+      const roster = chatroomId === this.personalScopeId ? [...this.personalRoster] : [];
+      queueMicrotask(() => {
+        if (this.membersListCallback === callback && this.membersListenerRoomId === chatroomId) callback(roster);
+      });
       return;
     }
 
@@ -1121,9 +907,16 @@ export class WebChatroomService {
       this.serverMembersPollTimer = null;
     }
 
+    let emittedSignature: string | null = null;
+    let emittedTo: ((members: ChatroomMember[]) => void) | null = null;
     const emitMembers = () => {
       if (chatroomId !== this.membersListenerRoomId || !this.membersListCallback) return;
-      this.membersListCallback(Array.from(this.activeMembersForList.values()));
+      const members = Array.from(this.activeMembersForList.values());
+      const signature = memberRosterSignature(members);
+      if (signature === emittedSignature && emittedTo === this.membersListCallback) return;
+      emittedSignature = signature;
+      emittedTo = this.membersListCallback;
+      this.membersListCallback(members);
     };
 
     // The hub REST roster is the cross-runtime convergence point. In particular, embedded phones
@@ -1259,6 +1052,7 @@ export class WebChatroomService {
    * This is useful for displaying member counts in chatroom lists
    */
   async getMemberCount(chatroomId: string): Promise<number> {
+    if (isPersonalListScope(chatroomId)) return this.personalHeadcount(chatroomId);
     if (isLocalOnlyRoomScope(chatroomId)) return 0;
     const activeMemberIds = await this.observeActiveMemberIds(chatroomId, 1400, { includeTechSupport: true });
     return activeMemberIds.length;
@@ -1269,6 +1063,12 @@ export class WebChatroomService {
    * Calls the callback whenever the member count changes
    */
   subscribeToMemberCount(chatroomId: string, callback: (count: number) => void): void {
+    if (isPersonalListScope(chatroomId)) {
+      // One live subscriber per scope and screen, like the shared-room path below.
+      this.personalCountCallbacks.set(chatroomId, new Set([callback]));
+      callback(this.personalHeadcount(chatroomId));
+      return;
+    }
     if (isLocalOnlyRoomScope(chatroomId)) {
       callback(0);
       return;

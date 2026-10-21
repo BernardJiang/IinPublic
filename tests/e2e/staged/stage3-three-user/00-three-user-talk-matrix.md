@@ -21,7 +21,7 @@ The "kitchen sink" scenario: Tom, Jerry, and Bob each create 12 distinct talks c
 | **Total** | **12** | — | **27** (self-answered) + 54 incoming = **81 answered questions per user** |
 
 ### Verification:
-1. **Setup:** Clear Gun DB, `launchThreeBrowsers()`, each user bootstraps with unlimited talk ledger quota (`setTalkLedgerQuotaUnlimitedForE2e(true)`) and auto-copy disabled. All join Global chatroom.
+1. **Setup:** Clear Gun DB, `launchThreeBrowsers()`, each user bootstraps with unlimited talk ledger quota (`setTalkLedgerQuotaUnlimitedForE2e(true)`) and auto-copy disabled. All join the shared Nearby room.
 2. **Each user creates 12 talks** via company page JSON API with unique runId-based titles (e.g., `matrix-<ts> Tom flow 1`). Waits for Gun peer awareness (≥2 peers).
 3. **Broadcast:** Each user broadcasts until ack'd with `minGunPeers: 2, minSent: 12` — confirms all 12 talks delivered to both other users.
 4. **Answer all incoming:** Each recipient answers the other two users' 24 talks as MATCH via `completeTalksInAppByAnswerIds`.

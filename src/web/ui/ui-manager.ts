@@ -7,7 +7,7 @@ import {
   type Tag,
 } from '../../shared/types';
 import { EventEmitter } from 'events';
-import { formatTimeAgo, formatExpiration, escapeHtml } from './ui-formatters';
+import { formatLocalizedExpiration, formatLocalizedRelativeTime, escapeHtml } from './ui-formatters';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { completeTalk as completeTalkImpl, saveMyTalk as saveMyTalkImpl } from './talk-completion';
 import { renderAppDownloadBanner as renderAppDownloadBannerImpl } from './app-download-banner';
@@ -43,7 +43,7 @@ import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { tileIdAt } from '../../shared/room-tiles';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId, nearbyMapArea, type NearbyMapArea, type NearbyRoomAssignment } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId } from '../../shared/nearby-rooms';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
@@ -146,7 +146,7 @@ import {
   updateConversationTransportMode as updateConversationTransportModeImpl,
   setConversationOnlineStatus as setConversationOnlineStatusImpl,
 } from './conversation-status-updates';
-import { updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
+import { countMatchConversations, updateStatusBar as updateStatusBarImpl, syncStatusBarMatchCount as syncStatusBarMatchCountImpl } from './status-bar';
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
@@ -185,6 +185,7 @@ import { PeerHeadshotCache } from './peer-headshot-cache';
 import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
 import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
 import { refreshPeerThreadList, closePeerDetailView } from './user-detail-view';
+import type { MapUserDotSource } from './chatroom-map-view';
 import { languageOptionLabel, uiLanguageFromProfile, uiText, type UiTranslationKey } from './ui-translations';
 import {
   deriveLocalCreatorReplies,
@@ -206,6 +207,7 @@ import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-ge
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
 import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
+import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -306,8 +308,7 @@ export class UIManager extends EventEmitter {
   private lastNotifiedMessageIdByConversation: Map<string, string> = new Map();
   private chatroomMemberCounts: Map<string, number> = new Map(); // Track member count per chatroom
   private chatroomVisitCounts: Map<string, { visitCount: number; uniqueVisitorCount: number }> = new Map();
-  private chatroomBrowseMode: 'tree' | 'map' = 'tree';
-  private nearbyMapArea: NearbyMapArea | undefined;
+  private chatroomBrowseMode: ChatroomBrowseMode = initialChatroomBrowseMode();
   private expandedChatrooms = new Set<string>();
   private matchedUserIds: Set<string> = new Set(); // Users who matched with me (for green indicator)
   // private newMatchesCount: number = 0; // TODO: implement match count tracking
@@ -343,29 +344,11 @@ export class UIManager extends EventEmitter {
   }
 
   private formatTalkRelativeTime(date: Date): string {
-    if (this.getUiLanguage() !== 'zh') return formatTimeAgo(date);
-    const diffMs = Date.now() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return this.t('talksJustNow');
-    if (diffMins < 60) return this.tf('talksMinutesAgo', { count: diffMins });
-    if (diffHours < 24) return this.tf('talksHoursAgo', { count: diffHours });
-    if (diffDays < 7) return this.tf('talksDaysAgo', { count: diffDays });
-    return date.toLocaleDateString('zh-CN');
+    return formatLocalizedRelativeTime(date, this.getUiLanguage(), (key) => this.t(key), (key, values) => this.tf(key, values));
   }
 
   private formatTalkExpiration(expiresAt: number | null | undefined): string {
-    if (this.getUiLanguage() !== 'zh') return formatExpiration(expiresAt);
-    if (expiresAt == null) return this.t('talksForever');
-    if (Date.now() > expiresAt) return this.t('talksExpired');
-    const oneDay = 24 * 60 * 60 * 1000;
-    const left = expiresAt - Date.now();
-    if (left <= oneDay) return this.tf('talksExpiresIn', { value: '&lt;1 天' });
-    if (left <= 7 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / oneDay)} 天` });
-    if (left <= 30 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / (7 * oneDay))} 周` });
-    if (left <= 365 * oneDay) return this.tf('talksExpiresIn', { value: `${Math.floor(left / (30 * oneDay))} 个月` });
-    return this.tf('talksExpiresIn', { value: `${Math.floor(left / (365 * oneDay))} 年` });
+    return formatLocalizedExpiration(expiresAt, this.getUiLanguage(), (key) => this.t(key), (key, values) => this.tf(key, values));
   }
 
   private formatTalkLocation(radiusMiles: number | null | undefined): string {
@@ -895,10 +878,10 @@ export class UIManager extends EventEmitter {
         getExpandedChatrooms: () => this.expandedChatrooms,
         getMatchedUserIds: () => this.matchedUserIds,
         getCustomChatrooms: () => this.customChatrooms,
-        getNearbyMapArea: () => this.nearbyMapArea,
+        getTravelModeActive: () => this.travelModeActive,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
-        setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
+        setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; saveChatroomBrowseMode(mode); },
         setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
         setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
         setChatroomsDetailRoomId: (chatroomId) => { this.chatroomsDetailRoomId = chatroomId; },
@@ -908,6 +891,8 @@ export class UIManager extends EventEmitter {
         syncReturnHomeButton: () => this.syncReturnHomeButton(),
         syncAppBarOverflow: () => this.syncAppBarOverflow(),
         openPeerDetail: (userId, stageName) => this.openUserConversationFirst(userId, stageName),
+        openPeerProfile: (userId, stageName) => this.openPeerDetailForUser(userId, stageName),
+        getPublicProfileFoundation: (userId) => this.publicProfileFoundationReader?.(userId) ?? Promise.resolve(null),
         rememberPeerName: (userId, stageName) => this.rememberPeerName(userId, stageName),
         showCreateCustomChatroomDialog: () => this.showCreateCustomChatroomDialog(),
         // Custom rooms are local: anchored to the creator's blurred ~1 km cell (confirmed GPS only).
@@ -1076,7 +1061,6 @@ export class UIManager extends EventEmitter {
     renderItemDetailsPopup(detailsEl, originalParent, this.t.bind(this));
   }
 
-
   /**
    * TODO §Q "Talk -> people I've separately exchanged this with" edge (build-order item 17).
    * Privacy-scoped by construction: reads only the local talkLedger (`web-talk-ledger-store.ts`),
@@ -1132,10 +1116,14 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  setNearbyMapAssignment(assignment: NearbyRoomAssignment | null): void {
-    this.nearbyMapArea = assignment ? nearbyMapArea(assignment) : undefined;
-    if (this.chatroomBrowseMode === 'map') this.renderChatroomList();
-  }
+  /** Map user dots: my published point plus a viewport loader; null hides them. */
+  setMapUserDotSource(source: MapUserDotSource | null): void { this.chatroomShell().setMapUserDotSource(source); }
+  setActiveRooms(view: Parameters<ChatroomShellController['setActiveRooms']>[0]): void { this.chatroomShell().setActiveRooms(view); }
+  /** The hub's count of everyone online in Nearby (§3.7 "N near you · M online"). */
+  setNearbyOnline(online: number): void { this.chatroomShell().setNearbyOnline(online); }
+  /** "Sent to N of M" for the latest Nearby broadcast; null hides it. */
+  setNearbyBroadcastProgress(progress: { sent: number; total: number } | null): void { this.chatroomShell().setNearbyBroadcastProgress(progress); }
+  setNearbyGroup(group: { group: number; exhausted: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
 
   displayTalksList(): void {
     displayTalksListView({
@@ -1913,9 +1901,6 @@ export class UIManager extends EventEmitter {
     return this.tf('travelHomeSet', { name });
   }
 
-  public formatRoomPromotionWaiting(name: string, minutes: number): string {
-    return this.tf('roomPromotionWaiting', { name, minutes });
-  }
 
   public formatTravelLocationHeld(): string {
     return this.t('travelLocationHeld');
@@ -1936,7 +1921,6 @@ export class UIManager extends EventEmitter {
   public formatChatroomCreated(name: string): string {
     return this.tf('chatroomCreated', { name });
   }
-
 
   public formatTalkCreateSyncSlow(): string {
     return this.t('talksCreateSyncSlow');
@@ -2279,14 +2263,7 @@ export class UIManager extends EventEmitter {
 
   getTotalMatches(): number {
     const statsMatches = Object.values(this.talkStatsMap).reduce((sum, s) => sum + s.matches, 0);
-    const conversationMatches = Object.values(this.getMyConversations()).filter((conversation: any) => {
-      return (
-        !!conversation &&
-        typeof conversation === 'object' &&
-        conversation.supportChannel !== true &&
-        !!conversation.talkId
-      );
-    }).length;
+    const conversationMatches = countMatchConversations(this.getMyConversations());
     // Use the higher of the two: per-talk stats update immediately on responses, while
     // Gun-backed conversations can lag (bulk matches would otherwise show "1 match" forever).
     return Math.max(statsMatches, conversationMatches);
@@ -2793,6 +2770,9 @@ export class UIManager extends EventEmitter {
    * Set member count for a specific chatroom (can be called for any chatroom)
    */
   setChatroomMemberCount(chatroomId: string, count: number): void {
+    // Headcount callbacks fire on every member heartbeat (about once a second) with the same
+    // number; re-rendering the room list and its map each time kept an idle phone busy.
+    if (this.chatroomMemberCounts.get(chatroomId) === count) return;
     console.log(`📊 Setting member count for ${chatroomId}: ${count} members`);
     this.chatroomMemberCounts.set(chatroomId, count);
 
@@ -3052,11 +3032,11 @@ export class UIManager extends EventEmitter {
   }
 
   /** Optimistic local update after a `confirmDeal` write — refreshes the deal bar without
-   *  waiting on a Gun round-trip. Re-renders the open thread if it's the one that changed. */
+   *  waiting on a Gun round-trip. Re-renders the open thread only on a real change (closes the gallery). */
   applyDealConfirmedBy(conversationId: string, dealConfirmedBy: string[]): void {
     const conversations = this.getMyConversations();
     const c = conversations[conversationId];
-    if (!c) return;
+    if (!c || (c.dealConfirmedByJson ?? '[]') === JSON.stringify(dealConfirmedBy)) return;
     c.dealConfirmedByJson = JSON.stringify(dealConfirmedBy);
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     if (this.currentConversationId === conversationId) {

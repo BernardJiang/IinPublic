@@ -87,13 +87,13 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Cutoff Sender');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Cutoff Receiver');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
@@ -142,7 +142,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
-    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
     await pageJerry.locator('#settings-sent-after').fill('2099-01-01T00:00');
     await pageJerry.locator('#settings-sent-after').press('Tab');
     await expect
@@ -161,7 +161,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await afterSync();
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
-    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
     await expect(pageJerry.locator('#settings-sent-after')).toHaveValue('2099-01-01T00:00');
     await afterAction();
 
@@ -173,7 +173,7 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
 
     await pageJerry.click('.nav-btn[data-view="settings"]');
     await afterSync();
-    await openSettingsSection(pageJerry, SETTINGS_SECTION.distanceHome);
+    await openSettingsSection(pageJerry, SETTINGS_SECTION.talkBehavior);
     await pageJerry.locator('#settings-sent-after').fill('');
     await pageJerry.locator('#settings-sent-after').press('Tab');
     await expect

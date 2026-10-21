@@ -111,7 +111,7 @@ async function prepareGlobalBroadcast(page: Page): Promise<void> {
   await afterSync();
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
-    await page.locator('.chatroom-item:has-text("Global")').first().click();
+    await page.locator('.chatroom-item.current-room').first().click();
     await afterSync();
   }
 
@@ -309,6 +309,16 @@ test.describe('Dealmaker: chatbot auto-matches strangers who broadcast compatibl
       }
       expect(wronglyMatched).toBe(false);
       expect(await hasConversationWith(buyer2.page, buyer1Id)).toBe(false);
+
+      // OPEN-55: the first test's pages are still in the room. Adam (a buyer) answered Eve's sell
+      // talk there; it must not have become a broadcastable copy, or Adam re-announces it as his
+      // own (the mesh sends the re-broadcaster's id) and the buyers here "match" him — then pass
+      // it on to each other. Matching Eve herself is legitimate.
+      const otherBuyerIds = [buyer1Id, buyer2Id, await getCurrentUserId(pageAdam!)];
+      for (const page of [buyer1.page, buyer2.page]) {
+        const partners = await conversationPartnerIds(page);
+        expect(partners.filter((id) => otherBuyerIds.includes(id)), 'a buyer matched another buyer').toEqual([]);
+      }
     } finally {
       await buyer1.page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});
       await buyer2.page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup()).catch(() => {});

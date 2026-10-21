@@ -63,13 +63,13 @@ test.describe('Talk lifecycle: stranger before match, then contact', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Lifecycle');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Lifecycle');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     const created = await createFlowTalkForLifecycle(pageTom, MATCH_TALK, { matchText: 'Yes, lets meet.', ignoreText: 'No thanks.' });

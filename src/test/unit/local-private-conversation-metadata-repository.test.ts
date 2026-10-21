@@ -39,18 +39,4 @@ describe('LocalPrivateConversationMetadataRepository', () => {
     expect(h.getGun).not.toHaveBeenCalled();
     off();
   });
-
-  test('imports legacy metadata exactly once without overwriting newer local fields', async () => {
-    const h = harness();
-    const repo = new LocalPrivateConversationMetadataRepository(h.gun);
-    await repo.upsert('alice', { conversationId: 'c1', otherUserId: 'bob', otherUserName: 'New' });
-    await expect(repo.importLegacyOnce('alice', [
-      { conversationId: 'c1', otherUserId: 'bob', otherUserName: 'Old', talkId: 'legacy' },
-    ])).resolves.toBe(true);
-    await expect(repo.importLegacyOnce('alice', [
-      { conversationId: 'c2', otherUserId: 'carol' },
-    ])).resolves.toBe(false);
-    await expect(repo.get('alice', 'c1')).resolves.toMatchObject({ otherUserName: 'New', talkId: 'legacy' });
-    await expect(repo.get('alice', 'c2')).resolves.toBeNull();
-  });
 });

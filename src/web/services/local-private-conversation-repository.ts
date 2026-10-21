@@ -90,13 +90,6 @@ export class LocalPrivateConversationRepository {
     });
   }
 
-  /** Import a legacy peered history only when the local encrypted history is empty. */
-  async importIfEmpty(conversationId: string, wires: LocalConversationWire[]): Promise<boolean> {
-    if (wires.length === 0 || (await this.list(conversationId)).length > 0) return false;
-    await this.mutate(conversationId, () => sorted(wires));
-    return true;
-  }
-
   subscribe(
     conversationId: string,
     callback: (wires: LocalConversationWire[]) => void,

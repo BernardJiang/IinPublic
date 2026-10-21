@@ -12,6 +12,7 @@ export const MESH_FRAME_INVENTORY: Readonly<Record<P2PMeshMessageKind, MeshFrame
   'protocol-manifest-summary': 'retain-control',
   'protocol-manifest-request': 'retain-control',
   'protocol-manifest-chain': 'retain-control',
+  'nearby-gossip': 'retain-control',
   ack: 'retain-control',
 };
 

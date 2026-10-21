@@ -181,15 +181,14 @@ test.describe('GPS grid room navigation and room-scoped broadcast', () => {
     }
   });
 
-  test('Room tree shows continent-labeled region tiles but no country rooms; an area room opens by coordinates', async () => {
+  test('Flat room list shows no region tiles or country rooms; an area room still opens by coordinates', async () => {
     const tom = await bootstrapUser(browserTom, 'TomGrid', 'Tom');
     const pageTom = tom.page;
     try {
       await ensureChatroomList(pageTom);
-      // Continents stay as the visible hierarchy; no country/state/city rows.
-      for (const [tile, label] of [['tile_1_2_1', 'North America'], ['tile_1_3_3', 'Europe'], ['tile_1_2_6', 'Asia']]) {
-        await expect(pageTom.locator(`.chatroom-item[data-chatroom-id="${tile}"][data-level="1"]`)).toContainText(label);
-      }
+      // The tile tree is retired: the list is flat (your Nearby room + rooms near you).
+      await expect(pageTom.locator('.chatroom-item.current-room')).toBeVisible();
+      await expect(pageTom.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
       for (const continentRoom of ['north-america', 'europe', 'asia']) {
         await expect(pageTom.locator(`.chatroom-item[data-chatroom-id="${continentRoom}"]`)).toHaveCount(0);
       }

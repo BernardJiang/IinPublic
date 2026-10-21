@@ -1,10 +1,9 @@
 /** @jest-environment jsdom */
 
-import {
-  PlaceAdmissionUnavailableError,
-  PlaceRoomFullError,
-  WebChatroomService,
-} from '../../web/services/web-chatroom-service';
+import { TextEncoder } from 'node:util';
+import { WebChatroomService } from '../../web/services/web-chatroom-service';
+
+Object.defineProperty(globalThis, 'TextEncoder', { value: TextEncoder, configurable: true });
 
 function gunChain(): any {
   const chain: any = {
@@ -16,8 +15,6 @@ function gunChain(): any {
   };
   return chain;
 }
-
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('WebChatroomService atomic room moves', () => {
   let service: any;
@@ -47,43 +44,6 @@ describe('WebChatroomService atomic room moves', () => {
     jest.restoreAllMocks();
   });
 
-  it('a manual switch requested first beats an eviction that has not started', async () => {
-    const manual = service.switchChatroom('u', 'B', 'u');
-    const evicted = await service.moveForEviction('A', 'u', 'A-child', 'u');
-    await manual;
-
-    expect(evicted).toBe(false);
-    expect(order).toEqual(['leave:A', 'join:B']);
-    expect(service.currentChatroomId).toBe('B');
-  });
-
-  it('a manual switch arriving after the eviction was queued still wins', async () => {
-    const evicted = service.moveForEviction('A', 'u', 'A-child', 'u');
-    const manual = service.switchChatroom('u', 'B', 'u');
-
-    expect(await evicted).toBe(false);
-    await manual;
-    expect(order).toEqual(['leave:A', 'join:B']);
-  });
-
-  it('an eviction already running finishes first, then the manual switch lands the user where they chose', async () => {
-    leaveDelayMs = 20;
-    const evicted = service.moveForEviction('A', 'u', 'A-child', 'u');
-    await tick(); // the eviction has started (passed its checks, waiting inside leave)
-    const manual = service.switchChatroom('u', 'B', 'u');
-
-    expect(await evicted).toBe(true);
-    await manual;
-    expect(order).toEqual(['leave:A', 'join:A-child', 'leave:A-child', 'join:B']);
-    expect(service.currentChatroomId).toBe('B');
-  });
-
-  it('ignores an eviction when the user is no longer in the room the notice was for', async () => {
-    service.currentChatroomId = 'somewhere-else';
-    expect(await service.moveForEviction('A', 'u', 'A-child', 'u')).toBe(false);
-    expect(order).toEqual([]);
-  });
-
   it('never interleaves two manual switches', async () => {
     leaveDelayMs = 10;
     await Promise.all([service.switchChatroom('u', 'B', 'u'), service.switchChatroom('u', 'C', 'u')]);
@@ -105,58 +65,35 @@ describe('WebChatroomService atomic room moves', () => {
     expect(service.currentChatroomId).toBe('C');
   });
 
-  it('does not restore the old room when an eviction join fails', async () => {
-    service.joinChatroom = jest.fn(async (room: string) => {
-      order.push(`join:${room}`);
-      if (room === 'A-child') throw new Error('join failed');
-      service.currentChatroomId = room;
-    });
-    expect(await service.moveForEviction('A', 'u', 'A-child', 'u')).toBe(false);
-    expect(order).toEqual(['leave:A', 'join:A-child']);
-  });
-
-  it('keeps the current room active when a Place rejects admission at capacity', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 409,
-      json: async () => ({ code: 'PLACE_FULL', capacity: 2 }),
-    }) as jest.Mock;
-
-    const target = 'place_32.71_-117.17_abcdefabcdef';
-    await expect(service.switchChatroom('u', target, 'User')).rejects.toEqual(
-      expect.objectContaining<Partial<PlaceRoomFullError>>({ code: 'PLACE_FULL', capacity: 2 }),
-    );
-
-    expect(order).toEqual([]);
-    expect(service.currentChatroomId).toBe('A');
-  });
-
-  it('keeps the current room active when a Place reservation cannot be verified', async () => {
-    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503 }) as jest.Mock;
-
-    await expect(service.switchChatroom(
-      'u',
-      'place_32.71_-117.17_abcdefabcdef',
-      'User',
-    )).rejects.toBeInstanceOf(PlaceAdmissionUnavailableError);
-
-    expect(order).toEqual([]);
-    expect(service.currentChatroomId).toBe('A');
-  });
-
-  it('reserves a Place seat before leaving the current room', async () => {
-    global.fetch = jest.fn(async () => {
-      order.push('reserve');
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ reservationToken: 'reservation-1' }),
-      } as Response;
-    }) as jest.Mock;
+  it('enters a Place with no seat to reserve: a Place is never full', async () => {
+    global.fetch = jest.fn() as jest.Mock;
 
     await service.switchChatroom('u', 'place_32.71_-117.17_abcdefabcdef', 'User');
 
-    expect(order).toEqual(['reserve', 'leave:A', 'join:place_32.71_-117.17_abcdefabcdef']);
+    expect(order).toEqual(['leave:A', 'join:place_32.71_-117.17_abcdefabcdef']);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('a Place is my own list', () => {
+  it('joins with no hub roster: no member POST and no heartbeat, only a visit', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    const service: any = new WebChatroomService({ getGun: () => gunChain() } as any);
+    service.recordRoomVisit = jest.fn(async () => undefined);
+    const fetchMock = jest.fn();
+    const originalFetch = global.fetch;
+    global.fetch = fetchMock as never;
+    const place = 'place_32.71_-117.17_abcdefabcdef';
+    try {
+      await service.joinChatroom(place, 'u', 'User');
+      expect(service.getCurrentChatroomId()).toBe(place);
+      expect(service.recordRoomVisit).toHaveBeenCalledWith(place, 'u');
+      expect(service.membershipHeartbeatTimer).toBeFalsy();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = originalFetch;
+      jest.restoreAllMocks();
+    }
   });
 });
 

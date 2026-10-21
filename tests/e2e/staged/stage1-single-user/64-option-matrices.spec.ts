@@ -287,21 +287,6 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     await expect(p.locator('#settings-stage-name-input')).toHaveValue('ValidName');
     await backToSettingsMenu(p);
 
-    // Guard: min distance > max distance → rejected (revert).
-    await openSettingsSection(p, SETTINGS_SECTION.distanceHome);
-    await p.fill('#settings-min-distance', '10');
-    await p.locator('#settings-min-distance').dispatchEvent('change');
-    await afterSync();
-    await p.fill('#settings-max-distance', '25');
-    await p.locator('#settings-max-distance').dispatchEvent('change');
-    await afterSync();
-    await p.fill('#settings-min-distance', '999');
-    await p.locator('#settings-min-distance').dispatchEvent('change');
-    await afterSync();
-    // Min should not have persisted above max (reverted to prior valid 10).
-    await expect(p.locator('#settings-min-distance')).not.toHaveValue('999');
-    await backToSettingsMenu(p);
-
     // Fallback: uncheck every allowed language → persisted as ['en'].
     await openSettingsSection(p, SETTINGS_SECTION.languages);
     const langOptions = p.locator('.settings-filter-language-option');

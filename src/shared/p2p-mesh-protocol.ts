@@ -12,6 +12,7 @@ export type P2PMeshMessageKind =
   | 'protocol-manifest-summary'
   | 'protocol-manifest-request'
   | 'protocol-manifest-chain'
+  | 'nearby-gossip'
   | 'ack';
 
 export type P2PProtocolManifestCheckpoint = {
@@ -24,6 +25,8 @@ export type P2PProtocolManifestSummaryPayload = P2PProtocolManifestCheckpoint & 
   manifestEngineVersion: number;
   roomProtocolVersion: number;
   capabilities: string[];
+  /** The sender already counts the recipient manifest-ready, so the recipient need not answer. */
+  peerReady?: boolean;
 };
 
 export type P2PProtocolManifestRequestPayload = P2PProtocolManifestCheckpoint;
@@ -124,7 +127,26 @@ export type P2PMeshFramePayload =
   | P2PProtocolManifestSummaryPayload
   | P2PProtocolManifestRequestPayload
   | P2PProtocolManifestChainPayload
+  | P2PNearbyGossipPayload
   | { msgId: string };
+
+/**
+ * One Nearby v3 gossip message between two direct neighbors (nearby-v3-gossip.ts). A request carries
+ * a fresh `requestId`; the answer carries the same id in `replyTo`. Always one hop.
+ */
+export type P2PNearbyGossipPayload = {
+  requestId: string;
+  replyTo?: string;
+  message: Record<string, unknown>;
+};
+
+export function isP2PNearbyGossipPayload(payload: unknown): payload is P2PNearbyGossipPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const value = payload as Partial<P2PNearbyGossipPayload>;
+  return typeof value.requestId === 'string' && value.requestId.length > 0 && value.requestId.length <= 128
+    && (value.replyTo === undefined || (typeof value.replyTo === 'string' && value.replyTo.length <= 128))
+    && !!value.message && typeof value.message === 'object' && !Array.isArray(value.message);
+}
 
 export type P2PMeshFrame = {
   version: 1;
@@ -161,7 +183,7 @@ export function isP2PMeshFrame(value: unknown): value is P2PMeshFrame {
   if (!value || typeof value !== 'object') return false;
   const frame = value as Partial<P2PMeshFrame>;
   return frame.version === 1
-    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'ack'].includes(String(frame.kind))
+    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'nearby-gossip', 'ack'].includes(String(frame.kind))
     && typeof frame.msgId === 'string' && frame.msgId.length > 0 && frame.msgId.length <= 256
     && typeof frame.roomId === 'string' && frame.roomId.length <= 256
     && typeof frame.originUserId === 'string' && frame.originUserId.length <= 256
@@ -193,7 +215,8 @@ export function isP2PProtocolManifestSummaryPayload(value: unknown): value is P2
     && Number(summary.roomProtocolVersion) >= 1
     && Array.isArray(summary.capabilities)
     && summary.capabilities.length <= 64
-    && summary.capabilities.every((capability) => typeof capability === 'string' && capability.length > 0 && capability.length <= 128);
+    && summary.capabilities.every((capability) => typeof capability === 'string' && capability.length > 0 && capability.length <= 128)
+    && (summary.peerReady === undefined || typeof summary.peerReady === 'boolean');
 }
 
 export function isP2PProtocolManifestRequestPayload(value: unknown): value is P2PProtocolManifestRequestPayload {

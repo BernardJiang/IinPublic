@@ -237,6 +237,53 @@ describe('ChatroomManager visit accounting', () => {
     })).rejects.toThrow('anchor cell');
   });
 
+  it('refuses a second live Place per creator and a same-name Place in one cell', async () => {
+    // Backdating the signed createdAt cannot dodge the limit (the hub's receipt time counts).
+    const backdated = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const manager = buildManager();
+    const place = async (pair: Awaited<ReturnType<typeof SEA.pair>>, name: string) => {
+      const descriptor = await createSignedPlaceDescriptor({
+        name, placeType: 'business', location: { latitude: 32.71, longitude: -117.17 }, pair, createdAt: backdated,
+      });
+      return manager.createChatroom({
+        name, type: 'business', createdBy: 'creator', anchorCell: 'region_32.71_-117.17', descriptor,
+      });
+    };
+    const alice = await SEA.pair();
+    const bob = await SEA.pair();
+    await place(alice, 'Bean There');
+    await expect(place(alice, 'Second Shop')).rejects.toMatchObject({
+      conflict: { code: 'PLACE_CREATOR_LIMIT', existingName: 'Bean There' },
+    });
+    await expect(place(bob, '  bean THERE ')).rejects.toMatchObject({
+      conflict: { code: 'PLACE_NAME_TAKEN', existingName: 'Bean There' },
+    });
+    await expect(place(bob, 'Other Shop')).resolves.toMatchObject({ name: 'Other Shop' });
+  });
+
+  it('an entry moves a quiet Place\'s lastActiveAt forward so it stays listed', async () => {
+    const manager = buildManager();
+    const pair = await SEA.pair();
+    const createdAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const descriptor = await createSignedPlaceDescriptor({
+      name: 'Old Shop', placeType: 'business', location: { latitude: 32.71, longitude: -117.17 }, pair, createdAt,
+    });
+    const room = await manager.createChatroom({
+      name: 'Old Shop', type: 'business', createdBy: 'creator', anchorCell: 'region_32.71_-117.17', descriptor,
+    });
+    // A backdated signed createdAt does not expire a new Place: the hub's receipt time counts.
+    const fresh = (await manager.getAllChatrooms()).find((row) => row.id === room.id);
+    expect(Date.now() - Date.parse(fresh?.lastActiveAt)).toBeLessThan(60_000);
+    // Age it, then an entry moves it forward again.
+    const meta = (manager as any).roomMetaCache.get(room.id);
+    (manager as any).roomMetaCache.set(room.id, { ...meta, lastActiveAt: createdAt });
+    expect((await manager.getAllChatrooms()).find((row) => row.id === room.id)?.lastActiveAt).toBe(createdAt);
+    await manager.addMemberFast(room.id, 'visitor', 'Visitor');
+    await new Promise((resolve) => setImmediate(resolve));
+    const listed = (await manager.getAllChatrooms()).find((row) => row.id === room.id);
+    expect(Date.now() - Date.parse(listed?.lastActiveAt)).toBeLessThan(60_000);
+  });
+
   it('retains visitor history because participants cannot delete an immutable room', async () => {
     const manager = buildManager();
     await manager.createChatroom({ id: 'room_2', name: 'Retired Room', type: 'custom', createdBy: 'owner' });
@@ -370,5 +417,82 @@ describe('ChatroomManager durable-presence reconciliation vs. renames', () => {
     expect((manager as any).stalePrunedAt.get('global')?.has('bob')).toBe(false);
     expect((manager as any).fastActiveMembers.get('global')?.has('bob')).toBe(true);
     (manager as any).staleMemberCountSweepTimer && clearInterval((manager as any).staleMemberCountSweepTimer);
+  });
+});
+
+describe('ChatroomManager.getChatroomMeta (room list lookups)', () => {
+  it('returns name and location without reading the visit counters', async () => {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    await manager.createChatroom({ id: 'room_meta', name: 'Bean There', type: 'custom', createdBy: 'owner' });
+    const reads: string[][] = [];
+    const getPath = gun.getPath.bind(gun);
+    gun.getPath = async (path: string[]) => {
+      reads.push(path);
+      return getPath(path);
+    };
+    const meta = await manager.getChatroomMeta('room_meta');
+    expect(meta?.name).toBe('Bean There');
+    const counterPaths = [visitCounterMapPath('room_meta'), prunedVisitAggregatePath('room_meta')].map((p) => p.join('/'));
+    expect(reads.map((p) => p.join('/')).filter((p) => counterPaths.includes(p))).toEqual([]);
+  });
+});
+
+describe('ChatroomManager.getActiveMembersWithStageName (Gun fallback, OPEN-58)', () => {
+  function build(): { gun: MemoryGunService; manager: ChatroomManager } {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    clearInterval((manager as any).staleMemberCountSweepTimer);
+    return { gun, manager };
+  }
+
+  it('reads both rosters at once, so an empty room costs one map window, not three', async () => {
+    const { manager } = build();
+    const startedAt = Date.now();
+    await expect(manager.getActiveMembersWithStageName('place_empty')).resolves.toEqual([]);
+    // One 500 ms map window plus one retry gap; the old sequential read took about 1.3 s here.
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it('drops and marks stale members, and falls back to API joins when the browser roster is empty', async () => {
+    const { gun, manager } = build();
+    const now = new Date().toISOString();
+    const old = new Date(Date.now() - (ROOM_MEMBERSHIP_TTL_SECONDS + 60) * 1000).toISOString();
+    await gun.putPath(['chatroomMembers', 'room_a', 'fresh'], { isActive: true, stageName: 'Fresh', lastSeen: now });
+    await gun.putPath(['chatroomMembers', 'room_a', 'ghost'], { isActive: true, stageName: 'Ghost', lastSeen: old });
+    await expect(manager.getActiveMembersWithStageName('room_a')).resolves.toEqual([{ userId: 'fresh', stageName: 'Fresh' }]);
+    expect((await gun.getPath(['chatroomMembers', 'room_a', 'ghost'])).isActive).toBe(false);
+  });
+});
+
+describe('ChatroomManager.dropRelayedMembers (phone node mirror of the hub roster)', () => {
+  it('drops members who left at the hub and republishes the room count', async () => {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    clearInterval((manager as any).staleMemberCountSweepTimer);
+    await manager.touchMemberFast('place_x', 'alice', { stageName: 'Alice', lastSeen: new Date().toISOString() });
+    await manager.dropRelayedMembers('place_x', ['alice']);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(manager.listActiveRooms().map((room) => room.roomId)).not.toContain('place_x');
+    expect((await gun.getPath(['public', 'room-member-counts', 'place_x']))?.count).toBe(0);
+  });
+});
+
+describe('ChatroomManager.getAllChatrooms (room list read budget, OPEN-58)', () => {
+  it('reads the chatroomMeta mirror with short waits, not the 2 s / 3 s defaults', async () => {
+    const gun = new MemoryGunService();
+    const manager = new ChatroomManager(gun as unknown as GunService);
+    clearInterval((manager as any).staleMemberCountSweepTimer);
+    const waits: Array<{ path: string; waitMs: number | undefined; timeoutMs: number | undefined }> = [];
+    gun.getPath = async (path: string[], waitMs?: number, timeoutMs?: number) => {
+      waits.push({ path: path.join('/'), waitMs, timeoutMs });
+      return undefined;
+    };
+    await expect(manager.getAllChatrooms()).resolves.toEqual([]);
+    expect(waits.length).toBeGreaterThan(0);
+    for (const call of waits) {
+      expect(call.waitMs).toBeLessThanOrEqual(300);
+      expect(call.timeoutMs).toBeLessThanOrEqual(500);
+    }
   });
 });

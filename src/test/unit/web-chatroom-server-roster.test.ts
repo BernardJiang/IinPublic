@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import {
+  memberRosterSignature,
   SERVER_MEMBERS_POLL_MS,
   WebChatroomService,
 } from '../../web/services/web-chatroom-service';
@@ -134,5 +135,46 @@ describe('WebChatroomService server-backed roster subscription', () => {
 
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]).toEqual([{ userId: 'phone-a', stageName: 'Phone A' }]);
+  });
+  it('does not re-emit an unchanged roster on heartbeats or polls, only on real changes (OPEN-51)', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => [{ userId: 'phone-a', stageName: 'Phone A' }],
+    })) as unknown as typeof fetch;
+    const gun = createGunHarness();
+    service = new WebChatroomService(gun.gunService as any);
+    const snapshots: Member[][] = [];
+
+    service.subscribeToMembers('room', (members) => snapshots.push(members));
+    const heartbeat = (epoch: string) => gun.emitGunMember('phone-a', {
+      isActive: true, stageName: 'Phone A', epoch, lastSeen: new Date().toISOString(),
+    });
+    heartbeat('run-1');
+    await flushPromises();
+    await jest.advanceTimersByTimeAsync(200);
+    const afterFirstSync = snapshots.length;
+
+    for (let beat = 0; beat < 5; beat += 1) {
+      await jest.advanceTimersByTimeAsync(1_000);
+      heartbeat('run-1');
+    }
+    await jest.advanceTimersByTimeAsync(SERVER_MEMBERS_POLL_MS);
+    expect(snapshots).toHaveLength(afterFirstSync);
+
+    heartbeat('run-2');
+    await jest.advanceTimersByTimeAsync(200);
+    expect(snapshots).toHaveLength(afterFirstSync + 1);
+    expect(snapshots.at(-1)?.[0]).toMatchObject({ userId: 'phone-a', epoch: 'run-2' });
+  });
+
+  it('roster signature ignores order and lastSeen but sees names, keys and restarts', () => {
+    const a = { userId: 'a', stageName: 'A', lastSeen: '2026-10-12T00:00:00Z' };
+    const b = { userId: 'b', stageName: 'B', pub: 'PUB' };
+    const base = memberRosterSignature([a, b]);
+    expect(memberRosterSignature([b, { ...a, lastSeen: '2026-10-12T00:00:09Z' }])).toBe(base);
+    expect(memberRosterSignature([a, { ...b, stageName: 'B2' }])).not.toBe(base);
+    expect(memberRosterSignature([a, { ...b, pub: 'PUB2' }])).not.toBe(base);
+    expect(memberRosterSignature([a, { ...b, epoch: 'e2' }])).not.toBe(base);
+    expect(memberRosterSignature([a])).not.toBe(base);
   });
 });

@@ -6,10 +6,11 @@ import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { wait, afterLoad, afterSync, afterNav, delay, headless } from '../../helpers/timing';
-import { webBaseURL, e2eTestScreenshotsDir, e2eTestStorageDir } from '../../helpers/ports';
+import { webBaseURL, e2eTestScreenshotsDir } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { expectNearbyHeadcount } from '../../helpers/nearby-v3';
 
 test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () => {
   let browser1: Browser;
@@ -23,12 +24,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
   let page3: Page;
 
   async function expectHeadcount(page: Page, expected: number, userName: string): Promise<void> {
-    const headcount = page.locator('.chatroom-item.current-room .chatroom-headcount');
-    await expect(headcount, `${userName} should see Nearby headcount ${expected}`).toContainText(
-      expected.toString(),
-      { timeout: 20000 },
-    );
-    console.log(`✅ ${userName} sees headcount = ${expected}`);
+    await expectNearbyHeadcount(page, expected, `${userName} should see Nearby headcount ${expected}`);
   }
 
   async function cleanupUser(page: Page, userName: string): Promise<void> {
@@ -68,13 +64,11 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
   });
 
   test('Three users enter sequentially, exit FIFO, re-enter random order', async () => {
+    // A returning user's saved list still holds the people who left meanwhile; each one takes up
+    // to two silent swaps (2 × 15 s) to drop, so this walk needs more than the default budget.
+    test.setTimeout(300_000);
     const screenshotDir = e2eTestScreenshotsDir('02-multi-user');
-    const storageDir = e2eTestStorageDir();
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
-    if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
-    const storage1Path = path.join(storageDir, 'user1-state.json');
-    const storage2Path = path.join(storageDir, 'user2-state.json');
-    const storage3Path = path.join(storageDir, 'user3-state.json');
 
     const newContext = (b: Browser) =>
       b.newContext({
@@ -91,7 +85,7 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page1, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page1, 'User1');
-    await expectHeadcount(page1, 1, 'User 1');
+    await expectHeadcount(page1, 0, 'User 1');
 
     context2 = await newContext(browser2);
     page2 = await context2.newPage();
@@ -102,8 +96,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page2, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2');
-    await expectHeadcount(page1, 2, 'User 1');
-    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page1, 1, 'User 1');
+    await expectHeadcount(page2, 1, 'User 2');
 
     context3 = await newContext(browser3);
     page3 = await context3.newPage();
@@ -114,37 +108,32 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await ensureWindowFitsViewport(page3, 640, 800);
     await afterLoad();
     attachE2eBrowserTabLabel(page3, 'User3');
-    await expectHeadcount(page1, 3, 'User 1');
-    await expectHeadcount(page2, 3, 'User 2');
-    await expectHeadcount(page3, 3, 'User 3');
-
-    await cleanupUser(page1, 'User 1');
-    await context1.storageState({ path: storage1Path });
-    await page1.close();
-    await context1.close();
-    await afterSync();
+    await expectHeadcount(page1, 2, 'User 1');
     await expectHeadcount(page2, 2, 'User 2');
     await expectHeadcount(page3, 2, 'User 3');
 
-    await cleanupUser(page2, 'User 2');
-    await context2.storageState({ path: storage2Path });
-    await page2.close();
-    await context2.close();
+    await cleanupUser(page1, 'User 1');
+    // Leave by closing the page only: the context keeps this user's identity (its non-extractable
+    // key cannot be saved in a storage state), so re-entering is the same person.
+    await page1.close();
     await afterSync();
-    await wait(2000, 5000);
+    await expectHeadcount(page2, 1, 'User 2');
     await expectHeadcount(page3, 1, 'User 3');
 
+    await cleanupUser(page2, 'User 2');
+    // Leave by closing the page only: the context keeps this user's identity (its non-extractable
+    // key cannot be saved in a storage state), so re-entering is the same person.
+    await page2.close();
+    await afterSync();
+    await wait(2000, 5000);
+    await expectHeadcount(page3, 0, 'User 3');
+
     await cleanupUser(page3, 'User 3');
-    await context3.storageState({ path: storage3Path });
+    // Leave by closing the page only: the context keeps this user's identity (its non-extractable
+    // key cannot be saved in a storage state), so re-entering is the same person.
     await page3.close();
-    await context3.close();
     await afterSync();
 
-    context2 = await browser2.newContext({
-      viewport: { width: 640, height: 800 },
-      deviceScaleFactor: 1,
-      storageState: storage2Path,
-    });
     page2 = await context2.newPage();
     attachFilteredConsoleLog(page2, 'User2');
     await page2.goto(webBaseURL());
@@ -152,13 +141,8 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2 re-enter');
-    await expectHeadcount(page2, 1, 'User 2');
+    await expectHeadcount(page2, 0, 'User 2');
 
-    context3 = await browser3.newContext({
-      viewport: { width: 640, height: 800 },
-      deviceScaleFactor: 1,
-      storageState: storage3Path,
-    });
     page3 = await context3.newPage();
     attachFilteredConsoleLog(page3, 'User3');
     await page3.goto(webBaseURL());
@@ -166,14 +150,9 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page3, 'User3 re-enter');
-    await expectHeadcount(page2, 2, 'User 2');
-    await expectHeadcount(page3, 2, 'User 3');
+    await expectHeadcount(page2, 1, 'User 2');
+    await expectHeadcount(page3, 1, 'User 3');
 
-    context1 = await browser1.newContext({
-      viewport: { width: 640, height: 800 },
-      deviceScaleFactor: 1,
-      storageState: storage1Path,
-    });
     page1 = await context1.newPage();
     attachFilteredConsoleLog(page1, 'User1');
     await page1.goto(webBaseURL());
@@ -181,9 +160,9 @@ test.describe('Multi-user headcount (3 users: FIFO exit, random re-enter)', () =
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page1, 'User1 re-enter');
-    await expectHeadcount(page1, 3, 'User 1');
-    await expectHeadcount(page2, 3, 'User 2');
-    await expectHeadcount(page3, 3, 'User 3');
+    await expectHeadcount(page1, 2, 'User 1');
+    await expectHeadcount(page2, 2, 'User 2');
+    await expectHeadcount(page3, 2, 'User 3');
 
     await cleanupUser(page1, 'User 1');
     await cleanupUser(page2, 'User 2');

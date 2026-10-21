@@ -8,7 +8,7 @@ covers: SPEC-3.9  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users: Tom (broadcaster), Jerry (responder), and Sam (responder), all in the "Global" chatroom.
+Three users: Tom (broadcaster), Jerry (responder), and Sam (responder), all in the shared Nearby room.
 
 ### Step 1: Tom creates and broadcasts one talk of each type
 

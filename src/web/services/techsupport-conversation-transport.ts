@@ -7,8 +7,13 @@ import {
   StarGunConversationTransport,
   type ConversationMessageWire,
 } from './star-gun-conversation-transport';
+import { throttleWhileHidden } from './throttle-while-hidden';
 
 type SupportWire = ConversationMessageWire & { supportMessage?: boolean };
+
+/** After a message, the server is polled every 5 s for this long; then every 30 s. */
+const TECHSUPPORT_ACTIVE_WINDOW_MS = 2 * 60_000;
+const TECHSUPPORT_QUIET_POLL_MS = 30_000;
 
 /**
  * P2P-N: TechSupport is the only server-durable chat channel (spec §19.7).
@@ -19,6 +24,7 @@ export class TechSupportConversationTransport implements ConversationTransport {
 
   private readonly gunStore: StarGunConversationTransport;
   private readonly apiBase: string;
+  private lastSentAt = 0;
 
   constructor(
     gunService: WebGunService,
@@ -88,6 +94,7 @@ export class TechSupportConversationTransport implements ConversationTransport {
       transport: this.mode,
     });
     const supportWire: SupportWire = { ...wire, supportMessage: true };
+    this.lastSentAt = Date.now();
     await this.persistToServer(conversationId, supportWire);
     console.log(`📤 TechSupport message sent in ${conversationId}`);
   }
@@ -107,6 +114,9 @@ export class TechSupportConversationTransport implements ConversationTransport {
     // (on the next poll). Caching the latest Gun snapshot here and always merging against it
     // (never substituting it) fixes that.
     let latestGunMessages: Message[] = [];
+    let lastCount = -1;
+    // A message seen or sent within the last two minutes: a conversation is going on.
+    let lastActivityAt = Date.now();
     const mergeAndNotify = async () => {
       if (disposed) return;
       const serverMessages = await this.loadFromServer(conversationId);
@@ -117,6 +127,10 @@ export class TechSupportConversationTransport implements ConversationTransport {
       const merged = [...byId.values()].sort(
         (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
       );
+      if (merged.length !== lastCount) {
+        if (lastCount >= 0) lastActivityAt = Date.now();
+        lastCount = merged.length;
+      }
       callback(merged);
     };
 
@@ -131,9 +145,14 @@ export class TechSupportConversationTransport implements ConversationTransport {
 
     void mergeAndNotify();
 
-    const poll = setInterval(() => {
+    // The live Gun subscription still pushes; the server poll slows while hidden, and to every
+    // 30 s once nobody has written for two minutes (OPEN-73). Sending a message (any new message
+    // in the merge) brings it back to 5 s.
+    const poll = setInterval(throttleWhileHidden(() => {
       void mergeAndNotify();
-    }, 5000);
+    }, 60_000, {
+      visibleMs: () => (Date.now() - Math.max(lastActivityAt, this.lastSentAt) < TECHSUPPORT_ACTIVE_WINDOW_MS ? 0 : TECHSUPPORT_QUIET_POLL_MS),
+    }), 5000);
 
     return () => {
       disposed = true;

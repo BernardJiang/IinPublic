@@ -1,4 +1,9 @@
-import { parseAnchorCell, placeRoomId } from '../../shared/place-rooms';
+import { isPlaceRoomId, parseAnchorCell, placeRoomId } from '../../shared/place-rooms';
+import {
+  findPlaceCreationConflict,
+  PLACE_ACTIVITY_WRITE_INTERVAL_MS,
+  PlaceCreationConflictError,
+} from '../../shared/place-lifecycle';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { randomBytes } from 'crypto';
 import { portableSha256Hex } from '../../shared/portable-sha256';
@@ -240,6 +245,18 @@ export class ChatroomManager {
     this.fastActiveMembers.set(chatroomId, room);
   }
 
+  /**
+   * A relayed (phone) node mirrors the hub's roster into its fast index. Members who have left at
+   * the hub never send this node a leave, so drop them here (which republishes the count);
+   * otherwise the room keeps a phantom headcount and an empty Place drops out of "Places near
+   * you" (OPEN-58 journey).
+   */
+  async dropRelayedMembers(chatroomId: string, userIds: Iterable<string>): Promise<void> {
+    // A full local leave: the mirrored member also has Gun roster rows here, which are the
+    // fallback once the fast index is empty.
+    for (const userId of userIds) await this.leaveChatroom(chatroomId, userId);
+  }
+
   private removeFastMember(chatroomId: string, userId: string): void {
     const room = this.fastActiveMembers.get(chatroomId);
     if (!room) return;
@@ -283,9 +300,15 @@ export class ChatroomManager {
     return members;
   }
 
-  private async getPathWithRetry(path: string[], maxAttempts: number = 6, delayMs: number = 150): Promise<any> {
+  private async getPathWithRetry(
+    path: string[],
+    maxAttempts: number = 6,
+    delayMs: number = 150,
+    waitMs?: number,
+    timeoutMs?: number,
+  ): Promise<any> {
     for (let i = 0; i < maxAttempts; i++) {
-      const value = await this.gunService.getPath(path);
+      const value = await this.gunService.getPath(path, waitMs, timeoutMs);
       if (value != null) return value;
       if (i < maxAttempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -296,8 +319,10 @@ export class ChatroomManager {
 
   async getAllChatrooms(): Promise<any[]> {
     const metaById = new Map<string, any>();
-    // Gun mirror first (survives restarts) …
-    const raw = await this.getPathWithRetry(['chatroomMeta'], 2, 100);
+    // Gun mirror first (survives restarts) … Short waits, as in touchMemberFast: this process
+    // has no peer to wait on, and the default 2 s wait / 3 s timeout made every room list take
+    // 6 s when the mirror was empty, before any Place could be created (OPEN-58).
+    const raw = await this.getPathWithRetry(['chatroomMeta'], 2, 100, 300, 500);
     if (raw && typeof raw === 'object') {
       for (const [id, rawMeta] of Object.entries(raw as Record<string, any>)) {
         if (!id || id.startsWith('_')) continue;
@@ -310,7 +335,7 @@ export class ChatroomManager {
           (!meta || typeof meta !== 'object' || meta['#'] != null || meta.name == null) &&
           !this.roomMetaCache.has(id)
         ) {
-          meta = await this.getPathWithRetry(['chatroomMeta', id], 1, 50);
+          meta = await this.getPathWithRetry(['chatroomMeta', id], 1, 50, 300, 500);
         }
         if (!meta || typeof meta !== 'object' || meta['#'] != null) continue;
         metaById.set(id, withoutLegacyRoomAuthority(meta));
@@ -333,9 +358,65 @@ export class ChatroomManager {
         isActive: meta?.isActive !== false,
         businessInfo: meta?.businessInfo,
         location: meta?.location,
+        ...(meta?.anchorCell ? { anchorCell: meta.anchorCell } : {}),
+        ...(meta?.creatorPub ? { creatorPub: meta.creatorPub } : {}),
+        ...(meta?.lastActiveAt ? { lastActiveAt: meta.lastActiveAt } : {}),
       });
     }
     return list;
+  }
+
+  /**
+   * Keeps a Place live (docs/design/nearby-and-place-chatrooms.md §4.2): an entry or heartbeat
+   * moves its `lastActiveAt` forward, written at most once an hour per Place.
+   */
+  async markPlaceActive(chatroomId: string): Promise<void> {
+    if (!isPlaceRoomId(chatroomId)) return;
+    const meta = this.roomMetaCache.get(chatroomId)
+      ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 1, 50);
+    if (!meta || typeof meta !== 'object' || meta['#'] != null) return;
+    const nowMs = Date.now();
+    const last = Date.parse(String(meta.lastActiveAt || meta.createdAt || ''));
+    if (Number.isFinite(last) && nowMs - last < PLACE_ACTIVITY_WRITE_INTERVAL_MS) return;
+    const lastActiveAt = new Date(nowMs).toISOString();
+    this.roomMetaCache.set(chatroomId, { ...meta, lastActiveAt });
+    await Promise.all([
+      this.gunService.putPath(['chatroomMeta', chatroomId, 'lastActiveAt'], lastActiveAt),
+      this.gunService.putPath(['chatrooms', chatroomId, 'meta', 'lastActiveAt'], lastActiveAt),
+    ]);
+  }
+
+  /**
+   * E2E only (`POST /api/test/chatrooms/:id/backdate`): move a Place's `createdAt` and
+   * `lastActiveAt` into the past, so a journey can check that a Place left unvisited for 30 days
+   * drops out of everyone's list without waiting 30 days. Returns false when the Place is unknown.
+   */
+  async backdatePlaceForTesting(chatroomId: string, atIso: string): Promise<boolean> {
+    const meta = this.roomMetaCache.get(chatroomId)
+      ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 1, 50);
+    if (!meta || typeof meta !== 'object' || meta['#'] != null) return false;
+    this.roomMetaCache.set(chatroomId, { ...meta, createdAt: atIso, lastActiveAt: atIso });
+    await Promise.all([
+      this.gunService.putPath(['chatroomMeta', chatroomId, 'createdAt'], atIso),
+      this.gunService.putPath(['chatroomMeta', chatroomId, 'lastActiveAt'], atIso),
+      this.gunService.putPath(['chatrooms', chatroomId, 'meta', 'createdAt'], atIso),
+      this.gunService.putPath(['chatrooms', chatroomId, 'meta', 'lastActiveAt'], atIso),
+    ]);
+    return true;
+  }
+
+  /**
+   * A room's stored metadata (name, location, …) without the visit totals `getChatroom` adds. The
+   * room list (`/api/active-rooms`) needs only the name and location; `getChatroom`'s two counter
+   * reads cost ~2–3 s, longer than a phone's 2.5 s hub relay timeout, so every phone's room list
+   * failed with 503 as soon as one Place had people in it (phone-path E2E, 2026-10-14).
+   */
+  async getChatroomMeta(chatroomId: string): Promise<Record<string, unknown> | null> {
+    const meta = this.roomMetaCache.get(chatroomId)
+      ?? await this.getPathWithRetry(['chatroomMeta', chatroomId], 6, 150);
+    if (!meta || typeof meta !== 'object') return null;
+    if (!this.roomMetaCache.has(chatroomId)) this.roomMetaCache.set(chatroomId, meta);
+    return meta as Record<string, unknown>;
   }
 
   async getChatroom(chatroomId: string): Promise<any | null> {
@@ -426,10 +507,22 @@ export class ChatroomManager {
         : anchor ? { location: { latitude: anchor.latitude, longitude: anchor.longitude } } : {}),
       createdAt: signedDescriptor?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      // The hub's own receipt time starts the 30-day live window: the signed createdAt is the
+      // creator's claim and a backdated one must not dodge the creation limits.
+      lastActiveAt: new Date().toISOString(),
       isActive: true,
     };
     if (!room.name) {
       throw new Error('chatroom name is required');
+    }
+    if (signedDescriptor && anchor && !requestedTestId) {
+      const existing = (await this.getAllChatrooms()).filter((row) => isPlaceRoomId(row.id) && row.id !== id);
+      const conflict = findPlaceCreationConflict(existing, {
+        creatorPub: signedDescriptor.creatorPub,
+        anchorCell: anchor.cellId,
+        name: room.name,
+      });
+      if (conflict) throw new PlaceCreationConflictError(conflict);
     }
     this.roomMetaCache.set(id, room);
     await this.gunService.putPath(['chatrooms', id, 'meta'], room);
@@ -467,37 +560,52 @@ export class ChatroomManager {
     throw new Error('rooms have no owner and cannot be deleted by a participant');
   }
 
+  /** Every room with at least one fresh member, from the in-memory roster (no Gun reads). */
+  listActiveRooms(now = new Date()): Array<{ roomId: string; memberIds: string[] }> {
+    const rooms: Array<{ roomId: string; memberIds: string[] }> = [];
+    for (const roomId of [...this.fastActiveMembers.keys()]) {
+      const memberIds = this.getFastActiveMembers(roomId, now).map((member) => member.userId);
+      if (memberIds.length > 0) rooms.push({ roomId, memberIds });
+    }
+    return rooms;
+  }
+
   async getActiveMembersWithStageName(chatroomId: string): Promise<RoomMemberSummary[]> {
     const fastMembers = this.getFastActiveMembers(chatroomId);
     if (fastMembers.length > 0) return fastMembers;
+    // One parallel read of both rosters, shared by the stale prune and the member list. Reading
+    // them in turn (prune, then chatrooms/<id>/users, then chatroomMembers/<id>) cost ~2.6 s on
+    // an empty room, paid twice per Place entry (OPEN-58).
+    const [roomUsers, apiMembers] = await Promise.all([
+      this.collectRoomMemberRecords(['chatrooms', chatroomId, 'users']),
+      this.collectRoomMemberRecords(['chatroomMembers', chatroomId]),
+    ]);
     // Same embedded-node Radisk hazard as the sweep timer above — see its comment.
     const pruned = process.env.IINPUBLIC_EMBEDDED_NODE === '1'
-      ? false
-      : await this.pruneStaleRoomMemberships(chatroomId);
-    const fromRoomUsers = await this.collectActiveMembersFromUsersNode(chatroomId);
-    if (fromRoomUsers.length > 0) {
-      if (pruned) void this.publishRoomMemberCountValue(chatroomId, fromRoomUsers.length);
-      return fromRoomUsers;
-    }
-    const users = await this.getPathWithRetry(['chatroomMembers', chatroomId], 4, 100);
-    if (!users || typeof users !== 'object') {
-      if (pruned) void this.publishRoomMemberCountValue(chatroomId, 0);
-      return [];
-    }
+      ? null
+      : await this.markStaleRoomMemberships(chatroomId, [roomUsers, apiMembers]);
+    // Browser clients write `chatrooms/<id>/users`; API joins use `chatroomMembers`. The first
+    // roster with anyone in it wins, as before.
+    let members = this.activeMembersFromRecords(roomUsers, pruned);
+    if (members.length === 0) members = this.activeMembersFromRecords(apiMembers, pruned);
+    if (pruned && pruned.size > 0) void this.publishRoomMemberCountValue(chatroomId, members.length);
+    return members;
+  }
+
+  private activeMembersFromRecords(
+    records: Array<{ userId: string; data: any }>,
+    stale: Set<string> | null,
+  ): RoomMemberSummary[] {
     const members: RoomMemberSummary[] = [];
-    for (const [userId, data] of Object.entries(users as Record<string, any>)) {
-      if (!userId || userId.startsWith('_') || isTechSupportId(userId)) continue;
-      if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
-      if (this.predatesReset(data)) continue;
+    for (const { userId, data } of records) {
+      if (isTechSupportId(userId) || stale?.has(userId)) continue;
+      if (data.isActive !== true || this.predatesReset(data)) continue;
       members.push({
         userId,
-        stageName: String((data as any).stageName || userId),
-        ...(typeof (data as any).isTraveler === 'boolean'
-          ? { isTraveler: (data as any).isTraveler }
-          : {}),
+        stageName: String(data.stageName || userId),
+        ...(typeof data.isTraveler === 'boolean' ? { isTraveler: data.isTraveler } : {}),
       });
     }
-    if (pruned) void this.publishRoomMemberCountValue(chatroomId, members.length);
     return members;
   }
 
@@ -553,7 +661,7 @@ export class ChatroomManager {
   ): Promise<Array<{ userId: string; data: any }>> {
     const fromMap = await this.collectRoomMemberRecordsFromGunMap(path, 500);
     if (fromMap.length > 0) return fromMap;
-    const users = await this.getPathWithRetry(path, 2, 80);
+    const users = await this.getPathWithRetry(path, 2, 80, 100, 150);
     if (!users || typeof users !== 'object') return [];
     return Object.entries(users as Record<string, any>)
       .filter(([userId, data]) => !!userId && !userId.startsWith('_') && !!data && typeof data === 'object')
@@ -561,17 +669,26 @@ export class ChatroomManager {
   }
 
   private async pruneStaleRoomMemberships(chatroomId: string, now = new Date()): Promise<boolean> {
-    const stale = new Set<string>();
     const recordGroups = await Promise.all([
       this.collectRoomMemberRecords(['chatrooms', chatroomId, 'users']),
       this.collectRoomMemberRecords(['chatroomMembers', chatroomId]),
     ]);
+    return (await this.markStaleRoomMemberships(chatroomId, recordGroups, now)).size > 0;
+  }
+
+  /** Writes isActive:false for every member whose heartbeat is past the TTL; returns their ids. */
+  private async markStaleRoomMemberships(
+    chatroomId: string,
+    recordGroups: Array<Array<{ userId: string; data: any }>>,
+    now = new Date(),
+  ): Promise<Set<string>> {
+    const stale = new Set<string>();
     for (const records of recordGroups) {
       for (const record of records) {
         if (this.roomMembershipIsStale(record.data, now)) stale.add(record.userId);
       }
     }
-    if (stale.size === 0) return false;
+    if (stale.size === 0) return stale;
     const leftData = {
       leftAt: now.toISOString(),
       isActive: false,
@@ -583,72 +700,7 @@ export class ChatroomManager {
         this.gunService.putPath(['chatroomMembers', chatroomId, userId], leftData),
       ]),
     );
-    return true;
-  }
-
-  /** Browser clients write `chatrooms/<id>/users`; API joins use `chatroomMembers`. Read both. */
-  private async collectActiveMembersFromUsersNode(
-    chatroomId: string,
-  ): Promise<RoomMemberSummary[]> {
-    const fromMap = await this.collectActiveMembersFromGunMap(['chatrooms', chatroomId, 'users'], 500);
-    if (fromMap.length > 0) return fromMap;
-    const users = await this.getPathWithRetry(['chatrooms', chatroomId, 'users'], 2, 80);
-    if (!users || typeof users !== 'object') return [];
-    const members: RoomMemberSummary[] = [];
-    for (const [userId, data] of Object.entries(users as Record<string, any>)) {
-      if (!userId || userId.startsWith('_') || isTechSupportId(userId)) continue;
-      if (!data || typeof data !== 'object' || (data as any).isActive !== true) continue;
-      if (this.predatesReset(data)) continue;
-      members.push({
-        userId,
-        stageName: String((data as any).stageName || userId),
-        ...(typeof (data as any).isTraveler === 'boolean'
-          ? { isTraveler: (data as any).isTraveler }
-          : {}),
-      });
-    }
-    return members;
-  }
-
-  /** Gun child nodes (room members) require `.map()` — parent `.once()` often returns empty. */
-  private collectActiveMembersFromGunMap(
-    path: string[],
-    observeMs: number,
-  ): Promise<RoomMemberSummary[]> {
-    return new Promise((resolve) => {
-      const gun = this.gunService.getGun();
-      let ref: any = gun;
-      for (const seg of path) {
-        ref = ref.get(seg);
-      }
-      const members: RoomMemberSummary[] = [];
-      const seen = new Set<string>();
-      const mapRef = ref.map();
-      const finish = () => {
-        try {
-          mapRef.off();
-        } catch {
-          /* ignore */
-        }
-        resolve(members);
-      };
-      const timer = setTimeout(finish, observeMs);
-      mapRef.on((data: unknown, key: string) => {
-        if (!key || key.startsWith('_') || isTechSupportId(key)) return;
-        if (!data || typeof data !== 'object' || (data as { isActive?: boolean }).isActive !== true) return;
-        if (this.predatesReset(data)) return;
-        if (seen.has(key)) return;
-        seen.add(key);
-        members.push({
-          userId: key,
-          stageName: String((data as { stageName?: string }).stageName || key),
-          ...(typeof (data as { isTraveler?: unknown }).isTraveler === 'boolean'
-            ? { isTraveler: (data as { isTraveler: boolean }).isTraveler }
-            : {}),
-        });
-      });
-      timer.unref?.();
-    });
+    return stale;
   }
 
   async joinChatroom(chatroomId: string, userId: string, stageName?: string): Promise<void> {
@@ -667,9 +719,6 @@ export class ChatroomManager {
     await this.gunService.putPath(['chatroomMembers', chatroomId, userId], {
       ...memberData,
     });
-    const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
-    const headcount = Number(current) || 0;
-    await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], headcount + 1);
     await this.recordVisit(chatroomId, userId);
     await this.publishRoomMemberCount(chatroomId);
   }
@@ -723,6 +772,9 @@ export class ChatroomManager {
     void this.publishRoomMemberCount(chatroomId).catch(() => {
       /* best-effort public badge; never blocks membership writes */
     });
+    void this.markPlaceActive(chatroomId).catch(() => {
+      /* best-effort liveness; never blocks membership writes */
+    });
   }
 
   async touchMemberFast(
@@ -732,6 +784,9 @@ export class ChatroomManager {
   ): Promise<void> {
     if (isTechSupportId(userId)) return;
     const now = new Date().toISOString();
+    void this.markPlaceActive(chatroomId).catch(() => {
+      /* best-effort liveness; never blocks heartbeats */
+    });
     // This is the read behind the membership-heartbeat PATCH every connected client sends every
     // ~10-30s (web-chatroom-service.ts's startMembershipHeartbeat) — getPath's 2000ms/3000ms
     // defaults exist for letting a slow peer's write settle before trusting a read, which this
@@ -925,9 +980,8 @@ export class ChatroomManager {
       ...leftData,
     });
     this.durableMarkLeft(chatroomId, userId, leftAtIso);
-    const current = await this.gunService.getPath(['chatrooms', chatroomId, 'headcount']);
-    const headcount = Number(current) || 0;
-    await this.gunService.putPath(['chatrooms', chatroomId, 'headcount'], Math.max(0, headcount - 1));
+    // No `chatrooms/<id>/headcount` read-modify-write: nothing reads it, and its Gun read waited
+    // ~2.5 s on every leave (OPEN-58). Counts come from public/room-member-counts.
     // Eventually-consistent public badge; never block the leave response on its racy re-read.
     void this.publishRoomMemberCount(chatroomId).catch(() => {
       /* best-effort public badge */

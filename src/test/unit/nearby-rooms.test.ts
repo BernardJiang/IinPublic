@@ -1,117 +1,43 @@
 import {
-  deriveNearbyRoomAssignment,
+  CONTACTS_ONLY_SCOPE_ID,
+  hasNoHubRoster,
+  hasRoomChat,
+  isLocalOnlyRoomScope,
+  isPersonalListScope,
+  isNearbyPublicMode,
   isNearbyRoomId,
-  maximumGeographicSplitGeneration,
-  nearbyMapArea,
-  nearbyPublicScope,
-  projectNearbyCoordinate,
+  nearbyBasePrecisionMeters,
+  NEARBY_V3_ROOM_ID,
 } from '../../shared/nearby-rooms';
-import type { GPSCoordinate } from '../../shared/types';
 
-const point = (latitude: number, longitude: number, accuracy = 10): GPSCoordinate => ({
-  latitude,
-  longitude,
-  accuracy,
-  timestamp: new Date('2026-10-08T12:00:00.000Z'),
-});
-
-describe('Nearby geographic room placement', () => {
-  test('same close-nearby cell converges without exposing coordinates in the room ID', () => {
-    const alice = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'close-nearby',
-      identity: 'alice',
-    });
-    const bob = deriveNearbyRoomAssignment({
-      location: point(32.71571, -117.16109),
-      mode: 'close-nearby',
-      identity: 'bob',
-    });
-    expect(alice.roomId).toBe(bob.roomId);
-    expect(isNearbyRoomId(alice.roomId)).toBe(true);
-    expect(alice.roomId).not.toContain('32.7157');
-    expect(alice.roomId).not.toContain('117.1611');
+describe('Nearby scopes (§3.7)', () => {
+  test('Nearby is one local scope, never a shared room id', () => {
+    expect(isNearbyRoomId(NEARBY_V3_ROOM_ID)).toBe(true);
+    // Retired v2 room ids are not Nearby any more: a saved one migrates to the personal list.
+    expect(isNearbyRoomId('nearby_v2_e1_0123456789abcdef01234567')).toBe(false);
+    expect(isNearbyRoomId('nearby_v1_e1_p1000_g0_0123456789abcdef01234567')).toBe(false);
+    expect(isNearbyRoomId('place_32.71_-117.17_abcdefabcdef')).toBe(false);
   });
 
-  test('overflow generations group by finer geography before identity', () => {
-    const west = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1625, 5),
-      mode: 'neighborhood',
-      identity: 'same-identity',
-      requestedSplitGeneration: 3,
-    });
-    const east = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1585, 5),
-      mode: 'neighborhood',
-      identity: 'same-identity',
-      requestedSplitGeneration: 3,
-    });
-    expect(west.splitGeneration).toBe(3);
-    expect(west.identityLaneCount).toBe(1);
-    expect(west.roomId).not.toBe(east.roomId);
+  test('Nearby and Places are personal lists with no hub roster; only a Place has a chat feed', () => {
+    const place = 'place_32.71_-117.17_abcdefabcdef';
+    expect(hasNoHubRoster(NEARBY_V3_ROOM_ID)).toBe(true);
+    expect(hasNoHubRoster(CONTACTS_ONLY_SCOPE_ID)).toBe(true);
+    expect(hasNoHubRoster(place)).toBe(true);
+    expect(isLocalOnlyRoomScope(NEARBY_V3_ROOM_ID)).toBe(false);
+    expect(isPersonalListScope(NEARBY_V3_ROOM_ID)).toBe(true);
+    expect(isPersonalListScope(place)).toBe(true);
+    expect(isPersonalListScope(CONTACTS_ONLY_SCOPE_ID)).toBe(false);
+    expect(hasRoomChat(place)).toBe(true);
+    expect(hasRoomChat(NEARBY_V3_ROOM_ID)).toBe(false);
   });
 
-  test('poor GPS accuracy stops geographic splitting and uses final identity lanes', () => {
-    expect(maximumGeographicSplitGeneration(400, 100)).toBe(1);
-    const assignment = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611, 100),
-      mode: 'close-nearby',
-      identity: 'alice',
-      requestedSplitGeneration: 4,
-    });
-    expect(assignment.splitGeneration).toBe(1);
-    expect(assignment.identityLaneCount).toBe(8);
-    expect(assignment.roomId).toMatch(/_l\d+of8$/);
-  });
-
-  test('boundary hysteresis prevents GPS drift from immediately changing rooms', () => {
-    const first = deriveNearbyRoomAssignment({
-      location: point(0, 0.00358),
-      mode: 'close-nearby',
-      identity: 'alice',
-    });
-    const projected = projectNearbyCoordinate(point(0, 0.0036));
-    const justAcross = point(0, (projected.x + 8) / 6_378_137 * 180 / Math.PI);
-    const stable = deriveNearbyRoomAssignment({
-      location: justAcross,
-      mode: 'close-nearby',
-      identity: 'alice',
-      previous: first,
-    });
-    expect(stable.roomId).toBe(first.roomId);
-  });
-
-  test('public scope omits local grid coordinates and exact location', () => {
-    const assignment = deriveNearbyRoomAssignment({
-      location: point(32.7157, -117.1611),
-      mode: 'neighborhood',
-      identity: 'alice',
-    });
-    const scope = nearbyPublicScope(assignment) as Record<string, unknown>;
-    expect(scope.localCell).toBeUndefined();
-    expect(JSON.stringify(scope)).not.toContain('32.7157');
-    expect(JSON.stringify(scope)).not.toContain('-117.1611');
-  });
-
-  test('map area contains the local point and shrinks with geographic subdivision', () => {
-    const location = point(32.7157, -117.1611, 5);
-    const root = deriveNearbyRoomAssignment({
-      location,
-      mode: 'neighborhood',
-      identity: 'alice',
-    });
-    const child = deriveNearbyRoomAssignment({
-      location,
-      mode: 'neighborhood',
-      identity: 'alice',
-      requestedSplitGeneration: 2,
-    });
-    const rootArea = nearbyMapArea(root);
-    const childArea = nearbyMapArea(child);
-    expect(rootArea.west).toBeLessThanOrEqual(location.longitude);
-    expect(rootArea.east).toBeGreaterThan(location.longitude);
-    expect(rootArea.south).toBeLessThanOrEqual(location.latitude);
-    expect(rootArea.north).toBeGreaterThan(location.latitude);
-    expect(childArea.approximateDiameterMeters).toBeLessThan(rootArea.approximateDiameterMeters);
+  test('each public privacy mode snaps the public point to its own precision', () => {
+    expect(nearbyBasePrecisionMeters('close-nearby')).toBe(400);
+    expect(nearbyBasePrecisionMeters('neighborhood')).toBe(1_000);
+    expect(nearbyBasePrecisionMeters('citywide')).toBe(10_000);
+    expect(nearbyBasePrecisionMeters('regional')).toBe(50_000);
+    expect(isNearbyPublicMode('contacts-only')).toBe(false);
+    expect(isNearbyPublicMode('location-off')).toBe(false);
   });
 });

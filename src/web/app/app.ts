@@ -23,11 +23,23 @@ import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '.
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import {
-  PlaceAdmissionUnavailableError,
-  PlaceRoomFullError,
   WebChatroomService,
+  chatroomCapacityTestOverride,
 } from '../services/web-chatroom-service';
 import { WebTalkService } from '../services/web-talk-service';
+import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
+import { BlockStatusCache } from '../services/block-status-cache';
+import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
+import { NearbyV3Runtime, FetchNearbyV3Hub } from '../services/nearby-v3-runtime';
+import { nearbyV3AttestorKeysFromManifest, nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
+import { IncomingTalkBudget } from '../../shared/incoming-talk-budget';
+import { placesMissingFromCatalogue } from '../ui/room-list-view';
+import { ACTIVE_ROOMS_PAGE } from '../../shared/active-rooms';
+import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-settings-store';
+import { QUIET_GPS_REFRESH_MS, quietStateFor, shouldRefreshQuietGps, type QuietState } from '../../shared/quiet-places';
+import { setCachedLocation } from '../services/location-cache';
+import { boundsContain, type MapBounds } from '../../shared/map-dots';
+import { publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
@@ -39,7 +51,7 @@ import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
-import { loadConnectivitySettings, routePreferencesFromSettings, type ConnectivitySettings } from '../ui/connectivity-settings';
+import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
@@ -48,14 +60,18 @@ import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
+import { MAX_LIVE_PLACES_PER_CELL } from '../../shared/place-lifecycle';
 import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
-import { getAutomaticLocationChatroomId } from '../../shared/location-to-chatroom';
 import {
   CONTACTS_ONLY_SCOPE_ID,
-  deriveNearbyRoomAssignment,
   isLocalOnlyRoomScope,
+  NEARBY_V3_ROOM_ID,
+  hasNoHubRoster,
+  hasRoomChat,
+  isPersonalListScope,
+  isNearbyPublicMode,
   isNearbyRoomId,
-  type NearbyRoomAssignment,
+  type NearbyPrivacyMode,
 } from '../../shared/nearby-rooms';
 import { applyPublicChatroomHierarchy, getAllChatroomIds } from '../../shared/chatroom-hierarchy';
 import {
@@ -142,14 +158,17 @@ import {
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
-import { getNearbyBluetoothEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
+import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
+import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
+import { CONFIG } from '../../shared/config';
+import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
+import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
-import { MicroRoomPreAdmissionClient } from '../services/micro-room-pre-admission-client';
-import { NearbyPreAdmissionClient } from '../services/nearby-pre-admission-client';
 import { P2PLocalNodeBridgeClient } from '../services/p2p-local-node-bridge-client';
 import { PeerMeshService } from '../services/peer-mesh-service';
 import { WebMailboxClient } from '../services/web-mailbox-client';
@@ -167,10 +186,6 @@ import {
   type ActiveExchangeRoom,
   type RoomProtocolCheckpoint,
 } from '../../shared/active-exchange-room';
-import {
-  microRoomBelongsToBase,
-  microRoomGenerationForRoom,
-} from '../../shared/micro-room-assignment';
 import { ProtocolManifestController } from '../../shared/protocol-manifest-controller';
 import {
   BUNDLED_PROTOCOL_MANIFEST_HISTORY,
@@ -210,6 +225,9 @@ import {
   outcomeKey as ledgerOutcomeKey,
   retractedKey as ledgerRetractedKey,
 } from '../../shared/talk-ledger';
+
+/** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
+const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
 
 type AttachmentShareMessagePayload = {
   kind: 'ipfs-auto-share-v1';
@@ -270,6 +288,33 @@ type MailboxSupportQuestionPayload = {
 
 /** Debounce for automatic same-room catch-up to one peer (link flaps, roster heartbeats). */
 const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
+/** How often online dots (Contacts, conversations, room members) are asked again. */
+const PRESENCE_REFRESH_MS = 60_000;
+/** On a phone the native mailbox watch wakes a drain; the page's own drain is a safety net. */
+const NATIVE_MAILBOX_SAFETY_DRAIN_MS = 15_000;
+
+/**
+ * The room protocol baseline. Outside production a local-debug/E2E capacity (`?e2e_capacity=`)
+ * replaces the baseline capacity so a full Nearby list or Place can be exercised with a few users;
+ * production always uses the bundled manifest's capacity.
+ */
+function baselineRoomCheckpoint(): RoomProtocolCheckpoint {
+  const capacity = chatroomCapacityTestOverride();
+  return capacity === null
+    ? BASELINE_ROOM_PROTOCOL_CHECKPOINT
+    : { ...BASELINE_ROOM_PROTOCOL_CHECKPOINT, chatroomCapacity: capacity };
+}
+
+/**
+ * The checkpoint actually used for rooms. An activated bundled manifest supplies its own capacity
+ * (498) and would silently replace the local-debug/E2E capacity, so a test capacity is re-applied
+ * on top. `chatroomCapacityTestOverride()` is always null in production.
+ */
+function manifestRoomCheckpoint(controller: { roomCheckpoint(baseline: RoomProtocolCheckpoint): RoomProtocolCheckpoint }): RoomProtocolCheckpoint {
+  const checkpoint = controller.roomCheckpoint(baselineRoomCheckpoint());
+  const capacity = chatroomCapacityTestOverride();
+  return capacity === null ? checkpoint : { ...checkpoint, chatroomCapacity: capacity };
+}
 
 export class IinPublicApp {
   private gunService: WebGunService;
@@ -304,36 +349,44 @@ export class IinPublicApp {
   private stageZeroBootedAt = 0;
   private incomingApiRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   private travelModeActive: boolean = false;
+  private presenceRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
   private travelNearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
-  private pendingNearbyTravel: {
-    rootAssignment: NearbyRoomAssignment;
-    location: GPSCoordinate;
-    placeId: string;
-    placeName: string;
-    targetRoomId?: string;
-    previousAssignment?: NearbyRoomAssignment;
-    previousControlRoot?: NearbyRoomAssignment;
-    previousControlLocation?: GPSCoordinate;
-  } | undefined;
-  private suppressNearbyTravelerMarker = false;
+  private activeRoomsTimer: ReturnType<typeof setInterval> | undefined;
+  private activeRoomsLimit = ACTIVE_ROOMS_PAGE;
+  /** Places seen in the room list that already triggered a catalogue refresh (one try each). */
+  private catalogueRefreshedForPlaces = new Set<string>();
+  private activeRoomsRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Quiet places / schedule / "Quiet now" (shared/quiet-places.ts), re-checked every minute. */
+  private quietState: QuietState = { active: false };
+  private quietTimer: ReturnType<typeof setInterval> | undefined;
+  private quietGpsTimer: ReturnType<typeof setInterval> | undefined;
+  private quietGpsInFlight = false;
+  /** Room members marked as Travelers (for the "Residents only" Talk audience). */
+  private roomTravelerIds: ReadonlySet<string> = new Set();
+  private nearbyPointShownKey = '';
+  /** Nearby (§3.7): my personal list, the audience of `NEARBY_V3_ROOM_ID`. */
+  private nearbyV3: NearbyV3Runtime | null = null;
+  /** The latest Nearby broadcast, for "Sent to N of M". */
+  private nearbyBroadcast: { talkIds: Set<string>; total: number; delivered: Set<string> } | null = null;
+  /** Last published home square (hysteresis memory for `publicHomeLocation`). */
+  private lastPublicHomeLocation: PublicLocation | null = null;
+  /** A Nearby-at-a-pin visit waiting for `chatroomChanged` to commit it. */
+  private pendingNearbyTravel: { location: GPSCoordinate; placeId: string; placeName: string } | undefined;
   private supportBootstrapChecked = false;
   /** `${roomId}|${peerId}` → last automatic catch-up send (see catchUpPeerInActiveRoom). */
   private readonly roomCatchupSentAt = new Map<string, number>();
+  /** Talk id → deliberate broadcasts still resolving receivers/delivering; catch-up waits for them. */
+  private readonly talkBroadcastsInFlight = new Map<string, number>();
+  /** Peers whose catch-up skipped an in-flight Talk; re-checked when that broadcast settles. */
+  private readonly catchUpDeferredByInFlight = new Map<string, { roomId: string; stageName?: string }>();
   /** When this session rendered the welcome greeting; null until then. */
   private supportGreetingTimestamp: string | null = null;
   private supportGreetingRendered: string | null = null;
   private presenceClient: P2PPresenceClient | null = null;
-  private microRoomPreAdmissionClient: MicroRoomPreAdmissionClient | null = null;
-  private microRoomBaseGridRoomId: string | null = null;
-  private microRoomRefreshTimer: ReturnType<typeof setInterval> | null = null;
-  private microRoomRefreshInFlight = false;
-  private nearbyPreAdmissionClient: NearbyPreAdmissionClient | null = null;
-  private nearbyControlRootAssignment: NearbyRoomAssignment | null = null;
-  private nearbyControlRoutingLocation: GPSCoordinate | null = null;
-  private nearbyControlRefreshTimer: ReturnType<typeof setInterval> | null = null;
-  private nearbyControlRefreshInFlight = false;
+  /** The hub's either-way block answer per peer, for a minute (every incoming Talk asks). */
+  private readonly blockStatusCache = new BlockStatusCache({ fetchStatus: (peerId) => this.fetchBlockStatusEitherWay(peerId) });
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
@@ -342,11 +395,15 @@ export class IinPublicApp {
   private peerMeshService: PeerMeshService | null = null;
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private nearbyOfflineService: NearbyOfflineService | null = null;
+  private activeRoomRoster: { roomId: string; count: number; pubs: string[] } | null = null;
+  private readonly talkWakeThrottle = new TalkWakeThrottle();
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
   private protocolManifestController: ProtocolManifestController | null = null;
   private protocolActivationTimer: ReturnType<typeof setTimeout> | null = null;
   private mailboxClient: WebMailboxClient | null = null;
   private mailboxPollTimer: ReturnType<typeof setInterval> | undefined;
+  private mailboxChangedListener: (() => void) | undefined;
+  private readonly incomingTalkBudget = new IncomingTalkBudget(() => this.nearbyV3Config().incomingTalksPerMinute);
   /** docs/TODO.md K5 — live subscription that keeps the local FAQ-bundle cache verified/fresh. */
   /** docs/TODO.md OPEN-29 — live subscription that keeps the local recovery-anchor cache fresh. */
   private techSupportRecoveryAnchorUnsubscribe: (() => void) | null = null;
@@ -543,6 +600,42 @@ export class IinPublicApp {
   /** Room headcount for the status bar; TechSupport is a Contact and never a room member. */
   private countRoomMembers(members: Array<{ userId: string }>): number {
     return new Set(members.map((member) => member.userId)).size;
+  }
+
+  /**
+   * The active room's other members drive the staged discovery policy: LAN NSD stays silent for a
+   * lone user, and roster pubs bind rotating radio ids to SEA identities.
+   */
+  private observeNearbyRoomRoster(roomId: string, members: Array<{ userId: string; pub?: string; isTraveler?: boolean }>): void {
+    if (roomId !== this.currentChatroomId) return;
+    this.roomTravelerIds = new Set(members.filter((member) => member.isTraveler === true).map((member) => member.userId));
+    const others = members.filter((member) => !!member.userId && member.userId !== this.currentUser?.id);
+    const wasAlone = this.activeRoomRoster?.roomId !== roomId || this.activeRoomRoster.count === 0;
+    this.activeRoomRoster = {
+      roomId,
+      count: others.length,
+      pubs: others.map((member) => String(member.pub || '').trim()).filter(Boolean),
+    };
+    if (wasAlone && others.length > 0) this.nearbyOfflineService?.resetDiscoveryBackoff();
+  }
+
+  /**
+   * The Internet discovery switch means cellular: off, discovery never uses cellular data. Wi-Fi
+   * and Ethernet uplinks are unaffected; browsers (no native path data) always may.
+   */
+  private hubDiscoveryAllowedNow(): boolean {
+    const bridge = readNearbyOfflineBridge();
+    if (!bridge?.networkPathState) return true;
+    let path: DiscoveryNetworkPath | null = null;
+    try {
+      path = JSON.parse(bridge.networkPathState()) as DiscoveryNetworkPath;
+    } catch {
+      return true;
+    }
+    return hubDiscoveryPathAllowed(
+      { ...(Array.isArray(path?.transports) ? { transports: path.transports } : {}) },
+      getNearbyProviderEnabled('cellular'),
+    );
   }
 
   private loadAttachmentShareSentIds(): void {
@@ -1016,27 +1109,12 @@ export class IinPublicApp {
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
-    this.chatroomService.setPromotionStatusListener((status) => {
-      if (!status || status.blockedUntil <= 0) {
-        this.lastPromotionNoticeKey = '';
-        return;
-      }
-      const key = `${status.target}:${status.blockedUntil}`;
-      if (key === this.lastPromotionNoticeKey) return;
-      this.lastPromotionNoticeKey = key;
-      const minutes = Math.max(1, Math.ceil((status.blockedUntil - Date.now()) / 60_000));
-      this.uiManager.showNotification(
-        this.uiManager.formatRoomPromotionWaiting(this.getChatroomDisplayName(status.target), minutes),
-        'info',
-      );
-    });
     // Travel is room-membership metadata, not a private UI decoration: peers in the room must
     // agree that a user deliberately visiting away from their saved home is a traveler.
     this.chatroomService.setMembershipTravelerResolver((chatroomId) => {
-      if (isNearbyRoomId(chatroomId)) {
-        return !this.suppressNearbyTravelerMarker && (this.pendingNearbyTravel != null
-          || (this.travelModeActive && this.travelChatroomId === chatroomId));
-      }
+      // A chosen-point user (every website user) is always a Traveler.
+      if (usesSelfDefinedEncounterLocation() && (isNearbyRoomId(chatroomId) || isPlaceRoomId(chatroomId))) return true;
+      if (isNearbyRoomId(chatroomId)) return this.pendingNearbyTravel != null || (this.travelModeActive && this.travelNearbyPoint != null);
       if (!isPlaceRoomId(chatroomId)) return false;
       const place = this.uiManager.getCustomChatroomMeta(chatroomId)?.location;
       if (!place || !this.currentLocation || !this.locationConfirmed) return true;
@@ -1185,7 +1263,8 @@ export class IinPublicApp {
     setP2PContactIdentityResolver(async (localUserId, otherUserId) => {
       if (this.currentUser?.id !== localUserId) return undefined;
       const user = await this.userService.getUser(localUserId).catch(() => this.currentUser!);
-      return user.knownPeople?.find((known) => known.userId === otherUserId)?.identityPub;
+      const knownPeople = Array.isArray(user.knownPeople) ? user.knownPeople : this.currentUser.knownPeople;
+      return (Array.isArray(knownPeople) ? knownPeople : []).find((known) => known.userId === otherUserId)?.identityPub;
     });
   }
 
@@ -1198,7 +1277,6 @@ export class IinPublicApp {
    * suppressing the correct suggestion once the real fix comes in.
    */
   private locationConfirmed = true;
-  private lastPromotionNoticeKey = '';
 
   async initialize(location: GPSCoordinate, options: { locationConfirmed?: boolean } = {}): Promise<void> {
     this.initialized = false;
@@ -1496,8 +1574,36 @@ export class IinPublicApp {
       this.startStageZeroHeadcountWatchdog();
     }
     this.initialized = true;
+    if (takeLegacyPrivacyMigration() === 'contacts-only' && this.currentUser) {
+      // "Contacts only" moved from the location list to the Talk audience.
+      const filters = { ...getTalkIntakeFilters(), contactsOnlyTalks: true };
+      setTalkIntakeFilters(filters);
+      setTalkIntakeFiltersOwner(this.currentUser.id);
+      this.currentUser.talkFilters = filters;
+    }
+    this.startQuietWatch();
+    this.startNearbyV3();
+    this.refreshNearbyPoint();
+    this.startActiveRooms();
+    this.startPresenceRefresh();
     if (this.locationConfirmed) {
       void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch(() => {});
+    }
+    // Registered for everyone: a phone can switch to Traveler later in Settings.
+    window.addEventListener(ENCOUNTER_LOCATION_EVENT, (event) => {
+      if (!usesSelfDefinedEncounterLocation()) return;
+      const detail = (event as CustomEvent<EncounterLocation | null>).detail ?? null;
+      // A phone without a GPS fix whose owner picks a point keeps it: a later fix must not move them.
+      if (detail && !detail.auto && isGpsFixUnavailable() && loadConnectivitySettings().locationSource !== 'traveler') {
+        saveConnectivitySettings({ ...loadConnectivitySettings(), locationSource: 'traveler' });
+      }
+      this.applyEncounterLocationChange(detail);
+    });
+    if (this.forcedGpsFallbackPending) {
+      this.forcedGpsFallbackPending = false;
+      this.handleGpsFixUnavailable({ force: true });
+    } else {
+      this.placeLocationlessDeviceOnMap();
     }
     markStartupPhase('initialSyncComplete');
   }
@@ -1558,13 +1664,94 @@ export class IinPublicApp {
    * boot already painted with a cached-or-placeholder location so first paint never waits on it.
    * A no-op before initialization has established a pending first-room assignment.
    */
+  /**
+   * Website/desktop encounter location changed in Settings. Setting it re-resolves the shared Nearby
+   * room at that point (travel, if active, keeps its own point); clearing it returns to Contacts only.
+   */
+  private applyEncounterLocationChange(value: { latitude: number; longitude: number } | null): void {
+    if (value) {
+      this.updateCurrentLocation(encounterLocationCoordinate(value));
+      return;
+    }
+    this.locationConfirmed = false;
+    if (this.currentUser && this.initialized) {
+      void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch((error) => {
+        console.warn('Nearby room refresh after clearing the encounter location failed:', error);
+      });
+    }
+  }
+
+  /**
+   * Everyone shows up on the map (OPEN-53). A device without real GPS — website/desktop, a phone
+   * Traveler, or a phone whose fix was denied or never came — appears at its chosen point as a
+   * Traveler; with no point yet it is placed at a random city (ENCOUNTER_LOCATION_EVENT above moves
+   * it into that Nearby room), told so, and asked to pick its own. TechSupport stays Contacts only.
+   */
+  private placeLocationlessDeviceOnMap(options: { askToPick?: boolean } = {}): void {
+    if (!this.currentUser || isTechSupportUser(this.currentUser)) return;
+    if (!usesSelfDefinedEncounterLocation()) return;
+    const existing = getEncounterLocation();
+    if (existing) {
+      if (!this.locationConfirmed) this.applyEncounterLocationChange(existing);
+      if (existing.auto) this.uiManager.showNotification(this.uiText('encounterLocationRandomHelp'), 'info');
+      return;
+    }
+    const placed = assignRandomEncounterLocation();
+    this.uiManager.showNotification(this.uiText('encounterLocationRandomHelp'), 'info');
+    if (options.askToPick === false) return;
+    showEncounterLocationPicker({
+      t: (key) => this.uiText(key),
+      initial: { latitude: placed.latitude, longitude: placed.longitude },
+      onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
+    });
+  }
+
+  /**
+   * A phone's GPS fix was denied, failed or timed out (index.ts). Unless a real fix is already in
+   * hand, the device becomes a Traveler at its encounter point instead of staying in Contacts only.
+   */
+  public handleGpsFixUnavailable(options: { askToPick?: boolean; force?: boolean } = {}): void {
+    if (this.locationConfirmed && !isGpsFixUnavailable() && !options.force) return;
+    setGpsFixUnavailable(true);
+    // Before initialize() finishes, its own placeLocationlessDeviceOnMap() call picks this up; a
+    // forced fallback (location denied while a saved fix is in use) is replayed there in full.
+    if (!this.initialized) {
+      if (options.force) this.forcedGpsFallbackPending = true;
+      return;
+    }
+    const existing = getEncounterLocation();
+    if (options.force && existing) this.applyEncounterLocationChange(existing);
+    this.placeLocationlessDeviceOnMap(options);
+  }
+
+  private forcedGpsFallbackPending = false;
+
+  /** True when the current location is a real device fix, not an encounter point. */
+  private hasRealGpsFix(): boolean {
+    if (!this.locationConfirmed || !this.currentLocation) return false;
+    const encounter = getEncounterLocation();
+    return !encounter
+      || encounter.latitude !== this.currentLocation.latitude
+      || encounter.longitude !== this.currentLocation.longitude;
+  }
+
+  /** A real GPS fix arrived: a device that was a Traveler only for lack of GPS becomes a Resident. */
+  public applyRealGpsFix(location: GPSCoordinate): void {
+    setCachedLocation(location);
+    setGpsFixUnavailable(false);
+    if (usesSelfDefinedEncounterLocation()) return;
+    document.getElementById('encounter-location-modal')?.remove();
+    this.updateCurrentLocation(location);
+  }
+
   updateCurrentLocation(location: GPSCoordinate): void {
     this.currentLocation = location;
     this.locationConfirmed = true;
-    if (this.currentUser) this.chatroomService.updateLocalUserLocation(this.currentUser.id, location);
     this.uiManager.setCurrentLocation(location);
     if (this.currentUser) {
-      void this.userService.updateUserLocation(this.currentUser.id, location).catch(() => {});
+      this.refreshQuietState();
+      void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch(() => {});
+      this.refreshNearbyPoint();
       if (this.initialized) {
         void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch((error) => {
           console.warn('Nearby room refresh after location update failed:', error);
@@ -1579,20 +1766,303 @@ export class IinPublicApp {
    * stamping that on talks made receivers' distance filter reject them as thousands of miles away —
    * seen on hardware with two phones side by side in OPEN-36 offline mode.
    */
-  private confirmedLocationForTalks(): ReturnType<typeof LocationPrivacy.blurCoordinatePair> | undefined {
-    return this.currentLocation && this.locationConfirmed
-      ? LocationPrivacy.blurCoordinatePair(this.currentLocation)
-      : undefined;
+  private confirmedLocationForTalks(): { latitude: number; longitude: number } | undefined {
+    const location = this.publicHomeLocation();
+    return location ? { latitude: location.latitude, longitude: location.longitude } : undefined;
+  }
+
+  /**
+   * The only public form of the home location (users/<id>/location, Talk authorLocation): the
+   * snapped square for the user's privacy setting, or null for Contacts only / Location off.
+   */
+  private publicHomeLocation(): PublicLocation | null {
+    if (!this.currentLocation || !this.locationConfirmed) return null;
+    const next = publicLocationWithHysteresis(
+      this.currentLocation,
+      this.effectiveNearbyMode(),
+      this.lastPublicHomeLocation,
+    );
+    this.lastPublicHomeLocation = next;
+    return next;
+  }
+
+  private uiText(key: Parameters<typeof uiText>[1]): string {
+    return uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), key);
+  }
+
+  /**
+   * The area size actually used right now: the user's setting, unless a quiet place / schedule /
+   * "Quiet now" applies. Blur → Regional (~50 km). Hide → out of Nearby; Contacts still work.
+   */
+  private effectiveNearbyMode(): NearbyPrivacyMode {
+    const quiet = this.quietState;
+    if (quiet?.active) return quiet.action === 'hide' ? 'contacts-only' : 'regional';
+    return loadConnectivitySettings().nearbyPrivacyMode;
+  }
+
+  /** A Traveler appears at a chosen point (always on the website) or is visiting away from it. */
+  private appearsAsTraveler(): boolean {
+    return usesSelfDefinedEncounterLocation() || this.travelModeActive;
+  }
+
+  /** Quiet places use the device's own GPS, so they only apply to a Resident with a real fix. */
+  private refreshQuietState(): boolean {
+    const residentGps = !usesSelfDefinedEncounterLocation() && this.locationConfirmed && this.currentLocation
+      ? this.currentLocation
+      : null;
+    const next = quietStateFor(loadQuietSettings(), residentGps, new Date());
+    const before = JSON.stringify(this.quietState);
+    this.quietState = next;
+    if (JSON.stringify(next) === before) return false;
+    if (this.initialized) {
+      this.uiManager.showNotification(
+        !next.active
+          ? this.uiText('quietEnded')
+          : next.action === 'hide' ? this.uiText('quietHidden') : this.uiText('quietBlurred'),
+        'info',
+      );
+    }
+    return true;
+  }
+
+  /** Re-apply rooms, the map dot and the public location when the quiet state changes. */
+  private applyQuietStateIfChanged(): void {
+    if (!this.refreshQuietState() || !this.initialized) return;
+    void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch((error) => {
+      console.warn('Applying the quiet state failed (non-fatal):', error);
+    });
+  }
+
+  private startQuietWatch(): void {
+    if (this.quietTimer) return;
+    this.refreshQuietState();
+    this.quietTimer = setInterval(() => this.applyQuietStateIfChanged(), 60_000);
+    window.addEventListener(QUIET_SETTINGS_EVENT, () => this.applyQuietStateIfChanged());
+    // Arriving at a quiet place while the app stays open: re-read GPS every few minutes, and
+    // at once when the app returns to the foreground (e.g. unlocked at home).
+    this.quietGpsTimer = setInterval(() => { void this.refreshGpsForQuietPlaces(); }, QUIET_GPS_REFRESH_MS);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void this.refreshGpsForQuietPlaces();
+    });
+  }
+
+  private async refreshGpsForQuietPlaces(): Promise<void> {
+    if (this.quietGpsInFlight || !shouldRefreshQuietGps({
+      resident: !usesSelfDefinedEncounterLocation(),
+      // Only a real phone GPS; dev/test builds keep their injected test location.
+      hasRealGps: deviceHasGps(undefined, false),
+      quietPlaceCount: loadQuietSettings().places.length,
+      visible: document.visibilityState === 'visible',
+    })) return;
+    this.quietGpsInFlight = true;
+    try {
+      const location = await readDeviceLocation();
+      setCachedLocation(location);
+      this.updateCurrentLocation(location);
+    } catch (error) {
+      console.warn('Quiet-place GPS refresh failed (keeping the last fix):', error);
+    } finally {
+      this.quietGpsInFlight = false;
+    }
+  }
+
+  /** My card's point: the travel point while traveling (same precision as home), else home. */
+  private nearbyPublicPoint(): PublicLocation | null {
+    const home = this.publicHomeLocation();
+    const travel = this.travelModeActive ? this.travelNearbyPoint : undefined;
+    if (!travel) return home;
+    const precision = publicLocationPrecisionMeters(this.effectiveNearbyMode());
+    return precision === null ? null : snapPublicLocation(travel, precision);
+  }
+
+  private startNearbyV3(): void {
+    const user = this.currentUser;
+    if (this.nearbyV3 || !user || isTechSupportUser(user)) return;
+    const mesh = this.ensurePeerMeshService();
+    if (!mesh) return;
+    const extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions;
+    this.nearbyV3 = new NearbyV3Runtime({
+      gunService: this.gunService,
+      mesh,
+      apiBase: () => this.getBackendApiBase(),
+      userId: user.id,
+      stageName: () => this.currentUser?.stageName || user.id,
+      config: () => this.nearbyV3Config(extensions),
+      pinnedAttestorKeys: () => nearbyV3AttestorKeysFromManifest(extensions ? { extensions } : null),
+      position: () => {
+        const roomId = this.currentChatroomId;
+        // In a Place my card is scoped to it and sits at its public pin, so every member is "at"
+        // the Place and the order is the hash order alone (§3.7 "Places in v3").
+        if (roomId && isPlaceRoomId(roomId)) {
+          const pin = this.uiManager.getCustomChatroomMeta(roomId)?.location;
+          const lat = Number(pin?.latitude);
+          const lng = Number(pin?.longitude);
+          const point = Number.isFinite(lat) && Number.isFinite(lng)
+            ? snapPublicLocation({ latitude: lat, longitude: lng }, 1_000)
+            : this.nearbyPublicPoint();
+          return point ? { point, traveler: this.appearsAsTraveler(), scope: `place:${roomId}` as const } : null;
+        }
+        if (!isNearbyRoomId(roomId)) return null;
+        const point = this.nearbyPublicPoint();
+        return point ? { point, traveler: this.appearsAsTraveler() } : null;
+      },
+      isPaused: isPageHidden,
+      onRoster: (members) => {
+        const scopeId = this.currentChatroomId;
+        if (!scopeId || !isPersonalListScope(scopeId)) return;
+        // Like a shared room's roster, the roster includes me.
+        const me = this.currentUser;
+        const roster = me ? [...members, { userId: me.id, stageName: me.stageName || me.id, isTraveler: this.appearsAsTraveler() }] : members;
+        this.uiManager.setNearbyGroup(this.nearbyV3?.service.groupInfo() ?? null);
+        this.chatroomService.pushPersonalRoster(roster, me?.id, scopeId);
+        // "N near you" is my list without me (§3.7); a Place counts everyone in it, me included.
+        const people = new Set(members.map((member) => member.userId)).size;
+        this.applyChatroomMemberCount(scopeId, isPlaceRoomId(scopeId) ? people + 1 : people);
+      },
+    });
+    const runtime = this.nearbyV3;
+    (window as unknown as { __iinpublicNearbyV3?: () => Record<string, unknown> }).__iinpublicNearbyV3 = () => runtime.diagnostics();
+    runtime.start();
+  }
+
+  private nearbyV3Config(extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions) {
+    return nearbyV3ConfigFromManifest({
+      chatroomCapacity: this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
+        ?? baselineRoomCheckpoint().chatroomCapacity,
+      ...(extensions ? { extensions } : {}),
+    });
+  }
+
+  /** Online dots refresh once a minute while the app is in front (and at once on start). */
+  private startPresenceRefresh(): void {
+    if (this.presenceRefreshTimer) return;
+    void this.refreshConversationPresence();
+    this.presenceRefreshTimer = setInterval(() => {
+      if (!isPageHidden()) void this.refreshConversationPresence();
+    }, PRESENCE_REFRESH_MS);
+  }
+
+  /** Room list: every Place with ≥ 1 person, refreshed every 20 s and on demand. */
+  private startActiveRooms(): void {
+    if (this.activeRoomsTimer) return;
+    this.activeRoomsTimer = setInterval(() => { void this.refreshActiveRooms(); }, 20_000);
+    // Coalesce bursts of roster changes.
+    this.uiManager.on('activeRoomsRefresh', () => {
+      if (this.activeRoomsRefreshTimer) clearTimeout(this.activeRoomsRefreshTimer);
+      this.activeRoomsRefreshTimer = setTimeout(() => { void this.refreshActiveRooms(); }, 1_500);
+    });
+    this.uiManager.on('activeRoomsQueryChanged', (change: { showMore?: boolean } | undefined) => {
+      this.activeRoomsLimit = change?.showMore ? this.activeRoomsLimit + ACTIVE_ROOMS_PAGE : ACTIVE_ROOMS_PAGE;
+      void this.refreshActiveRooms();
+    });
+    void this.refreshActiveRooms();
+  }
+
+  private async refreshActiveRooms(): Promise<void> {
+    if (!this.currentUser) return;
+    // "M online" (§3.7): the hub's count of everyone heartbeating a Nearby card.
+    void this.nearbyV3?.hub.stats().then((stats) => this.uiManager.setNearbyOnline(stats.online)).catch(() => undefined);
+    const origin = this.nearbyPublicPoint();
+    try {
+      const view = await fetchActiveRooms(this.getBackendApiBase(), {
+        ...(origin ? { origin: { latitude: origin.latitude, longitude: origin.longitude } } : {}),
+        ...(this.currentChatroomId ? { currentRoomId: this.currentChatroomId } : {}),
+        sort: getRoomListSort(),
+        limit: this.activeRoomsLimit,
+      });
+      this.uiManager.setActiveRooms(view);
+      // The Place catalogue loads at boot and after our own create. A Place someone else made
+      // since then reaches us first in this list, while it has people; fetch the catalogue
+      // then, so it stays under "Places near you" once it empties (J-PLACE-05).
+      const unknownPlaces = placesMissingFromCatalogue(
+        view.rooms.map((room) => room.roomId),
+        new Set(this.uiManager.getCustomChatroomIds()),
+        this.catalogueRefreshedForPlaces,
+      );
+      if (unknownPlaces.length > 0) {
+        unknownPlaces.forEach((roomId) => this.catalogueRefreshedForPlaces.add(roomId));
+        void this.refreshCustomChatroomsFromServer().then(() => this.subscribeToAllChatroomMemberCounts());
+      }
+    } catch (error) {
+      console.warn('Room list refresh failed (non-fatal):', error);
+    }
+  }
+
+  private stopNearbyV3(): void {
+    this.nearbyV3?.stop();
+    this.nearbyV3 = null;
+  }
+
+  /** My point or travel state changed: reissue my card and redraw me (★) on the map. */
+  private refreshNearbyPoint(): void {
+    if (!this.initialized) return; // boot ends with one refresh (startNearbyV3)
+    this.nearbyV3?.refresh();
+    void this.refreshActiveRooms(); // Place distances follow where I now appear
+    const location = this.nearbyPublicPoint();
+    const key = JSON.stringify({ location, traveler: this.appearsAsTraveler() });
+    if (key === this.nearbyPointShownKey) return;
+    this.nearbyPointShownKey = key;
+    this.uiManager.setMapUserDotSource({
+      ...(location ? { selfPoint: location } : {}),
+      selfTraveler: this.appearsAsTraveler(),
+      listPoints: () => this.nearbyV3?.service.entries().map((entry) => entry.card.point) ?? [],
+      load: (bounds) => this.loadNearbyMapDots(bounds),
+    });
+  }
+
+  /** Green dots: the people on my list in view. Heat: the hub's count per cell. */
+  private async loadNearbyMapDots(bounds: MapBounds): Promise<{
+    dots: Array<PublicLocation & { userId: string; traveler: boolean }>;
+    density: Array<{ latitude: number; longitude: number; count: number }>;
+  }> {
+    const runtime = this.nearbyV3;
+    if (!runtime) return { dots: [], density: [] };
+    const dots = runtime.service.entries()
+      .filter((entry) => boundsContain(bounds, entry.card.point))
+      .map((entry) => ({ ...entry.card.point, userId: entry.card.userId, traveler: entry.card.traveler }));
+    const stats = await runtime.hub.stats(bounds).catch(() => null);
+    return { dots, density: stats?.heat ?? [] };
   }
 
   /**
    * Subscribe to member count updates for all chatrooms in the UI list
    * This allows showing real-time headcount badges that update when users join/leave
    */
+  /** A refused Place creation (docs/design/nearby-and-place-chatrooms.md §4.2), in words. */
+  private showPlaceCreateRefusal(status: number, text: string): void {
+    let body: { error?: string; code?: string; existingId?: string; existingName?: string } = {};
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      body = {};
+    }
+    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
+    const name = String(body.existingName || '');
+    if (status === 409 && body.code === 'PLACE_NAME_TAKEN' && body.existingId) {
+      this.uiManager.showNotification(uiText(language, 'chatroomCreateNameTaken').replace('{name}', name), 'info');
+      void this.refreshCustomChatroomsFromServer().then(() => this.uiManager.showChatroomDetail(body.existingId!));
+      return;
+    }
+    if (status === 409 && body.code === 'PLACE_CREATOR_LIMIT') {
+      this.uiManager.showNotification(uiText(language, 'chatroomCreateCreatorLimit').replace('{name}', name), 'error');
+      return;
+    }
+    if (status === 409 && body.code === 'PLACE_CELL_FULL') {
+      this.uiManager.showNotification(
+        uiText(language, 'chatroomCreateCellFull').replace('{count}', String(MAX_LIVE_PLACES_PER_CELL)),
+        'error',
+      );
+      return;
+    }
+    this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed(body.error || undefined), 'error');
+  }
+
   private async refreshCustomChatroomsFromServer(): Promise<void> {
     try {
       const base = this.getBackendApiBase();
-      const res = await fetch(`${base}/api/chatrooms`);
+      // Our own key keeps our expired Place listed for us.
+      const creatorPub = this.gunService.getStoredPair()?.pub;
+      const res = await fetch(`${base}/api/chatrooms${creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : ''}`);
       if (!res.ok) return;
       const rows = (await res.json()) as Array<{
         id: string;
@@ -1653,7 +2123,6 @@ export class IinPublicApp {
       // identity as before.
       if (localStorage.getItem('iinpublic_user_id') !== TECHSUPPORT_ROOT_USER_ID) {
         localStorage.removeItem('iinpublic_user_id');
-        localStorage.removeItem('iinpublic_keypair');
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
         localStorage.removeItem('gun/');
@@ -1762,7 +2231,7 @@ export class IinPublicApp {
     // production hub may never send at all — see WebGunService.put's doc comment) used to make
     // every boot pay for a network round trip it didn't actually need to open the app.
     if (this.currentLocation && this.locationConfirmed) {
-      void this.userService.updateUserLocation(this.currentUser.id, this.currentLocation).catch((error) => {
+      void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch((error) => {
         console.warn('Boot-time location publication skipped (non-fatal):', error);
       });
     }
@@ -1885,84 +2354,16 @@ export class IinPublicApp {
       this.currentUser.id,
       lastChatroomId,
       this.locationConfirmed,
-      loadConnectivitySettings().nearbyPrivacyMode,
+      this.effectiveNearbyMode(),
     );
     if (isTechSupportUser(this.currentUser)) chatroomId = CONTACTS_ONLY_SCOPE_ID;
-
-    const automaticBaseGrid = this.locationConfirmed
-      ? getAutomaticLocationChatroomId(this.currentLocation)
-      : null;
-    if (automaticBaseGrid && microRoomBelongsToBase(chatroomId, automaticBaseGrid)) {
-      chatroomId = await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, chatroomId);
-    }
-    const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
-    if (nearbyRoot && nearbyRoot.roomId === chatroomId && isNearbyRoomId(chatroomId)) {
-      chatroomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
-    }
 
     this.currentChatroomId = chatroomId; // Track current chatroom
 
     console.log('🎯 Assigned to chatroom:', chatroomId);
     console.log('📍 Based on location:', this.currentLocation);
 
-    // Define a reusable eviction handler that can handle cascading evictions
-    const handleEviction = async (fromChatroomId: string, toChatroomId: string) => {
-      // User was moved by FIFO eviction
-      console.log(`🔔 FIFO Eviction: Switching from ${fromChatroomId} to ${toChatroomId}`);
-
-      // Update current chatroom
-      this.currentChatroomId = toChatroomId;
-      localStorage.setItem('iinpublic_last_chatroom', toChatroomId);
-
-      // Re-subscribe to new chatroom (this will unsubscribe from old one automatically)
-      this.chatroomService.subscribeToMembers(toChatroomId, (members) => {
-        console.log('👥 Chatroom members updated:', members);
-        this.harvestRosterEpubs(members);
-        this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
-        this.syncPeerMeshRoom(toChatroomId, members);
-
-        // Update status bar with new chatroom info
-        const chatroomName = this.getChatroomDisplayName(toChatroomId);
-        this.uiManager.updateStatusBar(
-          this.currentUser!.stageName,
-          chatroomName,
-          this.countRoomMembers(members),
-          this.uiManager.getTotalMatches(),
-        );
-      });
-
-      // Set up new eviction watcher for the new chatroom (recursive - can be evicted again)
-      this.chatroomService.setupEvictionWatcher(
-        this.currentUser!.id,
-        toChatroomId,
-        async (newerChatroomId: string) => {
-          // Recursively handle further evictions by calling this handler again
-          console.log(`🔔 Cascading eviction: ${toChatroomId} → ${newerChatroomId}`);
-          await handleEviction(toChatroomId, newerChatroomId);
-        },
-      );
-
-      // Re-subscribe to messages and talks
-      this.subscribeToMessages(toChatroomId);
-
-      // Also subscribe to the new chatroom's member count for the UI list
-      this.chatroomService.subscribeToMemberCount(toChatroomId, (count) => {
-        console.log(`  - ${toChatroomId}: ${count} members`);
-        this.applyChatroomMemberCount(toChatroomId, count);
-      });
-
-      // Update UI
-      this.uiManager.updateChatroomInfo({
-        id: toChatroomId,
-        name: `Chatroom: ${toChatroomId}`,
-      });
-
-      // Show notification to user
-      const chatroomName = this.getChatroomDisplayName(toChatroomId);
-      console.log(`📢 You've been moved to ${chatroomName} (room was at capacity)`);
-    };
-
-    // Join the assigned chatroom (FIFO logic will be enforced in joinChatroom). Awaited: unlike
+    // Join the assigned chatroom. Awaited: unlike
     // the other boot-time network calls below (location publish, chatbot-memory restore, talk
     // history — pure back-fill this client never blocks on), other peers' room rosters depend on
     // this write actually reaching the shared graph before their own UIs can show this user.
@@ -1972,15 +2373,11 @@ export class IinPublicApp {
     // write never landed within a 15s window. joinChatroom's own local Gun put still lands
     // synchronously on this user's own client the instant it's called, so this await's cost is
     // only the network's ack/retry/propagation-delay budget, not a duplicate of the write itself.
-    this.suppressNearbyTravelerMarker = this.travelModeActive && this.travelNearbyPoint != null;
     try {
       await this.chatroomService.joinChatroom(
         chatroomId,
         this.currentUser.id,
         this.currentUser.stageName,
-        async (newChatroomId: string) => {
-          await handleEviction(chatroomId, newChatroomId);
-        },
       );
     } catch (error) {
       if (isPlaceRoomId(chatroomId)) {
@@ -1997,16 +2394,11 @@ export class IinPublicApp {
           this.currentUser.stageName,
         );
         const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-        const message = error instanceof PlaceRoomFullError
-          ? uiText(language, 'chatroomPlaceStartupFull').replace('{capacity}', String(error.capacity))
-          : uiText(language, 'chatroomPlaceStartupUnavailable');
-        this.uiManager.showNotification(message, 'warning');
+        this.uiManager.showNotification(uiText(language, 'chatroomPlaceStartupUnavailable'), 'warning');
         console.warn(`Saved Place ${rejectedPlace} could not be entered; opened ${chatroomId}:`, error);
       } else {
         console.warn('Chatroom join encountered an error (non-fatal):', error);
       }
-    } finally {
-      this.suppressNearbyTravelerMarker = false;
     }
 
     // Store current chatroom in localStorage for next time
@@ -2027,6 +2419,7 @@ export class IinPublicApp {
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         if (this.currentChatroomId !== chatroomId) return;
         this.harvestRosterEpubs(members);
+        this.observeNearbyRoomRoster(chatroomId, members);
         console.log('👥 Chatroom members updated:', members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(chatroomId, members);
@@ -2043,7 +2436,7 @@ export class IinPublicApp {
     }
 
     // Contacts-only has no public room graph.
-    if (!isLocalOnlyRoomScope(chatroomId)) this.subscribeToMessages(chatroomId);
+    this.subscribeToMessages(chatroomId);
 
     // Subscribe to chatroom talks
 
@@ -2056,28 +2449,6 @@ export class IinPublicApp {
     // Update chatroom info
     this.uiManager.updateChatroomInfo({ id: chatroomId, name: `Chatroom: ${chatroomId}` });
 
-    // A saved Nearby-at-a-pin visit is recomputed from its deliberately public Place point. Never
-    // trust a saved opaque room id after protocol/capacity state may have changed.
-    if (this.travelModeActive && this.travelNearbyPoint && this.currentUser) {
-      const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
-      const mode = configuredMode === 'close-nearby' ? 'close-nearby' : 'neighborhood';
-      const rootAssignment = deriveNearbyRoomAssignment({
-        location: this.travelNearbyPoint,
-        mode,
-        identity: this.currentUser.id,
-      });
-      this.travelChatroomId = await this.resolveNearbyBeforeAdmission(
-        rootAssignment,
-        this.travelNearbyPoint,
-      );
-      if (this.travelChatroomId === chatroomId) {
-        this.travelModeActive = false;
-        this.travelChatroomId = undefined;
-        this.travelNearbyPoint = undefined;
-      }
-      this.persistTravelModeStateToStorage();
-    }
-
     // If travel mode is active, switch once to the selected travel chatroom (single-room presence).
     if (this.travelModeActive && this.travelChatroomId && this.travelChatroomId !== chatroomId) {
       this.travelHomeChatroomId = chatroomId;
@@ -2086,6 +2457,7 @@ export class IinPublicApp {
         active: true,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
+      this.refreshNearbyPoint();
       await this.chatroomService.switchChatroom(this.currentUser.id, this.travelChatroomId, this.currentUser.stageName);
       this.currentChatroomId = this.travelChatroomId;
       localStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
@@ -2093,6 +2465,7 @@ export class IinPublicApp {
       this.uiManager.setCurrentChatroomId(this.currentChatroomId);
       this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
         this.harvestRosterEpubs(members);
+        if (this.currentChatroomId) this.observeNearbyRoomRoster(this.currentChatroomId, members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(this.currentChatroomId!, members);
         const chatroomName = this.getChatroomDisplayName(this.currentChatroomId!);
@@ -2108,6 +2481,7 @@ export class IinPublicApp {
         active: this.travelModeActive,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
+      this.refreshNearbyPoint();
     }
 
     await this.ensureSupportBootstrapForCurrentUser().catch((error) => {
@@ -2159,17 +2533,24 @@ export class IinPublicApp {
     const me = this.currentUser;
     if (!me?.id || !peerId) return false;
     if ((me.blockedUserIds ?? []).includes(peerId)) return true;
+    return this.blockStatusCache.isBlocked(peerId);
+  }
+
+  /** The hub's answer, or null when it could not be reached (not remembered). */
+  private async fetchBlockStatusEitherWay(peerId: string): Promise<boolean | null> {
+    const me = this.currentUser;
+    if (!me?.id) return null;
     try {
       const base = this.getBackendApiBase();
       const res = await fetch(
         `${base}/api/users/${encodeURIComponent(me.id)}/block-status/${encodeURIComponent(peerId)}`,
         { cache: 'no-store' },
       );
-      if (!res.ok) return false;
+      if (!res.ok) return null;
       const status = (await res.json()) as { eitherBlocked?: boolean };
       return !!status.eitherBlocked;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -2211,7 +2592,7 @@ export class IinPublicApp {
     // checked before any filter so it cannot be re-enabled through intake settings.
     if (!acceptsIncomingTalks(me.id)) return false;
     if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
-    if (!talkContactPolicyAllowsPeer(offer.senderId, getTalkIntakeFilters(), me.knownPeople)) {
+    if (!talkContactPolicyAllowsPeer(offer.senderId, getTalkIntakeFilters(), me.knownPeople, this.roomTravelerIds)) {
       return false;
     }
     const talkData = offer.talkData;
@@ -2302,6 +2683,8 @@ export class IinPublicApp {
     const mesh = this.ensurePeerMeshService();
     if (!me?.id || !peerId || !mesh) return false;
     const chatroomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || CONTACTS_ONLY_SCOPE_ID;
+    // Nearby: the mesh runs on my list; open just this link instead of replacing the roster.
+    if (isPersonalListScope(chatroomId)) return mesh.openPersonalLink(peerId);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
         const activeIds = await this.chatroomService.getActiveMembers(chatroomId);
@@ -2361,158 +2744,6 @@ export class IinPublicApp {
   }
 
   /** P2P-I / P2P-O: register live presence and probe local node bridge (stack only). */
-  private async resolveMicroRoomBeforeAdmission(
-    baseGridRoomId: string,
-    currentRoomId: string,
-  ): Promise<string> {
-    const user = this.currentUser;
-    const pair = this.gunService.getStoredPair();
-    if (!user?.id || !pair?.pub || !pair.priv) return currentRoomId;
-    try {
-      const manifestController = await this.ensureProtocolManifestController();
-      const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
-      this.microRoomPreAdmissionClient ??= new MicroRoomPreAdmissionClient({
-        apiBase: this.getBackendApiBase(),
-        storage: localStorage,
-      });
-      const minimumSplitGeneration = microRoomGenerationForRoom(currentRoomId, baseGridRoomId) ?? 0;
-      const result = await this.microRoomPreAdmissionClient.resolve({
-        userId: user.id,
-        pair,
-        baseGridRoomId,
-        checkpoint,
-        minimumSplitGeneration,
-      });
-      this.microRoomBaseGridRoomId = baseGridRoomId;
-      this.startMicroRoomControlHeartbeat();
-      return result.assignment.roomId;
-    } catch (error) {
-      console.warn('Micro-room pre-admission resolution failed; retaining the last safe room:', error);
-      return currentRoomId;
-    }
-  }
-
-  private startMicroRoomControlHeartbeat(): void {
-    if (this.microRoomRefreshTimer) return;
-    this.microRoomRefreshTimer = setInterval(() => {
-      void this.refreshMicroRoomControl();
-    }, 15_000);
-  }
-
-  private async refreshMicroRoomControl(): Promise<void> {
-    if (this.microRoomRefreshInFlight) return;
-    const baseGridRoomId = this.microRoomBaseGridRoomId;
-    const currentRoomId = this.currentChatroomId;
-    if (!baseGridRoomId || !currentRoomId || !microRoomBelongsToBase(currentRoomId, baseGridRoomId)) {
-      if (this.microRoomRefreshTimer) clearInterval(this.microRoomRefreshTimer);
-      this.microRoomRefreshTimer = null;
-      this.microRoomBaseGridRoomId = null;
-      return;
-    }
-    this.microRoomRefreshInFlight = true;
-    try {
-      const resolved = await this.resolveMicroRoomBeforeAdmission(baseGridRoomId, currentRoomId);
-      if (resolved !== currentRoomId
-        && this.currentChatroomId === currentRoomId
-        && microRoomBelongsToBase(resolved, baseGridRoomId)) {
-        this.uiManager.emit('chatroomChanged', resolved);
-      }
-    } finally {
-      this.microRoomRefreshInFlight = false;
-    }
-  }
-
-  /**
-   * Resolve the signed capacity path from either device-local GPS or a deliberately public Place
-   * pin. The routing coordinate is consumed locally and is never added to room presence records.
-   */
-  private async resolveNearbyBeforeAdmission(
-    rootAssignment: NearbyRoomAssignment,
-    routingLocation: GPSCoordinate = this.currentLocation!,
-  ): Promise<string> {
-    this.uiManager.setNearbyMapAssignment(rootAssignment);
-    this.chatroomService.setNearbyRoomAssignment(rootAssignment);
-    this.nearbyControlRootAssignment = rootAssignment;
-    this.nearbyControlRoutingLocation = routingLocation;
-    const user = this.currentUser;
-    const location = routingLocation;
-    const pair = this.gunService.getStoredPair();
-    const mode = rootAssignment.mode;
-    if (!user?.id || !location || !pair?.pub || !pair.priv) return rootAssignment.roomId;
-    try {
-      const manifestController = await this.ensureProtocolManifestController();
-      const checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
-      this.nearbyPreAdmissionClient ??= new NearbyPreAdmissionClient({
-        apiBase: this.getBackendApiBase(),
-        storage: localStorage,
-      });
-      const result = await this.nearbyPreAdmissionClient.resolve({
-        userId: user.id,
-        pair,
-        location,
-        mode,
-        rootAssignment,
-        checkpoint,
-      });
-      this.chatroomService.setNearbyRoomAssignment(result.assignment);
-      this.uiManager.setNearbyMapAssignment(result.assignment);
-      this.startNearbyControlHeartbeat();
-      return result.assignment.roomId;
-    } catch (error) {
-      console.warn('Nearby pre-admission resolution failed; retaining the last safe room:', error);
-      return rootAssignment.roomId;
-    }
-  }
-
-  private startNearbyControlHeartbeat(): void {
-    if (this.nearbyControlRefreshTimer) return;
-    this.nearbyControlRefreshTimer = setInterval(() => {
-      void this.refreshNearbyControl();
-    }, 15_000);
-  }
-
-  private async refreshNearbyControl(): Promise<void> {
-    if (this.nearbyControlRefreshInFlight) return;
-    const rootAssignment = this.nearbyControlRootAssignment;
-    const currentRoomId = this.currentChatroomId;
-    if (!rootAssignment || !currentRoomId || !isNearbyRoomId(currentRoomId)) {
-      if (this.nearbyControlRefreshTimer) clearInterval(this.nearbyControlRefreshTimer);
-      this.nearbyControlRefreshTimer = null;
-      this.nearbyControlRootAssignment = null;
-      this.nearbyControlRoutingLocation = null;
-      return;
-    }
-    this.nearbyControlRefreshInFlight = true;
-    try {
-      const previousAssignment = this.chatroomService.getNearbyRoomAssignment();
-      const previousControlRoot = this.nearbyControlRootAssignment || undefined;
-      const previousControlLocation = this.nearbyControlRoutingLocation || undefined;
-      const resolved = await this.resolveNearbyBeforeAdmission(
-        rootAssignment,
-        this.nearbyControlRoutingLocation || this.currentLocation!,
-      );
-      if (resolved !== currentRoomId
-        && this.currentChatroomId === currentRoomId
-        && isNearbyRoomId(resolved)) {
-        if (this.travelModeActive && this.travelNearbyPoint) {
-          this.pendingNearbyTravel = {
-            rootAssignment,
-            location: this.travelNearbyPoint,
-            placeId: this.travelNearbyPoint.placeId,
-            placeName: this.travelNearbyPoint.placeName,
-            targetRoomId: resolved,
-            ...(previousAssignment ? { previousAssignment } : {}),
-            ...(previousControlRoot ? { previousControlRoot } : {}),
-            ...(previousControlLocation ? { previousControlLocation } : {}),
-          };
-        }
-        this.uiManager.emit('chatroomChanged', resolved);
-      }
-    } finally {
-      this.nearbyControlRefreshInFlight = false;
-    }
-  }
-
   private async initP2PPresenceAndBridge(): Promise<void> {
     if (!this.currentUser?.id || isTechSupportUser(this.currentUser)) return;
     const pair = this.gunService.getStoredPair();
@@ -2527,9 +2758,10 @@ export class IinPublicApp {
         pair,
         getRoomScope: () => this.activeExchangeRoomController?.getScope() ?? null,
         getRoomEnteredAt: () => this.activeExchangeRoomController?.getActiveRoom()?.enteredAt ?? null,
+        isDiscoveryAllowed: () => this.hubDiscoveryAllowedNow(),
         ...(pair.epub ? { epub: String(pair.epub) } : {}),
       });
-      const peers = await this.presenceClient.fetchNearby(
+      const peers = !this.hubDiscoveryAllowedNow() ? [] : await this.presenceClient.fetchNearby(
         this.currentUser.id,
         20,
         this.activeExchangeRoomController?.getScope() ?? undefined,
@@ -2586,8 +2818,9 @@ export class IinPublicApp {
   }
 
   private currentRoomProtocolCheckpoint(): RoomProtocolCheckpoint {
-    return this.protocolManifestController?.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT)
-      ?? BASELINE_ROOM_PROTOCOL_CHECKPOINT;
+    return this.protocolManifestController
+      ? manifestRoomCheckpoint(this.protocolManifestController)
+      : baselineRoomCheckpoint();
   }
 
   private scheduleProtocolActivation(): void {
@@ -2611,7 +2844,7 @@ export class IinPublicApp {
       await activeController.transitionTo({
         roomId: active.roomId,
         neighborLimit: active.neighborLimit,
-        ...controller.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT),
+        ...manifestRoomCheckpoint(controller),
       });
       this.scheduleProtocolActivation();
     } catch (error) {
@@ -2628,7 +2861,7 @@ export class IinPublicApp {
     let checkpoint: RoomProtocolCheckpoint;
     try {
       const manifestController = await this.ensureProtocolManifestController();
-      checkpoint = manifestController.roomCheckpoint(BASELINE_ROOM_PROTOCOL_CHECKPOINT);
+      checkpoint = manifestRoomCheckpoint(manifestController);
     } catch (error) {
       await this.activeExchangeRoomController?.pause().catch(() => undefined);
       this.uiManager.showNotification(
@@ -2654,26 +2887,15 @@ export class IinPublicApp {
   }
 
   /** Apply a saved audience choice immediately; no new OS prompt is raised mid-exchange. */
-  private async applyNearbyPrivacyMode(settings: ConnectivitySettings): Promise<void> {
+  private async applyNearbyPrivacyMode(_settings: ConnectivitySettings): Promise<void> {
     if (!this.currentUser || !this.currentLocation) return;
-    if (settings.nearbyPrivacyMode === 'contacts-only') {
-      const filters = { ...getTalkIntakeFilters(), contactsOnlyTalks: true };
-      setTalkIntakeFilters(filters);
-      setTalkIntakeFiltersOwner(this.currentUser.id);
-      this.currentUser.talkFilters = filters;
-    }
-    const publicNearbyMode = settings.nearbyPrivacyMode === 'close-nearby'
-      || settings.nearbyPrivacyMode === 'neighborhood';
+    this.refreshNearbyPoint();
+    void this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation()).catch(() => {});
+    const effectiveMode = this.effectiveNearbyMode();
+    const publicNearbyMode = isNearbyPublicMode(effectiveMode) ? effectiveMode : undefined;
     let selectedRoomId: string;
     if (this.travelModeActive && this.travelNearbyPoint && publicNearbyMode) {
-      const rootAssignment = deriveNearbyRoomAssignment({
-        location: this.travelNearbyPoint,
-        mode: settings.nearbyPrivacyMode as 'close-nearby' | 'neighborhood',
-        identity: this.currentUser.id,
-      });
-      selectedRoomId = await this.resolveNearbyBeforeAdmission(rootAssignment, this.travelNearbyPoint);
-      this.travelChatroomId = selectedRoomId;
-      this.persistTravelModeStateToStorage();
+      selectedRoomId = NEARBY_V3_ROOM_ID; // the card moves with the travel point (refreshNearbyPoint)
     } else {
       if (this.travelNearbyPoint && !publicNearbyMode) {
         this.travelModeActive = false;
@@ -2681,25 +2903,17 @@ export class IinPublicApp {
         this.travelNearbyPoint = undefined;
         this.persistTravelModeStateToStorage();
         this.uiManager.setTravelModeState({ active: false });
+        this.refreshNearbyPoint();
       }
       selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
         this.currentLocation,
         this.currentUser.id,
         this.currentChatroomId,
         this.locationConfirmed,
-        settings.nearbyPrivacyMode,
+        effectiveMode,
       );
     }
-    const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
-    if (nearbyRoot && nearbyRoot.roomId === selectedRoomId && isNearbyRoomId(selectedRoomId)) {
-      selectedRoomId = await this.resolveNearbyBeforeAdmission(nearbyRoot);
-    }
     const nextRoomId = isTechSupportUser(this.currentUser) ? CONTACTS_ONLY_SCOPE_ID : selectedRoomId;
-    if (!isNearbyRoomId(nextRoomId)
-      && settings.nearbyPrivacyMode !== 'neighborhood'
-      && settings.nearbyPrivacyMode !== 'close-nearby') {
-      this.uiManager.setNearbyMapAssignment(null);
-    }
     if (nextRoomId === this.currentChatroomId) return;
     await this.chatroomService.switchChatroom(
       this.currentUser.id,
@@ -2711,6 +2925,7 @@ export class IinPublicApp {
     this.uiManager.setCurrentChatroomId(nextRoomId);
     this.chatroomService.subscribeToMembers(nextRoomId, (members) => {
       this.harvestRosterEpubs(members);
+      this.observeNearbyRoomRoster(nextRoomId, members);
       this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
       this.syncPeerMeshRoom(nextRoomId, members);
       this.uiManager.updateStatusBar(
@@ -2728,61 +2943,28 @@ export class IinPublicApp {
 
   /** Recompute the automatic home scope; a selected Place is never treated as home. */
   private async resolveAutomaticNearbyRoom(): Promise<string> {
-    if (!this.currentUser || !this.currentLocation || isTechSupportUser(this.currentUser)) {
-      return CONTACTS_ONLY_SCOPE_ID;
-    }
-    const selectedRoomId = await this.chatroomService.findOptimalChatroomHierarchical(
+    if (!this.currentUser || isTechSupportUser(this.currentUser)) return CONTACTS_ONLY_SCOPE_ID;
+    // Nearby is my personal list wherever I publish a point (§3.7); nothing to resolve.
+    if (this.nearbyPublicPoint()) return NEARBY_V3_ROOM_ID;
+    if (!this.currentLocation) return CONTACTS_ONLY_SCOPE_ID;
+    return this.chatroomService.findOptimalChatroomHierarchical(
       this.currentLocation,
       this.currentUser.id,
       undefined,
       this.locationConfirmed,
-      loadConnectivitySettings().nearbyPrivacyMode,
+      this.effectiveNearbyMode(),
     );
-    const nearbyRoot = this.chatroomService.getNearbyRootAssignment();
-    return nearbyRoot && nearbyRoot.roomId === selectedRoomId && isNearbyRoomId(selectedRoomId)
-      ? this.resolveNearbyBeforeAdmission(nearbyRoot)
-      : selectedRoomId;
   }
 
-  /** Offer, but never automatically enter, the real Nearby cell around a full public Place pin. */
-  private offerNearbyAroundFullPlace(placeId: string): void {
+  /** A deliberate Nearby visit at a map point: my card moves there; the audience stays my list. */
+  private beginNearbyTravel(location: GPSCoordinate, placeId: string, placeName: string): void {
     if (!this.currentUser) return;
-    const place = this.uiManager.getCustomChatroomMeta(placeId);
-    const latitude = Number(place?.location?.latitude);
-    const longitude = Number(place?.location?.longitude);
-    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
-      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
-    const configuredMode = loadConnectivitySettings().nearbyPrivacyMode;
-    const mode = configuredMode === 'close-nearby' ? 'close-nearby' : 'neighborhood';
-    const location: GPSCoordinate = {
-      latitude,
-      longitude,
-      accuracy: 0,
-      timestamp: new Date(),
-    };
-    const rootAssignment = deriveNearbyRoomAssignment({
-      location,
-      mode,
-      identity: this.currentUser.id,
-    });
-    const placeName = String(place?.name || this.getChatroomDisplayName(placeId));
-    const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-    const label = uiText(language, 'chatroomNearbyAroundPlace').replace('{place}', placeName);
-    this.uiManager.showLocationRoomSuggestion(label, () => {
-      const previousAssignment = this.chatroomService.getNearbyRoomAssignment();
-      const previousControlRoot = this.nearbyControlRootAssignment || undefined;
-      const previousControlLocation = this.nearbyControlRoutingLocation || undefined;
-      this.pendingNearbyTravel = {
-        rootAssignment,
-        location,
-        placeId,
-        placeName,
-        ...(previousAssignment ? { previousAssignment } : {}),
-        ...(previousControlRoot ? { previousControlRoot } : {}),
-        ...(previousControlLocation ? { previousControlLocation } : {}),
-      };
-      this.uiManager.emit('chatroomChanged', rootAssignment.roomId);
-    });
+    if (this.effectiveNearbyMode() === 'contacts-only') {
+      this.uiManager.showNotification(this.uiText('quietHiddenNoTravel'), 'warning');
+      return;
+    }
+    this.pendingNearbyTravel = { location, placeId, placeName };
+    this.uiManager.emit('chatroomChanged', NEARBY_V3_ROOM_ID);
   }
 
   /**
@@ -2828,6 +3010,8 @@ export class IinPublicApp {
         }
         if (nativePath.connected === false || nativePath.validated === false) return false;
         const transports = Array.isArray(nativePath.transports) ? nativePath.transports.map(String) : [];
+        // Cellular switch off: a cellular-only path never serves discovery; the radios take over.
+        if (!hubDiscoveryPathAllowed({ transports }, getNearbyProviderEnabled('cellular'))) return false;
         const networkInterface: NetworkInterface = transports.includes('wifi')
           ? 'wifi'
           : transports.includes('ethernet')
@@ -2867,10 +3051,17 @@ export class IinPublicApp {
         bridge.requestOfflineNearbyPermission();
       }),
       wifiDirectAllowed: getNearbyWifiDirectEnabled(),
-      lanDiscovery: new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
+      lanDiscovery: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
+      getRoomPeers: () => {
+        const roster = this.activeRoomRoster;
+        const roomId = this.activeExchangeRoomController?.getScope()?.roomId;
+        return roster && roster.roomId === roomId ? { count: roster.count, pubs: roster.pubs } : null;
+      },
       blePresence: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
-      onReadinessGap: (gap) => this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
-        retry: () => bridge.openNearbySettings(gap === 'permission' ? 'app' : gap),
+      // A missing permission was the user's answer to the one first-launch batch; Settings → App
+      // permissions shows it. Only radio/service switches that are off get a hint.
+      onReadinessGap: (gap) => gap === 'permission' ? undefined : this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
+        retry: () => bridge.openNearbySettings(gap),
       }),
       onEvent: (event) => console.info('[nearby-offline]', JSON.stringify(event)),
     });
@@ -2892,6 +3083,7 @@ export class IinPublicApp {
     window.addEventListener(NEARBY_SETTINGS_EVENT, () => service.updateSettings({
       wifiDirect: getNearbyWifiDirectEnabled(),
       bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+      lan: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
     }));
     // Awareness: the Settings screen shows what nearby mode is doing right now.
     const statusTimer = setInterval(() => {
@@ -2932,8 +3124,12 @@ export class IinPublicApp {
     const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages));
     const text = (key: UiTranslationKey, count?: number) => uiText(language, key).replace('{count}', String(count ?? ''));
     const main = status.kind === 'wifi-direct'
-      ? (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined'))
-      : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');
+      ? (status.online
+        ? (status.hosting ? text('settingsNearbyStatusBridging', status.phones ?? 0) : text('settingsNearbyStatusBridgingJoined'))
+        : (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined')))
+      : status.kind === 'quiet'
+        ? text('settingsNearbyStatusQuiet', Math.max(1, Math.ceil(status.nextScanInSeconds / 60)))
+        : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');
     return status.lanPhones > 0 ? `${main} ${text('settingsNearbyStatusLan', status.lanPhones)}` : main;
   }
 
@@ -2944,14 +3140,29 @@ export class IinPublicApp {
       apiBase: this.getBackendApiBase(),
       localUserId: this.currentUser.id,
       localStageName: this.currentUser.stageName || this.currentUser.id,
-      onNeighborConnected: (userId, roomId) => this.catchUpPeerInActiveRoom(userId, roomId),
+      onNeighborConnected: (userId, roomId) => {
+        // Warm the block-status answer now, so this peer's first Talk does not wait ~1 s on the hub.
+        void this.resolveBlockStatusEitherWay(userId).catch(() => undefined);
+        this.catchUpPeerInActiveRoom(userId, roomId);
+      },
+      knockPeer: async (peer) => { await this.nearbyV3?.knock(peer); },
+      onNearbyGossip: async (fromUserId, fromPub, message) => this.nearbyV3?.handleGossip(fromUserId, fromPub, message) ?? null,
+      personalConcurrency: () => {
+        const config = this.nearbyV3Config();
+        return { initial: config.broadcastInitialConcurrency, max: config.broadcastMaxConcurrency };
+      },
+      onPersonalPeerUnreachable: (_userId, pub) => this.nearbyV3?.unreachable(pub),
+      admitTalkOffer: (authorUserId) => {
+        const contacts = this.currentUser?.knownPeople;
+        if (Array.isArray(contacts) && contacts.some((known) => known?.userId === authorUserId)) return true;
+        return this.incomingTalkBudget.tryAdmit(Date.now());
+      },
       ...(this.protocolManifestController
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
-      getMaxRoomCandidates: () => this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity
-        ?? BASELINE_ROOM_PROTOCOL_CHECKPOINT.chatroomCapacity,
       authoritativeDirectTalkDelivery: this.p2pRuntimeFlags.p2pDirectTalkDelivery,
       onTalkDeliveryAck: (payload, recipientUserId) => {
+        this.noteNearbyDelivery(payload.talkId, recipientUserId);
         const deliveredTalk = payload.talkData as unknown as Talk;
         const wholeIdentityKey = buildTalkIdentityKey(deliveredTalk);
         const deliveredIdentityKeys = buildTagIdentityKeys(deliveredTalk, wholeIdentityKey);
@@ -2974,12 +3185,8 @@ export class IinPublicApp {
         await this.syncActiveRoomProtocolCheckpoint();
       },
       forwardingSettings: loadConnectivitySettings().forwarding,
-      // Keep the E2E mesh dense enough for the 20-peer saturation scenario while
-      // still using the production default cap (12) outside that harness.
-      ...(process.env.DISABLE_HMR === 'true' ? { maxNeighbors: 12 } : {}),
       ...(this.p2pRuntimeFlags.p2pNodeEnabled
         ? {
-            getDiscoveryUserIds: async () => this.getDiscoveryFallbackUserIdsForActiveRoom(),
             createSession: (params) =>
               createFallbackMeshSession({
                 primaryFactory: () =>
@@ -3056,6 +3263,10 @@ export class IinPublicApp {
           ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
         });
       },
+      // OPEN-38: a content-free wake ping for receivers that look asleep; the body stays queued.
+      ...(this.p2pRuntimeFlags.p2pDirectTalkDelivery
+        ? { onDirectDeliveryPending: (recipientUserIds: string[]) => this.postTalkWakeToMailbox(recipientUserIds) }
+        : {}),
       // Mixed-release escape hatch only. The authoritative direct scheduler retains ordinary
       // Talk bodies in the author's encrypted local outbox until the end receiver ACKs.
       ...(!this.p2pRuntimeFlags.p2pDirectTalkDelivery
@@ -3069,13 +3280,6 @@ export class IinPublicApp {
     });
     (this as any).peerMeshService = this.peerMeshService;
     return this.peerMeshService;
-  }
-
-  private getDiscoveryFallbackUserIdsForActiveRoom(): string[] {
-    const roomId = this.peerMeshService?.getDiagnostics().roomId || this.currentChatroomId;
-    if (!roomId) return [];
-    const found = this.roomDiscoveredUserIds.get(roomId);
-    return found ? [...found] : [];
   }
 
   private async resolveDiscoveredUserIds(
@@ -3120,7 +3324,39 @@ export class IinPublicApp {
    * Talks this device deliberately broadcast in THIS room that it has not received yet. The
    * per-peer delivery ledger keeps this idempotent; Talks never follow the user to another room.
    */
-  private catchUpPeerInActiveRoom(userId: string, roomId: string, stageName?: string): void {
+  /**
+   * Mark Talks whose deliberate room broadcast is still resolving receivers or delivering (~10 s on
+   * a phone). Catch-up skips them, so a roster change meanwhile does not send the same Talk in
+   * parallel (OPEN-51). Returns the release to call when that broadcast settles.
+   */
+  private markTalkBroadcastsInFlight(talkIds: readonly string[]): () => void {
+    for (const talkId of talkIds) this.talkBroadcastsInFlight.set(talkId, (this.talkBroadcastsInFlight.get(talkId) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const talkId of talkIds) {
+        const remaining = (this.talkBroadcastsInFlight.get(talkId) ?? 1) - 1;
+        if (remaining > 0) this.talkBroadcastsInFlight.set(talkId, remaining);
+        else this.talkBroadcastsInFlight.delete(talkId);
+      }
+      // A peer that connected mid-broadcast was skipped above; the broadcast's own flood may have
+      // gone out before that link was live. Re-check it now: the per-peer ledger only still lists
+      // the Talk if the broadcast did not reach that peer.
+      const deferred = [...this.catchUpDeferredByInFlight.entries()];
+      this.catchUpDeferredByInFlight.clear();
+      for (const [peerId, { roomId, stageName }] of deferred) {
+        this.catchUpPeerInActiveRoom(peerId, roomId, stageName, { ignoreInterval: true });
+      }
+    };
+  }
+
+  private catchUpPeerInActiveRoom(
+    userId: string,
+    roomId: string,
+    stageName?: string,
+    options: { ignoreInterval?: boolean } = {},
+  ): void {
     const peerId = String(userId || '').trim();
     if (!peerId || !this.currentUser || isTechSupportUser(this.currentUser) || peerId === this.currentUser.id) return;
     if (peerId === TECHSUPPORT_ROOT_USER_ID) return;
@@ -3128,9 +3364,16 @@ export class IinPublicApp {
     if (!scope || scope.roomId !== roomId || this.currentChatroomId !== roomId) return;
     const key = `${roomId}|${peerId}`;
     const now = Date.now();
-    if (now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
+    if (!options.ignoreInterval && now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
     const broadcastHere = talksBroadcastInRoom(roomId);
-    const talkIds = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) => broadcastHere.has(talkId));
+    // A Talk already queued for this peer is retried by the outbox itself (OPEN-51).
+    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) =>
+      broadcastHere.has(talkId) && !this.peerMeshService?.hasQueuedDirectTalk(peerId, talkId));
+    // A Talk still being broadcast is left to that broadcast; re-check this peer when it settles.
+    if (candidates.some((talkId) => this.talkBroadcastsInFlight.has(talkId))) {
+      this.catchUpDeferredByInFlight.set(peerId, { roomId, ...(stageName ? { stageName } : {}) });
+    }
+    const talkIds = candidates.filter((talkId) => !this.talkBroadcastsInFlight.has(talkId));
     if (talkIds.length === 0) return;
     this.roomCatchupSentAt.set(key, now);
     this.uiManager.emit('broadcastTalk', {
@@ -3158,14 +3401,16 @@ export class IinPublicApp {
           ...members,
           { userId: this.currentUser.id, stageName: this.currentUser.stageName },
         ];
-    void mesh.joinRoom(chatroomId, withSelf)
+    // The Nearby runtime notices a new scope itself (it watches its position) and reissues my card.
+    const personal = isPersonalListScope(chatroomId);
+    void mesh.joinRoom(chatroomId, withSelf, { personal, replace: personal })
       .then(() => {
         for (const member of members) this.catchUpPeerInActiveRoom(member.userId, chatroomId, member.stageName);
       })
       .catch((error) => {
         console.warn('Peer mesh room join failed:', error);
       });
-    const discovery = this.ensureRoomDiscoveryService();
+    const discovery = !personal && this.hubDiscoveryAllowedNow() ? this.ensureRoomDiscoveryService() : null;
     if (discovery) {
       void discovery.announceRoom(chatroomId).catch((error) => {
         console.warn('Room discovery provide failed:', error);
@@ -3218,10 +3463,21 @@ export class IinPublicApp {
   private startMailboxPolling(): void {
     this.registerNativeMailboxWatch();
     if (this.mailboxPollTimer) return;
-    this.mailboxPollTimer = setInterval(() => {
+    // On a phone the native mailbox watch keeps a long-poll open and wakes a drain the moment an
+    // envelope arrives ('iinpublic-mailbox-changed'), so the page polls only as a safety net
+    // (OPEN-73: every 3 s was ~20 requests a minute through the embedded node while idle). The
+    // page does not hold a long-poll itself: a browser allows six connections per host, and one
+    // more held open starved WebRTC signaling (stage2/88's deal confirmation never arrived).
+    // While hidden it polls once a minute.
+    const native = this.hasNativeMailboxWatch();
+    if (native && !this.mailboxChangedListener) {
+      this.mailboxChangedListener = () => { void this.drainMailbox().catch(() => {}); };
+      window.addEventListener('iinpublic-mailbox-changed', this.mailboxChangedListener);
+    }
+    this.mailboxPollTimer = setInterval(throttleWhileHidden(() => {
       void this.drainMailbox().catch(() => {});
       void this.retryFailedMailboxPosts().catch(() => {});
-    }, 3_000);
+    }, 60_000), native ? NATIVE_MAILBOX_SAFETY_DRAIN_MS : 3_000);
   }
 
   /**
@@ -3230,6 +3486,11 @@ export class IinPublicApp {
    * and posts a "new activity" notification; this page still does every decrypt/drain on open.
    * A no-op in browsers and on builds without the bridge method.
    */
+  private hasNativeMailboxWatch(): boolean {
+    const bridge = (window as unknown as { IinPublicNearby?: { setMailboxWatch?: unknown } }).IinPublicNearby;
+    return typeof bridge?.setMailboxWatch === 'function';
+  }
+
   private registerNativeMailboxWatch(): void {
     const userId = this.currentUser?.id;
     const bridge = (window as unknown as { IinPublicNearby?: { setMailboxWatch?: (id: string) => void } }).IinPublicNearby;
@@ -3303,7 +3564,10 @@ export class IinPublicApp {
         //   - has `talkData` → talk-body payload from R-a mailbox fallback
         //   - has `retractedAt` (number) → step-10 retraction envelope
         //   - has `responseId` → talk-response payload from step 6
-        if ((payload as any).kind === 'conversation-message-v1') {
+        if ((payload as any).kind === TALK_WAKE_PAYLOAD_KIND) {
+          // OPEN-38: content-free; its only job (waking this device) is done. The direct
+          // scheduler delivers the queued Talk now that this page is running.
+        } else if ((payload as any).kind === 'conversation-message-v1') {
           await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
         } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
           await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
@@ -3324,6 +3588,38 @@ export class IinPublicApp {
       } catch (err) {
         console.warn('[Mailbox] Failed to drain envelope', envelope.id, '— will retry on next connect:', err);
         // Leave envelope on server for re-delivery.
+      }
+    }
+  }
+
+  /**
+   * OPEN-38: wake receivers whose page is frozen asleep. One content-free encrypted envelope per
+   * receiver per 30 minutes; it reveals only that this sender has something for them.
+   */
+  private async postTalkWakeToMailbox(recipientUserIds: string[]): Promise<void> {
+    const me = this.currentUser?.id;
+    const pair = this.gunService.getStoredPair();
+    if (!me || !pair?.priv || this.mailboxFallbackDisabledForE2e) return;
+    const mailbox = this.ensureMailboxClient();
+    const nowMs = Date.now();
+    for (const recipientId of recipientUserIds) {
+      if (!recipientId || recipientId === me || !this.talkWakeThrottle.shouldWake(recipientId, nowMs)) continue;
+      try {
+        const recipientEpub = await this.resolvePeerEpub(recipientId);
+        if (!recipientEpub) continue;
+        const ciphertext = await mailbox.encryptForRecipient(
+          recipientEpub,
+          pair as import('../sea-gun').GunPair,
+          buildTalkWakePayload(me, new Date(nowMs)),
+        );
+        await mailbox.postEnvelope({
+          id: talkWakeEnvelopeId(me, recipientId, nowMs),
+          recipientId,
+          ciphertext,
+          ttlMs: TALK_WAKE_TTL_MS,
+        });
+      } catch (error) {
+        console.warn('[Mailbox] Failed to post Talk wake ping:', error);
       }
     }
   }
@@ -3569,6 +3865,9 @@ export class IinPublicApp {
       status: 'pending',
     };
     gun.get('techsupport-inbox').get(payload.questionKey).put(entry);
+    // The operator answers in the ordinary DM overlay, which needs the conversation record; since
+    // TechSupport is Contacts-only it never meets the asker through a room member list.
+    if (payload.askedBy && payload.askedBy !== TECHSUPPORT_ROOT_USER_ID) this.ensureSupportConversationRecord(payload.askedBy);
     console.log('[Support] Ingested pending question', payload.questionKey, 'from', payload.askedBy);
   }
 
@@ -3882,8 +4181,9 @@ export class IinPublicApp {
     // session). A receiver opening a talk moments after it mesh-delivered would frequently lose
     // this race and surface "Could not load this talk yet" even though the data was genuinely
     // still in flight, not actually missing. 12 x 300ms (3.6s) gives real local Gun propagation
-    // a realistic chance without hanging the UI indefinitely.
-    return this.talkService.getTalkWithRetry(talkId, { attempts: 12, gapMs: 300 });
+    // a realistic chance without hanging the UI indefinitely. The deadline keeps that budget now
+    // that each local miss itself takes ~0.5 s (12 attempts alone stretched to ~11 s).
+    return this.talkService.getTalkWithRetry(talkId, { attempts: 12, gapMs: 300, deadlineMs: 4_000 });
   }
 
   private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
@@ -3969,6 +4269,7 @@ export class IinPublicApp {
       payload.responderId,
       getTalkIntakeFilters(),
       this.currentUser.knownPeople,
+      this.roomTravelerIds,
     )) return;
     console.log(`[RESP-INGEST] talk=${String(payload.talkId).slice(-8)} from=${String(payload.responderId).slice(0, 8)} v=${payload.version ?? 1}`);
     const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}::v${payload.version ?? 1}`;
@@ -4814,7 +5115,7 @@ export class IinPublicApp {
 
   private techSupportRelayPollTimer: ReturnType<typeof setInterval> | undefined;
   private techSupportRelayPollInFlight = false;
-  private techSupportTargetedInviteTick = 0;
+  private techSupportTargetedInviteCheckedAt = 0;
 
   /**
    * docs/TODO.md K7 follow-on: a native (embedded-node) device has no generic Gun peering to the
@@ -4839,7 +5140,8 @@ export class IinPublicApp {
         for (const grant of grants) this.handleVerifiedDelegateGrant(grant);
         // Targeted (remote) delegate invites: candidates look for one addressed to them, the
         // master looks for the resulting requests. Slower cadence (~30s) — invites last days.
-        if (this.techSupportTargetedInviteTick++ % 6 === 0) {
+        if (Date.now() - this.techSupportTargetedInviteCheckedAt >= 30_000) {
+          this.techSupportTargetedInviteCheckedAt = Date.now();
           await this.checkIncomingTargetedDelegateInvite(apiBase);
           await this.pollTargetedDelegateInviteRequests(apiBase);
         }
@@ -4863,7 +5165,11 @@ export class IinPublicApp {
       }
     };
     void tick();
-    this.techSupportRelayPollTimer = setInterval(() => void tick(), 5_000);
+    // Delegate grants and the recovery anchor change only during an incident (OPEN-73): an
+    // ordinary session reads them every 15 s; operators, who answer and audit, every 5 s.
+    this.techSupportRelayPollTimer = setInterval(throttleWhileHidden(() => void tick(), 120_000, {
+      visibleMs: () => (this.currentUser && this.isTechSupportOperatorSession() ? 0 : 15_000),
+    }), 5_000);
   }
 
   private stopTechSupportDelegateRelayPolling(): void {
@@ -5540,6 +5846,7 @@ export class IinPublicApp {
       active: this.travelModeActive,
       ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
     });
+    this.refreshNearbyPoint();
   }
 
   private persistTravelModeStateToStorage(): void {
@@ -5572,6 +5879,8 @@ export class IinPublicApp {
    * This allows showing headcount badges for rooms the user hasn't visited
    */
   private subscribeToMessages(chatroomId: string): void {
+    // Only a Place keeps a shared chat feed (§3.7); Nearby and Contacts only have none.
+    if (!hasRoomChat(chatroomId)) return;
     console.log('💬 Subscribing to chatroom messages:', chatroomId);
     const gun = this.gunService.getGun();
 
@@ -5708,7 +6017,7 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return [];
     // R-a step 7: syncRoomTalkBodyRendezvous removed (Gun p2pMeshTalkBodies/* path deleted).
     // Incoming clusters arrive exclusively via mesh DataChannel push or mailbox drain.
-    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
+    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
     const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
       ? (this.uiManager as any).incomingTalkClusters
       : [];
@@ -6148,9 +6457,12 @@ export class IinPublicApp {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
     if (this.isTalkExpiredForDelivery(talk)) return false;
+    // Never offer a Talk to someone this user has blocked. The receiver's own block check used to
+    // ask the hub on every Talk and hid this; it is now cached for a minute.
+    const blocked = new Set(me.blockedUserIds ?? []);
     let receiverIds = members
       .map((m) => m.userId)
-      .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
+      .filter((id) => id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID && !blocked.has(id));
     if (eligibleReceiverIds !== undefined) {
       const allowed = new Set(eligibleReceiverIds);
       receiverIds = receiverIds.filter((id) => allowed.has(id));
@@ -6159,6 +6471,7 @@ export class IinPublicApp {
       receiverIds,
       getTalkIntakeFilters(),
       me.knownPeople,
+      this.roomTravelerIds,
     );
     if (receiverIds.length === 0) return false;
 
@@ -6208,7 +6521,7 @@ export class IinPublicApp {
       }
 
       // Step 8.3: client per-edge cooldown/quota gate.
-      const gate = applyEdgeGateForPeer(recipientId, nowMs);
+      const gate = applyEdgeGateForPeer(recipientId, nowMs, talkId);
       if (!gate.ok) {
         console.debug(`[Ledger] Edge gate rejected deliver to ${recipientId}: ${gate.rejectedBy.join(',')}`);
         continue;
@@ -6241,7 +6554,8 @@ export class IinPublicApp {
     const mesh = this.ensurePeerMeshService();
     if (!mesh) return false;
     const chatroomId = this.chatroomService.getCurrentChatroomId();
-    if (chatroomId) {
+    // Nearby keeps its list as the roster: the broadcast loop opens links for queued Talks itself.
+    if (chatroomId && !isPersonalListScope(chatroomId)) {
       await mesh.joinRoom(chatroomId, [
         { userId: me.id, stageName: me.stageName },
         ...members,
@@ -6289,6 +6603,7 @@ export class IinPublicApp {
     const sentAtIso = new Date(nowMs).toISOString();
     for (const plan of plans) {
       if (!acceptedRecipientIds.has(plan.recipientId)) continue;
+      this.noteNearbyDelivery(talkId, plan.recipientId);
       for (const ik of plan.sentIdentityKeys) {
         markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
       }
@@ -6349,10 +6664,26 @@ export class IinPublicApp {
       memberIds = [...uiNameById.keys()];
     }
 
+    // OPEN-38: keep queueing for members whose phone fell asleep (heartbeat lapsed, never left).
+    // Direct delivery holds the body in the outbox; the wake ping lets their device notice it.
+    // Bounded so the receiver list never exceeds the room capacity.
+    if (this.p2pRuntimeFlags.p2pDirectTalkDelivery) {
+      const lapsed = await this.chatroomService.observeLapsedMemberIds(chatroomId, LAPSED_MEMBER_DELIVERY_MS);
+      const capacity = this.activeExchangeRoomController?.getActiveRoom()?.chatroomCapacity ?? CONFIG.CHATROOM_MAX_CAPACITY;
+      const known = new Set(memberIds);
+      for (const userId of lapsed) {
+        if (known.size >= capacity - 1) break;
+        if (!userId || userId === me || userId === TECHSUPPORT_ROOT_USER_ID || known.has(userId)) continue;
+        known.add(userId);
+      }
+      memberIds = [...known];
+    }
+
     const permittedMemberIds = filterTalkPeersByContactPolicy(
       memberIds,
       getTalkIntakeFilters(),
       this.currentUser?.knownPeople,
+      this.roomTravelerIds,
     );
     return permittedMemberIds.map((userId) => ({
       userId,
@@ -6362,7 +6693,7 @@ export class IinPublicApp {
 
   /**
    * Current user saw a talk announcement in their subscribed chatroom. Receiver-driven intake still
-   * works when the sender's on-screen member list is wrong (e.g. eviction / room mismatch).
+   * works when the sender's on-screen member list is wrong (e.g. a room mismatch).
    */
   private async ingestIncomingTalkAnnouncement(
     talkId: string,
@@ -6562,6 +6893,7 @@ export class IinPublicApp {
       params.authorId,
       getTalkIntakeFilters(),
       this.currentUser.knownPeople,
+      this.roomTravelerIds,
     )) return;
     // Persist exact-answer memory and provenance privately before any chatbot/manual
     // response can leave this device. Public offers never subscribe to this path.
@@ -6652,6 +6984,7 @@ export class IinPublicApp {
         targetAuthorId,
         getTalkIntakeFilters(),
         this.currentUser?.knownPeople,
+        this.roomTravelerIds,
       )) return;
       const authorEpub = targetEpub ?? this.pairTalkPeerEpubHint(
         targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
@@ -6829,6 +7162,7 @@ export class IinPublicApp {
             senderId,
             getTalkIntakeFilters(),
             this.currentUser.knownPeople,
+            this.roomTravelerIds,
           )) continue;
           const sentResponse = sentResponseByAuthor.get(senderId);
           writeResponderExchangedEntry({
@@ -6952,9 +7286,7 @@ export class IinPublicApp {
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
-      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-        waitMs: 400,
-      });
+      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
       if (!Array.isArray(clusters)) return null;
       const cluster = clusters.find(
         (c: any) =>
@@ -7020,6 +7352,26 @@ export class IinPublicApp {
   /**
    * E2E: deliver pending OUT talks using the same register + Gun path as Broadcast, without the audience modal.
    */
+  /** "Sent to N of M" (§3.7): count delivery acks from the people on my list as the loop reaches them. */
+  private startNearbyBroadcastProgress(chatroomId: string, talkIds: readonly string[], total: number): void {
+    // Nearby and Places are both my list (§3.7 "Places in v3"): the same progress applies.
+    if (!isPersonalListScope(chatroomId)) return;
+    const previous = this.nearbyBroadcast;
+    // The same Talks again (a retried send of the same broadcast) keep the deliveries counted so far.
+    const same = previous && previous.talkIds.size === talkIds.length && talkIds.every((id) => previous.talkIds.has(id));
+    this.nearbyBroadcast = same ? { ...previous, total } : { talkIds: new Set(talkIds), total, delivered: new Set() };
+    const delivered = this.nearbyBroadcast.delivered.size;
+    this.uiManager.setNearbyBroadcastProgress({ sent: Math.min(delivered, total), total });
+  }
+
+  /** One person acknowledged a Talk of the latest Nearby broadcast (outbox ack or a live send's ack). */
+  private noteNearbyDelivery(talkId: string, recipientUserId: string): void {
+    const progress = this.nearbyBroadcast;
+    if (!progress?.talkIds.has(talkId) || progress.delivered.has(recipientUserId)) return;
+    progress.delivered.add(recipientUserId);
+    this.uiManager.setNearbyBroadcastProgress({ sent: Math.min(progress.delivered.size, progress.total), total: progress.total });
+  }
+
   public async deliverPendingBroadcastTalksForE2e(
     minReceivers = 1,
     opts: {
@@ -7051,55 +7403,61 @@ export class IinPublicApp {
     }
     // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
     recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
-    let sent = 0;
-    const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
-    for (const talkId of broadcastableIds) {
-      let talk = this.uiManager.getBroadcastTalkPayload(talkId);
-      if (!talk) {
-        talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
+    this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
+    const releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
+    try {
+      let sent = 0;
+      const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
+      for (const talkId of broadcastableIds) {
+        let talk = this.uiManager.getBroadcastTalkPayload(talkId);
+        if (!talk) {
+          talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
+        }
+        if (!talk) continue;
+        const tid = String(talk.id || talkId);
+        talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser.id };
+        if (this.isTalkExpiredForDelivery(talk)) continue;
+        talkPayloads.push({ tid, talk: talk as Talk });
       }
-      if (!talk) continue;
-      const tid = String(talk.id || talkId);
-      talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser.id };
-      if (this.isTalkExpiredForDelivery(talk)) continue;
-      talkPayloads.push({ tid, talk: talk as Talk });
+      if (talkPayloads.length === 0) {
+        throw new Error('no talk payloads for E2E broadcast delivery');
+      }
+      if (receivers.length === 0) {
+        const attempted = talkPayloads
+          .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
+          .length;
+        this.uiManager.setBroadcastBulkAck(attempted, 0);
+        return { talksSent: attempted, receivers: 0 };
+      }
+      // Mesh delivery fans out to resolved receivers directly; no server preview needed.
+      const previews: BroadcastAudiencePreview[] = [];
+      const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
+      const REGISTER_BATCH = 5;
+      for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
+        const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
+        const batchResults = await Promise.all(
+          batch.map(async ({ tid, talk }) => {
+            const preview = previewByTalkId.get(tid);
+            const eligibleIds =
+              usesMeshTalkDelivery(this.p2pRuntimeFlags) || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
+                ? undefined
+                : preview.eligibleReceiverIds;
+            return this.deliverTalkToReceiversOverMesh(
+              tid,
+              talk,
+              receivers,
+              eligibleIds,
+              { skipAcknowledgements: opts.skipDeliveryAcks === true },
+            );
+          }),
+        );
+        sent += batchResults.filter(Boolean).length;
+      }
+      this.uiManager.setBroadcastBulkAck(sent, targetCount);
+      return { talksSent: sent, receivers: targetCount };
+    } finally {
+      releaseInFlight();
     }
-    if (talkPayloads.length === 0) {
-      throw new Error('no talk payloads for E2E broadcast delivery');
-    }
-    if (receivers.length === 0) {
-      const attempted = talkPayloads
-        .filter(({ tid }) => this.uiManager.getBroadcastableTalkIds().includes(tid))
-        .length;
-      this.uiManager.setBroadcastBulkAck(attempted, 0);
-      return { talksSent: attempted, receivers: 0 };
-    }
-    // Mesh delivery fans out to resolved receivers directly; no server preview needed.
-    const previews: BroadcastAudiencePreview[] = [];
-    const previewByTalkId = new Map(previews.map((p) => [p.talkId, p]));
-    const REGISTER_BATCH = 5;
-    for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
-      const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
-      const batchResults = await Promise.all(
-        batch.map(async ({ tid, talk }) => {
-          const preview = previewByTalkId.get(tid);
-          const eligibleIds =
-            usesMeshTalkDelivery(this.p2pRuntimeFlags) || preview?.previewUnavailable || !Array.isArray(preview?.eligibleReceiverIds)
-              ? undefined
-              : preview.eligibleReceiverIds;
-          return this.deliverTalkToReceiversOverMesh(
-            tid,
-            talk,
-            receivers,
-            eligibleIds,
-            { skipAcknowledgements: opts.skipDeliveryAcks === true },
-          );
-        }),
-      );
-      sent += batchResults.filter(Boolean).length;
-    }
-    this.uiManager.setBroadcastBulkAck(sent, targetCount);
-    return { talksSent: sent, receivers: targetCount };
   }
 
   /**
@@ -7338,9 +7696,7 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-      waitMs: 500,
-    });
+    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
     // Just read from local Gun: render only. Mirroring it straight back re-wrote the whole owner
     // envelope once per cluster, which re-fired this refresh's own subscription — a feedback loop
     // measured on hardware at >1 write/s (5.5 KB each, ~16 KB/s of Gun traffic sent to every
@@ -7596,19 +7952,37 @@ export class IinPublicApp {
     });
   }
 
+  /**
+   * Online dots for Contacts, conversations and room members (§3.7 "Contacts online"): the people
+   * whose card the hub saw in the last two reissue periods, asked by id, so a contact online
+   * anywhere shows online. TechSupport has no Nearby card; it keeps the presence registry.
+   */
   private async refreshConversationPresence(): Promise<void> {
     if (!this.currentUser) return;
     const presence = this.presenceClient ?? new P2PPresenceClient({ apiBase: this.getBackendApiBase() });
     try {
-      const peers = await presence.fetchNearby(
-        this.currentUser.id,
-        200,
-        this.activeExchangeRoomController?.getScope() ?? undefined,
-      );
-      this.uiManager.setConversationOnlineStatus(new Set(peers.map((peer) => peer.userId)));
+      const ids = new Set<string>();
+      for (const conversation of Object.values(this.uiManager.getMyConversations() || {})) {
+        const otherUserId = String((conversation as { otherUserId?: unknown })?.otherUserId || '');
+        if (otherUserId) ids.add(otherUserId);
+      }
+      for (const known of this.currentUser.knownPeople ?? []) if (known.userId) ids.add(known.userId);
+      for (const member of this.uiManager.getCurrentChatroomMembers()) ids.add(member.userId);
+      ids.delete(this.currentUser.id);
+      ids.delete(TECHSUPPORT_ROOT_USER_ID);
+      const [online, peers] = await Promise.all([
+        new FetchNearbyV3Hub(() => this.getBackendApiBase()).online([...ids]).catch(() => new Set<string>()),
+        presence.fetchNearby(
+          this.currentUser.id,
+          200,
+          this.activeExchangeRoomController?.getScope() ?? undefined,
+        ).catch(() => []),
+      ]);
+      if (peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID)) online.add(TECHSUPPORT_ROOT_USER_ID);
+      this.uiManager.setConversationOnlineStatus(online);
       // K1 item 3: same real-presence signal, kept fresh whenever we already refresh for
       // conversations rather than a separate poll loop.
-      this.uiManager.setTechSupportOnlineStatus(peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID));
+      this.uiManager.setTechSupportOnlineStatus(online.has(TECHSUPPORT_ROOT_USER_ID));
     } catch {
       // Presence is supplemental list metadata; leave the existing state intact on failure.
     }
@@ -7776,6 +8150,7 @@ export class IinPublicApp {
           const blockedUserIds = data.blocked
             ? await this.userService.blockUser(this.currentUser.id, data.userId)
             : await this.userService.unblockUser(this.currentUser.id, data.userId);
+          this.blockStatusCache.invalidate(data.userId);
           this.currentUser.blockedUserIds = blockedUserIds;
           this.writeCachedUser(this.currentUser);
           this.uiManager.adoptSessionUser(this.currentUser);
@@ -7817,8 +8192,10 @@ export class IinPublicApp {
           this.uiManager.showMainInterface(this.currentUser);
           await this.renderSupportGreeting({ notify: false });
 
-          // Update the stage name in the current chatroom so others can see it
-          if (this.currentChatroomId) {
+          // Nearby: my card carries my name; reissue it and tell the nearest person now.
+          this.nearbyV3?.refresh();
+          // Update the stage name in the current Place so others can see it
+          if (this.currentChatroomId && !hasNoHubRoster(this.currentChatroomId)) {
             const gun = this.gunService.getGun();
             gun.get('chatrooms').get(this.currentChatroomId).get('users').get(userId).put({
               stageName: newStageName,
@@ -7835,10 +8212,8 @@ export class IinPublicApp {
                 body: JSON.stringify({ stageName: newStageName, lastSeen: new Date().toISOString() }),
               },
             ).catch(() => undefined);
-
-            // Force status bar update with new name
-            this.refreshStatusBar();
           }
+          this.refreshStatusBar();
         }
 
         this.uiManager.showNotification(this.uiManager.formatStageNameUpdated(), 'success');
@@ -7987,6 +8362,7 @@ export class IinPublicApp {
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId && wantSendToChatroom) {
           recordTalksBroadcastInRoom(chatroomId, [talk.id], Object.keys(getMyTalks()));
+          const releaseInFlight = this.markTalkBroadcastsInFlight([talk.id]);
           void (async () => {
             const receivers = await this.resolveBroadcastReceivers(
               chatroomId,
@@ -7996,7 +8372,7 @@ export class IinPublicApp {
             console.log('📢 Talk broadcasted to chatroom:', chatroomId);
           })().catch((error) => {
             console.warn('Background talk broadcast failed (non-fatal — talk is already saved):', error);
-          });
+          }).finally(releaseInFlight);
         }
 
         let createdMode: 'sent' | 'saved-only' | 'needs-room' = 'sent';
@@ -8080,6 +8456,7 @@ export class IinPublicApp {
         /** Background catch-up to a newly linked same-room peer: no toasts, no bulk-ack change. */
         catchUp?: boolean;
       }) => {
+        let releaseInFlight = (): void => {};
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
           if (!chatroomId || !this.currentUser) {
@@ -8120,6 +8497,7 @@ export class IinPublicApp {
           // (A plain Broadcast tap arrives as `automatic` — it only skips the confirm dialog.)
           if (!data.catchUp) {
             recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
+            releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
           }
 
           // Immediate feedback before the slow work below (resolving receivers, fetching
@@ -8127,9 +8505,15 @@ export class IinPublicApp {
           // as "nothing happened," and the user taps Broadcast again.
           if (!data.catchUp) this.uiManager.showNotification(this.uiManager.formatBroadcastInProgress(), 'info');
 
-          const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          // A catch-up is owed only to the peer that just linked; the room roster would re-send the
+          // same Talk to everyone on every reconnect (OPEN-50).
+          const receivers = data.catchUp
+            ? (data.members ?? []).filter((member) =>
+              !!member.userId && member.userId !== this.currentUser!.id && member.userId !== TECHSUPPORT_ROOT_USER_ID)
+            : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
+          if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
           if (targetCount === 0) {
             console.warn(
               '⚠️ broadcastTalk: no receivers resolved (no other active members in this chatroom).',
@@ -8212,6 +8596,8 @@ export class IinPublicApp {
         } catch (error) {
           console.error('Broadcast talks failed:', error);
           this.uiManager.showNotification(this.uiManager.formatBroadcastFailed((error as Error).message), 'error');
+        } finally {
+          releaseInFlight();
         }
       },
     );
@@ -8705,6 +9091,44 @@ export class IinPublicApp {
     this.uiManager.on('requestLocationUpdate', async () => {
       await this.updateLocationAndMaybeSwitch();
     });
+    // Android: the location sheet (first launch, or "Use my location") was answered with a grant.
+    window.addEventListener('iinpublic-location-granted', () => {
+      void readDeviceLocation()
+        .then((fix) => this.applyRealGpsFix(fix))
+        .catch(() => this.handleGpsFixUnavailable())
+        .finally(() => { if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser); });
+    });
+    // OPEN-54: Settings → "Use my location". The Android shell asks the OS again (or opens the
+    // app's settings once Android stops showing the dialog); a browser re-asks through geolocation.
+    this.uiManager.on('requestLocationPermission', async () => {
+      const bridge = (window as unknown as { IinPublicNearby?: { requestLocationPermission?: () => void } }).IinPublicNearby;
+      if (typeof bridge?.requestLocationPermission === 'function') {
+        bridge.requestLocationPermission();
+        return;
+      }
+      await this.updateLocationAndMaybeSwitch();
+      if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser);
+    });
+
+    // §3.7 "Meeting new people in groups": swap the whole group for the next one, or go back.
+    this.uiManager.on('nearbyMeetNewPeople', () => {
+      void this.nearbyV3?.service.meetNewPeople().catch((error: unknown) => console.warn('Meet new people failed:', error));
+    });
+    this.uiManager.on('nearbyBackToFirstGroup', () => {
+      void this.nearbyV3?.service.backToFirstGroup().catch((error: unknown) => console.warn('Back to group 1 failed:', error));
+    });
+
+    this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {
+      const latitude = Number(point?.latitude);
+      const longitude = Number(point?.longitude);
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
+        || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
+      this.beginNearbyTravel(
+        { latitude, longitude, accuracy: 0, timestamp: new Date() },
+        'map-point',
+        'Selected map point',
+      );
+    });
 
     this.uiManager.on('returnHomeFromTravel', async () => {
       if (!this.currentUser) return;
@@ -8716,15 +9140,20 @@ export class IinPublicApp {
       this.travelHomeChatroomId = home;
       this.persistTravelModeStateToStorage();
       this.uiManager.setTravelModeState({ active: false });
+      this.refreshNearbyPoint();
       if (this.currentChatroomId !== home) {
         await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
         this.currentChatroomId = home;
         localStorage.setItem('iinpublic_last_chatroom', home);
-        if (!isLocalOnlyRoomScope(home)) this.subscribeToMessages(home);
+        this.subscribeToMessages(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
           this.harvestRosterEpubs(members);
+          this.observeNearbyRoomRoster(home, members);
           this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+          // Like every other room switch: without it the mesh stayed in the Place, so Nearby
+          // (personal mode) never came back and the list never searched again (native-app/38).
+          this.syncPeerMeshRoom(home, members);
           const chatroomName = this.getChatroomDisplayName(home);
           this.uiManager.updateStatusBar(
             this.currentUser!.stageName,
@@ -8810,7 +9239,7 @@ export class IinPublicApp {
             }
           }
           if (!res.ok) {
-            this.uiManager.showNotification(text || this.uiManager.formatChatroomCreateFailed(), 'error');
+            this.showPlaceCreateRefusal(res.status, text);
             return;
           }
           const createdId = String(created?.id || '').trim();
@@ -8843,36 +9272,20 @@ export class IinPublicApp {
       if (!this.currentUser) {
         return;
       }
-      const nearbyTravelRequest = this.pendingNearbyTravel
-        && (this.pendingNearbyTravel.rootAssignment.roomId === requestedChatroomId
-          || this.pendingNearbyTravel.targetRoomId === requestedChatroomId)
+      const nearbyTravelRequest = this.pendingNearbyTravel && isNearbyRoomId(requestedChatroomId)
         ? this.pendingNearbyTravel
         : undefined;
-      const automaticBaseGrid = this.currentLocation && this.locationConfirmed
-        ? getAutomaticLocationChatroomId(this.currentLocation)
-        : null;
-      const chatroomId = nearbyTravelRequest
-        ? await this.resolveNearbyBeforeAdmission(
-          nearbyTravelRequest.rootAssignment,
-          nearbyTravelRequest.location,
-        )
-        : automaticBaseGrid && requestedChatroomId === automaticBaseGrid
-          ? await this.resolveMicroRoomBeforeAdmission(automaticBaseGrid, requestedChatroomId)
-          : requestedChatroomId;
-      const previousChatroomId = this.currentChatroomId;
-      const isSameRoom = previousChatroomId === chatroomId;
-      if (isSameRoom && nearbyTravelRequest) {
-        if (nearbyTravelRequest.previousAssignment) {
-          this.chatroomService.setNearbyRoomAssignment(nearbyTravelRequest.previousAssignment);
-          this.uiManager.setNearbyMapAssignment(nearbyTravelRequest.previousAssignment);
-        }
-        this.nearbyControlRootAssignment = nearbyTravelRequest.previousControlRoot || null;
-        this.nearbyControlRoutingLocation = nearbyTravelRequest.previousControlLocation || null;
-        this.pendingNearbyTravel = undefined;
-        const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-        this.uiManager.showNotification(uiText(language, 'chatroomAlreadyNearbyAroundPlace'), 'info');
+      const chatroomId = requestedChatroomId;
+      // Contacts only is a fallback, never a room a tap enters (OPEN-53): a click on the row
+      // rendered before Nearby resolved must not pull the user back out of their real room.
+      if (chatroomId === CONTACTS_ONLY_SCOPE_ID
+        && this.currentChatroomId
+        && this.currentChatroomId !== CONTACTS_ONLY_SCOPE_ID) {
+        this.uiManager.showChatroomDetail(this.currentChatroomId);
         return;
       }
+      const previousChatroomId = this.currentChatroomId;
+      const isSameRoom = previousChatroomId === chatroomId;
 
       if (!isSameRoom) {
         try {
@@ -8904,22 +9317,8 @@ export class IinPublicApp {
         } catch (error) {
           if (previousChatroomId) this.uiManager.setCurrentChatroomId(previousChatroomId);
           const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-          const message = error instanceof PlaceRoomFullError
-            ? uiText(language, 'chatroomPlaceFull').replace('{capacity}', String(error.capacity))
-            : error instanceof PlaceAdmissionUnavailableError
-              ? uiText(language, 'chatroomPlaceAdmissionUnavailable')
-              : uiText(language, 'chatroomSwitchFailed');
-          this.uiManager.showNotification(message, 'warning');
-          if (error instanceof PlaceRoomFullError) this.offerNearbyAroundFullPlace(chatroomId);
-          if (nearbyTravelRequest) {
-            this.pendingNearbyTravel = undefined;
-            if (nearbyTravelRequest.previousAssignment) {
-              this.chatroomService.setNearbyRoomAssignment(nearbyTravelRequest.previousAssignment);
-              this.uiManager.setNearbyMapAssignment(nearbyTravelRequest.previousAssignment);
-            }
-            this.nearbyControlRootAssignment = nearbyTravelRequest.previousControlRoot || null;
-            this.nearbyControlRoutingLocation = nearbyTravelRequest.previousControlLocation || null;
-          }
+          this.uiManager.showNotification(uiText(language, 'chatroomSwitchFailed'), 'warning');
+          if (nearbyTravelRequest) this.pendingNearbyTravel = undefined;
           console.warn(`Chatroom switch to ${chatroomId} was rejected:`, error);
           return;
         }
@@ -8937,16 +9336,12 @@ export class IinPublicApp {
       }
 
       this.uiManager.setCurrentChatroomId(chatroomId);
-      // A deliberate Place or Nearby-at-a-pin selection is travel. Other Nearby/local scopes are
-      // automatic home. Commit only after the switch succeeds, so a rejected destination cannot
-      // leave navigation or the Return-to-Nearby target pointing at a false room.
-      const continuingNearbyTravel = this.travelModeActive
-        && this.travelNearbyPoint != null
-        && isNearbyRoomId(String(previousChatroomId || ''))
-        && isNearbyRoomId(chatroomId)
-        && chatroomId !== this.travelHomeChatroomId;
+      // A deliberate Place or Nearby-at-a-pin selection is travel; Nearby at my own point is
+      // home. Commit only after the switch succeeds, so a rejected destination cannot leave
+      // navigation or the Return-to-Nearby target pointing at a false room.
+      const continuingNearbyTravel = this.travelModeActive && this.travelNearbyPoint != null && isNearbyRoomId(chatroomId);
       if (nearbyTravelRequest || continuingNearbyTravel) {
-        if (!this.travelModeActive && previousChatroomId) {
+        if (!this.travelModeActive && previousChatroomId && !isPlaceRoomId(previousChatroomId)) {
           this.travelHomeChatroomId = previousChatroomId;
         }
         this.travelModeActive = true;
@@ -8977,10 +9372,12 @@ export class IinPublicApp {
         active: this.travelModeActive,
         ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
       });
+      this.refreshNearbyPoint();
 
       // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
       this.chatroomService.subscribeToMembers(chatroomId, (members) => {
         this.harvestRosterEpubs(members);
+        this.observeNearbyRoomRoster(chatroomId, members);
         this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
         this.syncPeerMeshRoom(chatroomId, members);
         const chatroomName = this.getChatroomDisplayName(chatroomId);
@@ -8991,6 +9388,11 @@ export class IinPublicApp {
           this.uiManager.getTotalMatches(),
         );
       });
+      // A fresh install starts in the local Contacts-only scope, so no active-room controller
+      // exists yet. The first manual Place/Nearby move must create and start the exchange runtime;
+      // otherwise the UI and server roster show the new room while presence, mailbox scoping,
+      // LAN discovery, and Wi-Fi Direct remain silently bound to no public room.
+      if (!isLocalOnlyRoomScope(chatroomId)) await this.activateRoomExchange(chatroomId);
     });
 
     // Handle Gun.js real-time updates
@@ -9006,7 +9408,37 @@ export class IinPublicApp {
       this.uiManager.updateChatroomInfo(update);
     });
 
-    // Handle visibility changes (for offline/online status)
+    // Handle visibility changes (for offline/online status). Android's Activity lifecycle also
+    // dispatches `iinpublic-native-resume`: several WebViews do not emit visibilitychange after
+    // HOME even though onResume ran, which otherwise leaves stale WebRTC sessions untouched.
+    let lastForegroundRecoveryAt = 0;
+    const recoverAfterForeground = () => {
+      if (!this.currentUser) return;
+      const now = Date.now();
+      if (now - lastForegroundRecoveryAt < 500) return;
+      lastForegroundRecoveryAt = now;
+      this.userService.setUserStatus(this.currentUser.id, 'online');
+      const settings = loadConnectivitySettings();
+      if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
+        const pub = this.gunService.getStoredPair()?.pub;
+        if (pub) this.initNearbyOffline(String(pub));
+      }
+      // Android can freeze a background WebView while its WebRTC objects still report
+      // "connected". Rebuild only the bounded room transports on foreground and drain any
+      // encrypted fallback that accumulated meanwhile. Without this, an author's durable
+      // direct-Talk outbox can keep retrying a stale session indefinitely after the receiver
+      // returns, even though both phones still show the same room.
+      if (this.currentChatroomId && !isLocalOnlyRoomScope(this.currentChatroomId)) {
+        void this.peerMeshService?.resumeRoomConnections().catch((error) => {
+          console.warn('Could not refresh room connections after foregrounding:', error);
+        });
+        this.chatroomService.announceMembershipNow();
+        this.chatroomService.pullMembersFromPeers(this.currentChatroomId);
+      }
+      void this.drainMailbox().catch(() => {});
+      void this.retryFailedMailboxPosts().catch(() => {});
+    };
+    window.addEventListener('iinpublic-native-resume', recoverAfterForeground);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.userService.setUserStatus(this.currentUser!.id, 'away');
@@ -9015,12 +9447,7 @@ export class IinPublicApp {
           this.nearbyOfflineService = null;
         }
       } else {
-        this.userService.setUserStatus(this.currentUser!.id, 'online');
-        const settings = loadConnectivitySettings();
-        if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
-          const pub = this.gunService.getStoredPair()?.pub;
-          if (pub) this.initNearbyOffline(String(pub));
-        }
+        recoverAfterForeground();
       }
     });
 
@@ -9099,13 +9526,41 @@ export class IinPublicApp {
 
   public async updateLocationAndMaybeSwitch(nextLocation?: GPSCoordinate): Promise<void> {
     try {
-      const newLocation = nextLocation || (await LocationPrivacy.getCurrentLocation());
+      // A phone that is a Traveler only for lack of GPS tries the real fix again first.
+      if (!nextLocation && isGpsFixUnavailable() && deviceHasGps()) {
+        const fix = await readDeviceLocation().catch(() => null);
+        if (fix) {
+          this.applyRealGpsFix(fix);
+          return;
+        }
+      }
+      // A Traveler (by choice or for lack of GPS): a refresh re-applies the encounter location.
+      const encounter = !nextLocation && usesSelfDefinedEncounterLocation() ? getEncounterLocation() : null;
+      if (!nextLocation && usesSelfDefinedEncounterLocation() && !encounter) {
+        // Just switched to Traveler without a point: stop using GPS and appear at a random point
+        // (with the picker) until one is chosen — never off the map (OPEN-53).
+        this.locationConfirmed = false;
+        this.placeLocationlessDeviceOnMap();
+        return;
+      }
+      let gpsFix: GPSCoordinate | null = null;
+      if (!nextLocation && !encounter) {
+        gpsFix = await readDeviceLocation().catch(() => null);
+        if (!gpsFix) {
+          // Location refused or unavailable (e.g. the browser prompt was denied): a Resident with
+          // no fix in hand appears as a Traveler at their encounter point instead.
+          this.uiManager.showNotification(this.uiText('locationPermissionUnavailable'), 'warning');
+          if (!isGpsFixUnavailable()) this.handleGpsFixUnavailable({ force: !this.hasRealGpsFix() });
+          return;
+        }
+        setCachedLocation(gpsFix);
+      }
+      const newLocation = nextLocation || (encounter ? encounterLocationCoordinate(encounter) : gpsFix!);
       this.currentLocation = newLocation;
       this.locationConfirmed = true;
 
       if (this.currentUser) {
-        this.chatroomService.updateLocalUserLocation(this.currentUser.id, newLocation);
-        await this.userService.updateUserLocation(this.currentUser.id, newLocation);
+        await this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation());
 
         if (this.travelModeActive) {
           this.uiManager.showNotification(this.uiManager.formatTravelLocationHeld(), 'info');
@@ -9116,9 +9571,28 @@ export class IinPublicApp {
         const currentChatroomId = this.chatroomService.getCurrentChatroomId();
 
         if (newChatroomId !== currentChatroomId) {
-          await this.chatroomService.switchChatroom(this.currentUser.id, newChatroomId);
+          await this.chatroomService.switchChatroom(
+            this.currentUser.id,
+            newChatroomId,
+            this.currentUser.stageName,
+          );
           this.currentChatroomId = newChatroomId;
+          localStorage.setItem('iinpublic_last_chatroom', newChatroomId);
           this.uiManager.setCurrentChatroomId(newChatroomId);
+          this.subscribeToMessages(newChatroomId);
+          this.chatroomService.subscribeToMembers(newChatroomId, (members) => {
+            this.harvestRosterEpubs(members);
+            this.observeNearbyRoomRoster(newChatroomId, members);
+            this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
+            this.syncPeerMeshRoom(newChatroomId, members);
+            this.uiManager.updateStatusBar(
+              this.currentUser!.stageName,
+              this.getChatroomDisplayName(newChatroomId),
+              this.countRoomMembers(members),
+              this.uiManager.getTotalMatches(),
+            );
+          });
+          if (!isLocalOnlyRoomScope(newChatroomId)) await this.activateRoomExchange(newChatroomId);
           this.uiManager.showNotification(this.uiManager.formatTravelMovedLocation(), 'info');
         }
       }
@@ -9253,6 +9727,13 @@ export class IinPublicApp {
   public async manualCleanup(): Promise<void> {
     // Manually trigger cleanup (for E2E tests where beforeunload may not fire)
     console.log('🧹 Manual cleanup called');
+    this.stopNearbyV3();
+    if (this.activeRoomsTimer) clearInterval(this.activeRoomsTimer);
+    this.activeRoomsTimer = undefined;
+    if (this.quietTimer) clearInterval(this.quietTimer);
+    if (this.quietGpsTimer) clearInterval(this.quietGpsTimer);
+    this.quietTimer = undefined;
+    this.quietGpsTimer = undefined;
     if (this.incomingApiRefreshTimer) {
       clearTimeout(this.incomingApiRefreshTimer);
       this.incomingApiRefreshTimer = undefined;

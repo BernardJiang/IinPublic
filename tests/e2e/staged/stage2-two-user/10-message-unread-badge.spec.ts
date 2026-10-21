@@ -203,13 +203,13 @@ test.describe('Unread badge on Me tab after match and new message', () => {
             '',
         ),
     );
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item:has-text("Global")');
+    await pageJerry.click('.chatroom-item.current-room');
     await afterSync();
 
     // ── Tom creates and broadcasts ───────────────────────────────────────────
@@ -226,7 +226,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await pageTom.click('#talk-submit-btn');
     await afterSync();
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item:has-text("Global")');
+    await pageTom.click('.chatroom-item.current-room');
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);

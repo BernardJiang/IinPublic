@@ -25,7 +25,14 @@ export function showActionableFirstRun(deps: FirstRunControllerDeps): void {
 
 export function showFirstRunIfNeeded(deps: FirstRunControllerDeps): void {
   if (getHasSeenActionableGuide()) return;
-  const enabledForE2E = new URLSearchParams(window.location.search).get('e2e_walkthrough') === '1';
+  const query = new URLSearchParams(window.location.search);
+  // Test automation on a phone: a debug app passes `skip_tour=1` (`--ez skip_first_run_tour true`);
+  // a release app never adds it, so real installs always see the tour.
+  if (query.get('skip_tour') === '1') {
+    setHasSeenActionableGuide(true);
+    return;
+  }
+  const enabledForE2E = query.get('e2e_walkthrough') === '1';
   if (process.env.DISABLE_HMR === 'true' && !enabledForE2E) return;
   showWalkthroughDialog({
     text: translated(deps),

@@ -9,7 +9,7 @@ covers: SPEC-3.5  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-1. **Setup:** Two browsers — Alice and Tom — both log in and join "Global" chatroom. Databases are cleared.
+1. **Setup:** Two browsers — Alice and Tom — both log in and join the shared Nearby room. Databases are cleared.
 
 2. **Alice creates two tag-type talks:**
    - "Coffee" tag

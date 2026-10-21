@@ -22,6 +22,7 @@ android/app/build/
 android/app/.cxx/
 android/local.properties
 android/app/src/main/assets/nodejs-project/
+android/app/src/debug/assets/nodejs-project/
 android/app/libnode/
 platforms/mobile/nodejs-project/node_modules/
 
@@ -44,6 +45,8 @@ platforms/ios/*.bak
 
 # Test artifacts
 playwright-report/
+playwright-report-phone-path/
+playwright-report-android/
 blob-report/
 blob-merged/
 test-results/
@@ -79,3 +82,4 @@ test-logs/
 android/keystore.properties
 *.jks
 *.keystore
+nearby-attestor*/

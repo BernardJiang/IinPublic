@@ -223,10 +223,35 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     return otherId;
   }
 
+  /** A user's pub and epub are immutable (gun-message-store caches epub the same way). Without
+   *  this every DM paid one public-record lookup before sending and another before decrypting:
+   *  ~1.7 s each over mobile data (native-app/29, 2026-10-17). Opening the conversation runs
+   *  sessionFor, which fills the cache before the first send or receive. */
+  private readonly peerKeysByUserId = new Map<string, { pub?: string; epub?: string }>();
+  private readonly peerKeyLookups = new Map<string, Promise<{ pub?: string; epub?: string }>>();
+
+  private lookupPeerKeys(userId: string): Promise<{ pub?: string; epub?: string }> {
+    const inFlight = this.peerKeyLookups.get(userId);
+    if (inFlight) return inFlight;
+    const lookup = this.gunService.getPublicUser(userId)
+      .then((user) => {
+        const keys = { ...this.peerKeysByUserId.get(userId) };
+        if (user.pub) keys.pub = String(user.pub);
+        if (user.epub) keys.epub = String(user.epub);
+        this.peerKeysByUserId.set(userId, keys);
+        return keys;
+      })
+      .finally(() => this.peerKeyLookups.delete(userId));
+    this.peerKeyLookups.set(userId, lookup);
+    return lookup;
+  }
+
   private async getUserPub(userId: string, attempts = 20): Promise<string> {
     for (let i = 0; i < attempts; i++) {
-      const user = await this.gunService.getPublicUser(userId);
-      if (user.pub) return String(user.pub);
+      const cached = this.peerKeysByUserId.get(userId)?.pub;
+      if (cached) return cached;
+      const { pub } = await this.lookupPeerKeys(userId);
+      if (pub) return pub;
       await new Promise((resolve) => setTimeout(resolve, 400));
     }
     throw new Error(`User ${userId} has no pub`);
@@ -251,9 +276,11 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
   private async getUserEpub(userId: string, attempts = 8): Promise<string | undefined> {
     for (let i = 0; i < attempts; i += 1) {
+      const cached = this.peerKeysByUserId.get(userId)?.epub;
+      if (cached) return cached;
       try {
-        const user = await this.gunService.getPublicUser(userId);
-        if (user.epub) return String(user.epub);
+        const { epub } = await this.lookupPeerKeys(userId);
+        if (epub) return epub;
       } catch {
         /* transient — retry below */
       }
@@ -275,11 +302,18 @@ export class DirectP2PConversationTransport implements ConversationTransport {
    */
   private mergeLiveMessages(conversationId: string, messages: Message[]): void {
     const bucket = this.liveMessagesByConversation.get(conversationId) || [];
-    const knownIds = new Set(bucket.map((existing) => existing.id));
+    const indexById = new Map(bucket.map((existing, index) => [existing.id, index]));
     for (const message of messages) {
-      if (knownIds.has(message.id)) continue;
-      bucket.push(message);
-      knownIds.add(message.id);
+      const index = indexById.get(message.id);
+      if (index === undefined) {
+        indexById.set(message.id, bucket.length);
+        bucket.push(message);
+      } else if (bucket[index].text !== message.text) {
+        // A record rewritten under the same id (the TechSupport welcome re-rendered after a
+        // rename) must replace the cached copy; keeping the first one put the old text back
+        // into the conversation preview on the next emit. Fields only the cache knows survive.
+        bucket[index] = { ...bucket[index], ...message };
+      }
     }
     if (messages.length > 0) {
       // Same (timestamp, id) ordering as GunMessageStore's decrypt path: without the id
@@ -329,11 +363,11 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       // backfill whatever the peer is missing, straight over the DataChannel (no hub).
       getLocalMessageDigest: async () => buildConversationDigest(
         conversationId,
-        await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+        await this.gunStore.listLocalWires(conversationId),
       ).messageIds,
       getMessagesForBackfill: async (remoteMessageIds: string[]) => computeMissingForPeer(
         conversationId,
-        await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+        await this.gunStore.listLocalWires(conversationId),
         { conversationId, messageIds: remoteMessageIds },
       ),
       getConversationControlSnapshot: () =>
@@ -368,7 +402,9 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     session.setBuildTrustHooks(this.buildTrustHooks);
     session.setOnRemoteDm(async (wire) => {
       if (wire.senderId === localUserId) return;
-      await this.gunStore.putMessageRecord(conversationId, {
+      // Persist and decrypt side by side: the local Gun write (~0.3 s on a phone) does not have
+      // to finish before the message is shown.
+      const persisted = this.gunStore.putMessageRecord(conversationId, {
         id: wire.id,
         senderId: wire.senderId,
         text: wire.text,
@@ -380,7 +416,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
         ...(wire.talkId ? { talkId: wire.talkId } : {}),
       }, { otherUserId: otherId });
-      await this.decryptWireText(wire, wire.senderId).then((text) => {
+      const shown = this.decryptWireText(wire, wire.senderId).then((text) => {
         this.pushLiveMessage(conversationId, {
           id: wire.id,
           senderId: wire.senderId,
@@ -393,6 +429,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
           ...(wire.talkId ? { talkId: wire.talkId } : {}),
         });
       });
+      await Promise.all([persisted, shown]);
     });
     return session;
   }

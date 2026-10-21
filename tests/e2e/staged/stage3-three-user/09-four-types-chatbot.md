@@ -8,7 +8,7 @@ covers: SPEC-12.3  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users: Tom, Jerry, and Sam, all in the "Global" chatroom.
+Three users: Tom, Jerry, and Sam, all in the shared Nearby room.
 
 ### Step 1: Tom broadcasts one talk of each type
 
@@ -32,7 +32,7 @@ Three users: Tom, Jerry, and Sam, all in the "Global" chatroom.
 
 ### Step 4: Sam re-announces the same 4 talks
 
-5. **A new user (Sam) joins** the Global chatroom
+5. **A new user (Sam) joins** the shared Nearby room
 6. **Sam re-announces the same 4 talk IDs** to Jerry (using `announceTalkToRoom`)
 7. **Jerry's chatbot auto-replies** to all match-capable talks (tag, flow, route — NOT survey since surveys don't match)
 

@@ -8,7 +8,7 @@ covers: SPEC-12.3  <!-- auto-seeded; refine by hand -->
 
 ## What this test does (in plain English):
 
-Three users: Tom, Jerry, and Bob, all in the "Global" chatroom.
+Three users: Tom, Jerry, and Bob, all in the shared Nearby room.
 
 1. **Tom creates a talk and broadcasts it**
 2. **Jerry enables the chatbot** (an automated reply feature) and answers the talk

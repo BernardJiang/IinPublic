@@ -4,10 +4,20 @@ import {
   type Tag,
   type User,
 } from '../../shared/types';
+import { renderLocationSection, renderTalkAudience } from './location-settings';
+import { getDistanceUnit } from './distance-units';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
+import { deviceHasGps, getEncounterLocation, isGpsFixUnavailable, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
+import {
+  discoveryProviderAvailability,
+  type DiscoveryProviderAvailability,
+  type DiscoveryProviderEnvironment,
+  type DiscoveryReadiness,
+} from '../../shared/nearby-discovery-policy';
 import { renderSettingsSection } from './settings-section-template';
+import { hasAppPermissionsBridge, renderAppPermissionsBody } from './app-permissions-settings';
 import { loadConnectivitySettings, type ConnectivityPreset } from './connectivity-settings';
 import {
   COLOR_SCHEMES,
@@ -19,8 +29,8 @@ import {
   getKeepOldTalkOnEdit,
   getLocationAutoMatchConsent,
   type ColorScheme,
-  getNearbyWifiDirectEnabled,
-  getNearbyBluetoothEnabled,
+  getNearbyProviderEnabled,
+  type NearbyProviderSetting,
 } from './ui-settings-storage';
 import { renderDownloadAppSectionBody, type AppDownloadTextDeps } from './app-download';
 import { renderTechSupportFaqHelpList } from './techsupport-faq-help-view';
@@ -219,9 +229,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
           })
           .join('')
       : `<div style="font-size:0.88em;color:var(--text-tertiary);">${escapeHtml(deps.t('meNoPublicProfile'))}</div>`;
+  // Never echo a GPS coordinate in Settings. The person manages the disclosed *area*, while the
+  // exact fix remains an implementation detail on this device.
   const locationText = deps.currentLocation
-    ? `${deps.currentLocation.latitude.toFixed(3)}, ${deps.currentLocation.longitude.toFixed(3)}`
-    : deps.t('settingsUnknown');
+    ? 'Location available · exact GPS stays on this device'
+    : 'Location unavailable · automatic Nearby is inactive';
   const filteredIncoming = filterIncomingTalkClusters(
     (deps.incomingTalkClusters || []).filter((cluster: any) => cluster && cluster.identityKey),
     talkFilters,
@@ -258,6 +270,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
       target: 'settings-section-content-filters',
     },
     ...(hasNearbyBridge() ? [{ icon: '📶', label: deps.t('settingsNearby'), target: 'settings-section-nearby' }] : []),
+    ...(hasAppPermissionsBridge() ? [{ icon: '🔐', label: deps.t('appPermissionsTitle'), target: 'settings-section-app-permissions' }] : []),
     { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
     { icon: '📱', label: deps.t('settingsDownloadApp'), target: 'settings-section-download-app' },
     {
@@ -371,6 +384,13 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
               `;
             }).join('')}
           </div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:12px;">
+            <span>${deps.t('settingsDistanceUnit')}</span>
+            <select class="form-input" id="settings-distance-unit" data-testid="settings-distance-unit">
+              <option value="km" ${getDistanceUnit() === 'km' ? 'selected' : ''}>${deps.t('settingsDistanceUnitKm')}</option>
+              <option value="mi" ${getDistanceUnit() === 'mi' ? 'selected' : ''}>${deps.t('settingsDistanceUnitMi')}</option>
+            </select>
+          </label>
         `,
         )}
         ${renderSettingsSection(
@@ -481,27 +501,29 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <input type="checkbox" id="settings-keep-old-talk-on-edit" ${getKeepOldTalkOnEdit() ? 'checked' : ''}>
             <span>${deps.t('settingsKeepOldTalkOnEdit')}</span>
           </label>
-        `,
-        )}
-        ${renderSettingsSection(
-          { id: 'settings-section-distance-home', title: deps.t('settingsDistanceHome') },
-          `
-          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${deps.t('settingsMinDistance')}</span>
-              <input type="number" class="form-input" id="settings-min-distance" min="0" step="1" value="${talkFilters.minDistanceMiles ?? ''}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;">
-              <span>${deps.t('settingsMaxDistance')}</span>
-              <input type="number" class="form-input" id="settings-max-distance" min="0" step="1" value="${talkFilters.maxDistanceMiles ?? ''}">
-            </label>
-          </div>
-          <div style="margin-top:10px;font-size:0.84em;color:var(--text-tertiary);">Home is your automatic Nearby area. Selecting a map Place is a visible visit; Return to Nearby recomputes home from your current location and privacy setting.</div>
-          <div style="margin-top:4px;font-size:0.82em;color:var(--text-tertiary);">${deps.t('settingsLocation')}: ${escapeHtml(locationText)}</div>
+          ${renderTalkAudience(deps.t, talkFilters)}
           <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:10px;">
             <span>${deps.t('settingsSentAfter')}</span>
             <input type="datetime-local" class="form-input" id="settings-sent-after" value="${escapeHtml(datetimeLocalValue(talkFilters.sentAfter))}">
           </label>
+        `,
+        )}
+        ${renderSettingsSection(
+          {
+            id: 'settings-section-distance-home',
+            title: deps.t('locationSectionTitle'),
+            subtitle: deps.t('locationSectionHelp'),
+          },
+          `
+          ${renderLocationSection({
+            t: deps.t,
+            connectivity,
+            hasGps: deviceHasGps(),
+            traveler: usesSelfDefinedEncounterLocation(),
+            gpsFixUnavailable: isGpsFixUnavailable(),
+            encounterBlock: renderEncounterLocationBlock(deps.t),
+          })}
+          <div style="margin-top:8px;font-size:0.82em;color:var(--text-tertiary);">${escapeHtml(locationText)}</div>
         `,
         )}
         ${renderSettingsSection(
@@ -511,13 +533,6 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: deps.t('settingsContentFiltersHelp'),
           },
           `
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);cursor:pointer;">
-            <input type="checkbox" id="settings-contacts-only-talks" data-testid="settings-contacts-only-talks" ${talkFilters.contactsOnlyTalks ? 'checked' : ''} style="margin-top:3px;">
-            <span>
-              <strong>${deps.t('settingsContactsOnlyTalks')}</strong><br>
-              <small style="color:var(--text-tertiary);">${deps.t('settingsContactsOnlyTalksHelp')}</small>
-            </span>
-          </label>
           <div style="font-size:0.85em;font-weight:600;color:var(--text-secondary);margin:16px 0 8px;">${deps.t('settingsMessageFiltersHeading')}</div>
           <div style="display:flex;flex-wrap:wrap;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;"><input type="checkbox" id="settings-grammar-filter" ${talkFilters.requireGoodGrammar ? 'checked' : ''}> ${deps.t('settingsGrammar')}</label>
@@ -594,14 +609,10 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
               </select>
               <small>Applies to the one active room. Changing rooms is always manual.</small>
             </label>
-            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
-              <input type="checkbox" id="settings-nearby-wifi-direct" ${getNearbyWifiDirectEnabled() ? 'checked' : ''}>
-              <span><strong>${deps.t('settingsNearbyWifiDirect')}</strong><br><small>${deps.t('settingsNearbyWifiDirectHelp')}</small></span>
-            </label>
-            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
-              <input type="checkbox" id="settings-nearby-bluetooth" ${getNearbyBluetoothEnabled() ? 'checked' : ''}>
-              <span><strong>${deps.t('settingsNearbyBluetooth')}</strong><br><small>${deps.t('settingsNearbyBluetoothHelp')}</small></span>
-            </label>
+            ${renderNearbyProviderRow('cellular', 'settingsNearbyCellular', 'settingsNearbyCellularHelp', deps.t)}
+            ${renderNearbyProviderRow('lan', 'settingsNearbyLan', 'settingsNearbyLanHelp', deps.t)}
+            ${renderNearbyProviderRow('wifi-direct', 'settingsNearbyWifiDirect', 'settingsNearbyWifiDirectHelp', deps.t)}
+            ${renderNearbyProviderRow('bluetooth', 'settingsNearbyBluetooth', 'settingsNearbyBluetoothHelp', deps.t)}
             <details><summary>${deps.t('settingsNearbyPrivacyTitle')}</summary>
               <ul style="margin:6px 0 0 18px;padding:0;font-size:0.88em;">
                 <li>${deps.t('settingsNearbyPrivacySameWifi')}</li>
@@ -614,6 +625,14 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <small style="color:var(--text-tertiary);">${deps.t('settingsNearbyScreenOff')}</small>
           </div>`,
         ) : ''}
+        ${hasAppPermissionsBridge() ? renderSettingsSection(
+          {
+            id: 'settings-section-app-permissions',
+            title: deps.t('appPermissionsTitle'),
+            subtitle: deps.t('appPermissionsSubtitle'),
+          },
+          renderAppPermissionsBody(deps.t),
+        ) : ''}
         ${renderSettingsSection(
           {
             id: 'settings-section-connectivity',
@@ -621,16 +640,6 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             subtitle: 'Choose routes automatically or tune data, battery, and forwarding policy.',
           },
           `<div style="display:grid;gap:12px;">
-            <label>Who can discover me nearby
-              <select id="settings-nearby-privacy-mode" class="form-input" data-testid="settings-nearby-privacy-mode">
-                <option value="contacts-only" ${connectivity.nearbyPrivacyMode === 'contacts-only' ? 'selected' : ''}>Contacts only — no stranger room</option>
-                <option value="radio-nearby" ${connectivity.nearbyPrivacyMode === 'radio-nearby' ? 'selected' : ''}>Radio nearby — phones within BLE range</option>
-                <option value="neighborhood" ${connectivity.nearbyPrivacyMode === 'neighborhood' ? 'selected' : ''}>Neighborhood — reveal an approximate 1 km area</option>
-                <option value="close-nearby" ${connectivity.nearbyPrivacyMode === 'close-nearby' ? 'selected' : ''}>Close nearby — reveal an approximate 200–500 m area</option>
-                <option value="location-off" ${connectivity.nearbyPrivacyMode === 'location-off' ? 'selected' : ''}>Location off — Contacts and selected Places only</option>
-              </select>
-              <small>Close nearby can reveal your home or workplace. Cell identifiers are predictable; hashing does not hide the approximate area.</small>
-            </label>
             <label>Preset
               <select id="settings-connectivity-preset" class="form-input" data-testid="settings-connectivity-preset">
                 ${(['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as ConnectivityPreset[]).map((preset) => `<option value="${preset}" ${connectivity.preset === preset ? 'selected' : ''}>${preset.replace('-', ' ')}</option>`).join('')}
@@ -742,6 +751,65 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   deps.renderTechSupportRecoveryBannerIfPresent();
   deps.renderSupportDelegateOptInSectionIfPresent();
   deps.applySettingsSectionView(deps.settingsActiveSectionId);
+}
+
+/** Web/desktop: the self-defined encounter location replaces GPS for automatic Nearby. */
+function renderEncounterLocationBlock(t: (key: UiTranslationKey) => string): string {
+  const encounter = getEncounterLocation();
+  // Never echo the coordinate here: Settings shows only that a point is set, and when.
+  const statusText = encounter
+    ? t('encounterLocationSet').replace('{date}', encounter.setAt ? new Date(encounter.setAt).toLocaleDateString() : '—')
+    : t('encounterLocationUnset');
+  return `<div data-testid="settings-encounter-location" style="padding:12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-subtle);margin-bottom:14px;">
+            <strong>${t('encounterLocationTitle')}</strong>
+            <div style="font-size:0.85em;margin:4px 0 8px;">${t('encounterLocationHelp')}</div>
+            <div role="status" data-testid="settings-encounter-location-status" data-set="${encounter ? 'true' : 'false'}" style="font-size:0.85em;font-weight:600;margin-bottom:8px;">${escapeHtml(statusText)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn primary-btn" id="settings-encounter-location-set" data-testid="settings-encounter-location-set">${t(encounter ? 'encounterLocationChangeButton' : 'encounterLocationSetButton')}</button>
+              ${encounter ? `<button type="button" class="btn btn-secondary" id="settings-encounter-location-clear" data-testid="settings-encounter-location-clear">${t('encounterLocationClearButton')}</button>` : ''}
+            </div>
+          </div>`;
+}
+
+const PROVIDER_STATE_KEYS: Record<DiscoveryProviderAvailability, UiTranslationKey> = {
+  on: 'settingsProviderOn',
+  off: 'settingsProviderOff',
+  unsupported: 'settingsProviderUnsupported',
+  'permission-denied': 'settingsProviderPermissionDenied',
+  'radio-off': 'settingsProviderRadioOff',
+};
+
+/** One discovery provider switch with its live availability (unsupported, permission, radio off). */
+function renderNearbyProviderRow(
+  kind: NearbyProviderSetting,
+  titleKey: UiTranslationKey,
+  helpKey: UiTranslationKey,
+  t: (key: UiTranslationKey) => string,
+): string {
+  const enabled = getNearbyProviderEnabled(kind);
+  const availability = discoveryProviderAvailability(kind, enabled, nearbyProviderEnvironment());
+  const unsupported = availability === 'unsupported';
+  const attention = availability === 'permission-denied' || availability === 'radio-off';
+  return `<label style="display:flex;align-items:flex-start;gap:10px;cursor:${unsupported ? 'default' : 'pointer'};">
+              <input type="checkbox" id="settings-nearby-${kind}" ${enabled && !unsupported ? 'checked' : ''} ${unsupported ? 'disabled' : ''}>
+              <span><strong>${t(titleKey)}</strong>
+                <small data-testid="settings-nearby-${kind}-state" data-availability="${availability}" style="margin-left:6px;${attention ? 'color:var(--warning-text);' : 'color:var(--text-tertiary);'}">${escapeHtml(t(PROVIDER_STATE_KEYS[availability]))}</small>
+                <br><small>${t(helpKey)}</small></span>
+            </label>`;
+}
+
+function nearbyProviderEnvironment(): DiscoveryProviderEnvironment {
+  const win = window as unknown as {
+    IinPublicNearby?: { startLanDiscovery?: unknown; nearbyReadiness?: () => string };
+    __iinpublicNearbyOffline?: { getDiagnostics?: () => Record<string, unknown> };
+  };
+  let readiness: DiscoveryReadiness | null = null;
+  try {
+    readiness = win.IinPublicNearby?.nearbyReadiness ? JSON.parse(win.IinPublicNearby.nearbyReadiness()) as DiscoveryReadiness : null;
+  } catch { readiness = null; }
+  let permissionDenied = false;
+  try { permissionDenied = win.__iinpublicNearbyOffline?.getDiagnostics?.().permissionDenied === true; } catch { /* service not started */ }
+  return { nativeBridge: hasNearbyBridge(), readiness, permissionDenied };
 }
 
 /** The nearby switches only mean something inside the Android app (offline discovery bridge). */

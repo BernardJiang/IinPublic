@@ -22,6 +22,13 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun setNearbyExchangeMode(mode: String, roomId: String) =
         activity.updateNearbyForegroundMode(mode, roomId)
     @JavascriptInterface fun requestPermissions() = activity.requestNearbyPermissions()
+    /** OPEN-54: Settings → "Use my location" — ask again, or open the app's settings. */
+    @JavascriptInterface fun requestLocationPermission() = activity.requestLocationPermission()
+    /** Platform location fallback (`NativeLocation`): the newest fix as JSON, or "" without one. */
+    @JavascriptInterface fun lastLocation(): String {
+        NativeLocation.requestFresh(activity.applicationContext)
+        return NativeLocation.lastFix(activity.applicationContext)?.toString() ?: ""
+    }
     @JavascriptInterface fun startNsd(port: Int) = withManager { it.startNsd(port.coerceIn(1, 65535)) }
     /** OPEN-36 offline mode: LAN discovery advertising this phone's rotating nearby id. */
     @JavascriptInterface fun startLanDiscovery(port: Int, nearbyId: String, roomTokenPrefix: String) =
@@ -56,6 +63,7 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun requestOfflineNearbyPermission() = activity.requestOfflineNearbyPermission()
     /** Opens the system screen that fixes a readiness gap: "wifi" or "location". */
     @JavascriptInterface fun openNearbySettings(kind: String) = activity.openNearbySettings(kind)
+    @JavascriptInterface fun permissionStatus(): String = activity.permissionStatus()
     @JavascriptInterface fun startWifiDirect() = withManager { it.startWifiDirect() }
     @JavascriptInterface fun connectWifiDirect(deviceAddress: String) = withManager { it.connectWifiDirect(deviceAddress) }
     @JavascriptInterface fun requestWifiDirectPermission() = activity.requestWifiDirectPermission()

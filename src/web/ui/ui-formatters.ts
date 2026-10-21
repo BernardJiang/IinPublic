@@ -32,6 +32,42 @@ export function formatExpiration(expiresAt: number | null | undefined): string {
   return `Expires in ${Math.floor(left / (365 * oneDay))}y`;
 }
 
+export function formatLocalizedRelativeTime(
+  date: Date,
+  language: string,
+  text: (key: 'talksJustNow') => string,
+  format: (key: 'talksMinutesAgo' | 'talksHoursAgo' | 'talksDaysAgo', values: { count: number }) => string,
+): string {
+  if (language !== 'zh') return formatTimeAgo(date);
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMs / 3_600_000);
+  const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffMins < 1) return text('talksJustNow');
+  if (diffMins < 60) return format('talksMinutesAgo', { count: diffMins });
+  if (diffHours < 24) return format('talksHoursAgo', { count: diffHours });
+  if (diffDays < 7) return format('talksDaysAgo', { count: diffDays });
+  return date.toLocaleDateString('zh-CN');
+}
+
+export function formatLocalizedExpiration(
+  expiresAt: number | null | undefined,
+  language: string,
+  text: (key: 'talksForever' | 'talksExpired') => string,
+  format: (key: 'talksExpiresIn', values: { value: string }) => string,
+): string {
+  if (language !== 'zh') return formatExpiration(expiresAt);
+  if (expiresAt == null) return text('talksForever');
+  if (Date.now() > expiresAt) return text('talksExpired');
+  const oneDay = 86_400_000;
+  const left = expiresAt - Date.now();
+  if (left <= oneDay) return format('talksExpiresIn', { value: '&lt;1 天' });
+  if (left <= 7 * oneDay) return format('talksExpiresIn', { value: `${Math.floor(left / oneDay)} 天` });
+  if (left <= 30 * oneDay) return format('talksExpiresIn', { value: `${Math.floor(left / (7 * oneDay))} 周` });
+  if (left <= 365 * oneDay) return format('talksExpiresIn', { value: `${Math.floor(left / (30 * oneDay))} 个月` });
+  return format('talksExpiresIn', { value: `${Math.floor(left / (365 * oneDay))} 年` });
+}
+
 export function formatLocationRadius(radiusMiles: number | null | undefined): string {
   if (radiusMiles == null) return 'Anywhere';
   return `${radiusMiles} mi`;
