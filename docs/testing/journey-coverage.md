@@ -61,7 +61,11 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-PROFILE-01 | Rename → the welcome and other people show the new name | ◐ `native-app/08` setup | ✅ `phone-path/06` | ◐ `native-app/08`, `09` setup |
 | **Rooms** | | | | |
 | J-ROOM-01 | Two people nearby share one room and see each other in it | ✅ `stage2/01` | ✅ `phone-path/02` | ✅ `native-app/30` |
-| J-ROOM-02 | A full room splits, people move down, and come back up when it thins | ✅ `stage4/08`–`14` | — | ✅ `native-app/31` |
+| J-NEARBY-01 | Several people nearby each have all the others on their own list | ✅ `stage4/07` | ◐ `phone-path/08` (two people) | ✅ `native-app/30` |
+| J-NEARBY-02 | Each person's Talk reaches the next person in a ring | ✅ `stage4/07` | — | ✅ `native-app/30` |
+| J-NEARBY-03 | A Talk sent to a backgrounded phone is there when it comes back | — (needs the Android shell) | — | ✅ `native-app/30` |
+| J-NEARBY-04 | Three people send Talks at once; each receives the other two | ✅ `stage3/81` | — | ⏳ `native-app/13` (rewritten for v3 2026-10-20) |
+| J-NEARBY-05 | A Talk sent while someone is offline arrives when they return; the others carry on | ◐ `stage3/81` (browser offline may keep WebRTC up) | — | ⏳ `native-app/13` |
 | J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | ✅ `phone-path/04` | — |
 | **Places** | | | | |
 | J-PLACE-01 | Create a Place; the creator stands in it | ✅ `stage1/54-place-creation-rules` | ✅ `phone-path/01` | ✅ `native-app/33` |
@@ -92,8 +96,8 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 ### Gaps worth filling next (in order)
 
 1. ~~**J-START-04 (location refused)** on a real phone~~ — `native-app/35` (2026-10-15).
-2. **J-ROOM-02 (split/promote) on the phone path.** Needs release capacity (498) worth of users,
-   or a phone-node capacity override that the production bundle accepts.
+2. ~~**J-ROOM-02 (split/promote) on the phone path.**~~ Retired 2026-10-20: Nearby v3 has no
+   shared rooms to split (OPEN-70); J-NEARBY-01–03 replace it.
 3. **J-PLACE-12 (map block)** and **J-PLACE-11 on the map** — only the lists are checked.
 4. **Real phone ◐ rows** (J-TALK-02/03, J-CHAT-01): answer and match through the UI on two phones
    instead of the shortcut in `native-app/12`.

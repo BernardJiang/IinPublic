@@ -162,7 +162,7 @@ import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirec
 import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
-import { assignRandomEncounterLocation, deviceHasGps, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
@@ -1852,7 +1852,7 @@ export class IinPublicApp {
     })) return;
     this.quietGpsInFlight = true;
     try {
-      const location = await LocationPrivacy.getCurrentLocation();
+      const location = await readDeviceLocation();
       setCachedLocation(location);
       this.updateCurrentLocation(location);
     } catch (error) {
@@ -9066,7 +9066,7 @@ export class IinPublicApp {
     });
     // Android: the location sheet (first launch, or "Use my location") was answered with a grant.
     window.addEventListener('iinpublic-location-granted', () => {
-      void LocationPrivacy.getCurrentLocation()
+      void readDeviceLocation()
         .then((fix) => this.applyRealGpsFix(fix))
         .catch(() => this.handleGpsFixUnavailable())
         .finally(() => { if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser); });
@@ -9497,7 +9497,7 @@ export class IinPublicApp {
     try {
       // A phone that is a Traveler only for lack of GPS tries the real fix again first.
       if (!nextLocation && isGpsFixUnavailable() && deviceHasGps()) {
-        const fix = await LocationPrivacy.getCurrentLocation().catch(() => null);
+        const fix = await readDeviceLocation().catch(() => null);
         if (fix) {
           this.applyRealGpsFix(fix);
           return;
@@ -9514,7 +9514,7 @@ export class IinPublicApp {
       }
       let gpsFix: GPSCoordinate | null = null;
       if (!nextLocation && !encounter) {
-        gpsFix = await LocationPrivacy.getCurrentLocation().catch(() => null);
+        gpsFix = await readDeviceLocation().catch(() => null);
         if (!gpsFix) {
           // Location refused or unavailable (e.g. the browser prompt was denied): a Resident with
           // no fix in hand appears as a Traveler at their encounter point instead.

@@ -14,6 +14,8 @@ export interface TestActor {
   background?: () => Promise<void>;
   foreground?: () => Promise<void>;
   restart?: () => Promise<void>;
+  /** Cut or restore this participant's network (a phone's Wi-Fi; a browser context's network). */
+  setOffline?: (offline: boolean) => Promise<void>;
 }
 
 export interface TestActorProvider {
