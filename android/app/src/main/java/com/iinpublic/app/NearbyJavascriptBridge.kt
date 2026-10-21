@@ -24,6 +24,11 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun requestPermissions() = activity.requestNearbyPermissions()
     /** OPEN-54: Settings → "Use my location" — ask again, or open the app's settings. */
     @JavascriptInterface fun requestLocationPermission() = activity.requestLocationPermission()
+    /** Platform location fallback (`NativeLocation`): the newest fix as JSON, or "" without one. */
+    @JavascriptInterface fun lastLocation(): String {
+        NativeLocation.requestFresh(activity.applicationContext)
+        return NativeLocation.lastFix(activity.applicationContext)?.toString() ?: ""
+    }
     @JavascriptInterface fun startNsd(port: Int) = withManager { it.startNsd(port.coerceIn(1, 65535)) }
     /** OPEN-36 offline mode: LAN discovery advertising this phone's rotating nearby id. */
     @JavascriptInterface fun startLanDiscovery(port: Int, nearbyId: String, roomTokenPrefix: String) =

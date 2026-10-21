@@ -3,7 +3,7 @@ import { IinPublicApp } from './app/app';
 import { applyDevStageSeed } from './dev-stage-seeds';
 import { isDevStageZeroResolved, isDevTechSupportDriver, resolveDevStageSeed } from './dev-stage-env';
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
-import { LocationPrivacy } from '../shared/location';
+import { LocationPrivacy, NATIVE_FRESH_FIX_MS, nativeLastLocation } from '../shared/location';
 import { GPSCoordinate } from '../shared/types';
 import { IDENTITY_CUSTODY_DATABASE_NAME } from './services/identity-custody-store';
 import { PASSWORD_FREE_CUSTODY_DATABASE_NAME } from './services/identity-password-free-custody-store';
@@ -11,6 +11,9 @@ import { getCachedLocation } from './services/location-cache';
 
 /** How long a first-run phone waits for its GPS fix before appearing at a random Traveler point. */
 const GPS_FIX_FALLBACK_MS = 15_000;
+/** After a failed first fix on a phone, look for the platform GPS's fresh fix this often, this many times. */
+const NATIVE_FIX_RETRY_MS = 30_000;
+const NATIVE_FIX_RETRIES = 3;
 import { encounterLocationCoordinate, getEncounterLocation, isLocationPermissionDenied, keepEarlierBrowserEncounterChoice, usesSelfDefinedEncounterLocation } from './services/encounter-location';
 import { markStartupPhase } from './performance/startup-metrics';
 import { loadConnectivitySettings } from './ui/connectivity-settings';
@@ -181,7 +184,26 @@ class WebApp {
         // refreshed, so the phone is a Traveler and Settings offers "Use my location" (OPEN-54),
         // instead of sitting at its old position with no way back (2026-10-17, native-app/35).
         this.app.handleGpsFixUnavailable(isLocationPermissionDenied(error) ? { force: true } : {});
+        if (!isLocationPermissionDenied(error)) this.retryNativeFix();
       });
+  }
+
+  /**
+   * On a phone the first try also asked the platform GPS for a fresh fix (`IinPublicNearby
+   * .lastLocation`), which usually lands within seconds: take it then instead of keeping a random
+   * point until the next launch (Huawei P30 indoors, 2026-10-20).
+   */
+  private retryNativeFix(attempt = 1): void {
+    if (attempt > NATIVE_FIX_RETRIES) return;
+    setTimeout(() => {
+      const fix = nativeLastLocation(NATIVE_FRESH_FIX_MS);
+      if (fix) {
+        console.log('📍 Real location resolved from the platform GPS:', fix.latitude.toFixed(3), fix.longitude.toFixed(3));
+        this.app.applyRealGpsFix(fix);
+        return;
+      }
+      this.retryNativeFix(attempt + 1);
+    }, NATIVE_FIX_RETRY_MS);
   }
 
   private async clearBrowserStageState(): Promise<void> {

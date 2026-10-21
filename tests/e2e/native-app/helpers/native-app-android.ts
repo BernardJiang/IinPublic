@@ -78,7 +78,13 @@ export async function collectAndroidDiagnostics(serial: string): Promise<{
  * This prevents identities, rate-limit ledgers, and Radisk state from earlier manual/test
  * sessions from changing the result of the matrix. The APK remains installed.
  */
-export async function resetAndroidAppData(serial: string): Promise<void> {
+/**
+ * Wipe the app's data. Location is then granted again by default: test launches skip the one-time
+ * permission dialogs (`skip_first_launch_location`), so a wiped phone used to keep no location and
+ * sit at a random point on the map long after the run (2026-10-20). A spec that tests the
+ * permission dialogs themselves passes `grantLocation: false`.
+ */
+export async function resetAndroidAppData(serial: string, options: { grantLocation?: boolean } = {}): Promise<void> {
   const result = await execFileAsync(
     'adb',
     ['-s', serial, 'shell', 'pm', 'clear', ANDROID_PACKAGE],
@@ -88,6 +94,13 @@ export async function resetAndroidAppData(serial: string): Promise<void> {
     throw new Error(
       `Failed to clear ${ANDROID_PACKAGE} data on ${serial}: ${String(result.stdout || result.stderr).trim()}`,
     );
+  }
+  if (options.grantLocation === false) return;
+  const sdk = Number(String((await execFileAsync('adb', ['-s', serial, 'shell', 'getprop', 'ro.build.version.sdk'], { timeout: 5_000 })).stdout).trim());
+  // Fine location is declared only up to Android 12L (maxSdkVersion 32); coarse everywhere.
+  const permissions = ['android.permission.ACCESS_COARSE_LOCATION', ...(sdk <= 32 ? ['android.permission.ACCESS_FINE_LOCATION'] : [])];
+  for (const permission of permissions) {
+    await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'grant', ANDROID_PACKAGE, permission], { timeout: 5_000 }).catch(() => undefined);
   }
 }
 
@@ -384,6 +397,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
     '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
     '--es', 'hub_gun_url', options.hubGunUrl,
     '--ez', 'skip_first_launch_location', 'true',
+    '--ez', 'skip_first_run_tour', 'true',
     ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
     ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
   ], { timeout: 5_000 });
@@ -410,6 +424,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
           '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
           '--es', 'hub_gun_url', options.hubGunUrl,
           '--ez', 'skip_first_launch_location', 'true',
+          '--ez', 'skip_first_run_tour', 'true',
           ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
           ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
         ], { timeout: 5_000 }).catch(() => undefined);
@@ -495,6 +510,7 @@ export async function launchAndroidUser(options: LaunchAndroidUserOptions): Prom
       '-s', serial, 'shell', 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY,
       '--es', 'hub_gun_url', options.hubGunUrl,
       '--ez', 'skip_first_launch_location', 'true',
+      '--ez', 'skip_first_run_tour', 'true',
       ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
       ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
     ],

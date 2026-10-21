@@ -131,7 +131,8 @@ for (const serial of SERIALS) {
       const sdk = Number((await adb(serial, 'shell', 'getprop', 'ro.build.version.sdk')).trim());
       await adb(serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP').catch(() => '');
       await adb(serial, 'shell', 'wm', 'dismiss-keyguard').catch(() => '');
-      await resetAndroidAppData(serial);
+      // This spec tests the permission dialogs themselves: nothing may be granted beforehand.
+      await resetAndroidAppData(serial, { grantLocation: false });
       for (const permission of RUNTIME_PERMISSIONS) {
         await adb(serial, 'shell', 'pm', 'clear-permission-flags', ANDROID_PACKAGE, permission, 'user-set', 'user-fixed').catch(() => '');
       }

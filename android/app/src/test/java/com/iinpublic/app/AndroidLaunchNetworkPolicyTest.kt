@@ -23,4 +23,11 @@ class AndroidLaunchNetworkPolicyTest {
         )
         assertTrue(AndroidLaunchNetworkPolicy.disableLanDiscovery(true, requested = true))
     }
+
+    @Test
+    fun onlyDebugBuildsSkipTheFirstLaunchPromptsAndTour() {
+        assertFalse(AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts(debugBuild = false, requested = true))
+        assertFalse(AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts(debugBuild = true, requested = false))
+        assertTrue(AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts(debugBuild = true, requested = true))
+    }
 }

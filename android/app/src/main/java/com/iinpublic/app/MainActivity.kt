@@ -321,10 +321,14 @@ class MainActivity : AppCompatActivity() {
             // group, back to back; nothing prompts by itself after this — Settings → App
             // permissions opens the system page. Installs that already answered the older
             // location-only sheet are not asked for location again. Automation (no human to answer)
-            // passes skip_first_launch_location and is treated as already asked.
+            // passes skip_first_launch_location and is treated as already asked — in debug builds
+            // only: a release build always asks (AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts).
             val locationAsked = prefs.getBoolean(LOCATION_ASKED_PREF, false)
             prefs.edit().putBoolean(PERMISSION_BATCH_ASKED_PREF, true).putBoolean(LOCATION_ASKED_PREF, true).apply()
-            val skip = intent?.getBooleanExtra(SKIP_FIRST_LAUNCH_LOCATION_EXTRA, false) == true
+            val skip = AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts(
+                BuildConfig.DEBUG,
+                intent?.getBooleanExtra(SKIP_FIRST_LAUNCH_LOCATION_EXTRA, false) == true,
+            )
             if (!skip) {
                 if (!locationAsked) missing += LOCATION_PERMISSIONS.filter { !isGranted(it) }
                 missing += NEARBY_PERMISSIONS.filter {
@@ -453,6 +457,7 @@ class MainActivity : AppCompatActivity() {
         }
         /** Test harness: no human can answer the first-launch location sheet. */
         const val SKIP_FIRST_LAUNCH_LOCATION_EXTRA = "skip_first_launch_location"
+        const val SKIP_FIRST_RUN_TOUR_EXTRA = "skip_first_run_tour"
         // FINE is declared with maxSdkVersion 32 — on 33+ asking for it would be auto-denied.
         private val LOCATION_PERMISSIONS =
             if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2)
@@ -498,6 +503,8 @@ class MainActivity : AppCompatActivity() {
         if (launch.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false)) query += "&nearby_lan=0"
         // Debug only (`--ez disable_ble_presence true`): exercise the Wi-Fi-only discovery paths.
         if (launch.getBooleanExtra("disable_ble_presence", false)) query += "&nearby_ble=0"
+        // Debug only (`--ez skip_first_run_tour true`): no first-run tour (test automation).
+        if (launch.getBooleanExtra(SKIP_FIRST_RUN_TOUR_EXTRA, false)) query += "&skip_tour=1"
         return query
     }
 

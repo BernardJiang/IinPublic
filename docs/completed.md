@@ -2,6 +2,27 @@
 
 Last updated: 2026-10-20
 
+## 2026-10-20 — Test phones keep real GPS; launch tour and permission dialogs skipped only in debug
+
+- Why wiped test phones sat "in Africa": the native harness wipes app data and launches with
+  `skip_first_launch_location`, so the one-time permission dialog was marked done without a grant;
+  with no fix the app used a random Traveler point and the map its default (0°, 20°) view.
+  `resetAndroidAppData` now grants location after the wipe (spec 36, which tests the dialogs, opts
+  out with `grantLocation: false`).
+- Huawei P30: the WebView's `navigator.geolocation` (Google Play services) never answered while the
+  platform GPS had a 5 m fix, and the phone has no network location provider. New native fallback
+  `IinPublicNearby.lastLocation()` (`NativeLocation.kt`): the newest platform fix (and a request for
+  a fresh one). The page uses it at once when under 2 minutes old, as the fallback when the WebView
+  fails (up to 24 h old), and looks again 3 × 30 s after a failed first fix. Unit test
+  `native-last-location.test.ts`.
+- Two configurations: a **debug** APK honors `--ez skip_first_launch_location true` (no permission
+  dialogs) and `--ez skip_first_run_tour true` (no tour; the page gets `skip_tour=1`), and the
+  harness passes both; a **release** APK ignores both extras
+  (`AndroidLaunchNetworkPolicy.skipFirstLaunchPrompts`, Kotlin test) and always shows the dialogs
+  and the tour. Web: E2E builds (`DISABLE_HMR=true`) skip the tour; production web shows it.
+- Verified on 1.0.184: P30 wiped as the harness does and launched as tests do → location granted, no
+  dialogs, no tour, Resident at its real position.
+
 ## 2026-10-20 — OPEN-73: an idle phone no longer keeps a CPU core busy
 
 - Found 2026-10-18 by `native-app/39` (1.0.168): idle in Nearby the C10 used 836 and the FRD 765 CPU
