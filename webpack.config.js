@@ -60,7 +60,6 @@ const BUNDLED_ENV_KEYS = [
   'IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW',
   'IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL',
   'IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW',
-  'IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS',
   // TODO §J: how long the sender waits for a device-handoff ack before giving up
   // (app.ts's handoffAckTimeoutMs) — shrunk for E2E so a real send→ack round trip
   // doesn't wait the full production timeout.
@@ -232,9 +231,6 @@ module.exports = {
             // reproduced live: it crashed every real browser/WebView boot immediately after the
             // bundle loaded (module-level code, so it throws before the app's own first log
             // line). Both DefinePlugin AND EnvironmentPlugin branches need every such key.
-            'process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS': JSON.stringify(
-              process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS || '',
-            ),
             'process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS': JSON.stringify(
               process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS || '',
             ),
@@ -272,7 +268,6 @@ module.exports = {
             IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW: process.env.IINPUBLIC_E2E_LEDGER_RETENTION_WINDOW || '',
             IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL: process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || '',
             IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW: process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || '',
-            IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS: process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS || '',
             IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS: process.env.IINPUBLIC_E2E_HANDOFF_ACK_TIMEOUT_MS || '',
           }),
         ]),

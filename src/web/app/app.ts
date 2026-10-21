@@ -2109,7 +2109,6 @@ export class IinPublicApp {
       // identity as before.
       if (localStorage.getItem('iinpublic_user_id') !== TECHSUPPORT_ROOT_USER_ID) {
         localStorage.removeItem('iinpublic_user_id');
-        localStorage.removeItem('iinpublic_keypair');
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
         localStorage.removeItem('gun/');
@@ -6004,7 +6003,7 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return [];
     // R-a step 7: syncRoomTalkBodyRendezvous removed (Gun p2pMeshTalkBodies/* path deleted).
     // Incoming clusters arrive exclusively via mesh DataChannel push or mailbox drain.
-    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
+    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
     const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
       ? (this.uiManager as any).incomingTalkClusters
       : [];
@@ -7273,9 +7272,7 @@ export class IinPublicApp {
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
-      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-        waitMs: 400,
-      });
+      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
       if (!Array.isArray(clusters)) return null;
       const cluster = clusters.find(
         (c: any) =>
@@ -7685,9 +7682,7 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-      waitMs: 500,
-    });
+    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
     // Just read from local Gun: render only. Mirroring it straight back re-wrote the whole owner
     // envelope once per cluster, which re-fired this refresh's own subscription — a feedback loop
     // measured on hardware at >1 write/s (5.5 KB each, ~16 KB/s of Gun traffic sent to every

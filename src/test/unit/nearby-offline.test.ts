@@ -83,7 +83,7 @@ describe('nearby offline records', () => {
     expect(parseBlePresence(payload, NOW, 8088, otherScope.roomToken)).toBeNull();
   });
 
-  it('BLE v3 carries a full-token proof bound to the rotating id; v2 prefix sightings stay unverified', () => {
+  it('BLE v3 carries a full-token proof bound to the rotating id; v2 prefix sightings are ignored', () => {
     const v3 = encodeBlePresence({ ...self(), hosting: false, roomToken: roomScope.roomToken });
     expect(v3).toMatch(/^03[0-9a-f]{22}$/);
     expect(v3).not.toContain(roomScope.roomToken.slice(0, 8));
@@ -93,7 +93,7 @@ describe('nearby offline records', () => {
     // Another room's proof fails (cross-room candidate rejected).
     expect(parseBlePresence(v3, NOW, 8088, 'f'.repeat(32))).toBeNull();
     const legacy = `02bbbbbbbbbbbb${roomScope.roomToken.slice(0, 8)}06`;
-    expect(parseBlePresence(legacy, NOW, 8088, roomScope.roomToken)).toMatchObject({ roomVerified: false });
+    expect(parseBlePresence(legacy, NOW, 8088, roomScope.roomToken)).toBeNull();
   });
 
   it('BLE flag bit 4 marks an online phone (proximity only)', () => {

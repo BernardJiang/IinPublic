@@ -227,8 +227,7 @@ export function planOfflineGroup(input: {
  * rotating id, 4-byte room field, flags — bit 0 hosting the offline group, bit 1 joins by
  * credential, bits 2–3 host score, bit 4 online (reaches the hub — older
  * parsers ignore it). v3's room field is `nearbyRoomProof` (full-token bound,
- * id bound, not linkable across rotations); v2's was a static token prefix and is parsed only for
- * the mixed-release window, as an unverified sighting.
+ * id bound, not linkable across rotations); only v3 is parsed.
  */
 export function encodeBlePresence(self: NearbySelf & { hosting: boolean; roomToken?: string; online?: boolean }): string {
   const flags = (self.hosting ? 1 : 0) | (self.joinByCredential ? 2 : 0) | ((Math.max(0, Math.min(3, Math.round(self.hostScore))) & 3) << 2)
@@ -240,11 +239,9 @@ export function encodeBlePresence(self: NearbySelf & { hosting: boolean; roomTok
 export function parseBlePresence(payloadHex: unknown, seenAt: number, port: number, expectedRoomToken?: string): NearbyRecord | null {
   if (typeof payloadHex !== 'string' || !/^[0-9a-f]{24}$/.test(payloadHex) || !expectedRoomToken) return null;
   const version = parseInt(payloadHex.slice(0, 2), 16);
-  if (version !== 2 && version !== 3) return null;
+  if (version !== 3) return null;
   const id = payloadHex.slice(2, 14);
-  const roomField = payloadHex.slice(14, 22);
-  const roomVerified = version === 3 && nearbyRoomProof(expectedRoomToken, id).slice(0, 8) === roomField;
-  if (version === 3 ? !roomVerified : !expectedRoomToken.startsWith(roomField)) return null;
+  if (nearbyRoomProof(expectedRoomToken, id).slice(0, 8) !== payloadHex.slice(14, 22)) return null;
   const flags = parseInt(payloadHex.slice(22, 24), 16);
   const group = deriveOfflineGroupCredentials({ roomToken: expectedRoomToken } as ActiveRoomScope);
   return {
@@ -254,7 +251,7 @@ export function parseBlePresence(payloadHex: unknown, seenAt: number, port: numb
     hostScore: (flags >> 2) & 3,
     seenAt,
     roomToken: expectedRoomToken,
-    roomVerified,
+    roomVerified: true,
     ...((flags & 16) !== 0 ? { online: true } : {}),
     ...((flags & 1) !== 0 ? { group } : {}),
   };

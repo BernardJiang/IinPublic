@@ -2,6 +2,30 @@
 
 Last updated: 2026-10-20
 
+## 2026-10-20 — OPEN-78: pre-release migration code removed
+
+Product owner (2026-10-20): no installed tester build needs the one-time imports kept "until the
+mixed-release window ends". Removed, with their tests:
+- Peered private data → local-only Gun (`WebGunService.getLegacyReplicatedPrivate`, its 4 s probe
+  per missing key, the `iinpublic_private_born_local_v1:` marker and `getPrivateLocal`, now the
+  same as `getPrivate`).
+- Plaintext SEA identity in `iinpublic_keypair` (read, migration and every cleanup call). The
+  encrypted v1 → non-extractable v3 custody migration stays: v1 is still the live fallback on
+  engines that cannot clone a `CryptoKey`.
+- Peered conversation metadata (`importLegacyOnce`, `legacyImportedAt`, the
+  `users/<id>/conversations` snapshot).
+- Peered message history (`importIfEmpty` and the `conversations/<id>/messages` /
+  `pairConversations` read in `listLocalWires`; an empty conversation no longer waits 1.5 s, and
+  `IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS` is gone).
+- Release-123 incoming-Talk paths: the plaintext `users/<pub>/incomingTalkClusters` envelope import
+  and listener, and every read/prune of the `ownerIncomingTalkIndex` rows nothing writes any more
+  (a 300–500 ms wait per local cluster read). The hub still classifies that path.
+- BLE v2 prefix sightings: `parseBlePresence` accepts v3 proofs only.
+- `GunPrivateKeyValueStore`'s unused release-123 `get`/`put`.
+
+Verified: Jest 3,165 passed; type check and lint clean; E2E stage1/00, 71, stage2/00i, 09, 29, 95,
+stage3/81 and all of `talks-matching` (28 passed).
+
 ## 2026-10-20 — OPEN-75: Resident switch in dev/test builds turned back into a Traveler
 
 - [x] **OPEN-75 (closed 2026-10-20: 92 was a real bug, fixed; 29 and 95 did not recur) — Two light-shard specs fail under parallel load, also on c44fcf80 (found

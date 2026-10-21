@@ -221,14 +221,6 @@ its ID.
   verify restoration, and remove the working copies from the development machine when the release
   ceremony no longer needs them. K3 signed M3 and is spent; K4 signs M4, which must commit a newly
   generated K5. Do not call custody production-ready merely because the local encrypted files exist.
-- [ ] **OPEN-78 — Retire pre-release migration code (needs a product-owner decision, carried over
-  from OPEN-40 on 2026-10-20).** OPEN-40 kept one-time imports "until the mixed-release window
-  ends": legacy peered private data into local-only Gun (`WebGunService.getLegacyReplicatedPrivate`,
-  with a ~4 s probe per missing key), legacy conversation metadata (`importLegacyOnce`), legacy
-  plaintext SEA identity migration, and unverified BLE v2 prefix sightings. The product owner
-  dropped v2 Nearby compatibility on 2026-10-19 (no official release yet), but these paths protect
-  testers' existing installs from losing data or identity. Decide whether any installed tester build
-  still needs them; then delete them with their tests.
 - [ ] **OPEN-79 — Delegate roster watcher: read the log (from 2026-10-24; carried over from OPEN-32).**
   Read `~/IinPublic/delegate-roster-monitor.jsonl` on the VPS after several days of uptime. OPEN-32's
   root cause stays open until a `cache` line is caught; none caught means the cache keeps covering it.

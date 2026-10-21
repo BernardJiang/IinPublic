@@ -73,13 +73,4 @@ describe('LocalPrivateConversationRepository', () => {
       expect.objectContaining({ rangeStartId: 'm5', rangeEndId: 'm6', count: 2 }),
     ]));
   });
-
-  test('imports legacy history once and never overwrites a local history', async () => {
-    const h = harness();
-    const repo = new LocalPrivateConversationRepository(h.gun, 2, 10);
-
-    await expect(repo.importIfEmpty('conv-3', [wire('old', 1)])).resolves.toBe(true);
-    await expect(repo.importIfEmpty('conv-3', [wire('other', 2)])).resolves.toBe(false);
-    expect((await repo.list('conv-3')).map((row) => row.id)).toEqual(['old']);
-  });
 });

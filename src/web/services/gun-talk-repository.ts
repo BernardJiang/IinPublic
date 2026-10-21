@@ -9,9 +9,6 @@ export type GunKeyValueStore = {
 export type GunPrivateKeyValueStore = {
   putPrivate: (key: string, value: unknown) => Promise<void>;
   getPrivate: (key: string) => Promise<unknown>;
-  /** Optional legacy graph access, used only to migrate and erase release-123 plaintext rows. */
-  put?: (key: string, value: unknown) => Promise<void>;
-  get?: (key: string) => Promise<unknown>;
 };
 
 export type GunTalkRecord = {
