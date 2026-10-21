@@ -17,7 +17,7 @@ import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import { promisify } from 'util';
-import { bootstrapNativeWindow, enterNearbyAt, nearbyListIds } from './helpers/native-app';
+import { bootstrapNativeWindow, enterNearbyAt } from './helpers/native-app';
 import {
   ANDROID_MAIN_ACTIVITY,
   clearAndroidE2ETestProjections,
@@ -29,7 +29,15 @@ import {
   resetAndroidAppData,
   type AndroidUser,
 } from './helpers/native-app-android';
-import { findIncomingTalkIdByTitle } from '../helpers/talk-demo-ui';
+import type { TestActor } from '../helpers/test-actor';
+import {
+  backgroundDeliveryJourney,
+  everyoneListsEveryone,
+  groupRoundTripJourney,
+  othersOnEachList,
+  ringTalkJourney,
+  type NearbyParticipant,
+} from '../journeys/nearby-ring-journey';
 import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
 
 const execFileAsync = promisify(execFile);
@@ -156,75 +164,19 @@ async function routeToFixedNearby(peer: Omit<Peer, 'roomId'>): Promise<string> {
   return roomId;
 }
 
-/** How many of the other phones are on each phone's Nearby list. */
-function othersOnEachList(peers: Peer[]): Promise<number[]> {
-  return Promise.all(peers.map(async (peer) => {
-    const ids = new Set(await nearbyListIds(peer.user.window));
-    return peers.filter((other) => other.id !== peer.id && ids.has(other.id)).length;
-  }));
-}
-
-async function waitForIncoming(peer: Peer, title: string, timeoutMs = 120_000): Promise<string> {
-  let talkId = '';
-  await expect.poll(async () => {
-    try {
-      talkId = await findIncomingTalkIdByTitle(peer.user.window, title);
-      return true;
-    } catch {
-      return false;
-    }
-  }, { timeout: timeoutMs, intervals: [1_000, 2_000, 3_000], message: `${peer.device.name} should receive ${title}` }).toBe(true);
-  return talkId;
-}
-
-/**
- * Exercise the app's ordinary createTalk handler without depending on synthetic pointer events.
- * Several OEM WebViews stall in CDP's scroll-before-click phase even when the same element is
- * already reported visible; that is an automation limitation, not part of this transport proof.
- */
-async function createHardwareTagTalk(
-  peer: Peer,
-  title: string,
-): Promise<{ title: string; talkId: string; talkData: any }> {
-  await peer.user.window.evaluate(({ expectedTitle }) => {
-    const app = (window as any).__iinpublic_app?.getApp?.();
-    if (!app?.uiManager?.emit) throw new Error('createTalk event unavailable');
-    app.uiManager.emit('createTalk', {
-      title: expectedTitle,
-      type: 'tag',
-      language: 'en',
-      isAdult: false,
-      tags: [],
-      questions: [{
-        id: 'q_1',
-        text: expectedTitle,
-        answers: [
-          { id: 'a_0_match', text: expectedTitle, isMatch: true, isTerminal: true },
-          { id: 'a_0_ignore', text: 'Not interested', isIgnore: true, isTerminal: true },
-        ],
-      }],
-      selfAnswers: [{ questionId: 'q_1', answerId: 'a_0_match' }],
-      createdAt: new Date().toISOString(),
-      isTemplate: false,
-      usageCount: 0,
-      sendToChatroom: false,
-    });
-  }, { expectedTitle: title });
-
-  let created: { title: string; talkId: string; talkData: any } | null = null;
-  await expect.poll(async () => {
-    created = await peer.user.window.evaluate((expectedTitle) => {
-      const raw = localStorage.getItem('myTalks');
-      const talks = raw ? JSON.parse(raw) : {};
-      const entry = Object.entries(talks).find(([, value]: [string, any]) =>
-        value?.role === 'created' && value?.title === expectedTitle && value?.fullTalk);
-      if (!entry) return null;
-      const [talkId, value] = entry as [string, any];
-      return { title: expectedTitle, talkId, talkData: value.fullTalk };
-    }, title);
-    return created !== null;
-  }, { timeout: 90_000, intervals: [500, 1_000, 2_000], message: `${peer.device.name} should create ${title}` }).toBe(true);
-  return created!;
+/** The phone as a journey participant (tests/e2e/journeys/nearby-ring-journey.ts). */
+function participant(peer: Peer): NearbyParticipant {
+  const actor: TestActor = {
+    id: peer.device.name,
+    runtime: 'android-webview',
+    page: peer.user.window,
+    background: async () => {
+      await adb(peer.device.serial, 'input', 'keyevent', 'KEYCODE_HOME');
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    },
+    foreground: async () => { await adb(peer.device.serial, 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY); },
+  };
+  return { actor, userId: peer.id, stageName: peer.device.name };
 }
 
 test.describe('Native app: four Android phones in one current Nearby room (OPEN-40)', () => {
@@ -367,17 +319,13 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
         message: `all ${expectedPhoneCount} phones should form one offline Wi-Fi Direct group`,
       }).toEqual(peers.map(() => true));
 
-      await expect.poll(() => othersOnEachList(peers), {
+      await expect.poll(() => othersOnEachList(peers.map(participant)), {
         timeout: 180_000,
         intervals: [2_000, 3_000, 5_000],
         message: `every offline phone should have the other ${expectedPhoneCount - 1} on its Nearby list`,
       }).toEqual(peers.map(() => peers.length - 1));
     } else {
-      await expect.poll(() => othersOnEachList(peers), {
-        timeout: 120_000,
-        intervals: [1_000, 2_000, 3_000],
-        message: 'every phone should have the other three on its Nearby list',
-      }).toEqual(peers.map(() => peers.length - 1));
+      await everyoneListsEveryone(peers.map(participant));
 
       // Talks can travel over the hub alone; this proves every phone also found every other over LAN NSD.
       if (!LAN_OFF) await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {
@@ -392,70 +340,21 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
     }
 
     const runId = `open40-nearby-${Date.now()}`;
-    if (!BACKGROUND_ONLY) {
-      // One Talk per phone, each received by the next phone: every physical device proves both the
-      // author and receiver paths without producing a 4x4 burst of redundant test traffic.
-      for (let index = 0; index < peers.length; index += 1) {
-        const author = peers[index];
-        const receiver = peers[(index + 1) % peers.length];
-        const talk = await createHardwareTagTalk(author, `${runId}-${index + 1}`);
-        const startedAt = Date.now();
-        const sent = await author.user.window.evaluate(
-          () => (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(1),
-        );
-        expect(sent?.talksSent ?? 0).toBeGreaterThan(0);
-        expect(await waitForIncoming(receiver, talk.talkData.title)).toBe(talk.talkId);
-        const elapsed = Date.now() - startedAt;
-        deliveryMs.push(elapsed);
-        console.log(`[four-phone-nearby] Talk ${index + 1}: ${author.device.name} -> ${receiver.device.name} in ${elapsed} ms`);
-      }
-    }
+    // One Talk per phone, each received by the next phone (journey shared with staged/stage4/07).
+    if (!BACKGROUND_ONLY) deliveryMs.push(...await ringTalkJourney(peers.map(participant), runId));
 
     // Use the newest OS in the connected set for the most restrictive background-policy case.
     const receiver = [...peers].sort((a, b) => b.sdk - a.sdk)[0];
     const author = peers.find((peer) => peer !== receiver)!;
-    const backgroundTalk = await createHardwareTagTalk(author, `${runId}-background`);
     console.log(`[four-phone-nearby] backgrounding ${receiver.device.name} (API ${receiver.sdk})`);
-    await adb(receiver.device.serial, 'input', 'keyevent', 'KEYCODE_HOME');
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
-    const startedAt = Date.now();
-    const sent = await author.user.window.evaluate(async ({ receiverId, receiverName, talkId, talkData }) => {
-      const app = (window as any).__iinpublic_app?.getApp?.();
-      return app?.deliverTalkToReceiversOverMesh?.(
-        talkId,
-        talkData,
-        [{ userId: receiverId, stageName: receiverName }],
-        [receiverId],
-      );
-    }, {
-      receiverId: receiver.id,
-      receiverName: receiver.device.name,
-      talkId: backgroundTalk.talkId,
-      talkData: backgroundTalk.talkData,
-    });
-    expect(sent).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-    await adb(receiver.device.serial, 'am', 'start', '-n', ANDROID_MAIN_ACTIVITY);
-    await expect.poll(
-      () => receiver.user.window.evaluate(() => Boolean((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id)),
-      { timeout: 30_000 },
-    ).toBe(true);
-    expect(await waitForIncoming(receiver, backgroundTalk.talkData.title)).toBe(backgroundTalk.talkId);
-    deliveryMs.push(Date.now() - startedAt);
-    await expect.poll(() => author.user.window.evaluate(async ({ targetRoomId, targetUserId, targetTalkId }) => {
-      const app = (window as any).__iinpublic_app?.getApp?.();
-      const outbox = app?.peerMeshService?.directTalkOutbox;
-      if (!outbox?.list) return -1;
-      const entries = await outbox.list(targetRoomId);
-      return entries.filter((entry: any) => entry.recipientUserId === targetUserId && entry.talkId === targetTalkId).length;
-    }, {
-      targetRoomId: roomId,
-      targetUserId: receiver.id,
-      targetTalkId: backgroundTalk.talkId,
-    }), { timeout: 30_000, message: 'sender durable outbox should clear after receiver ACK' }).toBe(0);
-    expect(await receiver.user.window.evaluate(
-      () => String((window as any).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.() || ''),
-    )).toBe(roomId);
+    deliveryMs.push(await backgroundDeliveryJourney(participant(author), participant(receiver), runId, roomId));
     console.log(`[four-phone-nearby] post-background delivery to ${receiver.device.name} verified`);
+
+    // J-NEARBY-06/07: groups and online dots on the phones (shared with stage4/08 in browsers).
+    if (!OFFLINE_WIFI_DIRECT) {
+      const people = peers.map(participant);
+      await groupRoundTripJourney(people[0]!, people.slice(1));
+      console.log(`[four-phone-nearby] group round trip and online query on ${peers[0]!.device.name} verified`);
+    }
   });
 });

@@ -30,7 +30,7 @@ test.describe('Nearby screens', () => {
     await clearGunForStage2Spec();
   });
 
-  test('People near you, N near you · M online, Show more, and Sent to N of M', async () => {
+  test('People near you, N near you · M online, the group bar, and Sent to N of M', async () => {
     test.setTimeout(180_000);
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Screens');
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Screens');
@@ -43,16 +43,18 @@ test.describe('Nearby screens', () => {
     await expect(row.locator('[data-testid="nearby-headcount"]')).toHaveText('1 near you · 2 online', { timeout: 60_000 });
     await expect(pageTom.locator('[data-testid="room-list-total"]')).toContainText('2 online');
 
-    // The open list: Jerry, the same counts, and "Show more people here".
+    // The open list: Jerry, the same counts, and the group bar (§3.7 "Meeting new people in groups").
     await row.click();
     await expect(pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry Screens' })).toBeVisible({ timeout: 30_000 });
     await expect(pageTom.locator('#current-chatroom-status')).toHaveText('1 near you · 2 online');
-    const showMore = pageTom.locator('[data-testid="nearby-show-more"]');
-    await expect(showMore).toHaveText('Show more people here');
-    await showMore.click();
-    // With nobody else around, more room changes nothing: Jerry stays, nobody new appears.
+    await expect(pageTom.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you');
+    await expect(pageTom.locator('[data-testid="nearby-meet-new-people"]')).toHaveText('Meet new people');
+    // Cancelling the confirmation changes nothing: Jerry stays.
+    await pageTom.locator('[data-testid="nearby-meet-new-people"]').click();
+    await pageTom.locator('[data-testid="nearby-meet-cancel"]').click();
     await afterSync();
     await expect(pageTom.locator('.chatroom-member-item')).toHaveCount(1);
+    await expect(pageTom.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you');
 
     // A broadcast: "Sent to 1 of 1" once Jerry's phone acknowledges the Talk.
     const title = `Nearby screens ${Date.now()}`;

@@ -21,6 +21,9 @@ export function hubNearbyV3Config(): NearbyV3Config {
   });
 }
 
+/** Most ids one online query may ask about. */
+export const NEARBY_ONLINE_MAX_IDS = 500;
+
 export function registerNearbyV3Routes(
   app: express.Application,
   deps: {
@@ -98,6 +101,17 @@ export function registerNearbyV3Routes(
     const scope = typeof req.body?.scope === 'string' ? req.body.scope : 'nearby';
     const excludePub = typeof req.body?.excludePub === 'string' ? req.body.excludePub : undefined;
     res.json(hub.introductions({ point: { latitude, longitude }, scope, ...(excludePub ? { excludePub } : {}) }));
+  });
+
+  // Contacts' online dots (§3.7 "Contacts online"): which of these ids are online, at most 500.
+  app.post('/api/nearby/v3/online', async (req, res) => {
+    if (await relay(res, '/api/nearby/v3/online', 'POST', req.body || {})) return;
+    const ids = req.body?.userIds;
+    if (!Array.isArray(ids) || ids.length > NEARBY_ONLINE_MAX_IDS || !ids.every((id) => typeof id === 'string' && id.length <= 256)) {
+      res.status(400).json({ error: `userIds must be at most ${NEARBY_ONLINE_MAX_IDS} strings` });
+      return;
+    }
+    res.json({ online: hub.onlineUserIds(ids) });
   });
 
   app.get('/api/nearby/v3/stats', async (req, res) => {

@@ -720,40 +720,8 @@ export class WebConversationService {
     return this.gunMessageStore.putMessageRecord(conversationId, wire, opts);
   }
 
-  /**
-   * One-shot snapshot of user's conversations from Gun.
-   *
-   * Uses .map().once() so Gun resolves each child soul-reference before invoking
-   * the callback. Calling .once() directly on the parent node returns a map of
-   * opaque soul references ({#: '...'}), which have no otherUserId and get
-   * filtered out — use .map().once() (same pattern as listKnownPeople) to get
-   * the actual conversation objects.
-   */
-  private async getLegacyUserConversationsSnapshot(userId: string): Promise<any[]> {
-    const gun = this.gunService.getGun();
-    const items: any[] = [];
-    return new Promise((resolve) => {
-      gun
-        .get(`users/${userId}`)
-        .get('conversations')
-        .map()
-        .once((conversationData: any, conversationId: string) => {
-          if (!conversationId || conversationId.startsWith('_')) return;
-          if (!conversationData || typeof conversationData !== 'object') return;
-          if (!conversationData.otherUserId) return;
-          items.push({
-            ...conversationData,
-            conversationId: conversationData.conversationId || conversationId,
-          });
-        });
-      // Allow Gun time to resolve all child nodes before resolving.
-      setTimeout(() => resolve(items), 500);
-    });
-  }
-
+  /** One-shot snapshot of the user's conversations from the local encrypted metadata store. */
   async getUserConversationsSnapshot(userId: string): Promise<any[]> {
-    const legacy = await this.getLegacyUserConversationsSnapshot(userId);
-    await this.metadataRepository.importLegacyOnce(userId, legacy);
     return this.metadataRepository.list(userId);
   }
 

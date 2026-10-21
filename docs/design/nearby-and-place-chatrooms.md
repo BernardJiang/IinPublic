@@ -703,8 +703,48 @@ only they read it; each reads its own cell and the eight around it, merges the c
 introductions and swaps with anyone new at once. Back online it stops posting
 (`nearby-v3-local.ts`, `GunNearbyLocalBoard`).
 
-**Beyond `C`:** "Show more people here" asks people on my list for cards ranked by my order,
-skipping the ones I already hold. It is orderly and repeatable, but not guaranteed complete.
+**Beyond `C`: meeting new people in groups** (product decision 2026-10-20; replaces "Show more
+people here", which grew the list to 2C, 3C… and multiplied what every broadcast sends).
+
+`C` bounds the automatic traffic, so a list never grows past it. Instead a person can **swap their
+whole group for the next one**. The reason to move on is that they have already exchanged Talks
+with this group; anyone they matched is in Contacts, which has no limit, and Contacts show who is
+online.
+
+- **A group is a page of my own order.** Group 1 is my best `C` cards (the list as above). "Meet
+  new people" takes the rank key of the last person in the group as a boundary, and group 2 is the
+  best `C` cards ranked *after* it — the next `C` people in my order, by distance and then hash
+  order. In an arena everyone ties on distance, so group 2 is the next 498 in my hash order: people
+  I have not been grouped with before. In a sparse area it is the next ring outwards.
+- **Nobody needs to store who I met.** The boundary is one rank key (distance, newcomer flag,
+  16-hex tie). Every card at or before it stays off my list, whatever its source (hub
+  introductions, gossip, the local board). A swap request and reply carry the sender's boundary,
+  so partners offer only cards past it.
+- **Switching** empties the list (all of it is before the boundary) and searches again at once:
+  the hub's introductions, then swaps with the first new people.
+- **When a group resets to 1:** a new day (the beacon reorders everyone, so the old boundary means
+  nothing), a move to another public point, or "Back to group 1". The group number is kept per
+  scope for the day, so Nearby and each Place remember their own.
+- **The end:** when a search past the boundary finds nobody, the UI says "You've met everyone
+  here for now" and offers "Back to group 1". New arrivals who rank before my boundary appear only
+  after a reset, which keeps groups disjoint.
+
+**A new group and a new Place are the same kind of move: a new audience.** Both
+
+1. replace the people my Talks reach automatically (at most `C`);
+2. keep Contacts reachable, unlimited, with an online dot and an "Online now" filter;
+3. send my active Talks to the new people automatically (the same-room catch-up when a link
+   opens) and show "Sent to N of M";
+4. use the same room screen: a group bar ("Group 2 · the next people near you") with **Meet new
+   people** and, past group 1, **Back to group 1**. A Place has the bar too: above `C` members,
+   each member pages through the Place's members the same way.
+
+**Contacts online.** A contact is online when the hub has a heartbeat of their card from the last
+two reissue periods (about 6 minutes; `POST /api/nearby/v3/online`, at most 500 ids per call,
+answering only "online" or not). Phones forward it to the hub like the other v3 calls. This
+replaces the presence registry for online dots, which held only the newest 200 records in one
+scope and never saw phones. Trade-off: anyone who knows a user id can ask whether that user is
+online now; a "show when I'm online" setting is the follow-up if that matters.
 
 #### Delivering a Talk broadcast
 
@@ -796,7 +836,7 @@ These decisions are deferred (2026-10-18); work continues on the Android app fir
 
 - **Map:** fits itself to the people on my list. Green dots are my list, ★ is me, the heat layer
   shows the crowd. An arena is one square with "498 of 10,000 here".
-- **List:** "People near you" (my list), then "Show more people here". The overlapping Nearby
+- **List:** "People near you" (my group), with the group bar (Meet new people). The overlapping Nearby
   groups ("Here · 2…") disappear. Places are listed as before.
 - **Headcounts:** "498 near you · 12,345 online". The first number is my own list; the second is
   the hub's statistic. TechSupport stays a Contact and is never counted.
@@ -931,8 +971,8 @@ real-phone run.
    "Sent to N of M".
 4. **UI — done (2026-10-19).** Map: green dots for my list, ★ for me, the heat layer from
    `GET /api/nearby/v3/stats`, fitted to me and my list; no yellow dots, no tile grid. List: the
-   Nearby row is "People near you"; its open list ends with "Show more people here" (one more page
-   of `C`, filled by swaps with three people on my list; a move goes back to `C`). Headcounts:
+   Nearby row is "People near you"; its open list starts with the group bar (2026-10-20: "Show more
+   people here" was replaced by "Meet new people", see "Meeting new people in groups"). Headcounts:
    "N near you · M online" — N is my list without me, M the hub's count; the room-list header uses
    M too. A Nearby broadcast shows "Sent to N of M" under the Nearby row, counting delivery acks.
    Nearby has no chat feed. Web e2e `stage2-two-user/95-nearby-screens`.

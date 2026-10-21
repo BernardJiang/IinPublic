@@ -9,6 +9,7 @@ import type { NearbyCard } from '../../shared/nearby-v3-card';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { NearbyV3Hub as HubStore } from '../../server/services/nearby-v3-hub';
 import {
+  NEARBY_V3_GROUPS_STORAGE_KEY,
   NEARBY_V3_STORAGE_KEY,
   NearbyV3Service,
   type NearbyV3Link,
@@ -56,12 +57,13 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
     ready: () => linkReady,
     async request(to, message) {
       const phone = phones.get(to.pub);
-      if (!phone?.online) return null;
+      const from = (message as { card?: NearbyCard }).card?.pub ?? '';
+      // An offline phone reaches no one, and no one reaches it.
+      if (!phone?.online || phones.get(from)?.online === false) return null;
       if (dropNext > 0) {
         dropNext -= 1;
         return null;
       }
-      const from = (message as { card?: NearbyCard }).card?.pub ?? '';
       return phone.service.handleMessage(from, JSON.parse(JSON.stringify(message)));
     },
   };
@@ -77,12 +79,12 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
       position: () => phone.position,
       hub: {
         async heartbeat(card) {
-          if (hubDown) throw new Error('hub unreachable');
+          if (hubDown || !phone.online) throw new Error('hub unreachable');
           heartbeats.push(card.pub);
           hub.ingest(card, nowMs);
         },
         async introductions(input) {
-          if (hubDown) throw new Error('hub unreachable');
+          if (hubDown || !phone.online) throw new Error('hub unreachable');
           return hub.introductions({ ...input, now: new Date(nowMs) }).cards;
         },
       },
@@ -213,19 +215,18 @@ describe('NearbyV3Service', () => {
     expect(p0.service.entries()).toHaveLength(0);
   });
 
-  it('shows more people beyond C on request, and goes back to C after a move', async () => {
+  it('never holds more than C, and a move to another point starts at group 1 again', async () => {
     const net = network(config({ capacity: 4 }), Array.from({ length: 12 }, () => SD));
     for (let i = 0; i < 6; i += 1) await net.round();
     const p0 = net.phones.get('p0')!;
     expect(p0.service.entries()).toHaveLength(4);
-    await p0.service.showMore();
-    for (let i = 0; i < 3; i += 1) await p0.service.gossipNow();
-    expect(p0.service.entries().length).toBeGreaterThan(4);
-    expect(p0.service.entries().length).toBeLessThanOrEqual(8);
+    await p0.service.meetNewPeople();
+    for (let i = 0; i < 6; i += 1) await net.round();
+    expect(p0.service.entries()).toHaveLength(4); // a new group, not a bigger one
+    expect(p0.service.groupInfo().group).toBe(2);
     p0.position = { ...p0.position, point: LA };
     await p0.service.refresh();
-    await p0.service.tick();
-    expect(p0.service.entries().length).toBeLessThanOrEqual(4);
+    expect(p0.service.groupInfo().group).toBe(1);
   });
 
   it('does not count swaps it could not send while the mesh was between rooms, and announces after', async () => {
@@ -311,6 +312,36 @@ describe('NearbyV3Service', () => {
     await net.phones.get('p1')!.service.tick();
     await p0.service.tick();
     expect(p0.service.entries().map((entry) => entry.card.pub)).toEqual(['p1']);
+  });
+
+  it('a phone back from an outage rejoins at once, not at the next reissue (native-app/13)', async () => {
+    const net = network(config(), [SD, SD, SD]);
+    const [p0, p1, p2] = ['p0', 'p1', 'p2'].map((pub) => net.phones.get(pub)!);
+    for (const phone of [p0, p1, p2]) await phone.service.tick();
+    for (const phone of [p0, p1, p2]) await phone.service.tick();
+    const listOf = (phone: Phone) => phone.service.entries().map((entry) => entry.card.pub).sort();
+    expect(listOf(p1)).toEqual(['p0', 'p2']);
+
+    // p0 loses its network: the others find it silent, and it finds them silent.
+    p0.online = false;
+    for (let i = 0; i < 12 && (listOf(p0).length || listOf(p1).includes('p0') || listOf(p2).includes('p0')); i += 1) {
+      net.advance(NEARBY_V3_DEFAULTS.gossipPeriodMs);
+      for (const phone of [p0, p1, p2]) await phone.service.tick();
+    }
+    expect(listOf(p0)).toEqual([]);
+    expect(listOf(p1)).toEqual(['p2']);
+    await p0.service.tick(); // an empty list asks the hub, which it cannot reach
+    expect(p0.service.isHubReachable()).toBe(false);
+
+    // Back online, well inside one reissue period: two passes put everyone back on every list.
+    p0.online = true;
+    net.advance(1_000);
+    await p0.service.tick();
+    await p0.service.tick();
+    expect(p0.service.isHubReachable()).toBe(true);
+    expect(listOf(p0)).toEqual(['p1', 'p2']);
+    expect(listOf(p1)).toEqual(['p0', 'p2']);
+    expect(listOf(p2)).toEqual(['p0', 'p1']);
   });
 
   it('answers "busy" past its incoming limit', async () => {
@@ -410,5 +441,90 @@ describe('a page whose mesh joins Nearby only when the list pushes its roster (s
     expect(meshJoined).toBe(true);
     // Searched on both ticks: nobody else is around, so the empty list asks the hub again.
     expect(searches.length).toBeGreaterThan(0);
+  });
+});
+
+describe('meeting new people in groups (§3.7)', () => {
+  /** Run passes until every list stops changing. */
+  async function settle(net: ReturnType<typeof network>, rounds = 12): Promise<void> {
+    for (let i = 0; i < rounds; i += 1) await net.round();
+  }
+  const listOf = (phone: Phone) => phone.service.entries().map((entry) => entry.card.pub).sort();
+
+  it('swaps the whole group for the next C people until everyone was met, then goes back to group 1', async () => {
+    // Seven people in one square (an arena in miniature) and C = 2: my order has six others. The
+    // hub's sample holds them all (a real cell samples 64; this harness heartbeats in a fixed order,
+    // so a smaller sample would always be the same few).
+    const net = network(config({ capacity: 2, hubCellSample: 8 }), Array.from({ length: 7 }, () => SD));
+    const me = net.phones.get('p0')!;
+    await settle(net);
+    const group1 = listOf(me);
+    expect(group1).toHaveLength(2);
+    expect(me.service.groupInfo()).toEqual({ group: 1, exhausted: false });
+
+    const met = new Set(group1);
+    for (const group of [2, 3]) {
+      expect(await me.service.meetNewPeople()).toBe(true);
+      await settle(net);
+      const people = listOf(me);
+      expect(me.service.groupInfo()).toEqual({ group, exhausted: false });
+      expect(people).toHaveLength(2);
+      for (const pub of people) expect(met.has(pub)).toBe(false); // nobody from an earlier group
+      for (const pub of people) met.add(pub);
+    }
+    expect(met.size).toBe(6); // groups 1–3 covered everyone
+
+    // Past the last group: nobody left, and the bar can say so.
+    expect(await me.service.meetNewPeople()).toBe(true);
+    await settle(net);
+    expect(listOf(me)).toEqual([]);
+    expect(me.service.groupInfo()).toEqual({ group: 4, exhausted: true });
+    expect(await me.service.meetNewPeople()).toBe(false); // nothing to move on from
+
+    await me.service.backToFirstGroup();
+    await settle(net);
+    expect(me.service.groupInfo()).toEqual({ group: 1, exhausted: false });
+    expect(listOf(me)).toEqual(group1);
+  });
+
+  it('keeps the group across a restart the same day, and starts over at group 1 the next day', async () => {
+    const cfg = config({ capacity: 2, hubCellSample: 8 });
+    const net = network(cfg, Array.from({ length: 5 }, () => SD));
+    const me = net.phones.get('p0')!;
+    await settle(net);
+    const group1 = listOf(me);
+    await me.service.meetNewPeople();
+    await settle(net);
+    const group2 = listOf(me);
+    expect(JSON.parse(me.storage.get(NEARBY_V3_GROUPS_STORAGE_KEY) || '{}')).not.toEqual({});
+
+    // Restart: a new service on the same storage is still in group 2 and keeps group 1 off its list.
+    me.online = false;
+    const restarted = net.add('p0', SD, me.storage);
+    await settle(net);
+    expect(restarted.service.groupInfo().group).toBe(2);
+    expect(listOf(restarted).some((pub) => group1.includes(pub))).toBe(false);
+    expect(listOf(restarted)).toEqual(group2);
+
+    // A new day reorders everyone: group 1 again.
+    net.advance(24 * 3_600_000);
+    await settle(net);
+    expect(restarted.service.groupInfo()).toEqual({ group: 1, exhausted: false });
+    expect(listOf(restarted)).toHaveLength(2);
+  });
+
+  it('a Place and Nearby keep their own group', async () => {
+    const net = network(config({ capacity: 1, hubCellSample: 8 }), Array.from({ length: 4 }, () => SD));
+    const me = net.phones.get('p0')!;
+    await settle(net);
+    await me.service.meetNewPeople();
+    await settle(net);
+    expect(me.service.groupInfo().group).toBe(2);
+    for (const phone of net.phones.values()) phone.position = { ...phone.position, scope: 'place:cafe' };
+    await settle(net);
+    expect(me.service.groupInfo().group).toBe(1);
+    for (const phone of net.phones.values()) phone.position = { ...phone.position, scope: 'nearby' };
+    await settle(net);
+    expect(me.service.groupInfo().group).toBe(2);
   });
 });

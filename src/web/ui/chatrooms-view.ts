@@ -1,3 +1,4 @@
+import { syncNearbyGroupBar } from './nearby-group-bar';
 import { getEncounterLocation, setEncounterLocation, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { emptyPlaceRows, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
@@ -55,6 +56,8 @@ type ChatroomsViewDeps = {
   nearbyOnline?: number;
   /** The latest Nearby broadcast: delivered so far, of the people on my list then. */
   nearbyBroadcastProgress?: { sent: number; total: number };
+  /** The group of my order I am meeting here (§3.7 "Meeting new people in groups"). */
+  nearbyGroup?: { group: number; exhausted: boolean };
   travelModeActive: boolean;
   setChatroomBrowseMode: (mode: 'list' | 'map') => void;
   setCurrentChatroom: (chatroomId: string) => void;
@@ -522,7 +525,13 @@ export function updateChatroomMembers(
       const visits = deps.chatroomVisitCounts.get(deps.currentChatroom) || { visitCount: 0, uniqueVisitorCount: 0 };
       chatroomStatus.textContent = nearby ? nearbyHeadcountText(deps, memberCount) : formatMetrics(deps, memberCount, visits);
     }
-    syncNearbyShowMore(deps, chatroomMembersList, nearby && otherMembers.length > 0);
+    syncNearbyGroupBar(
+      { text: deps.text, emit: deps.emit },
+      chatroomMembersList,
+      isPersonalListScope(deps.currentChatroom)
+        ? { group: deps.nearbyGroup?.group ?? 1, exhausted: deps.nearbyGroup?.exhausted === true, people: otherMembers.length, place: !nearby }
+        : null,
+    );
 
     if (otherMembers.length === 0) {
       chatroomMembersList.innerHTML = `
@@ -541,29 +550,6 @@ export function updateChatroomMembers(
   }
 
   syncStatusBroadcastButtonVisibility(deps.currentChatroom);
-}
-
-/**
- * "Show more people here" under my Nearby list: asks people on my list for the next people in my
- * order (§3.7 "Beyond C"). It sits outside the member list, which re-renders on every roster change.
- */
-function syncNearbyShowMore(deps: ChatroomsViewDeps, membersList: HTMLElement, visible: boolean): void {
-  let button = document.getElementById('nearby-show-more') as HTMLButtonElement | null;
-  if (!visible) {
-    button?.remove();
-    return;
-  }
-  if (!button) {
-    button = document.createElement('button');
-    button.type = 'button';
-    button.id = 'nearby-show-more';
-    button.className = 'btn chatroom-show-more';
-    button.dataset.testid = 'nearby-show-more';
-    button.setAttribute('data-testid', 'nearby-show-more');
-    button.addEventListener('click', () => deps.emit('nearbyShowMore', undefined));
-    membersList.insertAdjacentElement('afterend', button);
-  }
-  button.textContent = deps.text('nearbyShowMore');
 }
 
 /**

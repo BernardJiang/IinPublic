@@ -45,8 +45,6 @@ const readMessageCheckpointIntervalEnv = (): string | undefined =>
   process.env.IINPUBLIC_E2E_MESSAGE_CHECKPOINT_INTERVAL || undefined;
 const readMessageRetentionWindowEnv = (): string | undefined =>
   process.env.IINPUBLIC_E2E_MESSAGE_RETENTION_WINDOW || undefined;
-const readMessageEnumerateWaitMsEnv = (): string | undefined =>
-  process.env.IINPUBLIC_E2E_MESSAGE_ENUMERATE_WAIT_MS || undefined;
 
 /**
  * TODO §S (docs/design/section-s-merkle-checkpoint-pruning-design-note.md, Item 4): every
@@ -73,16 +71,6 @@ export const MESSAGE_CHECKPOINT_INTERVAL =
 export const MESSAGE_RETENTION_WINDOW =
   parseInt(readMessageRetentionWindowEnv() || '', 10) ||
   deriveRetentionCap(representativePairConversationMessageBytes(), 200);
-/**
- * How long listLocalWires waits for Gun's .map() to enumerate a conversation's messages before
- * giving up and returning whatever it collected — see listLocalWires's own doc comment for why
- * 500ms (this file's original value) undercounted often enough on real devices to matter.
- * Overridable for tests the same way as the two constants above (fake Gun in tests has no real
- * network latency to wait out, so a short value here doesn't sacrifice test correctness).
- */
-export const MESSAGE_ENUMERATE_WAIT_MS =
-  parseInt(readMessageEnumerateWaitMsEnv() || '', 10) || 1_500;
-
 /**
  * SRS §28.9.4: leaves commit to both ordering and ciphertext integrity without
  * disclosing plaintext (`leafHashes` entries are `msgId:SHA-256(wire.text)` — `wire.text`
@@ -304,47 +292,6 @@ export class GunMessageStore {
     return undefined;
   }
 
-  private pairIdForUsers(userA: string, userB: string): string {
-    return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
-  }
-
-  /**
-   * Builds the `pairConversations/<pairId>/<conversationId>/messages` Gun chain synchronously.
-   * Gun chain objects implement `.then()` (sugar for `.get(...).then(cb)`), which means a bare
-   * chain returned from an `async` function gets treated as a thenable and silently unwrapped
-   * by the Promise machinery on `await`/`.then()` at the call site — the caller ends up with
-   * Gun's *data snapshot* instead of the chain, and `root.map` is undefined. Keeping this
-   * builder synchronous (never `async`, never itself awaited) avoids that trap; only the
-   * `otherId` lookup above it is async.
-   */
-  private buildPairMessageRoot(conversationId: string, myId: string, otherId: string): any {
-    return this.gunService
-      .getGun()
-      .get('pairConversations')
-      .get(this.pairIdForUsers(myId, otherId))
-      .get(conversationId)
-      .get('messages');
-  }
-
-  /**
-   * Resolves the pair-message-root Gun chain. Returns it wrapped in `{ root }` rather than
-   * bare: a bare Gun chain is a thenable (see `buildPairMessageRoot` comment above), so
-   * `return chain` from this `async` method would get silently unwrapped by the caller's
-   * `await`/`.then()` into Gun's data snapshot instead of the chain — `root.map` would then
-   * be `undefined` and every caller's `.catch(() => undefined)` swallows the resulting
-   * TypeError, permanently breaking the `pairConversations` subscription branch. Wrapping in
-   * a plain (non-thenable) object sidesteps the trap.
-   */
-  private async getPairMessageRoot(
-    conversationId: string,
-    myId: string,
-    otherUserId?: string,
-  ): Promise<{ root: any } | null> {
-    const otherId = otherUserId || (await this.getOtherParticipantId(conversationId, myId));
-    if (!otherId) return null;
-    return { root: this.buildPairMessageRoot(conversationId, myId, otherId) };
-  }
-
   private async getPairMessageSecret(conversationId: string, myId: string, peerUserId?: string): Promise<string> {
     const pair = this.gunService.getStoredPair();
     if (!pair) {
@@ -442,9 +389,9 @@ export class GunMessageStore {
   }
 
   /**
-   * One-shot read of all locally-held RAW message wires for a conversation (pair-private
-   * path + legacy path), without decrypting. Used by Phase 5 peer↔peer reconciliation to
-   * build the local digest and backfill set. Best-effort: resolves after a short settle.
+   * One-shot read of all locally-held RAW message wires for a conversation (the encrypted
+   * local store), without decrypting. Used by Phase 5 peer↔peer reconciliation to build the
+   * local digest and backfill set.
    *
    * Bounded to the most-recent `limit` messages (default `DEFAULT_RECONCILE_WINDOW`) so a
    * very long conversation neither produces a huge digest frame nor enumerates the whole
@@ -453,50 +400,10 @@ export class GunMessageStore {
    */
   async listLocalWires(
     conversationId: string,
-    myUserId: string,
-    otherUserId?: string,
     limit: number = DEFAULT_RECONCILE_WINDOW,
-    // Used only by one-time mixed-release import. The current encrypted local envelope
-    // has deterministic reads and does not need a settle window.
-    enumerateWaitMs: number = MESSAGE_ENUMERATE_WAIT_MS,
   ): Promise<ReconcileMessage[]> {
     const local = await this.privateRepository.list(conversationId);
-    if (local.length > 0) {
-      return boundRecentWires(local as ReconcileMessage[], limit);
-    }
-
-    // One mixed-release import from the former peered conversation graphs. This is the only
-    // remaining read of those paths; no local mutation is ever written back to them.
-    const gun = this.gunService.getGun();
-    const byId = new Map<string, ReconcileMessage>();
-    const collect = (record: any, id: string) => {
-      if (!id || id.startsWith('_') || !record || typeof record !== 'object' || !record.text) return;
-      byId.set(id, {
-        id: String(record.id || id),
-        senderId: String(record.senderId || ''),
-        text: String(record.text),
-        timestamp: String(record.timestamp || ''),
-        channel: String(record.channel || 'public'),
-        transport: String(record.transport || this.mode),
-        ...(record.encryption === 'sea-ecdh-v1' ? { encryption: 'sea-ecdh-v1' as const } : {}),
-        ...(record.prevSeen !== undefined ? { prevSeen: String(record.prevSeen) } : {}),
-        ...(record.isFromChatbot ? { isFromChatbot: true } : {}),
-        ...(record.talkId ? { talkId: String(record.talkId) } : {}),
-      });
-    };
-    const legacy = await new Promise<ReconcileMessage[]>((resolve) => {
-      gun.get(`conversations/${conversationId}`).get('messages').map().once(collect);
-      void this.getPairMessageRoot(conversationId, myUserId, otherUserId)
-        .then((resolved) => {
-          if (resolved) resolved.root.map().once(collect);
-        })
-        .catch(() => undefined);
-      setTimeout(() => resolve([...byId.values()]), enumerateWaitMs);
-    });
-    if (legacy.length > 0) {
-      await this.privateRepository.importIfEmpty(conversationId, legacy as LocalConversationWire[]);
-    }
-    return boundRecentWires(legacy, limit);
+    return boundRecentWires(local as ReconcileMessage[], limit);
   }
 
   subscribeToMessages(
@@ -521,7 +428,7 @@ export class GunMessageStore {
     };
 
     const offPrivate = this.privateRepository.subscribe(conversationId, emit);
-    void this.listLocalWires(conversationId, myUserId || '', otherUserId, 0)
+    void this.listLocalWires(conversationId, 0)
       .then((wires) => emit(wires as LocalConversationWire[]))
       .catch(() => {
         if (!disposed) callback([]);

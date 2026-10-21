@@ -30,7 +30,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
 import { BlockStatusCache } from '../services/block-status-cache';
 import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
-import { NearbyV3Runtime } from '../services/nearby-v3-runtime';
+import { NearbyV3Runtime, FetchNearbyV3Hub } from '../services/nearby-v3-runtime';
 import { nearbyV3AttestorKeysFromManifest, nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
 import { IncomingTalkBudget } from '../../shared/incoming-talk-budget';
 import { placesMissingFromCatalogue } from '../ui/room-list-view';
@@ -162,7 +162,7 @@ import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirec
 import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
-import { assignRandomEncounterLocation, deviceHasGps, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
@@ -288,6 +288,8 @@ type MailboxSupportQuestionPayload = {
 
 /** Debounce for automatic same-room catch-up to one peer (link flaps, roster heartbeats). */
 const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
+/** How often online dots (Contacts, conversations, room members) are asked again. */
+const PRESENCE_REFRESH_MS = 60_000;
 /** On a phone the native mailbox watch wakes a drain; the page's own drain is a safety net. */
 const NATIVE_MAILBOX_SAFETY_DRAIN_MS = 15_000;
 
@@ -347,6 +349,7 @@ export class IinPublicApp {
   private stageZeroBootedAt = 0;
   private incomingApiRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   private travelModeActive: boolean = false;
+  private presenceRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private travelHomeChatroomId: string | undefined = undefined;
   private travelChatroomId: string | undefined = undefined;
   private travelNearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
@@ -1582,6 +1585,7 @@ export class IinPublicApp {
     this.startNearbyV3();
     this.refreshNearbyPoint();
     this.startActiveRooms();
+    this.startPresenceRefresh();
     if (this.locationConfirmed) {
       void this.applyNearbyPrivacyMode(loadConnectivitySettings()).catch(() => {});
     }
@@ -1852,7 +1856,7 @@ export class IinPublicApp {
     })) return;
     this.quietGpsInFlight = true;
     try {
-      const location = await LocationPrivacy.getCurrentLocation();
+      const location = await readDeviceLocation();
       setCachedLocation(location);
       this.updateCurrentLocation(location);
     } catch (error) {
@@ -1909,6 +1913,7 @@ export class IinPublicApp {
         // Like a shared room's roster, the roster includes me.
         const me = this.currentUser;
         const roster = me ? [...members, { userId: me.id, stageName: me.stageName || me.id, isTraveler: this.appearsAsTraveler() }] : members;
+        this.uiManager.setNearbyGroup(this.nearbyV3?.service.groupInfo() ?? null);
         this.chatroomService.pushPersonalRoster(roster, me?.id, scopeId);
         // "N near you" is my list without me (§3.7); a Place counts everyone in it, me included.
         const people = new Set(members.map((member) => member.userId)).size;
@@ -1926,6 +1931,15 @@ export class IinPublicApp {
         ?? baselineRoomCheckpoint().chatroomCapacity,
       ...(extensions ? { extensions } : {}),
     });
+  }
+
+  /** Online dots refresh once a minute while the app is in front (and at once on start). */
+  private startPresenceRefresh(): void {
+    if (this.presenceRefreshTimer) return;
+    void this.refreshConversationPresence();
+    this.presenceRefreshTimer = setInterval(() => {
+      if (!isPageHidden()) void this.refreshConversationPresence();
+    }, PRESENCE_REFRESH_MS);
   }
 
   /** Room list: every Place with ≥ 1 person, refreshed every 20 s and on demand. */
@@ -2109,7 +2123,6 @@ export class IinPublicApp {
       // identity as before.
       if (localStorage.getItem('iinpublic_user_id') !== TECHSUPPORT_ROOT_USER_ID) {
         localStorage.removeItem('iinpublic_user_id');
-        localStorage.removeItem('iinpublic_keypair');
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
         localStorage.removeItem('gun/');
@@ -6004,7 +6017,7 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return [];
     // R-a step 7: syncRoomTalkBodyRendezvous removed (Gun p2pMeshTalkBodies/* path deleted).
     // Incoming clusters arrive exclusively via mesh DataChannel push or mailbox drain.
-    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, { waitMs: 300 });
+    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
     const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
       ? (this.uiManager as any).incomingTalkClusters
       : [];
@@ -7273,9 +7286,7 @@ export class IinPublicApp {
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
-      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-        waitMs: 400,
-      });
+      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
       if (!Array.isArray(clusters)) return null;
       const cluster = clusters.find(
         (c: any) =>
@@ -7685,9 +7696,7 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags, {
-      waitMs: 500,
-    });
+    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
     // Just read from local Gun: render only. Mirroring it straight back re-wrote the whole owner
     // envelope once per cluster, which re-fired this refresh's own subscription — a feedback loop
     // measured on hardware at >1 write/s (5.5 KB each, ~16 KB/s of Gun traffic sent to every
@@ -7943,19 +7952,37 @@ export class IinPublicApp {
     });
   }
 
+  /**
+   * Online dots for Contacts, conversations and room members (§3.7 "Contacts online"): the people
+   * whose card the hub saw in the last two reissue periods, asked by id, so a contact online
+   * anywhere shows online. TechSupport has no Nearby card; it keeps the presence registry.
+   */
   private async refreshConversationPresence(): Promise<void> {
     if (!this.currentUser) return;
     const presence = this.presenceClient ?? new P2PPresenceClient({ apiBase: this.getBackendApiBase() });
     try {
-      const peers = await presence.fetchNearby(
-        this.currentUser.id,
-        200,
-        this.activeExchangeRoomController?.getScope() ?? undefined,
-      );
-      this.uiManager.setConversationOnlineStatus(new Set(peers.map((peer) => peer.userId)));
+      const ids = new Set<string>();
+      for (const conversation of Object.values(this.uiManager.getMyConversations() || {})) {
+        const otherUserId = String((conversation as { otherUserId?: unknown })?.otherUserId || '');
+        if (otherUserId) ids.add(otherUserId);
+      }
+      for (const known of this.currentUser.knownPeople ?? []) if (known.userId) ids.add(known.userId);
+      for (const member of this.uiManager.getCurrentChatroomMembers()) ids.add(member.userId);
+      ids.delete(this.currentUser.id);
+      ids.delete(TECHSUPPORT_ROOT_USER_ID);
+      const [online, peers] = await Promise.all([
+        new FetchNearbyV3Hub(() => this.getBackendApiBase()).online([...ids]).catch(() => new Set<string>()),
+        presence.fetchNearby(
+          this.currentUser.id,
+          200,
+          this.activeExchangeRoomController?.getScope() ?? undefined,
+        ).catch(() => []),
+      ]);
+      if (peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID)) online.add(TECHSUPPORT_ROOT_USER_ID);
+      this.uiManager.setConversationOnlineStatus(online);
       // K1 item 3: same real-presence signal, kept fresh whenever we already refresh for
       // conversations rather than a separate poll loop.
-      this.uiManager.setTechSupportOnlineStatus(peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID));
+      this.uiManager.setTechSupportOnlineStatus(online.has(TECHSUPPORT_ROOT_USER_ID));
     } catch {
       // Presence is supplemental list metadata; leave the existing state intact on failure.
     }
@@ -9066,7 +9093,7 @@ export class IinPublicApp {
     });
     // Android: the location sheet (first launch, or "Use my location") was answered with a grant.
     window.addEventListener('iinpublic-location-granted', () => {
-      void LocationPrivacy.getCurrentLocation()
+      void readDeviceLocation()
         .then((fix) => this.applyRealGpsFix(fix))
         .catch(() => this.handleGpsFixUnavailable())
         .finally(() => { if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser); });
@@ -9083,8 +9110,12 @@ export class IinPublicApp {
       if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser);
     });
 
-    this.uiManager.on('nearbyShowMore', () => {
-      void this.nearbyV3?.service.showMore().catch((error) => console.warn('Show more people failed:', error));
+    // §3.7 "Meeting new people in groups": swap the whole group for the next one, or go back.
+    this.uiManager.on('nearbyMeetNewPeople', () => {
+      void this.nearbyV3?.service.meetNewPeople().catch((error: unknown) => console.warn('Meet new people failed:', error));
+    });
+    this.uiManager.on('nearbyBackToFirstGroup', () => {
+      void this.nearbyV3?.service.backToFirstGroup().catch((error: unknown) => console.warn('Back to group 1 failed:', error));
     });
 
     this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {
@@ -9497,7 +9528,7 @@ export class IinPublicApp {
     try {
       // A phone that is a Traveler only for lack of GPS tries the real fix again first.
       if (!nextLocation && isGpsFixUnavailable() && deviceHasGps()) {
-        const fix = await LocationPrivacy.getCurrentLocation().catch(() => null);
+        const fix = await readDeviceLocation().catch(() => null);
         if (fix) {
           this.applyRealGpsFix(fix);
           return;
@@ -9514,7 +9545,7 @@ export class IinPublicApp {
       }
       let gpsFix: GPSCoordinate | null = null;
       if (!nextLocation && !encounter) {
-        gpsFix = await LocationPrivacy.getCurrentLocation().catch(() => null);
+        gpsFix = await readDeviceLocation().catch(() => null);
         if (!gpsFix) {
           // Location refused or unavailable (e.g. the browser prompt was denied): a Resident with
           // no fix in hand appears as a Traveler at their encounter point instead.

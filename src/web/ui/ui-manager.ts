@@ -1123,6 +1123,7 @@ export class UIManager extends EventEmitter {
   setNearbyOnline(online: number): void { this.chatroomShell().setNearbyOnline(online); }
   /** "Sent to N of M" for the latest Nearby broadcast; null hides it. */
   setNearbyBroadcastProgress(progress: { sent: number; total: number } | null): void { this.chatroomShell().setNearbyBroadcastProgress(progress); }
+  setNearbyGroup(group: { group: number; exhausted: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
 
   displayTalksList(): void {
     displayTalksListView({

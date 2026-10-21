@@ -1,32 +1,20 @@
 /**
- * Closes docs/TODO.md §3.4's remaining three-phone bullets, all on real hardware:
- *   - Test concurrent Talk propagation.
- *   - Test one device going offline while others continue.
- *   - Test peer return and resynchronization.
- *
- * All configured phones that `adb` currently reports connected (up to the 3 in
- * tests/matrix/devices.json — mirrors 06's own "mark unavailable devices as skipped" policy,
- * but this scenario specifically needs three to be meaningful, so it skips itself with fewer)
- * join Global and each authors/broadcasts one tag Talk in the SAME `Promise.all`, not
- * sequentially — proving concurrent propagation rather than three back-to-back single-talk
- * broadcasts. One phone then goes offline via `adb shell svc wifi disable` while the other two
- * complete each other's talks — "others continue" while it's gone. Which phone that is gets
- * PROBED, not assumed: `android-charlie` is preferred by default, but at least one real device in
- * this fleet (Huawei EMUI) denies `CHANGE_WIFI_STATE` to the adb shell user outright (confirmed
- * via logcat — see `supportsWifiToggle`'s doc comment), so the test picks whichever connected
- * phone actually allows the toggle rather than failing on a device-specific OEM restriction.
- * Bringing that phone's Wi-Fi back on, this
- * test does NOT hand it the other two talks directly; it polls the phone's own local
- * incoming-talk clusters (`findIncomingTalkIdByTitle`, the same mesh-mirrored-to-local-Gun path
- * CLAUDE.md documents) until the talk it missed while offline actually shows up there, then
- * completes it from that freshly-discovered id — real resynchronization, not an injected
- * shortcut.
+ * Three real phones near each other (Nearby v3 personal lists), sharing the journey body with
+ * staged/stage3/81 (tests/e2e/journeys/nearby-ring-journey.ts, OPEN-59 step 3):
+ *   J-NEARBY-04  all three author and send Talks in the same Promise.all; each receives the other
+ *                two (concurrent propagation, not three back-to-back sends);
+ *   J-NEARBY-05  one phone's Wi-Fi goes off; only then does another phone send it a Talk; the two
+ *                online phones answer each other's Talks meanwhile; Wi-Fi back on, the missed Talk
+ *                shows up in the returning phone's own local incoming clusters (real catch-up).
+ * The offline phone is PROBED, not assumed: some OEM builds deny `svc wifi disable` to the adb
+ * shell user (see `supportsWifiToggle`). Rewritten 2026-10-20 for v3: the former room-partition
+ * and Global steps went with the v2 shared rooms and the room-wide mesh overlay.
  */
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 import { execFile } from 'child_process';
 import * as os from 'os';
 import { promisify } from 'util';
-import { bootstrapNativeWindow, forceJoinGlobal, forceJoinRoom, readGlobalMembersFromHub } from './helpers/native-app';
+import { bootstrapNativeWindow, enterNearbyAt } from './helpers/native-app';
 import {
   clearAndroidE2ETestProjections,
   closeAndroidUser,
@@ -36,12 +24,8 @@ import {
   resetAndroidAppData,
   type AndroidUser,
 } from './helpers/native-app-android';
-import {
-  clickBroadcastUntilBulkAck,
-  completeTalksInAppByAnswerIds,
-  createTagTalkViaEditor,
-  findIncomingTalkIdByTitle,
-} from '../helpers/talk-demo-ui';
+import type { TestActor } from '../helpers/test-actor';
+import { everyoneListsEveryone, offlineResyncJourney, type NearbyParticipant } from '../journeys/nearby-ring-journey';
 import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './helpers/android-device-config';
 
 const execFileAsync = promisify(execFile);
@@ -50,6 +34,7 @@ const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const ANDROID_DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDROID_SERIALS || '');
 const OFFLINE_DEVICE_NAME = process.env.NATIVE_APP_ANDROID_OFFLINE_DEVICE?.trim() || 'android-charlie';
 const RUN = process.env.E2E_REAL_ANDROID_THREE_PHONE_RESYNC === '1';
+const FIXED_LOCATION = { latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: '2026-10-10T12:00:00.000Z' };
 
 process.env.E2E_PORT_OFFSET = String(HUB_GUN_PORT - 8080);
 
@@ -86,45 +71,21 @@ async function supportsWifiToggle(serial: string): Promise<boolean> {
   }
 }
 
-type Peer = { device: ConfiguredAndroidDevice; user: AndroidUser; id: string; talk?: Awaited<ReturnType<typeof createTagTalkViaEditor>> };
+type Peer = { device: ConfiguredAndroidDevice; user: AndroidUser; id: string };
 
-async function expectTalkAbsentFor(
-  peer: Peer,
-  title: string,
-  durationMs: number,
-): Promise<void> {
-  const deadline = Date.now() + durationMs;
-  while (Date.now() < deadline) {
-    try {
-      await findIncomingTalkIdByTitle(peer.user.window, title);
-      throw new Error(`${peer.device.name} received room-isolated Talk ${title}`);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('received room-isolated Talk')) throw error;
-    }
-    await peer.user.window.waitForTimeout(750);
-  }
-}
-
-async function broadcastTalkTo(
-  author: Peer,
-  receiver: Peer,
-  talk: Awaited<ReturnType<typeof createTagTalkViaEditor>>,
-): Promise<void> {
-  const result = await author.user.window.evaluate(async ({ userId, stageName, talkId, talkData }) => {
-    const app = (window as any).__iinpublic_app?.getApp?.();
-    return app?.deliverTalkToReceiversOverMesh?.(
-      talkId,
-      talkData,
-      [{ userId, stageName }],
-      [userId],
-    );
-  }, {
-    userId: receiver.id,
-    stageName: receiver.device.name,
-    talkId: talk.talkId,
-    talkData: talk.talkData,
-  });
-  expect(result).toBe(true);
+/** The phone as a journey participant; its offline switch is the phone's Wi-Fi. */
+function participant(peer: Peer, onOffline: (serial: string, offline: boolean) => void): NearbyParticipant {
+  const actor: TestActor = {
+    id: peer.device.name,
+    runtime: 'android-webview',
+    page: peer.user.window,
+    setOffline: async (offline) => {
+      console.log(`[three-phone] ${peer.device.name} Wi-Fi ${offline ? 'off' : 'on'}`);
+      await setAndroidWifiEnabled(peer.device.serial, !offline);
+      onOffline(peer.device.serial, offline);
+    },
+  };
+  return { actor, userId: peer.id, stageName: peer.device.name };
 }
 
 test.describe('Native app: three real Android phones — concurrent propagation, one offline, resync on return', () => {
@@ -188,126 +149,12 @@ test.describe('Native app: three real Android phones — concurrent propagation,
       peers.push({ device, user, id });
     }
 
-    // Hard room partition on real phones. Two phones share room A; the third is alone in room B.
-    // Room B must never receive the Talk. Once the third phone joins room A and links to the
-    // author, it is owed the Talk broadcast there and receives it automatically (product rule:
-    // phones that can reach each other in a room exchange Talks without another tap).
-    const partitionRun = `open37-partition-${Date.now()}`;
-    const roomA = `${partitionRun}-a`;
-    const roomB = `${partitionRun}-b`;
-    const [roomAuthor, roomPeer, isolatedPeer] = peers;
-    await Promise.all([
-      forceJoinRoom(roomAuthor.user.window, roomA),
-      forceJoinRoom(roomPeer.user.window, roomA),
-      forceJoinRoom(isolatedPeer.user.window, roomB),
-    ]);
-    const isolatedTalk = await createTagTalkViaEditor(roomAuthor.user.window, {
-      title: `${partitionRun}-talk`,
-      timeoutMs: 90_000,
-    });
-    // A real room broadcast (the Broadcast button's path), so room A members — including any
-    // phone that joins A later — are owed this Talk.
-    const roomBroadcast = await roomAuthor.user.window.evaluate(
-      () => (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(1),
-    );
-    expect(roomBroadcast?.talksSent ?? 0).toBeGreaterThan(0);
-    await expect.poll(async () => {
-      try {
-        return (await findIncomingTalkIdByTitle(roomPeer.user.window, isolatedTalk.talkData.title)) === isolatedTalk.talkId;
-      } catch {
-        return false;
-      }
-    }, { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
-    await expectTalkAbsentFor(isolatedPeer, isolatedTalk.talkData.title, 10_000);
-
-    await forceJoinRoom(isolatedPeer.user.window, roomA);
-    await expect.poll(async () => {
-      try {
-        return (await findIncomingTalkIdByTitle(isolatedPeer.user.window, isolatedTalk.talkData.title)) === isolatedTalk.talkId;
-      } catch {
-        return false;
-      }
-    }, { timeout: 60_000, intervals: [1_000, 2_000, 3_000] }).toBe(true);
-    console.log('[three-phone] two-room isolation and automatic same-room catch-up verified');
-
-    await Promise.all(peers.map((peer) => forceJoinGlobal(peer.user.window)));
-    await expect.poll(async () => {
-      const memberIds = new Set((await readGlobalMembersFromHub(HUB_GUN_PORT)).map((member) => member.userId));
-      return peers.filter((peer) => memberIds.has(peer.id)).length;
-    }, { timeout: 90_000, intervals: [1000, 2000, 3000] }).toBe(peers.length);
-
-    const runId = `three-phone-${Date.now()}`;
-    // Concurrent propagation: all three author AND broadcast in the same Promise.all, not
-    // sequentially — proves the mesh handles simultaneous broadcasts from multiple real devices,
-    // not just one at a time.
-    console.log('[three-phone] authoring and broadcasting concurrently on all phones');
-    await Promise.all(peers.map(async (peer) => {
-      peer.talk = await createTagTalkViaEditor(peer.user.window, { title: `${runId}-${peer.device.name}`, timeoutMs: 90_000 });
-      await clickBroadcastUntilBulkAck(peer.user.window, { minGunPeers: 1, minSent: 1 });
-    }));
-
-    const offlinePeer = peers.find((peer) => peer.device.serial === offlineDevice.serial)!;
-    const onlinePeers = peers.filter((peer) => peer.device.serial !== offlineDevice.serial);
-    expect(onlinePeers.length).toBe(2);
-    const [first, second] = onlinePeers;
-    offlineSerial = offlineDevice.serial;
-
-    console.log(`[three-phone] taking ${offlineDevice.name} offline`);
-    await setAndroidWifiEnabled(offlineDevice.serial, false);
-
-    // Create and send this Talk only after the phone is offline. A later sighting proves actual
-    // mailbox/mesh catch-up rather than a pre-offline broadcast that happened to arrive late.
-    const offlineMissedTalk = await createTagTalkViaEditor(first.user.window, {
-      title: `${runId}-offline-${first.device.name}`,
-      timeoutMs: 90_000,
-    });
-    await broadcastTalkTo(first, offlinePeer, offlineMissedTalk);
-
-    // The other two continue without it: each completes the other's talk.
-    console.log(`[three-phone] ${first.device.name} completes ${second.device.name}'s talk while ${offlineDevice.name} is offline`);
-    await completeTalksInAppByAnswerIds(first.user.window, [{
-      talkId: second.talk!.talkId,
-      talkData: second.talk!.talkData,
-      answerIds: ['a_0_match'],
-      outcome: 'match',
-    }]);
-    console.log(`[three-phone] ${second.device.name} completes ${first.device.name}'s talk while ${offlineDevice.name} is offline`);
-    await completeTalksInAppByAnswerIds(second.user.window, [{
-      talkId: first.talk!.talkId,
-      talkData: first.talk!.talkData,
-      answerIds: ['a_0_match'],
-      outcome: 'match',
-    }]);
-
-    console.log(`[three-phone] bringing ${offlineDevice.name} back online`);
-    await setAndroidWifiEnabled(offlineDevice.serial, true);
-    offlineSerial = '';
-
-    // Real resync, not an injected shortcut: poll the reconnected phone's OWN local
-    // incoming-talk clusters until the talk it missed while offline actually shows up.
-    const missedTalkTitle = offlineMissedTalk.talkData.title;
-    let resyncedTalkId = '';
-    await expect.poll(async () => {
-      try {
-        resyncedTalkId = await findIncomingTalkIdByTitle(offlinePeer.user.window, missedTalkTitle);
-        return true;
-      } catch {
-        return false;
-      }
-    }, { timeout: 120_000, intervals: [2_000, 3_000, 5_000] }).toBe(true);
-    console.log(`[three-phone] ${offlineDevice.name} resynced missed talk: ${resyncedTalkId}`);
-    // The point already proven above is the resync itself — the reconnected phone discovered
-    // this talk through its OWN local mesh cluster, not an injection. Completing it uses the
-    // author's own already-known talkData rather than a
-    // REST re-fetch (`GET /api/talks/:id`) that isn't what this bullet is testing and can 202-poll
-    // indefinitely for a talk this server process never separately indexed.
-    expect(resyncedTalkId).toBe(offlineMissedTalk.talkId);
-    await completeTalksInAppByAnswerIds(offlinePeer.user.window, [{
-      talkId: resyncedTalkId,
-      talkData: offlineMissedTalk.talkData,
-      answerIds: ['a_0_match'],
-      outcome: 'match',
-    }]);
-    console.log('[three-phone] offline phone completed the talk it missed — resync verified end to end');
+    await Promise.all(peers.map((peer) => enterNearbyAt(peer.user.window, FIXED_LOCATION)));
+    const track = (serial: string, offline: boolean) => { offlineSerial = offline ? serial : ''; };
+    const people = peers.map((peer) => participant(peer, track));
+    await everyoneListsEveryone(people);
+    const offline = people[peers.findIndex((peer) => peer.device.serial === offlineDevice.serial)];
+    await offlineResyncJourney(people, offline, `three-phone-${Date.now()}`);
+    console.log('[three-phone] concurrent Talks and offline catch-up verified');
   });
 });

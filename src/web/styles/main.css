@@ -1430,9 +1430,70 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   font-size: 0.85rem;
 }
 
-.chatroom-show-more {
-  display: block;
-  margin: 8px auto 16px;
+/* §3.7 "Meeting new people in groups": the group bar above the people, Nearby and Places alike. */
+.nearby-group-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.nearby-group-title {
+  font-weight: 600;
+}
+
+.nearby-group-note {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 0.88rem;
+}
+
+.nearby-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nearby-meet-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.nearby-meet-confirm-card {
+  width: min(440px, 96vw);
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.2);
+}
+
+.nearby-meet-confirm-title {
+  font-size: 1.05em;
+  font-weight: 700;
+}
+
+.nearby-meet-confirm-body {
+  margin: 8px 0 16px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.nearby-meet-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .chatroom-flat-empty {

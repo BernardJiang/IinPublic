@@ -1,5 +1,4 @@
 import {
-  OWNER_INCOMING_TALK_INDEX_ROOT,
   mergeIncomingTalkCluster,
   planIncomingTalkClusterPrune,
   type IncomingTalkClusterWire,
@@ -25,37 +24,13 @@ type OwnerIncomingTalkEnvelope = {
 const ownerEnvelopeWriteQueues = new WeakMap<WebGunService, Promise<void>>();
 const OWNER_INCOMING_TALK_PRIVATE_KEY = 'incomingTalkClusters';
 
-function legacyOwnerEnvelopeSoul(gunService: WebGunService, receiverUserId: string): string {
-  const ownerSeaPub = String(gunService.getStoredPair()?.pub || receiverUserId);
-  return `users/${encodeURIComponent(ownerSeaPub)}/incomingTalkClusters`;
-}
-
-async function readOwnerEnvelopeClusters(
-  gunService: WebGunService,
-  receiverUserId: string,
-): Promise<IncomingTalkClusterWire[]> {
+async function readOwnerEnvelopeClusters(gunService: WebGunService): Promise<IncomingTalkClusterWire[]> {
   let raw: OwnerIncomingTalkEnvelope | null;
   try {
-    // Local-only: this key was born in the local private store (0e74e33d), so getPrivate()'s 4 s
-    // peered-graph probe can never find it and cost every fresh install ~8 s on its first Talk.
-    raw = await gunService.getPrivateLocal(OWNER_INCOMING_TALK_PRIVATE_KEY) as OwnerIncomingTalkEnvelope | null;
+    raw = await gunService.getPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY) as OwnerIncomingTalkEnvelope | null;
   } catch {
-    raw = null;
-  }
-  if (!raw) {
-    try {
-      // Release-123 and older wrote this envelope as plaintext on the peered graph. Import it
-      // once into the encrypted local-only store; never update the legacy path again.
-      raw = await gunService.get(
-        legacyOwnerEnvelopeSoul(gunService, receiverUserId),
-      ) as OwnerIncomingTalkEnvelope | null;
-      if (raw?.version === 1 && typeof raw.clustersJson === 'string') {
-        await gunService.putPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, raw);
-      }
-    } catch {
-      // First delivery on a device has no owner envelope yet; that is the normal empty state.
-      return [];
-    }
+    // First delivery on a device has no owner envelope yet; that is the normal empty state.
+    return [];
   }
   if (!raw || raw.version !== 1 || typeof raw.clustersJson !== 'string') return [];
   try {
@@ -105,7 +80,7 @@ export function mirrorIncomingTalkClustersToLocalGun(
   for (const raw of clusters) {
     const cluster = raw as { identityKey?: string };
     if (!cluster?.identityKey) continue;
-    void persistIncomingTalkClusterToLocalGun(gunService, userId, raw as IncomingTalkClusterWire).catch((error) => {
+    void persistIncomingTalkClusterToLocalGun(gunService, raw as IncomingTalkClusterWire).catch((error) => {
       console.warn('[client-incoming-talk-mirror] owner envelope mirror failed:', error);
     });
   }
@@ -113,10 +88,9 @@ export function mirrorIncomingTalkClustersToLocalGun(
 
 function persistIncomingTalkClusterToLocalGun(
   gunService: WebGunService,
-  receiverUserId: string,
   cluster: IncomingTalkClusterWire,
 ): Promise<void> {
-  return persistIncomingTalkClustersToLocalGun(gunService, receiverUserId, [cluster]);
+  return persistIncomingTalkClustersToLocalGun(gunService, [cluster]);
 }
 
 /** Key-order-independent: a stored (hydrated) cluster and a freshly merged one list keys differently. */
@@ -147,7 +121,6 @@ const ownerEnvelopeNextBatch = new WeakMap<WebGunService, EnvelopeBatch>();
  */
 function persistIncomingTalkClustersToLocalGun(
   gunService: WebGunService,
-  receiverUserId: string,
   clusters: IncomingTalkClusterWire[],
 ): Promise<void> {
   let batch = ownerEnvelopeNextBatch.get(gunService);
@@ -158,7 +131,7 @@ function persistIncomingTalkClustersToLocalGun(
       .then(() => {
         // From here on, new requests start the next batch.
         if (ownerEnvelopeNextBatch.get(gunService)?.clusters === pending) ownerEnvelopeNextBatch.delete(gunService);
-        return writeOwnerEnvelope(gunService, receiverUserId, [...pending.values()]);
+        return writeOwnerEnvelope(gunService, [...pending.values()]);
       });
     batch = { clusters: pending, done };
     ownerEnvelopeNextBatch.set(gunService, batch);
@@ -170,10 +143,9 @@ function persistIncomingTalkClustersToLocalGun(
 
 async function writeOwnerEnvelope(
   gunService: WebGunService,
-  receiverUserId: string,
   clusters: IncomingTalkClusterWire[],
 ): Promise<void> {
-  const current = await readOwnerEnvelopeClusters(gunService, receiverUserId);
+  const current = await readOwnerEnvelopeClusters(gunService);
   const byIdentity = new Map(current.map((item) => [item.identityKey, item]));
   let changed = false;
   for (const cluster of clusters) {
@@ -198,7 +170,7 @@ async function writeOwnerEnvelope(
   // multi-second timeout and reject even though the write succeeded, which used to turn a
   // successful incoming-talk mirror into a reported delivery failure. Log and continue.
   try {
-    const verified = await gunService.getPrivateLocal(
+    const verified = await gunService.getPrivate(
       OWNER_INCOMING_TALK_PRIVATE_KEY,
     ) as OwnerIncomingTalkEnvelope | null;
     if (verified?.version !== 1 || verified.clustersJson !== envelope.clustersJson) {
@@ -221,7 +193,7 @@ export async function upsertLocalIncomingTalkClusters(
   flags: P2PRuntimeFlags,
 ): Promise<IncomingTalkClusterWire[]> {
   const ownerClusters = flags.p2pClientTalkMirror
-    ? await readOwnerEnvelopeClusters(gunService, receiverUserId)
+    ? await readOwnerEnvelopeClusters(gunService)
     : [];
   const byIdentity = new Map(ownerClusters.map((cluster) => [cluster.identityKey, cluster]));
   const results: IncomingTalkClusterWire[] = [];
@@ -232,7 +204,7 @@ export async function upsertLocalIncomingTalkClusters(
     results.push(cluster);
   }
   if (flags.p2pClientTalkMirror && results.length > 0) {
-    await persistIncomingTalkClustersToLocalGun(gunService, receiverUserId, results);
+    await persistIncomingTalkClustersToLocalGun(gunService, results);
     void pruneIncomingTalkClustersIfNeeded(gunService, receiverUserId, flags).catch((err) => {
       console.warn('[client-incoming-talk-mirror] incoming-talk-cluster prune failed (non-fatal):', receiverUserId, err);
     });
@@ -254,7 +226,7 @@ export async function upsertLocalIncomingTalkCluster(
 ): Promise<IncomingTalkClusterWire> {
   const draft = mergeIncomingTalkCluster(existingCluster, params);
   const ownerClusters = flags.p2pClientTalkMirror
-    ? await readOwnerEnvelopeClusters(gunService, receiverUserId)
+    ? await readOwnerEnvelopeClusters(gunService)
     : [];
   const durableExisting = ownerClusters.find((item) => item.identityKey === draft.identityKey) || existingCluster;
   const cluster = mergeIncomingTalkCluster(durableExisting, params);
@@ -263,7 +235,7 @@ export async function upsertLocalIncomingTalkCluster(
   // callback ran. Await the nested Gun write acknowledgement before handleMeshTalkBody returns.
   // A failure now withholds the mesh ACK, allowing the sender's existing mailbox fallback to
   // retry instead of silently losing the row from the receiver's Talks UI.
-  await persistIncomingTalkClusterToLocalGun(gunService, receiverUserId, cluster);
+  await persistIncomingTalkClusterToLocalGun(gunService, cluster);
   // docs/TODO.md §Y2: fire-and-forget, mirroring the visit-counter prune trigger
   // (WebChatroomService.recordRoomVisit) — every device prunes its own local Gun graph
   // independently, there is no single authoritative pruner under the P2P model.
@@ -295,50 +267,19 @@ export async function pruneIncomingTalkClustersIfNeeded(
     clustersJson: JSON.stringify(remaining.map(serializeCluster)),
     updatedAt: new Date().toISOString(),
   } satisfies OwnerIncomingTalkEnvelope);
-
-  // Remove only release-123's compatibility rows from the old plaintext index. The encrypted
-  // owner envelope above is authoritative and remains entirely inside the local worker Gun.
-  const gun = gunService.getGun();
-  const ownerRef = gun.get(OWNER_INCOMING_TALK_INDEX_ROOT).get(receiverUserId);
-  for (const cluster of plan.clustersToPrune) {
-    if (cluster.identityKey) ownerRef.get(cluster.identityKey).put(null);
-  }
 }
 
 export async function collectLocalIncomingTalkClusters(
   gunService: WebGunService,
-  receiverUserId: string,
+  _receiverUserId: string,
   _flags: P2PRuntimeFlags,
-  opts: { waitMs?: number } = {},
 ): Promise<IncomingTalkClusterWire[]> {
-  const ownerClusters = await readOwnerEnvelopeClusters(gunService, receiverUserId);
-  const gun = gunService.getGun();
-  const waitMs = opts.waitMs ?? 400;
-  const clusters: IncomingTalkClusterWire[] = [];
-  const ref = gun.get(OWNER_INCOMING_TALK_INDEX_ROOT).get(receiverUserId).map();
-  await new Promise<void>((resolve) => {
-    ref.once((raw: unknown, key: string) => {
-      if (!raw || !key || key.startsWith('_')) return;
-      const cluster = hydrateCluster(raw);
-      if (cluster?.identityKey) clusters.push(cluster);
-    });
-    setTimeout(resolve, waitMs);
-  });
-  try {
-    ref.off();
-  } catch {
-    /* ignore */
-  }
-  const byKey = new Map<string, IncomingTalkClusterWire>();
-  for (const cluster of [...clusters, ...ownerClusters]) {
-    if (cluster.identityKey) byKey.set(cluster.identityKey, cluster);
-  }
-  return [...byKey.values()];
+  return readOwnerEnvelopeClusters(gunService);
 }
 
 export function subscribeLocalIncomingTalkClusters(
   gunService: WebGunService,
-  receiverUserId: string,
+  _receiverUserId: string,
   _flags: P2PRuntimeFlags,
   handler: (cluster: IncomingTalkClusterWire, id: string) => void,
 ): () => void {
@@ -354,30 +295,5 @@ export function subscribeLocalIncomingTalkClusters(
       // Ignore a corrupt/incomplete replication frame; the next valid envelope update retries.
     }
   };
-  const offPrivate = gunService.subscribePrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, onOwnerEnvelope);
-  // Mixed-release compatibility only: old clients may still publish the plaintext envelope.
-  // Listen long enough to render it, but never write back to this path.
-  const legacyOwnerRef = gunService.getGun().get(
-    legacyOwnerEnvelopeSoul(gunService, receiverUserId),
-  );
-  legacyOwnerRef.on(onOwnerEnvelope);
-  const ref = gunService.getGun().get(OWNER_INCOMING_TALK_INDEX_ROOT).get(receiverUserId).map();
-  ref.on((raw: unknown, key: string) => {
-    if (!raw || !key || key.startsWith('_')) return;
-    const cluster = hydrateCluster(raw);
-    if (cluster?.identityKey) handler(cluster, key);
-  });
-  return () => {
-    offPrivate();
-    try {
-      legacyOwnerRef.off();
-    } catch {
-      /* ignore */
-    }
-    try {
-      ref.off();
-    } catch {
-      /* ignore */
-    }
-  };
+  return gunService.subscribePrivate(OWNER_INCOMING_TALK_PRIVATE_KEY, onOwnerEnvelope);
 }

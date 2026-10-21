@@ -13,6 +13,7 @@ import {
   type NearbyGossipReply,
 } from '../../shared/nearby-v3-gossip';
 import { NearbyList, type NearbyListEntry, type NearbyListOwner } from '../../shared/nearby-v3-list';
+import { parseNearbyRankKey, type NearbyRankKey } from '../../shared/nearby-v3-ranking';
 import {
   isEstablishedBefore,
   isNearbyAttestorKey,
@@ -89,6 +90,13 @@ export type NearbyV3ServiceDeps = {
 };
 
 export const NEARBY_V3_STORAGE_KEY = 'iinpublic_nearby_v3_list_v1';
+/** Group number and boundary per scope, for the day (§3.7 "Meeting new people in groups"). */
+export const NEARBY_V3_GROUPS_STORAGE_KEY = 'iinpublic_nearby_v3_groups_v1';
+
+/** Which group of my order I am meeting; `exhausted`: searches past the boundary found nobody. */
+export type NearbyGroupInfo = { group: number; exhausted: boolean };
+
+type NearbyGroupState = { day: string; group: number; after: NearbyRankKey };
 /** The hub's attestor key, today's beacon and my own age proof (§3.7 "Ranking"). */
 export const NEARBY_V3_ATTESTATION_STORAGE_KEY = 'iinpublic_nearby_v3_attestation_v1';
 const MAX_ATTESTOR_KEYS = 4;
@@ -105,6 +113,9 @@ const LINK_WAIT_RETRY_MS = 1_000;
 const MAX_VERIFIED_CACHE = 4_096;
 /** While the list is empty, ask the hub again after this long, doubling up to one gossip period. */
 const EMPTY_RETRY_MIN_MS = 5_000;
+/** Searches past a group boundary that found nobody before the group counts as "met everyone". */
+const EXHAUSTED_AFTER_EMPTY_SEARCHES = 2;
+const MAX_GROUP_SCOPES = 32;
 
 export class NearbyV3Service {
   private list: NearbyList | null = null;
@@ -121,8 +132,11 @@ export class NearbyV3Service {
   /** The last hub search found nobody: the next one that finds someone announces us. */
   private searchedEmpty = false;
   private emptyRetryMs = EMPTY_RETRY_MIN_MS;
-  /** Room for more people than `C`, one page per "Show more people here"; a move resets it. */
-  private extraCapacity = 0;
+  /** scope key → my group there today (absent: group 1). */
+  private groups: Map<string, NearbyGroupState> | null = null;
+  /** Hub searches since the last group switch that left the list empty. */
+  private emptySearches = 0;
+  private lastGroupSearchAt = 0;
   private waitingForLink = false;
   /**
    * The list of the scope I left (Nearby while I visit a Place, or a Place's), so returning restores
@@ -131,6 +145,8 @@ export class NearbyV3Service {
   private stashedByScope = new Map<string, NearbyCard[]>();
   /** The hub answered the last heartbeat or search; false = offline, so the local board is used. */
   private hubReachable = true;
+  /** The hub just became reachable again: reissue and announce on the next pass. */
+  private backOnline = false;
   private lastLocalPostAt = 0;
   private readonly verified = new Map<string, boolean>();
   /** `pub|issuedAt` → the verified first-seen day of that card's key, or null (none or invalid). */
@@ -223,18 +239,47 @@ export class NearbyV3Service {
     return this.ingest([card], card.pub);
   }
 
+  /** The group I am meeting in the current scope (1 when nothing was switched today). */
+  groupInfo(): NearbyGroupInfo {
+    const position = this.deps.position();
+    const state = position ? this.groupState(position) : null;
+    const group = state?.group ?? 1;
+    return { group, exhausted: group > 1 && (this.list?.size ?? 0) === 0 && this.emptySearches >= EXHAUSTED_AFTER_EMPTY_SEARCHES };
+  }
+
   /**
-   * "Show more people here" (§3.7 "Beyond C"): make room for one more page of `C` and ask a few
-   * people on my list for the next people in my order. Orderly and repeatable, not guaranteed
-   * complete; the next people keep arriving with later swaps.
+   * "Meet new people" (§3.7 "Meeting new people in groups"): swap my whole group for the next `C`
+   * people in my order. The last person's rank key becomes the boundary; the list empties and
+   * searches again past it. False when there is no group to move on from.
    */
-  async showMore(): Promise<void> {
-    this.extraCapacity += this.deps.config().capacity;
+  async meetNewPeople(): Promise<boolean> {
+    const position = this.deps.position();
     const list = this.ensureList();
-    if (!list?.size || !this.ownCard) return;
-    const random = this.deps.random ?? Math.random;
-    const partners = [...list.entries()].sort(() => random() - 0.5).slice(0, ANNOUNCE_SWAPS);
-    await Promise.all(partners.map((entry) => this.gossipOnce(entry.card)));
+    const last = list?.lastKey();
+    if (!position || !list || !last) return false;
+    const current = this.groupState(position);
+    this.setGroupState(position, { day: this.beaconString(), group: (current?.group ?? 1) + 1, after: last });
+    this.log(`meeting new people: group ${(current?.group ?? 1) + 1}`);
+    await this.restartSearch();
+    return true;
+  }
+
+  /** "Back to group 1": forget today's boundary here and search from the start of my order. */
+  async backToFirstGroup(): Promise<void> {
+    const position = this.deps.position();
+    if (!position || !this.groupState(position)) return;
+    this.setGroupState(position, null);
+    this.log('back to group 1');
+    await this.restartSearch();
+  }
+
+  private async restartSearch(): Promise<void> {
+    this.emptySearches = 0;
+    this.lastGroupSearchAt = 0;
+    this.searchedKey = '';
+    this.ensureList();
+    this.changed();
+    await this.refresh();
   }
 
   /**
@@ -264,6 +309,13 @@ export class NearbyV3Service {
     if (reachable === this.hubReachable) return;
     this.hubReachable = reachable;
     this.lastLocalPostAt = 0;
+    if (reachable) {
+      // Back from an outage: the people I found silent were silent because I was offline, so their
+      // tombstones go. The next pass reissues my card and announces it, which lifts mine on their
+      // side (they found me silent too); otherwise we rejoin only at the next reissue (3 min).
+      this.silent.clear();
+      this.backOnline = true;
+    }
     this.log(reachable ? 'hub reachable again' : 'hub unreachable: posting my card on the local board');
   }
 
@@ -308,7 +360,7 @@ export class NearbyV3Service {
       if (!await this.isValid(message.card)) return null;
       const nowMs = this.now();
       const offer = list.offerFor({
-        receiver: this.ownerFor(message.card),
+        receiver: this.ownerFor(message.card, message.after),
         digest: message.digest,
         ownCard: this.ownCard,
         swapCards: config.swapCards,
@@ -322,6 +374,7 @@ export class NearbyV3Service {
         digest: list.digest(nowMs),
         cards: offer.filter((card) => card !== this.ownCard),
         ...(this.beacon ? { beacon: this.beacon } : {}),
+        ...(list.ownerInfo.after ? { after: list.ownerInfo.after } : {}),
       };
       await this.ingest([message.card], fromPub);
       this.counters.answered += 1;
@@ -358,22 +411,33 @@ export class NearbyV3Service {
 
     // A changed name, point or traveler flag reaches the nearest person at once (below); a plain
     // reissue before expiry travels with the next regular swap.
-    const changedCard = this.cardIsStale(position, identity.userId, nowMs, config)
-      ? await this.reissueCard(position, identity, nowMs, config)
+    const backOnline = this.backOnline;
+    this.backOnline = false;
+    const changedCard = backOnline || this.cardIsStale(position, identity.userId, nowMs, config)
+      ? (await this.reissueCard(position, identity, nowMs, config)) || backOnline
       : false;
 
     const searchKey = `${position.scope}|${position.point.latitude}|${position.point.longitude}`;
     let announce = false;
-    if (searchKey !== this.searchedKey || list.size === 0) {
+    // Past group 1 my partners' lists are not paged like mine, so a group short of C asks the hub
+    // again once per gossip period (its rotating sample has people past my boundary).
+    const groupShort = !!list.ownerInfo.after && list.size < config.capacity
+      && nowMs - this.lastGroupSearchAt >= config.gossipPeriodMs;
+    if (searchKey !== this.searchedKey || list.size === 0 || groupShort) {
+      if (list.ownerInfo.after) this.lastGroupSearchAt = nowMs;
       try {
         const cards = await this.deps.hub.introductions({ point: position.point, scope: position.scope, excludePub: identity.pair.pub });
         this.setHubReachable(true);
         // A newcomer (or someone who just moved) swaps with the nearest few people at once, so the
         // people around learn of them now rather than at their next period.
         announce = searchKey !== this.searchedKey || this.searchedEmpty;
-        if (this.searchedKey && searchKey !== this.searchedKey) this.extraCapacity = 0; // moved: back to C
         this.searchedKey = searchKey;
         await this.ingest(cards);
+        if (list.size > 0) {
+          this.emptySearches = 0;
+        } else if (++this.emptySearches === EXHAUSTED_AFTER_EMPTY_SEARCHES) {
+          this.changed(); // the group bar can now say "met everyone here"
+        }
         if (announce) this.log(`searched: the hub introduced ${cards.length}, my list has ${list.size}`);
         this.searchedEmpty = list.size === 0;
       } catch (error) {
@@ -459,6 +523,7 @@ export class NearbyV3Service {
         card: own,
         digest: list.digest(this.now()),
         ...(this.beacon ? { beacon: this.beacon } : {}),
+        ...(list.ownerInfo.after ? { after: list.ownerInfo.after } : {}),
       }, SWAP_TIMEOUT_MS);
     } catch {
       answer = null;
@@ -481,7 +546,7 @@ export class NearbyV3Service {
     await this.ingest([reply.card, ...reply.cards], reply.card.pub);
     const nowMs = this.now();
     const offer = list.offerFor({
-      receiver: this.ownerFor(reply.card),
+      receiver: this.ownerFor(reply.card, reply.after),
       digest: reply.digest,
       ownCard: null,
       swapCards: config.swapCards - 1,
@@ -550,8 +615,12 @@ export class NearbyV3Service {
       || nowMs - nearbyCardIssuedAtMs(card) >= config.cardReissueMs;
   }
 
-  private ownerFor(card: NearbyCard): NearbyListOwner {
-    return { pub: card.pub, point: card.point, scope: card.scope, beacon: this.beaconString(), isEstablished: this.isEstablished };
+  /** A partner's list as they rank it, past their group boundary when they sent one. */
+  private ownerFor(card: NearbyCard, after?: NearbyRankKey): NearbyListOwner {
+    return {
+      pub: card.pub, point: card.point, scope: card.scope, beacon: this.beaconString(), isEstablished: this.isEstablished,
+      ...(after ? { after } : {}),
+    };
   }
 
   private beaconString(): string {
@@ -661,14 +730,16 @@ export class NearbyV3Service {
     const identity = this.deps.identity();
     if (!position || !identity) return null;
     this.loadAttestation();
+    const after = this.groupState(position)?.after;
     const owner: NearbyListOwner = {
       pub: identity.pair.pub,
       point: position.point,
       scope: position.scope,
       beacon: this.beaconString(),
       isEstablished: this.isEstablished,
+      ...(after ? { after } : {}),
     };
-    const capacity = this.deps.config().capacity + this.extraCapacity;
+    const capacity = this.deps.config().capacity;
     if (this.list && this.list.ownerInfo.pub === owner.pub && this.list.ownerInfo.scope !== owner.scope) {
       // A Place's members are not my Nearby list (and the other way round): one list per scope.
       this.stashedByScope.set(this.list.ownerInfo.scope, this.list.entries().map((entry) => entry.card));
@@ -691,6 +762,7 @@ export class NearbyV3Service {
     const current = this.list.ownerInfo;
     if (current.scope !== owner.scope
       || current.beacon !== owner.beacon
+      || current.after !== owner.after
       || current.point.latitude !== owner.point.latitude
       || current.point.longitude !== owner.point.longitude) {
       this.list.setOwner(owner);
@@ -699,6 +771,60 @@ export class NearbyV3Service {
     return this.list;
   }
 
+
+  /** Nearby groups belong to a public point; a Place's to the Place (its pin never moves). */
+  private groupScopeKey(position: NearbyV3Position): string {
+    return position.scope === 'nearby'
+      ? `nearby|${position.point.latitude},${position.point.longitude}`
+      : position.scope;
+  }
+
+  /** Today's group here, or null for group 1 (a new day's beacon reorders everyone). */
+  private groupState(position: NearbyV3Position): NearbyGroupState | null {
+    const groups = this.loadGroups();
+    const key = this.groupScopeKey(position);
+    const state = groups.get(key);
+    if (!state) return null;
+    if (state.day === this.beaconString()) return state;
+    groups.delete(key);
+    this.saveGroups();
+    return null;
+  }
+
+  private setGroupState(position: NearbyV3Position, state: NearbyGroupState | null): void {
+    const groups = this.loadGroups();
+    const key = this.groupScopeKey(position);
+    groups.delete(key);
+    if (state) groups.set(key, state);
+    while (groups.size > MAX_GROUP_SCOPES) groups.delete(groups.keys().next().value as string);
+    this.saveGroups();
+  }
+
+  private loadGroups(): Map<string, NearbyGroupState> {
+    if (this.groups) return this.groups;
+    this.groups = new Map();
+    try {
+      const saved = JSON.parse(this.deps.storage?.getItem(NEARBY_V3_GROUPS_STORAGE_KEY) || '{}') as Record<string, unknown>;
+      for (const [key, value] of Object.entries(saved)) {
+        const row = value as Partial<NearbyGroupState> | null;
+        const after = parseNearbyRankKey(row?.after);
+        if (after && typeof row?.day === 'string' && Number.isInteger(row.group) && row.group! > 1) {
+          this.groups.set(key, { day: row.day, group: row.group!, after });
+        }
+      }
+    } catch {
+      // Unreadable: every scope starts at group 1.
+    }
+    return this.groups;
+  }
+
+  private saveGroups(): void {
+    try {
+      this.deps.storage?.setItem(NEARBY_V3_GROUPS_STORAGE_KEY, JSON.stringify(Object.fromEntries(this.loadGroups())));
+    } catch {
+      // Storage unavailable: kept in memory.
+    }
+  }
 
   private load(ownerPub: string): NearbyCard[] {
     try {

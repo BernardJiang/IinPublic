@@ -173,8 +173,11 @@ stats dashboard) where a phone adds nothing. The order:
    real phones (talk → answer → match → P2P chat; mismatch; block; leave). Planned scope: Talk delivery, answering, matching, the resulting
    conversation, blocks, change of mind, and retraction (`staged/stage2`, `talks-matching`). One
    spec runs with browser actors on the Mac and with phone actors in the sweep.
-3. **Three- and four-phone journeys:** Nearby splits, capacity, and cohorts, picked from
-   `staged/stage3`/`stage4`.
+3. **Three- and four-phone journeys (done 2026-10-20):** `tests/e2e/journeys/nearby-ring-journey.ts`
+   holds the bodies (everyone lists everyone; a Talk ring; a backgrounded receiver; concurrent
+   Talks; one person offline and catching up). `staged/stage4/07` and `staged/stage3/81` run them
+   with browsers, `native-app/30` and `native-app/13` with real phones. The v2 split,
+   capacity and cohort journeys were removed with v2 (Nearby v3 has no shared rooms).
 4. **Stays on the Mac:** stage-1 UI and layout specs, the browser-engine matrix, desktop-native
    specs, and scale tests.
 

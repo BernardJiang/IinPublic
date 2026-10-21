@@ -2,6 +2,7 @@ import type { GPSCoordinate } from '../../shared/types';
 import { readNativeHostInfo } from '../ui/native-host-info';
 import { loadConnectivitySettings, saveConnectivitySettings, type LocationSource } from '../ui/connectivity-settings';
 import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
+import { LocationPrivacy } from '../../shared/location';
 
 /**
  * Encounter location (TODO OPEN-40 P1): the point a Traveler ✈ appears at — chosen on the map (it
@@ -42,6 +43,24 @@ function productionBrowserGeolocation(): boolean {
   return process.env.NODE_ENV === 'production'
     && typeof navigator !== 'undefined'
     && 'geolocation' in navigator;
+}
+
+/** The injected test fix (`window.__test_location`, default San Diego) for dev/test builds. */
+export function testGpsLocation(): GPSCoordinate {
+  const custom = (window as { __test_location?: { latitude: number; longitude: number; accuracy?: number } }).__test_location;
+  return custom && typeof custom === 'object'
+    ? { latitude: custom.latitude, longitude: custom.longitude, accuracy: custom.accuracy || 100, timestamp: new Date() }
+    : { latitude: 32.7157, longitude: -117.1611, accuracy: 100, timestamp: new Date() };
+}
+
+/**
+ * A fresh device fix. Dev/test websites answer with the injected test location, as at boot: the
+ * browser's own geolocation there has no permission and times out after 10 s, which turned a
+ * Resident back into a Traveler (OPEN-75). Phones always read their real GPS.
+ */
+export function readDeviceLocation(platform: string = readNativeHostInfo().platform): Promise<GPSCoordinate> {
+  if (platform !== 'android' && platform !== 'ios' && simulatedTestGps()) return Promise.resolve(testGpsLocation());
+  return LocationPrivacy.getCurrentLocation();
 }
 
 /** Phones read GPS; a production browser/desktop asks for location; dev/test builds simulate it. */

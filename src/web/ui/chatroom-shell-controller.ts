@@ -116,6 +116,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   let activeRooms: ChatroomsViewDeps['activeRooms'];
   let nearbyOnline: number | undefined;
   let nearbyBroadcastProgress: ChatroomsViewDeps['nearbyBroadcastProgress'];
+  let nearbyGroup: ChatroomsViewDeps['nearbyGroup'];
 
   const viewDeps = (): ChatroomsViewDeps => {
     const mapUserDots = mapUserDotSource
@@ -134,6 +135,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
       ...(activeRooms ? { activeRooms } : {}),
       ...(nearbyOnline !== undefined ? { nearbyOnline } : {}),
       ...(nearbyBroadcastProgress ? { nearbyBroadcastProgress } : {}),
+      ...(nearbyGroup ? { nearbyGroup } : {}),
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
       deps.setCurrentChatroom(chatroomId);
@@ -288,6 +290,11 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     renderChatroomList();
   };
 
+  /** Kept for the next member render; the roster push that follows a group change re-renders. */
+  const setNearbyGroup = (group: ChatroomsViewDeps['nearbyGroup'] | null): void => {
+    nearbyGroup = group ?? undefined;
+  };
+
   const setMapUserDotSource = (source: MapUserDotSource | null): void => {
     mapUserDotSource = source ?? undefined;
     if (deps.getChatroomBrowseMode() === 'map') renderChatroomList();
@@ -299,6 +306,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     setActiveRooms,
     setNearbyOnline,
     setNearbyBroadcastProgress,
+    setNearbyGroup,
     renderChatroomList,
     showChatroomDetail,
     showChatroomList,

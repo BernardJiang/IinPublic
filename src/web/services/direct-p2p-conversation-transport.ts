@@ -363,11 +363,11 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       // backfill whatever the peer is missing, straight over the DataChannel (no hub).
       getLocalMessageDigest: async () => buildConversationDigest(
         conversationId,
-        await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+        await this.gunStore.listLocalWires(conversationId),
       ).messageIds,
       getMessagesForBackfill: async (remoteMessageIds: string[]) => computeMissingForPeer(
         conversationId,
-        await this.gunStore.listLocalWires(conversationId, localUserId, otherId),
+        await this.gunStore.listLocalWires(conversationId),
         { conversationId, messageIds: remoteMessageIds },
       ),
       getConversationControlSnapshot: () =>

@@ -91,6 +91,22 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
     return Array.isArray(body.cards) ? body.cards as NearbyCard[] : [];
   }
 
+  /** Which of these users are online now (§3.7 "Contacts online"), 500 ids per hub call. */
+  async online(userIds: readonly string[]): Promise<Set<string>> {
+    const online = new Set<string>();
+    for (let start = 0; start < userIds.length; start += 500) {
+      const response = await fetch(`${this.apiBase()}/api/nearby/v3/online`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds: userIds.slice(start, start + 500) }),
+      });
+      if (!response.ok) throw new Error(`online query failed (${response.status})`);
+      const body = await response.json() as { online?: unknown };
+      for (const id of Array.isArray(body.online) ? body.online : []) if (typeof id === 'string') online.add(id);
+    }
+    return online;
+  }
+
   async stats(bounds?: { west: number; south: number; east: number; north: number }): Promise<{
     online: number;
     heat: Array<{ latitude: number; longitude: number; count: number }>;

@@ -13,11 +13,13 @@ import {
   setGpsFixUnavailable,
   deviceHasGps,
   keepEarlierBrowserEncounterChoice,
+  readDeviceLocation,
 } from '../../web/services/encounter-location';
 import { loadConnectivitySettings } from '../../web/ui/connectivity-settings';
 import { showEncounterLocationPicker } from '../../web/ui/encounter-location-picker';
 import { snapPublicLocation } from '../../shared/public-location';
 import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
+import { LocationPrivacy } from '../../shared/location';
 
 const t = (key: string) => key;
 const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
@@ -167,5 +169,28 @@ describe('encounter location picker', () => {
     showEncounterLocationPicker({ t: t as never, initial: { latitude: 1.5, longitude: 2.5 }, onConfirm: () => undefined, loadMap: () => new Promise(() => undefined) });
     expect((document.getElementById('encounter-location-lng') as HTMLInputElement).value).toBe('2.50000');
     expect(document.getElementById('encounter-location-modal')!.textContent).toContain('encounterPickerDisclosure');
+  });
+});
+
+describe('readDeviceLocation (OPEN-75)', () => {
+  afterEach(() => {
+    delete (window as { __test_location?: unknown }).__test_location;
+    jest.restoreAllMocks();
+  });
+
+  it('a dev/test website re-reads the injected test fix, never the browser geolocation that times out', async () => {
+    const browser = jest.spyOn(LocationPrivacy, 'getCurrentLocation');
+    (window as { __test_location?: unknown }).__test_location = { latitude: 51.5, longitude: -0.14 };
+    await expect(readDeviceLocation('web')).resolves.toMatchObject({ latitude: 51.5, longitude: -0.14, accuracy: 100 });
+    delete (window as { __test_location?: unknown }).__test_location;
+    await expect(readDeviceLocation('web')).resolves.toMatchObject({ latitude: 32.7157, longitude: -117.1611 });
+    expect(browser).not.toHaveBeenCalled();
+  });
+
+  it('phones always read their real GPS', async () => {
+    const fix = { latitude: 1, longitude: 2, accuracy: 5, timestamp: new Date() };
+    const browser = jest.spyOn(LocationPrivacy, 'getCurrentLocation').mockResolvedValue(fix);
+    await expect(readDeviceLocation('android')).resolves.toBe(fix);
+    expect(browser).toHaveBeenCalledTimes(1);
   });
 });
