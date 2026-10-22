@@ -38,3 +38,10 @@ Skills are shared. Your setup is yours. Keeping them apart means you can update 
 ---
 
 Add whatever helps you do your job. This is your cheat sheet.
+
+## Android test devices
+
+- After every physical-phone test session, restore any temporary battery/Doze/radio state and turn
+  off the screen on every connected phone with `adb shell input keyevent KEYCODE_SLEEP`.
+- If a phone is disconnected at cleanup time, report it explicitly and turn off its screen as soon
+  as it reconnects.
