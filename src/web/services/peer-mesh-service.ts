@@ -108,11 +108,16 @@ type PeerMeshServiceOptions = {
    */
   onMailboxFallback?: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) => void | Promise<void>;
   /**
-   * OPEN-38: authoritative direct delivery queued a Talk for receivers that have no fresh presence
-   * and no live direct link (likely asleep). The caller posts a content-free wake ping; the body
-   * stays in the outbox until the direct scheduler delivers it.
+   * OPEN-38/G6: authoritative direct delivery queued a Talk for receivers that have no fresh
+   * presence and/or no live direct link. The caller posts the pair-encrypted body mailbox fallback
+   * for every still-pending recipient, plus a content-free wake ping only for the likely-asleep
+   * subset. The body also stays in the outbox until the direct scheduler receives its ordinary ACK.
    */
-  onDirectDeliveryPending?: (recipientUserIds: string[]) => void | Promise<void>;
+  onDirectDeliveryPending?: (
+    payload: P2PMeshTalkBodyPayload,
+    recipientUserIds: string[],
+    wakeRecipientUserIds: string[],
+  ) => void | Promise<void>;
   forwardingSettings?: Partial<ForwardingSettings>;
   getForwardingContext?: (neighborUserId: string) => ForwardingContext;
   protocolManifestController?: ProtocolManifestController;
@@ -980,9 +985,9 @@ export class PeerMeshService {
           const neighbor = this.neighbors.get(userId);
           return !reachable.has(userId) && !(neighbor && isNeighborLive(neighbor));
         }))];
-        if (asleep.length > 0) {
-          void Promise.resolve(this.opts.onDirectDeliveryPending(asleep)).catch(
-            (err) => console.warn('[Mesh] wake ping failed:', err),
+        if (pending.length > 0) {
+          void Promise.resolve(this.opts.onDirectDeliveryPending(bodyPayload, [...new Set(pending)], asleep)).catch(
+            (err) => console.warn('[Mesh] sleeping-recipient mailbox fallback failed:', err),
           );
         }
       }

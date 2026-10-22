@@ -1,5 +1,6 @@
 import {
   appendBackgroundEvent,
+  backgroundAnswerRulesFromPreferences,
   backgroundTalkPassesPolicy,
   classifyBackgroundResponse,
   resolveBackgroundTalkAnswers,
@@ -62,6 +63,29 @@ const body: P2PMeshTalkBodyPayload = {
 };
 
 describe('background Talk agent core', () => {
+  test('exports production temporary exact-answer records to the native policy', () => {
+    expect(backgroundAnswerRulesFromPreferences({
+      exact: {
+        mode: 'temporary',
+        questionText: 'Coffee?',
+        answerText: 'Yes',
+        allAnswers: [{ id: 'yes', text: 'Yes' }, { id: 'no', text: 'No' }],
+        answerSelectionMode: 'single',
+      },
+      manual: {
+        mode: 'manual',
+        questionText: 'Private?',
+        answerText: 'No',
+        allAnswers: [{ id: 'no', text: 'No' }],
+      },
+    })).toEqual([{
+      questionText: 'Coffee?',
+      answerTexts: ['Yes', 'No'],
+      selectedAnswerTexts: ['Yes'],
+      selectionMode: 'single',
+    }]);
+  });
+
   test('walks an exact approved answer path without depending on answer order', () => {
     expect(resolveBackgroundTalkAnswers(config(), body)).toEqual([
       { questionId: 'q1', answerId: 'yes', answerText: 'Yes', mode: 'auto' },

@@ -137,8 +137,8 @@ its ID.
   links and background mode), but the product still treats the activity as unrelated broadcasts,
   replies and Contacts. The shipping gate is one continuous, resumable workflow with an honest
   summary and useful ranking. Do not call the use case ready from the 498-person simulation alone:
-  physical qualification currently covers four phones and minimum matching/session work still
-  lives in the WebView.
+  physical qualification currently covers four phones, including the native background agent, but
+  literal walking/transit qualification is still outstanding.
   - [x] **G1 — Durable outing identity and evidence (first slice, 2026-10-20).** Add a bounded,
     versioned local collection-session store; snapshot the active scope, selected Talk ids and
     blurred public point; associate each intended peer + Talk delivery with the active outing; keep
@@ -192,7 +192,8 @@ its ID.
       pauses in background**, states that a persistent notification is used, and warns that vendor
       battery savers can still delay/stop delivery unless unrestricted battery use is allowed.
       Host SEA-cycle, authorization, durable-relay, policy, mailbox-relay and packaged-mobile gates
-      pass. Physical screen-off/process-death/vendor qualification remains explicitly under G7.
+      pass. One physical screen-off/process-death path is qualified under G7; broader vendor and
+      carried-field qualification remains open.
   - [ ] **G7 — Qualification gate.** Add a deterministic 498-person model for ranking and storage,
     a 10–20 simulated-client outing, and physical Android runs for walking movement, subway/no-GPS,
     Wi-Fi ↔ cellular ↔ offline transitions, screen-off, restart, delayed replies and repeated
@@ -200,8 +201,15 @@ its ID.
     - [x] Deterministic host gates (2026-10-21): 498-person delivery/storage/review and a 16-client
       moving outing with pending, cold-start, delayed and repeated cases
       (`match-collection-scale.test.ts`, `match-collection-outing-model.ts`).
-    - [ ] Physical Android outing matrix above remains required; the host models are not a
-      crowd-scale or background-runtime claim.
+    - [x] Automated physical Android bench matrix (2026-10-21, app 1.0.187): P30/C10/PH-1
+      Wi-Fi-off catch-up; P30 cellular-only ↔ C10 Wi-Fi; four-phone online ring; and a C10 receiver
+      with Activity closed, screen off, forced Doze and killed process. Android restarted the
+      foreground service, returned the exact approved encrypted answer in 5.727 s after the outing
+      had stopped, and WebView resume reconciled it exactly once. See
+      `docs/testing/android-match-collection-g7.md`.
+    - [ ] Carried field gate: literal walking movement, a transit/subway route with genuine no-GPS,
+      physical repeated encounters and broader vendor battery behavior. Fixed coordinates, radio
+      toggles and simulated reconnects do not qualify those real-world conditions.
   - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
     auto-answers, add actionable pending states, finish Nearby credit/block-count defenses before a
     public dense-place launch, and treat iOS as unsupported until its native background/discovery

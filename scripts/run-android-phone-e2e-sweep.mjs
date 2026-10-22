@@ -314,8 +314,9 @@ try {
       // 28 and 33 run on the first two phones (28's sleeper must be the Android 12+ second one);
       // with four phones, 09 runs at the same time on the other two with its own hub port (8878). 09 is
       // the only one of the three that launches the macOS app.
-      const twoPhoneSteps = [nativeStep('sleeping receiver notification, then two-phone Place create, find, enter, leave, re-enter', [
+      const twoPhoneSteps = [nativeStep('sleeping notification, unattended Talk agent, then two-phone Place lifecycle', [
         'tests/e2e/native-app/28-android-sleeping-receiver-notification.spec.ts',
+        'tests/e2e/native-app/40-android-background-talk-agent.spec.ts',
         'tests/e2e/native-app/33-android-place-smoke.spec.ts',
       ], {
         ...commonEnv,
@@ -323,6 +324,9 @@ try {
         NATIVE_APP_ANDROID_SENDER: firstTwo[0],
         NATIVE_APP_ANDROID_SLEEPER: firstTwo[1],
         E2E_REAL_ANDROID_SLEEP_NOTIFY: '1',
+        E2E_REAL_ANDROID_BACKGROUND_AGENT: '1',
+        NATIVE_APP_ANDROID_AUTHOR: firstTwo[0],
+        NATIVE_APP_ANDROID_RECEIVER: firstTwo[1],
         E2E_REAL_ANDROID_PLACE_SMOKE: '1',
       })];
 

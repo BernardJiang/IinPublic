@@ -1,4 +1,5 @@
 import { User, GPSCoordinate, Talk, type Tag, type KnownPerson, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import { backgroundAnswerRulesFromPreferences } from '../../shared/background-talk-agent';
 import {
   BLOCK_SIGNAL_PAYLOAD_KIND,
   recordBlockSignal,
@@ -3307,9 +3308,21 @@ export class IinPublicApp {
           ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
         });
       },
-      // OPEN-38: a content-free wake ping for receivers that look asleep; the body stays queued.
+      // OPEN-38/G6: mailbox the encrypted body for every pending receiver and send a separate
+      // content-free wake only to peers that look asleep; the authoritative body stays queued.
       ...(this.p2pRuntimeFlags.p2pDirectTalkDelivery
-        ? { onDirectDeliveryPending: (recipientUserIds: string[]) => this.postTalkWakeToMailbox(recipientUserIds) }
+        ? {
+            onDirectDeliveryPending: async (
+              payload: P2PMeshTalkBodyPayload,
+              recipientUserIds: string[],
+              wakeRecipientUserIds: string[],
+            ) => {
+              await Promise.all([
+                this.postTalkWakeToMailbox(wakeRecipientUserIds),
+                this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
+              ]);
+            },
+          }
         : {}),
       // Mixed-release escape hatch only. The authoritative direct scheduler retains ordinary
       // Talk bodies in the author's encrypted local outbox until the end receiver ACKs.
@@ -3565,21 +3578,7 @@ export class IinPublicApp {
       } catch { return {}; }
     };
     const flattened = parseMap('flattenedAnswerPreferences');
-    const answerRules = Object.values(flattened).flatMap((entry: any) => {
-      if ((entry?.mode !== 'auto' && entry?.mode !== 'whenever') || !entry?.questionText) return [];
-      const allAnswers = Array.isArray(entry.allAnswers) ? entry.allAnswers : [];
-      const answerTexts = allAnswers.map((answer: any) => String(answer?.text || '')).filter(Boolean);
-      const selectedAnswerTexts = Array.isArray(entry.answerTexts) && entry.answerTexts.length > 0
-        ? entry.answerTexts.map(String)
-        : [String(entry.answerText || '')].filter(Boolean);
-      if (answerTexts.length === 0 || selectedAnswerTexts.length === 0) return [];
-      return [{
-        questionText: String(entry.questionText),
-        answerTexts,
-        selectedAnswerTexts,
-        selectionMode: entry.answerSelectionMode === 'multiple' ? 'multiple' : 'single',
-      }];
-    });
+    const answerRules = backgroundAnswerRulesFromPreferences(flattened);
     const settings = loadConnectivitySettings();
     const myTalks = getMyTalks();
     const authoredTalks = Object.fromEntries(Object.entries(myTalks)
@@ -7559,6 +7558,20 @@ export class IinPublicApp {
     }
     // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
     recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
+    const activeCollection = getActiveMatchCollectionSession();
+    const collectionLocation = activeCollection
+      ? await this.matchCollectionSendLocation(chatroomId)
+      : undefined;
+    const peerPoints = activeCollection
+      ? Object.fromEntries(this.nearbyV3?.service.entries().map((entry) => [entry.card.userId, entry.card.point]) ?? [])
+      : undefined;
+    recordMatchCollectionDelivery({
+      talkIds: broadcastableIds,
+      peerIds: receivers.map((receiver) => receiver.userId),
+      ...(collectionLocation ? { location: collectionLocation } : {}),
+      ...(peerPoints ? { peerPoints } : {}),
+    });
+    this.syncNativeBackgroundAgent();
     this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
     const releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
     try {

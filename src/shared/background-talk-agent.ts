@@ -32,6 +32,30 @@ export type BackgroundTalkAgentConfig = {
   ageVerified?: boolean;
 };
 
+/** Convert the UI's exact-answer persistence shape into the minimal native policy snapshot. */
+export function backgroundAnswerRulesFromPreferences(
+  flattened: Record<string, any>,
+): BackgroundAnswerRule[] {
+  return Object.values(flattened).flatMap((entry: any) => {
+    // saveAnswerPreference persists an exact reusable `auto` choice as `temporary`; the
+    // foreground resolver promotes that back to auto at read time. Keep the native bridge in
+    // lockstep or a rule approved in the UI disappears as soon as the Activity sleeps.
+    if (!['auto', 'temporary', 'whenever'].includes(String(entry?.mode || '')) || !entry?.questionText) return [];
+    const allAnswers = Array.isArray(entry.allAnswers) ? entry.allAnswers : [];
+    const answerTexts = allAnswers.map((answer: any) => String(answer?.text || '')).filter(Boolean);
+    const selectedAnswerTexts = Array.isArray(entry.answerTexts) && entry.answerTexts.length > 0
+      ? entry.answerTexts.map(String)
+      : [String(entry.answerText || '')].filter(Boolean);
+    if (answerTexts.length === 0 || selectedAnswerTexts.length === 0) return [];
+    return [{
+      questionText: String(entry.questionText),
+      answerTexts,
+      selectedAnswerTexts,
+      selectionMode: entry.answerSelectionMode === 'multiple' ? 'multiple' as const : 'single' as const,
+    }];
+  });
+}
+
 export type BackgroundAgentTalkEvent = {
   version: 1;
   id: string;
