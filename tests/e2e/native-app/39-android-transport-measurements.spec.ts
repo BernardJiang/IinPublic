@@ -18,6 +18,10 @@
  *   hub-lan     local hub reachable, LAN discovery on (default)
  *   hub-only    local hub reachable, LAN discovery off
  *   wifi-direct hub unreachable, LAN discovery off: phones must form a Wi-Fi Direct group
+ *   ble-only   hub unreachable, LAN and Wi-Fi Direct off: discovery evidence only (BLE is never a
+ *              Talk-body transport)
+ *   mixed-nearby one phone reaches the local hub over Wi-Fi STA while the others use an
+ *                unreachable hub; LAN discovery is off and Wi-Fi Direct supplies their link
  *   cellular    public hub, private run-unique room; phones in E2E_MEASURE_CELLULAR_SERIALS turn
  *               Wi-Fi off and use mobile data
  *
@@ -52,7 +56,7 @@ import { resolveAndroidMatrixDevices, type ConfiguredAndroidDevice } from './hel
 
 const execFileAsync = promisify(execFile);
 
-type Mode = 'hub-lan' | 'hub-only' | 'wifi-direct' | 'cellular';
+type Mode = 'hub-lan' | 'hub-only' | 'wifi-direct' | 'cellular' | 'ble-only' | 'mixed-nearby';
 const RUN = process.env.E2E_REAL_ANDROID_MEASURE === '1';
 const MODE = (process.env.E2E_MEASURE_MODE || 'hub-lan') as Mode;
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
@@ -68,6 +72,19 @@ const PROFILE = process.env.E2E_MEASURE_PROFILE === '1';
 const PROFILE_SECONDS = 60;
 /** Idle with the screens off, the way a phone in a pocket idles (otherwise the screen stays on). */
 const SCREEN_OFF = process.env.E2E_MEASURE_SCREEN_OFF === '1';
+const ONLINE_SERIAL = process.env.E2E_MEASURE_ONLINE_SERIAL?.trim() || '';
+const timingNumber = (name: string): number | undefined => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 1_000 ? Math.round(value) : undefined;
+};
+const DISCOVERY_TIMING = {
+  scanWindowMs: timingNumber('E2E_DISCOVERY_SCAN_MS'),
+  offlineBackoffBaseMs: timingNumber('E2E_DISCOVERY_OFFLINE_BASE_MS'),
+  offlineBackoffMaxMs: timingNumber('E2E_DISCOVERY_OFFLINE_MAX_MS'),
+  offlineBackoffMaxNoBleMs: timingNumber('E2E_DISCOVERY_OFFLINE_NO_BLE_MAX_MS'),
+  onlineBackoffBaseMs: timingNumber('E2E_DISCOVERY_ONLINE_BASE_MS'),
+  onlineBackoffMaxMs: timingNumber('E2E_DISCOVERY_ONLINE_MAX_MS'),
+};
 const PACKAGE = 'com.iinpublic.app';
 const FIXED_LOCATION = { latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: '2026-10-18T12:00:00.000Z' };
 
@@ -94,6 +111,8 @@ type Evidence = {
   broadcast: Array<{ author: string; style: 'one-at-a-time' | 'all-at-once'; sendMs: Record<string, number>; receivedMs: Record<string, number | null>; allReceivedMs: number | null }>;
   background: { receiver: string; minutes: number; receivedWhileBackgroundMs: number | null; receivedAfterForegroundMs: number | null } | null;
   idle: Record<string, unknown>;
+  radio: Record<string, unknown>;
+  transport: Record<string, unknown>;
   notes: string[];
 };
 
@@ -360,6 +379,8 @@ test.describe('Native app: transport measurements on real phones', () => {
     broadcast: [],
     background: null,
     idle: {},
+    radio: {},
+    transport: {},
     notes: [],
   };
 
@@ -408,14 +429,19 @@ test.describe('Native app: transport measurements on real phones', () => {
     for (const device of devices) if (await isAndroidDeviceReady(device.serial)) ready.push(device);
     test.skip(ready.length < 2, `Needs at least two ready phones; found ${ready.length}.`);
 
-    const hubUrl = MODE === 'cellular'
-      ? PUBLIC_HUB
-      : MODE === 'wifi-direct' ? 'http://127.0.0.1:1/gun' : `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
+    const localHubUrl = `http://${resolveLanIp()}:${HUB_GUN_PORT}/gun`;
+    const hubUrlFor = (serial: string): string => {
+      if (MODE === 'cellular') return PUBLIC_HUB;
+      if (MODE === 'wifi-direct' || MODE === 'ble-only') return 'http://127.0.0.1:1/gun';
+      if (MODE === 'mixed-nearby' && serial !== ONLINE_SERIAL) return 'http://127.0.0.1:1/gun';
+      return localHubUrl;
+    };
+    if (MODE === 'mixed-nearby') expect(ready.some((device) => device.serial === ONLINE_SERIAL), 'E2E_MEASURE_ONLINE_SERIAL must name a ready phone').toBe(true);
     const runId = `measure-${MODE}-${Date.now()}`;
 
     for (const device of ready) {
       await wakeAndUnlock(device.serial);
-      if (MODE === 'wifi-direct') await dropLeftoverWifiDirectGroup(device.serial);
+      if (MODE === 'wifi-direct' || MODE === 'mixed-nearby') await dropLeftoverWifiDirectGroup(device.serial);
       if (MODE === 'cellular' && CELLULAR_SERIALS.has(device.serial)) {
         await setWifi(device.serial, false);
         await expect.poll(() => onCellularOnly(device.serial), { timeout: 30_000, message: `${device.serial} should be on mobile data` }).toBe(true);
@@ -428,14 +454,26 @@ test.describe('Native app: transport measurements on real phones', () => {
       const device = ready[index]!;
       const metadata = await readAndroidDeviceMetadata(device.serial);
       const sdk = Number(metadata.sdk || 0);
-      if (MODE === 'wifi-direct') await grantOfflineNearbyPermissions(device.serial, sdk);
+      if (MODE === 'wifi-direct' || MODE === 'ble-only' || MODE === 'mixed-nearby') await grantOfflineNearbyPermissions(device.serial, sdk);
       const launchedAt = Date.now();
-      const user = await launchAndroidUserViaAdb({ hubGunUrl: hubUrl, deviceSerial: device.serial, disableLanDiscovery: MODE !== 'hub-lan' });
+      const user = await launchAndroidUserViaAdb({
+        hubGunUrl: hubUrlFor(device.serial),
+        deviceSerial: device.serial,
+        disableLanDiscovery: MODE !== 'hub-lan',
+        discoveryTiming: DISCOVERY_TIMING,
+      });
       const lines: string[] = consoleLines[device.name] = [];
       user.window.on('console', (message) => {
         if (lines.length < 20_000) lines.push(`${new Date().toISOString()} ${message.type()} ${message.text()}`);
       });
       const id = await bootstrapNativeWindow(user.window, `Measure ${index + 1}`, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000, pinStableLocation: false });
+      if (MODE === 'ble-only') {
+        await user.window.evaluate(() => {
+          localStorage.setItem('iinpublic_nearby_wifi_direct', '0');
+          localStorage.setItem('iinpublic_nearby_bluetooth', '1');
+          window.dispatchEvent(new CustomEvent('iinpublic-nearby-settings-changed'));
+        });
+      }
       const readyMs = Date.now() - launchedAt;
       const phone: Phone = { device, user, id, sdk, model: String(metadata.model), release: String(metadata.release), uid: await appUid(device.serial), roomId: '' };
       phones.push(phone);
@@ -460,16 +498,43 @@ test.describe('Native app: transport measurements on real phones', () => {
     const allIds = phones.map((p) => p.id);
     const sinceStart = (ms: number | null) => (ms == null ? null : Date.now() - discoveryStartedAt);
 
-    if (MODE === 'wifi-direct') {
+    if (MODE === 'wifi-direct' || MODE === 'mixed-nearby') {
       const groupMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate(() => {
         const d = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.();
         return d?.wifiDirectActive === true && (d?.group?.state === 'owner' || d?.group?.state === 'client');
       })))).every(Boolean), 240_000, 1_000));
       evidence.discovery.all = { ...(evidence.discovery.all ?? {}), wifiDirectGroupMs: groupMs };
+      if (MODE === 'mixed-nearby' && groupMs != null) {
+        const coexistence = await Promise.all(phones.map(async (phone) => ({
+          name: phone.device.name,
+          serial: phone.device.serial,
+          ...(await phone.user.window.evaluate(async () => {
+            const hub = await fetch('/api/local-link/hub-status', { cache: 'no-store' }).then((response) => response.json()) as { reachable?: unknown };
+            let path: { connected?: unknown; validated?: unknown; transports?: unknown } = {};
+            try {
+              const raw = (window as any).IinPublicNearby?.networkPathState?.();
+              if (raw) path = JSON.parse(raw);
+            } catch {
+              // Assertion below reports the absent path rather than hiding it.
+            }
+            const nearby = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.();
+            return { hubReachable: hub.reachable === true, path, groupState: nearby?.group?.state };
+          })),
+        })));
+        const online = coexistence.find((phone) => phone.serial === ONLINE_SERIAL);
+        expect(online?.hubReachable, 'the designated online phone should still reach the hub while its Wi-Fi Direct group is active').toBe(true);
+        expect(Array.isArray(online?.path.transports) && online.path.transports.map(String).includes('wifi'), 'the designated online phone should retain its Wi-Fi STA path').toBe(true);
+        expect(online?.groupState === 'owner' || online?.groupState === 'client', 'the designated online phone should also remain in the Wi-Fi Direct group').toBe(true);
+        for (const phone of coexistence.filter((entry) => entry.serial !== ONLINE_SERIAL)) {
+          expect(phone.hubReachable, `${phone.name} should remain hub-offline`).toBe(false);
+        }
+        evidence.notes.push(`Mixed-path coexistence verified: ${online?.name} retained a validated Wi-Fi hub path while all phones shared the Wi-Fi Direct group.`);
+      }
     }
     if (MODE !== 'cellular' && MODE !== 'wifi-direct') {
       // Nearby v3: no hub roster; the first phone's list holding everyone else stands in for it.
       evidence.discovery.all = {
+        ...(evidence.discovery.all ?? {}),
         firstListMs: sinceStart(await timeUntil(async () => {
           const ids = new Set(await nearbyListIds(phones[0]!.user.window));
           return allIds.filter((id) => id !== phones[0]!.id).every((id) => ids.has(id));
@@ -479,6 +544,12 @@ test.describe('Native app: transport measurements on real phones', () => {
     // Every phone has everyone else: on its Nearby list, or in the room roster for the cellular
     // run's synthetic room.
     const rosterMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map(async (p) => {
+      if (MODE === 'ble-only') {
+        return p.user.window.evaluate((expected) => {
+          const diagnostics = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.();
+          return (diagnostics?.peers || []).filter((peer: { sources?: string[] }) => peer.sources?.includes('ble')).length >= expected;
+        }, phones.length - 1);
+      }
       const seen = MODE === 'cellular'
         ? new Set<string>(await p.user.window.evaluate(() => Array.from((window as any).__iinpublic_app?.getApp?.()?.chatroomService?.activeMembersForList?.keys?.() || []).map(String)))
         : new Set<string>(await nearbyListIds(p.user.window));
@@ -492,14 +563,17 @@ test.describe('Native app: transport measurements on real phones', () => {
       })))).every((n) => n >= phones.length - 1), 120_000, 500));
     }
     // Every pair also has a live mesh link with a confirmed encrypted session.
-    evidence.discovery.all.meshAllMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate((ids) => {
-      const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
-      return ids.filter((id: string) => mesh?.neighbors?.get?.(id)?.session?.secureSessionConfirmed === true).length;
-    }, allIds.filter((id) => id !== p.id))))).every((n) => n >= phones.length - 1), 120_000, 500));
+    if (MODE !== 'ble-only') {
+      evidence.discovery.all.meshAllMs = sinceStart(await timeUntil(async () => (await Promise.all(phones.map((p) => p.user.window.evaluate((ids) => {
+        const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
+        return ids.filter((id: string) => mesh?.neighbors?.get?.(id)?.session?.secureSessionConfirmed === true).length;
+      }, allIds.filter((id) => id !== p.id))))).every((n) => n >= phones.length - 1), 120_000, 500));
+    }
     console.log(`[measure] discovery ${JSON.stringify(evidence.discovery.all)} (from ${new Date(discoveryStartedAt).toISOString()})`);
-    expect(rosterMs, 'every phone should list every other phone').not.toBeNull();
+    expect(rosterMs, MODE === 'ble-only' ? 'every phone should see every other BLE beacon' : 'every phone should list every other phone').not.toBeNull();
 
     // 2. Fresh connection per pair, from the side that makes the WebRTC offer.
+    if (MODE !== 'ble-only') {
     for (let i = 0; i < phones.length; i += 1) {
       for (let j = i + 1; j < phones.length; j += 1) {
         const [a, b] = phones[i]!.id.localeCompare(phones[j]!.id) < 0 ? [phones[i]!, phones[j]!] : [phones[j]!, phones[i]!];
@@ -579,6 +653,7 @@ test.describe('Native app: transport measurements on real phones', () => {
       evidence.background = { receiver: receiver.device.name, minutes: BACKGROUND_MINUTES, receivedWhileBackgroundMs: whileBackground, receivedAfterForegroundMs: afterForeground };
       console.log(`[measure] background ${JSON.stringify(evidence.background)}`);
       await sleep(5_000);
+    }
     }
 
     // 5. Idle window with battery accounting, and discovery-state churn.
@@ -660,5 +735,24 @@ test.describe('Native app: transport measurements on real phones', () => {
       }
       console.log(`[measure] idle ${JSON.stringify(evidence.idle)}`);
     }
+    for (const phone of phones) {
+      const diagnostics = await phone.user.window.evaluate(() => {
+        const nearby = (window as any).__iinpublicNearbyOffline?.getDiagnostics?.() || null;
+        const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService?.getDiagnostics?.() || null;
+        return {
+          radio: nearby ? {
+            stage: nearby.stage,
+            discoveryDuty: nearby.discoveryDuty,
+            nativeMeasurements: nearby.nativeMeasurements,
+            peerSources: (nearby.peers || []).map((peer: { sources?: string[] }) => peer.sources || []),
+          } : null,
+          transport: mesh?.transport || null,
+        };
+      }).catch(() => ({ radio: null, transport: null }));
+      evidence.radio[phone.device.name] = diagnostics.radio;
+      evidence.transport[phone.device.name] = diagnostics.transport;
+    }
+    console.log(`[measure] radio ${JSON.stringify(evidence.radio)}`);
+    console.log(`[measure] transport ${JSON.stringify(evidence.transport)}`);
   });
 });

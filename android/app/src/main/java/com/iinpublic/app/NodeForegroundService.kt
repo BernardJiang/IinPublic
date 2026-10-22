@@ -149,6 +149,10 @@ class NodeForegroundService : Service() {
         internal fun wifiDirectState(): JSONObject =
             serviceInstance?.nearbyManager?.wifiDirectState() ?: JSONObject().put("version", 1).put("state", "idle")
 
+        internal fun nearbyMeasurementDiagnostics(): JSONObject =
+            serviceInstance?.nearbyManager?.measurementDiagnostics()
+                ?: JSONObject().put("version", 1).put("elapsedMs", 0)
+
         internal fun mailboxWatcherOrNull(): MailboxWatcher? = serviceInstance?.mailboxWatcher
 
         /** OPEN-38: the page (alive but not visible) asks for the activity notification. */

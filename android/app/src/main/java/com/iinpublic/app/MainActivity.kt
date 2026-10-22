@@ -504,6 +504,18 @@ class MainActivity : AppCompatActivity() {
         if (launch.getBooleanExtra(NodeForegroundService.DISABLE_LAN_DISCOVERY_EXTRA, false)) query += "&nearby_lan=0"
         // Debug only (`--ez disable_ble_presence true`): exercise the Wi-Fi-only discovery paths.
         if (launch.getBooleanExtra("disable_ble_presence", false)) query += "&nearby_ble=0"
+        // Debug-only discovery timing controls for OPEN-76. Release launches never receive these
+        // intent extras; values are bounded again by the web policy parser.
+        listOf(
+            "e2e_discovery_scan_ms",
+            "e2e_discovery_offline_base_ms",
+            "e2e_discovery_offline_max_ms",
+            "e2e_discovery_offline_no_ble_max_ms",
+            "e2e_discovery_online_base_ms",
+            "e2e_discovery_online_max_ms",
+        ).forEach { key ->
+            if (launch.hasExtra(key)) query += "&$key=" + launch.getIntExtra(key, 0).coerceIn(1_000, 30 * 60_000)
+        }
         // Debug only (`--ez skip_first_run_tour true`): no first-run tour (test automation).
         if (launch.getBooleanExtra(SKIP_FIRST_RUN_TOUR_EXTRA, false)) query += "&skip_tour=1"
         return query

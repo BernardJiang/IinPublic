@@ -152,6 +152,16 @@ type PeerMeshServiceOptions = {
   onNearbyGossip?: (fromUserId: string, fromPub: string, message: Record<string, unknown>) => Promise<unknown>;
 };
 
+type PeerMeshTransportMetrics = {
+  sentFrames: number;
+  sentBytes: number;
+  receivedFrames: number;
+  receivedBytes: number;
+  duplicateFramesReceived: number;
+  logicalTalkBodiesAccepted: number;
+  duplicateTalkBodiesReceived: number;
+};
+
 type Neighbor = {
   userId: string;
   stageName: string;
@@ -332,6 +342,16 @@ export class PeerMeshService {
   private readonly knockedAt = new Map<string, number>();
   /** When the broadcast loop last gave up on each person (two failed connects after the grace). */
   private readonly gaveUpAt = new Map<string, number>();
+  /** Content-free, process-lifetime counters for OPEN-76 physical route measurements. */
+  private readonly transportMetrics: PeerMeshTransportMetrics = {
+    sentFrames: 0,
+    sentBytes: 0,
+    receivedFrames: 0,
+    receivedBytes: 0,
+    duplicateFramesReceived: 0,
+    logicalTalkBodiesAccepted: 0,
+    duplicateTalkBodiesReceived: 0,
+  };
 
   constructor(
     private readonly gunService: WebGunService,
@@ -367,6 +387,7 @@ export class PeerMeshService {
     cachedTalkBodies: number;
     manifestReadyNeighborCount: number;
     manifestRejectedNeighborCount: number;
+    transport: PeerMeshTransportMetrics;
   } {
     return {
       roomId: this.currentRoomId,
@@ -376,6 +397,7 @@ export class PeerMeshService {
       cachedTalkBodies: this.talkBodies.size,
       manifestReadyNeighborCount: this.manifestReadyPeerIds.size,
       manifestRejectedNeighborCount: this.manifestRejectedPeerIds.size,
+      transport: { ...this.transportMetrics },
     };
   }
 
@@ -1434,6 +1456,8 @@ export class PeerMeshService {
         this.opts.sendTimeoutMs ?? DEFAULT_MESH_SEND_TIMEOUT_MS,
         'mesh send timeout',
       );
+      this.transportMetrics.sentFrames += 1;
+      this.transportMetrics.sentBytes += bytes;
       neighbor.connected = true;
       if (decision.frameClass === 'third-party' || decision.frameClass === 'discovery-gossip') {
         this.forwardingPolicy.recordForwarded(context.routeId, bytes);
@@ -1461,6 +1485,8 @@ export class PeerMeshService {
         this.opts.sendTimeoutMs ?? DEFAULT_MESH_SEND_TIMEOUT_MS,
         'mesh retry send timeout',
       );
+      this.transportMetrics.sentFrames += 1;
+      this.transportMetrics.sentBytes += bytes;
       neighbor.connected = true;
       if (decision.frameClass === 'third-party' || decision.frameClass === 'discovery-gossip') {
         this.forwardingPolicy.recordForwarded(context.routeId, bytes);
@@ -1517,7 +1543,13 @@ export class PeerMeshService {
     // During an ordered switch `leaveRoom()` deliberately creates a no-room interval. Accepting
     // a frame in that interval made a just-left room leak into the next one on real hardware.
     if (!this.currentRoomId || frame.roomId !== this.currentRoomId) return;
-    if (this.seen.has(frame.msgId) || this.verifyingFrameIds.has(frame.msgId)) return;
+    this.transportMetrics.receivedFrames += 1;
+    this.transportMetrics.receivedBytes += new TextEncoder().encode(JSON.stringify(frame)).byteLength;
+    if (this.seen.has(frame.msgId) || this.verifyingFrameIds.has(frame.msgId)) {
+      this.transportMetrics.duplicateFramesReceived += 1;
+      if (frame.kind === 'talk-body') this.transportMetrics.duplicateTalkBodiesReceived += 1;
+      return;
+    }
     this.verifyingFrameIds.add(frame.msgId);
     try {
       if (!(await this.verifyOrigin(frame))) return;
@@ -1656,6 +1688,7 @@ export class PeerMeshService {
         }
       }
       if (talkId && this.deliveredTalkBodyIds.has(deliveryKey)) {
+        this.transportMetrics.duplicateTalkBodiesReceived += 1;
         console.log(`[BODY-RECV] talk=${talkId.slice(-8)} dup-ack (already delivered)`);
         await this.acknowledge(frame);
         return;
@@ -1674,6 +1707,7 @@ export class PeerMeshService {
         return;
       }
       if (talkId) {
+        this.transportMetrics.logicalTalkBodiesAccepted += 1;
         this.deliveredTalkBodyIds.add(deliveryKey);
         this.cacheTalkBody(talkId, {
           ...frame.payload.talkData,

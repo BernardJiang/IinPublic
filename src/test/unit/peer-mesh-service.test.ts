@@ -868,6 +868,10 @@ describe('PeerMeshService', () => {
 
     expect(verifyOrigin).toHaveBeenCalledTimes(1);
     expect(responses.map((response) => response.responseId)).toEqual(['one-response']);
+    expect(alice.getDiagnostics().transport).toMatchObject({
+      receivedFrames: 2,
+      duplicateFramesReceived: 1,
+    });
   });
 
   /**

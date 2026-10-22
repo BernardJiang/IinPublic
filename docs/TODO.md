@@ -9,6 +9,10 @@ implementation history is in
 `docs/IinPublic Identity & Key Architecture TODO.md` is a design specification and keeps its own
 implementation plan.
 
+Actions that require the product owner, physical handling, privileged host changes, credentials or
+an outside reviewer are mirrored in `docs/OWNER-TODO.md`. This file remains the canonical issue
+record.
+
 The current product priority is the **website and Android app**. Work on their shared web runtime,
 browser behavior, Android shell, and website↔Android interoperability before any other platform.
 The order below, not the numeric issue ID, defines execution priority. Do not start a deferred issue
@@ -220,17 +224,33 @@ its ID.
       work; iOS remains unsupported until its separate native qualification exists.
 - [ ] **OPEN-76 — Physical transport, radio and battery measurements (carried over from OPEN-40
   G2.5 and its P1 discovery item on 2026-10-20).** The 2026-10-18/20 rounds
-  (`docs/testing/android-transport-measurements.md`) cover hub, LAN, offline Wi-Fi Direct and mobile
-  data. Still missing, on at least three phones: isolated BLE, a long unplugged battery run,
-  duplicate bytes, scan duty cycle and battery per discovery timer (the 30 s / 10 min / 30 min
-  values are untested defaults), and an online and an offline phone exchanging Talks over a nearby
-  link with Wi-Fi STA + Wi-Fi Direct concurrency on PH-1, P30, C10 and Honor. Only if duplicates
-  show on hardware: wire `NearbyCandidateRegistry`'s logical peer into `PeerMeshService` route
-  selection. Pick the production discovery timers from the results.
+  (`docs/testing/android-transport-measurements.md`) cover hub, LAN, offline Wi-Fi Direct, mobile
+  data, isolated BLE, duplicate accounting, provider duty counters, and online↔offline Talk exchange
+  with concurrent Wi-Fi STA + Wi-Fi Direct on three supported phones. The only remaining gate is the
+  owner's long unplugged battery run; Android's USB-attached battery model cannot substitute for it.
   Also carried from OPEN-72: on a phone, writing the incoming cluster (~0.8 s) and
   `cacheReceivedTalk` (~0.6 s) dominate accepting a Talk, and the mesh ACK wait
   (`DEFAULT_MESH_ACK_TIMEOUT_MS`, 3 s) is shorter than a phone's ~3.7 s round trip, so a slow
   receiver gets one redundant re-flood (deduplicated). Tune with the measurements, not before.
+  - [x] **Automatable A — Measurement harness:** add per-provider scan-window/duty-cycle counters,
+    logical-delivery and wire-byte/duplicate accounting, timer overrides, and retained JSON evidence.
+  - [x] **Automatable B — Physical bench matrix:** on at least three attached phones, isolate BLE
+    discovery, exercise 30 s / 10 min / 30 min schedules, and run online↔offline Talk exchange with
+    Wi-Fi STA + Wi-Fi Direct concurrency across PH-1, P30, C10 and Honor where supported.
+    Completed on P30, C10 and PH-1 on 2026-10-22; Honor Android 7 cannot join a credentialed
+    Wi-Fi Direct group. The hardware run used accelerated windows while deterministic tests cover
+    the production 30 s / 10 min / 30 min caps.
+  - [x] **Automatable C — Tune from evidence:** select production discovery timers and adjust the
+    mesh ACK timeout only if the measurements justify it; wire `NearbyCandidateRegistry` route
+    selection only if duplicate hardware routes are observed.
+    Retained 30 s / 10 min / 30 min and the 3 s ACK: 306 sent and 306 received frames produced zero
+    duplicate frames and zero duplicate Talk bodies, so neither ACK inflation nor route-selection
+    wiring is justified. Native idempotence reduced P30 BLE advertiser starts from 67 to 4 per
+    ~200 s mixed run; scan-command churn remains explicit evidence for the unplugged run.
+  - [x] **Automatable D — Regression/reporting:** add focused deterministic tests, rerun the relevant
+    Android matrix, and append the measurements and limitations to the transport report.
+  - [ ] **Owner action:** perform the long unplugged battery run after the automated harness is
+    ready; procedure and acceptance evidence are tracked in `docs/OWNER-TODO.md`.
 - [ ] **OPEN-77 — Protocol release key custody (operator action, carried over from OPEN-40 on
   2026-10-20).** Place the K3 and K4 vault/passphrase pairs in separate durable offline backups,
   verify restoration, and remove the working copies from the development machine when the release

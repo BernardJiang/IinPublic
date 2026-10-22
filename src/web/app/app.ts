@@ -162,7 +162,7 @@ import {
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
 import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
-import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
+import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
@@ -3031,6 +3031,7 @@ export class IinPublicApp {
       location: 'nearbyOfflineLocationOff',
       bluetooth: 'nearbyOfflineBluetoothOff',
     };
+    const discoveryTiming = discoveryPolicyTimingFromSearch(window.location.search);
     const service = new NearbyOfflineService({
       localPub,
       getRoomScope: () => this.activeExchangeRoomController?.getScope() ?? null,
@@ -3100,6 +3101,7 @@ export class IinPublicApp {
         return roster && roster.roomId === roomId ? { count: roster.count, pubs: roster.pubs } : null;
       },
       blePresence: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+      ...(discoveryTiming ? { discoveryTiming } : {}),
       // A missing permission was the user's answer to the one first-launch batch; Settings → App
       // permissions shows it. Only radio/service switches that are off get a hint.
       onReadinessGap: (gap) => gap === 'permission' ? undefined : this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {

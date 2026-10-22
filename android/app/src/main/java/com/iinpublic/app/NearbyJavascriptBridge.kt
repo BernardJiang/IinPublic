@@ -44,6 +44,8 @@ class NearbyJavascriptBridge(
     @JavascriptInterface fun refreshWifiDirectState() = withManager { it.refreshWifiDirectState() }
     @JavascriptInterface fun stopWifiDirectServiceDiscovery() = NodeForegroundService.setWifiDirectServiceDiscovery(false)
     @JavascriptInterface fun nearbyReadiness(): String = NodeForegroundService.nearbyReadiness().toString()
+    /** Content-free provider command timing/counters for physical qualification. */
+    @JavascriptInterface fun measurementDiagnostics(): String = NodeForegroundService.nearbyMeasurementDiagnostics().toString()
     /** Active Android path health, including NET_CAPABILITY_NOT_METERED. No SSID/location data. */
     @JavascriptInterface fun networkPathState(): String = NodeForegroundService.networkPathState().toString()
     /** OPEN-38: which local user's mailbox the always-on service should watch while the page sleeps. */
