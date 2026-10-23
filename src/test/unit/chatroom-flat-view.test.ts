@@ -91,6 +91,9 @@ describe('flat Nearby and Places list', () => {
     expect(Array.from(document.querySelectorAll('[data-testid="nearby-person-row"]'), (row) => row.textContent)).toEqual(
       expect.arrayContaining([expect.stringContaining('Alice'), expect.stringContaining('Bob')]),
     );
+    const browserSections = Array.from(document.querySelectorAll('[data-testid="nearby-browser-list"] > section'));
+    expect(browserSections.map((section) => section.getAttribute('data-testid')))
+      .toEqual(['nearby-people-section', 'rooms-near-you-section']);
     expect(rows.every((row) => row.querySelector('button') === null)).toBe(true);
     expect(document.querySelector('[data-testid="nearby-group-bar"]')).not.toBeNull();
   });

@@ -302,12 +302,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   chatroomList.innerHTML = `
     ${renderRoomListHeader(deps.activeRooms, sort, deps.text, deps.nearbyOnline)}
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
-    ${showRoomsSection ? `<section class="chatroom-flat-section nearby-browser-rooms" data-testid="rooms-near-you-section">
-        <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
-        ${currentNode ? renderRoomRow(currentNode, true) : ''}
-        ${visibleRoomRows.map((row) => renderRoomListRow(row, deps.text, deps.escapeHtml)).join('')}
-        ${deps.activeRooms?.hasMore ? `<button type="button" class="btn" id="room-list-more" data-testid="room-list-more">${deps.text('roomListShowMore')}</button>` : ''}
-      </section>` : ''}
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
       <div class="nearby-people-heading">
         <h2 class="chatroom-flat-heading">${deps.text('nearbyPeopleNearYou')}</h2>
@@ -319,6 +313,12 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
           : `<p class="chatroom-flat-empty">${deps.text('chatroomNoOtherUsers')}</p>`}
       </div>
     </section>
+    ${showRoomsSection ? `<section class="chatroom-flat-section nearby-browser-rooms" data-testid="rooms-near-you-section">
+        <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
+        ${currentNode ? renderRoomRow(currentNode, true) : ''}
+        ${visibleRoomRows.map((row) => renderRoomListRow(row, deps.text, deps.escapeHtml)).join('')}
+        ${deps.activeRooms?.hasMore ? `<button type="button" class="btn" id="room-list-more" data-testid="room-list-more">${deps.text('roomListShowMore')}</button>` : ''}
+      </section>` : ''}
     </div>`;
 
   const nearbyBrowserMembers = document.getElementById('nearby-browser-members');
