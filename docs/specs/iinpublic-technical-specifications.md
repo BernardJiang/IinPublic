@@ -239,7 +239,7 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   - Questions answered count
   - Talks sent count
   - Matches found count
-  - Number of friends
+  - Number of distinct other identities that explicitly marked this user as a Friend
   - Mutual friends count
   - Star-rating style reviews
   - Age verification feedback (true/false votes)
@@ -287,10 +287,15 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
   blurred current-area shading, public Place pins/population bubbles, and an empty-map-point travel
   preview. Neither view SHALL expose Global, L1-L4, country/state rooms, parent/child navigation,
   indentation levels, raw coordinate IDs, internal index buckets, or numbered overflow rooms.
-- **FR-CR-5 (Map Places)**: Any user MAY publish a signed, immutable, content-addressed **Place**
-  descriptor for a restaurant, event, club, or community at a public map point. Creation makes the
-  user the first ordinary participant and grants no ownership, moderation, reserved seat, rename,
-  deletion, or admission power.
+- **FR-CR-5 (Map Places)**: A user MAY publish one signed, immutable, content-addressed **Place**
+  descriptor after at least 12 distinct other identities have marked them as a Friend and fewer
+  than three people block them. Contacts created automatically by Talk exchange do not count; the
+  hub SHALL derive the incoming statistics, bind them to the descriptor's SEA creator, and enforce
+  the threshold at creation and throughout the Place lifecycle. The Place SHALL be absent from
+  public list/map discovery whenever its creator falls below the bar or its activity window expires;
+  it is hidden rather than deleted and MAY become discoverable again when both conditions recover.
+  Creation makes the user the first ordinary participant and grants no ownership, moderation,
+  reserved seat, rename, deletion, or admission power.
 - **FR-CR-6 (Place provenance)**: A Place descriptor MAY contain a display name, type, description,
   public point/address, creator public key, and creation time. Its signature proves provenance, not
   a trademark or business claim. Duplicate names are allowed; the UI SHALL label the room

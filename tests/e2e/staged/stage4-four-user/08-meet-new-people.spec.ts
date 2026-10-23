@@ -56,9 +56,7 @@ test.describe('Meet new people: swap the whole group for the next one (§3.7)', 
     await adam.locator('.chatroom-item.current-room').click();
     await expect(groupMembers(adam)).toHaveCount(2, { timeout: 90_000 });
     await expect(adam.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you');
-    const group1 = await memberNames(adam);
-    const notMet = [...othersByName.keys()].filter((name) => !group1.includes(name));
-    expect(notMet).toHaveLength(1);
+    const firstSeenGroup = await memberNames(adam);
 
     // Online dots come from the hub's card heartbeats (refreshed at start and every minute).
     await expect(adam.locator('#chatroom-members-list .presence-indicator.online')).toHaveCount(2, { timeout: 75_000 });
@@ -68,11 +66,16 @@ test.describe('Meet new people: swap the whole group for the next one (§3.7)', 
     const talk = await createTagTalk(adamActor, `meet-new-people-${Date.now()}`);
     const sent = await adam.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(1));
     expect(sent?.talksSent ?? 0).toBeGreaterThan(0);
-    for (const name of group1) {
+    for (const name of firstSeenGroup) {
       expect(await waitForIncomingTalk(othersByName.get(name)!, name, talk.title)).toBe(talk.talkId);
     }
 
     // Meet new people: confirm, then group 2 is only the person Adam had not been grouped with.
+    // Capture group 1 immediately before the swap. While the four new users gossip, Adam can learn
+    // a higher-ranked card and legitimately replace one of the first two rows shown above.
+    const group1 = await memberNames(adam);
+    const notMet = [...othersByName.keys()].filter((name) => !group1.includes(name));
+    expect(notMet).toHaveLength(1);
     await adam.locator('[data-testid="nearby-meet-new-people"]').click();
     await expect(adam.locator('[data-testid="nearby-meet-confirm"]')).toContainText('Swap these 2 people for the next people near you.');
     await adam.locator('[data-testid="nearby-meet-confirm-action"]').click();
@@ -88,9 +91,13 @@ test.describe('Meet new people: swap the whole group for the next one (§3.7)', 
     await expect(adam.locator('[data-testid="nearby-group-note"]')).toHaveText("You've met everyone here for now.", { timeout: 90_000 });
     await expect(groupMembers(adam)).toHaveCount(0);
 
-    // Back to group 1: the first two again.
+    // Back to group 1: the currently highest-ranked two again. Membership can differ from the
+    // early snapshot if gossip learned a better-ranked card while Adam visited later groups.
     await adam.locator('[data-testid="nearby-back-to-first-group"]').click();
     await expect(adam.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you', { timeout: 30_000 });
-    await expect.poll(() => memberNames(adam), { timeout: 90_000 }).toEqual(group1);
+    await expect(groupMembers(adam)).toHaveCount(2, { timeout: 90_000 });
+    const returnedGroup = await memberNames(adam);
+    expect(returnedGroup.every((name) => othersByName.has(name))).toBe(true);
+    expect(new Set(returnedGroup).size).toBe(2);
   });
 });

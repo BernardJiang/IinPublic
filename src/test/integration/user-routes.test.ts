@@ -98,4 +98,41 @@ describe('user routes', () => {
       expect(res.body).toEqual({ blocked: true, blockedBy: false, eitherBlocked: true });
     });
   });
+
+  it('uses the hub as the Friend-mark authority and mirrors locally on a phone node', async () => {
+    const app = express();
+    app.use(express.json());
+    const mark = { markerUserId: 'alice', targetUserId: 'bob', active: true, proof: { signature: 'signed' } };
+    const userService = {
+      setFriendMark: jest.fn().mockResolvedValue({ changed: true, friendsCount: 12 }),
+    };
+    const setFriendMark = jest.fn().mockResolvedValue({ changed: true, friendsCount: 12 });
+    registerUserRoutes(app, {
+      userService: userService as any,
+      hubRelayClient: buildHubRelayClient({ setFriendMark }),
+    });
+
+    const response = await request(app).put('/api/users/alice/friend-marks/bob').send(mark).expect(200);
+    expect(response.body).toMatchObject({ ok: true, changed: true, friendsCount: 12 });
+    expect(userService.setFriendMark).toHaveBeenCalledWith(mark);
+    expect(setFriendMark).toHaveBeenCalledWith('alice', 'bob', mark);
+  });
+
+  it('does not reject a hub-accepted Friend mark when the phone lacks the target profile', async () => {
+    const app = express();
+    app.use(express.json());
+    const mark = { markerUserId: 'alice', targetUserId: 'bob', active: true, proof: { signature: 'signed' } };
+    const userService = {
+      setFriendMark: jest.fn().mockRejectedValue(new Error('target not cached locally')),
+    };
+    const setFriendMark = jest.fn().mockResolvedValue({ changed: true, friendsCount: 4 });
+    registerUserRoutes(app, {
+      userService: userService as any,
+      hubRelayClient: buildHubRelayClient({ setFriendMark }),
+    });
+
+    const response = await request(app).put('/api/users/alice/friend-marks/bob').send(mark).expect(200);
+    expect(response.body).toMatchObject({ ok: true, changed: true, friendsCount: 4 });
+    expect(setFriendMark).toHaveBeenCalledWith('alice', 'bob', mark);
+  });
 });

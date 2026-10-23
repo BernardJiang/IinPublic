@@ -58,6 +58,26 @@ describe('a group boundary on the list', () => {
     expect(list.entries().map((entry) => entry.card.pub)).toEqual(order.slice(0, 4));
   });
 
+  it('does not repeat an earlier group when a late beacon changes the rank order', () => {
+    const list = new NearbyList(owner, { capacity: 4 });
+    list.merge(crowd, NOW);
+    const group1 = list.entries().map((entry) => entry.card.pub);
+    const after = list.lastKey()!;
+
+    // Attestation may replace the UTC fallback beacon after the first group was already shown.
+    // The boundary belongs to the old order, so exact exclusions are required as well.
+    list.setOwner({
+      ...owner,
+      beacon: 'signed-beacon-with-a-different-order',
+      after,
+      excludedPubs: group1,
+    });
+    list.merge(crowd, NOW);
+
+    expect(list.entries()).toHaveLength(4);
+    expect(list.entries().some((entry) => group1.includes(entry.card.pub))).toBe(false);
+  });
+
   it('a partner offers only people past my boundary', () => {
     const partner = new NearbyList({ pub: 'partner', point: SD, scope: 'nearby', beacon: BEACON }, { capacity: 100 });
     partner.merge(crowd, NOW);

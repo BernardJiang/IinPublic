@@ -1,5 +1,6 @@
 import {
   findPlaceCreationConflict,
+  isPlaceDiscoverable,
   isPlaceLive,
   MAX_LIVE_PLACES_PER_CELL,
   normalizePlaceName,
@@ -19,16 +20,24 @@ describe('Place lifecycle', () => {
     expect(isPlaceLive({ id: 'a' }, now)).toBe(false);
   });
 
+  it('is publicly discoverable only while live and its creator still clears the credit bar', () => {
+    const live = { id: 'a', createdAt: daysAgo(2) };
+    const expired = { id: 'b', createdAt: daysAgo(31) };
+    expect(isPlaceDiscoverable(live, true, now)).toBe(true);
+    expect(isPlaceDiscoverable(live, false, now)).toBe(false);
+    expect(isPlaceDiscoverable(expired, true, now)).toBe(false);
+  });
+
   it('normalizes names for the same-name rule', () => {
     expect(normalizePlaceName('  Bean   There ')).toBe(normalizePlaceName('bean there'));
   });
 
-  it('allows one live Place per creator; an expired one no longer counts', () => {
+  it('allows one Place per creator for the identity lifetime, including after expiry', () => {
     const own = { id: 'p1', name: 'Mine', anchorCell: 'region_1_1', creatorPub: 'pubA', createdAt: daysAgo(3) };
     expect(findPlaceCreationConflict([own], { creatorPub: 'pubA', anchorCell: cell, name: 'New' }, now))
       .toEqual({ code: 'PLACE_CREATOR_LIMIT', existingId: 'p1', existingName: 'Mine' });
     expect(findPlaceCreationConflict([{ ...own, createdAt: daysAgo(40) }], { creatorPub: 'pubA', anchorCell: cell, name: 'New' }, now))
-      .toBeNull();
+      .toEqual({ code: 'PLACE_CREATOR_LIMIT', existingId: 'p1', existingName: 'Mine' });
   });
 
   it('refuses the same name in the same cell, but not in another cell', () => {

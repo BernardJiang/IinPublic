@@ -1,4 +1,4 @@
-import { isPlaceLive, PlaceCreationConflictError, type PlaceLifecycleRow } from '../../shared/place-lifecycle';
+import { isPlaceDiscoverable, PlaceCreationConflictError, type PlaceLifecycleRow } from '../../shared/place-lifecycle';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
 import type express from 'express';
 import { ChatroomManager } from '../services/chatroom-manager';
@@ -9,6 +9,7 @@ import { isValidChatroomMapLocation } from '../../shared/chatroom-map-geojson';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { CONFIG } from '../../shared/config';
 import { PlaceChatStore } from '../services/place-chat-store';
+import { UserService } from '../services/user-service';
 
 /** How often a room's hub roster is re-read while it is wanted. */
 const RELAY_ROOM_POLL_MS = 5_000;
@@ -20,6 +21,7 @@ export const RELAY_ROOM_LEASE_MS = ROOM_MEMBERSHIP_TTL_SECONDS * 1000;
 
 type RegisterChatroomRoutesDeps = {
   chatroomManager: ChatroomManager;
+  userService: UserService;
   placeChatStore?: PlaceChatStore;
   /**
    * S3 native explicit relay mode: embedded local nodes keep app graph local,
@@ -30,7 +32,7 @@ type RegisterChatroomRoutesDeps = {
 
 export function registerChatroomRoutes(
   app: express.Application,
-  { chatroomManager, hubRelayClient, placeChatStore = new PlaceChatStore(CONFIG.CHATROOM_MAX_CAPACITY * 4) }: RegisterChatroomRoutesDeps,
+  { chatroomManager, userService, hubRelayClient, placeChatStore = new PlaceChatStore(CONFIG.CHATROOM_MAX_CAPACITY * 4) }: RegisterChatroomRoutesDeps,
 ): void {
   const relayPollTimers = new Map<string, ReturnType<typeof setInterval>>();
   /** When this node's page last asked for each room's members (join, touch or a members read). */
@@ -185,32 +187,58 @@ export function registerChatroomRoutes(
 
   app.get('/api/chatrooms', async (req, res) => {
     try {
-      // Only live Places are listed (docs/design/nearby-and-place-chatrooms.md §4.2); a creator
-      // passing their own key still sees their expired Place.
+      // Public discovery is conditional on both recent activity and the creator's current credit
+      // (docs/design/nearby-and-place-chatrooms.md §4.2). A creator passing their own key still
+      // sees their hidden Place so they can revisit it; the immutable descriptor is not deleted.
       const creatorPub = typeof req.query.creatorPub === 'string' ? req.query.creatorPub : '';
       const nowMs = Date.now();
-      const listed = (room: unknown): boolean => {
+      const creditByCreator = new Map<string, Promise<boolean>>();
+      const listed = async (room: unknown): Promise<boolean> => {
         if (!room || typeof room !== 'object') return false;
         const row = room as PlaceLifecycleRow;
         if (!isPlaceRoomId(String(row.id || ''))) return true;
-        return isPlaceLive(row, nowMs) || (!!creatorPub && row.creatorPub === creatorPub);
+        if (creatorPub && row.creatorPub === creatorPub) return true;
+        const createdBy = String(row.createdBy || '').trim();
+        const roomCreatorPub = String(row.creatorPub || '').trim();
+        if (!createdBy || !roomCreatorPub) return false;
+        const key = `${createdBy}\0${roomCreatorPub}`;
+        let eligibility = creditByCreator.get(key);
+        if (!eligibility) {
+          eligibility = userService.getRoomCreationCredit(createdBy, roomCreatorPub)
+            .then((credit) => credit.eligible)
+            .catch(() => false);
+          creditByCreator.set(key, eligibility);
+        }
+        return isPlaceDiscoverable(row, await eligibility, nowMs);
       };
       // An embedded node also lists the hub's Places, so a phone sees rooms other people created.
-      // Both lists are read at once.
+      // Both lists are read at once. When the hub answers, its Place set is authoritative: a stale
+      // local copy must not resurrect a room the hub hid after its creator lost reputation.
       const [local, remoteRooms] = await Promise.all([
         chatroomManager.getAllChatrooms(),
         hubRelayClient?.listChatrooms
-          ? hubRelayClient.listChatrooms(creatorPub || undefined).catch(() => [] as unknown[])
-          : Promise.resolve([] as unknown[]),
+          ? hubRelayClient.listChatrooms(creatorPub || undefined).catch(() => null)
+          : Promise.resolve(null),
       ]);
-      const chatrooms = local.filter(listed);
-      const remote = remoteRooms.filter(listed);
+      const localVisibility = await Promise.all(local.map(listed));
+      const chatrooms = local.filter((_room, index) => localVisibility[index]);
+      if (!remoteRooms) {
+        res.json(chatrooms);
+        return;
+      }
+      const remotePlaceIds = new Set(remoteRooms
+        .filter((room) => room && typeof room === 'object' && isPlaceRoomId(String((room as { id?: unknown }).id || '')))
+        .map((room) => String((room as { id?: unknown }).id || '')));
+      const locallyAllowedByHub = chatrooms.filter((room) =>
+        !isPlaceRoomId(String((room as { id?: unknown }).id || ''))
+        || remotePlaceIds.has(String((room as { id?: unknown }).id || '')),
+      );
       const byId = new Map<string, unknown>();
-      for (const room of [...chatrooms, ...remote]) {
+      for (const room of [...locallyAllowedByHub, ...remoteRooms]) {
         const id = room && typeof room === 'object' ? String((room as { id?: unknown }).id || '') : '';
         if (id && !byId.has(id)) byId.set(id, room);
       }
-      res.json(remote.length > 0 ? Array.from(byId.values()) : chatrooms);
+      res.json(Array.from(byId.values()));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -369,6 +397,20 @@ export function registerChatroomRoutes(
         }
         if (upstream.status < 200 || upstream.status >= 300) {
           res.status(upstream.status).json(upstream.body);
+          return;
+        }
+      } else if (descriptor && typeof descriptor === 'object') {
+        // The hub, not a modifiable client, enforces the public-map publishing bar. The signed
+        // descriptor binds the room to the creator's SEA key; incoming Friend marks are counted
+        // from distinct signed pair slots and ordinary auto-created Contacts do not qualify.
+        const creatorPub = String((descriptor as { creatorPub?: unknown }).creatorPub || '');
+        const credit = await userService.getRoomCreationCredit(createdBy, creatorPub);
+        if (!credit.eligible) {
+          res.status(403).json({
+            error: 'room creation reputation threshold not met',
+            code: 'PLACE_REPUTATION_REQUIRED',
+            ...credit,
+          });
           return;
         }
       }

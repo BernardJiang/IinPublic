@@ -33,6 +33,7 @@ import {
 import { blockPairHash } from '../../shared/block-pair';
 import { recordBlockSignal, recordSharedBlockSignal as mergeSharedBlockSignal } from '../../shared/block-signal';
 import { getDefaultTalkIntakeFilters } from '../../shared/talk-intake-filters';
+import type { SignedFriendMark } from '../../shared/friend-mark';
 
 const USER_TAGS_DELTA_KEY = 'user-tags-delta';
 const TAG_INDEX_KEY = 'tag-index';
@@ -890,6 +891,22 @@ export class WebUserService {
       : { method: 'DELETE' });
     if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
     return true;
+  }
+
+  async setFriendMark(mark: SignedFriendMark): Promise<number> {
+    const apiBase = this.getApiBase();
+    if (!apiBase) throw new Error('friend reputation requires the application service');
+    const response = await fetch(
+      `${apiBase}/api/users/${encodeURIComponent(mark.markerUserId)}/friend-marks/${encodeURIComponent(mark.targetUserId)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mark),
+      },
+    );
+    const body = await response.json().catch(() => ({})) as { friendsCount?: unknown; error?: unknown };
+    if (!response.ok) throw new Error(String(body.error || `friend mark failed: HTTP ${response.status}`));
+    return Math.max(0, Number(body.friendsCount) || 0);
   }
 
   async blockUser(userId: string, targetId: string): Promise<string[]> {

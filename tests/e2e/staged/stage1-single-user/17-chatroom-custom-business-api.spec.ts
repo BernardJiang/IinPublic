@@ -1,4 +1,5 @@
 import { test, expect } from '../../helpers/fixtures';
+import type { APIRequestContext } from '@playwright/test';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { waitForGunApiReady } from '../../helpers/clear-database';
 import { gunBaseURL } from '../../helpers/ports';
@@ -13,14 +14,25 @@ const SERVER_ROOM_ID = /^place_b[a-z2-7]+$/;
 // A local room is anchored to its creator's blurred ~1 km cell (San Diego here).
 const ANCHOR_CELL = LocationPrivacy.blurLocation({ latitude: 32.7157, longitude: -117.1611 }).region;
 
-async function signedDescriptor(name: string, placeType: 'business' | 'custom', description?: string) {
+async function signedDescriptorForOwner(
+  request: APIRequestContext,
+  ownerId: string,
+  name: string,
+  placeType: 'business' | 'custom',
+  description?: string,
+) {
   const anchor = parseAnchorCell(ANCHOR_CELL)!;
+  const pair = await SEA.pair();
+  const owner = await request.post(`${gunBaseURL()}/api/users`, {
+    data: { id: ownerId, stageName: ownerId, pub: pair.pub, epub: pair.epub },
+  });
+  expect(owner.ok(), await owner.text()).toBeTruthy();
   return createSignedPlaceDescriptor({
     name,
     placeType,
     ...(description !== undefined ? { description } : {}),
     location: { latitude: anchor.latitude, longitude: anchor.longitude },
-    pair: await SEA.pair(),
+    pair,
   });
 }
 
@@ -54,7 +66,13 @@ test.describe('Chatroom custom/business API scripts', () => {
         createdBy,
         description: 'Local custom room',
         capacity: 120,
-        descriptor: await signedDescriptor('Neighborhood Buy/Sell', 'custom', 'Local custom room'),
+        descriptor: await signedDescriptorForOwner(
+          request,
+          createdBy,
+          'Neighborhood Buy/Sell',
+          'custom',
+          'Local custom room',
+        ),
       },
     });
     expect(createRes.ok(), await createRes.text()).toBeTruthy();
@@ -81,7 +99,7 @@ test.describe('Chatroom custom/business API scripts', () => {
         name: 'Coffee Shop Live',
         type: 'business',
         anchorCell: ANCHOR_CELL,
-        descriptor: await signedDescriptor('Coffee Shop Live', 'business'),
+        descriptor: await signedDescriptorForOwner(request, ownerId, 'Coffee Shop Live', 'business'),
         createdBy: ownerId,
         businessInfo: {
           brandName: 'Coffee Shop',
@@ -122,7 +140,7 @@ test.describe('Chatroom custom/business API scripts', () => {
         type: 'custom',
         createdBy: 'owner_members_1',
         anchorCell: ANCHOR_CELL,
-        descriptor: await signedDescriptor('Members Room', 'custom'),
+        descriptor: await signedDescriptorForOwner(request, 'owner_members_1', 'Members Room', 'custom'),
       },
     });
     expect(createRes.ok(), await createRes.text()).toBeTruthy();

@@ -77,7 +77,7 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-PLACE-05 | Everyone leaves; the empty Place is still listed for others | ◐ `stage1/54` (creator only) | ✅ `phone-path/01` | ✅ `native-app/33` |
 | J-PLACE-06 | A plain web user sees a Place made on a phone | — | ✅ `phone-path/01` | — |
 | J-PLACE-07 | An empty Place can be entered again | ◐ `stage1/54` | ✅ `phone-path/01` | ✅ `native-app/33` |
-| J-PLACE-08 | Refusals: too few contacts, one live Place per person | ✅ `stage1/54` | ✅ `phone-path/03` | — |
+| J-PLACE-08 | Refusals: too few incoming Friend marks, one Place per person | ✅ `stage1/54` | ✅ `phone-path/03` | — |
 | J-PLACE-09 | Refusals: same name in the cell, cell full | ◐ unit + integration only | ✅ `phone-path/03` | — |
 | J-PLACE-10 | Hub unreachable while creating → clear error, nothing kept locally | ◐ integration only | ✅ `phone-path/03` | — |
 | J-PLACE-11 | A Place with no visits for 30 days disappears from lists and the map | ◐ unit only | ✅ `phone-path/03` (lists, not the map) | — |

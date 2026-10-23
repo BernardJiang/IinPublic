@@ -52,6 +52,7 @@ import {
 } from '../../shared/talk-intake-filters';
 import { CONFIG } from '../../shared/config';
 import type { CustomChatroomRow } from './chatrooms-view';
+import { roomCreationCredit } from '../../shared/room-creation-credit';
 
 export interface SettingsViewDeps {
   currentLocation: GPSCoordinate | undefined;
@@ -195,6 +196,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   const reviewCount = reputation.reviewCount ?? 0;
   const starRating = Number(reputation.starRating ?? 0);
   const friendsCount = reputation.friendsCount ?? 0;
+  const blockCount = reputation.blockCount ?? 0;
+  const creationCredit = roomCreationCredit(reputation, undefined, {
+    minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
+    maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
+  });
   const matchesFound = reputation.matchesFound ?? 0;
   const likedCount = reputation.likedCount ?? 0;
   const dislikedCount = reputation.dislikedCount ?? 0;
@@ -440,10 +446,22 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meBlocks')}</div><div style="font-size:1.15em;font-weight:700;">${blockCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);grid-column:span 2;"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '18+' : deps.t('unavailable')}</div></div>
+            <div data-testid="room-creation-credit" style="padding:10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--border);grid-column:span 2;">
+              <div style="font-size:0.78em;color:var(--text-tertiary);">${deps.t('meRoomCreationCredit')}</div>
+              <div style="font-size:0.92em;font-weight:650;color:var(--text-primary);">${creationCredit.eligible
+                ? deps.t('meRoomCreationUnlocked')
+                : deps.tf('meRoomCreationLocked', {
+                    requiredFriends: creationCredit.requiredFriendMarks,
+                    maximumBlocks: creationCredit.maximumAllowedBlocks,
+                    friends: creationCredit.friendMarks,
+                    blocks: creationCredit.blockCount,
+                  })}</div>
+            </div>
           </div>
         `,
         )}

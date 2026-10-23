@@ -159,7 +159,13 @@ type RegisterSystemRoutesDeps = {
   hubRelayClient?: EmbeddedHubRelayClientLike;
   /** The room list (shared/active-rooms.ts): Place pins from the room manager; counts come from the v3 hub. */
   activeRoomSource?: {
-    placeOf: (roomId: string) => Promise<{ name: string; latitude?: number; longitude?: number } | undefined>;
+    placeOf: (roomId: string) => Promise<{
+      name: string;
+      latitude?: number;
+      longitude?: number;
+      /** False when the creator no longer clears the reputation bar. */
+      discoverable?: boolean;
+    } | undefined>;
   };
   /** A member's card for a Place reached the v3 hub: keep the Place live (§4.2). */
   onPlaceActive?: (placeId: string) => void;
@@ -423,14 +429,28 @@ export function registerSystemRoutes(
       ? { latitude, longitude }
       : undefined;
     const rooms = nearbyV3Hub.placeCounts().map(({ placeId, count }) => ({ roomId: placeId, memberCount: count }));
-    const places = new Map<string, { name: string; latitude?: number; longitude?: number }>();
+    const places = new Map<string, {
+      name: string;
+      latitude?: number;
+      longitude?: number;
+      discoverable?: boolean;
+    }>();
     await Promise.all(rooms.filter((room) => isPlaceRoomId(room.roomId)).map(async (room) => {
       const place = await activeRoomSource.placeOf(room.roomId).catch(() => undefined);
       if (place) places.set(room.roomId, place);
     }));
+    // A live card proves current activity, but it does not override the creator-credit lifecycle
+    // rule. People inside a hidden Place still contribute to the global online total; the room is
+    // simply absent from discovery until its creator qualifies again.
+    const roomsWithLifecycle = rooms.map((room) => ({
+      ...room,
+      // Missing metadata/credit is fail-closed: an occupied but unverifiable Place must not leak
+      // back into discovery merely because its metadata lookup failed.
+      discoverable: places.get(room.roomId)?.discoverable === true,
+    }));
     const currentRoomId = typeof query.current === 'string' ? query.current : undefined;
     res.json(summarizeActiveRooms({
-      rooms,
+      rooms: roomsWithLifecycle,
       totalOnline: nearbyV3Hub.online(),
       placeOf: (roomId) => places.get(roomId),
       ...(origin ? { origin } : {}),

@@ -259,10 +259,17 @@ class IinPublicServer {
           const meta = await this.chatroomManager.getChatroomMeta(roomId);
           if (!meta) return undefined;
           const location = meta.location as { latitude?: number; longitude?: number } | undefined;
+          const createdBy = String(meta.createdBy || '').trim();
+          const creatorPub = String(meta.creatorPub || '').trim();
+          const discoverable = !!createdBy && !!creatorPub && await this.userService
+            .getRoomCreationCredit(createdBy, creatorPub)
+            .then((credit) => credit.eligible)
+            .catch(() => false);
           return {
             name: String(meta.name || ''),
             ...(Number.isFinite(location?.latitude) ? { latitude: Number(location!.latitude) } : {}),
             ...(Number.isFinite(location?.longitude) ? { longitude: Number(location!.longitude) } : {}),
+            discoverable,
           };
         },
       },
@@ -280,6 +287,7 @@ class IinPublicServer {
 
     registerChatroomRoutes(this.app, {
       chatroomManager: this.chatroomManager,
+      userService: this.userService,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
     registerAdminRoutes(this.app, this.techSupportAnnouncements);

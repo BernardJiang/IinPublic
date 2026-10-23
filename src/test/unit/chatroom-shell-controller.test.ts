@@ -2,14 +2,13 @@
 
 import { createChatroomShellController, type ChatroomShellControllerDeps } from '../../web/ui/chatroom-shell-controller';
 import { renderChatroomList, showChatroomDetail, updateChatroomMembers } from '../../web/ui/chatrooms-view';
-import { CONFIG } from '../../shared/config';
-import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import type { User } from '../../shared/types';
+import { ROOM_CREATE_MIN_FRIEND_MARKS } from '../../shared/room-creation-credit';
 
-function userWithContacts(count: number): User {
+function userWithCredit(friendsCount: number, blockCount = 0): User {
   return {
     id: 'self',
-    knownPeople: Array.from({ length: count }, (_, i) => ({ userId: `c${i}`, labels: ['friend'], addedAt: new Date() })),
+    reputation: { friendsCount, blockCount },
   } as unknown as User;
 }
 
@@ -117,7 +116,7 @@ describe('chatroom shell controller', () => {
     const deps = makeDeps({
       showCreateCustomChatroomDialog: jest.fn().mockResolvedValue({ name: 'New Room', type: 'custom' }),
       getAnchorCell: () => 'region_32.71_-117.17',
-      getCurrentUser: () => userWithContacts(CONFIG.PLACE_CREATE_MIN_CONTACTS),
+      getCurrentUser: () => userWithCredit(ROOM_CREATE_MIN_FRIEND_MARKS),
     });
     const controller = createChatroomShellController(deps);
 
@@ -132,13 +131,22 @@ describe('chatroom shell controller', () => {
     expect(openRoom).not.toHaveBeenCalled();
   });
 
-  it('refuses to open the form below the contact minimum; TechSupport does not count', async () => {
-    const user = userWithContacts(CONFIG.PLACE_CREATE_MIN_CONTACTS - 1);
-    user.knownPeople!.push({ userId: TECHSUPPORT_ROOT_USER_ID, labels: ['friend'], addedAt: new Date() } as never);
+  it('refuses to open the form without 12 incoming Friend marks', async () => {
+    const user = userWithCredit(ROOM_CREATE_MIN_FRIEND_MARKS - 1);
     const deps = makeDeps({ getAnchorCell: () => 'region_32.71_-117.17', getCurrentUser: () => user });
     await createChatroomShellController(deps).handleCreateCustomChatroomClick();
     expect(deps.showCreateCustomChatroomDialog).not.toHaveBeenCalled();
-    expect(deps.showNotification).toHaveBeenCalledWith(expect.stringMatching(/^chatroomCreateNeedsContacts:/), 'error');
+    expect(deps.showNotification).toHaveBeenCalledWith(expect.stringMatching(/^chatroomCreateNeedsCredit:/), 'error');
+  });
+
+  it('refuses to open the form at three received blocks even with enough Friend marks', async () => {
+    const deps = makeDeps({
+      getAnchorCell: () => 'region_32.71_-117.17',
+      getCurrentUser: () => userWithCredit(ROOM_CREATE_MIN_FRIEND_MARKS, 3),
+    });
+    await createChatroomShellController(deps).handleCreateCustomChatroomClick();
+    expect(deps.showCreateCustomChatroomDialog).not.toHaveBeenCalled();
+    expect(deps.showNotification).toHaveBeenCalledWith(expect.stringMatching(/^chatroomCreateNeedsCredit:/), 'error');
   });
 
   it('refuses to create a room without a confirmed location (custom rooms are local)', async () => {

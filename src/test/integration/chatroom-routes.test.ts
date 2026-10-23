@@ -20,12 +20,16 @@ function buildApp(options: { hubRelayClient?: EmbeddedHubRelayClientLike; placeC
     deleteChatroom: jest.fn().mockResolvedValue(undefined),
     getActiveMembersWithStageName: jest.fn().mockResolvedValue([]),
   } as any;
+  const userService = {
+    getRoomCreationCredit: jest.fn().mockResolvedValue({ eligible: true }),
+  } as any;
   registerChatroomRoutes(app, {
     chatroomManager: manager,
+    userService,
     ...(options.hubRelayClient ? { hubRelayClient: options.hubRelayClient } : {}),
     ...(options.placeChatStore ? { placeChatStore: options.placeChatStore } : {}),
   });
-  return { app, manager };
+  return { app, manager, userService };
 }
 
 const placeRoomId = 'place_32.71_-117.17_abcdefabcdef';
@@ -42,6 +46,28 @@ describe('chatroom routes', () => {
     });
     expect(res.status).toBe(201);
     expect(manager.createChatroom).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires 12 incoming Friend marks and fewer than three blocks at the hub', async () => {
+    const { app, manager, userService } = buildApp();
+    userService.getRoomCreationCredit.mockResolvedValue({
+      eligible: false,
+      friendMarks: 11,
+      blockCount: 0,
+      requiredFriendMarks: 12,
+      maximumAllowedBlocks: 2,
+    });
+    const res = await request(app).post('/api/chatrooms').send({
+      name: 'Not Yet',
+      type: 'custom',
+      createdBy: 'user_1',
+      anchorCell: 'region_32.71_-117.17',
+      descriptor: { creatorPub: 'pub_1' },
+    });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ code: 'PLACE_REPUTATION_REQUIRED', friendMarks: 11 });
+    expect(userService.getRoomCreationCredit).toHaveBeenCalledWith('user_1', 'pub_1');
+    expect(manager.createChatroom).not.toHaveBeenCalled();
   });
 
   it('accepts valid public chatroom coordinates and rejects invalid coordinates', async () => {
@@ -244,16 +270,25 @@ describe('chatroom routes', () => {
         listChatrooms: jest.fn().mockResolvedValue([{ id: 'place_a', name: 'Hub copy' }, { id: 'place_b', name: 'B' }]),
       }),
     });
-    manager.getAllChatrooms.mockResolvedValue([{ id: 'place_a', name: 'Local' }]);
+    manager.getAllChatrooms.mockResolvedValue([{
+      id: 'place_a', name: 'Local', createdBy: 'user_a', creatorPub: 'pub_a', createdAt: new Date().toISOString(),
+    }]);
     const res = await request(app).get('/api/chatrooms');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([{ id: 'place_a', name: 'Local' }, { id: 'place_b', name: 'B' }]);
+    expect(res.body).toEqual([
+      expect.objectContaining({ id: 'place_a', name: 'Local' }),
+      { id: 'place_b', name: 'B' },
+    ]);
 
     const offline = buildApp({
       hubRelayClient: placeRelayDouble({ listChatrooms: jest.fn().mockRejectedValue(new Error('aborted')) }),
     });
-    offline.manager.getAllChatrooms.mockResolvedValue([{ id: 'place_a', name: 'Local' }]);
-    expect((await request(offline.app).get('/api/chatrooms')).body).toEqual([{ id: 'place_a', name: 'Local' }]);
+    offline.manager.getAllChatrooms.mockResolvedValue([{
+      id: 'place_a', name: 'Local', createdBy: 'user_a', creatorPub: 'pub_a', createdAt: new Date().toISOString(),
+    }]);
+    expect((await request(offline.app).get('/api/chatrooms')).body).toEqual([
+      expect.objectContaining({ id: 'place_a', name: 'Local' }),
+    ]);
   });
 
   it('answers a refused Place creation with 409 and the reason', async () => {
@@ -266,21 +301,26 @@ describe('chatroom routes', () => {
     expect(res.body).toMatchObject({ code: 'PLACE_NAME_TAKEN', existingId: 'place_bexisting', existingName: 'Bean There' });
   });
 
-  it('lists only live Places, plus the caller\'s own expired Place', async () => {
-    const { app, manager } = buildApp();
+  it('lists only live Places whose creators still qualify, plus the caller\'s own hidden Place', async () => {
+    const { app, manager, userService } = buildApp();
     const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
     const fresh = new Date().toISOString();
     const placeId = (n: number) => `place_b${String(n).repeat(55)}`;
     manager.getAllChatrooms.mockResolvedValue([
-      { id: placeId(1), name: 'Live', createdAt: fresh, creatorPub: 'pubA' },
-      { id: placeId(2), name: 'Expired', createdAt: old, creatorPub: 'pubA' },
-      { id: placeId(3), name: 'Revived', createdAt: old, lastActiveAt: fresh, creatorPub: 'pubB' },
-      { id: placeId(4), name: 'Mine', createdAt: old, creatorPub: 'pubMe' },
+      { id: placeId(1), name: 'Live', createdAt: fresh, createdBy: 'userA', creatorPub: 'pubA' },
+      { id: placeId(2), name: 'Expired', createdAt: old, createdBy: 'userA', creatorPub: 'pubA' },
+      { id: placeId(3), name: 'Revived', createdAt: old, lastActiveAt: fresh, createdBy: 'userB', creatorPub: 'pubB' },
+      { id: placeId(4), name: 'Mine', createdAt: old, createdBy: 'userMe', creatorPub: 'pubMe' },
+      { id: placeId(5), name: 'Lost credit', createdAt: fresh, createdBy: 'userLow', creatorPub: 'pubLow' },
     ]);
+    userService.getRoomCreationCredit.mockImplementation(async (userId: string) => ({
+      eligible: userId !== 'userLow',
+    }));
     const anyone = await request(app).get('/api/chatrooms');
     expect(anyone.body.map((room: { name: string }) => room.name)).toEqual(['Live', 'Revived']);
     const creator = await request(app).get('/api/chatrooms').query({ creatorPub: 'pubMe' });
     expect(creator.body.map((room: { name: string }) => room.name)).toEqual(['Live', 'Revived', 'Mine']);
+    expect(userService.getRoomCreationCredit).toHaveBeenCalledWith('userLow', 'pubLow');
   });
 
   it('mirrors local membership writes to the explicit hub relay', async () => {

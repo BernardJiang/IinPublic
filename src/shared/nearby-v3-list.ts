@@ -34,6 +34,12 @@ export type NearbyListOwner = {
    * previous group. Only cards ranked after it belong on the list; absent, this is group 1.
    */
   after?: NearbyRankKey;
+  /**
+   * People already shown in an earlier group. The rank boundary is still used for efficient
+   * paging, but a signed beacon or identity-age proof can arrive after a group was rendered and
+   * change its rank keys. Exact exclusions keep that late re-ranking from showing someone twice.
+   */
+  excludedPubs?: readonly string[];
 };
 
 export type NearbyListEntry = {
@@ -107,9 +113,11 @@ export class NearbyList {
       this.sorted = [];
     }
     this.owner = { ...owner };
+    const hasExactExclusions = (this.owner.excludedPubs?.length ?? 0) > 0;
     for (const [pub, entry] of this.byPub) {
       entry.key = this.rankOf(entry.card);
-      if (!this.pastBoundary(entry.key)) this.byPub.delete(pub);
+      if (this.owner.excludedPubs?.includes(pub)
+        || (!hasExactExclusions && !this.pastBoundary(entry.key))) this.byPub.delete(pub);
     }
     this.resort();
   }
@@ -221,8 +229,10 @@ export class NearbyList {
   }
 
   private accepts(card: NearbyCard, nowMs: number): boolean {
+    const hasExactExclusions = (this.owner.excludedPubs?.length ?? 0) > 0;
     return card.pub !== this.owner.pub && card.scope === this.owner.scope && isNearbyCardLive(card, nowMs)
-      && (!this.owner.after || this.pastBoundary(this.rankOf(card)));
+      && !this.owner.excludedPubs?.includes(card.pub)
+      && (hasExactExclusions || !this.owner.after || this.pastBoundary(this.rankOf(card)));
   }
 
   private pastBoundary(key: NearbyRankKey): boolean {

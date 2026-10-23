@@ -136,6 +136,46 @@ export function registerUserRoutes(
     }
   });
 
+  app.put('/api/users/:id/friend-marks/:targetId', async (req, res) => {
+    try {
+      const mark = req.body as { markerUserId?: unknown; targetUserId?: unknown };
+      if (mark?.markerUserId !== req.params.id || mark?.targetUserId !== req.params.targetId) {
+        res.status(400).json({ error: 'friend mark route does not match its signed identities' });
+        return;
+      }
+      if (hubRelayClient?.setFriendMark) {
+        // A phone may not have the target's public record cached locally. The hub does, and it is
+        // the authority used by the room-creation gate, so validate/store there first. Keep a
+        // best-effort local mirror for offline reads without letting an incomplete phone cache
+        // reject an otherwise valid network-level mark.
+        const result = await hubRelayClient.setFriendMark(req.params.id, req.params.targetId, mark);
+        void userService.setFriendMark(mark).catch(() => undefined);
+        res.json({ ok: true, ...result });
+        return;
+      }
+      const result = await userService.setFriendMark(mark);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get('/api/users/:id/room-creation-credit', async (req, res) => {
+    try {
+      const creatorPub = typeof req.query.creatorPub === 'string' ? req.query.creatorPub.trim() : '';
+      if (!creatorPub) {
+        res.status(400).json({ error: 'creatorPub required' });
+        return;
+      }
+      const credit = hubRelayClient?.getRoomCreationCredit
+        ? await hubRelayClient.getRoomCreationCredit(req.params.id, creatorPub)
+        : await userService.getRoomCreationCredit(req.params.id, creatorPub);
+      res.json(credit);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
   // No GET /api/users/:id/blocks — that would enumerate a user's full block list, which the
   // block-pairs storage (src/shared/block-pair.ts) deliberately doesn't support. Use
   // block-status/:targetId below for a specific-pair check instead.

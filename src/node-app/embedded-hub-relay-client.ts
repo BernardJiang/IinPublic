@@ -2,6 +2,7 @@ import { classifyServerConnectorPath } from '../shared/p2p-runtime';
 import type { User } from '../shared/types';
 import type { TechSupportStoredMessage } from '../server/services/techsupport-message-store';
 import type { MailboxEnvelope } from '../server/services/mailbox-store';
+import type { RoomCreationCredit } from '../shared/room-creation-credit';
 
 export type RelayRoomMember = {
   userId: string;
@@ -176,6 +177,12 @@ export interface EmbeddedHubRelayClientLike {
    */
   setBlock?(blockerId: string, targetId: string, blocked: boolean): Promise<void>;
   getBlockStatus?(viewerId: string, targetId: string): Promise<{ blocked: boolean; blockedBy: boolean }>;
+  setFriendMark?(
+    markerUserId: string,
+    targetUserId: string,
+    mark: unknown,
+  ): Promise<{ changed: boolean; friendsCount: number }>;
+  getRoomCreationCredit?(userId: string, creatorPub: string): Promise<RoomCreationCredit>;
 }
 
 export function assertRelayMetadataPath(path: string[] | string): void {
@@ -531,6 +538,33 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
     );
     const body = (await response.json()) as { blocked?: unknown; blockedBy?: unknown };
     return { blocked: body.blocked === true, blockedBy: body.blockedBy === true };
+  }
+
+  async setFriendMark(
+    markerUserId: string,
+    targetUserId: string,
+    mark: unknown,
+  ): Promise<{ changed: boolean; friendsCount: number }> {
+    const response = await this.request(
+      `/api/users/${encodeURIComponent(markerUserId)}/friend-marks/${encodeURIComponent(targetUserId)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mark),
+      },
+    );
+    const body = await response.json() as { changed?: unknown; friendsCount?: unknown };
+    return {
+      changed: body.changed === true,
+      friendsCount: Math.max(0, Math.floor(Number(body.friendsCount) || 0)),
+    };
+  }
+
+  async getRoomCreationCredit(userId: string, creatorPub: string): Promise<RoomCreationCredit> {
+    const response = await this.request(
+      `/api/users/${encodeURIComponent(userId)}/room-creation-credit?creatorPub=${encodeURIComponent(creatorPub)}`,
+    );
+    return await response.json() as RoomCreationCredit;
   }
 
   async listChatrooms(creatorPub?: string): Promise<unknown[]> {

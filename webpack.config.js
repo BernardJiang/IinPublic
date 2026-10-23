@@ -29,15 +29,13 @@ const isDevBuild = process.argv.some(
   (arg, i, all) => arg === '--mode=development' || (arg === 'development' && all[i - 1] === '--mode'),
 );
 const DEV_CHATROOM_MAX_CAPACITY = isDevBuild ? '3' : '';
-// Contacts needed to create a Place: 3 in local debug, release default (100) otherwise.
-const DEV_PLACE_CREATE_MIN_CONTACTS = isDevBuild ? '3' : '';
-
 const BUNDLED_ENV_KEYS = [
   'DISABLE_HMR',
   'TEST_ALL_PORT_OFFSET',
   'CHATROOM_MAX_CAPACITY',
   'CHATROOM_ENABLE_FIFO',
-  'PLACE_CREATE_MIN_CONTACTS',
+  'PLACE_CREATE_MIN_FRIEND_MARKS',
+  'PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE',
   'IINPUBLIC_STAGE_SEED',
   'IINPUBLIC_STAGE_ZERO_MAX_GLOBAL',
   'IINPUBLIC_PRESENCE_TTL_SECONDS',
@@ -169,8 +167,11 @@ module.exports = {
             'process.env.CHATROOM_MAX_CAPACITY': JSON.stringify(
               process.env.CHATROOM_MAX_CAPACITY || '50',
             ),
-            'process.env.PLACE_CREATE_MIN_CONTACTS': JSON.stringify(
-              process.env.PLACE_CREATE_MIN_CONTACTS || '0',
+            'process.env.PLACE_CREATE_MIN_FRIEND_MARKS': JSON.stringify(
+              process.env.PLACE_CREATE_MIN_FRIEND_MARKS || '0',
+            ),
+            'process.env.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE': JSON.stringify(
+              process.env.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE || '3',
             ),
             'process.env.CHATROOM_ENABLE_FIFO': JSON.stringify(
               process.env.CHATROOM_ENABLE_FIFO !== undefined
@@ -239,7 +240,8 @@ module.exports = {
       : [
           new webpack.EnvironmentPlugin({
             CHATROOM_MAX_CAPACITY: process.env.CHATROOM_MAX_CAPACITY || DEV_CHATROOM_MAX_CAPACITY,
-            PLACE_CREATE_MIN_CONTACTS: process.env.PLACE_CREATE_MIN_CONTACTS || DEV_PLACE_CREATE_MIN_CONTACTS,
+            PLACE_CREATE_MIN_FRIEND_MARKS: process.env.PLACE_CREATE_MIN_FRIEND_MARKS || '12',
+            PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE: process.env.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE || '3',
             CHATROOM_ENABLE_FIFO: process.env.CHATROOM_ENABLE_FIFO || 'true',
             // Web client reads this in web-gun-service (AXE off for e2e only). Must be defined here
             // so the bundle does not reference bare `process` in the browser (webpack 5).

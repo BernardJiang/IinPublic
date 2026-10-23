@@ -174,6 +174,26 @@ on the C10 (13 starts in ~94 seconds), ruling out checkpoint replay; speculative
 were reverted. Keep the 30-second / 10-minute / 30-minute production policy unchanged and use the
 owner's long unplugged run to determine the real energy impact before changing discovery behavior.
 
+### OPEN-70 Honor closeout: FCP-AN10 offline Wi-Fi Direct
+
+The deferred Honor gate was rerun on app 1.0.187 with the supported Honor FCP-AN10 (Android 16),
+P30 (Android 10) and C10 (Android 14). The hub was deliberately unreachable and LAN discovery was
+disabled. The P30 formed one credentialed 5 GHz group (`5765 MHz`); the Honor and C10 joined as
+clients, and all three personal Nearby lists contained both other phones.
+
+| Metric | Result |
+|---|---|
+| Complete `native-app/30` journey | passed in 3.0 min |
+| Ring Talks (Honor → P30 → C10 → Honor) | 6.541 s / 6.751 s / 5.821 s |
+| Background delivery to Honor | 9.504 s |
+| Talk delivery p50 / p95 | 6.541 s / 9.504 s |
+| Wi-Fi Direct topology | P30 owner; Honor + C10 clients |
+| Nearby list coverage | 2 of 2 peers on every phone |
+
+The old Honor FRD-L04/Android 7 limitation remains a device/OS capability boundary, but the new
+Honor FCP replacement passes the supported Honor qualification. After the run, the group was
+removed, Wi-Fi restored, the current 1.0.187 build retained, and all three screens were put to sleep.
+
 ## What the runs found and fixed
 
 - **OPEN-71** (1.0.166): after a reconnect a pair could stay "connected" but exchange nothing, from

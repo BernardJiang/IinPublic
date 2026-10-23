@@ -30,16 +30,16 @@ export async function startReleaseCapacityHub(port: number): Promise<ChildProces
 }
 
 /** Confirm the phone's location the way a GPS fix does, then let the WebView reload with the
- *  contact minimum lifted (a fresh install has no contacts; the gate has its own spec). */
+ *  Friend-mark minimum lifted (a fresh install has no reputation; the gate has its own spec). */
 export async function preparePlacePhone(user: AndroidUser, label: string, location = RELEASE_HUB_LOCATION): Promise<void> {
   await bootstrapNativeWindow(user.window, label, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000, pinStableLocation: false });
   // Wait for the reload itself before probing the page: a probe during the navigation throws
   // "Execution context was destroyed", which ends the poll instead of retrying it.
   await Promise.all([
-    user.window.waitForURL(/e2e_place_min_contacts=0/, { timeout: 60_000 }),
+    user.window.waitForURL(/e2e_place_min_friends=0/, { timeout: 60_000 }),
     user.window.evaluate(() => {
       const url = new URL(window.location.href);
-      url.searchParams.set('e2e_place_min_contacts', '0');
+      url.searchParams.set('e2e_place_min_friends', '0');
       window.location.replace(url.toString());
     }).catch(() => undefined),
   ]);

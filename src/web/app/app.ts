@@ -65,6 +65,11 @@ import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
 import { MAX_LIVE_PLACES_PER_CELL } from '../../shared/place-lifecycle';
 import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
+import { createSignedFriendMark } from '../../shared/friend-mark';
+import {
+  ROOM_CREATE_MAX_BLOCKS_EXCLUSIVE,
+  ROOM_CREATE_MIN_FRIEND_MARKS,
+} from '../../shared/room-creation-credit';
 import {
   CONTACTS_ONLY_SCOPE_ID,
   isLocalOnlyRoomScope,
@@ -2072,7 +2077,16 @@ export class IinPublicApp {
    */
   /** A refused Place creation (docs/design/nearby-and-place-chatrooms.md §4.2), in words. */
   private showPlaceCreateRefusal(status: number, text: string): void {
-    let body: { error?: string; code?: string; existingId?: string; existingName?: string } = {};
+    let body: {
+      error?: string;
+      code?: string;
+      existingId?: string;
+      existingName?: string;
+      requiredFriendMarks?: number;
+      maximumAllowedBlocks?: number;
+      friendMarks?: number;
+      blockCount?: number;
+    } = {};
     try {
       body = JSON.parse(text) as typeof body;
     } catch {
@@ -2092,6 +2106,17 @@ export class IinPublicApp {
     if (status === 409 && body.code === 'PLACE_CELL_FULL') {
       this.uiManager.showNotification(
         uiText(language, 'chatroomCreateCellFull').replace('{count}', String(MAX_LIVE_PLACES_PER_CELL)),
+        'error',
+      );
+      return;
+    }
+    if (status === 403 && body.code === 'PLACE_REPUTATION_REQUIRED') {
+      this.uiManager.showNotification(
+        uiText(language, 'chatroomCreateNeedsCredit')
+          .replace('{requiredFriends}', String(body.requiredFriendMarks ?? ROOM_CREATE_MIN_FRIEND_MARKS))
+          .replace('{maximumBlocks}', String(body.maximumAllowedBlocks ?? ROOM_CREATE_MAX_BLOCKS_EXCLUSIVE - 1))
+          .replace('{friends}', String(body.friendMarks ?? 0))
+          .replace('{blocks}', String(body.blockCount ?? 0)),
         'error',
       );
       return;
@@ -8273,6 +8298,17 @@ export class IinPublicApp {
               ...(identityEpub ? { identityEpub } : {}),
             },
           );
+          const pair = this.gunService.getStoredPair();
+          if (pair?.pub && pair?.priv && target.pub) {
+            const friendMark = await createSignedFriendMark({
+              markerUserId: this.currentUser.id,
+              targetUserId: data.userId,
+              targetPub: target.pub,
+              active: data.labels.includes('friend'),
+              pair,
+            });
+            await this.userService.setFriendMark(friendMark);
+          }
           const currentEntry = this.currentUser.knownPeople?.find((known) => known.userId === data.userId);
           if (currentEntry) {
             currentEntry.identityPub = identityPub;

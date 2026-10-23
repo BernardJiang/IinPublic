@@ -24,11 +24,10 @@ status remains in `docs/TODO.md`; check an item here only after its evidence is 
 
 ## Product decisions — deliberately deferred
 
-- [ ] **OPEN-70 credit/reputation:** choose signed-manifest thresholds for Contacts, Talks, Me-tab
-  answers and block count; decide how website, desktop and iOS clients without platform attestation
-  participate. Promote the issue before implementation.
-- [ ] **OPEN-70 block count:** confirm promotion of the privacy-preserving once-per-reputable-pair
-  count before implementation.
+- [ ] **Advanced Place defenses (post-OPEN-70):** decide later whether a public Place additionally
+  needs reputable backers/visitors, official-build credentials, or reputation-weighted dense-crowd
+  ranking. The starter creation rule is settled: one room per creator, 12 incoming Friend marks,
+  and fewer than three received blocks.
 - [ ] **OPEN-28:** decide whether to promote the separate TechSupport authority protocol.
 - [ ] **Deferred product directions:** promote and scope any item in `docs/TODO.md`'s Deferred
   product decisions section before implementation.
