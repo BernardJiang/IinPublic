@@ -798,8 +798,14 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
     );
   }
   deps.bindSettingsControls();
-  void deps.refreshStorageInspector();
-  void deps.refreshDownloadAppSection();
+  // These two sections do device/server inspection. Keep them lazy so simply opening Settings
+  // cannot synchronously scan localStorage or launch manifest/network work.
+  if (deps.settingsActiveSectionId === 'settings-storage-inspector') {
+    void deps.refreshStorageInspector();
+  }
+  if (deps.settingsActiveSectionId === 'settings-section-download-app') {
+    void deps.refreshDownloadAppSection();
+  }
   deps.renderSupportInboxSectionIfPresent();
   deps.renderSupportDelegatesSectionIfPresent();
   deps.renderTechSupportRecoveryBannerIfPresent();

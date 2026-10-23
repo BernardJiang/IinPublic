@@ -79,9 +79,19 @@ describe('chatroom shell controller', () => {
     expect(user.languages).toEqual(['en']);
     expect(deps.setSessionUser).toHaveBeenCalledWith(user);
     expect(document.querySelector('[data-testid="user-stage-name"]')?.textContent).toBe('Alice');
-    expect(deps.renderSettingsView).toHaveBeenCalledWith(user);
+    expect(deps.renderSettingsView).not.toHaveBeenCalled();
     expect(deps.displayAnswersList).toHaveBeenCalledTimes(1);
     expect(renderRooms).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders settings during hydration only when that panel is already active', () => {
+    document.body.innerHTML = '<section id="settings-view" class="active"></section>';
+    const deps = makeDeps();
+    const user = { id: 'self', stageName: 'Alice', languages: ['en'] } as any;
+
+    createChatroomShellController(deps).showMainInterface(user);
+
+    expect(deps.renderSettingsView).toHaveBeenCalledWith(user);
   });
 
   it('preserves the first-painted startup list instead of rendering it twice', () => {

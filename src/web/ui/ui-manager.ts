@@ -435,9 +435,8 @@ export class UIManager extends EventEmitter {
     this.currentLocation = location;
     this.locationConfirmed = confirmed;
     this.syncReturnHomeButton();
-    if (this.currentUser) this.renderSettingsView(this.currentUser);
+    if (this.currentUser && document.getElementById('settings-view')?.classList.contains('active')) this.renderSettingsView(this.currentUser);
   }
-
   setPublicProfileFoundationReader(reader: PublicProfileFoundationReader | undefined): void {
     this.publicProfileFoundationReader = reader;
   }
@@ -1670,6 +1669,7 @@ export class UIManager extends EventEmitter {
       onProfileChange: this.onProfileChange,
       showEditProfileDialog: (user) => this.showEditProfileDialog(user),
       refreshStorageInspector: () => this.refreshStorageInspector(),
+      refreshDownloadAppSection: () => this.refreshDownloadAppSection(),
     });
   }
 

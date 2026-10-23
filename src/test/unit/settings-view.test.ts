@@ -94,6 +94,7 @@ function controlsDeps(overrides: Partial<SettingsControlsDeps> = {}): SettingsCo
     onProfileChange: undefined,
     showEditProfileDialog: jest.fn(),
     refreshStorageInspector: jest.fn(async () => undefined),
+    refreshDownloadAppSection: jest.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -195,8 +196,8 @@ describe('settings view extraction', () => {
     expect(document.querySelector('script')).toBeNull();
     expect(user.languages).toEqual(['en', 'zh']);
     expect(deps.bindSettingsControls).toHaveBeenCalledTimes(1);
-    expect(deps.refreshStorageInspector).toHaveBeenCalledTimes(1);
-    expect(deps.refreshDownloadAppSection).toHaveBeenCalledTimes(1);
+    expect(deps.refreshStorageInspector).not.toHaveBeenCalled();
+    expect(deps.refreshDownloadAppSection).not.toHaveBeenCalled();
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-languages');
   });
 
@@ -224,6 +225,20 @@ describe('settings view extraction', () => {
     const deps = viewDeps();
     renderSettingsView(makeUser(), deps);
     expect(deps.bindSettingsControls).not.toHaveBeenCalled();
+  });
+
+  it('refreshes only the expensive detail that is already open', () => {
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    const storage = viewDeps({ settingsActiveSectionId: 'settings-storage-inspector' });
+    renderSettingsView(makeUser(), storage);
+    expect(storage.refreshStorageInspector).toHaveBeenCalledTimes(1);
+    expect(storage.refreshDownloadAppSection).not.toHaveBeenCalled();
+
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    const download = viewDeps({ settingsActiveSectionId: 'settings-section-download-app' });
+    renderSettingsView(makeUser(), download);
+    expect(download.refreshStorageInspector).not.toHaveBeenCalled();
+    expect(download.refreshDownloadAppSection).toHaveBeenCalledTimes(1);
   });
 
   describe('app version line', () => {
@@ -415,6 +430,33 @@ describe('settings view extraction', () => {
     internet.checked = true;
     internet.dispatchEvent(new Event('change', { bubbles: true }));
     expect(getNearbyProviderEnabled('cellular')).toBe(true);
+  });
+
+  it('opens Storage and Download before starting their deferred refreshes', () => {
+    jest.useFakeTimers();
+    try {
+      document.body.innerHTML = `
+        <div id="settings-jump-menu">
+          <button class="settings-jump-menu-item" data-target="settings-storage-inspector"></button>
+          <button class="settings-jump-menu-item" data-target="settings-section-download-app"></button>
+        </div>`;
+      const d = controlsDeps();
+      bindSettingsControls(d);
+
+      (document.querySelector('[data-target="settings-storage-inspector"]') as HTMLButtonElement).click();
+      expect(d.applySettingsSectionView).toHaveBeenLastCalledWith('settings-storage-inspector');
+      expect(d.refreshStorageInspector).not.toHaveBeenCalled();
+      jest.runOnlyPendingTimers();
+      expect(d.refreshStorageInspector).toHaveBeenCalledTimes(1);
+
+      (document.querySelector('[data-target="settings-section-download-app"]') as HTMLButtonElement).click();
+      expect(d.applySettingsSectionView).toHaveBeenLastCalledWith('settings-section-download-app');
+      expect(d.refreshDownloadAppSection).not.toHaveBeenCalled();
+      jest.runOnlyPendingTimers();
+      expect(d.refreshDownloadAppSection).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('website: shows the encounter location without echoing the coordinate, and clears it', () => {

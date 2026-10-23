@@ -151,4 +151,19 @@ describe('bindAppShellControls', () => {
     expect(syncHeaderStatusView).toHaveBeenCalledWith('talks');
     expect(syncAppBarActionsForView).toHaveBeenCalledWith('talks');
   });
+
+  it('paints the Settings tab before rendering its large view', () => {
+    jest.useFakeTimers();
+    const renderSettingsView = jest.fn();
+    const user = { id: 'self' } as any;
+    bindAppShellControls(deps({ getCurrentUser: () => user, renderSettingsView }));
+
+    (document.querySelector('.nav-btn[data-view="settings"]') as HTMLButtonElement).click();
+
+    expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(true);
+    expect(renderSettingsView).not.toHaveBeenCalled();
+    jest.runAllTimers();
+    expect(renderSettingsView).toHaveBeenCalledWith(user);
+    jest.useRealTimers();
+  });
 });
