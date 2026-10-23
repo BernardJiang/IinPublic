@@ -552,16 +552,13 @@ button:focus:not(:focus-visible) {
   display: none;
 }
 
-/* Room status: name on line 1, "N users · M matches" on line 2; tap to read it all wrapped. */
+/* The selected folder/detail heading already names the scope; the AppBar shows changing counts. */
 #status-bar-text {
   display: inline-flex;
-  flex-direction: column;
   align-items: center;
   line-height: 1.15;
-  cursor: pointer;
 }
 
-#status-bar-text .status-bar-name,
 #status-bar-text .status-bar-meta {
   max-width: 100%;
   overflow: hidden;
@@ -570,23 +567,8 @@ button:focus:not(:focus-visible) {
 }
 
 #status-bar-text .status-bar-meta {
-  font-size: 0.78em;
   font-weight: 500;
   color: var(--text-secondary, #4b5563);
-}
-
-#status-bar-text .status-bar-sep {
-  display: none;
-}
-
-#status-bar-text.status-bar-expanded .status-bar-name,
-#status-bar-text.status-bar-expanded .status-bar-meta {
-  white-space: normal;
-}
-
-/* While a room's member list is open, its own heading names the room: show only the counts. */
-body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
-  display: none;
 }
 
 /* View Container */
@@ -1414,6 +1396,76 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
   margin-top: 22px;
 }
 
+/* Nearby v3 list: folders (Places) and people share one compact file-browser surface. */
+.nearby-browser-list {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.nearby-browser-list .chatroom-flat-section + .chatroom-flat-section {
+  margin-top: 0;
+  border-top: 1px solid var(--border);
+}
+
+.nearby-browser-list .chatroom-flat-heading {
+  margin: 0;
+  padding: 10px 14px 7px;
+  background: var(--bg-subtle);
+}
+
+.nearby-browser-list .chatroom-item,
+.nearby-browser-list .nearby-person-item {
+  display: flex;
+  align-items: center;
+  min-height: 58px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.nearby-browser-list .chatroom-item:hover,
+.nearby-browser-list .nearby-person-item:hover {
+  transform: none;
+  background: var(--bg-subtle);
+}
+
+.nearby-browser-list .chatroom-item:active {
+  transform: none;
+}
+
+.nearby-browser-list .chatroom-icon {
+  width: 40px;
+  margin-right: 12px;
+  text-align: center;
+  font-size: 1.55rem;
+}
+
+.nearby-browser-list .chatroom-flat-metrics {
+  margin-top: 4px;
+}
+
+.nearby-browser-list .chatroom-headcount {
+  padding: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+.nearby-browser-list .chatroom-flat-empty {
+  margin: 0;
+  padding: 14px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+
 .chatroom-flat-heading {
   margin: 4px 8px 10px;
   color: var(--text-secondary);
@@ -1797,12 +1849,14 @@ body[data-chatroom-detail="open"] #status-bar-text .status-bar-name {
 }
 
 /* Match indicator on member name (Tom sees green when Jerry/Bob match) */
-.chatroom-member-item.member-matched .chatroom-member-name {
+.chatroom-member-item.member-matched .chatroom-member-name,
+.nearby-person-item.member-matched .chatroom-member-name {
   color: var(--success);
   font-weight: 700;
 }
 
-.chatroom-member-item.member-matched .chatroom-member-status {
+.chatroom-member-item.member-matched .chatroom-member-status,
+.nearby-person-item.member-matched .chatroom-member-status {
   content: 'Matched';
 }
 

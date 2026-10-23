@@ -51,11 +51,14 @@ test.describe('AppBar layout', () => {
   test('per-tab action icons are scoped to their tab', async () => {
     const p = page!;
 
-    // Chatrooms root: ➕ 📣 🏠 🆕 all inline at desktop width.
+    // Chatrooms root: only view switching and New Room are relevant.
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    for (const id of ['create-talk-btn', 'broadcast-talk-btn', 'return-home-btn', 'create-custom-chatroom-btn']) {
+    for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'create-custom-chatroom-btn']) {
       await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
+    }
+    for (const id of ['create-talk-btn', 'broadcast-talk-btn', 'return-home-btn']) {
+      await expect(p.locator(`#${id}`)).toBeHidden();
     }
     await expect(p.locator('#settings-refresh-location-btn')).toBeHidden();
 
@@ -95,6 +98,8 @@ test.describe('AppBar layout', () => {
     await expect(back).toBeVisible();
     await expect(back).toHaveText('‹');
     await expect(back).toHaveClass(/app-bar-back-btn/);
+    await expect(p.locator('#broadcast-talk-btn')).toBeVisible();
+    await expect(p.locator('#create-custom-chatroom-btn')).toBeHidden();
 
     await back.click();
     await afterNav();

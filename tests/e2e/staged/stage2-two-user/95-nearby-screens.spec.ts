@@ -1,9 +1,8 @@
 /**
  * Nearby screens (docs/design/nearby-and-place-chatrooms.md §3.7 "Map, list and headcounts"): the
- * Nearby row reads "People near you" with "N near you · M online" (my list, then the hub's count),
- * the open list offers "Show more people here", and a Nearby broadcast reports "Sent to N of M" as
- * the broadcast loop's deliveries are acknowledged. Asserted on both sides: Jerry is on Tom's list
- * and receives the Talk.
+ * Nearby v3 renders people and chatroom folders in one file-browser list. The compact Nearby
+ * directory keeps the aggregate headcount while each nearby person is directly visible without
+ * opening that directory. Collection controls and broadcast progress do not clutter the list.
  */
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -30,7 +29,7 @@ test.describe('Nearby screens', () => {
     await clearGunForStage2Spec();
   });
 
-  test('People near you, N near you · M online, the group bar, and Sent to N of M', async () => {
+  test('nearby people and chatroom folders share one clean list', async () => {
     test.setTimeout(180_000);
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Screens');
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Screens');
@@ -39,9 +38,14 @@ test.describe('Nearby screens', () => {
 
     // The row: my list (Jerry, not me) and everyone the hub counts online (both of us).
     const row = pageTom.locator('.chatroom-item.current-room');
-    await expect(row.locator('.chatroom-name')).toContainText('People near you');
+    await expect(row.locator('.chatroom-name')).toContainText('Nearby');
+    await expect(row.locator('.chatroom-icon')).toHaveText('📁');
     await expect(row.locator('[data-testid="nearby-headcount"]')).toHaveText('1 near you · 2 online', { timeout: 60_000 });
     await expect(pageTom.locator('[data-testid="room-list-total"]')).toContainText('2 online');
+    await expect(pageTom.locator('[data-testid="nearby-person-row"]').filter({ hasText: 'Jerry Screens' })).toBeVisible();
+    await expect(pageTom.locator('[data-testid="match-collection-toggle"]')).toHaveCount(0);
+    await expect(pageTom.locator('#status-bar-text')).not.toContainText('Nearby');
+    await expect(pageTom.locator('#status-bar-text')).not.toContainText('📍');
 
     // The open list: Jerry, the same counts, and the group bar (§3.7 "Meeting new people in groups").
     await row.click();
@@ -56,7 +60,8 @@ test.describe('Nearby screens', () => {
     await expect(pageTom.locator('.chatroom-member-item')).toHaveCount(1);
     await expect(pageTom.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you');
 
-    // A broadcast: "Sent to 1 of 1" once Jerry's phone acknowledges the Talk.
+    // A broadcast still delivers; its progress is intentionally not another control/status card
+    // in the file-browser list.
     const title = `Nearby screens ${Date.now()}`;
     await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { sendToChatroom: false });
     // The real Broadcast button: it waits for each recipient's acknowledgement (the e2e delivery
@@ -64,7 +69,8 @@ test.describe('Nearby screens', () => {
     await broadcastFromGlobalChatroom(pageTom, { requirePreambleUi: true, minGunPeers: 1 });
     await waitForIncomingTalkClusterOnLocalGun(pageJerry, title, { timeout: 60_000, polling: 500 });
     await goToChatrooms(pageTom);
-    await expect(pageTom.locator('[data-testid="nearby-broadcast-progress"]')).toHaveText('Sent to 1 of 1', { timeout: 30_000 });
+    await expect(pageTom.locator('[data-testid="nearby-broadcast-progress"]')).toHaveCount(0);
+    await expect(pageTom.locator('[data-testid="nearby-person-row"]').filter({ hasText: 'Jerry Screens' })).toBeVisible();
 
     // Jerry's side matches: Tom is on his list.
     await expect(pageJerry.locator('.chatroom-item.current-room [data-testid="nearby-headcount"]')).toContainText('1 near you');

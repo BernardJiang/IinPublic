@@ -26,6 +26,7 @@ import {
   setDefaultTalkLanguagePreference,
   setKeepOldTalkOnEdit,
   setLocationAutoMatchConsent,
+  setMatchCollectionEnabled,
   setUiLanguagePreference,
   type ColorScheme,
   type AutoAnswerScope,
@@ -357,6 +358,11 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     ?.addEventListener('click', () => deps.showActionableGuide());
   document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
     setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
+  });
+  document.getElementById('settings-match-collection-enabled')?.addEventListener('change', (event) => {
+    const enabled = (event.currentTarget as HTMLInputElement).checked;
+    setMatchCollectionEnabled(enabled);
+    deps.emit('matchCollectionSettingChanged', { enabled });
   });
   document.getElementById('settings-encounter-location-set')?.addEventListener('click', () => {
     const current = getEncounterLocation();

@@ -51,7 +51,7 @@ test.describe('Chinese UI localization traversal (D2)', () => {
     await afterNav();
     await expect(p.locator('#create-custom-chatroom-btn')).toHaveAttribute('title', '新建房间');
     await expect(p.locator('#broadcast-talk-btn')).toHaveAttribute('title', '广播');
-    await expect(p.locator('#top-header #return-home-btn')).toBeVisible();
+    await expect(p.locator('#top-header #return-home-btn')).toBeHidden();
 
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();

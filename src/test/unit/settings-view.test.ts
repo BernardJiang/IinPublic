@@ -10,7 +10,7 @@ import {
 } from '../../web/ui/settings-view';
 import { uiText } from '../../web/ui/ui-translations';
 import { getEncounterLocation, setEncounterLocation } from '../../web/services/encounter-location';
-import { getAutoAnswerScope, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
+import { getAutoAnswerScope, getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
 import { loadConnectivitySettings } from '../../web/ui/connectivity-settings';
 
 function makeUser(overrides: Partial<User> = {}): User {
@@ -170,6 +170,7 @@ describe('settings view extraction', () => {
     expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
     expect(document.querySelector<HTMLSelectElement>('#settings-auto-answer-scope')?.value).toBe('whenever');
+    expect(document.querySelector<HTMLInputElement>('#settings-match-collection-enabled')?.checked).toBe(true);
     const nearbyPrivacy = document.querySelector<HTMLSelectElement>('#settings-nearby-privacy-mode');
     // Area size only: "Location off" became Traveler and "Contacts only" a Talk audience.
     expect(Array.from(nearbyPrivacy?.options ?? [], (option) => option.value)).toEqual([
@@ -282,6 +283,22 @@ describe('settings view extraction', () => {
 
     expect(deps.setSettingsActiveSectionId).toHaveBeenCalledWith('settings-section-profile');
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
+  });
+
+  it('keeps match collection on by default and moves its opt-out to Settings', () => {
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(makeUser(), viewDeps());
+    const emit = jest.fn();
+    bindSettingsControls(controlsDeps({ emit }));
+
+    const toggle = document.getElementById('settings-match-collection-enabled') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(getMatchCollectionEnabled()).toBe(true);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(getMatchCollectionEnabled()).toBe(false);
+    expect(emit).toHaveBeenCalledWith('matchCollectionSettingChanged', { enabled: false });
   });
 
   it('applies presets to visible controls and marks manual policy edits as Advanced', () => {

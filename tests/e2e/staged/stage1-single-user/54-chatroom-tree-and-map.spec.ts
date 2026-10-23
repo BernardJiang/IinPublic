@@ -58,7 +58,8 @@ test.describe('Nearby and Places list/map views', () => {
     const current = page!.locator(`.chatroom-item[data-chatroom-id="${currentRoomId}"]`);
     await expect(current).toBeVisible();
     await expect(current).toHaveClass(/current-room/);
-    await expect(current).toContainText('People near you');
+    await expect(current).toContainText('Nearby');
+    await expect(current.locator('.chatroom-icon')).toHaveText('📁');
     await expect(page!.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id*="_part_"]')).toHaveCount(0);
@@ -74,7 +75,7 @@ test.describe('Nearby and Places list/map views', () => {
     // Nearby is my own list, not an area: nothing is shaded (§3.7 "Map, list and headcounts").
     await expect(map).not.toHaveAttribute('data-nearby-area-visible', 'true');
     await expect(page!.locator('#chatroom-map-status')).not.toContainText('shaded Nearby area');
-    await expect(page!.locator('#return-home-btn')).toBeDisabled();
+    await expect(page!.locator('#return-home-btn')).toBeHidden();
 
     const box = (await map.boundingBox())!;
     await page!.mouse.click(box.x + box.width / 2, box.y + box.height / 2);

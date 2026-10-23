@@ -4751,14 +4751,18 @@ The "two rows" the redesign removes: `#top-header` **and** `.tab-action-bar` bot
 A single horizontal bar directly under the OS chrome, replacing the current `top-header` + `tab-action-bar` stack. Three zones:
 
 - **Left** — a contextual control: the screen title when at a list root, or a **back icon** (`‹` / chevron) when inside a sub-view (chatroom detail, peer detail, conversation, contact detail). The text "‹ Back" buttons (`#back-to-chatrooms`, `#back-to-contacts-list`, `#talks-nav-back`, `#back-from-peer-detail`, `#back-from-conversation`) all collapse into this one left-corner icon.
-- **Center** — the status / context line (single line, truncates with ellipsis). Reuses the existing per-view status text (`#status-bar-text`, `#contacts-status-text`, etc.).
+- **Center** — the status / context line (single line, truncates with ellipsis). On Chatrooms it
+  shows only changing counts (`N users · M matches`); the selected folder or detail heading already
+  names the scope, so the AppBar does not repeat the static `📍 Nearby` label. Other tabs reuse their
+  existing per-view status text (`#contacts-status-text`, etc.).
 - **Right** — a row of **action icons**, contextual to the screen. Icons render inline until they no longer fit; overflow collapses into a single **`⋯` (more) button** that opens a small menu with the remaining actions and their labels.
 
 Every screen uses the same component so spacing, height, icon size, and the overflow behavior are identical everywhere.
 
 ##### 2. Chatrooms tab
 
-Merge the two rows into the single top bar. The three text buttons become **icons, in parallel with the ➕ create-talk icon**:
+Merge the two rows into the single top bar. Actions are contextual instead of exposing every
+possible operation on the room-list root:
 
 | Action | Current | Target icon |
 |---|---|---|
@@ -4767,16 +4771,20 @@ Merge the two rows into the single top bar. The three text buttons become **icon
 | Return home | `#return-home-btn` "Return Home" | e.g. 🏠 / home glyph |
 | Broadcast | `#broadcast-talk-btn` "Broadcast" | e.g. 📣 |
 
-- All four sit in the top bar's right zone, in parallel.
-- When the window is too narrow to show them all, the ones that don't fit collapse into the `⋯` overflow menu (labels shown in the menu for clarity). Priority order (most → least likely to stay inline) to be finalized during build; suggested: ➕ create talk, 📣 broadcast, home, new room.
-- `#return-home-btn`'s existing enabled/disabled logic and `#broadcast-talk-btn`'s visibility logic (`syncStatusBroadcastButtonVisibility`) carry over to the icon/menu items.
+- The room-list root shows List/Map and New Room. Create Talk belongs to the Talks tab; Broadcast
+  appears only inside a room; Return Home appears only while away from Nearby.
+- When the window is too narrow, the valid actions that do not fit collapse into the `⋯` overflow
+  menu, with labels shown for clarity.
+- `#return-home-btn` is hidden at home rather than leaving a disabled control in the bar.
 - Keep `data-testid` attributes on the new icon buttons (and menu items) so existing E2E selectors keep working: `create-custom-chatroom-btn`, `return-home-btn`, `broadcast-talk-btn`, `bottom-navigation-button-*`.
 
 ##### 3. Inside a chatroom (chatroom detail)
 
 - The "‹ Back" (`#back-to-chatrooms`) becomes the **left-corner back icon** of the same single top bar.
-- Center shows the room title/status (`#current-chatroom-title` / `#current-chatroom-status` content).
-- Right zone shows only the actions valid inside a room (e.g. broadcast, create talk); room-list-only actions (new room / return-home as appropriate) hide or move to overflow.
+- Center shows changing user/match counts; the room title remains in the detail heading
+  (`#current-chatroom-title`).
+- Right zone shows only the actions valid inside a room (Broadcast and, while away, Return Home);
+  the room-list-only New Room action is hidden.
 
 ##### 4. Notifications auto-dismiss
 

@@ -177,6 +177,5 @@ export function renderRoomListRow(row: RoomListRow, t: T, escapeHtml: (value: st
         ${row.context ? `<div class="chatroom-description">${escapeHtml(row.context)}</div>` : ''}
         <div class="chatroom-flat-metrics"><span class="chatroom-headcount">${escapeHtml(roomMetaText(row, t))}</span></div>
       </div>
-      <div class="chatroom-arrow">›</div>
     </div>`;
 }

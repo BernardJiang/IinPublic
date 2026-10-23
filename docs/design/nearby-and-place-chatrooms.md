@@ -807,8 +807,11 @@ reputation-weighted dense-crowd ranking remain separate deferred defenses.
 
 - **Map:** fits itself to the people on my list. Green dots are my list, ★ is me, the heat layer
   shows the crowd. An arena is one square with "498 of 10,000 here".
-- **List:** "People near you" (my group), with the group bar (Meet new people). The overlapping Nearby
-  groups ("Here · 2…") disappear. Places are listed as before.
+- **List:** one compact file-browser surface. Nearby and Places are folder rows; the people on my
+  v3 list are person rows directly below them. Opening Nearby still shows the group bar (Meet new
+  people). Both the root person rows and the opened folder preserve the same v3 rank order:
+  public distance, established identity, then the daily per-viewer hash. Relationship history
+  decorates rows but never reorders them. The overlapping Nearby groups ("Here · 2…") disappear.
 - **Headcounts:** "498 near you · 12,345 online". The first number is my own list; the second is
   the hub's statistic. TechSupport stays a Contact and is never counted.
 
@@ -943,13 +946,14 @@ real-phone run.
    whose link fails twice after the knock grace leaves the list. A newcomer swaps with the nearest
    person at once, and an empty list asks the hub again every 5 s, doubling. Still to do:
    "Sent to N of M".
-4. **UI — done (2026-10-19).** Map: green dots for my list, ★ for me, the heat layer from
+4. **UI — done (2026-10-22).** Map: green dots for my list, ★ for me, the heat layer from
    `GET /api/nearby/v3/stats`, fitted to me and my list; no yellow dots, no tile grid. List: the
-   Nearby row is "People near you"; its open list starts with the group bar (2026-10-20: "Show more
-   people here" was replaced by "Meet new people", see "Meeting new people in groups"). Headcounts:
+   Nearby and Place rows look like folders and the current v3 roster is shown directly as person
+   rows in the same compact browser; opening Nearby starts with the group bar (2026-10-20: "Show
+   more people here" was replaced by "Meet new people", see "Meeting new people in groups"). Headcounts:
    "N near you · M online" — N is my list without me, M the hub's count; the room-list header uses
-   M too. A Nearby broadcast shows "Sent to N of M" under the Nearby row, counting delivery acks.
-   Nearby has no chat feed. Web e2e `stage2-two-user/95-nearby-screens`.
+   M too. Match collection is ambient and defaults on; its opt-out is under Settings rather than a
+   card on this list. Nearby has no chat feed. Web e2e `stage2-two-user/95-nearby-screens`.
 5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, bounded recent chat kept for
    Places; seat claims and cohorts go.
 6. **Removal of v2 — done (2026-10-19)** (no epoch switch, no compatibility): the partition

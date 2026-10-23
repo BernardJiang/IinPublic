@@ -20,5 +20,6 @@ export function syncReturnHomeButton(deps: ReturnHomeButtonDeps): void {
   effectiveRoom = effectiveRoom || 'global';
   const away = effectiveRoom !== home;
   btn.disabled = !away;
+  btn.style.display = away ? 'inline-flex' : 'none';
   btn.title = away ? `Return to ${deps.resolveChatroomTitle(home)}` : 'Already in your home room';
 }

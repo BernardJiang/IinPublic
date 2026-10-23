@@ -71,9 +71,9 @@ test.describe('Place creation rules', () => {
     await afterNav();
     await p.locator('#return-home-btn').click();
     await afterNav();
-    await expect(p.locator('#return-home-btn')).toBeDisabled({ timeout: 15_000 });
+    await expect(p.locator('#return-home-btn')).toBeHidden({ timeout: 15_000 });
     await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby-v3$/);
-    const section = p.locator('[data-testid="places-near-you-section"]');
+    const section = p.locator('[data-testid="rooms-near-you-section"]');
     await expect(section).toContainText(name, { timeout: 20_000 });
 
     // A second Place by the same person is refused.

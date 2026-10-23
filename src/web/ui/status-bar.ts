@@ -20,12 +20,12 @@ export type UpdateStatusBarDeps = {
 };
 
 /**
- * Renders the persistent status bar line (`#status-bar-text`): "⟨room⟩ · N users[ · M matches]".
- * Stores the pre-match-suffix text in `data-status-bar-base` so other code (e.g. a language
- * change) can rebuild the suffix without needing the original room name/count again.
+ * Renders only changing status in the AppBar: "N users[ · M matches]". The room/list already
+ * names the active scope, so repeating "📍 Nearby" here wastes the narrow center column.
+ * Stores the pre-match-suffix count in `data-status-bar-base` so other code can rebuild it.
  */
 export function updateStatusBar(
-  chatroomName: string,
+  _chatroomName: string,
   memberCount: number,
   totalMatches: number | undefined,
   deps: UpdateStatusBarDeps,
@@ -34,7 +34,7 @@ export function updateStatusBar(
   if (!statusBarText) return;
 
   const userText = deps.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
-  const base = `${chatroomName} · ${userText}`;
+  const base = userText;
   statusBarText.dataset.statusBarBase = base;
   const localTotalMatches = deps.getTotalMatches();
   const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
@@ -50,27 +50,15 @@ export function updateStatusBar(
 }
 
 /**
- * Two short lines that always fit between the app-bar buttons: the room name (bold), then
- * "N users · M matches" (small). The full line stays in the element's text (" · " separator kept
- * for screen readers and tests) and in its tooltip; tapping toggles a wrapped, fully readable view.
+ * One compact dynamic line between the AppBar buttons. The selected folder or detail heading owns
+ * the room name; this element owns only counts.
  */
 function renderStatusBar(element: HTMLElement, text: string): void {
-  const [name = '', ...rest] = text.split(' · ');
-  const nameEl = document.createElement('span');
-  nameEl.className = 'status-bar-name';
-  nameEl.textContent = name;
-  const sep = document.createElement('span');
-  sep.className = 'status-bar-sep';
-  sep.textContent = ' · ';
   const metaEl = document.createElement('span');
   metaEl.className = 'status-bar-meta';
-  metaEl.textContent = rest.join(' · ');
-  element.replaceChildren(nameEl, ...(rest.length > 0 ? [sep, metaEl] : []));
+  metaEl.textContent = text;
+  element.replaceChildren(metaEl);
   element.title = text;
-  if (!element.dataset.expandBound) {
-    element.dataset.expandBound = 'true';
-    element.addEventListener('click', () => element.classList.toggle('status-bar-expanded'));
-  }
 }
 
 /**

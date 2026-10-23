@@ -25,6 +25,7 @@ import {
   getChatbotEnabled,
   getColorSchemePreference,
   getCopyTalkAutoSave,
+  getMatchCollectionEnabled,
   getDefaultTalkLanguagePreference,
   getKeepOldTalkOnEdit,
   getLocationAutoMatchConsent,
@@ -527,6 +528,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <input type="checkbox" id="settings-copy-talk-autosave" ${getCopyTalkAutoSave() ? 'checked' : ''}>
             <span>${deps.t('settingsCopyTalk')}</span>
           </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
+            <input type="checkbox" id="settings-match-collection-enabled" data-testid="settings-match-collection-enabled" ${getMatchCollectionEnabled() ? 'checked' : ''}>
+            <span>${deps.t('settingsMatchCollection')}</span>
+          </label>
+          <div style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${deps.t('settingsMatchCollectionHelp')}</div>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
             <span>${deps.t('settingsChatbot')}</span>
