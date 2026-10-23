@@ -126,7 +126,7 @@ The system supports:
 | **Chatroom** | A public, location-based or user-defined "place" where users can find each other; all conversations remain one-on-one. |
 | **Business Chatroom** | A user-defined chatroom bound to a specific brand and address (e.g., a bar). |
 | **Traveler** | A user deliberately present in a chatroom other than their selected home room. |
-| **Tag** | The simplest talk unit: a single keyword or short phrase with a checkbox (checked = interested / match, unchecked = not interested / ignore). No question-mark required. No answers beyond the checked/unchecked state. |
+| **Tag** | The simplest talk unit: a single keyword or short phrase with direct **Pass** and **Like** actions. Pass privately suppresses the content; Like records interest/match and retains it as an outgoing tag. No question-mark or manual-answer mode is required. Pair-tags use the same controls. |
 | **Flow** | The Linear Thread. A path-graph talk whose question context rolls forward from the immediately preceding context hash and selected answer. |
 | **Survey** | One or more independent Q/A pairs. Every question starts from the root context but still commits to its own question and complete choice set. |
 | **Route** | The Logical Map. A DAG/general-tree talk. Each active branch rolls context forward from its immediate parent context and the answer leading into the branch. |
@@ -469,7 +469,7 @@ The system defines exactly four talk types, arranged from simplest to most compl
 | **survey** | Star graph (height 1) | Root + each independent current question/choices | Exact known-context match |
 | **route** | DAG / general tree | Rolling active-parent context/answer + current question/choices | Exact known-context match |
 
-**Tag** — *The Atom of Interest.* Isolated node (Boolean toggle). A single keyword or short phrase; no question mark. Checked = match/interested, unchecked = ignore. Its root context still commits to the tag/question and complete choices.
+**Tag** — *The Atom of Interest.* Isolated node with a single keyword or short phrase; no question mark. The receiver chooses Pass or Like directly: left swipe mirrors Pass and right swipe mirrors Like. Like records match/interested and retains the tag for later broadcast; Pass moves it to the recoverable Ignored list. Pair-tags use the same interaction. Its root context still commits to the tag/question and complete choices.
 
 **Flow** — *The Linear Thread.* Questions are presented in strict sequence. `C1 = H(ROOT, Frame(Q1))`; each later context is `Cn = H(Cn-1, Answer(n-1), Frame(Qn))`. Only the immediately preceding hash and answer are processed, while the hash transitively commits to the complete earlier path.
 
@@ -505,7 +505,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
   - Stop the flow when a final sentence ending with `.` is reached with no further answer list.
   - Automatically record the resulting Q&A sequence as a **linear talk** draft for User A to reuse and broadcast later.
 - **FR-TK-8 (Editing Constraints)**: Route and survey talks MAY only be created or edited in the Talk Editor UI. Auto-captured chats produce flow talks only.
-- **FR-TK-9 (Tag)**: A tag talk SHALL contain exactly one question (a word or short phrase) and exactly two answers: one `isMatch=true` (checked) and one `isIgnore=true` (unchecked). No other answers are permitted.
+- **FR-TK-9 (Tag)**: A tag talk SHALL contain exactly one question (a word or short phrase) and exactly two semantic answers: one `isMatch=true` (Like) and one `isIgnore=true` (Pass). The receiver UI presents these as direct icons rather than a checkbox or manual-answer form. No other answers are permitted.
 - **FR-TK-10 (Survey Independence)**: Every survey question SHALL start from `ROOT`; sibling answers SHALL NOT affect its context. Its own normalized question and complete choices remain part of the context.
 - **FR-TK-11 (Rolling Context Storage)**: Every reusable answer SHALL store a version-2 SHA-256 `contextHash`. The full prior chain and raw choice list need not be duplicated in the answer record because the hash commits to them transitively.
 - **FR-TK-12 (Context Reply Guard)**: The chatbot SHALL look up only the exact current context hash. If no reusable choice is stored under it, the chatbot SHALL present the question to the user.
@@ -4969,7 +4969,7 @@ Banners and toasts: at ≥ 768 toasts stack top-right (max 3 visible, newest on 
 | Camera capture | `settings-camera-capture-modal`, `settings-camera-capture`, `settings-camera-cancel` | S | live `<video>` preview, Capture, Cancel; permission-denied ⇒ status text + error toast, modal never opens | Capture (→ Photo preview) · Cancel | bottom sheet; video letterboxed |
 | Photo preview | `settings-photo-preview-modal`, `-confirm`, `-cancel` | S | image preview, Save, Cancel | Save · Cancel | bottom sheet |
 | Talk Editor | `#talk-editor-modal` | XL | title (req), language select, type radios ×4 (tag/flow/survey/route — switching swaps question area), tag-like checkbox (tag only), questions container + Add Question, route DAG editor (`route-branch-*`), expiration (forever/1y/1M/1w/1d), location radius (anywhere/10/100/1000 mi), Send-to-Chatroom checkbox (create only), 🔞 adult checkbox, validation-error + autofix banners | Cancel · Create/Save (validation blocks submit, errors shown inline) | full-screen takeover; route editor scrolls internally |
-| Talk Response | `#talk-response-modal`, `close-response-btn`, `back-question-btn` | M | tag: single match checkbox + Submit; flow/route: one question per step with answer buttons + Back; survey: sequential questions; review screen (620): pre-filled radios, "(pre-filled)" tags, superseded banner, Edit-manually + Confirm | Submit path · close · scrim | bottom sheet; answer options full-width |
+| Talk Response | tag-row `talk-tag-in-pass` / `talk-tag-in-like`; `#talk-response-modal`, `close-response-btn`, `back-question-btn` for other types | M | tag/Pair-tag: direct Pass/Like icons, with left/right swipe shortcuts and no manual-answer mode; flow/route: one question per step with answer buttons + Back; survey: sequential questions; review screen (620): pre-filled radios, "(pre-filled)" tags, superseded banner, Edit-manually + Confirm | Tag direct decision; other types Submit path · close · scrim | Tag stays inline; other answer options full-width |
 | Survey stats | `survey-stats-button` opens | L | per-question response counts/funnel | close · scrim | full-screen takeover |
 | My Talks | `close-my-talks-modal` | L | per-talk cards: role + type badges, last interaction, talk id, broadcast enable/disable toggle | `✕` · scrim | full-screen takeover |
 | Preferences (My Answers) | `close-preferences-modal` | L | per answered question: answer select (all options) + mode select (ask again / auto once / always auto / skip) | `✕` · scrim | full-screen takeover |

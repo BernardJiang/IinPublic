@@ -336,6 +336,47 @@ export async function syncIncomingFromServer(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Decide an incoming Tag/Pair-tag from its compact row controls.
+ * Incoming rows can be replaced while peer sync is running, so locate and click the
+ * current DOM button instead of retaining a Playwright locator across that refresh.
+ */
+export async function clickIncomingTagDecision(
+  page: Page,
+  titleSubstring: string,
+  decision: 'like' | 'pass',
+  options?: IncomingTalkServerWaitOptions,
+): Promise<void> {
+  await page.click('.nav-btn[data-view="talks"]');
+  await waitForTabActive(page, 'talks');
+  await afterSync();
+  await waitForIncomingTalkCluster(page, titleSubstring, options);
+  await syncIncomingFromServer(page);
+  await afterSync();
+
+  const selector = decision === 'like' ? '.talk-tag-in-like' : '.talk-tag-in-pass';
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const clicked = await page.evaluate(
+      ({ title, buttonSelector }) => {
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item[data-role="incoming"]'));
+        const current = rows.find((candidate) => candidate.textContent?.includes(title));
+        const button = current?.querySelector<HTMLButtonElement>(buttonSelector);
+        if (!button) return false;
+        button.click();
+        return true;
+      },
+      { title: titleSubstring, buttonSelector: selector },
+    );
+    if (clicked) return;
+
+    await syncIncomingFromServer(page);
+    await page.waitForTimeout(200);
+  }
+
+  throw new Error(`Could not ${decision} incoming tag "${titleSubstring}"`);
+}
+
 /** Default pin (San Diego) — kept as the parameterless behavior every existing caller relies on. */
 const DEFAULT_E2E_COORDS = { latitude: 32.7157, longitude: -117.1611 };
 
@@ -844,7 +885,7 @@ export async function longPressTalkRow(page: Page, row: import('@playwright/test
 }
 
 /**
- * Talks-tab row gestures: incoming down = retain, either horizontal direction = Ignore;
+ * Talks-tab row gestures: incoming down = retain, left = Ignore/Pass, Tag/Pair-tag right = Like;
  * outgoing left = delete.
  * 100px comfortably clears the product's 64px commit threshold.
  */

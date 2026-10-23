@@ -22,6 +22,7 @@ function makeDeps(overrides: Partial<TalksRowGesturesDeps> = {}): TalksRowGestur
     setSuppressClickUntil: jest.fn(),
     showDetailsPopupFor: jest.fn(),
     quickIgnoreIncomingTalk: jest.fn(),
+    quickAnswerIncomingTag: jest.fn(),
     quickCopyIncomingTalk: jest.fn(),
     deleteMyTalk: jest.fn(),
     ...overrides,
@@ -52,7 +53,7 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
     jest.useRealTimers();
   });
 
-  it('right-swiping any incoming row ignores its content', () => {
+  it('right-swiping a non-tag incoming row makes no decision', () => {
     const row = makeRow({ talkId: 'talk-a', identityKey: 'identity-a', role: 'incoming' });
     const deps = makeDeps();
     bindFresh(deps);
@@ -61,7 +62,8 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
     pointer('pointermove', document.body, 180, 100);
     pointer('pointerup', document.body, 180, 100);
 
-    expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('talk-a', 'identity-a');
+    expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
+    expect(deps.quickAnswerIncomingTag).not.toHaveBeenCalled();
     expect(deps.setSuppressClickUntil).toHaveBeenCalled();
   });
 
@@ -103,8 +105,8 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
     expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
   });
 
-  it('right-swiping an incoming tag ignores its content', () => {
-    const row = makeRow({ talkId: 'tag-a', role: 'incoming', classes: 'talk-tag-chip talk-tag-in' });
+  it('right-swiping an incoming tag likes it', () => {
+    const row = makeRow({ talkId: 'tag-a', identityKey: 'tag-like-identity', role: 'incoming', classes: 'talk-tag-chip talk-tag-in' });
     const deps = makeDeps();
     bindFresh(deps);
 
@@ -112,7 +114,8 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
     pointer('pointermove', document.body, 180, 100);
     pointer('pointerup', document.body, 180, 100);
 
-    expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('tag-a', undefined);
+    expect(deps.quickAnswerIncomingTag).toHaveBeenCalledWith('tag-a', 'tag-like-identity', true);
+    expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
   });
 
   it('left-swiping an incoming tag ignores its content', () => {

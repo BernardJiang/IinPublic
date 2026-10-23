@@ -1150,6 +1150,7 @@ export class UIManager extends EventEmitter {
       deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
       restoreIgnoredTalk: (talkId) => this.restoreIgnoredTalk(talkId),
       quickAnswerIncomingTag: (talkId, identityKey, checked) => this.quickAnswerIncomingTag(talkId, identityKey, checked),
+      quickIgnoreIncomingTalk: (talkId, identityKey) => this.quickIgnoreIncomingTalk(talkId, identityKey),
       quickCopyIncomingTalk: (talkId, identityKey) => this.quickCopyIncomingTalk(talkId, identityKey),
       showTalkDetail: (talkId, identityKey) => this.showTalkDetail(talkId, identityKey),
       showSurveyStatsDialog: (talkId) => this.showSurveyStatsDialog(talkId),
@@ -1725,6 +1726,11 @@ export class UIManager extends EventEmitter {
       this.quickCompleteTagTalk(starterTalk, checked);
       return;
     }
+    const storedTalk = this.getMyTalks()[talkId]?.fullTalk;
+    if (storedTalk && String(storedTalk?.type || '').toLowerCase() === 'tag') {
+      this.quickCompleteTagTalk(storedTalk, checked);
+      return;
+    }
     quickAnswerIncomingTagImpl(talkId, identityKeyFallback, checked, {
       emit: (event, payload) => this.emit(event, payload),
       showNotification: (message, type) => this.showNotification(message, type),
@@ -1779,6 +1785,16 @@ export class UIManager extends EventEmitter {
       this.completeTalk(starterTalk, answers, 'mismatch', { withholdFromSender: true });
       return;
     }
+    const storedTalk = this.getMyTalks()[talkId]?.fullTalk;
+    if (storedTalk) {
+      const question = storedTalk.questions?.[0];
+      const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
+      if (question) {
+        this.saveAnswerPreference(storedTalk, storedTalk.id, question, 'ignore', 'ignore', answers, 'suppressed');
+      }
+      this.completeTalk(storedTalk, answers, 'mismatch', { withholdFromSender: true });
+      return;
+    }
     quickIgnoreIncomingTalkImpl(talkId, identityKeyFallback, {
       showNotification: (message, type) => this.showNotification(message, type),
       t: this.t.bind(this),
@@ -1806,6 +1822,7 @@ export class UIManager extends EventEmitter {
       setSuppressClickUntil: (timestamp) => { this.talksGestureSuppressClickUntil = timestamp; },
       showDetailsPopupFor: (detailsEl, originalParent) => this.showDetailsPopupFor(detailsEl, originalParent),
       quickIgnoreIncomingTalk: (talkId, identityKeyFallback) => this.quickIgnoreIncomingTalk(talkId, identityKeyFallback),
+      quickAnswerIncomingTag: (talkId, identityKeyFallback, checked) => this.quickAnswerIncomingTag(talkId, identityKeyFallback, checked),
       quickCopyIncomingTalk: (talkId, identityKeyFallback) => this.quickCopyIncomingTalk(talkId, identityKeyFallback),
       deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
     });

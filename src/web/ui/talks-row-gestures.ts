@@ -1,6 +1,6 @@
 /**
- * Talks-list row gestures: swipe any incoming talk horizontally to Ignore that content, or
- * down to retain it in My Talks; swipe an outgoing/authored row
+ * Talks-list row gestures: swipe any incoming talk left to Ignore/Pass that content; swipe a
+ * Tag/Pair-tag right to Like it; or swipe down to retain it in My Talks. Swipe an outgoing/authored row
  * left to delete; or long-press a card to open its details popup. Bound once, globally, on
  * `document.body` (delegated, since rows are
  * re-rendered often). Extracted from `ui-manager.ts` (UIManager decomposition cluster #12,
@@ -17,6 +17,7 @@ export interface TalksRowGesturesDeps {
   setSuppressClickUntil: (timestamp: number) => void;
   showDetailsPopupFor: (detailsEl: HTMLElement, originalParent: HTMLElement) => void;
   quickIgnoreIncomingTalk: (talkId: string, identityKeyFallback: string | undefined) => void;
+  quickAnswerIncomingTag: (talkId: string, identityKeyFallback: string | undefined, checked: boolean) => void;
   quickCopyIncomingTalk: (talkId: string, identityKeyFallback: string | undefined) => void;
   deleteMyTalk: (talkId: string) => void;
 }
@@ -41,14 +42,14 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
   const MOVE_THRESHOLD = 12;
   const COMMIT_THRESHOLD = 64;
   const LONG_PRESS_MS = 500;
-  const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-pin-button, .talk-copy-button, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details, .talk-restore-ignored-btn';
+  const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-pin-button, .talk-copy-button, .talk-tag-decision-actions, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details, .talk-restore-ignored-btn';
 
   let gestureState: GestureState | null = null;
 
   const clearHints = (row: HTMLElement): void => {
     row.classList.remove('talk-gesture-live');
     row.style.transform = '';
-    row.classList.remove('talk-gesture-hint-copy', 'talk-gesture-hint-delete', 'talk-gesture-hint-ignore');
+    row.classList.remove('talk-gesture-hint-copy', 'talk-gesture-hint-delete', 'talk-gesture-hint-ignore', 'talk-gesture-hint-like');
     delete row.dataset.gestureLabel;
   };
 
@@ -99,12 +100,16 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
     if (state.role === 'incoming') {
       if (Math.abs(dx) >= Math.abs(dy)) {
         state.row.classList.remove('talk-gesture-hint-copy');
-        const clamped = Math.max(-100, Math.min(100, dx));
+        const isTag = state.row.dataset.incomingType === 'tag' || state.row.classList.contains('talk-tag-in');
+        const clamped = isTag ? Math.max(-100, Math.min(100, dx)) : Math.max(-100, Math.min(0, dx));
         state.row.style.transform = `translateX(${clamped}px)`;
-        state.row.classList.toggle('talk-gesture-hint-ignore', Math.abs(dx) > MOVE_THRESHOLD);
-        state.row.dataset.gestureLabel = state.row.dataset.ignoreLabel || '';
+        state.row.classList.toggle('talk-gesture-hint-ignore', dx < -MOVE_THRESHOLD);
+        state.row.classList.toggle('talk-gesture-hint-like', isTag && dx > MOVE_THRESHOLD);
+        if (dx < -MOVE_THRESHOLD) state.row.dataset.gestureLabel = state.row.dataset.passLabel || state.row.dataset.ignoreLabel || '';
+        else if (isTag && dx > MOVE_THRESHOLD) state.row.dataset.gestureLabel = state.row.dataset.likeLabel || '';
+        else delete state.row.dataset.gestureLabel;
       } else if (dy > MOVE_THRESHOLD) {
-        state.row.classList.remove('talk-gesture-hint-ignore');
+        state.row.classList.remove('talk-gesture-hint-ignore', 'talk-gesture-hint-like');
         delete state.row.dataset.gestureLabel;
         const clamped = Math.min(100, dy);
         state.row.style.transform = `translateY(${clamped}px)`;
@@ -133,8 +138,16 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
     const dy = e.clientY - state.startY;
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
-    if (state.role === 'incoming' && absDx > absDy && absDx >= COMMIT_THRESHOLD) {
+    if (state.role === 'incoming' && absDx > absDy && absDx >= COMMIT_THRESHOLD && dx < 0) {
       deps.quickIgnoreIncomingTalk(state.talkId, state.identityKey || undefined);
+    } else if (
+      state.role === 'incoming'
+      && absDx > absDy
+      && absDx >= COMMIT_THRESHOLD
+      && dx > 0
+      && (state.row.dataset.incomingType === 'tag' || state.row.classList.contains('talk-tag-in'))
+    ) {
+      deps.quickAnswerIncomingTag(state.talkId, state.identityKey || undefined, true);
     } else if (state.role === 'incoming' && absDy >= absDx && dy >= COMMIT_THRESHOLD) {
       deps.quickCopyIncomingTalk(state.talkId, state.identityKey || undefined);
     } else if (absDx > absDy && absDx >= COMMIT_THRESHOLD && (state.role === 'created' || state.role === 'copied') && dx < 0 && state.talkId) {

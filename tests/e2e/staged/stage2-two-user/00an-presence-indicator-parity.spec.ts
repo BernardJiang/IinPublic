@@ -17,9 +17,13 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterNav } from '../../helpers/timing';
-import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import {
+  bootstrapUser,
+  clickIncomingTagDecision,
+  waitForIncomingTalkCluster,
+  waitForTabActive,
+} from '../../helpers/talks-matching-flow';
 import { createTagTalkViaEditor, broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
-import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { makeTagTalk } from '../../talks-matching/lib/four-types-talks';
@@ -80,12 +84,10 @@ test.describe('Presence indicator parity: Contacts tab vs chatroom member list',
     await createTagTalkViaEditor(pageTom, { title: tag.title });
     await broadcastFromGlobalChatroom(pageTom);
     await afterSync();
-    await openIncomingTalkModal(pageJerry, tag.title);
-    // Tag-type response dialog is a checkbox + Submit, not the choice-radio grid flow/survey/
-    // route use (talk-response-dialog.ts).
-    await pageJerry.locator('#tag-match-checkbox').check();
-    await pageJerry.locator('#tag-submit-response').click();
-    await waitForResponseModalClosed(pageJerry);
+    await waitForIncomingTalkCluster(pageJerry, tag.title);
+    const incomingTag = pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: tag.title });
+    await clickIncomingTagDecision(pageJerry, tag.title, 'like');
+    await expect(incomingTag).toHaveCount(0);
     await waitForStatusBarMatchCountAtLeast(pageTom, 1);
     await afterSync();
 

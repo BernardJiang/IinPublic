@@ -2174,7 +2174,7 @@ button:focus:not(:focus-visible) {
   transform: translateX(4px) scale(0.98);
 }
 
-/* Row gestures (incoming: down = retain, either horizontal direction = Ignore;
+/* Row gestures (incoming: down = retain, left = Ignore/Pass, right = Like for tags;
  * outgoing: left = delete):
  * `.talk-gesture-live` suspends the row's own hover/active transition while a drag is in
  * progress so the row tracks the pointer 1:1, then removing it lets the base transition
@@ -2193,10 +2193,15 @@ button:focus:not(:focus-visible) {
 }
 
 .talk-list-item.talk-gesture-hint-ignore {
-  background: #fee2e2 !important;
+  background: var(--bg-muted) !important;
 }
 
-.talk-list-item[data-role="incoming"].talk-gesture-hint-ignore::after {
+.talk-list-item.talk-gesture-hint-like {
+  background: #dcfce7 !important;
+}
+
+.talk-list-item[data-role="incoming"].talk-gesture-hint-ignore::after,
+.talk-list-item[data-role="incoming"].talk-gesture-hint-like::after {
   content: attr(data-gesture-label);
   font-size: 0.75rem;
   font-weight: 700;
@@ -2474,23 +2479,48 @@ button.contacts-broadcast-icon-btn {
   background: var(--accent-soft);
 }
 
-.talk-tag-checkbox-wrap {
+.talk-tag-decision-actions {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   flex: 0 0 auto;
 }
 
-.talk-tag-checkbox {
-  width: 18px;
-  height: 18px;
+.talk-tag-decision-button {
+  width: 30px;
+  height: 30px;
   margin: 0;
-  accent-color: var(--accent);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
   cursor: pointer;
 }
 
-.talk-tag-in .talk-tag-checkbox {
-  accent-color: var(--accent);
+.talk-tag-decision-button:hover,
+.talk-tag-decision-button:focus-visible {
+  border-color: currentColor;
+}
+
+.talk-tag-pass-button:hover,
+.talk-tag-pass-button:focus-visible,
+.talk-tag-pass-button.is-selected {
+  background: var(--bg-muted);
+  color: var(--text-tertiary);
+}
+
+.talk-tag-like-button:hover,
+.talk-tag-like-button:focus-visible,
+.talk-tag-like-button.is-selected {
+  border-color: var(--success);
+  background: #dcfce7;
+  color: var(--success);
 }
 
 .talk-tag-text {

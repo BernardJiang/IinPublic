@@ -105,6 +105,19 @@ describe('completeTalk', () => {
     expect(getMyTalks().t1.role).toBe('copied');
   });
 
+  it('replaces a prior Tag Like with Pass and removes the stale Me answer', () => {
+    const d = deps();
+    const tag = talk({ type: 'tag' });
+    completeTalk(tag, [{ questionId: 'q1', answerId: 'yes', answerText: 'Yes' }], 'match', { forceCopyToMyTalks: true }, d);
+    expect(Object.keys(getFlatAnswerHistory())).toHaveLength(1);
+
+    completeTalk(tag, [{ questionId: 'q1', answerId: 'ignore', answerText: 'ignore' }], 'mismatch', { withholdFromSender: true }, d);
+
+    expect(getMyTalks().t1.role).toBe('ignored');
+    expect(getMyTalks().t1.roleBeforeIgnore).toBe('copied');
+    expect(getFlatAnswerHistory()).toEqual({});
+  });
+
   it('never auto-copies a non-tag talk, so a buyer never re-broadcasts a sell deal (OPEN-55)', () => {
     localStorage.setItem('copyTalkAutoSave', 'true');
     const d = deps();
