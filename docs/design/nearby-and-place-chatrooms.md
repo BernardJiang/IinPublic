@@ -807,11 +807,12 @@ reputation-weighted dense-crowd ranking remain separate deferred defenses.
 
 - **Map:** fits itself to the people on my list. Green dots are my list, ★ is me, the heat layer
   shows the crowd. An arena is one square with "498 of 10,000 here".
-- **List:** one compact file-browser surface. Nearby and Places are folder rows; the people on my
-  v3 list are person rows directly below them. Opening Nearby still shows the group bar (Meet new
-  people). Both the root person rows and the opened folder preserve the same v3 rank order:
-  public distance, established identity, then the daily per-viewer hash. Relationship history
-  decorates rows but never reorders them. The overlapping Nearby groups ("Here · 2…") disappear.
+- **List:** one compact browser surface. Nearby is not a room: the people on my v3 list, its
+  headcount, and the group bar (Meet new people) appear directly on the root screen. Only custom
+  Places appear as enterable room rows, with a door icon. The person rows preserve the v3 rank
+  order: public distance, established identity, then the daily per-viewer hash. Relationship
+  history decorates rows but never reorders them. The overlapping Nearby groups ("Here · 2…")
+  disappear.
 - **Headcounts:** "498 near you · 12,345 online". The first number is my own list; the second is
   the hub's statistic. TechSupport stays a Contact and is never counted.
 

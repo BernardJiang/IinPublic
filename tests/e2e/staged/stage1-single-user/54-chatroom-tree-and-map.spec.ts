@@ -1,7 +1,7 @@
 /**
  * OPEN-40 Nearby + Places navigation. The geographic hierarchy is deliberately absent: the list
- * contains one active Nearby audience plus Community-created Places, while the map shades the
- * locally derived Nearby cell without publishing its bounds.
+ * contains only Community-created Places; Nearby people are shown directly and the map shades no
+ * locally derived Nearby cell.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -49,17 +49,14 @@ test.describe('Nearby and Places list/map views', () => {
     await page!.locator('[data-testid="chatroom-list-view-btn"]').click();
   };
 
-  test('list exposes one Nearby audience and no Global/tree/capacity shards', async () => {
+  test('list exposes no synthetic Nearby room or Global/tree/capacity shards', async () => {
     await openList();
     const currentRoomId = await page!.evaluate(() =>
       (window as any).__iinpublic_app?.getApp?.()?.getCurrentChatroomId?.() || '');
     expect(currentRoomId).toMatch(/^nearby-v3$/);
 
-    const current = page!.locator(`.chatroom-item[data-chatroom-id="${currentRoomId}"]`);
-    await expect(current).toBeVisible();
-    await expect(current).toHaveClass(/current-room/);
-    await expect(current).toContainText('Nearby');
-    await expect(current.locator('.chatroom-icon')).toHaveText('📁');
+    await expect(page!.locator(`.chatroom-item[data-chatroom-id="${currentRoomId}"]`)).toHaveCount(0);
+    await expect(page!.locator('[data-testid="nearby-people-section"]')).toBeVisible();
     await expect(page!.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     await expect(page!.locator('.chatroom-item[data-chatroom-id*="_part_"]')).toHaveCount(0);

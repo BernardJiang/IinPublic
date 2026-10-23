@@ -51,8 +51,10 @@ export function syncNearbyGroupBar(
         });
       }
     });
-    membersList.insertAdjacentElement('beforebegin', bar);
   }
+  // The list and room-detail views share one bar. Move it to the currently rendered people list
+  // instead of leaving it inside a hidden view after navigation.
+  if (bar.nextElementSibling !== membersList) membersList.insertAdjacentElement('beforebegin', bar);
   latestDeps.set(bar, deps);
   bar.dataset.group = String(state.group);
   bar.dataset.people = String(state.people);

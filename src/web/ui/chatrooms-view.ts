@@ -123,6 +123,8 @@ function customRoomIcon(type: string): string {
   return type === 'business' ? '🏪' : '💬';
 }
 
+const ROOM_ICON = '🚪';
+
 /** "12 near you · 345 online": my list, then the hub's count of everyone online (§3.7). */
 export function nearbyHeadcountText(deps: Pick<ChatroomsViewDeps, 'text' | 'nearbyOnline'>, count: number): string {
   return deps.nearbyOnline !== undefined
@@ -211,9 +213,9 @@ function splitTitleIcon(title: string): { icon: string; name: string } {
 }
 
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
-  // The product model is intentionally flat: one current Nearby scope plus meaningful Place
-  // destinations. Geographic subdivision and capacity shards are protocol details, never rooms
-  // a person has to understand or expand in a tree.
+  // The product model is intentionally flat: Nearby people live directly on this screen, while
+  // only custom Places are enterable rooms. Geographic subdivision, the Nearby delivery scope,
+  // and capacity shards are protocol details, never rooms a person has to understand or open.
   const customNodes = deps.customChatrooms
     .filter((c) => isPlaceRoomId(c.id))
     .map((c) => ({
@@ -226,33 +228,27 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     }));
   const currentCustom = deps.customChatrooms.find((room) => room.id === deps.currentChatroom);
   const currentTitle = splitTitleIcon(resolveChatroomTitle(deps.currentChatroom, deps.customChatrooms));
-  const currentIsNearby = isNearbyRoomId(deps.currentChatroom);
-  const currentIsContactsOnly = deps.currentChatroom === CONTACTS_ONLY_SCOPE_ID;
-  const currentNode: FlatChatroomNode | null = deps.currentChatroom
+  const currentNode: FlatChatroomNode | null = isPlaceRoomId(deps.currentChatroom)
     ? {
         id: deps.currentChatroom,
-        name: currentIsNearby ? deps.text('chatroomNearbyName') : currentCustom?.name || currentTitle.name,
-        icon: '📁',
+        name: currentCustom?.name || currentTitle.name,
+        icon: ROOM_ICON,
         level: 0,
-        description: currentIsNearby
-          ? deps.text(deps.travelModeActive ? 'chatroomNearbyTravelDescription' : 'chatroomNearbyHomeDescription')
-          : currentIsContactsOnly
-            ? deps.text('chatroomContactsDescription')
-            : currentCustom?.description || deps.text('chatroomPlaceDescriptionFallback'),
+        description: currentCustom?.description || deps.text('chatroomPlaceDescriptionFallback'),
         hasChildren: false,
       }
     : null;
   const allChatrooms = Array.from(new Map(
     [...(currentNode ? [currentNode] : []), ...customNodes].map((room) => [room.id, room]),
   ).values());
-  // Nearby is my own v3 list, presented as a compact directory rather than a shared-room card.
+  // Nearby is my own v3 people list. It is not a room row or a map destination.
   const selfPoint = deps.mapUserDots?.selfPoint;
   const roomRows = deps.activeRooms
     ? roomListRows(deps.activeRooms, {
         t: deps.text,
         currentRoomId: deps.currentChatroom,
         currentName: currentNode?.name || '',
-        placeIcon: () => '📁',
+        placeIcon: () => ROOM_ICON,
       }).filter((row) => row.roomId !== deps.currentChatroom && row.memberCount > 0)
     : [];
   const placedPoint = getEncounterLocation();
@@ -265,11 +261,13 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     // The hub's room list says who is in a Place now (rows with people are excluded above); this
     // phone's own count for a Place it left can be stale and hid the emptied Place (phone-path 01).
     memberCount: (roomId) => (deps.activeRooms ? 0 : deps.chatroomMemberCounts.get(roomId) || 0),
-    placeIcon: () => '📁',
+    placeIcon: () => ROOM_ICON,
   });
   const sort = getRoomListSort();
   const nearbyPeople = (deps.nearbyMembers ?? [])
     .filter((member) => member.userId !== deps.currentUserId && member.userId !== TECHSUPPORT_ROOT_USER_ID);
+  const visibleRoomRows = [...roomRows, ...emptyPlaces];
+  const showRoomsSection = Boolean(currentNode || visibleRoomRows.length || deps.activeRooms?.hasMore);
 
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;
@@ -292,10 +290,8 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
             </div>
             <div class="chatroom-description">${deps.escapeHtml(room.description || '')}</div>
             <div class="chatroom-flat-metrics">
-              ${isNearbyRoomId(room.id)
-                ? `<span class="chatroom-headcount" data-testid="nearby-headcount">${deps.escapeHtml(nearbyHeadcountText(deps, memberCount))}</span>`
-                : showCount ? `<span class="chatroom-headcount">${deps.text('roomListPeople')
-                  .replace('{count}', String(memberCount))}</span>` : ''}
+              ${showCount ? `<span class="chatroom-headcount">${deps.text('roomListPeople')
+                .replace('{count}', String(memberCount))}</span>` : ''}
               ${isPlaceRoomId(room.id) ? `<span class="chatroom-visitcount">${deps.text('chatroomVisits').replace('{count}', String(visitCounts.visitCount))}</span>` : ''}
             </div>
           </div>
@@ -306,21 +302,40 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   chatroomList.innerHTML = `
     ${renderRoomListHeader(deps.activeRooms, sort, deps.text, deps.nearbyOnline)}
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
-    <section class="chatroom-flat-section nearby-browser-folders" data-testid="rooms-near-you-section">
-      <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
-      ${currentNode ? renderRoomRow(currentNode, true) : ''}
-      ${roomRows.length || emptyPlaces.length
-        ? [...roomRows, ...emptyPlaces].map((row) => renderRoomListRow(row, deps.text, deps.escapeHtml)).join('')
-        : `<p class="chatroom-flat-empty">${deps.text(deps.activeRooms ? 'roomListEmpty' : 'roomListLoading')}</p>`}
-      ${deps.activeRooms?.hasMore ? `<button type="button" class="btn" id="room-list-more" data-testid="room-list-more">${deps.text('roomListShowMore')}</button>` : ''}
-    </section>
+    ${showRoomsSection ? `<section class="chatroom-flat-section nearby-browser-rooms" data-testid="rooms-near-you-section">
+        <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
+        ${currentNode ? renderRoomRow(currentNode, true) : ''}
+        ${visibleRoomRows.map((row) => renderRoomListRow(row, deps.text, deps.escapeHtml)).join('')}
+        ${deps.activeRooms?.hasMore ? `<button type="button" class="btn" id="room-list-more" data-testid="room-list-more">${deps.text('roomListShowMore')}</button>` : ''}
+      </section>` : ''}
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
-      <h2 class="chatroom-flat-heading">${deps.text('nearbyPeopleNearYou')}</h2>
-      ${nearbyPeople.length
-        ? nearbyPeople.map((member) => renderOrdinaryMemberRow(member, deps, true)).join('')
-        : `<p class="chatroom-flat-empty">${deps.text('chatroomNoOtherUsers')}</p>`}
+      <div class="nearby-people-heading">
+        <h2 class="chatroom-flat-heading">${deps.text('nearbyPeopleNearYou')}</h2>
+        <span class="chatroom-headcount" data-testid="nearby-headcount">${deps.escapeHtml(nearbyHeadcountText(deps, nearbyPeople.length))}</span>
+      </div>
+      <div id="nearby-browser-members">
+        ${nearbyPeople.length
+          ? nearbyPeople.map((member) => renderOrdinaryMemberRow(member, deps, true)).join('')
+          : `<p class="chatroom-flat-empty">${deps.text('chatroomNoOtherUsers')}</p>`}
+      </div>
     </section>
     </div>`;
+
+  const nearbyBrowserMembers = document.getElementById('nearby-browser-members');
+  if (nearbyBrowserMembers) {
+    syncNearbyGroupBar(
+      { text: deps.text, emit: deps.emit },
+      nearbyBrowserMembers,
+      isNearbyRoomId(deps.currentChatroom)
+        ? {
+            group: deps.nearbyGroup?.group ?? 1,
+            exhausted: deps.nearbyGroup?.exhausted === true,
+            people: nearbyPeople.length,
+            place: false,
+          }
+        : null,
+    );
+  }
 
   document.getElementById('room-list-sort')?.addEventListener('change', (event) => {
     setRoomListSort((event.currentTarget as HTMLSelectElement).value as ActiveRoomSort);
@@ -333,7 +348,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     item.addEventListener('click', () => {
       const chatroomId = item.getAttribute('data-chatroom-id');
       if (chatroomId) {
-        enterRoom(deps, chatroomId, [...roomRows, ...emptyPlaces].find((row) => row.roomId === chatroomId));
+        enterRoom(deps, chatroomId, visibleRoomRows.find((row) => row.roomId === chatroomId));
       }
     });
     item.addEventListener('keydown', (event) => {
@@ -387,7 +402,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   mapButton.onclick = () => activateBrowseMode('map');
 
   if (isMap) {
-    // The map is as flat as the list: the current audience plus public Place pins. Internal
+    // The map is as flat as the list: public Place pins only. Internal Nearby delivery scopes,
     // partition cells, parents, children, and capacity shards never become map destinations.
     const mapRooms: ChatroomMapRoom[] = allChatrooms.map((room) => {
       const visits = deps.chatroomVisitCounts.get(room.id) || { visitCount: 0, uniqueVisitorCount: 0 };
@@ -508,22 +523,26 @@ export function updateChatroomMembers(
   const memberCount = nearby ? otherMembers.length : roomMembers.length;
 
   deps.chatroomMemberCounts.set(deps.currentChatroom, memberCount);
+  deps.setCurrentChatroomMembers(otherMembers);
   deps.renderChatroomList();
   renderCustomRoomMetadata(deps, deps.customChatrooms.find((custom) => custom.id === deps.currentChatroom));
-  deps.setCurrentChatroomMembers(otherMembers);
 
   if (chatroomMembersList) {
     if (chatroomStatus) {
       const visits = deps.chatroomVisitCounts.get(deps.currentChatroom) || { visitCount: 0, uniqueVisitorCount: 0 };
       chatroomStatus.textContent = nearby ? nearbyHeadcountText(deps, memberCount) : formatMetrics(deps, memberCount, visits);
     }
-    syncNearbyGroupBar(
-      { text: deps.text, emit: deps.emit },
-      chatroomMembersList,
-      isPersonalListScope(deps.currentChatroom)
-        ? { group: deps.nearbyGroup?.group ?? 1, exhausted: deps.nearbyGroup?.exhausted === true, people: otherMembers.length, place: !nearby }
-        : null,
-    );
+    const detailOpen = document.body.dataset.chatroomDetail === 'open'
+      || !document.getElementById('chatroom-list');
+    if (detailOpen) {
+      syncNearbyGroupBar(
+        { text: deps.text, emit: deps.emit },
+        chatroomMembersList,
+        isPersonalListScope(deps.currentChatroom)
+          ? { group: deps.nearbyGroup?.group ?? 1, exhausted: deps.nearbyGroup?.exhausted === true, people: otherMembers.length, place: !nearby }
+          : null,
+      );
+    }
 
     if (otherMembers.length === 0) {
       chatroomMembersList.innerHTML = `

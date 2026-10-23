@@ -1396,7 +1396,7 @@ button:focus:not(:focus-visible) {
   margin-top: 22px;
 }
 
-/* Nearby v3 list: folders (Places) and people share one compact file-browser surface. */
+/* Nearby v3 list: custom rooms and nearby people share one compact browser surface. */
 .nearby-browser-list {
   margin-top: 10px;
   overflow: hidden;
@@ -1414,6 +1414,20 @@ button:focus:not(:focus-visible) {
   margin: 0;
   padding: 10px 14px 7px;
   background: var(--bg-subtle);
+}
+
+.nearby-people-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 14px;
+  background: var(--bg-subtle);
+}
+
+.nearby-people-heading .chatroom-headcount {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
 }
 
 .nearby-browser-list .chatroom-item,
