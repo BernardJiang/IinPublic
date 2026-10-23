@@ -11,6 +11,7 @@ import {
 import { uiText } from '../../web/ui/ui-translations';
 import { getEncounterLocation, setEncounterLocation } from '../../web/services/encounter-location';
 import { getAutoAnswerScope, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
+import { loadConnectivitySettings } from '../../web/ui/connectivity-settings';
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -138,6 +139,33 @@ describe('settings view extraction', () => {
     renderSettingsView(user, deps);
 
     expect(document.querySelector('#settings-jump-menu')).not.toBeNull();
+    const menuItems = Array.from(
+      document.querySelectorAll<HTMLElement>('.settings-jump-menu-item'),
+      (item) => item.dataset.target,
+    );
+    expect(menuItems).toEqual([
+      'settings-section-profile',
+      'settings-section-appearance',
+      'settings-section-languages',
+      'settings-section-talk-behavior',
+      'settings-section-content-filters',
+      'settings-section-distance-home',
+      'settings-section-credit',
+      'settings-section-linked-devices',
+      'settings-section-connectivity',
+      'settings-section-download-app',
+      'settings-storage-inspector',
+      'settings-section-erase-device',
+      'settings-section-support-delegate',
+      'settings-section-help',
+    ]);
+    expect(Array.from(document.querySelectorAll('.settings-jump-menu-group-label'), (label) => label.textContent)).toEqual([
+      'Personalization',
+      'Talks & discovery',
+      'Identity & trust',
+      'App & data',
+      'Support',
+    ]);
     expect(document.querySelector('#settings-section-languages')).not.toBeNull();
     expect(document.querySelector('#settings-start-guide-btn')).not.toBeNull();
     expect(document.querySelector('#settings-replay-walkthrough-btn')).not.toBeNull();
@@ -254,6 +282,45 @@ describe('settings view extraction', () => {
 
     expect(deps.setSettingsActiveSectionId).toHaveBeenCalledWith('settings-section-profile');
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
+  });
+
+  it('applies presets to visible controls and marks manual policy edits as Advanced', () => {
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(makeUser(), viewDeps());
+    const emit = jest.fn();
+    bindSettingsControls(controlsDeps({ emit }));
+
+    const preset = document.getElementById('settings-connectivity-preset') as HTMLSelectElement;
+    preset.value = 'fastest';
+    preset.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(loadConnectivitySettings()).toEqual(expect.objectContaining({
+      preset: 'fastest',
+      freeFirst: false,
+      directFirst: true,
+      batteryAware: false,
+    }));
+    expect(document.querySelector<HTMLInputElement>('#settings-connectivity-free-first')?.checked).toBe(false);
+    expect(document.querySelector<HTMLInputElement>('#settings-connectivity-battery-aware')?.checked).toBe(false);
+    expect(emit).toHaveBeenLastCalledWith(
+      'connectivitySettingsChanged',
+      expect.objectContaining({ preset: 'fastest', batteryAware: false }),
+    );
+
+    const freeFirst = document.getElementById('settings-connectivity-free-first') as HTMLInputElement;
+    freeFirst.checked = true;
+    freeFirst.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(loadConnectivitySettings()).toEqual(expect.objectContaining({ preset: 'advanced', freeFirst: true }));
+    expect(preset.value).toBe('advanced');
+
+    const wifiForwarding = document.getElementById('settings-connectivity-wifi-forwarding') as HTMLInputElement;
+    wifiForwarding.checked = false;
+    wifiForwarding.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(loadConnectivitySettings()).toEqual(expect.objectContaining({
+      preset: 'advanced',
+      wifiOnlyForwarding: false,
+      forwarding: expect.objectContaining({ wifiForwarding: false }),
+    }));
   });
 
   it('shows the four discovery provider switches only in the Android app, all on by default', () => {

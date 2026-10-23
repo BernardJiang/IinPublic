@@ -5,6 +5,12 @@ import { renderChatroomList, updateChatroomMembers, type CustomChatroomRow } fro
 import { uiText } from '../../web/ui/ui-translations';
 import type { ActiveRoomsView } from '../../shared/active-rooms';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
+import {
+  MATCH_COLLECTION_STORE_KEY,
+  recordMatchCollectionDelivery,
+  recordMatchCollectionExchange,
+  startMatchCollectionSession,
+} from '../../web/services/match-collection-session';
 
 const NEARBY_ID = NEARBY_V3_ROOM_ID;
 const PLACE_ID = 'place_32.71_-117.17_abcdefabcdef';
@@ -65,6 +71,8 @@ function render(overrides: Record<string, unknown> = {}): void {
 }
 
 describe('flat Nearby and Places list', () => {
+  afterEach(() => localStorage.removeItem(MATCH_COLLECTION_STORE_KEY));
+
   it('shows Nearby first, then every Place with people, with the Places total', () => {
     render({ activeRooms: ROOMS });
 
@@ -119,6 +127,26 @@ describe('flat Nearby and Places list', () => {
     render({ currentChatroom: PLACE_ID });
 
     expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Bean There Café');
+  });
+
+  it('starts collection from the current group and restores its live summary', () => {
+    const emit = jest.fn();
+    render({ emit });
+    expect(document.querySelector('[data-testid="match-collection-card"]')?.textContent).toContain('Collect matches');
+    (document.querySelector('[data-testid="match-collection-toggle"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('startMatchCollection', { scopeId: NEARBY_ID, label: 'People near you' });
+
+    startMatchCollectionSession({ label: 'People near you', scopeId: NEARBY_ID });
+    recordMatchCollectionDelivery({ talkIds: ['talk-a'], peerIds: ['alice', 'bob'] });
+    recordMatchCollectionExchange('alice', 'talk-a', 'match');
+    render({ emit });
+    expect(document.querySelector('[data-testid="match-collection-summary"]')?.textContent).toContain('2 reached · 1 replies · 1 pending · 1 matches');
+    (document.querySelector('[data-testid="match-collection-broadcast"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('broadcastMatchCollection', {});
+    (document.querySelector('[data-testid="match-collection-review"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('reviewMatchCollection', expect.objectContaining({ sessionId: expect.any(String) }));
+    (document.querySelector('[data-testid="match-collection-toggle"]') as HTMLButtonElement).click();
+    expect(emit).toHaveBeenCalledWith('endMatchCollection', {});
   });
 });
 

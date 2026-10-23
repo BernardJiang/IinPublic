@@ -725,6 +725,11 @@ export class UIManager extends EventEmitter {
     void this.broadcast().runBroadcastFromCurrentRoom(automatic);
   }
 
+  /** Explicit outing-card action; uses the same audited broadcast path as the app bar. */
+  public broadcastTalksFromCurrentRoom(): void {
+    this.handleBroadcastTalkFromCurrentRoom(false);
+  }
+
   /** Auto-send only the OUT talk revisions not yet delivered to each individual peer. */
   public broadcastPendingTalksOnRoomEntry(): void {
     this.broadcast().broadcastPendingTalksOnRoomEntry();

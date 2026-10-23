@@ -18,9 +18,11 @@ import {
   type OfflineGroupPlan,
 } from '../../shared/nearby-offline';
 import {
+  DiscoveryDutyMetrics,
   DiscoveryPolicy,
   discoveryProviderAvailability,
   NearbyCandidateRegistry,
+  type DiscoveryPolicyTiming,
   type DiscoveryPolicyDecision,
   type DiscoveryReadiness,
   type DiscoveryStage,
@@ -44,6 +46,8 @@ export type NearbyOfflineBridge = {
   /** `scan` false once in a group: keep advertising (newcomers find us), stop scanning (battery). */
   startBlePresence(payloadHex: string, scan: boolean): void;
   stopBlePresence(): void;
+  /** Content-free native radio counters, when supported by the Android shell. */
+  measurementDiagnostics?(): string;
   requestOfflineNearbyPermission(): void;
   /** Re-read a group Android kept from an earlier process; the answer arrives as a state event. */
   refreshWifiDirectState?(): void;
@@ -112,6 +116,8 @@ export type NearbyOfflineServiceOptions = {
   now?: () => number;
   random?: () => number;
   tickMs?: number;
+  /** Debug/measurement override; production callers omit this and use the signed defaults. */
+  discoveryTiming?: DiscoveryPolicyTiming;
 };
 
 /** After a failed create/join, wait before planning again. */
@@ -150,7 +156,8 @@ export class NearbyOfflineService {
   private readonly events: EventTarget;
   private id = '';
   private readonly registry = new NearbyCandidateRegistry({ ttlMs: NEARBY_RECORD_TTL_MS * 2, lanTtlMs: NEARBY_LAN_TTL_MS });
-  private readonly policy = new DiscoveryPolicy();
+  private readonly policy: DiscoveryPolicy;
+  private readonly dutyMetrics: DiscoveryDutyMetrics;
   private lastDecision: DiscoveryPolicyDecision | null = null;
   private lanRunning = false;
   private lanAllowed: boolean;
@@ -282,6 +289,8 @@ export class NearbyOfflineService {
     this.lanAllowed = opts.lanDiscovery !== false;
     this.now = opts.now ?? Date.now;
     this.events = opts.events ?? window;
+    this.policy = new DiscoveryPolicy(opts.discoveryTiming);
+    this.dutyMetrics = new DiscoveryDutyMetrics(this.now());
   }
 
   async start(): Promise<void> {
@@ -385,6 +394,10 @@ export class NearbyOfflineService {
       stage: this.lastDecision?.stage ?? null,
       lanNsd: this.lanRunning,
       backoff: this.policy.getBackoffState(),
+      discoveryDuty: this.dutyMetrics.snapshot(now),
+      nativeMeasurements: (() => {
+        try { return this.opts.bridge.measurementDiagnostics ? JSON.parse(this.opts.bridge.measurementDiagnostics()) : null; } catch { return null; }
+      })(),
       // One row per logical peer: sightings over LAN/BLE/DNS-SD and across id rotations merge.
       peers: this.registry.list(now).map((peer) => ({
         ids: peer.discoveryIds,
@@ -421,6 +434,7 @@ export class NearbyOfflineService {
     this.bleState = '';
     if (this.ownsGroup) this.opts.native.leaveGroup();
     this.opts.setLocalLinkIceServer(null);
+    this.dutyMetrics.record({ lanNsd: false, bleAdvertise: false, bleScan: false, wifiDirectDiscovery: false }, this.now());
   }
 
   // ── Periodic work ─────────────────────────────────────────────────────────────────────────
@@ -488,6 +502,12 @@ export class NearbyOfflineService {
         this.opts.onEvent?.({ type: 'stage', stage: decision.stage, lanNsd: decision.lanNsd, bleScan: decision.bleScan, wifiDirectDiscovery: decision.wifiDirectDiscovery });
       }
       this.lastDecision = decision;
+      this.dutyMetrics.record({
+        lanNsd: decision.lanNsd,
+        bleAdvertise: decision.bleAdvertise && !this.permissionDenied,
+        bleScan: decision.bleScan && !(inGroup && offline),
+        wifiDirectDiscovery: decision.wifiDirectDiscovery,
+      }, now);
       this.applyLan(decision.lanNsd);
       // Online with no offline phone left to exchange with: the hub path (and the hub-matchmade upgrade)
       // serve everyone; free the radio after a dwell.

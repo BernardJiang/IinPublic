@@ -18,6 +18,12 @@ import { getL1TileInfo, parseTileId, tileBounds, tileCenter, TILE_BOTTOM_LAYER }
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
 import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
+import {
+  formatMatchCollectionDuration,
+  getActiveMatchCollectionSession,
+  getLatestMatchCollectionSession,
+  summarizeMatchCollectionSession,
+} from '../services/match-collection-session';
 
 type ChatroomMember = {
   userId: string;
@@ -274,6 +280,17 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     placeIcon: (type) => customRoomIcon(type === 'business' ? 'business' : 'custom'),
   });
   const sort = getRoomListSort();
+  const activeCollection = getActiveMatchCollectionSession();
+  const latestCollection = activeCollection ?? getLatestMatchCollectionSession();
+  const collectionSummary = latestCollection ? summarizeMatchCollectionSession(latestCollection.id) : null;
+  const collectionSummaryText = collectionSummary
+    ? deps.text(activeCollection ? 'matchCollectionActiveSummary' : 'matchCollectionFinishedSummary')
+      .replace('{elapsed}', formatMatchCollectionDuration(collectionSummary.elapsedMs))
+      .replace('{people}', String(collectionSummary.reached))
+      .replace('{replies}', String(collectionSummary.replies))
+      .replace('{pending}', String(collectionSummary.pending))
+      .replace('{matches}', String(collectionSummary.matches))
+    : deps.text('matchCollectionHelp');
 
   const chatroomList = document.getElementById('chatroom-list');
   if (!chatroomList) return;
@@ -312,6 +329,17 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <section class="chatroom-flat-section" data-testid="current-group-section">
       <h2 class="chatroom-flat-heading">${deps.text('chatroomCurrentGroupHeading')}</h2>
       ${currentNode ? renderRoomRow(currentNode, true) : ''}
+      ${currentNode
+        ? `<div class="chatroom-flat-empty" data-testid="match-collection-card">
+            <strong>${deps.escapeHtml(deps.text(activeCollection ? 'matchCollectionActiveTitle' : latestCollection ? 'matchCollectionFinishedTitle' : 'matchCollectionTitle'))}</strong>
+            <p data-testid="match-collection-summary">${deps.escapeHtml(collectionSummaryText)}</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              ${activeCollection ? `<button type="button" class="btn primary-btn" id="match-collection-broadcast" data-testid="match-collection-broadcast">${deps.escapeHtml(deps.text('matchCollectionBroadcast'))}</button>` : ''}
+              ${latestCollection ? `<button type="button" class="btn" id="match-collection-review" data-testid="match-collection-review">${deps.escapeHtml(deps.text('matchCollectionReview'))}</button>` : ''}
+              <button type="button" class="btn ${activeCollection ? '' : 'primary-btn'}" id="match-collection-toggle" data-testid="match-collection-toggle">${deps.escapeHtml(deps.text(activeCollection ? 'matchCollectionStop' : 'matchCollectionStart'))}</button>
+            </div>
+          </div>`
+        : ''}
       ${isPersonalListScope(deps.currentChatroom) && deps.nearbyBroadcastProgress
         ? `<p class="chatroom-flat-progress" data-testid="nearby-broadcast-progress" role="status">${deps.escapeHtml(deps.text('nearbySentProgress')
           .replace('{sent}', String(deps.nearbyBroadcastProgress.sent))
@@ -344,6 +372,22 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       // The app re-resolves the shared Nearby room on ENCOUNTER_LOCATION_EVENT.
       onConfirm: (point) => { setEncounterLocation(point.latitude, point.longitude); },
     });
+  });
+  document.getElementById('match-collection-toggle')?.addEventListener('click', () => {
+    if (activeCollection) {
+      deps.emit('endMatchCollection', {});
+      return;
+    }
+    deps.emit('startMatchCollection', {
+      scopeId: deps.currentChatroom,
+      label: currentNode?.name || deps.text('matchCollectionDefaultLabel'),
+    });
+  });
+  document.getElementById('match-collection-broadcast')?.addEventListener('click', () => {
+    deps.emit('broadcastMatchCollection', {});
+  });
+  document.getElementById('match-collection-review')?.addEventListener('click', () => {
+    if (latestCollection) deps.emit('reviewMatchCollection', { sessionId: latestCollection.id });
   });
 
   document.getElementById('room-list-sort')?.addEventListener('change', (event) => {

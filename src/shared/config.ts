@@ -33,15 +33,16 @@ export const CONFIG = {
     e2eUrlParam('e2e_capacity') || process.env.CHATROOM_MAX_CAPACITY || '498',
     10,
   ),
-  /**
-   * Contacts a user needs before creating a Place (docs/design/nearby-and-place-chatrooms.md §4.2):
-   * 100 in release; 3 in local debug (webpack dev builds bake it) and in Android debug APKs
-   * (`?app_debug=1`). E2E bundles bake 0 unless a spec passes `?e2e_place_min_contacts=`.
-   */
-  PLACE_CREATE_MIN_CONTACTS: parseInt(
-    e2eUrlParam('e2e_place_min_contacts')
-      || process.env.PLACE_CREATE_MIN_CONTACTS
-      || (e2eUrlParam('app_debug') === '1' ? '3' : '100'),
+  /** Incoming, distinct Friend marks required to create the identity's one custom room. */
+  PLACE_CREATE_MIN_FRIEND_MARKS: parseInt(
+    e2eUrlParam('e2e_place_min_friends')
+      || process.env.PLACE_CREATE_MIN_FRIEND_MARKS
+      || (process.env.DISABLE_HMR === 'true' ? '0' : '12'),
+    10,
+  ),
+  /** `3` means zero, one or two received blocks are allowed. */
+  PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE: parseInt(
+    e2eUrlParam('e2e_place_max_blocks') || process.env.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE || '3',
     10,
   ),
   GLOBAL_CHATROOM_ID: 'global',

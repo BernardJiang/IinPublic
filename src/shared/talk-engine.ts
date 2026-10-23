@@ -1355,6 +1355,7 @@ export function buildRevisedTalkDraft(
       | 'expiresAt'
       | 'locationRadiusMiles'
       | 'matchThreshold'
+      | 'collectionImportance'
     >
   > = {},
 ): Partial<Talk> {
@@ -1385,6 +1386,11 @@ export function buildRevisedTalkDraft(
 
   const matchThreshold = overrides.matchThreshold !== undefined ? overrides.matchThreshold : oldTalk.matchThreshold;
   if (matchThreshold != null) draft.matchThreshold = matchThreshold;
+
+  const collectionImportance = overrides.collectionImportance !== undefined
+    ? overrides.collectionImportance
+    : oldTalk.collectionImportance;
+  if (collectionImportance != null) draft.collectionImportance = collectionImportance;
 
   return draft;
 }

@@ -268,6 +268,14 @@ export function registerMailboxRoutes(
         return;
       }
       const deleted = await storeFor(recipientId).delete(recipientId, envelopeId);
+      if (hubRelayClient?.deleteMailboxEnvelope) {
+        try {
+          await hubRelayClient.deleteMailboxEnvelope(recipientId, envelopeId);
+        } catch {
+          // Do not lie about a completed drain: keep the local ack successful, while the remote
+          // copy remains available for an idempotent retry after connectivity returns.
+        }
+      }
       // Return 200 even when already gone — idempotent delete.
       res.json({ deleted });
     } catch (error) {

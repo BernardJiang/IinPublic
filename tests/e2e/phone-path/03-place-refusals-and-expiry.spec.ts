@@ -64,16 +64,16 @@ test.describe('Place refusals and expiry on the phone route', () => {
     extraNode = undefined;
   });
 
-  test('J-PLACE-08: too few contacts, and one live Place per person', async ({ browser, request }) => {
-    // Too few contacts: the dialog never opens, and the person is told why.
-    const dana = await openUser(browser, 'Dana', 'phoneB', { placeMinContacts: 3 });
+  test('J-PLACE-08: too few Friend marks, and one Place per person', async ({ browser, request }) => {
+    // Too few incoming Friend marks: the dialog never opens, and the person is told why.
+    const dana = await openUser(browser, 'Dana', 'phoneB', { placeMinFriendMarks: 3 });
     users.push(dana);
     await dana.page.locator('.nav-btn[data-view="chatrooms"]').click();
     await clickAppBarAction(dana.page, '#create-custom-chatroom-btn');
-    await expect(notification(dana.page, /at least 3 contacts.*You have 0/i)).toBeVisible({ timeout: 15_000 });
+    await expect(notification(dana.page, /at least 3 people.*Friend.*0 Friend marks/i)).toBeVisible({ timeout: 15_000 });
     await expect(dana.page.locator('[data-testid="custom-room-name-input"]')).toHaveCount(0);
 
-    // One live Place per person: Alice's second Place is refused by the hub, through her phone.
+    // One Place per person: Alice's second Place is refused by the hub, through her phone.
     const alice = await openUser(browser, 'Alice', 'phoneA');
     users.push(alice);
     const firstName = `First Place ${Date.now()}`;

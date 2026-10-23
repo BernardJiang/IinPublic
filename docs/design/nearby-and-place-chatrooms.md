@@ -493,7 +493,7 @@ The flat room list replaces the retired chatroom tree.
   and is never counted.
 - **Your room first,** named after its area ("Around San Diego"). Then every other room with at
   least one person: Nearby groups and Places, flat, with no hierarchy.
-- **Places near you:** below that, the nearest few live Places that are empty right now (§4.2), so
+- **Places near you:** below that, the nearest few discoverable Places that are empty right now (§4.2), so
   an empty Place can still be found and entered from the list.
 - **Sort:**
   - **Nearest** (default): by distance from where you appear (your blurred or chosen point).
@@ -547,14 +547,14 @@ Older splits without a threshold keep the legacy 1-in-4 identity digit.
 **Known limit:** groups of the same area that differ only by identity lane cannot be targeted by
 travel. Travel lands in your own lane.
 
-### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, being implemented)
+### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, implemented 2026-10-22)
 
-Status: **accepted** by the product owner on 2026-10-19, including retiring the yellow map dots and
-Nearby room chat. Implementation is in progress (plan below). There is no official release yet,
-so v3 replaces v2 outright: no protocol epoch, no compatibility with v2 phones, and the v2 code is
-removed (product owner, 2026-10-19). Simulated in `docs/testing/nearby-gossip-experiment.md`. Tracking: `OPEN-70`.
-When implemented it replaces §3 to §3.3 and the Nearby parts of §3.6. Places (§4) stay rooms, with
-the changes in "Places in v3" below.
+Status: **implemented; OPEN-70 closed 2026-10-22.** The product owner accepted the design on
+2026-10-19, including retiring the yellow map dots and Nearby room chat. There is no prior official
+release to preserve, so v3 replaced v2 outright: no protocol epoch or compatibility layer, and the
+v2 code is removed. Simulated in `docs/testing/nearby-gossip-experiment.md` and qualified on the
+website plus the supported Android hardware matrix. It replaces §3 to §3.3 and the Nearby parts of
+§3.6. Places (§4) stay rooms, with the changes in "Places in v3" below.
 
 **Why.** Room capacity exists only to bound traffic. It never required two people to share the
 same list of nearby people, and making them share one is what costs the most today:
@@ -769,68 +769,39 @@ is the number of lists they are on, which nothing bounds directly. The hash orde
 on average, but each phone still accepts at most a fixed number of concurrent incoming connections
 and new Talks per minute, and tells the rest to retry later with backoff.
 
-#### Fake accounts and reputation (criteria decided, mechanics open)
+#### Fake accounts and reputation (starter room-creation gate implemented)
 
 Signatures stop anyone forging another person's card, but nothing stops someone creating many
 accounts. The simulation shows the public hash order keeps fakes to their population share
 (10.1 % for 10 %). That is still too much if one person runs thousands of accounts in one place,
 and fakes can always create Places and push Talks.
 
-**Credit criteria (product decision 2026-10-18).** An account is *reputable* when all of these
-hold. Every threshold is a signed-manifest value, so it can change without a new release; the
-numbers are still to be chosen.
+**Starter custom-room credit (product decision 2026-10-22).** A user may publish at most one custom
+room and must first have both:
 
-1. **Open reputation.** Credit is visible to others (`settings-credit-visible` on, that is
-   `Reputation.isHidden !== true`).
-2. **Enough activity:** at least a set number of Contacts, of Talks sent, and of answers in the Me
-   tab (the Q&A history).
-3. **Few blocks:** fewer than a set number of people block the account.
+1. at least **12 distinct incoming Friend marks** from other identities; and
+2. **fewer than three received blocks** (zero, one or two pass).
 
-Only reputable accounts can **create a Place** or **back** one (rule 4, "Places in v3" below). The
-same credit could later also limit fresh accounts in crowds (most dense-tie list slots for reputable
-accounts, a small share for the rest); that is not decided.
+A Talk exchange may automatically put a stranger in Contacts, but that does not create reputation.
+Only an explicit **Friend** relationship choice contributes. The marker signs a directed status;
+the hub verifies it, stores one opaque slot per marker/target pair, and derives the target's public
+counter. Re-saving Friend is idempotent, removing Friend removes that slot, and one identity cannot
+inflate the counter by clicking repeatedly. The stored aggregate slot does not identify the marker;
+someone must already know both public keys to test a particular pair hash.
 
-**Who decides: the user's own app, never the server (product decision 2026-10-18).**
+The hub repeats the gate when it receives the signed room descriptor, binds the application user id
+to the descriptor's SEA creator key, and refuses the descriptor below the threshold. This supports
+website and Android clients without making platform attestation part of social reputation. Settings
+→ Credit shows the read-only Friend/block counters and whether room creation is unlocked.
 
-- **Each app checks its own user.** It counts Contacts, Talks and Me-tab answers on the device,
-  reads its own block count, and opens **New Room** (or **Back this Place**) only when every rule
-  passes. No server rules on whether someone may create a Place.
-- **Settings → Credit is read-only.** It shows the user their own numbers and whether each rule
-  passes. The user cannot edit them.
-- **Block count.** When Adam blocks Eve, Adam's app adds one to Eve's block count; unblocking takes
-  it back.
-  - Adam knows whom he blocked. Eve sees only her number going up in Settings → Credit: she can
-    guess who it was, but cannot prove it.
-  - Block lists stay impossible to enumerate (`src/shared/block-pair.ts`). The count is stored
-    without the blocker's identity; the existing pair hash lets it count each pair only once, so
-    blocking, unblocking and blocking again cannot inflate it.
-  - Adam's app sends the increment only if Adam is reputable himself, so a fake farm cannot push an
-    honest person past the threshold.
-- **Modified apps cannot be stopped.** The code is open, so anyone can build an app that skips the
-  checks, and nothing in the network can prevent that. What the hub can do is decide what goes into
-  **its own database**:
-  - the hub registers a new Place (and counts a backing or a visit towards keeping it live) only
-    when the request comes from a **genuine IinPublic app**, proven by the existing official-build
-    credential (`src/shared/official-build-credential.ts`, Android key attestation, issued by
-    `attestation-routes.ts`);
-  - a Place the hub will not register is not listed or drawn for anyone else. Its creator can still
-    share it directly.
+Credit is also a continuing discovery condition, not merely a creation-time check. If the creator
+later has fewer than 12 incoming Friend marks or at least three received blocks, the Place is hidden
+from public list/map discovery. It is not deleted; if credit recovers while the Place is still live,
+it becomes discoverable again. The creator may still see and revisit their own hidden descriptor.
 
-  The identity design (`docs/IinPublic Identity & Key Architecture TODO.md` §16.6) allows requiring
-  the credential for high-risk actions, and forbids adding official-build status to reputation.
-  This rule is the first: it is not part of reputation, and community builds keep working for
-  everything else.
-- **Consequences to decide (deferred 2026-10-18; Android first):**
-  - The website and the desktop apps have no platform attestation, so they cannot register Places
-    unless another proof is found. Today the website can create Places.
-  - Android key attestation fails on rooted phones, some custom ROMs and emulators.
-  - iOS needs App Attest, which needs an Apple developer team (not set up).
-- **Not prevented:** a genuine app on a farm of real phones, and real people who give their
-  accounts to someone else. The thresholds and backing raise the cost; they do not make it
-  impossible.
-
-The thresholds must be chosen before v3 ships, because they decide who can create and keep Places.
-These decisions are deferred (2026-10-18); work continues on the Android app first.
+This starter bar raises the cost of map spam but does not defeat a twelve-identity Sybil farm.
+Backers, reputable-visitor liveness, official-build credentials for high-risk writes, and
+reputation-weighted dense-crowd ranking remain separate deferred defenses.
 
 #### Map, list and headcounts
 
@@ -852,15 +823,14 @@ unchanged.
 - **Members find each other the same way as Nearby**, scoped to the Place: the hub keeps the
   Place's headcount and a bounded sample of its members' cards, and members gossip cards tagged with
   the Place id. Inside a Place everyone is "at" the Place, so ranking is my hash order alone.
-- **Up to `C` members:** everyone's list is everyone, so the Place behaves exactly like a shared
-  room, including its chat feed (`chatrooms/<placeId>/messages`).
+- **Up to `C` members:** everyone's list is everyone, so the Place behaves like a shared room.
+  Its casual public chat is a bounded recent feed, not a lifetime replicated Gun map.
 - **Above `C`:** each member sees their own 498, in their own order, and can page for more. A Place
   is **never full**. The v1 first-`C` seat claims, two-phase reservation and reconciliation losses,
   and the §4.1 cohort extension are no longer needed.
 - **Creators have no powers**, as today.
-- **Only reputable accounts create Places**, checked by the creator's own app, replacing the
-  100-Contacts rule (§4.2; criteria under "Fake accounts and reputation"). The hub registers a
-  Place only from a genuine IinPublic app.
+- **Only accounts passing the starter custom-room credit create Places**, enforced by the hub:
+  12 distinct incoming Friend marks, fewer than three received blocks, and one room per creator.
 - **Backed by other people (rule 4).** A new Place is not public until a set number of *other*
   reputable accounts back it by co-signing its descriptor within a set time (for example 7 days).
   Each backer's own app checks that its user is reputable, and the hub counts a backing only from a
@@ -886,9 +856,13 @@ Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contac
   marks the Place visited, which keeps it live. A Place empties in the list as soon as its people
   leave: the runtime notices a new scope or point within a second and reissues the card at once. The online total counts everyone once,
   whichever list they are on.
-- The Place's chat feed (`chatrooms/<placeId>/messages`) is kept (`hasRoomChat`). A Place's
-  headcount includes me; Nearby's does not. The room list shows "N people", never "Full", and
-  "Sent to N of M" works in a Place too.
+- The Place's chat feed is kept (`hasRoomChat`), but OPEN-80 replaced the unbounded
+  `chatrooms/<placeId>/messages` Gun map with `GET/POST /api/chatrooms/:id/messages`. The hub keeps
+  only the latest `4 × C` messages and returns at most 50 per opaque-cursor poll; if a busy Place
+  produces more than one page between polls, recency wins and the middle is deliberately skipped.
+  Embedded Android nodes forward the endpoint to the hub, and an unavailable hub fails explicitly.
+  A Place's headcount includes me; Nearby's does not. The room list shows "N people", never "Full",
+  and "Sent to N of M" works in a Place too.
 - A card that moves (into a Place, back to Nearby, to a new point) leaves the hub's old samples at
   once, so the hub stops introducing someone where they were.
 
@@ -976,8 +950,8 @@ real-phone run.
    "N near you · M online" — N is my list without me, M the hub's count; the room-list header uses
    M too. A Nearby broadcast shows "Sent to N of M" under the Nearby row, counting delivery acks.
    Nearby has no chat feed. Web e2e `stage2-two-user/95-nearby-screens`.
-5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, chat kept for Places;
-   seat claims and cohorts go.
+5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, bounded recent chat kept for
+   Places; seat claims and cohorts go.
 6. **Removal of v2 — done (2026-10-19)** (no epoch switch, no compatibility): the partition
    lineage, cohort control plane and its mesh frame, control presence, micro-rooms, capacity splits
    and evictions, room routing, map presence and the Nearby part of the room list (now Places
@@ -1262,29 +1236,30 @@ remain absent.
 
 ### 4.2 Place lifecycle and creation limits (product decision 2026-10-13)
 
-An empty Place must stay reachable, but anyone can create one, so unused Places must not pile up.
+An empty Place must stay reachable, but qualified users can create one, so unused Places still must
+not pile up.
 
-> **v3 proposal (§3.7):** only reputable accounts create Places (checked by their own app), a Place
-> goes public only once other reputable accounts back it, and it stays live only while enough
-> distinct reputable people use it. The hub registers Places, backings and visits only from genuine
-> IinPublic apps (official-build credential).
+> **Deferred v3 hardening (§3.7):** backers, reputable-visitor liveness and official-build
+> credentials may later add stronger defenses. They are not part of the starter creation gate.
 
-- **Live Places.** A Place is *live* while someone is in it or someone entered it in the last
+- **Discoverable Places.** A Place is *live* while someone is in it or someone entered it in the last
   30 days (`PLACE_LIVE_WINDOW_MS`). Its `lastActiveAt` starts when the hub accepts it (the signed
   creation time is the creator's own claim, so a backdated one cannot dodge the limits) and moves
-  forward on each entry or heartbeat the hub sees, written at most once an hour per Place. Only live Places
-  are listed and drawn. An expired Place is not deleted: its creator still sees it, a direct link
-  still opens it, and entering it makes it live again.
-- **Map.** The map draws every live Place in view. An empty one is dimmed with "0" and is drawn only
-  from city zoom (about 9) inward; farther out, Places group into clusters as before.
+  forward on each entry or heartbeat the hub sees, written at most once an hour per Place. Only live
+  Places whose creators still satisfy the 12-Friend/fewer-than-3-block bar are listed and drawn. A
+  Place hidden for inactivity or lost credit is not deleted: its creator still sees it, a direct
+  link still opens it, and activity/credit recovery can make it discoverable again.
+- **Map.** The map draws every discoverable Place in view. An empty one is dimmed with "0" and is
+  drawn only from city zoom (about 9) inward; farther out, Places group into clusters as before.
 - **List.** Rooms with people come first (§3.6); then **Places near you** lists the nearest five
-  empty live Places.
-- **Who may create.** A user needs at least 100 Contacts (`PLACE_CREATE_MIN_CONTACTS`; 3 in local
-  debug builds and Android debug APKs) before **New Room** opens the form. Contacts are private and
-  SEA-encrypted, so only the user's own app can count them; this is an app-side rule, not one the
-  hub can enforce.
+  empty discoverable Places.
+- **Who may create.** At least 12 distinct other identities must explicitly mark the creator as a
+  Friend, and fewer than three distinct people may block them. Automatically created Contacts do
+  not count. The UI explains the current numbers and the hub enforces them against the signed
+  descriptor.
 - **How many.** The hub refuses a new Place when:
-  - the creator's key already has a live Place (one per person) — `PLACE_CREATOR_LIMIT`;
+  - the creator's key has ever published a Place (one total per person; expiry does not reset the
+    quota) — `PLACE_CREATOR_LIMIT`;
   - a live Place with the same name (ignoring case and spacing) is in the same ~1 km cell — the
     app offers to join that one instead — `PLACE_NAME_TAKEN`;
   - the cell already has five live Places (`MAX_LIVE_PLACES_PER_CELL`) — `PLACE_CELL_FULL`.

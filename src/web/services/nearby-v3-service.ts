@@ -96,7 +96,7 @@ export const NEARBY_V3_GROUPS_STORAGE_KEY = 'iinpublic_nearby_v3_groups_v1';
 /** Which group of my order I am meeting; `exhausted`: searches past the boundary found nobody. */
 export type NearbyGroupInfo = { group: number; exhausted: boolean };
 
-type NearbyGroupState = { day: string; group: number; after: NearbyRankKey };
+type NearbyGroupState = { day: string; group: number; after: NearbyRankKey; met: string[] };
 /** The hub's attestor key, today's beacon and my own age proof (§3.7 "Ranking"). */
 export const NEARBY_V3_ATTESTATION_STORAGE_KEY = 'iinpublic_nearby_v3_attestation_v1';
 const MAX_ATTESTOR_KEYS = 4;
@@ -258,7 +258,16 @@ export class NearbyV3Service {
     const last = list?.lastKey();
     if (!position || !list || !last) return false;
     const current = this.groupState(position);
-    this.setGroupState(position, { day: this.beaconString(), group: (current?.group ?? 1) + 1, after: last });
+    const met = [...new Set([
+      ...(current?.met ?? []),
+      ...list.entries().map((entry) => entry.card.pub),
+    ])];
+    this.setGroupState(position, {
+      day: this.beaconString(),
+      group: (current?.group ?? 1) + 1,
+      after: last,
+      met,
+    });
     this.log(`meeting new people: group ${(current?.group ?? 1) + 1}`);
     await this.restartSearch();
     return true;
@@ -730,7 +739,8 @@ export class NearbyV3Service {
     const identity = this.deps.identity();
     if (!position || !identity) return null;
     this.loadAttestation();
-    const after = this.groupState(position)?.after;
+    const group = this.groupState(position);
+    const after = group?.after;
     const owner: NearbyListOwner = {
       pub: identity.pair.pub,
       point: position.point,
@@ -738,6 +748,7 @@ export class NearbyV3Service {
       beacon: this.beaconString(),
       isEstablished: this.isEstablished,
       ...(after ? { after } : {}),
+      ...(group?.met.length ? { excludedPubs: group.met } : {}),
     };
     const capacity = this.deps.config().capacity;
     if (this.list && this.list.ownerInfo.pub === owner.pub && this.list.ownerInfo.scope !== owner.scope) {
@@ -809,7 +820,10 @@ export class NearbyV3Service {
         const row = value as Partial<NearbyGroupState> | null;
         const after = parseNearbyRankKey(row?.after);
         if (after && typeof row?.day === 'string' && Number.isInteger(row.group) && row.group! > 1) {
-          this.groups.set(key, { day: row.day, group: row.group!, after });
+          const met = Array.isArray(row.met)
+            ? [...new Set(row.met.filter((pub): pub is string => typeof pub === 'string' && pub.length > 0))]
+            : [];
+          this.groups.set(key, { day: row.day, group: row.group!, after, met });
         }
       }
     } catch {

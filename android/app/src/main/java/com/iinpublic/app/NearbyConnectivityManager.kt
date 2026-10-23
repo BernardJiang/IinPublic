@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.net.Inet4Address
@@ -77,6 +78,21 @@ class NearbyConnectivityManager(
     private var activeResolve: Pair<NsdManager, NsdManager.ResolveListener>? = null
     /** Service name -> (timeouts, last timeout at); survives NSD restarts so a stale record is not retried forever. */
     private val resolveTimeouts = mutableMapOf<String, Pair<Int, Long>>()
+    private val measurementStartedAt = SystemClock.elapsedRealtime()
+    private var nsdStartedAt: Long? = null
+    private var nsdActiveMs = 0L
+    private var nsdStarts = 0
+    private var bleAdvertiseStartedAt: Long? = null
+    private var bleAdvertiseActiveMs = 0L
+    private var bleAdvertiseStarts = 0
+    private var bleScanStartedAt: Long? = null
+    private var bleScanActiveMs = 0L
+    private var bleScanStarts = 0
+    private var bleResults = 0
+    private var wifiDirectDiscoveryStartedAt: Long? = null
+    private var wifiDirectDiscoveryActiveMs = 0L
+    private var wifiDirectDiscoveryStarts = 0
+    private var wifiDirectServiceResults = 0
     private val wifiDirect = WifiDirectGroupController(
         context,
         emitState = { listener.onWifiDirectState(it) },
@@ -95,7 +111,10 @@ class NearbyConnectivityManager(
             })
         },
         hasPermission = { hasNearbyWifiPermission() },
-        onServiceRecord = { address, txt -> listener.onWifiDirectService(address, txt) },
+        onServiceRecord = { address, txt ->
+            wifiDirectServiceResults += 1
+            listener.onWifiDirectService(address, txt)
+        },
     )
     private var bleScanCallback: ScanCallback? = null
     private var bleAdvertiseCallback: AdvertiseCallback? = null
@@ -121,6 +140,8 @@ class NearbyConnectivityManager(
      */
     fun startNsd(port: Int, nearbyId: String = "", roomTokenPrefix: String = "") {
         stopNsd()
+        nsdStartedAt = SystemClock.elapsedRealtime()
+        nsdStarts += 1
         val manager = context.getSystemService(NsdManager::class.java)
         val suffix = nearbyId.takeIf { it.matches(Regex("^[0-9a-f]{12}$")) } ?: UUID.randomUUID().toString().replace("-", "").take(12)
         val registration = NsdServiceInfo().apply {
@@ -177,6 +198,9 @@ class NearbyConnectivityManager(
     }.getOrDefault(false)
 
     fun stopNsd() {
+        val now = SystemClock.elapsedRealtime()
+        nsdStartedAt?.let { nsdActiveMs += now - it }
+        nsdStartedAt = null
         val manager = context.getSystemService(NsdManager::class.java)
         nsdListener?.let { runCatching { manager.stopServiceDiscovery(it) } }; nsdListener = null
         nsdRegistration?.let { runCatching { manager.unregisterService(it) } }; nsdRegistration = null
@@ -309,9 +333,42 @@ class NearbyConnectivityManager(
         wifiDirect.joinGroup(networkName, passphrase, ownerDeviceAddress, frequencyMhz)
     fun leaveWifiDirectGroup() = wifiDirect.leaveGroup()
     fun advertiseWifiDirectService(txt: Map<String, String>) = wifiDirect.advertiseService(txt)
-    fun startWifiDirectServiceDiscovery() = wifiDirect.startServiceDiscovery()
+    fun startWifiDirectServiceDiscovery() {
+        if (wifiDirectDiscoveryStartedAt == null) {
+            wifiDirectDiscoveryStartedAt = SystemClock.elapsedRealtime()
+            wifiDirectDiscoveryStarts += 1
+        }
+        wifiDirect.startServiceDiscovery()
+    }
     fun refreshWifiDirectState() = wifiDirect.refresh()
-    fun stopWifiDirectServiceDiscovery() = wifiDirect.stopServiceDiscovery()
+    fun stopWifiDirectServiceDiscovery() {
+        val now = SystemClock.elapsedRealtime()
+        wifiDirectDiscoveryStartedAt?.let { wifiDirectDiscoveryActiveMs += now - it }
+        wifiDirectDiscoveryStartedAt = null
+        wifiDirect.stopServiceDiscovery()
+    }
+
+    /** Content-free radio command counters for OPEN-76 physical duty-cycle measurements. */
+    fun measurementDiagnostics(): JSONObject {
+        val now = SystemClock.elapsedRealtime()
+        fun activeMs(accumulated: Long, startedAt: Long?): Long = accumulated + (startedAt?.let { now - it } ?: 0L)
+        fun provider(accumulated: Long, startedAt: Long?, starts: Int): JSONObject = JSONObject().apply {
+            val elapsed = (now - measurementStartedAt).coerceAtLeast(0L)
+            val measured = activeMs(accumulated, startedAt)
+            put("active", startedAt != null)
+            put("activeMs", measured)
+            put("dutyCycle", if (elapsed > 0L) measured.toDouble() / elapsed.toDouble() else 0.0)
+            put("starts", starts)
+        }
+        return JSONObject().apply {
+            put("version", 1)
+            put("elapsedMs", (now - measurementStartedAt).coerceAtLeast(0L))
+            put("nsd", provider(nsdActiveMs, nsdStartedAt, nsdStarts))
+            put("bleAdvertise", provider(bleAdvertiseActiveMs, bleAdvertiseStartedAt, bleAdvertiseStarts))
+            put("bleScan", provider(bleScanActiveMs, bleScanStartedAt, bleScanStarts).put("results", bleResults))
+            put("wifiDirectDiscovery", provider(wifiDirectDiscoveryActiveMs, wifiDirectDiscoveryStartedAt, wifiDirectDiscoveryStarts).put("results", wifiDirectServiceResults))
+        }
+    }
 
     /**
      * What offline Wi-Fi Direct still needs from the user: the runtime permission, Wi-Fi switched on
@@ -365,6 +422,7 @@ class NearbyConnectivityManager(
 
     private var presenceAdvertiseCallback: AdvertiseCallback? = null
     private var presenceScanCallback: ScanCallback? = null
+    private var presencePayload: ByteArray? = null
 
     /**
      * Battery (measured on PH-1, 2026-10-04): LOW_LATENCY scan + advertise cost ~79 mAh per 20 min
@@ -376,18 +434,40 @@ class NearbyConnectivityManager(
         val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
         if (adapter?.isEnabled != true) { listener.onStatus("android-ble-presence", "unavailable", "disabled"); return }
         val parcelUuid = ParcelUuid(BLE_SERVICE_UUID)
-        presenceAdvertiseCallback?.let { runCatching { adapter.bluetoothLeAdvertiser?.stopAdvertising(it) } }
-        presenceAdvertiseCallback = object : AdvertiseCallback() {
-            override fun onStartSuccess(settingsInEffect: AdvertiseSettings) = listener.onStatus("android-ble-presence", "running")
-            override fun onStartFailure(errorCode: Int) = listener.onStatus("android-ble-presence", "degraded", "advertise:$errorCode")
-        }.also { callback ->
-            adapter.bluetoothLeAdvertiser?.startAdvertising(
-                AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED).setConnectable(false).build(),
-                AdvertiseData.Builder().setIncludeDeviceName(false).addServiceData(parcelUuid, payload).build(),
-                callback,
-            )
+        // The foreground service replays its checkpoint when Android redelivers/configures it.
+        // Do not churn an already-identical advertiser, and do not restart advertising merely
+        // because the policy opens or closes a scan window.
+        if (presencePayload?.contentEquals(payload) != true || presenceAdvertiseCallback == null) {
+            val now = SystemClock.elapsedRealtime()
+            bleAdvertiseStartedAt?.let { bleAdvertiseActiveMs += now - it }
+            presenceAdvertiseCallback?.let { runCatching { adapter.bluetoothLeAdvertiser?.stopAdvertising(it) } }
+            presencePayload = payload.copyOf()
+            bleAdvertiseStartedAt = now
+            bleAdvertiseStarts += 1
+            presenceAdvertiseCallback = object : AdvertiseCallback() {
+                override fun onStartSuccess(settingsInEffect: AdvertiseSettings) = listener.onStatus("android-ble-presence", "running")
+                override fun onStartFailure(errorCode: Int) {
+                    val failedAt = SystemClock.elapsedRealtime()
+                    if (presenceAdvertiseCallback === this) {
+                        bleAdvertiseStartedAt?.let { bleAdvertiseActiveMs += failedAt - it }
+                        bleAdvertiseStartedAt = null
+                        presenceAdvertiseCallback = null
+                        presencePayload = null
+                    }
+                    listener.onStatus("android-ble-presence", "degraded", "advertise:$errorCode")
+                }
+            }.also { callback ->
+                adapter.bluetoothLeAdvertiser?.startAdvertising(
+                    AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED).setConnectable(false).build(),
+                    AdvertiseData.Builder().setIncludeDeviceName(false).addServiceData(parcelUuid, payload).build(),
+                    callback,
+                )
+            }
         }
         if (!scan) {
+            val stoppedAt = SystemClock.elapsedRealtime()
+            bleScanStartedAt?.let { bleScanActiveMs += stoppedAt - it }
+            bleScanStartedAt = null
             presenceScanCallback?.let { runCatching { adapter.bluetoothLeScanner?.stopScan(it) } }
             presenceScanCallback = null
             return
@@ -396,11 +476,14 @@ class NearbyConnectivityManager(
         presenceScanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val bytes = result.scanRecord?.getServiceData(parcelUuid) ?: return
+                bleResults += 1
                 listener.onBlePresence(bytes, result.rssi)
             }
             override fun onBatchScanResults(results: MutableList<ScanResult>) = results.forEach { onScanResult(0, it) }
             override fun onScanFailed(errorCode: Int) = listener.onStatus("android-ble-presence", "degraded", "scan:$errorCode")
         }.also { callback ->
+            bleScanStartedAt = SystemClock.elapsedRealtime()
+            bleScanStarts += 1
             // Android 7 (Honor FRD-L04): the hardware offload filter for 128-bit service data
             // dropped every result while the radio saw dozens per second. Scan unfiltered there —
             // onScanResult already checks the service data — and keep the cheap hardware filter
@@ -416,13 +499,19 @@ class NearbyConnectivityManager(
 
     fun stopBlePresence() {
         val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
+        val now = SystemClock.elapsedRealtime()
+        bleAdvertiseStartedAt?.let { bleAdvertiseActiveMs += now - it }
+        bleAdvertiseStartedAt = null
+        bleScanStartedAt?.let { bleScanActiveMs += now - it }
+        bleScanStartedAt = null
         presenceAdvertiseCallback?.let { runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(it) } }; presenceAdvertiseCallback = null
+        presencePayload = null
         presenceScanCallback?.let { runCatching { adapter?.bluetoothLeScanner?.stopScan(it) } }; presenceScanCallback = null
     }
 
     fun stop() {
         stopBlePresence()
-        wifiDirect.stopServiceDiscovery(); wifiDirect.leaveGroup(); wifiDirect.stop()
+        stopWifiDirectServiceDiscovery(); wifiDirect.leaveGroup(); wifiDirect.stop()
         wifiAwareProvider?.stop(); wifiAwareProvider = null
         stopNsd()
         val adapter: BluetoothAdapter? = context.getSystemService(android.bluetooth.BluetoothManager::class.java).adapter

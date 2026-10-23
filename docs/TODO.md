@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-20.
+Last reconciled: 2026-10-22.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -8,6 +8,10 @@ implementation history is in
 `docs/specs/iinpublic-technical-specifications.md`. The separate
 `docs/IinPublic Identity & Key Architecture TODO.md` is a design specification and keeps its own
 implementation plan.
+
+Actions that require the product owner, physical handling, privileged host changes, credentials or
+an outside reviewer are mirrored in `docs/OWNER-TODO.md`. This file remains the canonical issue
+record.
 
 The current product priority is the **website and Android app**. Work on their shared web runtime,
 browser behavior, Android shell, and website↔Android interoperability before any other platform.
@@ -19,130 +23,126 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-- [ ] **OPEN-70 — Nearby v3: personal nearby lists instead of shared Nearby rooms (proposed
-  2026-10-18; design `docs/design/nearby-and-place-chatrooms.md` §3.7).** Each person keeps their own
-  list of at most `C` signed cards, ranked by distance and then their own hash order, built by
-  gossip; the hub keeps only statistics, a headcount pyramid and a bounded introduction sample per
-  cell. Places stay rooms but are never full. Supersedes OPEN-68 and the v2 heartbeat-size problem
-  below. Needs a new protocol epoch.
-  - [x] Model and experiment: `src/test/support/nearby-gossip-model.ts`,
-    `scripts/nearby-gossip-experiment.ts` → `docs/testing/nearby-gossip-experiment.md`; unit gate
-    `nearby-gossip-personal-lists.test.ts` (host-only).
-  - [x] Product owner accepts the v3 design (§3.7), including retiring the yellow map dots and
-    Nearby room chat (2026-10-19). Implementation plan: §3.7 "Implementation plan".
-  - [ ] **Deferred (2026-10-18; Android first):** Credit model (§3.7 "Fake accounts and reputation"; decided 2026-10-18): open reputation,
-    minimum Contacts / Talks sent / Me-tab answers, fewer than N blocks; Places need backers and stay
-    live only while used by enough reputable people. Each user's own app checks the rules; Settings
-    → Credit shows them read-only; the hub only refuses to register Places (and count backings or
-    visits) from apps without an official-build credential. Still to choose: the thresholds
-    (signed-manifest values), and what website, desktop and iOS users do without platform
-    attestation.
-  - [ ] **Deferred (2026-10-18):** Block count: Adam's app adds one to Eve's count (only if Adam is reputable), stored without
-    the blocker's identity and counted once per pair; Eve sees only the number.
-  - [x] Read `C` and every v3 tunable (gossip period, cards per swap, card lifetime, hub sample size,
-    incoming limits) from the signed manifest; nothing hard-coded. Changing `C` needs no epoch in v3.
-    (`nearby-v3-config.ts`, 2026-10-19.)
-  - [x] Phase 1 (2026-10-19): signed cards, ranking, pyramid, list with digests and gossip offers,
-    the hub's counts / introductions / heat (`NearbyV3Hub`, `/api/nearby/v3/*`), and the phone's
-    `NearbyV3Service` (not wired into the app yet). Tests `nearby-v3-core`, `nearby-v3-hub`,
-    `nearby-v3-service`.
-  - [x] Phase 2 (2026-10-19): peer link — a signed knock lets someone on my list open a session to
-    me although I am not on theirs (incoming limit); gossip over the mesh DataChannel. A block stops
-    Talks only, never gossip or knocks (otherwise the blocker vanishes from the blocked person's
-    list at once and gives himself away).
-  - [x] Phase 3: Nearby is the personal list everywhere (2026-10-19, done: `nearby-v3` scope, no hub
-    roster or chat; broadcast loop with adaptive concurrency; knock on link open; unreachable people
-    leave the list and come back only with a newer card; the hub introduces only phones heartbeating
-    in the last two periods; all 13 phone-path journeys pass, 6.6 min vs 9.1 on v2). Web e2e suites
-    and "Sent to N of M" done. Real phones: 05, 33, 37, 38, 30 (four phones) on 1.0.178–1.0.180;
-    33 and 38 again on 1.0.181 (C10 + FRD, 2026-10-20); 39 on 1.0.181 above.
-  - [x] No compatibility (product owner 2026-10-19: no official release yet): the v2 code is removed
-    (2026-10-19; partition, cohorts and their mesh frame, control presence, micro-rooms, capacity
-    splits and evictions, routing, map presence, Nearby in the room list — now Places only; server
-    stores and routes; unit and web e2e tests). The web e2e run on v3 found real bugs, all fixed with
-    unit tests (design §3.7 "Gossip" and "Delivering a Talk broadcast"): renamed and knock cards
-    reach peers at once, announce to the three nearest, swap retry and a 15 s swap timeout, link
-    failures probe instead of dropping, stale knocks, stale sessions, Talks and answers to people
-    outside the list.
-  - [x] Phase 4 (2026-10-19): map (green list dots, ★, heat, fitted to the list; tile grid and the
-    unused browse tree removed), "People near you", "N near you · M online" (my list without me,
-    then the hub's count), "Show more people here", "Sent to N of M". Web e2e `95-nearby-screens`;
-    headcount specs now count the list without me.
-  - [x] Phase 5 (2026-10-19): Places on lists (design §3.7 "Places in v3", "Implemented"). A Place
-    is a list scoped `place:<id>` with my card at its pin; no seats, reservations or reconciliation
-    (Place admission code, `place-admission-claims` and the "Nearby around a full Place" offer
-    removed; the hub refuses Place roster calls with `PLACE_HAS_NO_ROSTER`); the hub's Place counts
-    feed the room list and mark the Place visited; the chat feed is kept; no "Full" rooms. Found and
-    fixed: knocks never crossed between phones (Gun only; now also a hub mailbox, long-polled);
-    the hub kept introducing people in the list they had left, and counted a Place newcomer only
-    from the next window; a Place's count lingered two windows after everyone left (now the live
-    cards); a phone that went home kept its Place card while a slow swap held its tick (the runtime
-    now watches its position, a refresh reissues at once and drops a card signed for a position it
-    already left); an emptied Place vanished from "Places near you" behind a stale local count.
-  - [x] Room-wide mesh overlay removed (2026-10-20): the rotating K window
-    (`direct-talk-scheduler.ts`), `maxNeighbors`, the room-candidate FIFO, peer exchange (PEX: the
-    `peer-exchange` frame, `peer-exchange.ts`, `PeerExchangeCacheStore`) and the libp2p discovery
-    fallback are gone. Outside a personal list (Contacts only: a DM warm-up, a Talk's recipients)
-    the mesh links to the members it was given, at most 64. `talks-matching/06` now rejoins in that
-    explicit mode.
-  - [x] Verified 2026-10-19 on 1.0.180: Jest 3,149; phone path 13/13 (5.8 min); web Place, room
-    list and mesh specs 21/21; real phones: native-app 33 and 38 (P30 + C10), 30 on four phones
-    (P30, C10, Honor FRD, PH-1; Talks 8.7–10.3 s, p50 9.6 s).
-  - [x] Real phones (2026-10-19, P30 + C10, 1.0.178): native-app 05, 33, 37 and all three of 38
-    pass. Found and fixed: swaps sent while the mesh was between rooms dropped live people; direct
-    contact now lifts a tombstone; 🏠 from a Place never re-synced the mesh, so Nearby never came
-    back. Still to run: 30 (needs four phones; reworked to read Nearby lists) and 39.
-  - [x] Offline Nearby (2026-10-19): a phone that cannot reach the hub posts its card on a local
-    board (`nearby-v3-local.ts`, `GunNearbyLocalBoard`: a Gun channel per level-10 cell under
-    `p2p-signal`); phones read the 3×3 block around them. Real phones: native-app/30 offline over
-    Wi-Fi Direct passes with the P30 + C10 (found each other in ~2 s; Talks 7.6 s / 5.7 s).
-  - [ ] **Deferred (product owner 2026-10-19):** Wi-Fi Direct on the Honor FRD-L04 (Android 7): in the 3-phone offline run it never started
-    offline discovery (no `[nearby-offline]` events); the other two formed a group without it.
-  - [x] Daily beacon and identity-age rule (2026-10-20, design §3.7 "Daily beacon and
-    identity-age rule"): the hub's attestor key signs each UTC day's beacon (`HMAC(seed, day)`) and,
-    per key, the day it first saw it; cards carry the age proof; in dense ties keys seen before
-    today rank first; swaps carry the beacon for phones without the hub. Unit test
-    `nearby-v3-attestation.test.ts`. The production key is pinned by manifest M3 (2026-10-20, K3);
-    its vault is backed up in `secrets/nearby-attestor-production.key.json` and
-    `~/nearby-attestor-key.backup.json` on the VPS.
-  - [x] `find-similar-people.spec.ts` hang fixed (2026-10-20): each incoming Talk queued its own
-    read–merge–encrypted rewrite of the whole owner envelope; under six browsers a rewrite took
-    1–7 s and the queue reached 155 s, so the seeded Talks waited past the timeout. Unchanged
-    clusters also counted as changed (key order). Saves arriving during a rewrite now join the next
-    one, and clusters compare key-order-free (`client-incoming-talk-mirror.ts`, unit tests). The
-    spec passes in ~1 min.
-  - [x] Found by the web suites (2026-10-20): a reloaded page never searched Nearby — the service
-    waited for the mesh before pushing the roster that makes the mesh join (stage2/01, stage3/02;
-    unit test in `nearby-v3-service.test.ts`). Stale v2 copy fixed in stage1/00.
-  - [x] Incoming limits chosen (2026-10-20, 1.0.181, `docs/testing/android-transport-measurements.md`):
-    a phone accepts one Talk in ~2.2–3 s, so 24 new Talks a minute from people who are not contacts
-    (`IncomingTalkBudget`; an offer over it goes unanswered and the sender's outbox retries) and 8
-    incoming connections. Wi-Fi and offline Wi-Fi Direct measured on the C10, FRD and PH-1.
-  - [x] Mobile data and four phones on 1.0.182 (2026-10-20): cellular reconnects 5 of 5, ~4 s per
-    contact, 2.7–5.6 s to accept; `native-app/30` on four phones passes (Talks p50 9.4 s).
-  - Only the deferred items above (credit model, block count, FRD Wi-Fi Direct) remain.
-  - [x] Implement: cards, hub statistics/pyramid/introductions, gossip, the adaptive broadcast
-    loop, Places on lists, the daily beacon and identity-age rule, map/list/headcount UI (phases
-    1–5 and 2026-10-20). No epoch migration: there is no v2 release to stay compatible with.
-  - [x] v2 removed (2026-10-19, see "No compatibility" above).
-- [ ] **OPEN-80 — Bound a big Place's chat feed (found 2026-10-20 while designing groups).** Talks
-  in a Place reach at most `C` people per sender, but its chat feed (`chatrooms/<placeId>/messages`)
-  is one shared Gun path that every member syncs in full, so an arena Place with 10,000 members
-  carries every message to everyone. Decide: show only messages from my own group, page by
-  recency, or cap the feed to `C` members; then implement with a scale test.
+- [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
+  collect replies, then review the few people who matter most (started 2026-10-20).** The transport
+  is substantially ready (multiple OUT Talks, Nearby v3, delayed mailbox replies, Android offline
+  links and background mode), but the product still treats the activity as unrelated broadcasts,
+  replies and Contacts. The shipping gate is one continuous, resumable workflow with an honest
+  summary and useful ranking. Do not call the use case ready from the 498-person simulation alone:
+  physical qualification currently covers four phones, including the native background agent, but
+  literal walking/transit qualification is still outstanding.
+  - [x] **G1 — Durable outing identity and evidence (first slice, 2026-10-20).** Add a bounded,
+    versioned local collection-session store; snapshot the active scope, selected Talk ids and
+    blurred public point; associate each intended peer + Talk delivery with the active outing; keep
+    late match/mismatch/ignore results attached after Stop or process restart; stamp the existing
+    local exchange projection with the collection id. Focused unit tests cover delayed replies,
+    receiver narrowing, repeated encounters and corrupt storage.
+  - [x] **G2 — One Start/Stop collection control (2026-10-21).** Put the control beside the current Nearby/Place
+    group, show elapsed time / people reached / replies / matches, restore an active outing after a
+    restart, and make Broadcast clearly feed it. Starting a new outing ends the previous one; Stop
+    freezes the send/location context but continues accepting late replies.
+    The restored card now reports elapsed/reached/replies/pending/matches, has a primary Broadcast
+    action using the existing audited send path, and opens the latest outing review. Starting a new
+    outing still ends the previous one; late replies continue to attach after Stop.
+  - [x] **G3 — Correct place and time semantics (2026-10-21).** Snapshot a freshly confirmed, privacy-blurred
+    location at send time rather than relying on `Talk.authorLocation` from Talk creation; retain
+    distance-at-encounter; handle indoor/no-GPS and subway movement without pretending the reading
+    is precise; define when a moving outing rolls to a new area. Each send now records GPS,
+    traveler, Place or unavailable explicitly; only the public snapped cell is stored. Encounter
+    distance uses the peer's public Nearby card, and a changed public cell starts a new area segment
+    inside the same outing.
+  - [x] **G4 — Materialized outing review (2026-10-21).** Add a collection detail screen with reached, pending,
+    matched, mismatched and late counts; preserve repeated peer + Talk outcomes instead of the
+    current latest-only `peerId::talkId` projection; link each person to their replies and chat;
+    allow pin, dismiss and private notes. Review preserves the repeated outcome timeline, exposes
+    late/location evidence, links each row to the existing replies + DM view, and persists local-only
+    pin/dismiss/note state.
+  - [x] **G5 — Importance-aware ranking (2026-10-21).** Let the author mark Talks/questions as important or
+    must-have, then rank within this outing by must-have failures, weighted answer strength,
+    matched-Talk breadth, trust/relationship, distance-at-encounter and freshness. Reuse the
+    weighted `find-similar` primitives rather than the Contacts tab's current fixed relevance
+    formula. Explain the top reasons and never silently hide candidates. Talk and question editors
+    now persist Normal/Important/Must-have weights; outing ranking uses shared `matchScore`, hard
+    failures, breadth, relationship history, blurred encounter distance and freshness. The default
+    review includes every person and explains its leading signals; pin/dismiss are explicit.
+  - [x] **G6 — Real background collection (2026-10-21, code gate).** Move the minimum receive/match/outbox/session work out
+    of the Android WebView into the foreground-service path, survive screen-off and process death,
+    reconcile without duplicate outcomes, and disclose vendor battery restrictions. "Always" mode
+    must resume the exact active outing; "While open" must say collection is paused.
+    - [x] The reviewed boundary is now implemented: Android keeps approved policy in a
+      Keystore-encrypted store, reads the SEA pair through an app-internal custody method (never the
+      new WebView bridge), and provisions a bearer-protected loopback processor in the embedded
+      foreground node. It decrypts Talk mailbox bodies/responses, enforces room/intake/contact/age/
+      block policy, uses only exact pre-approved auto-answers, durably relays the response outbox,
+      classifies matches and binds late responses to the snapshotted outing.
+    - [x] Reconciliation is encrypted, persistent and idempotent: the native processor journals
+      before mailbox acknowledgement; WebView resume replays through the existing Talk/ledger
+      handlers and acknowledges only completed events. The active room, outing associations and
+      policy survive ordinary Android process recreation. Rejected/blocked mail is consumed rather
+      than waking repeatedly; unsupported non-Talk mail remains for the foreground UI.
+    - [x] Product disclosure distinguishes **Always — background Talk exchange** from **While open —
+      pauses in background**, states that a persistent notification is used, and warns that vendor
+      battery savers can still delay/stop delivery unless unrestricted battery use is allowed.
+      Host SEA-cycle, authorization, durable-relay, policy, mailbox-relay and packaged-mobile gates
+      pass. One physical screen-off/process-death path is qualified under G7; broader vendor and
+      carried-field qualification remains open.
+  - [ ] **G7 — Qualification gate.** Add a deterministic 498-person model for ranking and storage,
+    a 10–20 simulated-client outing, and physical Android runs for walking movement, subway/no-GPS,
+    Wi-Fi ↔ cellular ↔ offline transitions, screen-off, restart, delayed replies and repeated
+    encounters. Keep the existing four-phone test, but do not use it as the crowd-scale claim.
+    - [x] Deterministic host gates (2026-10-21): 498-person delivery/storage/review and a 16-client
+      moving outing with pending, cold-start, delayed and repeated cases
+      (`match-collection-scale.test.ts`, `match-collection-outing-model.ts`).
+    - [x] Automated physical Android bench matrix (2026-10-21, app 1.0.187): P30/C10/PH-1
+      Wi-Fi-off catch-up; P30 cellular-only ↔ C10 Wi-Fi; four-phone online ring; and a C10 receiver
+      with Activity closed, screen off, forced Doze and killed process. Android restarted the
+      foreground service, returned the exact approved encrypted answer in 5.727 s after the outing
+      had stopped, and WebView resume reconciled it exactly once. See
+      `docs/testing/android-match-collection-g7.md`.
+    - [ ] Carried field gate: literal walking movement, a transit/subway route with genuine no-GPS,
+      physical repeated encounters and broader vendor battery behavior. Fixed coordinates, radio
+      toggles and simulated reconnects do not qualify those real-world conditions.
+  - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
+    auto-answers, add actionable pending states, carry the completed starter credit/block-count
+    policy into launch review, and treat iOS as unsupported until its native background/discovery
+    work is qualified.
+    - [x] Cold-start pending pairs are measured in the 16-client model; review has a default-visible
+      **Needs follow-up** filter and opens the person's existing replies/chat directly.
+    - [x] The OPEN-70 starter credit/block-count defenses are complete: 12 distinct incoming Friend
+      marks, fewer than three received blocks, one lifetime Place, and continuing lifecycle checks.
+      Optional stronger Place defenses remain a separate owner decision; iOS remains unsupported
+      until its separate native qualification exists.
 - [ ] **OPEN-76 — Physical transport, radio and battery measurements (carried over from OPEN-40
   G2.5 and its P1 discovery item on 2026-10-20).** The 2026-10-18/20 rounds
-  (`docs/testing/android-transport-measurements.md`) cover hub, LAN, offline Wi-Fi Direct and mobile
-  data. Still missing, on at least three phones: isolated BLE, a long unplugged battery run,
-  duplicate bytes, scan duty cycle and battery per discovery timer (the 30 s / 10 min / 30 min
-  values are untested defaults), and an online and an offline phone exchanging Talks over a nearby
-  link with Wi-Fi STA + Wi-Fi Direct concurrency on PH-1, P30, C10 and Honor. Only if duplicates
-  show on hardware: wire `NearbyCandidateRegistry`'s logical peer into `PeerMeshService` route
-  selection. Pick the production discovery timers from the results.
+  (`docs/testing/android-transport-measurements.md`) cover hub, LAN, offline Wi-Fi Direct, mobile
+  data, isolated BLE, duplicate accounting, provider duty counters, and online↔offline Talk exchange
+  with concurrent Wi-Fi STA + Wi-Fi Direct on three supported phones. The only remaining gate is the
+  owner's long unplugged battery run; Android's USB-attached battery model cannot substitute for it.
   Also carried from OPEN-72: on a phone, writing the incoming cluster (~0.8 s) and
   `cacheReceivedTalk` (~0.6 s) dominate accepting a Talk, and the mesh ACK wait
   (`DEFAULT_MESH_ACK_TIMEOUT_MS`, 3 s) is shorter than a phone's ~3.7 s round trip, so a slow
   receiver gets one redundant re-flood (deduplicated). Tune with the measurements, not before.
+  - [x] **Automatable A — Measurement harness:** add per-provider scan-window/duty-cycle counters,
+    logical-delivery and wire-byte/duplicate accounting, timer overrides, and retained JSON evidence.
+  - [x] **Automatable B — Physical bench matrix:** on at least three attached phones, isolate BLE
+    discovery, exercise 30 s / 10 min / 30 min schedules, and run online↔offline Talk exchange with
+    Wi-Fi STA + Wi-Fi Direct concurrency across PH-1, P30, C10 and Honor where supported.
+    Completed on P30, C10 and PH-1 on 2026-10-22. The supported Honor FCP-AN10 closeout then passed
+    the complete three-phone offline Wi-Fi Direct journey with P30 and C10 (ring Talks plus Honor
+    background delivery); the old Honor Android 7 remains unable to join a credentialed group. The
+    hardware run used accelerated windows while deterministic tests cover the production 30 s /
+    10 min / 30 min caps.
+  - [x] **Automatable C — Tune from evidence:** select production discovery timers and adjust the
+    mesh ACK timeout only if the measurements justify it; wire `NearbyCandidateRegistry` route
+    selection only if duplicate hardware routes are observed.
+    Retained 30 s / 10 min / 30 min and the 3 s ACK: 306 sent and 306 received frames produced zero
+    duplicate frames and zero duplicate Talk bodies, so neither ACK inflation nor route-selection
+    wiring is justified. Native idempotence reduced P30 BLE advertiser starts from 67 to 4 per
+    ~200 s mixed run; scan-command churn remains explicit evidence for the unplugged run.
+  - [x] **Automatable D — Regression/reporting:** add focused deterministic tests, rerun the relevant
+    Android matrix, and append the measurements and limitations to the transport report.
+  - [ ] **Owner action:** perform the long unplugged battery run after the automated harness is
+    ready; procedure and acceptance evidence are tracked in `docs/OWNER-TODO.md`.
 - [ ] **OPEN-77 — Protocol release key custody (operator action, carried over from OPEN-40 on
   2026-10-20).** Place the K3 and K4 vault/passphrase pairs in separate durable offline backups,
   verify restoration, and remove the working copies from the development machine when the release

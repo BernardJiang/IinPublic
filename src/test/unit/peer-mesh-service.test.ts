@@ -200,7 +200,7 @@ describe('PeerMeshService', () => {
     const [alicePair, carolPair, davePair] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
     const users = { alice: { pub: alicePair.pub }, carol: { pub: carolPair.pub }, dave: { pub: davePair.pub } };
     const network = createFakeNetwork();
-    const pending: string[][] = [];
+    const pending: Array<{ recipients: string[]; wake: string[] }> = [];
     const alice = new PeerMeshService(mockPrivateGunService(alicePair, users), {
       apiBase: 'http://127.0.0.1:8080',
       localUserId: 'alice',
@@ -208,7 +208,10 @@ describe('PeerMeshService', () => {
       ackTimeoutMs: 40,
       authoritativeDirectTalkDelivery: true,
       createSession: network.createSession,
-      onDirectDeliveryPending: (recipientUserIds) => { pending.push(recipientUserIds); },
+      onDirectDeliveryPending: (payload, recipientUserIds, wakeRecipientUserIds) => {
+        expect(payload).toMatchObject({ talkId: 'wake-talk', talkData: { id: 'wake-talk' } });
+        pending.push({ recipients: recipientUserIds, wake: wakeRecipientUserIds });
+      },
     });
     // Dave still heartbeats presence (awake, just not scheduled this window); Carol's page is asleep.
     (alice as any).fetchPresencePubs = async () => new Map([['dave', davePair.pub]]);
@@ -220,8 +223,9 @@ describe('PeerMeshService', () => {
       roomBroadcast: true,
     });
     await waitUntil(() => pending.length === 1);
-    expect(pending).toEqual([['carol']]);
-    // The body itself stays in the author's outbox: no mailbox body fallback in direct mode.
+    expect(pending).toEqual([{ recipients: ['carol', 'dave'], wake: ['carol'] }]);
+    // The callback can post the encrypted mailbox body, while the authoritative copy still stays
+    // queued until the ordinary direct-delivery ACK arrives.
     const queued = await (alice as any).directTalkOutbox.list('nearby:test');
     expect(queued.map((entry: { recipientUserId: string }) => entry.recipientUserId).sort()).toEqual(['carol', 'dave']);
     alice.leaveRoom();
@@ -864,6 +868,10 @@ describe('PeerMeshService', () => {
 
     expect(verifyOrigin).toHaveBeenCalledTimes(1);
     expect(responses.map((response) => response.responseId)).toEqual(['one-response']);
+    expect(alice.getDiagnostics().transport).toMatchObject({
+      receivedFrames: 2,
+      duplicateFramesReceived: 1,
+    });
   });
 
   /**

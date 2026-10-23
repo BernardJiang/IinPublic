@@ -184,6 +184,23 @@ describe('mailbox routes', () => {
       expect(get.body.count).toBe(1);
       expect(get.body.envelopes[0].id).toBe('keep');
     });
+
+    it('acknowledges the matching hub envelope from an embedded node', async () => {
+      const app = express();
+      app.use(express.json());
+      const mailboxStore = new MailboxStore();
+      mailboxStore.store({ id: 'hub-copy', recipientId: 'r6', ciphertext: FAKE_CIPHERTEXT });
+      const hubRelayClient = {
+        postMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
+        listMailboxEnvelopes: jest.fn().mockResolvedValue([]),
+        deleteMailboxEnvelope: jest.fn().mockResolvedValue(undefined),
+      };
+      registerMailboxRoutes(app, { mailboxStore, hubRelayClient: hubRelayClient as never, nodeEnv: 'test' });
+
+      await request(app).delete('/api/mailbox/r6/hub-copy').expect(200);
+
+      expect(hubRelayClient.deleteMailboxEnvelope).toHaveBeenCalledWith('r6', 'hub-copy');
+    });
   });
 
   describe('TTL eviction', () => {

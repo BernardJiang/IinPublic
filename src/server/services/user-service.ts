@@ -9,6 +9,12 @@ import { assertBlockTargetAllowed, assertStageNameAllowed, TECHSUPPORT_ROOT_USER
 import { buildUserTagsEnvelope, USER_TAGS_KEY } from '../../shared/user-tags';
 import { blockPairHash } from '../../shared/block-pair';
 import { LocationPrivacy } from '../../shared/location';
+import {
+  FRIEND_MARK_COUNTS_KEY,
+  friendMarkPairHash,
+  verifySignedFriendMark,
+} from '../../shared/friend-mark';
+import { roomCreationCredit, type RoomCreationCredit } from '../../shared/room-creation-credit';
 
 const PUBLIC_TALK_FILTERS_KEY = 'user-talk-filters';
 const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
@@ -30,6 +36,7 @@ export class UserService {
   }>();
   private readonly recentPublicUsers = new Map<string, User>();
   private readonly recentReputationWrites = new Map<string, Reputation>();
+  private readonly recentFriendMarkStates = new Map<string, Map<string, { active: boolean; updatedAt: string }>>();
 
   constructor(private gunService: GunService) {}
 
@@ -40,6 +47,7 @@ export class UserService {
     this.recentPublicProfileFoundations.clear();
     this.recentPublicUsers.clear();
     this.recentReputationWrites.clear();
+    this.recentFriendMarkStates.clear();
   }
 
   private parseJsonArray<T>(value: unknown, fallback: T[]): T[] {
@@ -97,6 +105,81 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     const nextReputation = { ...reputation, blockCount: nextValue };
     this.recentReputationWrites.set(targetUserId, nextReputation);
     this.writeReputation(targetUserId, nextReputation);
+  }
+
+  private async countFriendMarks(targetUserId: string): Promise<number> {
+    const states = new Map<string, { active: boolean; updatedAt: string }>();
+    const stored = await this.gunService
+      .getPath([FRIEND_MARK_COUNTS_KEY, targetUserId], 500, 800)
+      .catch(() => null) as Record<string, unknown> | null;
+    if (stored && typeof stored === 'object') {
+      for (const [pairHash, value] of Object.entries(stored)) {
+        if (pairHash === '_' || !value || typeof value !== 'object') continue;
+        const record = value as { active?: unknown; updatedAt?: unknown };
+        if (typeof record.active !== 'boolean' || typeof record.updatedAt !== 'string') continue;
+        states.set(pairHash, { active: record.active, updatedAt: record.updatedAt });
+      }
+    }
+    for (const [pairHash, value] of this.recentFriendMarkStates.get(targetUserId) || []) {
+      states.set(pairHash, value);
+    }
+    return Array.from(states.values()).filter((state) => state.active).length;
+  }
+
+  /**
+   * Apply one signed, directed Friend status. The per-pair slot is idempotent, so saving the same
+   * relationship repeatedly cannot inflate the target's public friend counter. The stored value
+   * deliberately omits the marker identity; somebody who does not already know both public keys
+   * cannot enumerate who marked the target as a Friend.
+   */
+  async setFriendMark(value: unknown): Promise<{ changed: boolean; friendsCount: number }> {
+    const verified = await verifySignedFriendMark(value);
+    if (!verified.ok) throw new Error(verified.reason);
+    const mark = verified.mark;
+    const [marker, target] = await Promise.all([
+      this.getUser(mark.markerUserId),
+      this.getUser(mark.targetUserId),
+    ]);
+    if (marker.pub !== mark.markerPub || target.pub !== mark.targetPub) {
+      throw new Error('friend mark identity binding does not match the public user record');
+    }
+    const pairHash = friendMarkPairHash(mark.markerPub, mark.targetPub);
+    const recent = this.recentFriendMarkStates.get(mark.targetUserId)?.get(pairHash);
+    const stored = recent ?? await this.gunService
+      .getPath([FRIEND_MARK_COUNTS_KEY, mark.targetUserId, pairHash], 300, 500)
+      .catch(() => null) as { active?: unknown; updatedAt?: unknown } | null;
+    const previousTime = typeof stored?.updatedAt === 'string' ? Date.parse(stored.updatedAt) : NaN;
+    const nextTime = Date.parse(mark.updatedAt);
+    if (Number.isFinite(previousTime) && nextTime < previousTime) {
+      const friendsCount = await this.countFriendMarks(mark.targetUserId);
+      return { changed: false, friendsCount };
+    }
+    const previousActive = stored?.active === true;
+    const changed = previousActive !== mark.active;
+    const state = { active: mark.active, updatedAt: mark.updatedAt };
+    await this.gunService.putPath([FRIEND_MARK_COUNTS_KEY, mark.targetUserId, pairHash], state);
+    const targetStates = this.recentFriendMarkStates.get(mark.targetUserId) ?? new Map();
+    targetStates.set(pairHash, state);
+    this.recentFriendMarkStates.set(mark.targetUserId, targetStates);
+    const friendsCount = await this.countFriendMarks(mark.targetUserId);
+    const reputation = this.recentReputationWrites.get(mark.targetUserId) || await this.readReputation(mark.targetUserId);
+    const nextReputation = { ...reputation, friendsCount };
+    this.recentReputationWrites.set(mark.targetUserId, nextReputation);
+    this.writeReputation(mark.targetUserId, nextReputation);
+    return { changed, friendsCount };
+  }
+
+  /** Authoritative room-creation credit: signed incoming Friend slots plus the received block count. */
+  async getRoomCreationCredit(userId: string, creatorPub: string): Promise<RoomCreationCredit> {
+    const user = await this.getUser(userId);
+    if (!user.pub || user.pub !== creatorPub) {
+      throw new Error('room creator identity does not match the signed descriptor');
+    }
+    const friendMarks = await this.countFriendMarks(userId);
+    return roomCreationCredit(user.reputation, friendMarks, {
+      minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
+      maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
+    });
   }
 
   private parseTalkFilters(value: unknown, seedLanguages?: string[]): TalkIntakeFilters {

@@ -45,8 +45,9 @@ test.describe('Settings tab cleanup (M4) — shared section wrapper + drill-down
     // deliberately restores that last drill-down. Return explicitly before testing the menu.
     await backToSettingsMenu(page);
 
-    // No leftover ad hoc <section> markup — every top-level block is the shared wrapper.
-    await expect(page.locator('#settings-content section')).toHaveCount(0);
+    // No leftover ad hoc detail <section> markup — every top-level detail block is the shared
+    // wrapper. The menu itself deliberately uses semantic <section> elements to group links.
+    await expect(page.locator('#settings-detail-container > div > section')).toHaveCount(0);
     // Every declared settings section is rendered up front (stable DOM identity across a
     // menu/detail switch) — just not all visible at once. The menu list is the default view.
     //

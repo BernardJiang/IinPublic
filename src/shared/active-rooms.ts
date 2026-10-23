@@ -59,7 +59,7 @@ export function bearingDegrees(
 
 export function summarizeActiveRooms(input: {
   /** Places and how many people are in each now (the hub's v3 counts). */
-  rooms: ReadonlyArray<{ roomId: string; memberCount: number }>;
+  rooms: ReadonlyArray<{ roomId: string; memberCount: number; discoverable?: boolean }>;
   /** Everyone online; defaults to the sum over the listed Places. */
   totalOnline?: number;
   /** A Place's public pin and name. */
@@ -75,6 +75,7 @@ export function summarizeActiveRooms(input: {
   const summaries: ActiveRoomSummary[] = [];
   for (const room of input.rooms) {
     if (!isPlaceRoomId(room.roomId)) continue;
+    if (room.discoverable === false) continue;
     const memberCount = Math.max(0, Math.floor(room.memberCount));
     inPlaces += memberCount;
     if (memberCount === 0 && room.roomId !== input.currentRoomId) continue;

@@ -1,22 +1,59 @@
 import { applyConnectivityPreset, connectivityDiagnosticsText, connectivityStatusText, defaultConnectivitySettings, loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration } from '../../web/ui/connectivity-settings';
-import { MeshForwardingPolicy } from '../../shared/mesh-forwarding-policy';
+import { DEFAULT_FORWARDING_SETTINGS, MeshForwardingPolicy } from '../../shared/mesh-forwarding-policy';
 import { ConnectionManager, pathScore, type PathInfo } from '../../shared/connection-manager';
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 
 describe('connectivity UI settings', () => {
   beforeEach(() => localStorage.clear());
   test('supports all presets and safe forwarding defaults', () => {
-    expect(defaultConnectivitySettings()).toMatchObject({ nearbyPrivacyMode: 'neighborhood', forwarding: { enabled: false, wifiForwarding: false, cellularForwarding: false, lowBatteryPause: true, cellularByteBudget: 0 } });
-    expect(applyConnectivityPreset('data-saver')).toMatchObject({ meteredPermission: 'wait-for-free' });
+    expect(defaultConnectivitySettings()).toMatchObject({ nearbyPrivacyMode: 'neighborhood', meteredPermission: 'wait-for-free', forwarding: { enabled: false, wifiForwarding: true, cellularForwarding: false, lowBatteryPause: true, cellularByteBudget: 0 } });
+    expect(applyConnectivityPreset('data-saver')).toMatchObject({ freeFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { wifiForwarding: true, cellularForwarding: false, cellularByteBudget: 0 } });
+    expect(applyConnectivityPreset('fastest')).toMatchObject({ freeFirst: false, directFirst: true, batteryAware: false });
+    expect(applyConnectivityPreset('local-event')).toMatchObject({ nearbyPrivacyMode: 'close-nearby', wifiOnlyForwarding: true });
     expect(applyConnectivityPreset('private').forwarding.enabled).toBe(false);
     // Private: the widest area (Contacts only is now a Talk audience, not a location).
     expect(applyConnectivityPreset('private').nearbyPrivacyMode).toBe('regional');
     for (const preset of ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'] as const) expect(applyConnectivityPreset(preset).preset).toBe(preset);
   });
+  test('presets preserve device-local choices and advanced preserves the manual policy', () => {
+    const current = {
+      ...defaultConnectivitySettings(),
+      preset: 'advanced' as const,
+      nearbyMode: 'always' as const,
+      locationSource: 'traveler' as const,
+      forwarding: {
+        ...defaultConnectivitySettings().forwarding,
+        enabled: true,
+        cellularForwarding: true,
+        cellularByteBudget: 4096,
+      },
+    };
+    expect(applyConnectivityPreset('local-event', current)).toEqual(expect.objectContaining({
+      nearbyMode: 'always',
+      locationSource: 'traveler',
+      nearbyPrivacyMode: 'close-nearby',
+    }));
+    expect(applyConnectivityPreset('private', current)).toEqual(expect.objectContaining({
+      nearbyMode: 'always',
+      locationSource: 'traveler',
+      nearbyPrivacyMode: 'regional',
+      meteredPermission: 'wait-for-free',
+      forwarding: expect.objectContaining({ enabled: false, cellularForwarding: false, cellularByteBudget: 0 }),
+    }));
+    expect(applyConnectivityPreset('advanced', current)).toEqual(current);
+  });
   test('persists policy without transport identities', () => {
     const value = applyConnectivityPreset('advanced'); value.forwarding.cellularForwarding = true; value.forwarding.cellularByteBudget = 1024;
     saveConnectivitySettings(value); expect(loadConnectivitySettings()).toEqual(value);
     expect(localStorage.getItem('iinpublic_connectivity_settings_v1')).not.toMatch(/peerId|radioId|12D3/);
+  });
+  test('migrates the legacy Wi-Fi forwarding checkbox into the live forwarding policy', () => {
+    localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({
+      ...defaultConnectivitySettings(),
+      wifiOnlyForwarding: true,
+      forwarding: { ...DEFAULT_FORWARDING_SETTINGS, wifiForwarding: false },
+    }));
+    expect(loadConnectivitySettings().forwarding.wifiForwarding).toBe(true);
   });
   test('migrates missing or invalid nearby privacy values to Neighborhood', () => {
     localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify({

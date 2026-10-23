@@ -126,6 +126,74 @@ No profilers, screens on, 15 minutes idle (mobile data: 5).
 LAN mode now adds ~6 MB per 15 minutes over hub only (~50 MB on 1.0.168). Four phones
 (`native-app/30`, P30 + C10 + FRD + PH-1): Talks p50 9.4 s, p95 10.2 s (9.6 s on 1.0.180).
 
+## 2026-10-22, build 1.0.187 (OPEN-76 radio and duplicate accounting)
+
+The harness now records content-free commanded and native duty/start counters for LAN NSD, BLE
+advertising, BLE scanning and Wi-Fi Direct discovery, plus mesh frame/byte counts, duplicate frames,
+accepted Talk bodies and duplicate Talk bodies. Debug-only intent/query overrides exercise shortened
+discovery schedules without changing production defaults. Deterministic policy tests cover the
+production 30-second window, 10-minute offline cap and 30-minute online cap.
+
+Isolated BLE used the P30, C10 and PH-1 with the hub unreachable and LAN and Wi-Fi Direct disabled.
+Every phone observed both other phones specifically through BLE in 120.2 seconds. Native result
+counts were 368 / 59 / 318 (P30 / C10 / PH-1); there were no mesh frames or Talk bodies, confirming
+that BLE remains discovery-only. An accelerated 5-second scan, 5–10-second backoff schedule exercised
+the physical open/quiet transitions; production-length energy qualification belongs to the unplugged
+owner run.
+
+The mixed run kept the P30's validated hub route over Wi-Fi STA while the C10 and PH-1 had
+unreachable hubs and all three shared Wi-Fi Direct. The coexistence assertion passed before Talks
+were sent.
+
+| Metric | Three-phone mixed result |
+|---|---|
+| Wi-Fi Direct group / every roster / encrypted mesh | 0.30 s / 0.38 s / 4.70 s |
+| Fresh connection p50 / p95 (failed) | 2.42 s / 3.79 s (0 of 3) |
+| Talk delivery p50 / p95 | 2.71 s / 21.70 s |
+| Receiver deliveries lost | 0 of 12 |
+| Mesh frames sent / received | 306 / 306 |
+| Mesh bytes sent / received | 479,655 / 479,655 |
+| Duplicate frames / duplicate Talk bodies | 0 / 0 |
+| Accepted Talk bodies | 12 (four per receiving phone) |
+| Native BLE advertiser starts (P30 / C10 / PH-1) | 4 / 2 / 1 |
+| Native BLE scan starts (P30 / C10 / PH-1) | 35 / 2 / 1 |
+
+The counters changed two decisions:
+
+- Replaying an unchanged native BLE presence command no longer restarts advertising, and changing
+  only the scan state leaves the advertiser intact. On the P30 this reduced advertiser starts from
+  67 to 4 over comparable ~200-second mixed runs.
+- The 3-second mesh ACK timeout stays unchanged. Even with a 21.7-second tail delivery there were
+  no duplicate frames or duplicate Talk bodies, so increasing the timeout would add latency without
+  evidence of avoided retransmission. The candidate registry is not wired into mesh route selection
+  because hardware showed no duplicate routes.
+
+The online phone still received repeated native scan commands (35 starts in ~225 seconds) even
+though the policy requested one continuous scan. A follow-up two-phone diagnostic reproduced this
+on the C10 (13 starts in ~94 seconds), ruling out checkpoint replay; speculative lifecycle changes
+were reverted. Keep the 30-second / 10-minute / 30-minute production policy unchanged and use the
+owner's long unplugged run to determine the real energy impact before changing discovery behavior.
+
+### OPEN-70 Honor closeout: FCP-AN10 offline Wi-Fi Direct
+
+The deferred Honor gate was rerun on app 1.0.187 with the supported Honor FCP-AN10 (Android 16),
+P30 (Android 10) and C10 (Android 14). The hub was deliberately unreachable and LAN discovery was
+disabled. The P30 formed one credentialed 5 GHz group (`5765 MHz`); the Honor and C10 joined as
+clients, and all three personal Nearby lists contained both other phones.
+
+| Metric | Result |
+|---|---|
+| Complete `native-app/30` journey | passed in 3.0 min |
+| Ring Talks (Honor → P30 → C10 → Honor) | 6.541 s / 6.751 s / 5.821 s |
+| Background delivery to Honor | 9.504 s |
+| Talk delivery p50 / p95 | 6.541 s / 9.504 s |
+| Wi-Fi Direct topology | P30 owner; Honor + C10 clients |
+| Nearby list coverage | 2 of 2 peers on every phone |
+
+The old Honor FRD-L04/Android 7 limitation remains a device/OS capability boundary, but the new
+Honor FCP replacement passes the supported Honor qualification. After the run, the group was
+removed, Wi-Fi restored, the current 1.0.187 build retained, and all three screens were put to sleep.
+
 ## What the runs found and fixed
 
 - **OPEN-71** (1.0.166): after a reconnect a pair could stay "connected" but exchange nothing, from
@@ -141,9 +209,8 @@ LAN mode now adds ~6 MB per 15 minutes over hub only (~50 MB on 1.0.168). Four p
 
 ## Not measured yet
 
-- Isolated BLE (no mode turns off every other discovery path).
 - A long unplugged battery run (real drain, not the model estimate).
-- Duplicate bytes per delivery; total network bytes on the C10 and FRD.
+- Total per-app network bytes on devices whose Android batterystats omit them.
 - The per-contact cost at scale: the loop here has two or three receivers. For OPEN-70's 498-contact
   loop, the sender's ~3.5 s per contact must overlap (adaptive concurrency), and each receiver's
   ~1.5 s of processing per Talk bounds how many Talks a phone can take in.

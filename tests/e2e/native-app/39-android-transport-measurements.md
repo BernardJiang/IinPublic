@@ -21,7 +21,8 @@ OPEN-70's per-contact connection cost.
    a Talk, and the run records whether it arrived while backgrounded or only after reopening.
 5. **Idle window.** With Android's battery accounting reset and charging hidden, the phones idle in
    Nearby for a few minutes; the run records the app's estimated power, CPU time, network bytes
-   and wakelocks, and how often each phone's discovery state changed.
+   and wakelocks, how often each phone's discovery state changed, native and commanded provider
+   duty/start counters, mesh wire bytes, duplicate frames, and accepted/duplicate Talk bodies.
 
 ## Modes
 
@@ -30,9 +31,16 @@ OPEN-70's per-contact connection cost.
 | `hub-lan` (default) | local hub reachable, LAN discovery on |
 | `hub-only` | local hub reachable, LAN discovery off |
 | `wifi-direct` | hub unreachable, LAN discovery off: the phones must form a Wi-Fi Direct group |
+| `ble-only` | hub unreachable, LAN and Wi-Fi Direct off: BLE discovery evidence only |
+| `mixed-nearby` | one phone retains hub access over Wi-Fi STA while offline phones join it over Wi-Fi Direct |
 | `cellular` | public hub in a private run-unique room; phones in `E2E_MEASURE_CELLULAR_SERIALS` use mobile data |
 
 Knobs: `E2E_MEASURE_RECONNECTS` (5), `E2E_MEASURE_BACKGROUND_MIN` (5), `E2E_MEASURE_IDLE_MIN` (15).
+`E2E_MEASURE_ONLINE_SERIAL` selects the hub-connected phone in `mixed-nearby`. Debug builds also
+accept `E2E_DISCOVERY_SCAN_MS`, `E2E_DISCOVERY_OFFLINE_BASE_MS`,
+`E2E_DISCOVERY_OFFLINE_MAX_MS`, `E2E_DISCOVERY_OFFLINE_NO_BLE_MAX_MS`,
+`E2E_DISCOVERY_ONLINE_BASE_MS`, and `E2E_DISCOVERY_ONLINE_MAX_MS`; each is bounded to 1 s–30 min
+and changes only that launched measurement process.
 
 Diagnostics:
 

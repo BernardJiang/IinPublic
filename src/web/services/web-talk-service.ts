@@ -224,6 +224,7 @@ export class WebTalkService {
     if (talkData.originalAuthorLocation != null) talk.originalAuthorLocation = talkData.originalAuthorLocation;
     if (talkData.supersedesTalkId != null) talk.supersedesTalkId = talkData.supersedesTalkId;
     if (talkData.matchThreshold != null) talk.matchThreshold = talkData.matchThreshold;
+    if (talkData.collectionImportance != null) talk.collectionImportance = talkData.collectionImportance;
 
     // Stamp each question with a CIDv1 content hash (excludes routing fields)
     talk.questions = await this.stampQuestionCids(talk.questions);

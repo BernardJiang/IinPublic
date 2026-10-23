@@ -1,4 +1,5 @@
 import { User, GPSCoordinate, Talk, type Tag, type KnownPerson, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import { backgroundAnswerRulesFromPreferences } from '../../shared/background-talk-agent';
 import {
   BLOCK_SIGNAL_PAYLOAD_KIND,
   recordBlockSignal,
@@ -21,11 +22,13 @@ import { WebAttestationService } from '../services/web-attestation-service';
 import { OFFICIAL_APPLICATION_ID, OFFICIAL_SIGNING_IDENTITY_HASH } from '../../shared/official-build-credential';
 import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
+import { showMatchCollectionReviewDialog } from '../ui/match-collection-review-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import {
   WebChatroomService,
   chatroomCapacityTestOverride,
 } from '../services/web-chatroom-service';
+import { PlaceChatClient } from '../services/place-chat-client';
 import { WebTalkService } from '../services/web-talk-service';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
 import { BlockStatusCache } from '../services/block-status-cache';
@@ -39,7 +42,7 @@ import { loadQuietSettings, QUIET_SETTINGS_EVENT } from '../services/quiet-setti
 import { QUIET_GPS_REFRESH_MS, quietStateFor, shouldRefreshQuietGps, type QuietState } from '../../shared/quiet-places';
 import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
-import { publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
+import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
@@ -62,6 +65,11 @@ import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
 import { MAX_LIVE_PLACES_PER_CELL } from '../../shared/place-lifecycle';
 import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
+import { createSignedFriendMark } from '../../shared/friend-mark';
+import {
+  ROOM_CREATE_MAX_BLOCKS_EXCLUSIVE,
+  ROOM_CREATE_MIN_FRIEND_MARKS,
+} from '../../shared/room-creation-credit';
 import {
   CONTACTS_ONLY_SCOPE_ID,
   isLocalOnlyRoomScope,
@@ -159,10 +167,17 @@ import {
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
 import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
-import { hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
+import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
+import {
+  endMatchCollectionSession,
+  getActiveMatchCollectionSession,
+  recordMatchCollectionDelivery,
+  recordMatchCollectionExchange,
+  startMatchCollectionSession,
+} from '../services/match-collection-session';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
 import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
@@ -320,6 +335,8 @@ export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
   private chatroomService: WebChatroomService;
+  private placeChatClient: PlaceChatClient;
+  private placeChatUnsubscribe: (() => void) | null = null;
   private talkService: WebTalkService;
   private conversationService: WebConversationService;
   private contentNodeService: WebContentNodeService;
@@ -1106,6 +1123,7 @@ export class IinPublicApp {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
     this.chatroomService = new WebChatroomService(this.gunService);
+    this.placeChatClient = new PlaceChatClient(() => this.getBackendApiBase());
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
     // clobbers renames back to the old name on every beat (see startMembershipHeartbeat).
     this.chatroomService.setMembershipStageNameResolver(() => this.currentUser?.stageName || '');
@@ -1875,6 +1893,35 @@ export class IinPublicApp {
     return precision === null ? null : snapPublicLocation(travel, precision);
   }
 
+  /**
+   * OPEN-81 G3: capture the outing's location when a send actually happens. Exact GPS and its raw
+   * accuracy never enter the collection store; only the normal public grid cell is retained.
+   */
+  private async matchCollectionSendLocation(chatroomId: string): Promise<{
+    source: 'gps' | 'traveler' | 'place' | 'unavailable';
+    point?: PublicLocation;
+  }> {
+    if (isPlaceRoomId(chatroomId)) {
+      const pin = this.uiManager.getCustomChatroomMeta(chatroomId)?.location;
+      const latitude = Number(pin?.latitude);
+      const longitude = Number(pin?.longitude);
+      return Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? { source: 'place', point: snapPublicLocation({ latitude, longitude }, 1_000) }
+        : { source: 'unavailable' };
+    }
+    if (usesSelfDefinedEncounterLocation() || this.travelModeActive) {
+      const point = this.nearbyPublicPoint();
+      return point ? { source: 'traveler', point } : { source: 'unavailable' };
+    }
+    try {
+      const fix = await readDeviceLocation();
+      const point = publicLocationFor(fix, this.effectiveNearbyMode());
+      return point ? { source: 'gps', point } : { source: 'unavailable' };
+    } catch {
+      return { source: 'unavailable' };
+    }
+  }
+
   private startNearbyV3(): void {
     const user = this.currentUser;
     if (this.nearbyV3 || !user || isTechSupportUser(user)) return;
@@ -2030,7 +2077,16 @@ export class IinPublicApp {
    */
   /** A refused Place creation (docs/design/nearby-and-place-chatrooms.md §4.2), in words. */
   private showPlaceCreateRefusal(status: number, text: string): void {
-    let body: { error?: string; code?: string; existingId?: string; existingName?: string } = {};
+    let body: {
+      error?: string;
+      code?: string;
+      existingId?: string;
+      existingName?: string;
+      requiredFriendMarks?: number;
+      maximumAllowedBlocks?: number;
+      friendMarks?: number;
+      blockCount?: number;
+    } = {};
     try {
       body = JSON.parse(text) as typeof body;
     } catch {
@@ -2050,6 +2106,17 @@ export class IinPublicApp {
     if (status === 409 && body.code === 'PLACE_CELL_FULL') {
       this.uiManager.showNotification(
         uiText(language, 'chatroomCreateCellFull').replace('{count}', String(MAX_LIVE_PLACES_PER_CELL)),
+        'error',
+      );
+      return;
+    }
+    if (status === 403 && body.code === 'PLACE_REPUTATION_REQUIRED') {
+      this.uiManager.showNotification(
+        uiText(language, 'chatroomCreateNeedsCredit')
+          .replace('{requiredFriends}', String(body.requiredFriendMarks ?? ROOM_CREATE_MIN_FRIEND_MARKS))
+          .replace('{maximumBlocks}', String(body.maximumAllowedBlocks ?? ROOM_CREATE_MAX_BLOCKS_EXCLUSIVE - 1))
+          .replace('{friends}', String(body.friendMarks ?? 0))
+          .replace('{blocks}', String(body.blockCount ?? 0)),
         'error',
       );
       return;
@@ -2989,6 +3056,7 @@ export class IinPublicApp {
       location: 'nearbyOfflineLocationOff',
       bluetooth: 'nearbyOfflineBluetoothOff',
     };
+    const discoveryTiming = discoveryPolicyTimingFromSearch(window.location.search);
     const service = new NearbyOfflineService({
       localPub,
       getRoomScope: () => this.activeExchangeRoomController?.getScope() ?? null,
@@ -3058,6 +3126,7 @@ export class IinPublicApp {
         return roster && roster.roomId === roomId ? { count: roster.count, pubs: roster.pubs } : null;
       },
       blePresence: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+      ...(discoveryTiming ? { discoveryTiming } : {}),
       // A missing permission was the user's answer to the one first-launch batch; Settings → App
       // permissions shows it. Only radio/service switches that are off get a hint.
       onReadinessGap: (gap) => gap === 'permission' ? undefined : this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
@@ -3080,11 +3149,14 @@ export class IinPublicApp {
       }, 2_000);
     });
     // Settings switches (both on by default) apply immediately.
-    window.addEventListener(NEARBY_SETTINGS_EVENT, () => service.updateSettings({
-      wifiDirect: getNearbyWifiDirectEnabled(),
-      bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
-      lan: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
-    }));
+    window.addEventListener(NEARBY_SETTINGS_EVENT, () => {
+      service.updateSettings({
+        wifiDirect: getNearbyWifiDirectEnabled(),
+        bluetooth: getNearbyBluetoothEnabled() && new URLSearchParams(window.location.search).get('nearby_ble') !== '0',
+        lan: getNearbyProviderEnabled('lan') && new URLSearchParams(window.location.search).get('nearby_lan') !== '0',
+      });
+      this.syncNativeBackgroundAgent();
+    });
     // Awareness: the Settings screen shows what nearby mode is doing right now.
     const statusTimer = setInterval(() => {
       const el = document.getElementById('settings-nearby-status');
@@ -3263,9 +3335,21 @@ export class IinPublicApp {
           ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
         });
       },
-      // OPEN-38: a content-free wake ping for receivers that look asleep; the body stays queued.
+      // OPEN-38/G6: mailbox the encrypted body for every pending receiver and send a separate
+      // content-free wake only to peers that look asleep; the authoritative body stays queued.
       ...(this.p2pRuntimeFlags.p2pDirectTalkDelivery
-        ? { onDirectDeliveryPending: (recipientUserIds: string[]) => this.postTalkWakeToMailbox(recipientUserIds) }
+        ? {
+            onDirectDeliveryPending: async (
+              payload: P2PMeshTalkBodyPayload,
+              recipientUserIds: string[],
+              wakeRecipientUserIds: string[],
+            ) => {
+              await Promise.all([
+                this.postTalkWakeToMailbox(wakeRecipientUserIds),
+                this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
+              ]);
+            },
+          }
         : {}),
       // Mixed-release escape hatch only. The authoritative direct scheduler retains ordinary
       // Talk bodies in the author's encrypted local outbox until the end receiver ACKs.
@@ -3462,6 +3546,8 @@ export class IinPublicApp {
 
   private startMailboxPolling(): void {
     this.registerNativeMailboxWatch();
+    this.syncNativeBackgroundAgent();
+    void this.replayNativeBackgroundEvents();
     if (this.mailboxPollTimer) return;
     // On a phone the native mailbox watch keeps a long-poll open and wakes a drain the moment an
     // envelope arrives ('iinpublic-mailbox-changed'), so the page polls only as a safety net
@@ -3499,6 +3585,98 @@ export class IinPublicApp {
       bridge.setMailboxWatch(userId);
     } catch {
       /* native shell without the watcher — nothing to register */
+    }
+  }
+
+  /**
+   * G6: give the app-owned foreground processor only the user's already-approved exact rules and
+   * current room/session state. The SEA pair never crosses this JS bridge; Android reads it from
+   * Keystore custody and provisions the loopback-only embedded node itself.
+   */
+  private syncNativeBackgroundAgent(): void {
+    const bridge = (window as unknown as {
+      IinPublicBackground?: { configure?: (configJson: string) => boolean };
+    }).IinPublicBackground;
+    if (!this.currentUser?.id || typeof bridge?.configure !== 'function') return;
+    const parseMap = (key: string): Record<string, any> => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch { return {}; }
+    };
+    const flattened = parseMap('flattenedAnswerPreferences');
+    const answerRules = backgroundAnswerRulesFromPreferences(flattened);
+    const settings = loadConnectivitySettings();
+    const myTalks = getMyTalks();
+    const authoredTalks = Object.fromEntries(Object.entries(myTalks)
+      .filter(([, entry]) => entry.role === 'created'));
+    try {
+      bridge.configure(JSON.stringify({
+        version: 1,
+        enabled: settings.nearbyMode === 'always',
+        userId: this.currentUser.id,
+        stageName: this.currentUser.stageName,
+        activeRoomId: this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || '',
+        autoAnswerEnabled: this.uiManager.getChatbotEnabled(),
+        answerRules,
+        chatbotTemplates: parseMap('chatbotTemplates'),
+        authoredTalks,
+        matchCollectionStore: localStorage.getItem('iinpublic_match_collection_sessions_v1') || undefined,
+        intakeFilters: getTalkIntakeFilters(),
+        knownContactIds: (this.currentUser.knownPeople || []).map((person) => person.userId),
+        travelerIds: [...this.roomTravelerIds],
+        ageVerified: !!this.currentUser.reputation?.ageVerified,
+      }));
+    } catch {
+      // Older native shells and a full native policy store are both non-fatal to the foreground UI.
+    }
+  }
+
+  /** Reconcile the encrypted native journal through the same idempotent UI handlers. */
+  private async replayNativeBackgroundEvents(): Promise<void> {
+    const bridge = (window as unknown as {
+      IinPublicBackground?: {
+        events?: () => string;
+        acknowledge?: (idsJson: string) => boolean;
+      };
+    }).IinPublicBackground;
+    if (!this.currentUser?.id || typeof bridge?.events !== 'function') return;
+    let events: any[] = [];
+    try {
+      const parsed = JSON.parse(bridge.events());
+      events = Array.isArray(parsed?.events) ? parsed.events : [];
+    } catch { return; }
+    const acknowledged: string[] = [];
+    for (const event of events) {
+      try {
+        if (event?.kind === 'incoming-talk' && event.payload) {
+          const accepted = await this.handleMeshTalkBody(event.payload, { suppressAutoReply: true });
+          if (accepted && Array.isArray(event.answers) && event.answers.length > 0) {
+            const talkData = { ...event.payload.talkData, id: event.payload.talkId, authorId: event.payload.authorId };
+            const outcome = checkIfMatch(talkData, event.answers) ? 'match' : 'mismatch';
+            this.uiManager.recordChatbotAnsweredTalk(talkData, event.answers, outcome);
+            await this.submitTalkResponsePairDirect({
+              talkId: event.payload.talkId,
+              talkData,
+              answers: event.answers,
+              isChatbotResponse: true,
+              authorId: event.payload.authorId,
+              authorName: event.payload.authorName || event.payload.authorId,
+              isAutoResponse: true,
+            });
+          }
+        } else if (event?.kind === 'talk-response' && event.payload) {
+          await this.handleMeshTalkResponse(event.payload);
+        } else {
+          continue;
+        }
+        if (event.id) acknowledged.push(String(event.id));
+      } catch (error) {
+        console.warn('[BackgroundAgent] Native event retained for retry:', error);
+      }
+    }
+    if (acknowledged.length > 0 && typeof bridge.acknowledge === 'function') {
+      try { bridge.acknowledge(JSON.stringify(acknowledged)); } catch { /* retry on next resume */ }
     }
   }
 
@@ -4186,7 +4364,10 @@ export class IinPublicApp {
     return this.talkService.getTalkWithRetry(talkId, { attempts: 12, gapMs: 300, deadlineMs: 4_000 });
   }
 
-  private async handleMeshTalkBody(payload: P2PMeshTalkBodyPayload): Promise<boolean> {
+  private async handleMeshTalkBody(
+    payload: P2PMeshTalkBodyPayload,
+    options: { suppressAutoReply?: boolean } = {},
+  ): Promise<boolean> {
     if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
     const activeRoom = this.activeExchangeRoomController?.getActiveRoom();
     const currentRoomId = this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId;
@@ -4254,12 +4435,14 @@ export class IinPublicApp {
       isOwnTalk: false,
       fullTalk: talkData,
     });
-    this.maybeAutoChatbotReplyToAnnouncer(
-      payload.talkId,
-      talkData,
-      payload.authorId,
-      payload.authorName || 'Unknown',
-    );
+    if (!options.suppressAutoReply) {
+      this.maybeAutoChatbotReplyToAnnouncer(
+        payload.talkId,
+        talkData,
+        payload.authorId,
+        payload.authorName || 'Unknown',
+      );
+    }
     return true;
   }
 
@@ -5879,32 +6062,27 @@ export class IinPublicApp {
    * This allows showing headcount badges for rooms the user hasn't visited
    */
   private subscribeToMessages(chatroomId: string): void {
+    this.placeChatUnsubscribe?.();
+    this.placeChatUnsubscribe = null;
     // Only a Place keeps a shared chat feed (§3.7); Nearby and Contacts only have none.
     if (!hasRoomChat(chatroomId)) return;
     console.log('💬 Subscribing to chatroom messages:', chatroomId);
-    const gun = this.gunService.getGun();
-
-    gun
-      .get('chatrooms')
-      .get(chatroomId)
-      .get('messages')
-      .map()
-      .on((messageData: any, messageId: string) => {
-        if (messageId.startsWith('_')) return; // Skip Gun.js metadata
-
-        console.log('📨 Received message:', messageData);
-
-        if (messageData && messageData.text) {
-          // Display the message in UI
+    this.placeChatUnsubscribe = this.placeChatClient.subscribe(
+      chatroomId,
+      (messages, dropped) => {
+        if (dropped) console.warn('Place chat skipped older messages that exceeded one bounded page');
+        for (const messageData of messages) {
           this.uiManager.displayChatroomMessage({
             id: messageData.id,
             text: messageData.text,
-            senderName: messageData.senderName || 'Unknown',
+            senderName: messageData.senderName,
             timestamp: messageData.timestamp,
             isOwnMessage: messageData.senderId === this.currentUser?.id,
           });
         }
-      });
+      },
+      (error) => console.warn('Place chat poll failed:', error),
+    );
   }
 
   /** `talkId::authorId::contentIdentity` — one key per revision of a talk from one author. */
@@ -6045,6 +6223,9 @@ export class IinPublicApp {
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
     console.log(`[RESP-RECORD] talk=${talkId.slice(-8)} peer=${peerId.slice(0, 8)} outcome=${outcome} dir=${meta?.direction || 'sent'}`);
+    const collectionTag = meta?.direction === 'received'
+      ? null
+      : recordMatchCollectionExchange(peerId, talkId, outcome);
     try {
       const raw = localStorage.getItem('localTalkExchanges');
       const exchanges = raw ? JSON.parse(raw) : {};
@@ -6066,6 +6247,7 @@ export class IinPublicApp {
         ...(meta?.responseId ? { responseId: meta.responseId } : {}),
         ...(meta?.version !== undefined ? { version: meta.version } : {}),
         ...(meta?.respondedAt ? { respondedAt: meta.respondedAt } : {}),
+        ...(collectionTag || {}),
       };
       localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
     } catch {
@@ -7403,6 +7585,20 @@ export class IinPublicApp {
     }
     // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
     recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
+    const activeCollection = getActiveMatchCollectionSession();
+    const collectionLocation = activeCollection
+      ? await this.matchCollectionSendLocation(chatroomId)
+      : undefined;
+    const peerPoints = activeCollection
+      ? Object.fromEntries(this.nearbyV3?.service.entries().map((entry) => [entry.card.userId, entry.card.point]) ?? [])
+      : undefined;
+    recordMatchCollectionDelivery({
+      talkIds: broadcastableIds,
+      peerIds: receivers.map((receiver) => receiver.userId),
+      ...(collectionLocation ? { location: collectionLocation } : {}),
+      ...(peerPoints ? { peerPoints } : {}),
+    });
+    this.syncNativeBackgroundAgent();
     this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
     const releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
     try {
@@ -8021,6 +8217,7 @@ export class IinPublicApp {
       void this.applyNearbyPrivacyMode(settings).catch((error) => {
         this.uiManager.showNotification(`Could not change nearby audience: ${(error as Error).message}`, 'error');
       });
+      this.syncNativeBackgroundAgent();
     });
 
     this.uiManager.on('conversationAdded', (data: { conversationId: string }) => {
@@ -8101,6 +8298,17 @@ export class IinPublicApp {
               ...(identityEpub ? { identityEpub } : {}),
             },
           );
+          const pair = this.gunService.getStoredPair();
+          if (pair?.pub && pair?.priv && target.pub) {
+            const friendMark = await createSignedFriendMark({
+              markerUserId: this.currentUser.id,
+              targetUserId: data.userId,
+              targetPub: target.pub,
+              active: data.labels.includes('friend'),
+              pair,
+            });
+            await this.userService.setFriendMark(friendMark);
+          }
           const currentEntry = this.currentUser.knownPeople?.find((known) => known.userId === data.userId);
           if (currentEntry) {
             currentEntry.identityPub = identityPub;
@@ -8316,6 +8524,7 @@ export class IinPublicApp {
                 ...(talkFields.expiresAt !== undefined ? { expiresAt: talkFields.expiresAt } : {}),
                 ...(talkFields.locationRadiusMiles !== undefined ? { locationRadiusMiles: talkFields.locationRadiusMiles } : {}),
                 ...(talkFields.matchThreshold !== undefined ? { matchThreshold: talkFields.matchThreshold } : {}),
+                ...(talkFields.collectionImportance !== undefined ? { collectionImportance: talkFields.collectionImportance } : {}),
               }),
               ...(ipfsAttachments ? { ipfsAttachments } : {}),
               ...(authorLocation ? { authorLocation } : {}),
@@ -8441,6 +8650,42 @@ export class IinPublicApp {
       },
     );
 
+    this.uiManager.on(
+      'startMatchCollection',
+      (data: { label?: string; scopeId?: string }) => {
+        const scopeId = String(data.scopeId || this.chatroomService.getCurrentChatroomId() || '').trim();
+        if (!scopeId) return;
+        const point = this.nearbyPublicPoint();
+        startMatchCollectionSession({
+          label: String(data.label || this.uiText('matchCollectionDefaultLabel')),
+          scopeId,
+          talkIds: this.uiManager.getBroadcastableTalkIds(),
+          ...(point ? { point } : {}),
+        });
+        this.syncNativeBackgroundAgent();
+        this.uiManager.showChatroomList();
+        this.uiManager.showNotification(this.uiText('matchCollectionStarted'), 'success');
+      },
+    );
+    this.uiManager.on('endMatchCollection', () => {
+      if (!endMatchCollectionSession()) return;
+      this.syncNativeBackgroundAgent();
+      this.uiManager.showChatroomList();
+      this.uiManager.showNotification(this.uiText('matchCollectionEnded'), 'success');
+    });
+    this.uiManager.on('broadcastMatchCollection', () => {
+      this.uiManager.broadcastTalksFromCurrentRoom();
+    });
+    this.uiManager.on('reviewMatchCollection', (data: { sessionId?: string }) => {
+      const sessionId = String(data.sessionId || '').trim();
+      if (!sessionId) return;
+      showMatchCollectionReviewDialog({
+        sessionId,
+        text: (key) => this.uiText(key),
+        openPerson: (peerId) => this.uiManager.openUserConversationFirst(peerId, peerId),
+      });
+    });
+
     // Broadcast broadcastable OUT talks: server register + Gun announce (current chatroom only)
     this.uiManager.on(
       'broadcastTalk',
@@ -8511,6 +8756,21 @@ export class IinPublicApp {
             ? (data.members ?? []).filter((member) =>
               !!member.userId && member.userId !== this.currentUser!.id && member.userId !== TECHSUPPORT_ROOT_USER_ID)
             : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
+          const activeCollection = getActiveMatchCollectionSession();
+          const collectionLocation = activeCollection
+            ? await this.matchCollectionSendLocation(chatroomId)
+            : undefined;
+          const peerPoints = activeCollection
+            ? Object.fromEntries(this.nearbyV3?.service.entries().map((entry) => [entry.card.userId, entry.card.point]) ?? [])
+            : undefined;
+          recordMatchCollectionDelivery({
+            talkIds: broadcastableIds,
+            peerIds: receivers.map((receiver) => receiver.userId),
+            ...(data.talkReceiverIds ? { talkReceiverIds: data.talkReceiverIds } : {}),
+            ...(collectionLocation ? { location: collectionLocation } : {}),
+            ...(peerPoints ? { peerPoints } : {}),
+          });
+          this.syncNativeBackgroundAgent();
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
           if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
@@ -8795,6 +9055,7 @@ export class IinPublicApp {
         (globalThis as any).__iinpublic_lastTalkCompletion = completion;
         try {
           await completion;
+          this.syncNativeBackgroundAgent();
         } catch (error) {
           console.error('Failed to handle talk completion:', error);
         }
@@ -8846,11 +9107,11 @@ export class IinPublicApp {
           timestamp: new Date().toISOString(),
         };
 
-        // Store message in Gun.js
-        const gun = this.gunService.getGun();
-        gun.get('chatrooms').get(chatroomId).get('messages').get(message.id).put(message);
+        const stored = await this.placeChatClient.send(chatroomId, message);
+        // The next bounded poll dedupes this id; render immediately for responsive sending.
+        this.uiManager.displayChatroomMessage({ ...stored, isOwnMessage: true });
 
-        console.log('✅ Message sent:', message);
+        console.log('✅ Message sent:', stored);
         this.uiManager.showNotification(this.uiManager.formatMessageSent(), 'success');
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -9393,6 +9654,7 @@ export class IinPublicApp {
       // otherwise the UI and server roster show the new room while presence, mailbox scoping,
       // LAN discovery, and Wi-Fi Direct remain silently bound to no public room.
       if (!isLocalOnlyRoomScope(chatroomId)) await this.activateRoomExchange(chatroomId);
+      this.syncNativeBackgroundAgent();
     });
 
     // Handle Gun.js real-time updates
@@ -9437,10 +9699,13 @@ export class IinPublicApp {
       }
       void this.drainMailbox().catch(() => {});
       void this.retryFailedMailboxPosts().catch(() => {});
+      this.syncNativeBackgroundAgent();
+      void this.replayNativeBackgroundEvents();
     };
     window.addEventListener('iinpublic-native-resume', recoverAfterForeground);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
+        this.syncNativeBackgroundAgent();
         this.userService.setUserStatus(this.currentUser!.id, 'away');
         if (loadConnectivitySettings().nearbyMode === 'while-open') {
           this.nearbyOfflineService?.dispose();

@@ -56,16 +56,69 @@ export function takeLegacyPrivacyMigration(): LegacyPrivacyMigration {
 }
 
 export function defaultConnectivitySettings(): ConnectivitySettings {
-  return { version: 2, preset: 'automatic', nearbyMode: 'while-open', nearbyPrivacyMode: 'neighborhood', locationSource: 'resident', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS } };
+  return { version: 2, preset: 'automatic', nearbyMode: 'while-open', nearbyPrivacyMode: 'neighborhood', locationSource: 'resident', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, wifiForwarding: true } };
 }
 
-export function applyConnectivityPreset(preset: ConnectivityPreset): ConnectivitySettings {
-  const base = defaultConnectivitySettings();
-  if (preset === 'data-saver') return { ...base, preset, meteredPermission: 'wait-for-free', forwarding: { ...base.forwarding, cellularForwarding: false, cellularByteBudget: 0 } };
-  if (preset === 'fastest') return { ...base, preset, meteredPermission: 'ask', batteryAware: false };
-  if (preset === 'local-event') return { ...base, preset, nearbyPrivacyMode: 'close-nearby' };
-  if (preset === 'private') return { ...base, preset, nearbyPrivacyMode: 'regional', forwarding: { ...base.forwarding, enabled: false } };
-  return { ...base, preset };
+/**
+ * Apply a preset to the route-policy fields it owns while preserving device-local choices such as
+ * Resident/Traveler and Nearby's foreground mode. Advanced intentionally preserves every value.
+ */
+export function applyConnectivityPreset(
+  preset: ConnectivityPreset,
+  current: ConnectivitySettings = defaultConnectivitySettings(),
+): ConnectivitySettings {
+  const base: ConnectivitySettings = {
+    ...current,
+    preset,
+    forwarding: { ...current.forwarding },
+  };
+  if (preset === 'advanced') return base;
+  if (preset === 'automatic') {
+    return { ...base, freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free' };
+  }
+  if (preset === 'data-saver') {
+    return {
+      ...base,
+      freeFirst: true,
+      directFirst: true,
+      batteryAware: true,
+      meteredPermission: 'wait-for-free',
+      wifiOnlyForwarding: true,
+      forwarding: {
+        ...base.forwarding,
+        wifiForwarding: true,
+        cellularForwarding: false,
+        cellularByteBudget: 0,
+      },
+    };
+  }
+  if (preset === 'fastest') {
+    return { ...base, freeFirst: false, directFirst: true, batteryAware: false };
+  }
+  if (preset === 'local-event') {
+    return {
+      ...base,
+      nearbyPrivacyMode: 'close-nearby',
+      freeFirst: true,
+      directFirst: true,
+      wifiOnlyForwarding: true,
+      forwarding: { ...base.forwarding, wifiForwarding: true, cellularForwarding: false },
+    };
+  }
+  return {
+    ...base,
+    nearbyPrivacyMode: 'regional',
+    identityReveal: 'matches-only',
+    meteredPermission: 'wait-for-free',
+    wifiOnlyForwarding: true,
+    forwarding: {
+      ...base.forwarding,
+      enabled: false,
+      wifiForwarding: true,
+      cellularForwarding: false,
+      cellularByteBudget: 0,
+    },
+  };
 }
 
 export function loadConnectivitySettings(): ConnectivitySettings {
@@ -92,7 +145,8 @@ export function loadConnectivitySettings(): ConnectivitySettings {
       ? value.nearbyPrivacyMode as NearbyPublicMode
       : 'neighborhood';
     const locationSource: LocationSource = value.locationSource === 'traveler' ? 'traveler' : 'resident';
-    return valid ? { ...defaultConnectivitySettings(), ...value, nearbyPrivacyMode, locationSource, version: 2, activeRoomSelection: 'manual', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, ...(value.forwarding ?? {}) } } as ConnectivitySettings : defaultConnectivitySettings();
+    const wifiOnlyForwarding = value.wifiOnlyForwarding !== false;
+    return valid ? { ...defaultConnectivitySettings(), ...value, nearbyPrivacyMode, locationSource, wifiOnlyForwarding, version: 2, activeRoomSelection: 'manual', forwarding: { ...defaultConnectivitySettings().forwarding, ...(value.forwarding ?? {}), wifiForwarding: wifiOnlyForwarding } } as ConnectivitySettings : defaultConnectivitySettings();
   } catch { return defaultConnectivitySettings(); }
 }
 

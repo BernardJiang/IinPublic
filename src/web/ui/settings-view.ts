@@ -52,6 +52,7 @@ import {
 } from '../../shared/talk-intake-filters';
 import { CONFIG } from '../../shared/config';
 import type { CustomChatroomRow } from './chatrooms-view';
+import { roomCreationCredit } from '../../shared/room-creation-credit';
 
 export interface SettingsViewDeps {
   currentLocation: GPSCoordinate | undefined;
@@ -195,6 +196,11 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
   const reviewCount = reputation.reviewCount ?? 0;
   const starRating = Number(reputation.starRating ?? 0);
   const friendsCount = reputation.friendsCount ?? 0;
+  const blockCount = reputation.blockCount ?? 0;
+  const creationCredit = roomCreationCredit(reputation, undefined, {
+    minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
+    maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
+  });
   const matchesFound = reputation.matchesFound ?? 0;
   const likedCount = reputation.likedCount ?? 0;
   const dislikedCount = reputation.dislikedCount ?? 0;
@@ -251,53 +257,83 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
     label: languageOptionLabel(uiLanguage, language.code, language.label),
   }));
   const headshotChoices = ['🙂', '😎', '🤠', '🎾', '☕', '🌟', '🐱', '🦊'];
-  // Drill-down menu: a flat list of section names is the default view; tapping one hides the
-  // menu and every OTHER section, leaving just the tapped section + a back button (app-bar
-  // #back-to-settings-menu) — same list-then-detail pattern as Chatrooms/Contacts. Sections
-  // themselves are still rendered up front (renderSettingsSection's <details open> markup is
-  // unchanged) — applySettingsSectionView() below only toggles which one is display:none, it
-  // never removes/re-adds DOM, so ids stay stable across a section switch.
-  const jumpMenuItems: Array<{ icon: string; label: string; target: string }> = [
-    { icon: '👤', label: deps.t('profile'), target: 'settings-section-profile' },
-    { icon: '🎨', label: deps.t('settingsAppearance'), target: 'settings-section-appearance' },
-    { icon: '⭐', label: deps.t('credit'), target: 'settings-section-credit' },
-    { icon: '🌐', label: deps.t('settingsLanguages'), target: 'settings-section-languages' },
-    { icon: '🗣️', label: deps.t('settingsTalkBehavior'), target: 'settings-section-talk-behavior' },
-    { icon: '📍', label: deps.t('settingsDistanceHome'), target: 'settings-section-distance-home' },
+  // Drill-down menu: related destinations are grouped so the settings landing page scans like a
+  // short outline instead of one long list. Profile and Help & Tour deliberately remain the first
+  // and last destinations. Tapping any row still hides the menu and every OTHER section, leaving
+  // just the selected section + a back button (app-bar #back-to-settings-menu). Sections remain
+  // rendered up front so their ids stay stable across section switches.
+  type JumpMenuItem = { icon: string; label: string; target: string };
+  const jumpMenuGroups: Array<{ label?: string; items: JumpMenuItem[] }> = [
     {
-      icon: '🚫',
-      label: deps.t('settingsContentFilters'),
-      target: 'settings-section-content-filters',
+      items: [{ icon: '👤', label: deps.t('profile'), target: 'settings-section-profile' }],
     },
-    ...(hasNearbyBridge() ? [{ icon: '📶', label: deps.t('settingsNearby'), target: 'settings-section-nearby' }] : []),
-    ...(hasAppPermissionsBridge() ? [{ icon: '🔐', label: deps.t('appPermissionsTitle'), target: 'settings-section-app-permissions' }] : []),
-    { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
-    { icon: '📱', label: deps.t('settingsDownloadApp'), target: 'settings-section-download-app' },
     {
-      icon: '🔐',
-      label: deps.t('settingsIdentityDevices'),
-      target: 'settings-section-linked-devices',
+      label: deps.t('settingsGroupPersonalization'),
+      items: [
+        { icon: '🎨', label: deps.t('settingsAppearance'), target: 'settings-section-appearance' },
+        { icon: '🌐', label: deps.t('settingsLanguages'), target: 'settings-section-languages' },
+      ],
+    },
+    {
+      label: deps.t('settingsGroupTalksDiscovery'),
+      items: [
+        { icon: '🗣️', label: deps.t('settingsTalkBehavior'), target: 'settings-section-talk-behavior' },
+        { icon: '🚫', label: deps.t('settingsContentFilters'), target: 'settings-section-content-filters' },
+        { icon: '📍', label: deps.t('settingsDistanceHome'), target: 'settings-section-distance-home' },
+      ],
+    },
+    {
+      label: deps.t('settingsGroupIdentityTrust'),
+      items: [
+        { icon: '⭐', label: deps.t('credit'), target: 'settings-section-credit' },
+        { icon: '🔐', label: deps.t('settingsIdentityDevices'), target: 'settings-section-linked-devices' },
+      ],
+    },
+    {
+      label: deps.t('settingsGroupAppData'),
+      items: [
+        ...(hasNearbyBridge() ? [{ icon: '📶', label: deps.t('settingsNearby'), target: 'settings-section-nearby' }] : []),
+        { icon: '📡', label: 'Connectivity', target: 'settings-section-connectivity' },
+        ...(hasAppPermissionsBridge() ? [{ icon: '🔐', label: deps.t('appPermissionsTitle'), target: 'settings-section-app-permissions' }] : []),
+        { icon: '📱', label: deps.t('settingsDownloadApp'), target: 'settings-section-download-app' },
+        { icon: '💾', label: deps.t('settingsStorage'), target: 'settings-storage-inspector' },
+        { icon: '🗑️', label: deps.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
+      ],
     },
     ...(user.id === TECHSUPPORT_ROOT_USER_ID
       ? []
-      : [{ icon: '🛟', label: deps.t('supportDelegateInviteEntryTitle'), target: 'settings-section-support-delegate' }]),
-    { icon: '🗑️', label: deps.t('settingsEraseDevice'), target: 'settings-section-erase-device' },
-    { icon: '💾', label: deps.t('settingsStorage'), target: 'settings-storage-inspector' },
-    { icon: '❓', label: deps.t('settingsHelp'), target: 'settings-section-help' },
+      : [{
+          label: deps.t('settingsGroupSupport'),
+          items: [{ icon: '🛟', label: deps.t('supportDelegateInviteEntryTitle'), target: 'settings-section-support-delegate' }],
+        }]),
+    {
+      items: [{ icon: '❓', label: deps.t('settingsHelp'), target: 'settings-section-help' }],
+    },
   ];
   const jumpMenuHtml = `
       <div data-testid="settings-product-promise" style="padding:2px 4px;font-size:0.92em;font-weight:650;color:var(--text-secondary);">
         ${deps.t('settingsOwnershipPromise')}
       </div>
-      <div class="settings-jump-menu" id="settings-jump-menu" style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-        ${jumpMenuItems
+      <div class="settings-jump-menu" id="settings-jump-menu">
+        ${jumpMenuGroups
           .map(
-            (item, index) => `
-          <button type="button" class="settings-jump-menu-item" data-target="${item.target}" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border:none;${index < jumpMenuItems.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}background:none;text-align:left;cursor:pointer;font:inherit;color:var(--text-primary);">
-            <span aria-hidden="true" style="font-size:1.05em;flex-shrink:0;">${item.icon}</span>
-            <span style="flex:1 1 auto;">${item.label}</span>
-            <span aria-hidden="true" style="color:var(--text-tertiary);">›</span>
-          </button>
+            (group) => `
+          <section class="settings-jump-menu-group" ${group.label ? `aria-label="${escapeHtml(group.label)}"` : ''}>
+            ${group.label ? `<h3 class="settings-jump-menu-group-label">${escapeHtml(group.label)}</h3>` : ''}
+            <div class="settings-jump-menu-group-items">
+              ${group.items
+                .map(
+                  (item, index) => `
+                <button type="button" class="settings-jump-menu-item" data-target="${item.target}" style="${index < group.items.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+                  <span aria-hidden="true" class="settings-jump-menu-icon">${item.icon}</span>
+                  <span class="settings-jump-menu-label">${item.label}</span>
+                  <span aria-hidden="true" class="settings-jump-menu-chevron">›</span>
+                </button>
+              `,
+                )
+                .join('')}
+            </div>
+          </section>
         `,
           )
           .join('')}
@@ -410,10 +446,22 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meReviews')}</div><div style="font-size:1.15em;font-weight:700;">${reviewCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meStarRating')}</div><div style="font-size:1.15em;font-weight:700;">${starRating.toFixed(1)}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meFriends')}</div><div style="font-size:1.15em;font-weight:700;">${friendsCount}</div></div>
+            <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meBlocks')}</div><div style="font-size:1.15em;font-weight:700;">${blockCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meLiked')}</div><div style="font-size:1.15em;font-weight:700;">${likedCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meDisliked')}</div><div style="font-size:1.15em;font-weight:700;">${dislikedCount}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meMatches')}</div><div style="font-size:1.15em;font-weight:700;">${matchesFound}</div></div>
             <div style="padding:10px;border-radius:8px;background:var(--warning-soft);border:1px solid var(--warning-border);grid-column:span 2;"><div style="font-size:0.78em;color:var(--warning-text);">${deps.t('meAgeVerified')}</div><div style="font-size:1.15em;font-weight:700;">${ageVerified ? '18+' : deps.t('unavailable')}</div></div>
+            <div data-testid="room-creation-credit" style="padding:10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--border);grid-column:span 2;">
+              <div style="font-size:0.78em;color:var(--text-tertiary);">${deps.t('meRoomCreationCredit')}</div>
+              <div style="font-size:0.92em;font-weight:650;color:var(--text-primary);">${creationCredit.eligible
+                ? deps.t('meRoomCreationUnlocked')
+                : deps.tf('meRoomCreationLocked', {
+                    requiredFriends: creationCredit.requiredFriendMarks,
+                    maximumBlocks: creationCredit.maximumAllowedBlocks,
+                    friends: creationCredit.friendMarks,
+                    blocks: creationCredit.blockCount,
+                  })}</div>
+            </div>
           </div>
         `,
         )}
@@ -601,13 +649,13 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
           },
           `<div style="display:grid;gap:10px;" data-testid="settings-nearby">
             <div id="settings-nearby-status" role="status" data-testid="settings-nearby-status" style="font-weight:600;"></div>
-            <label>Nearby exchange
+            <label>${deps.t('settingsNearbyExchange')}
               <select id="settings-nearby-mode" class="form-input" data-testid="settings-nearby-mode">
-                <option value="off" ${connectivity.nearbyMode === 'off' ? 'selected' : ''}>Off</option>
-                <option value="while-open" ${connectivity.nearbyMode === 'while-open' ? 'selected' : ''}>While IinPublic is open</option>
-                <option value="always" ${connectivity.nearbyMode === 'always' ? 'selected' : ''}>Always (persistent notification)</option>
+                <option value="off" ${connectivity.nearbyMode === 'off' ? 'selected' : ''}>${deps.t('settingsNearbyModeOff')}</option>
+                <option value="while-open" ${connectivity.nearbyMode === 'while-open' ? 'selected' : ''}>${deps.t('settingsNearbyModeWhileOpen')}</option>
+                <option value="always" ${connectivity.nearbyMode === 'always' ? 'selected' : ''}>${deps.t('settingsNearbyModeAlways')}</option>
               </select>
-              <small>Applies to the one active room. Changing rooms is always manual.</small>
+              <small>${deps.t('settingsNearbyModeHelp')}</small>
             </label>
             ${renderNearbyProviderRow('cellular', 'settingsNearbyCellular', 'settingsNearbyCellularHelp', deps.t)}
             ${renderNearbyProviderRow('lan', 'settingsNearbyLan', 'settingsNearbyLanHelp', deps.t)}
@@ -649,7 +697,7 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <label><input id="settings-connectivity-free-first" type="checkbox" ${connectivity.freeFirst ? 'checked' : ''}> Free routes first</label>
             <label><input id="settings-connectivity-direct-first" type="checkbox" ${connectivity.directFirst ? 'checked' : ''}> Direct routes first</label>
             <label><input id="settings-connectivity-battery-aware" type="checkbox" ${connectivity.batteryAware ? 'checked' : ''}> Battery-aware</label>
-            <label><input id="settings-connectivity-wifi-forwarding" type="checkbox" ${connectivity.wifiOnlyForwarding ? 'checked' : ''}> Forward peer traffic only over Wi-Fi/local routes</label>
+            <label><input id="settings-connectivity-wifi-forwarding" type="checkbox" ${connectivity.wifiOnlyForwarding ? 'checked' : ''}> Allow peer forwarding over Wi-Fi/local routes</label>
             <label>Identity reveal
               <select id="settings-connectivity-identity-reveal" class="form-input">
                 <option value="matches-only" ${connectivity.identityReveal === 'matches-only' ? 'selected' : ''}>Only after a Talk match</option>

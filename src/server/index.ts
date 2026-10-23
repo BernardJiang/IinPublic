@@ -37,6 +37,8 @@ import { resolveEmbeddedNodeConfig } from '../shared/embedded-node-config';
 import { EmbeddedHubRelayClient } from '../node-app/embedded-hub-relay-client';
 import { isLoopbackEmbeddedNode, resolveTlsMode } from './tls-mode';
 import { registerLocalLinkRoutes } from './routes/local-link-routes';
+import { BackgroundTalkAgent } from './services/background-talk-agent';
+import { registerBackgroundAgentRoutes } from './routes/background-agent-routes';
 
 /**
  * Create the HTTP(S) server the app listens on.
@@ -93,6 +95,7 @@ class IinPublicServer {
   private techSupportAnnouncements!: TechSupportAnnouncementService;
   private hubRelayClient?: EmbeddedHubRelayClient;
   private lanGunDiscovery?: LanGunDiscovery;
+  private backgroundTalkAgent?: BackgroundTalkAgent;
 
   private mailboxStore = new MailboxStore();
   private mailboxSweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -256,10 +259,17 @@ class IinPublicServer {
           const meta = await this.chatroomManager.getChatroomMeta(roomId);
           if (!meta) return undefined;
           const location = meta.location as { latitude?: number; longitude?: number } | undefined;
+          const createdBy = String(meta.createdBy || '').trim();
+          const creatorPub = String(meta.creatorPub || '').trim();
+          const discoverable = !!createdBy && !!creatorPub && await this.userService
+            .getRoomCreationCredit(createdBy, creatorPub)
+            .then((credit) => credit.eligible)
+            .catch(() => false);
           return {
             name: String(meta.name || ''),
             ...(Number.isFinite(location?.latitude) ? { latitude: Number(location!.latitude) } : {}),
             ...(Number.isFinite(location?.longitude) ? { longitude: Number(location!.longitude) } : {}),
+            discoverable,
           };
         },
       },
@@ -277,6 +287,7 @@ class IinPublicServer {
 
     registerChatroomRoutes(this.app, {
       chatroomManager: this.chatroomManager,
+      userService: this.userService,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
     registerAdminRoutes(this.app, this.techSupportAnnouncements);
@@ -293,6 +304,20 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
+
+    const backgroundAgentToken = String(process.env.IINPUBLIC_BACKGROUND_AGENT_TOKEN || '');
+    if (isLoopbackEmbeddedNode(process.env) && backgroundAgentToken.length >= 32) {
+      const localPort = Number(process.env.IINPUBLIC_LOCAL_PORT || process.env.PORT || 8088);
+      const dataDir = process.env.IINPUBLIC_DATA_DIR || process.cwd();
+      this.backgroundTalkAgent = new BackgroundTalkAgent(
+        `http://127.0.0.1:${localPort}`,
+        path.join(dataDir, 'background-agent-journal.sea'),
+        this.hubRelayClient
+          ? (recipientId, envelope) => this.hubRelayClient!.postMailboxEnvelope(recipientId, envelope)
+          : undefined,
+      );
+      registerBackgroundAgentRoutes(this.app, this.backgroundTalkAgent, backgroundAgentToken);
+    }
 
     registerTurnRoutes(this.app, {
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),

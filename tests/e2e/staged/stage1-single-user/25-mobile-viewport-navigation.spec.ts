@@ -70,7 +70,14 @@ test.describe('Mobile viewport navigation', () => {
     await expect(p.getByLabel('Forward for peers')).toBeVisible();
     await expect(p.locator('#settings-connectivity-status')).toHaveAttribute('role', 'status');
     await p.getByLabel('Preset').selectOption('data-saver');
-    await expect.poll(() => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_connectivity_settings_v1') || '{}').preset)).toBe('data-saver');
+    await expect.poll(() => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_connectivity_settings_v1') || '{}'))).toEqual(expect.objectContaining({
+      preset: 'data-saver',
+      freeFirst: true,
+      batteryAware: true,
+      meteredPermission: 'wait-for-free',
+      forwarding: expect.objectContaining({ cellularForwarding: false, cellularByteBudget: 0 }),
+    }));
+    await expect(p.getByLabel('Metered network permission')).toHaveValue('wait-for-free');
     expect(await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(2);
 
     await p.reload();

@@ -218,6 +218,14 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
           <details class="route-node-advanced" data-qid="${q.id}" style="margin-top:6px;" ${(q.tagKind === 'simple' || q.reciprocalTagContext || q.builtIn?.kind) ? 'open' : ''}>
             <summary style="cursor:pointer; font-size:0.82em; color:var(--text-secondary); user-select:none;">${text('editorAdvancedToggle')}</summary>
             <div style="margin-top:4px;">
+              <label style="display:flex; align-items:center; gap:6px; margin:6px 0 0 0; font-size:0.82em; color:var(--text-secondary);">
+                ${text('matchCollectionImportanceLabel')}
+                <select class="form-input route-question-collection-importance" data-qid="${q.id}" style="width:auto;font-size:0.9em;">
+                  <option value="">${text('matchCollectionImportanceNormal')}</option>
+                  <option value="important" ${q.collectionImportance === 'important' ? 'selected' : ''}>${text('matchCollectionImportanceImportant')}</option>
+                  <option value="must-have" ${q.collectionImportance === 'must-have' ? 'selected' : ''}>${text('matchCollectionImportanceMustHave')}</option>
+                </select>
+              </label>
               ${
                 q.builtIn
                   ? ''
@@ -260,6 +268,15 @@ export function renderRouteEditor(host: HTMLElement, deps: RouteEditorRenderDeps
           if (answerInput) answerInput.value = inp.value;
         }
       }
+    });
+  });
+  host.querySelectorAll<HTMLSelectElement>('.route-question-collection-importance').forEach((select) => {
+    select.addEventListener('change', () => {
+      const question = byId.get(select.dataset.qid!);
+      if (!question) return;
+      if (select.value === 'important' || select.value === 'must-have') question.collectionImportance = select.value;
+      else delete question.collectionImportance;
+      deps.replaceQuestions(questions);
     });
   });
   host.querySelectorAll<HTMLInputElement>('.route-question-reciprocal-tag').forEach((cb) => {

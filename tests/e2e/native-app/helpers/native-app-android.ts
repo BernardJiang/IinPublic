@@ -370,6 +370,17 @@ async function disposeAndroidTransport(user: AndroidUser | undefined): Promise<v
   }
 }
 
+function discoveryTimingAdbArgs(options: LaunchAndroidUserOptions): string[] {
+  return Object.entries({
+    e2e_discovery_scan_ms: options.discoveryTiming?.scanWindowMs,
+    e2e_discovery_offline_base_ms: options.discoveryTiming?.offlineBackoffBaseMs,
+    e2e_discovery_offline_max_ms: options.discoveryTiming?.offlineBackoffMaxMs,
+    e2e_discovery_offline_no_ble_max_ms: options.discoveryTiming?.offlineBackoffMaxNoBleMs,
+    e2e_discovery_online_base_ms: options.discoveryTiming?.onlineBackoffBaseMs,
+    e2e_discovery_online_max_ms: options.discoveryTiming?.onlineBackoffMaxMs,
+  }).flatMap(([key, value]) => Number.isFinite(value) ? ['--ei', key, String(Math.round(Number(value)))] : []);
+}
+
 /**
  * Deterministic multi-phone launch with bounded process-restart recovery. Some Android
  * vendors restart the foreground-service process during cold boot; that closes the first
@@ -400,6 +411,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
     '--ez', 'skip_first_run_tour', 'true',
     ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
     ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
+    ...discoveryTimingAdbArgs(options),
   ], { timeout: 5_000 });
 
   let lastError: unknown;
@@ -427,6 +439,7 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
           '--ez', 'skip_first_run_tour', 'true',
           ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
           ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
+          ...discoveryTimingAdbArgs(options),
         ], { timeout: 5_000 }).catch(() => undefined);
       }
     }
@@ -459,6 +472,15 @@ export type LaunchAndroidUserOptions = {
   disableLanDiscovery?: boolean;
   /** Enable the fixed, loopback-only embedded-Node parity endpoint in a debug APK. */
   enablePortableCoreTests?: boolean;
+  /** Debug-only OPEN-76 discovery-policy timing override, in milliseconds. */
+  discoveryTiming?: Partial<{
+    scanWindowMs: number;
+    offlineBackoffBaseMs: number;
+    offlineBackoffMaxMs: number;
+    offlineBackoffMaxNoBleMs: number;
+    onlineBackoffBaseMs: number;
+    onlineBackoffMaxMs: number;
+  }>;
   /** adb device serial (from `adb devices`) — required when more than one device/emulator
    *  is attached; the first detected device is used otherwise. */
   deviceSerial?: string;
@@ -513,6 +535,7 @@ export async function launchAndroidUser(options: LaunchAndroidUserOptions): Prom
       '--ez', 'skip_first_run_tour', 'true',
       ...(options.disableLanDiscovery ? ['--ez', 'disable_lan_discovery', 'true'] : []),
       ...(options.enablePortableCoreTests ? ['--ez', 'portable_core_tests', 'true'] : []),
+      ...discoveryTimingAdbArgs(options),
     ],
     { timeout: 5_000 },
   );

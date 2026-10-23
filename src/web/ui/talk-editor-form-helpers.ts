@@ -181,6 +181,14 @@ export function addQuestionToForm(index: number, container: HTMLElement, options
           </select>
         </label>
         <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
+          ${text(options, 'matchCollectionImportanceLabel', 'Collection priority')}
+          <select class="form-input question-collection-importance" style="flex: 0 0 auto; width: auto; font-size: 0.95em;">
+            <option value="">${text(options, 'matchCollectionImportanceNormal', 'Normal')}</option>
+            <option value="important">${text(options, 'matchCollectionImportanceImportant', 'Important')}</option>
+            <option value="must-have">${text(options, 'matchCollectionImportanceMustHave', 'Must-have')}</option>
+          </select>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 0.88em; color: var(--text-secondary);">
           <input type="checkbox" class="question-simple-tag">
           ${text(options, 'editorSimpleTagLabel', 'Simple tag (answer must match the question itself — needs exactly 1 real answer, besides Ignore)')}
         </label>
@@ -572,6 +580,10 @@ export function collectFlowSurveyEditorQuestions(
       text: questionText,
       answers: answers,
     };
+    const collectionImportance = (item.querySelector('.question-collection-importance') as HTMLSelectElement | null)?.value;
+    if (collectionImportance === 'important' || collectionImportance === 'must-have') {
+      questionObj.collectionImportance = collectionImportance;
+    }
     if (answerSelectionMode === 'multiple') {
       questionObj.answerSelectionMode = 'multiple';
     }

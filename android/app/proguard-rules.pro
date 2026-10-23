@@ -10,6 +10,7 @@
 }
 -keep class com.iinpublic.app.NativeCustodyBridge { *; }
 -keep class com.iinpublic.app.NearbyJavascriptBridge { *; }
+-keep class com.iinpublic.app.BackgroundAgentJavascriptBridge { *; }
 -keep class com.iinpublic.app.NativeAttestationBridge { *; }
 
 # JNI: native-lib.cpp exports Java_com_iinpublic_app_NodeBridge_nativeStartNode, which binds

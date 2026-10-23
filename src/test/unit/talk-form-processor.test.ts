@@ -22,6 +22,9 @@ function makeFormDOM(type: 'flow' | 'survey' | 'tag' | 'route' = 'tag'): HTMLFor
       <input id="tag-like-checkbox" type="checkbox" checked>
       <input id="talk-match-threshold" type="text" value="">
       <input id="talk-is-adult" type="checkbox">
+      <select id="talk-collection-importance">
+        <option value="">normal</option><option value="important">important</option><option value="must-have">must-have</option>
+      </select>
       <input id="talk-attachment-input" type="file">
       <div id="questions-container"></div>
       <div id="talk-validation-group" style="display:none;">
@@ -147,6 +150,8 @@ describe('processTalkForm', () => {
     addQuestionToForm(0, container, helperOptions);
     const questionItem = container.querySelector('[data-question-index="0"]') as HTMLElement;
     (questionItem.querySelector('.question-text') as HTMLInputElement).value = 'Do you like coffee?';
+    (document.getElementById('talk-collection-importance') as HTMLSelectElement).value = 'important';
+    (questionItem.querySelector('.question-collection-importance') as HTMLSelectElement).value = 'must-have';
     const answersContainer = questionItem.querySelector('.answers-container') as HTMLElement;
     // addQuestionToForm already added one answer at index 0; fill it in as the match answer.
     const answerItem = answersContainer.querySelector('[data-answer-index="0"]') as HTMLElement;
@@ -167,9 +172,11 @@ describe('processTalkForm', () => {
       expect.objectContaining({
         title: 'Do you like coffee',
         type: 'flow',
+        collectionImportance: 'important',
         questions: [
           expect.objectContaining({
             text: 'Do you like coffee?',
+            collectionImportance: 'must-have',
             answers: expect.arrayContaining([expect.objectContaining({ text: 'Yes', isMatch: true })]),
           }),
         ],

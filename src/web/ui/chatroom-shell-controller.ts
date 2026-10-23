@@ -1,5 +1,6 @@
 import type { User } from '../../shared/types';
-import { isTechSupportId, TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
+import { roomCreationCredit, type RoomCreationCredit } from '../../shared/room-creation-credit';
 import { CONFIG } from '../../shared/config';
 import { escapeHtml } from './ui-formatters';
 import { avatarInnerHtml } from './profile-avatar';
@@ -190,13 +191,49 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
       deps.showNotification(deps.t('chatroomCreateNeedsLocation'), 'error');
       return;
     }
-    // Only established users may create a Place (docs/design/nearby-and-place-chatrooms.md §4.2).
-    const contactCount = (deps.getCurrentUser()?.knownPeople || [])
-      .filter((person) => person?.userId && !isTechSupportId(person.userId)).length;
-    if (contactCount < CONFIG.PLACE_CREATE_MIN_CONTACTS) {
-      deps.showNotification(deps.tf('chatroomCreateNeedsContacts', {
-        required: CONFIG.PLACE_CREATE_MIN_CONTACTS,
-        count: contactCount,
+    // A Talk exchange may create a Contact, but only explicit incoming Friend marks build the
+    // reputation needed to publish a Place. The hub repeats this check authoritatively.
+    const currentUser = deps.getCurrentUser();
+    let credit = roomCreationCredit(currentUser?.reputation, undefined, {
+      minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
+      maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
+    });
+    if (currentUser?.id && currentUser.pub) {
+      try {
+        const response = await fetch(
+          `${deps.getApiBase()}/api/users/${encodeURIComponent(currentUser.id)}/room-creation-credit?creatorPub=${encodeURIComponent(currentUser.pub)}`,
+          { cache: 'no-store' },
+        );
+        const remote = await response.json() as Partial<RoomCreationCredit>;
+        if (response.ok && typeof remote.eligible === 'boolean'
+          && typeof remote.friendMarks === 'number' && typeof remote.blockCount === 'number'
+          && typeof remote.requiredFriendMarks === 'number' && typeof remote.maximumAllowedBlocks === 'number'
+          && typeof remote.enoughFriendMarks === 'boolean' && typeof remote.blockCountAllowed === 'boolean') {
+          // The hub supplies authoritative counts. This client applies its own bundled threshold
+          // to those counts, so an older/misconfigured lower-threshold hub cannot silently weaken
+          // the release policy (and focused E2E can raise only the client threshold by URL).
+          credit = roomCreationCredit(
+            { friendsCount: remote.friendMarks, blockCount: remote.blockCount } as User['reputation'],
+            remote.friendMarks,
+            {
+              minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
+              maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
+            },
+          );
+          currentUser.reputation.friendsCount = credit.friendMarks;
+          currentUser.reputation.blockCount = credit.blockCount;
+        }
+      } catch {
+        // The signed create request repeats this check at the hub. Offline UI falls back to the
+        // most recently synchronized public counters and remains fail-closed when they are low.
+      }
+    }
+    if (!credit.eligible) {
+      deps.showNotification(deps.tf('chatroomCreateNeedsCredit', {
+        requiredFriends: credit.requiredFriendMarks,
+        friends: credit.friendMarks,
+        maximumBlocks: credit.maximumAllowedBlocks,
+        blocks: credit.blockCount,
       }), 'error');
       return;
     }

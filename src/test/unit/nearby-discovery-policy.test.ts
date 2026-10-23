@@ -3,8 +3,11 @@ import {
   DISCOVERY_OFFLINE_BACKOFF_MAX_MS,
   DISCOVERY_OFFLINE_BACKOFF_MAX_NO_BLE_MS,
   DISCOVERY_ONLINE_BACKOFF_BASE_MS,
+  DISCOVERY_ONLINE_BACKOFF_MAX_MS,
   DISCOVERY_SCAN_WINDOW_MS,
+  DiscoveryDutyMetrics,
   DiscoveryPolicy,
+  discoveryPolicyTimingFromSearch,
   discoveryProviderAvailability,
   hubDiscoveryPathAllowed,
   NEARBY_REGISTRY_MAX_PEERS,
@@ -70,6 +73,43 @@ describe('discovery provider availability', () => {
 });
 
 describe('staged discovery policy', () => {
+  it('parses bounded debug timing overrides and preserves unspecified defaults', () => {
+    expect(discoveryPolicyTimingFromSearch('?unrelated=1')).toBeUndefined();
+    expect(discoveryPolicyTimingFromSearch('?e2e_discovery_scan_ms=5000&e2e_discovery_offline_max_ms=10000')).toMatchObject({
+      scanWindowMs: 5_000,
+      offlineBackoffBaseMs: DISCOVERY_OFFLINE_BACKOFF_BASE_MS,
+      offlineBackoffMaxMs: DISCOVERY_OFFLINE_BACKOFF_BASE_MS,
+      onlineBackoffMaxMs: 30 * 60_000,
+    });
+  });
+
+  it('supports bounded measurement timing without changing production defaults', () => {
+    const policy = new DiscoveryPolicy({
+      scanWindowMs: 1_000,
+      offlineBackoffBaseMs: 2_000,
+      offlineBackoffMaxMs: 4_000,
+      offlineBackoffMaxNoBleMs: 3_000,
+      onlineBackoffBaseMs: 5_000,
+      onlineBackoffMaxMs: 6_000,
+    });
+    expect(policy.decide(input({ now: T0, hubForDiscovery: false })).bleScan).toBe(true);
+    const quiet = policy.decide(input({ now: T0 + 1_000, hubForDiscovery: false }));
+    expect(quiet).toMatchObject({ bleScan: false, nextReviewAt: T0 + 3_000 });
+    expect(policy.decide(input({ now: T0 + 3_000, hubForDiscovery: false })).bleScan).toBe(true);
+  });
+
+  it('measures per-provider commanded duty without payload or identity data', () => {
+    const metrics = new DiscoveryDutyMetrics(T0);
+    metrics.record({ lanNsd: false, bleAdvertise: true, bleScan: true, wifiDirectDiscovery: false }, T0);
+    metrics.record({ lanNsd: true, bleAdvertise: true, bleScan: false, wifiDirectDiscovery: true }, T0 + 30_000);
+    const snapshot = metrics.snapshot(T0 + 90_000);
+    expect(snapshot.elapsedMs).toBe(90_000);
+    expect(snapshot.providers.bleAdvertise).toMatchObject({ active: true, activeMs: 90_000, dutyCycle: 1, starts: 1 });
+    expect(snapshot.providers.bleScan).toMatchObject({ active: false, activeMs: 30_000, starts: 1 });
+    expect(snapshot.providers.lanNsd).toMatchObject({ active: true, activeMs: 60_000, starts: 1 });
+    expect(snapshot.providers.wifiDirectDiscovery).toMatchObject({ active: true, activeMs: 60_000, starts: 1 });
+  });
+
   it('lone online user: LAN silent, beacon on, bounded BLE scans, no Wi-Fi Direct', () => {
     const policy = new DiscoveryPolicy();
     const first = policy.decide(input());
@@ -78,6 +118,21 @@ describe('staged discovery policy', () => {
     expect(closed.bleScan).toBe(false);
     expect(closed.bleAdvertise).toBe(true);
     expect(closed.nextReviewAt).toBe(T0 + DISCOVERY_SCAN_WINDOW_MS + DISCOVERY_ONLINE_BACKOFF_BASE_MS);
+  });
+
+  it('lone online user doubles quiet periods only up to the 30-minute production cap', () => {
+    const policy = new DiscoveryPolicy();
+    let now = T0;
+    const gaps: number[] = [];
+    for (let i = 0; i < 14; i += 1) {
+      expect(policy.decide(input({ now })).bleScan).toBe(true);
+      now += DISCOVERY_SCAN_WINDOW_MS;
+      const quiet = policy.decide(input({ now }));
+      gaps.push(quiet.nextReviewAt - now);
+      now = quiet.nextReviewAt;
+    }
+    expect(gaps[0]).toBe(DISCOVERY_ONLINE_BACKOFF_BASE_MS);
+    expect(Math.max(...gaps)).toBe(DISCOVERY_ONLINE_BACKOFF_MAX_MS);
   });
 
   it('second same-room member online: LAN NSD starts, no Wi-Fi Direct while nobody needs it', () => {

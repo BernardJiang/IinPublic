@@ -115,6 +115,125 @@ export const DISCOVERY_OFFLINE_BACKOFF_MAX_NO_BLE_MS = 2 * 60_000;
 export const DISCOVERY_ONLINE_BACKOFF_BASE_MS = 60_000;
 export const DISCOVERY_ONLINE_BACKOFF_MAX_MS = 30 * 60_000;
 
+export type DiscoveryPolicyTiming = {
+  scanWindowMs: number;
+  offlineBackoffBaseMs: number;
+  offlineBackoffMaxMs: number;
+  offlineBackoffMaxNoBleMs: number;
+  onlineBackoffBaseMs: number;
+  onlineBackoffMaxMs: number;
+};
+
+export const DEFAULT_DISCOVERY_POLICY_TIMING: DiscoveryPolicyTiming = {
+  scanWindowMs: DISCOVERY_SCAN_WINDOW_MS,
+  offlineBackoffBaseMs: DISCOVERY_OFFLINE_BACKOFF_BASE_MS,
+  offlineBackoffMaxMs: DISCOVERY_OFFLINE_BACKOFF_MAX_MS,
+  offlineBackoffMaxNoBleMs: DISCOVERY_OFFLINE_BACKOFF_MAX_NO_BLE_MS,
+  onlineBackoffBaseMs: DISCOVERY_ONLINE_BACKOFF_BASE_MS,
+  onlineBackoffMaxMs: DISCOVERY_ONLINE_BACKOFF_MAX_MS,
+};
+
+/** Debug-only query override parser used by the Android physical measurement harness. */
+export function discoveryPolicyTimingFromSearch(search: string): DiscoveryPolicyTiming | undefined {
+  const params = new URLSearchParams(search);
+  const keys: Record<keyof DiscoveryPolicyTiming, string> = {
+    scanWindowMs: 'e2e_discovery_scan_ms',
+    offlineBackoffBaseMs: 'e2e_discovery_offline_base_ms',
+    offlineBackoffMaxMs: 'e2e_discovery_offline_max_ms',
+    offlineBackoffMaxNoBleMs: 'e2e_discovery_offline_no_ble_max_ms',
+    onlineBackoffBaseMs: 'e2e_discovery_online_base_ms',
+    onlineBackoffMaxMs: 'e2e_discovery_online_max_ms',
+  };
+  if (!Object.values(keys).some((key) => params.has(key))) return undefined;
+  const timing = { ...DEFAULT_DISCOVERY_POLICY_TIMING };
+  for (const [property, key] of Object.entries(keys) as Array<[keyof DiscoveryPolicyTiming, string]>) {
+    const parsed = Number(params.get(key));
+    if (Number.isFinite(parsed) && parsed >= 1_000 && parsed <= 30 * 60_000) timing[property] = Math.round(parsed);
+  }
+  timing.offlineBackoffMaxMs = Math.max(timing.offlineBackoffBaseMs, timing.offlineBackoffMaxMs);
+  timing.offlineBackoffMaxNoBleMs = Math.max(timing.offlineBackoffBaseMs, timing.offlineBackoffMaxNoBleMs);
+  timing.onlineBackoffMaxMs = Math.max(timing.onlineBackoffBaseMs, timing.onlineBackoffMaxMs);
+  return timing;
+}
+
+export type DiscoveryProviderActivity = {
+  lanNsd: boolean;
+  bleAdvertise: boolean;
+  bleScan: boolean;
+  wifiDirectDiscovery: boolean;
+};
+
+export type DiscoveryDutySnapshot = {
+  elapsedMs: number;
+  providers: Record<keyof DiscoveryProviderActivity, {
+    active: boolean;
+    activeMs: number;
+    dutyCycle: number;
+    starts: number;
+  }>;
+};
+
+/** Cumulative, content-free provider command timing for physical battery/duty qualification. */
+export class DiscoveryDutyMetrics {
+  private readonly startedAt: number;
+  private lastAt: number;
+  private readonly state: DiscoveryProviderActivity = {
+    lanNsd: false,
+    bleAdvertise: false,
+    bleScan: false,
+    wifiDirectDiscovery: false,
+  };
+  private readonly activeMs: Record<keyof DiscoveryProviderActivity, number> = {
+    lanNsd: 0,
+    bleAdvertise: 0,
+    bleScan: 0,
+    wifiDirectDiscovery: 0,
+  };
+  private readonly starts: Record<keyof DiscoveryProviderActivity, number> = {
+    lanNsd: 0,
+    bleAdvertise: 0,
+    bleScan: 0,
+    wifiDirectDiscovery: 0,
+  };
+
+  constructor(now: number) {
+    this.startedAt = now;
+    this.lastAt = now;
+  }
+
+  record(next: DiscoveryProviderActivity, now: number): void {
+    this.accrue(now);
+    for (const key of Object.keys(this.state) as Array<keyof DiscoveryProviderActivity>) {
+      if (next[key] && !this.state[key]) this.starts[key] += 1;
+      this.state[key] = next[key];
+    }
+  }
+
+  snapshot(now: number): DiscoveryDutySnapshot {
+    this.accrue(now);
+    const elapsedMs = Math.max(0, now - this.startedAt);
+    const providers = {} as DiscoveryDutySnapshot['providers'];
+    for (const key of Object.keys(this.state) as Array<keyof DiscoveryProviderActivity>) {
+      providers[key] = {
+        active: this.state[key],
+        activeMs: this.activeMs[key],
+        dutyCycle: elapsedMs > 0 ? this.activeMs[key] / elapsedMs : 0,
+        starts: this.starts[key],
+      };
+    }
+    return { elapsedMs, providers };
+  }
+
+  private accrue(now: number): void {
+    const boundedNow = Math.max(this.lastAt, now);
+    const delta = boundedNow - this.lastAt;
+    for (const key of Object.keys(this.state) as Array<keyof DiscoveryProviderActivity>) {
+      if (this.state[key]) this.activeMs[key] += delta;
+    }
+    this.lastAt = boundedNow;
+  }
+}
+
 export type DiscoveryStage =
   /** Hub available, nobody else in the room: LAN silent, BLE beacon + rare bounded scans. */
   | 'online-singleton'
@@ -170,6 +289,8 @@ export class DiscoveryPolicy {
   private windowEndsAt: number | null = null;
   private nextWindowAt = 0;
 
+  constructor(private readonly timing: DiscoveryPolicyTiming = DEFAULT_DISCOVERY_POLICY_TIMING) {}
+
   /** Forget backoff (room change, explicit retry, Settings change). */
   reset(): void {
     this.trigger = '';
@@ -206,7 +327,7 @@ export class DiscoveryPolicy {
         this.windowEndsAt = null;
         this.nextWindowAt = now + this.backoffMs(input);
       }
-      if (this.windowEndsAt === null && now >= this.nextWindowAt) this.windowEndsAt = now + DISCOVERY_SCAN_WINDOW_MS;
+      if (this.windowEndsAt === null && now >= this.nextWindowAt) this.windowEndsAt = now + this.timing.scanWindowMs;
       scanning = this.windowEndsAt !== null;
     }
     const offline = !input.hubForDiscovery;
@@ -214,7 +335,7 @@ export class DiscoveryPolicy {
       ? (nearbyPeers ? 'offline-peers' : scanning ? 'offline-searching' : 'offline-quiet')
       : (roomHasPeers || nearbyPeers ? 'online-peers' : 'online-singleton');
     const nextReviewAt = nearbyPeers
-      ? now + DISCOVERY_SCAN_WINDOW_MS
+      ? now + this.timing.scanWindowMs
       : (this.windowEndsAt ?? this.nextWindowAt);
     return {
       stage,
@@ -234,10 +355,10 @@ export class DiscoveryPolicy {
 
   private backoffMs(input: DiscoveryPolicyInput): number {
     const offline = !input.hubForDiscovery;
-    const base = offline ? DISCOVERY_OFFLINE_BACKOFF_BASE_MS : DISCOVERY_ONLINE_BACKOFF_BASE_MS;
+    const base = offline ? this.timing.offlineBackoffBaseMs : this.timing.onlineBackoffBaseMs;
     const max = offline
-      ? (input.bluetooth ? DISCOVERY_OFFLINE_BACKOFF_MAX_MS : DISCOVERY_OFFLINE_BACKOFF_MAX_NO_BLE_MS)
-      : DISCOVERY_ONLINE_BACKOFF_MAX_MS;
+      ? (input.bluetooth ? this.timing.offlineBackoffMaxMs : this.timing.offlineBackoffMaxNoBleMs)
+      : this.timing.onlineBackoffMaxMs;
     return Math.min(max, base * 2 ** Math.min(this.emptyWindows - 1, 16));
   }
 }

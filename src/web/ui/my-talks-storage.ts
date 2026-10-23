@@ -22,6 +22,7 @@ export type MyTalkEntry = {
   disabled?: boolean | undefined;
   expiresAt?: number | undefined;
   locationRadiusMiles?: number | undefined;
+  collectionImportance?: 'important' | 'must-have' | undefined;
   senders?: string[] | undefined;
   lastInteraction?: string | undefined;
 };

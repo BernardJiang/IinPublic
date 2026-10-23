@@ -1,6 +1,41 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-21
+Last updated: 2026-10-22
+
+## 2026-10-22 — OPEN-70 Nearby v3 and reputation-gated Places closed
+
+- Replaced shared Nearby rooms with bounded personal lists of signed cards, hub statistics and
+  introductions, peer gossip, daily-beacon/identity-age ranking, group paging, offline discovery,
+  and adaptive Talk delivery. Nearby chat, shared rosters, capacity splits, yellow map dots and the
+  unreleased v2 protocol were removed; Places remain scoped rooms that are never full.
+- Custom Place creation is reputation-gated at both the UI and hub: one lifetime Place per creator,
+  at least 12 distinct signed incoming Friend marks, and fewer than three received blocks.
+  Talk-created Contacts do not count. Falling below the bar or going 30 days without activity hides
+  the Place from public discovery without deleting its immutable descriptor.
+- Host, browser, phone-path and real-device coverage qualified the card/list/gossip protocol,
+  Nearby/Place switching, map/list/headcount UI, group paging, online Contacts, hub/LAN/cellular
+  delivery, background recovery and offline Wi-Fi Direct.
+- Final deferred hardware gate: `native-app/30` passed in 3.0 minutes on app 1.0.187 with the Honor
+  FCP-AN10 (Android 16), P30 (Android 10) and C10 (Android 14), hub unreachable and LAN discovery
+  disabled. One 5 GHz Wi-Fi Direct group formed with both clients; every phone listed both peers;
+  ring Talks took 6.541 s, 6.751 s and 5.821 s; background delivery to the Honor took 9.504 s.
+- The old Honor FRD-L04/Android 7 remains unable to join the credentialed group; the supported
+  Honor FCP replacement closes the product hardware gap. Optional stronger anti-Sybil/backer and
+  dense-crowd policies remain a separately deferred owner decision, not an OPEN-70 release gate.
+
+## 2026-10-21 — OPEN-80 bounded the public Place chat feed
+
+- Replaced the lifetime-replicated `chatrooms/<placeId>/messages` Gun map with bounded recent
+  `GET/POST /api/chatrooms/:id/messages` pages. The hub retains at most `4 × C` messages per Place
+  and returns at most 50 per poll; opaque cursors deliver new messages without replaying history.
+- If more than one page arrives between polls, the client receives the newest page and reports an
+  overrun instead of downloading an unbounded backlog. The recent casual feed is intentionally
+  ephemeral across a hub restart.
+- Android embedded nodes forward the route to the hub. When the hub is unavailable, Place chat
+  fails explicitly instead of creating a divergent phone-local public history.
+- The old Gun message subscription and writes are gone. Unit/integration coverage includes strict
+  wire validation, cursor/dedup behavior, route behavior, the browser client, and a 10,000-message
+  scale test proving retention stays at `4 × C` and one response stays at 50 messages.
 
 ## 2026-10-21 — Meet new people (groups) and Contacts online dots
 

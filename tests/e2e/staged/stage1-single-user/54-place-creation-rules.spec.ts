@@ -1,7 +1,7 @@
 /**
  * Place creation rules and lifecycle (docs/design/nearby-and-place-chatrooms.md §4.2):
- * a contact minimum gates New Room, the form carries a trademark reminder, an empty Place is
- * listed under "Places near you", and each person can have only one live Place.
+ * an incoming-Friend minimum gates New Room, the form carries a trademark reminder, an empty Place
+ * is listed under "Places near you", and each person can create only one Place.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -39,10 +39,10 @@ test.describe('Place creation rules', () => {
     await clearGunForStage1Spec();
   });
 
-  test('New Room needs the minimum number of contacts', async () => {
-    const p = await open('?e2e_place_min_contacts=3');
+  test('New Room needs the minimum number of incoming Friend marks', async () => {
+    const p = await open('?e2e_place_min_friends=3');
     await p.locator('#create-custom-chatroom-btn').click();
-    await expect(p.locator('.notification', { hasText: /at least 3 contacts.*You have 0/i })).toBeVisible({ timeout: 10_000 });
+    await expect(p.locator('.notification', { hasText: /at least 3 people.*Friend.*0 Friend marks/i })).toBeVisible({ timeout: 10_000 });
     await expect(p.locator('[data-testid="custom-room-name-input"]')).toHaveCount(0);
   });
 
@@ -54,7 +54,7 @@ test.describe('Place creation rules', () => {
     await p.locator('#cancel-custom-room-btn').click();
   });
 
-  test('an empty Place is listed under Places near you; one live Place per person', async () => {
+  test('an empty Place is listed under Places near you; one Place per person', async () => {
     const p = await open();
     const name = `Empty Place ${Date.now()}`;
     await p.locator('#create-custom-chatroom-btn').click();

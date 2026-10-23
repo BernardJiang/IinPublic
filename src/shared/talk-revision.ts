@@ -14,6 +14,7 @@ export function computeTalkRevisionHash(talk: any): string {
     id: String(question?.id ?? ''),
     next: question?.nextQuestionId ?? null,
     selection: question?.answerSelectionMode ?? null,
+    collectionImportance: question?.collectionImportance ?? null,
     answers: (Array.isArray(question?.answers) ? question.answers : []).map((answer: any) => ({
       id: String(answer?.id ?? ''),
       text: String(answer?.text ?? ''),
@@ -29,6 +30,7 @@ export function computeTalkRevisionHash(talk: any): string {
     identity: buildIdentityPayloadFromTalk(talk),
     title: String(talk?.title ?? ''),
     matchThreshold: talk?.matchThreshold ?? null,
+    collectionImportance: talk?.collectionImportance ?? null,
     routing,
   };
   return `rev_${hashIdentityPayload(JSON.stringify(payload))}`;

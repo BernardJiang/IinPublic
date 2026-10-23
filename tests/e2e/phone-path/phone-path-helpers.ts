@@ -25,8 +25,8 @@ export async function resetPhonePath(request: APIRequestContext): Promise<void> 
 
 export type OpenUserOptions = {
   coords?: { latitude: number; longitude: number };
-  /** Contacts needed to create a Place; journeys default to 0 so creation is not gated. */
-  placeMinContacts?: number;
+  /** Incoming Friend marks needed to create a Place; journeys default to 0 unless testing the gate. */
+  placeMinFriendMarks?: number;
   extraQuery?: Record<string, string>;
   /** Open the app from this origin instead (a phone node the spec started itself). */
   baseUrl?: string;
@@ -63,7 +63,7 @@ export async function openUser(
   }
   if (!options.context) await injectIdbClear(page);
   const query = new URLSearchParams({
-    e2e_place_min_contacts: String(options.placeMinContacts ?? 0),
+    e2e_place_min_friends: String(options.placeMinFriendMarks ?? 0),
     ...options.extraQuery,
   });
   await page.goto(`${options.baseUrl ?? phonePathURL(origin)}/?${query.toString()}`);

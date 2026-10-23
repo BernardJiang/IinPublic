@@ -283,6 +283,8 @@ export interface Talk {
    * change from today's terminal-only route matching.
    */
   matchThreshold?: number;
+  /** Author-only weight used when ranking people inside a match-collection outing. */
+  collectionImportance?: 'important' | 'must-have';
 }
 
 export interface Question {
@@ -331,6 +333,8 @@ export interface Question {
    * options — no boolean/AND-OR vocabulary is ever surfaced to the author or respondent.
    */
   answerSelectionMode?: 'single' | 'multiple';
+  /** Author-only weight used by explainable match-collection ranking. */
+  collectionImportance?: 'important' | 'must-have';
   /**
    * Spec §30.2/§30.8, TODO.md §BB: marks this question as a typed built-in comparison
    * (quantity/price range/time frame/location) instead of an author-typed text choice.

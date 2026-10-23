@@ -38,6 +38,20 @@ describe('room list (active Places)', () => {
     expect(view.rooms[2]!.bearingDegrees!).toBeGreaterThan(270);
   });
 
+  it('omits a busy Place when its creator no longer clears the reputation lifecycle bar', () => {
+    const view = summarizeActiveRooms({
+      rooms: [
+        { roomId: CAFE, memberCount: 8, discoverable: false },
+        { roomId: LAJOLLA, memberCount: 2, discoverable: true },
+      ],
+      totalOnline: 10,
+      placeOf: (id) => pins[id],
+    });
+    expect(view.totalOnline).toBe(10);
+    expect(view.totalRooms).toBe(1);
+    expect(view.rooms.map((room) => room.roomId)).toEqual([LAJOLLA]);
+  });
+
   it('keeps my own Place on top and sorts by busiest or most room on request', () => {
     expect(summarize({ currentRoomId: LA }).rooms[0]!.roomId).toBe(LA);
     expect(summarize({ sort: 'busiest' }).rooms.map((room) => room.roomId)).toEqual([LA, CAFE, LAJOLLA]);

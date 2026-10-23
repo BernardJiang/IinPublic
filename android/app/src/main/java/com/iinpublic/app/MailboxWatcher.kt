@@ -41,7 +41,11 @@ import java.util.concurrent.Executors
  * included — or at the server timeout, and the loop immediately re-asks. No device timer is needed
  * for the happy path; alarms remain the fallback.
  */
-internal class MailboxWatcher(private val context: Context, private val port: Int) {
+internal class MailboxWatcher(
+    private val context: Context,
+    private val port: Int,
+    private val processBackground: () -> Int = { 0 },
+) {
     companion object {
         private const val PREFS = "iinpublic_mailbox_watch"
         private const val RECIPIENT_PREF = "recipient"
@@ -197,11 +201,12 @@ internal class MailboxWatcher(private val context: Context, private val port: In
         }
         val seen = prefs.getStringSet(SEEN_PREF, emptySet()).orEmpty()
         val fresh = newIds(ids, seen)
+        val processed = if (ids.isNotEmpty() && !MainActivity.isInForeground) processBackground() else 0
         prefs.edit().putStringSet(SEEN_PREF, nextSeen(ids)).apply()
         Log.i(TAG, "poll: ${ids.size} envelope(s), ${fresh.size} new, foreground=${MainActivity.isInForeground}")
         // In the foreground the page is live and handles everything itself.
-        if (fresh.isEmpty() || MainActivity.isInForeground) return
-        notifyNewActivity(fresh.size)
+        if ((fresh.isEmpty() && processed == 0) || MainActivity.isInForeground) return
+        notifyNewActivity(if (processed > 0) processed else fresh.size)
     }
 
     /** OPEN-44: network-driven wake path; see the class comment. */

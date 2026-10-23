@@ -78,6 +78,10 @@ class NativeCustodyBridge(context: Context) {
         return JSONObject().put("pair", pair).toString()
     }
 
+    /** App-owned foreground processor only; never exposed through a JavascriptInterface method. */
+    internal fun readPairForBackground(): JSONObject? =
+        JSONObject(readUnchecked()).optJSONObject("pair")
+
     @JavascriptInterface fun write(pairJson: String): String = try {
         val pair = JSONObject(pairJson)
         val pub = pair.getString("pub"); val epub = pair.getString("epub")

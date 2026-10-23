@@ -102,51 +102,87 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     });
   });
 
-  const persistConnectivity = (): void => {
-    const preset = (
+  const policyControlIds = new Set([
+    'settings-nearby-privacy-mode',
+    'settings-connectivity-free-first',
+    'settings-connectivity-direct-first',
+    'settings-connectivity-battery-aware',
+    'settings-connectivity-wifi-forwarding',
+    'settings-connectivity-identity-reveal',
+    'settings-connectivity-metered-permission',
+    'settings-connectivity-forwarding',
+    'settings-connectivity-cellular-forwarding',
+    'settings-connectivity-cellular-budget',
+  ]);
+  const updateConnectivityForm = (value: ReturnType<typeof loadConnectivitySettings>): void => {
+    const setChecked = (id: string, checked: boolean): void => {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      if (input) input.checked = checked;
+    };
+    const setValue = (id: string, next: string): void => {
+      const input = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+      if (input) input.value = next;
+    };
+    setValue('settings-connectivity-preset', value.preset);
+    setChecked('settings-connectivity-free-first', value.freeFirst);
+    setChecked('settings-connectivity-direct-first', value.directFirst);
+    setChecked('settings-connectivity-battery-aware', value.batteryAware);
+    setValue('settings-nearby-mode', value.nearbyMode);
+    setValue('settings-nearby-privacy-mode', value.nearbyPrivacyMode);
+    setChecked('settings-connectivity-wifi-forwarding', value.wifiOnlyForwarding);
+    setValue('settings-connectivity-identity-reveal', value.identityReveal);
+    setValue('settings-connectivity-metered-permission', value.meteredPermission);
+    setChecked('settings-connectivity-forwarding', value.forwarding.enabled);
+    setChecked('settings-connectivity-cellular-forwarding', value.forwarding.cellularForwarding);
+    setValue('settings-connectivity-cellular-budget', String(value.forwarding.cellularByteBudget));
+    const status = document.getElementById('settings-connectivity-status');
+    if (status) status.textContent = `${value.preset.replaceAll('-', ' ')} route selection · forwarding ${value.forwarding.enabled ? 'on' : 'off'}`;
+  };
+  const persistConnectivity = (event: Event): void => {
+    const changed = event.target as HTMLInputElement | HTMLSelectElement | null;
+    const current = loadConnectivitySettings();
+    const checked = (id: string, fallback: boolean): boolean =>
+      (document.getElementById(id) as HTMLInputElement | null)?.checked ?? fallback;
+    const selectedPreset = (
       document.getElementById('settings-connectivity-preset') as HTMLSelectElement | null
     )?.value as ConnectivityPreset | undefined;
-    if (!preset) return;
-    const value = applyConnectivityPreset(preset);
-    value.preset = preset;
-    value.freeFirst = !!(
-      document.getElementById('settings-connectivity-free-first') as HTMLInputElement | null
-    )?.checked;
-    value.directFirst = !!(
-      document.getElementById('settings-connectivity-direct-first') as HTMLInputElement | null
-    )?.checked;
-    value.batteryAware = !!(
-      document.getElementById('settings-connectivity-battery-aware') as HTMLInputElement | null
-    )?.checked;
+    if (!selectedPreset) return;
+    if (changed?.id === 'settings-connectivity-preset') {
+      const presetValue = applyConnectivityPreset(selectedPreset, current);
+      updateConnectivityForm(presetValue);
+      saveConnectivitySettings(presetValue);
+      deps.emit('connectivitySettingsChanged', presetValue);
+      return;
+    }
+    const value = { ...current, forwarding: { ...current.forwarding } };
+    value.freeFirst = checked('settings-connectivity-free-first', current.freeFirst);
+    value.directFirst = checked('settings-connectivity-direct-first', current.directFirst);
+    value.batteryAware = checked('settings-connectivity-battery-aware', current.batteryAware);
     value.nearbyMode = ((
       document.getElementById('settings-nearby-mode') as HTMLSelectElement | null
-    )?.value || 'while-open') as typeof value.nearbyMode;
+    )?.value || current.nearbyMode) as typeof value.nearbyMode;
     value.nearbyPrivacyMode = ((
       document.getElementById('settings-nearby-privacy-mode') as HTMLSelectElement | null
-    )?.value || 'neighborhood') as typeof value.nearbyPrivacyMode;
-    const previousSource = loadConnectivitySettings().locationSource;
+    )?.value || current.nearbyPrivacyMode) as typeof value.nearbyPrivacyMode;
+    const previousSource = current.locationSource;
     value.locationSource = ((
       document.querySelector('input[name="settings-location-source"]:checked') as HTMLInputElement | null
     )?.value || previousSource) === 'traveler' ? 'traveler' : 'resident';
-    value.wifiOnlyForwarding = !!(
-      document.getElementById('settings-connectivity-wifi-forwarding') as HTMLInputElement | null
-    )?.checked;
+    value.wifiOnlyForwarding = checked('settings-connectivity-wifi-forwarding', current.wifiOnlyForwarding);
+    value.forwarding.wifiForwarding = value.wifiOnlyForwarding;
     value.identityReveal = ((
       document.getElementById('settings-connectivity-identity-reveal') as HTMLSelectElement | null
-    )?.value || 'matches-only') as typeof value.identityReveal;
+    )?.value || current.identityReveal) as typeof value.identityReveal;
     value.meteredPermission = ((
       document.getElementById(
         'settings-connectivity-metered-permission',
       ) as HTMLSelectElement | null
-    )?.value || 'ask') as typeof value.meteredPermission;
-    value.forwarding.enabled = !!(
-      document.getElementById('settings-connectivity-forwarding') as HTMLInputElement | null
-    )?.checked;
-    value.forwarding.cellularForwarding = !!(
-      document.getElementById(
-        'settings-connectivity-cellular-forwarding',
-      ) as HTMLInputElement | null
-    )?.checked;
+    )?.value || current.meteredPermission) as typeof value.meteredPermission;
+    value.forwarding.enabled = checked('settings-connectivity-forwarding', current.forwarding.enabled);
+    value.forwarding.cellularForwarding = checked(
+      'settings-connectivity-cellular-forwarding',
+      current.forwarding.cellularForwarding,
+    );
     value.forwarding.cellularByteBudget = Math.max(
       0,
       Number(
@@ -154,9 +190,11 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
           document.getElementById(
             'settings-connectivity-cellular-budget',
           ) as HTMLInputElement | null
-        )?.value || 0,
+        )?.value || current.forwarding.cellularByteBudget,
       ),
     );
+    if (changed?.id && policyControlIds.has(changed.id)) value.preset = 'advanced';
+    updateConnectivityForm(value);
     saveConnectivitySettings(value);
     deps.emit('connectivitySettingsChanged', value);
     if (value.locationSource !== previousSource) {

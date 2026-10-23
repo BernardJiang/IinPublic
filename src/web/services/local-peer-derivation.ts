@@ -43,6 +43,10 @@ export type LocalTalkExchange = {
   language?: string;
   answerMode?: 'auto' | 'manual';
   answers?: Array<{ questionId: string; answerId: string; answerText: string }>;
+  /** The physical-world collection outing that caused this author-side exchange. */
+  collectionSessionId?: string;
+  collectionLabel?: string;
+  collectionStartedAt?: string;
 };
 
 export type LocalTalkHistoryItem = {

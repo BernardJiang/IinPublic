@@ -167,7 +167,7 @@ describe('EmbeddedHubRelayClient', () => {
     );
   });
 
-  it('forwards only Nearby and room-list paths and preserves the hub status', async () => {
+  it('forwards only Nearby, room-list and bounded Place-chat paths and preserves hub status', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       status: 409,
       json: async () => ({ code: 'target-full', error: 'Nearby target cohort is full' }),
@@ -187,6 +187,12 @@ describe('EmbeddedHubRelayClient', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ claim: 'signed' }),
       }),
+    );
+    await expect(client.forwardHubApi('/api/chatrooms/place_1/messages?limit=50', 'GET'))
+      .resolves.toEqual({ status: 409, body: { code: 'target-full', error: 'Nearby target cohort is full' } });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'http://127.0.0.1:8080/api/chatrooms/place_1/messages?limit=50',
+      expect.objectContaining({ method: 'GET' }),
     );
     await expect(client.forwardHubApi('/api/talks/private', 'GET'))
       .rejects.toThrow(/refuses path/);
