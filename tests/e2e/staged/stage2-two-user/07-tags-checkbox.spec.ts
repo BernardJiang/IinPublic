@@ -5,8 +5,12 @@ import {injectIdbClear, gotoWebApp} from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, delay, headless } from '../../helpers/timing';
-import { gunBaseURL, webAppURLStableChatroom, e2eTestScreenshotsDir } from '../../helpers/ports';
-import { openIncomingTalkModal, waitForResponseModalClosed, getIncomingClusterTitlesForUser, waitForIncomingTalkCluster } from '../../helpers/talks-matching-flow';
+import { webAppURLStableChatroom, e2eTestScreenshotsDir } from '../../helpers/ports';
+import {
+  clickIncomingTagDecision,
+  getIncomingClusterTitlesForUser,
+  waitForIncomingTalkCluster,
+} from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -22,7 +26,7 @@ import { ensureChatroomList } from '../../helpers/chatroom-nav';
 // themselves.
 test.describe.configure({ timeout: 180_000 });
 
-test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
+test.describe('Tag: create tag, answer with Like/Pass actions', () => {
   let browserAlice: Browser;
   let browserTom: Browser;
   let contextAlice: BrowserContext;
@@ -111,7 +115,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     return { context, page };
   }
 
-  test('Alice creates Coffee and Cat tags, sends to Tom; Tom answers Coffee checked, Cat unchecked; Alice confirms one match (Coffee)', async () => {
+  test('Alice sends Coffee and Cat; Tom Likes Coffee and Passes Cat; Alice sees one match', async () => {
     // 1) Alice and Tom enter Global
     console.log('\n📍 STEP 1: Alice and Tom enter Global');
     const alice = await bootstrapUser(browserAlice, 'Alice', 'Alice');
@@ -130,6 +134,8 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     console.log('\n📍 STEP 2: Alice creates tag "' + TAG_COFFEE + '"');
     await ensureChatroomList(pageAlice);
     await pageAlice.click('.chatroom-item.current-room');
+    await afterNav();
+    await pageAlice.click('.nav-btn[data-view="talks"]');
     await afterNav();
 
     await pageAlice.click('#create-talk-btn');
@@ -163,13 +169,11 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
       )
       .toBeGreaterThanOrEqual(1);
 
-    // 4) Tom opens Coffee tag, checks Match, and submits.
-    console.log('\n📍 STEP 4: Tom opens Coffee and checks Match → match');
-    await openIncomingTalkModal(pageTom, TAG_COFFEE);
-    await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
-    await pageTom.locator('#tag-match-checkbox').click({ noWaitAfter: true });
-    await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
-    await waitForResponseModalClosed(pageTom);
+    // 4) Tom Likes Coffee directly from its compact tag row.
+    console.log('\n📍 STEP 4: Tom Likes Coffee → match');
+    const incomingCoffeeRow = pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: TAG_COFFEE });
+    await clickIncomingTagDecision(pageTom, TAG_COFFEE, 'like', { timeout: 90_000 });
+    await expect(incomingCoffeeRow).toHaveCount(0);
 
     // 5) Alice eventually sees the responder relationship as a direct P2P conversation.
     await expect
@@ -183,11 +187,11 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
       )
       .toBe(true);
 
-    // 6) Tom opens Cat tag, leaves the single checkbox unchecked, and submits as ignored.
-    console.log('\n📍 STEP 6: Tom opens Cat, leaves checkbox unchecked → ignore');
-    await openIncomingTalkModal(pageTom, TAG_CAT);
-    await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
-    await waitForResponseModalClosed(pageTom);
+    // 6) Tom privately Passes Cat directly from its compact tag row.
+    console.log('\n📍 STEP 6: Tom Passes Cat → ignored');
+    const incomingCatRow = pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: TAG_CAT });
+    await clickIncomingTagDecision(pageTom, TAG_CAT, 'pass', { timeout: 90_000 });
+    await expect(incomingCatRow).toHaveCount(0);
 
     // 7) Alice still has exactly the match conversation after Tom ignores Cat.
     // Same `myConversations` read as step 5's identical check just above (30s there) — this one
@@ -205,10 +209,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
       )
       .toBeGreaterThanOrEqual(1);
 
-    // 8) Tom's Answer tab: Coffee = Match, Cat = Mismatch
-    // docs/TODO.md §LL.2 follow-up: rows are merged by question text; the Match/Mismatch
-    // outcome is carried on the row's own data-outcome attribute, no expand-in-place popup
-    // anymore — same pattern as 09-four-types-chatbot.spec.ts / 02-two-talks-status-answers.spec.ts.
+    // 8) Tom's Me tab contains the Like, while private Pass stays only in Passed/Ignored.
     await pageTom.click('.nav-btn[data-view="me"]');
     await afterSync();
     const tomContent = pageTom.locator('#answers-content');
@@ -217,8 +218,7 @@ test.describe('Tag: create tag, answer with checkbox (match/ignore)', () => {
     await expect(coffeeRow).toHaveAttribute('data-outcome', 'match');
 
     const catRow = tomContent.locator('.answer-talk-item').filter({ hasText: TAG_CAT }).first();
-    await expect(catRow).toBeVisible({ timeout: 10000 });
-    await expect(catRow).toHaveAttribute('data-outcome', 'mismatch');
+    await expect(catRow).toHaveCount(0);
 
     console.log('✅ Tag flow verified: Alice created Coffee + Cat; Tom matched Coffee, ignored Cat; Alice received one match.');
   });

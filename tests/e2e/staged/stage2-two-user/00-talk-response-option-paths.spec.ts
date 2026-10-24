@@ -1,11 +1,8 @@
 /**
- * Talk Response modal — option paths (catalog Part 5).
+ * Incoming Talk response — option paths (catalog Part 5).
  *
- * Two users: Alice broadcasts a tag and a flow talk; Tom exercises the response
- * modal's control surface — the tag checkbox (match state) and Submit, and the
- * flow talk's answer buttons plus the Back and Close controls. Deep per-type
- * matching semantics are covered by 05–08/07; this spec proves the modal's
- * control paths (tag both states, flow branch, close/back) are wired.
+ * Two users: Alice broadcasts a tag and Tom exercises the tag's direct Like control. Tags avoid
+ * the Flow/Survey/Route auto/manual response surface; deep matching semantics are covered by 07.
  *
  * Renamed 66- → 00-: at ~165s this is the slowest light-shard spec; the 00- prefix makes
  * Playwright schedule it first so it never sets the shard tail (see playwright.config.ts).
@@ -18,8 +15,7 @@ import { ensureWindowFitsViewport } from '../../helpers/browser-window';
 import { afterLoad, afterSync, afterNav, afterAction, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import {
-  openIncomingTalkModal,
-  waitForResponseModalClosed,
+  clickIncomingTagDecision,
   waitForIncomingTalkCluster,
 } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
@@ -85,7 +81,7 @@ test.describe('Talk Response: option paths', () => {
     return { context, page };
   }
 
-  test('tag match + close, flow answer buttons + back', async () => {
+  test('tag Like is a direct one-tap response without a response modal', async () => {
     // Stage-timing instrumentation: this spec has run at a suspiciously CONSTANT
     // ~165s in every full-suite run (see speed plan §4.4 — stacked fixed budgets
     // suspected) and blew its 180s ceiling at 12 light workers. Timings are appended
@@ -116,7 +112,10 @@ test.describe('Talk Response: option paths', () => {
     mark('bootTom');
 
     // Alice creates a tag talk (she already entered Global above — the room
-    // list is hidden inside the room detail, so no second room click).
+    // list is hidden inside the room detail, so no second room click). Create Talk is contextual
+    // to the Talks tab.
+    await pageAlice.click('.nav-btn[data-view="talks"]');
+    await afterNav();
     await pageAlice.click('#create-talk-btn');
     await pageAlice.waitForSelector('#talk-editor-form');
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
@@ -144,25 +143,12 @@ test.describe('Talk Response: option paths', () => {
       );
     };
 
-    // Tag path: open, check match, submit.
-    await openIncomingTalkModal(pageTom, 'Hiking');
-    mark('openModal');
+    const hikingRow = pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: 'Hiking' });
+    await clickIncomingTagDecision(pageTom, 'Hiking', 'like', { timeout: 90_000 });
+    mark('likeTag');
     await persistStages().catch(() => {});
-    await expect(pageTom.locator('#talk-response-modal')).toBeVisible();
-    await expect(pageTom.locator('.tag-match-checkbox')).toBeVisible();
-    await pageTom.locator('#tag-match-checkbox').click({ noWaitAfter: true });
-    await pageTom.locator('#tag-submit-response').click({ noWaitAfter: true });
-    await waitForResponseModalClosed(pageTom);
-
-    // Close-path: reopen the same talk (still answerable/superseded) and close via ✕.
-    // The modal must open and the close control dismisses it without submitting.
-    const reopened = await openIncomingTalkModal(pageTom, 'Hiking').then(() => true).catch(() => false);
-    if (reopened && (await pageTom.locator('#talk-response-modal').isVisible())) {
-      const closeBtn = pageTom.locator('[data-testid="close-response-btn"], #close-response-btn');
-      if (await closeBtn.count()) {
-        await closeBtn.first().click({ noWaitAfter: true });
-        await waitForResponseModalClosed(pageTom);
-      }
-    }
+    await expect(hikingRow).toHaveCount(0);
+    await expect(pageTom.locator('#talk-response-modal')).toHaveCount(0);
+    await expect(pageTom.locator('.talk-list-item[data-role="copied"]').filter({ hasText: 'Hiking' })).toBeVisible();
   });
 });

@@ -22,10 +22,11 @@ describe('syncReturnHomeButton', () => {
     expect(() => syncReturnHomeButton(deps())).not.toThrow();
   });
 
-  it('disables the button and shows "already home" title when in the home room', () => {
+  it('hides the button and shows "already home" title when in the home room', () => {
     syncReturnHomeButton(deps({ getHomeChatroomId: () => 'global', currentChatroom: 'global' }));
     const btn = document.getElementById('return-home-btn') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
+    expect(btn.style.display).toBe('none');
     expect(btn.title).toBe('Already in your home room');
   });
 
@@ -33,6 +34,7 @@ describe('syncReturnHomeButton', () => {
     syncReturnHomeButton(deps({ getHomeChatroomId: () => 'north-america', currentChatroom: 'global' }));
     const btn = document.getElementById('return-home-btn') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
+    expect(btn.style.display).toBe('inline-flex');
     expect(btn.title).toBe('Return to Title:north-america');
   });
 
@@ -50,5 +52,6 @@ describe('syncReturnHomeButton', () => {
     syncReturnHomeButton(deps({ getHomeChatroomId: () => 'global', currentChatroom: '' }));
     const btn = document.getElementById('return-home-btn') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
+    expect(btn.style.display).toBe('none');
   });
 });

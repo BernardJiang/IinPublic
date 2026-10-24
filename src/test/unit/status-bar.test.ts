@@ -14,30 +14,30 @@ describe('updateStatusBar', () => {
     expect(() => updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 })).not.toThrow();
   });
 
-  it('renders the room name and singular user count', () => {
+  it('renders the singular user count without repeating the room name', () => {
     updateStatusBar('Global', 1, undefined, { tf, getTotalMatches: () => 0 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUser(1)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUser(1)');
   });
 
   it('renders the plural user count for any count other than 1', () => {
     updateStatusBar('Global', 5, undefined, { tf, getTotalMatches: () => 0 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(5)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(5)');
 
     updateStatusBar('Global', 0, undefined, { tf, getTotalMatches: () => 0 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(0)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(0)');
   });
 
   it('appends the match suffix, singular vs plural, when there are matches', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 1 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3) · statusBarMatch(1)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(3) · statusBarMatch(1)');
 
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 4 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3) · statusBarMatches(4)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(3) · statusBarMatches(4)');
   });
 
   it('omits the match suffix entirely when there are no matches', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(3)');
   });
 
   it('prefers the local getTotalMatches() count over a passed-in fallback when local is positive', () => {
@@ -52,7 +52,20 @@ describe('updateStatusBar', () => {
 
   it('stores the pre-match-suffix text in data-status-bar-base', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 2 });
-    expect((document.getElementById('status-bar-text') as HTMLElement).dataset.statusBarBase).toBe('Global · statusBarUsers(3)');
+    expect((document.getElementById('status-bar-text') as HTMLElement).dataset.statusBarBase).toBe('statusBarUsers(3)');
+  });
+
+  it('uses a scope-specific Nearby summary instead of the redundant inclusive user count', () => {
+    updateStatusBar('Nearby', 4, undefined, {
+      tf,
+      getTotalMatches: () => 0,
+      baseText: '3 near you · 14 online',
+      baseTestId: 'nearby-headcount',
+    });
+    const bar = document.getElementById('status-bar-text')!;
+    expect(bar.textContent).toBe('3 near you · 14 online');
+    expect(bar.dataset.statusBarBase).toBe('3 near you · 14 online');
+    expect(bar.getAttribute('data-testid')).toBe('nearby-headcount');
   });
 });
 
@@ -65,7 +78,7 @@ describe('syncStatusBarMatchCount', () => {
   it('reuses the base stashed by updateStatusBar and appends the new match count', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 });
     syncStatusBarMatchCount({ tf, getTotalMatches: () => 2 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3) · statusBarMatches(2)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(3) · statusBarMatches(2)');
   });
 
   it('falls back to stripping a legacy English match suffix when no base is stashed', () => {
@@ -77,27 +90,25 @@ describe('syncStatusBarMatchCount', () => {
   it('renders the base alone when there are no matches', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 });
     syncStatusBarMatchCount({ tf, getTotalMatches: () => 0 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(3)');
   });
 
   it('uses the singular match text for exactly one match', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 0 });
     syncStatusBarMatchCount({ tf, getTotalMatches: () => 1 });
-    expect(document.getElementById('status-bar-text')!.textContent).toBe('Global · statusBarUsers(3) · statusBarMatch(1)');
+    expect(document.getElementById('status-bar-text')!.textContent).toBe('statusBarUsers(3) · statusBarMatch(1)');
   });
 });
 
-describe('two-line status title', () => {
-  it('shows the room name and the counts on separate lines, with the full text kept and expandable', () => {
+describe('compact dynamic status', () => {
+  it('shows counts without the redundant room name or pin', () => {
     document.body.innerHTML = '<span id="status-bar-text"></span>';
     updateStatusBar('📍 Nearby', 3, 2, { tf: (key, vars) => `${vars.count} ${key === 'statusBarUsers' ? 'users' : 'matches'}`, getTotalMatches: () => 0 });
     const bar = document.getElementById('status-bar-text')!;
-    expect(bar.querySelector('.status-bar-name')?.textContent).toBe('📍 Nearby');
+    expect(bar.querySelector('.status-bar-name')).toBeNull();
     expect(bar.querySelector('.status-bar-meta')?.textContent).toBe('3 users · 2 matches');
-    expect(bar.textContent).toBe('📍 Nearby · 3 users · 2 matches');
-    expect(bar.title).toBe('📍 Nearby · 3 users · 2 matches');
-    bar.click();
-    expect(bar.classList.contains('status-bar-expanded')).toBe(true);
+    expect(bar.textContent).toBe('3 users · 2 matches');
+    expect(bar.title).toBe('3 users · 2 matches');
   });
 });
 

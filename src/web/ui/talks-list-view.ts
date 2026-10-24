@@ -63,6 +63,7 @@ export type DisplayTalksListDeps = {
   deleteMyTalk: (talkId: string) => void;
   restoreIgnoredTalk: (talkId: string) => void;
   quickAnswerIncomingTag: (talkId: string, identityKey: string | undefined, checked: boolean) => void;
+  quickIgnoreIncomingTalk: (talkId: string, identityKey: string | undefined) => void;
   quickCopyIncomingTalk: (talkId: string, identityKey: string | undefined) => void;
   showTalkDetail: (talkId: string, identityKey?: string) => void;
   showSurveyStatsDialog: (talkId: string) => void;
@@ -134,23 +135,6 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         // .talk-item-details out of #talks-list (showDetailsPopupFor) — its surviving
         // interactive content (survey-stats-btn) needs to still be reachable there.
         if (!target.closest('#talks-list') && !target.closest('#item-details-popup')) return;
-        const outgoingTagCheckbox = target.closest('.talk-tag-out-checkbox') as HTMLInputElement | null;
-        if (outgoingTagCheckbox) {
-          e.preventDefault();
-          e.stopPropagation();
-          const talkId = outgoingTagCheckbox.dataset.talkId;
-          if (talkId) setTimeout(() => deps.deleteMyTalk(talkId), 0);
-          return;
-        }
-        const incomingTagCheckbox = target.closest('.talk-tag-in-checkbox') as HTMLInputElement | null;
-        if (incomingTagCheckbox) {
-          e.preventDefault();
-          e.stopPropagation();
-          const talkId = incomingTagCheckbox.dataset.talkId || '';
-          const identityKey = incomingTagCheckbox.dataset.identityKey || '';
-          setTimeout(() => deps.quickAnswerIncomingTag(talkId, identityKey || undefined, true), 0);
-          return;
-        }
         // Only reachable now from inside the long-press details popup (survey OUT rows).
         const surveyStatsBtn = target.closest('.survey-stats-btn');
         if (surveyStatsBtn) {
@@ -487,11 +471,14 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                   : talkTypeLower === 'route' ? '🔀'
                   : '➡️';
                 if (talkTypeLower === 'tag') {
+                  const isCopiedTag = talk.role === 'copied';
+                  const passLabel = isCopiedTag ? deps.t('talksTagPass') : deps.t('talksRemove');
                   return `
       <div class="talk-list-item talk-tag-chip talk-tag-out ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag">
-        <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(deps.t('talksTagChecked'))}">
-          <input type="checkbox" class="talk-tag-checkbox talk-tag-out-checkbox" data-talk-id="${escapeHtml(talkId)}" checked>
-        </label>
+        <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
+          <button type="button" class="talk-tag-decision-button talk-tag-pass-button talk-tag-out-pass" data-talk-id="${escapeHtml(talkId)}" data-role="${escapeHtml(String(talk.role || 'created'))}" aria-label="${escapeHtml(passLabel)}" title="${escapeHtml(passLabel)}">×</button>
+          <button type="button" class="talk-tag-decision-button talk-tag-like-button is-selected" aria-label="${escapeHtml(deps.t('talksTagLiked'))}" title="${escapeHtml(deps.t('talksTagLiked'))}" aria-pressed="true">♥</button>
+        </span>
         <span class="talk-tag-text">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</span>
         ${pinButtonHtml(`out:${talkId}`)}
       </div>
@@ -625,6 +612,17 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 : incomingType === 'route' ? '🔀'
                 : '➡️';
               if (isIgnored) {
+                if (incomingType === 'tag') {
+                  return `
+      <div class="talk-list-item talk-tag-chip talk-tag-passed talk-ignored-row" data-talk-id="${escapeHtml(talkId)}" data-role="ignored" data-incoming-type="tag">
+        <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
+          <button type="button" class="talk-tag-decision-button talk-tag-pass-button is-selected" aria-label="${escapeHtml(deps.t('talksTagPassed'))}" title="${escapeHtml(deps.t('talksTagPassed'))}" aria-pressed="true">×</button>
+          <button type="button" class="talk-tag-decision-button talk-tag-like-button talk-tag-in-like" data-talk-id="${escapeHtml(talkId)}" aria-label="${escapeHtml(deps.t('talksTagLike'))}" title="${escapeHtml(deps.t('talksTagLike'))}">♡</button>
+        </span>
+        <span class="talk-tag-text">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
+      </div>
+    `;
+                }
                 return `
       <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} talk-ignored-row" data-talk-id="${escapeHtml(talkId)}" data-role="ignored" data-incoming-type="${escapeHtml(incomingType)}" style="border-left:5px solid ${typeAccent};background:var(--surface);">
         <div class="talk-item-header">
@@ -637,18 +635,20 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               }
               if (incomingType === 'tag') {
                 return `
-      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag" data-ignore-label="${escapeHtml(deps.t('talksIgnore'))}">
-        <label class="talk-tag-checkbox-wrap" aria-label="${escapeHtml(deps.t('talksTagUndetermined'))}">
-          <input type="checkbox" class="talk-tag-checkbox talk-tag-in-checkbox" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" title="${escapeHtml(deps.t('talksTagQuickDecision'))}">
-        </label>
-        <button type="button" class="talk-tag-text talk-tag-text-button view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
+      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag" data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}">
+        <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
+          <button type="button" class="talk-tag-decision-button talk-tag-pass-button talk-tag-in-pass" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagPass'))}" title="${escapeHtml(deps.t('talksTagPass'))}">×</button>
+          <button type="button" class="talk-tag-decision-button talk-tag-like-button talk-tag-in-like" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagLike'))}" title="${escapeHtml(deps.t('talksTagLike'))}">♡</button>
+        </span>
+        <span class="talk-tag-text">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
         ${pinButtonHtml(pinKey)}
       </div>
     `;
               }
               // Row is a single tap target (opens the talk to answer, with the details below
               // already visible rather than a separate popup). 📋 or drag down retains it in My Talks,
-              // either horizontal direction ignores this content.
+              // a left swipe ignores this content; right swipe is intentionally reserved for
+              // the complete one-tap Like answer available only to Tag/Pair-tag rows.
               // Long-press still reaches the exact
               // same .talk-item-details/showDetailsPopupFor content the ℹ️ button used to
               // (full sender identity + co-exchanged people), nothing dropped, just a different
@@ -781,6 +781,32 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         if (Date.now() < currentDeps.getTalksGestureSuppressClickUntil()) return;
         const target = e.target as HTMLElement;
 
+        const outgoingTagPass = target.closest('.talk-tag-out-pass') as HTMLButtonElement | null;
+        if (outgoingTagPass) {
+          e.preventDefault();
+          e.stopPropagation();
+          const talkId = outgoingTagPass.dataset.talkId || '';
+          if (talkId) {
+            if (outgoingTagPass.dataset.role === 'copied') currentDeps.quickIgnoreIncomingTalk(talkId, undefined);
+            else currentDeps.deleteMyTalk(talkId);
+          }
+          return;
+        }
+
+        const incomingTagDecision = target.closest('.talk-tag-in-pass, .talk-tag-in-like') as HTMLButtonElement | null;
+        if (incomingTagDecision) {
+          e.preventDefault();
+          e.stopPropagation();
+          const talkId = incomingTagDecision.dataset.talkId || '';
+          const identityKey = incomingTagDecision.dataset.identityKey || '';
+          if (incomingTagDecision.classList.contains('talk-tag-in-like')) {
+            currentDeps.quickAnswerIncomingTag(talkId, identityKey || undefined, true);
+          } else {
+            currentDeps.quickIgnoreIncomingTalk(talkId, identityKey || undefined);
+          }
+          return;
+        }
+
         const restoreButton = target.closest('.talk-restore-ignored-btn') as HTMLElement | null;
         if (restoreButton) {
           e.preventDefault();
@@ -850,7 +876,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
 
         // Row click opens edit/detail only when not clicking an action button (handled
         // in the mousedown-capture delegation above).
-        if (target.closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-checkbox-wrap, .talk-icon-badge, .view-talk-btn, .talk-copy-button, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
+        if (target.closest('.talk-item-actions, .talk-item-inline-actions, .talk-tag-decision-actions, .talk-icon-badge, .view-talk-btn, .talk-copy-button, .talk-matched-people, .talk-sender-people, .talk-item-details')) return;
         const item = target.closest('.talk-list-item') as HTMLElement | null;
         if (!item) return;
         const talkId = item.dataset.talkId || '';

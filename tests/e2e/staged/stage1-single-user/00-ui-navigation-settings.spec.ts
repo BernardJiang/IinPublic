@@ -46,19 +46,19 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
     await expect(p.locator('#header-status')).toBeVisible();
+    await expect(p.locator('#status-bar-text')).not.toContainText('Nearby');
+    await expect(p.locator('#status-bar-text')).not.toContainText('📍');
     await expect(p.locator('#status-bar-text')).not.toContainText(/User.* in /);
     await expect(p.locator('#chatrooms-view > #status-bar')).toHaveCount(0);
     // AppBar icon buttons (redesign §2): the old #chatroom-action-bar row is gone.
     await expect(p.locator('#chatroom-action-bar')).toHaveCount(0);
     await expect(p.locator('#top-header #create-custom-chatroom-btn')).toBeVisible();
     await expect(p.locator('#create-custom-chatroom-btn')).toHaveAttribute('title', 'New Room');
-    await expect(p.locator('#top-header #return-home-btn')).toBeVisible();
-    await expect(p.locator('#top-header #broadcast-talk-btn')).toBeVisible();
+    await expect(p.locator('#top-header #return-home-btn')).toBeHidden();
+    await expect(p.locator('#top-header #broadcast-talk-btn')).toBeHidden();
     await expect(p.locator('#broadcast-talk-btn .app-bar-btn-icon')).toHaveText('📣');
     await expect(p.locator('body')).not.toContainText('Uses talks from Talks OUT');
-    // A fresh user boots straight into their own automatic Nearby room (Global is retired), so
-    // 🏠 has nowhere to return to yet; it enables only inside a Place.
-    await expect(p.locator('#return-home-btn')).toBeDisabled();
+    // A fresh user boots straight into Nearby, so there is no Return Home action to show.
     await expect(p.locator('#chatrooms-stats-strip')).toHaveCount(0);
     const duplicateVisitCheck = await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
@@ -76,19 +76,6 @@ test.describe('UI navigation and settings shell', () => {
     expect(duplicateVisitCheck.before).toBe(0);
     expect(duplicateVisitCheck.mid).toBe(duplicateVisitCheck.before);
     expect(duplicateVisitCheck.after).toBe(duplicateVisitCheck.before);
-    await expect
-      .poll(async () => {
-        return p.locator('#broadcast-talk-btn').evaluate((button) => {
-          const bar = document.getElementById('top-header')?.getBoundingClientRect();
-          const rect = button.getBoundingClientRect();
-          return {
-            compact: rect.width < 180,
-            sameRow: bar ? rect.top >= bar.top && rect.bottom <= bar.bottom + 1 : false,
-          };
-        });
-      })
-      .toEqual({ compact: true, sameRow: true });
-
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();

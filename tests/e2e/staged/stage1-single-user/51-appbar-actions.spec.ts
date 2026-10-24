@@ -41,6 +41,8 @@ test.describe('AppBar actions', () => {
 
   test('➕ opens the talk editor', async () => {
     const p = page!;
+    await p.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
     await p.locator('#create-talk-btn').click();
     await afterNav();
     await expect(p.locator('#talk-editor-modal')).toBeVisible();
@@ -70,7 +72,7 @@ test.describe('AppBar actions', () => {
     // 🏠 enables only away from the automatic Nearby room, i.e. inside a Place (tile travel is retired).
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    await expect(p.locator('#return-home-btn')).toBeDisabled();
+    await expect(p.locator('#return-home-btn')).toBeHidden();
     await p.locator('#create-custom-chatroom-btn').click();
     await afterNav();
     await p.locator('[data-testid="custom-room-name-input"]').fill(`AppBar Place ${Date.now()}`);

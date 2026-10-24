@@ -21,9 +21,12 @@ export function applySettingsSectionView(sectionId: string | null, deps: ApplySe
     if (detail) detail.style.display = 'block';
     if (backBtn) backBtn.style.display = 'inline-flex';
   } else {
+    // Hide the detail subtree before making all of its sections eligible for layout again. Doing
+    // this in the opposite order briefly lays out every settings section on Back, even though the
+    // parent is about to be hidden.
+    if (detail) detail.style.display = 'none';
     sections.forEach((section) => { section.style.display = ''; });
     if (menu) menu.style.display = '';
-    if (detail) detail.style.display = 'none';
     if (backBtn) backBtn.style.display = 'none';
   }
 }

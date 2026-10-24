@@ -32,6 +32,7 @@ function makeDeps(overrides: Partial<DisplayTalksListDeps> = {}): DisplayTalksLi
     deleteMyTalk: jest.fn(),
     restoreIgnoredTalk: jest.fn(),
     quickAnswerIncomingTag: jest.fn(),
+    quickIgnoreIncomingTalk: jest.fn(),
     quickCopyIncomingTalk: jest.fn(),
     showTalkDetail: jest.fn(),
     showSurveyStatsDialog: jest.fn(),
@@ -280,12 +281,14 @@ describe('displayTalksList', () => {
     expect(showNotification).toHaveBeenCalledWith('talksBroadcastDisabled', 'success');
   });
 
-  it('delegates an incoming tag decision and preserves identity fallback', () => {
+  it('renders compact Pass/Like actions and delegates both incoming tag decisions', () => {
     jest.useFakeTimers();
     installTalksDom();
     const quickAnswerIncomingTag = jest.fn();
+    const quickIgnoreIncomingTalk = jest.fn();
     renderFresh(makeDeps({
       quickAnswerIncomingTag,
+      quickIgnoreIncomingTalk,
       incomingTalkClusters: [{
         identityKey: 'qa_tag_one',
         latestTalkId: 'incoming-tag',
@@ -298,17 +301,45 @@ describe('displayTalksList', () => {
       }],
     }));
 
-    const checkbox = document.querySelector<HTMLInputElement>('.talk-tag-in-checkbox');
-    expect(checkbox?.checked).toBe(false);
-    expect(checkbox?.indeterminate).toBe(false);
+    const pass = document.querySelector<HTMLButtonElement>('.talk-tag-in-pass');
+    const like = document.querySelector<HTMLButtonElement>('.talk-tag-in-like');
+    expect(pass).not.toBeNull();
+    expect(like).not.toBeNull();
+    expect(document.querySelector('.talk-tag-in-checkbox')).toBeNull();
     expect(document.querySelector('.talk-tag-in .talk-add-to-my-talks-btn')).toBeNull();
-    checkbox?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
-    jest.runOnlyPendingTimers();
+    like?.click();
     expect(quickAnswerIncomingTag).toHaveBeenCalledWith(
       'incoming-tag',
       'qa_tag_one',
       true,
     );
+    pass?.click();
+    expect(quickIgnoreIncomingTalk).toHaveBeenCalledWith('incoming-tag', 'qa_tag_one');
+  });
+
+  it('uses the same compact Pass/Like actions for an incoming Pair-tag', () => {
+    installTalksDom();
+    renderFresh(makeDeps({
+      incomingTalkClusters: [{
+        identityKey: 'pair:sell:buy',
+        latestTalkId: 'incoming-pair-tag',
+        title: 'Sell',
+        type: 'tag',
+        latestTalk: {
+          id: 'incoming-pair-tag', title: 'Sell', type: 'tag',
+          questions: [{
+            id: 'q1', text: 'sell', reciprocalTagContext: true,
+            answers: [{ id: 'buy', text: 'buy', isMatch: true }],
+          }],
+        },
+        senders: {},
+      }],
+    }));
+
+    const row = document.querySelector('.talk-tag-in');
+    expect(row?.querySelector('.talk-tag-in-pass')).not.toBeNull();
+    expect(row?.querySelector('.talk-tag-in-like')).not.toBeNull();
+    expect(row?.querySelector('.talk-tag-in-checkbox')).toBeNull();
   });
 
   it('keeps ignored content out of normal views and restores it from the Ignored list', () => {

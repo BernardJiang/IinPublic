@@ -57,7 +57,7 @@ import type { GraphNodeTarget } from './graph-navigation';
 import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
   type CustomChatroomRow,
-  resolveChatroomTitle, markChatroomMemberMatched, flashChatroomMemberForNewTalk,
+  resolveChatroomTitle, markChatroomMemberMatched, flashChatroomMemberForNewTalk, nearbyHeadcountText,
   syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
 } from './chatrooms-view';
 import {
@@ -254,6 +254,7 @@ export class UIManager extends EventEmitter {
    */
   private chatroomsDetailRoomId: string | null = null;
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
+  private nearbyOnline: number | undefined;
   private talksShowIncoming = true;
   private talksShowOutgoing = true;
   private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
@@ -435,9 +436,8 @@ export class UIManager extends EventEmitter {
     this.currentLocation = location;
     this.locationConfirmed = confirmed;
     this.syncReturnHomeButton();
-    if (this.currentUser) this.renderSettingsView(this.currentUser);
+    if (this.currentUser && document.getElementById('settings-view')?.classList.contains('active')) this.renderSettingsView(this.currentUser);
   }
-
   setPublicProfileFoundationReader(reader: PublicProfileFoundationReader | undefined): void {
     this.publicProfileFoundationReader = reader;
   }
@@ -1125,7 +1125,13 @@ export class UIManager extends EventEmitter {
   setMapUserDotSource(source: MapUserDotSource | null): void { this.chatroomShell().setMapUserDotSource(source); }
   setActiveRooms(view: Parameters<ChatroomShellController['setActiveRooms']>[0]): void { this.chatroomShell().setActiveRooms(view); }
   /** The hub's count of everyone online in Nearby (§3.7 "N near you · M online"). */
-  setNearbyOnline(online: number): void { this.chatroomShell().setNearbyOnline(online); }
+  setNearbyOnline(online: number): void {
+    this.nearbyOnline = online;
+    this.chatroomShell().setNearbyOnline(online);
+    if (isNearbyRoomId(this.currentChatroom)) {
+      this.updateStatusBar('', '', this.currentChatroomMembers.length, this.getTotalMatches());
+    }
+  }
   /** "Sent to N of M" for the latest Nearby broadcast; null hides it. */
   setNearbyBroadcastProgress(progress: { sent: number; total: number } | null): void { this.chatroomShell().setNearbyBroadcastProgress(progress); }
   setNearbyGroup(group: { group: number; exhausted: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
@@ -1150,6 +1156,7 @@ export class UIManager extends EventEmitter {
       deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
       restoreIgnoredTalk: (talkId) => this.restoreIgnoredTalk(talkId),
       quickAnswerIncomingTag: (talkId, identityKey, checked) => this.quickAnswerIncomingTag(talkId, identityKey, checked),
+      quickIgnoreIncomingTalk: (talkId, identityKey) => this.quickIgnoreIncomingTalk(talkId, identityKey),
       quickCopyIncomingTalk: (talkId, identityKey) => this.quickCopyIncomingTalk(talkId, identityKey),
       showTalkDetail: (talkId, identityKey) => this.showTalkDetail(talkId, identityKey),
       showSurveyStatsDialog: (talkId) => this.showSurveyStatsDialog(talkId),
@@ -1669,6 +1676,7 @@ export class UIManager extends EventEmitter {
       onProfileChange: this.onProfileChange,
       showEditProfileDialog: (user) => this.showEditProfileDialog(user),
       refreshStorageInspector: () => this.refreshStorageInspector(),
+      refreshDownloadAppSection: () => this.refreshDownloadAppSection(),
     });
   }
 
@@ -1725,6 +1733,11 @@ export class UIManager extends EventEmitter {
       this.quickCompleteTagTalk(starterTalk, checked);
       return;
     }
+    const storedTalk = this.getMyTalks()[talkId]?.fullTalk;
+    if (storedTalk && String(storedTalk?.type || '').toLowerCase() === 'tag') {
+      this.quickCompleteTagTalk(storedTalk, checked);
+      return;
+    }
     quickAnswerIncomingTagImpl(talkId, identityKeyFallback, checked, {
       emit: (event, payload) => this.emit(event, payload),
       showNotification: (message, type) => this.showNotification(message, type),
@@ -1779,6 +1792,16 @@ export class UIManager extends EventEmitter {
       this.completeTalk(starterTalk, answers, 'mismatch', { withholdFromSender: true });
       return;
     }
+    const storedTalk = this.getMyTalks()[talkId]?.fullTalk;
+    if (storedTalk) {
+      const question = storedTalk.questions?.[0];
+      const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
+      if (question) {
+        this.saveAnswerPreference(storedTalk, storedTalk.id, question, 'ignore', 'ignore', answers, 'suppressed');
+      }
+      this.completeTalk(storedTalk, answers, 'mismatch', { withholdFromSender: true });
+      return;
+    }
     quickIgnoreIncomingTalkImpl(talkId, identityKeyFallback, {
       showNotification: (message, type) => this.showNotification(message, type),
       t: this.t.bind(this),
@@ -1806,6 +1829,7 @@ export class UIManager extends EventEmitter {
       setSuppressClickUntil: (timestamp) => { this.talksGestureSuppressClickUntil = timestamp; },
       showDetailsPopupFor: (detailsEl, originalParent) => this.showDetailsPopupFor(detailsEl, originalParent),
       quickIgnoreIncomingTalk: (talkId, identityKeyFallback) => this.quickIgnoreIncomingTalk(talkId, identityKeyFallback),
+      quickAnswerIncomingTag: (talkId, identityKeyFallback, checked) => this.quickAnswerIncomingTag(talkId, identityKeyFallback, checked),
       quickCopyIncomingTalk: (talkId, identityKeyFallback) => this.quickCopyIncomingTalk(talkId, identityKeyFallback),
       deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
     });
@@ -2253,9 +2277,17 @@ export class UIManager extends EventEmitter {
     memberCount: number,
     totalMatches?: number,
   ): void {
+    const nearby = isNearbyRoomId(this.currentChatroom);
+    const nearbyText = nearby
+      ? nearbyHeadcountText({
+          text: (key) => this.t(key),
+          ...(this.nearbyOnline !== undefined ? { nearbyOnline: this.nearbyOnline } : {}),
+        }, this.currentChatroomMembers.length)
+      : undefined;
     updateStatusBarImpl(chatroomName, memberCount, totalMatches, {
       tf: this.tf.bind(this),
       getTotalMatches: () => this.getTotalMatches(),
+      ...(nearbyText ? { baseText: nearbyText, baseTestId: 'nearby-headcount' } : {}),
     });
   }
 

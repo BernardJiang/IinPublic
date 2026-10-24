@@ -67,7 +67,7 @@ export type ChatroomShellController = ReturnType<typeof createChatroomShellContr
 export function createChatroomShellController(deps: ChatroomShellControllerDeps) {
   /** Set by the app once Nearby runs: my point (★) and a loader for my list's dots and the heat. */
   let mapUserDotSource: MapUserDotSource | undefined;
-  let roomMembers: ReadonlyArray<{ userId: string; stageName?: string; isTraveler?: boolean }> = [];
+  let roomMembers: ReadonlyArray<{ userId: string; stageName: string; isTraveler?: boolean }> = [];
 
   const parseList = <T>(json: string | undefined): T[] => {
     try {
@@ -137,6 +137,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
       ...(nearbyOnline !== undefined ? { nearbyOnline } : {}),
       ...(nearbyBroadcastProgress ? { nearbyBroadcastProgress } : {}),
       ...(nearbyGroup ? { nearbyGroup } : {}),
+      nearbyMembers: roomMembers,
     setChatroomBrowseMode: deps.setChatroomBrowseMode,
     setCurrentChatroom: (chatroomId) => {
       deps.setCurrentChatroom(chatroomId);
@@ -154,6 +155,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     isUserOnline: deps.isUserOnline,
     ...(deps.getCachedHeadshot ? { getCachedHeadshot: deps.getCachedHeadshot } : {}),
     ...(deps.resolvePeerHeadshot ? { resolvePeerHeadshot: deps.resolvePeerHeadshot } : {}),
+    syncAppBarOverflow: deps.syncAppBarOverflow,
       onChatroomDetailOpened: (chatroomId) => deps.setChatroomsDetailRoomId(chatroomId),
     };
   };
@@ -164,7 +166,12 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
 
   const showChatroomDetail = (chatroomId: string): void => {
     openChatroomDetail(viewDeps(), chatroomId);
+    const createRoomButton = document.getElementById('create-custom-chatroom-btn');
+    const broadcastButton = document.getElementById('broadcast-talk-btn');
+    if (createRoomButton) createRoomButton.style.display = 'none';
+    if (broadcastButton) broadcastButton.style.display = 'inline-flex';
     deps.syncReturnHomeButton();
+    deps.syncAppBarOverflow();
   };
 
   const updateChatroomMembers = (
@@ -252,12 +259,15 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     if (backButton) backButton.style.display = 'none';
     const createButton = document.getElementById('create-custom-chatroom-btn') as HTMLButtonElement | null;
     if (createButton) {
+      createButton.style.display = 'inline-flex';
       createButton.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
         void handleCreateCustomChatroomClick();
       };
     }
+    const broadcastButton = document.getElementById('broadcast-talk-btn');
+    if (broadcastButton) broadcastButton.style.display = 'none';
     const ownerBar = document.getElementById('chatroom-owner-bar');
     if (ownerBar) {
       ownerBar.style.display = 'none';
@@ -273,6 +283,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     delete document.body.dataset.chatroomDetail;
     renderChatroomList();
     deps.syncReturnHomeButton();
+    deps.syncAppBarOverflow();
   };
 
   const showMainInterface = (user: User): void => {
@@ -294,7 +305,13 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
         ${supportBadge}`;
     }
     if (headerStatus) headerStatus.style.display = 'flex';
-    deps.renderSettingsView(user);
+    // Settings is a large drill-down view. Building it while the startup Chatrooms panel is
+    // visible delays the first useful input on slower WebViews for a screen the person may never
+    // open. If Settings was selected before identity hydration completed, adoptSessionUser handles
+    // that active-view case; otherwise the bottom-nav handler renders it on demand.
+    if (document.getElementById('settings-view')?.classList.contains('active')) {
+      deps.renderSettingsView(user);
+    }
     deps.displayAnswersList();
     const chatroomInfo = document.getElementById('chatroom-info');
     if (chatroomInfo) {

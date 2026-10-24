@@ -26,6 +26,7 @@ import {
   setDefaultTalkLanguagePreference,
   setKeepOldTalkOnEdit,
   setLocationAutoMatchConsent,
+  setMatchCollectionEnabled,
   setUiLanguagePreference,
   type ColorScheme,
   type AutoAnswerScope,
@@ -72,6 +73,7 @@ export interface SettingsControlsDeps {
   onProfileChange: ((userId: string, updates: ProfileUpdates) => Promise<void>) | undefined;
   showEditProfileDialog: (user: User) => void;
   refreshStorageInspector: () => Promise<void>;
+  refreshDownloadAppSection: () => Promise<void>;
 }
 
 /** Map the Talk audience radio onto the two stored switches. */
@@ -88,6 +90,14 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     if (!sectionId) return;
     deps.setSettingsActiveSectionId(sectionId);
     deps.applySettingsSectionView(sectionId);
+    // Let the selected detail paint before its optional I/O and local-storage inspection begin.
+    // In particular, getBrowserStorageSnapshot has synchronous work before its first await.
+    if (sectionId === 'settings-storage-inspector') {
+      window.setTimeout(() => { void deps.refreshStorageInspector(); }, 0);
+    }
+    if (sectionId === 'settings-section-download-app') {
+      window.setTimeout(() => { void deps.refreshDownloadAppSection(); }, 0);
+    }
   });
 
   document.getElementById('settings-scheme-picker')?.addEventListener('change', (event) => {
@@ -357,6 +367,11 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     ?.addEventListener('click', () => deps.showActionableGuide());
   document.getElementById('settings-copy-talk-autosave')?.addEventListener('change', (event) => {
     setCopyTalkAutoSave((event.currentTarget as HTMLInputElement).checked);
+  });
+  document.getElementById('settings-match-collection-enabled')?.addEventListener('change', (event) => {
+    const enabled = (event.currentTarget as HTMLInputElement).checked;
+    setMatchCollectionEnabled(enabled);
+    deps.emit('matchCollectionSettingChanged', { enabled });
   });
   document.getElementById('settings-encounter-location-set')?.addEventListener('click', () => {
     const current = getEncounterLocation();

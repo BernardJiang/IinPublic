@@ -101,7 +101,7 @@ The core of IinPublic. Every talk is an interactive content piece the creator br
 
 | Type | Structure | Match logic | Use case |
 |------|-----------|-------------|----------|
-| **tag** | Single keyword/phrase (boolean toggle) | checked = match, unchecked = ignore | Interest signaling |
+| **tag** | Single keyword/phrase | Like = match and retain, Pass = privately ignore | Interest signaling |
 | **flow** | Sequential Q→A chain (path graph) | Full preceding context must match stored answer | Chatbot-like conversation |
 | **survey** | Independent Q/A pairs (star graph) | Aggregate statistics only | Opinion collection |
 | **route** | Branching DAG with `contextPath` | `contextHash` must match current conversation path | Decision tree / quiz |
@@ -112,7 +112,7 @@ The core of IinPublic. Every talk is an interactive content piece the creator br
 1. Go to **Talks** tab → click **Create Talk** button
 2. Choose type = **Tag**, enter a phrase (e.g., "Likes coffee")
 3. Save → broadcast to Global
-4. Another user sees the tag in incoming talks → tap checkbox to match/ignore
+4. Another user sees the tag in incoming talks → tap **Like** or **Pass** (or swipe right/left)
 
 #### Test: Flow talk
 1. Create with type = **Flow**, add sequential questions and answers

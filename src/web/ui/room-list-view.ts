@@ -142,17 +142,16 @@ export function roomMetaText(row: RoomListRow, t: T): string {
   return t('roomListPeople').replace('{count}', String(row.memberCount));
 }
 
-/** Header: everyone online, how many rooms, and the sort choice. */
-export function renderRoomListHeader(view: ActiveRoomsView | undefined, sort: ActiveRoomSort, t: T, nearbyOnline?: number): string {
-  // Everyone online is the hub's Nearby count when known; the room list itself holds Places only.
-  const online = Math.max(nearbyOnline ?? 0, view?.totalOnline ?? 0);
-  const total = view ? t('roomListOnline')
-    .replace('{people}', online.toLocaleString('en-US'))
-    .replace('{rooms}', view.totalRooms.toLocaleString('en-US')) : t('roomListLoading');
+/** The room sort row. Nearby headcounts live in the AppBar, where they remain visible. */
+export function renderRoomListHeader(
+  sort: ActiveRoomSort,
+  t: T,
+  showSort: boolean,
+): string {
+  if (!showSort) return '';
   const option = (value: ActiveRoomSort, key: UiTranslationKey) =>
     `<option value="${value}" ${sort === value ? 'selected' : ''}>${t(key)}</option>`;
-  return `<div class="room-list-header" data-testid="room-list-header">
-      <span class="room-list-total" data-testid="room-list-total">${total}</span>
+  return `<div class="room-list-header room-list-header-sort-only" data-testid="room-list-header">
       <label class="room-list-sort">${t('roomListSort')}
         <select id="room-list-sort" data-testid="room-list-sort">
           ${option('nearest', 'roomListSortNearest')}
@@ -177,6 +176,5 @@ export function renderRoomListRow(row: RoomListRow, t: T, escapeHtml: (value: st
         ${row.context ? `<div class="chatroom-description">${escapeHtml(row.context)}</div>` : ''}
         <div class="chatroom-flat-metrics"><span class="chatroom-headcount">${escapeHtml(roomMetaText(row, t))}</span></div>
       </div>
-      <div class="chatroom-arrow">›</div>
     </div>`;
 }

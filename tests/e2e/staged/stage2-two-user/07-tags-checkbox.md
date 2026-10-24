@@ -1,9 +1,9 @@
-# Test: Tag Type — Create Tags, Checkbox Answers (Match/Ignore)
+# Test: Tag Type — Create Tags, Direct Like/Pass Answers
 
 covers: SPEC-3.5  <!-- auto-seeded; refine by hand -->
 
 **File:** 07-tags-checkbox.spec.ts  
-**Features tested:** Tag-type talks, checkbox-based matching, broadcast of tags, match/mismatch outcomes, multi-browser
+**Features tested:** Tag-type talks, direct Like/Pass matching, broadcast of tags, match/mismatch outcomes, multi-browser
 
 ---
 
@@ -19,15 +19,15 @@ covers: SPEC-3.5  <!-- auto-seeded; refine by hand -->
 
 4. **Server confirms Tom received the broadcast:** Polls `/api/users/tom/incoming-talks` until at least 1 incoming talk arrives.
 
-5. **Tom opens "Coffee" tag, checks the match checkbox, and submits** → Result: MATCH. Tom's status bar shows 1 match. Alice's status bar also confirms 1 match.
+5. **Tom taps Like on the "Coffee" tag** → Result: MATCH and the tag is retained in outgoing. Tom's status bar shows 1 match. Alice's status bar also confirms 1 match.
 
-6. **Tom opens "Cat" tag, leaves checkbox UNchecked, and submits** → Result: MISMATCH (ignored).
+6. **Tom taps Pass on the "Cat" tag** → The tag moves privately to Passed/Ignored without creating a match.
 
 7. **Alice verifies:** Opens the Talks tab — "Coffee" shows "Matched with: Tom". Status bar confirms "1 match".
 
 8. **Tom verifies Answers tab:** "Coffee" is marked as Match, "Cat" is marked as Mismatch.
 
-> **Why this matters:** Verifies the complete tag-type workflow — tags with checkbox matching work correctly for both match (checked) and ignore (unchecked) outcomes, and sync to the creator's view.
+> **Why this matters:** Verifies the complete tag-type workflow — direct Like retains and matches, while Pass privately suppresses the tag without a manual-answer form.
 
 ---
 

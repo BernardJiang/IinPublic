@@ -166,7 +166,7 @@ import {
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
-import { getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT } from '../ui/ui-settings-storage';
+import { getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
 import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
@@ -1569,6 +1569,7 @@ export class IinPublicApp {
 
     // Setup event handlers
     this.setupEventHandlers();
+    this.ensureMatchCollectionSession(this.chatroomService.getCurrentChatroomId());
 
     // Show main interface
     this.uiManager.showMainInterface(this.currentUser!);
@@ -1891,6 +1892,24 @@ export class IinPublicApp {
     if (!travel) return home;
     const precision = publicLocationPrecisionMeters(this.effectiveNearbyMode());
     return precision === null ? null : snapPublicLocation(travel, precision);
+  }
+
+  /** Default-on collection is ambient. Lazily restore it if storage was cleared or a session ended. */
+  private ensureMatchCollectionSession(
+    scopeIdInput?: string | null,
+  ): ReturnType<typeof getActiveMatchCollectionSession> {
+    if (!getMatchCollectionEnabled()) return null;
+    const active = getActiveMatchCollectionSession();
+    if (active) return active;
+    const scopeId = String(scopeIdInput || this.chatroomService.getCurrentChatroomId() || '').trim();
+    if (!scopeId) return null;
+    const point = this.nearbyPublicPoint();
+    return startMatchCollectionSession({
+      label: this.getChatroomDisplayName(scopeId) || this.uiText('matchCollectionDefaultLabel'),
+      scopeId,
+      talkIds: this.uiManager.getBroadcastableTalkIds(),
+      ...(point ? { point } : {}),
+    });
   }
 
   /**
@@ -7585,7 +7604,7 @@ export class IinPublicApp {
     }
     // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
     recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
-    const activeCollection = getActiveMatchCollectionSession();
+    const activeCollection = this.ensureMatchCollectionSession(chatroomId);
     const collectionLocation = activeCollection
       ? await this.matchCollectionSendLocation(chatroomId)
       : undefined;
@@ -8655,6 +8674,7 @@ export class IinPublicApp {
       (data: { label?: string; scopeId?: string }) => {
         const scopeId = String(data.scopeId || this.chatroomService.getCurrentChatroomId() || '').trim();
         if (!scopeId) return;
+        setMatchCollectionEnabled(true);
         const point = this.nearbyPublicPoint();
         startMatchCollectionSession({
           label: String(data.label || this.uiText('matchCollectionDefaultLabel')),
@@ -8668,10 +8688,18 @@ export class IinPublicApp {
       },
     );
     this.uiManager.on('endMatchCollection', () => {
+      setMatchCollectionEnabled(false);
       if (!endMatchCollectionSession()) return;
       this.syncNativeBackgroundAgent();
       this.uiManager.showChatroomList();
       this.uiManager.showNotification(this.uiText('matchCollectionEnded'), 'success');
+    });
+    this.uiManager.on('matchCollectionSettingChanged', (data: { enabled?: boolean }) => {
+      const enabled = data.enabled === true;
+      setMatchCollectionEnabled(enabled);
+      if (enabled) this.ensureMatchCollectionSession(this.chatroomService.getCurrentChatroomId());
+      else endMatchCollectionSession();
+      this.syncNativeBackgroundAgent();
     });
     this.uiManager.on('broadcastMatchCollection', () => {
       this.uiManager.broadcastTalksFromCurrentRoom();
@@ -8756,7 +8784,7 @@ export class IinPublicApp {
             ? (data.members ?? []).filter((member) =>
               !!member.userId && member.userId !== this.currentUser!.id && member.userId !== TECHSUPPORT_ROOT_USER_ID)
             : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
-          const activeCollection = getActiveMatchCollectionSession();
+          const activeCollection = this.ensureMatchCollectionSession(chatroomId);
           const collectionLocation = activeCollection
             ? await this.matchCollectionSendLocation(chatroomId)
             : undefined;

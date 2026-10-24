@@ -1,10 +1,8 @@
 /**
- * Incoming talk actions are intentionally button-free:
- *   down = retain in My Talks; either horizontal direction = Ignore this content.
- * Long-press remains the details gesture. This spec exercises those real pointer gestures for
- * Flow, Survey, and Route, then verifies content-level Ignore across new tag senders and Restore
- * from the dedicated Ignored list. It also covers the tag checkbox lifecycle across Talks and Me
- * so deleting the accepted tag cannot leave stale answer history behind.
+ * Incoming Flow/Survey/Route rows use left = Ignore and down = retain; a right swipe does not
+ * invent an answer. Tag and Pair-tag rows add explicit Pass/Like buttons and right = Like.
+ * This spec also verifies content-level Pass across new tag senders and direct Like↔Pass changes
+ * across Talks and Me.
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -102,7 +100,7 @@ test.describe('Incoming talk gesture actions', () => {
     await clearGunForStage1Spec();
   });
 
-  test('Flow, Survey, and Route support retain plus Ignore in both swipe directions without Add buttons', async () => {
+  test('Flow, Survey, and Route support retain plus left-swipe Ignore while right swipe makes no decision', async () => {
     const user = await bootstrapUser(browsers[0]!, 'GestureUser', 'GestureUser');
     sessions.push(user);
     const page = user.page;
@@ -115,7 +113,7 @@ test.describe('Incoming talk gesture actions', () => {
     // Newest seeded rows render first. Exercise them in reverse seed order so every real mouse
     // drag starts comfortably above the fixed bottom navigation on phone-sized viewports.
     for (const type of [...types].reverse()) {
-      for (const action of ['retain', 'ignore-right', 'ignore-left'] as const) {
+      for (const action of ['retain', 'keep-right', 'ignore-left'] as const) {
         const suffix = String(sequence++).padStart(2, '0');
         const seed = `gesture-${suffix}`;
         deliveries.push({
@@ -141,9 +139,9 @@ test.describe('Incoming talk gesture actions', () => {
       }, retain.talk.id)).toBe('copied');
       await expect(incomingRow(page, retain.talk.title)).toBeVisible();
 
-      const ignoreRight = deliveries.find((delivery) => delivery.talk.title === `${type} ignore-right`)!;
-      await dragTalkRow(page, incomingRow(page, ignoreRight.talk.title), 'right');
-      await expect(incomingRow(page, ignoreRight.talk.title)).toHaveCount(0);
+      const keepRight = deliveries.find((delivery) => delivery.talk.title === `${type} keep-right`)!;
+      await dragTalkRow(page, incomingRow(page, keepRight.talk.title), 'right');
+      await expect(incomingRow(page, keepRight.talk.title)).toBeVisible();
 
       const ignoreLeft = deliveries.find((delivery) => delivery.talk.title === `${type} ignore-left`)!;
       await dragTalkRow(page, incomingRow(page, ignoreLeft.talk.title), 'left');
@@ -155,11 +153,11 @@ test.describe('Incoming talk gesture actions', () => {
     }
 
     await page.locator('#talks-filter-completion').selectOption('ignored', { force: true });
-    await expect(page.locator('.talk-list-item[data-role="ignored"]')).toHaveCount(6);
-    await expect(page.locator('.talk-restore-ignored-btn')).toHaveCount(6);
+    await expect(page.locator('.talk-list-item[data-role="ignored"]')).toHaveCount(3);
+    await expect(page.locator('.talk-restore-ignored-btn')).toHaveCount(3);
   });
 
-  test('same tag stays ignored across senders, Restore re-enables it, and checkbox removal clears Talks plus Me', async () => {
+  test('Tag Pass persists across senders and direct Like↔Pass updates Talks plus Me', async () => {
     const user = await bootstrapUser(browsers[0]!, 'TagGestureUser', 'TagGestureUser');
     sessions.push(user);
     const page = user.page;
@@ -176,9 +174,9 @@ test.describe('Incoming talk gesture actions', () => {
       senderName: 'Alice',
       receivedAt: '2026-10-01T11:00:00.000Z',
     }]);
-    const initialCheckbox = incomingRow(page, ignoredFirst.title).locator('.talk-tag-in-checkbox');
-    await expect(initialCheckbox).not.toBeChecked();
-    await dragTalkRow(page, incomingRow(page, ignoredFirst.title), 'right');
+    await expect(incomingRow(page, ignoredFirst.title).locator('.talk-tag-in-pass')).toBeVisible();
+    await expect(incomingRow(page, ignoredFirst.title).locator('.talk-tag-in-like')).toBeVisible();
+    await dragTalkRow(page, incomingRow(page, ignoredFirst.title), 'left');
     await expect(incomingRow(page, ignoredFirst.title)).toHaveCount(0);
 
     const ignoredAgain = makeTalk(
@@ -196,9 +194,9 @@ test.describe('Incoming talk gesture actions', () => {
     await page.locator('#talks-filter-completion').selectOption('ignored', { force: true });
     const ignoredRow = page.locator('.talk-list-item[data-role="ignored"]').filter({ hasText: ignoredAgain.title });
     await expect(ignoredRow).toBeVisible();
-    await ignoredRow.locator('.talk-restore-ignored-btn').click();
+    await ignoredRow.locator('.talk-tag-in-like').click();
     await page.locator('#talks-filter-completion').selectOption('unanswered', { force: true });
-    await expect(incomingRow(page, ignoredAgain.title)).toBeVisible();
+    await expect(page.locator('.talk-list-item[data-role="copied"]').filter({ hasText: ignoredAgain.title })).toBeVisible();
 
     const ignoredLeftFirst = makeTalk(
       '22222222-2222-4222-8222-222222222203', 'tag', 'Left ignored tag', 'carol',
@@ -235,7 +233,7 @@ test.describe('Incoming talk gesture actions', () => {
       senderName: 'Erin',
       receivedAt: '2026-10-01T11:20:00.000Z',
     }]);
-    await incomingRow(page, accepted.title).locator('.talk-tag-in-checkbox').click();
+    await incomingRow(page, accepted.title).locator('.talk-tag-in-like').click();
 
     const acceptedOut = page.locator(
       `.talk-list-item[data-role="copied"][data-talk-id="${accepted.id}"]`,
@@ -249,11 +247,19 @@ test.describe('Incoming talk gesture actions', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
-    await acceptedOut.locator('.talk-tag-out-checkbox').click();
+    await acceptedOut.locator('.talk-tag-out-pass').click();
     await expect(acceptedOut).toHaveCount(0);
 
     await page.click('.nav-btn[data-view="me"]');
     await waitForTabActive(page, 'me');
     await expect(page.locator('.answer-talk-item').filter({ hasText: accepted.title })).toHaveCount(0);
+
+    await page.click('.nav-btn[data-view="talks"]');
+    await waitForTabActive(page, 'talks');
+    await page.locator('#talks-filter-completion').selectOption('ignored', { force: true });
+    const passedAccepted = page.locator('.talk-list-item[data-role="ignored"]').filter({ hasText: accepted.title });
+    await passedAccepted.locator('.talk-tag-in-like').click();
+    await page.locator('#talks-filter-completion').selectOption('unanswered', { force: true });
+    await expect(acceptedOut).toBeVisible();
   });
 });

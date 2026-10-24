@@ -1,16 +1,10 @@
 /** @jest-environment jsdom */
 
 import '@testing-library/jest-dom';
-import { renderChatroomList, updateChatroomMembers, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
+import { nearbyHeadcountText, renderChatroomList, updateChatroomMembers, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
 import { uiText } from '../../web/ui/ui-translations';
 import type { ActiveRoomsView } from '../../shared/active-rooms';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
-import {
-  MATCH_COLLECTION_STORE_KEY,
-  recordMatchCollectionDelivery,
-  recordMatchCollectionExchange,
-  startMatchCollectionSession,
-} from '../../web/services/match-collection-session';
 
 const NEARBY_ID = NEARBY_V3_ROOM_ID;
 const PLACE_ID = 'place_32.71_-117.17_abcdefabcdef';
@@ -32,6 +26,8 @@ function render(overrides: Record<string, unknown> = {}): void {
   document.body.innerHTML = `
     <button id="chatroom-list-view-btn"></button>
     <button id="chatroom-map-view-btn"></button>
+    <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+    <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
     <button id="return-home-btn">Return Home</button>
     <div id="chatroom-list-container">
       <div id="chatroom-map-status"></div>
@@ -71,44 +67,96 @@ function render(overrides: Record<string, unknown> = {}): void {
 }
 
 describe('flat Nearby and Places list', () => {
-  afterEach(() => localStorage.removeItem(MATCH_COLLECTION_STORE_KEY));
+  it('shows Nearby people and custom rooms in one compact browser list', () => {
+    render({
+      activeRooms: ROOMS,
+      nearbyMembers: [
+        { userId: 'me', stageName: 'Me' },
+        { userId: 'alice', stageName: 'Alice' },
+        { userId: 'bob', stageName: 'Bob' },
+      ],
+    });
 
-  it('shows Nearby first, then every Place with people, with the Places total', () => {
-    render({ activeRooms: ROOMS });
-
-    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('49 online · 2 rooms');
-    const current = document.querySelector('[data-testid="current-group-section"]');
-    expect(current?.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).not.toBeNull();
-    expect(current?.querySelector('.chatroom-icon')).toBeNull(); // no meaningless pin
+    expect(document.querySelector('[data-testid="room-list-total"]')).toBeNull();
+    expect(document.querySelector('[data-testid="current-group-section"]')).toBeNull();
+    expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
     const rows = Array.from(document.querySelectorAll('[data-testid="room-list-row"]'));
     expect(rows.map((row) => row.querySelector('.chatroom-name')?.textContent?.trim())).toEqual(['Bean There Café', 'Echo Park']);
+    expect(rows.every((row) => row.querySelector('.chatroom-icon')?.textContent === '🚪')).toBe(true);
     expect(rows[0]?.textContent).toContain('46 people');
     expect(rows[0]?.querySelector('.chatroom-description')?.textContent).toMatch(/^Place · [\d.]+ (km|mi) SW$/);
     expect(rows.every((row) => row.getAttribute('data-room-kind') === 'place')).toBe(true);
+    expect(document.querySelector('.chatroom-arrow')).toBeNull();
     expect(document.querySelector('.chatroom-expand-icon')).toBeNull();
     expect(document.querySelector('[data-level]')).toBeNull();
     expect(document.querySelector('[data-testid="cohort-status"]')).toBeNull();
+    expect(Array.from(document.querySelectorAll('[data-testid="nearby-person-row"]'), (row) => row.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('Alice'), expect.stringContaining('Bob')]),
+    );
+    const browserSections = Array.from(document.querySelectorAll('[data-testid="nearby-browser-list"] > section'));
+    expect(browserSections.map((section) => section.getAttribute('data-testid')))
+      .toEqual(['nearby-people-section', 'rooms-near-you-section']);
+    expect(rows.every((row) => row.querySelector('button') === null)).toBe(true);
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    expect((document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLElement).style.display)
+      .toBe('inline-flex');
+    expect(document.body.textContent).not.toContain('People near you');
+    expect(document.body.textContent).not.toContain('Loading rooms');
   });
 
-  it('labels a map-selected Nearby audience as travel', () => {
+  it('does not turn a map-selected Nearby audience into a visible room', () => {
     render({ travelModeActive: true });
 
-    const current = document.querySelector('[data-testid="current-group-section"]');
-    expect(current?.textContent).toContain('Traveler');
-    expect(current?.textContent).toContain('Based on the map point you selected');
+    expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
+    expect(document.querySelector('[data-testid="nearby-people-section"]')).not.toBeNull();
   });
 
-  it('tapping Nearby or a Place enters it', () => {
+  it('puts Meet new people in the action bar and confirms before changing groups', async () => {
     const emit = jest.fn();
-    render({ activeRooms: ROOMS, emit });
+    render({
+      emit,
+      nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }],
+    });
+
+    const action = document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement;
+    expect(action.style.display).toBe('inline-flex');
+    expect(action.getAttribute('aria-label')).toBe('Meet new people');
+    action.click();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent)
+      .toContain('Swap these 2 people for the next people near you.');
+    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
+  });
+
+  it('tapping a room enters it and tapping a person opens that person', () => {
+    const emit = jest.fn();
+    const openPeerDetail = jest.fn();
+    render({ activeRooms: ROOMS, emit, openPeerDetail, nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }] });
     document.body.insertAdjacentHTML('beforeend', '<div id="chatroom-members-list"></div><div id="current-chatroom-title"></div>');
 
-    (document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`) as HTMLElement).click();
-    expect(emit).toHaveBeenCalledWith('chatroomChanged', NEARBY_ID);
+    expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
 
     (document.querySelector(`.chatroom-item[data-chatroom-id="${LA_PLACE_ID}"]`) as HTMLElement).click();
     expect(emit).toHaveBeenCalledWith('chatroomChanged', LA_PLACE_ID);
     expect(emit).not.toHaveBeenCalledWith('travelNearbyAtPoint', expect.anything());
+    (document.querySelector('[data-testid="nearby-person-row"]') as HTMLElement).click();
+    expect(openPeerDetail).toHaveBeenCalledWith('alice', 'Alice');
+  });
+
+  it('enters a room from the whole row with keyboard activation and renders no Enter control', () => {
+    const emit = jest.fn();
+    render({ activeRooms: ROOMS, emit });
+    document.body.insertAdjacentHTML('beforeend', '<div id="chatroom-members-list"></div><div id="current-chatroom-title"></div>');
+    const row = document.querySelector(`[data-testid="room-list-row"][data-chatroom-id="${LA_PLACE_ID}"]`) as HTMLElement;
+
+    expect(row.getAttribute('role')).toBe('button');
+    expect(row.getAttribute('tabindex')).toBe('0');
+    expect(row.querySelector('button')).toBeNull();
+    expect(row.textContent).not.toContain('Enter');
+
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(emit).toHaveBeenCalledWith('chatroomChanged', LA_PLACE_ID);
   });
 
   it('never shows a Place as full: a busy one is entered like any other (§3.7 "Places in v3")', () => {
@@ -126,55 +174,56 @@ describe('flat Nearby and Places list', () => {
   it('shows the Place as the current group while inside it', () => {
     render({ currentChatroom: PLACE_ID });
 
-    expect(document.querySelector('[data-testid="current-group-section"]')?.textContent).toContain('Bean There Café');
+    expect(document.querySelector('.chatroom-item.current-room')?.textContent).toContain('Bean There Café');
   });
 
-  it('starts collection from the current group and restores its live summary', () => {
-    const emit = jest.fn();
-    render({ emit });
-    expect(document.querySelector('[data-testid="match-collection-card"]')?.textContent).toContain('Collect matches');
-    (document.querySelector('[data-testid="match-collection-toggle"]') as HTMLButtonElement).click();
-    expect(emit).toHaveBeenCalledWith('startMatchCollection', { scopeId: NEARBY_ID, label: 'People near you' });
-
-    startMatchCollectionSession({ label: 'People near you', scopeId: NEARBY_ID });
-    recordMatchCollectionDelivery({ talkIds: ['talk-a'], peerIds: ['alice', 'bob'] });
-    recordMatchCollectionExchange('alice', 'talk-a', 'match');
-    render({ emit });
-    expect(document.querySelector('[data-testid="match-collection-summary"]')?.textContent).toContain('2 reached · 1 replies · 1 pending · 1 matches');
-    (document.querySelector('[data-testid="match-collection-broadcast"]') as HTMLButtonElement).click();
-    expect(emit).toHaveBeenCalledWith('broadcastMatchCollection', {});
-    (document.querySelector('[data-testid="match-collection-review"]') as HTMLButtonElement).click();
-    expect(emit).toHaveBeenCalledWith('reviewMatchCollection', expect.objectContaining({ sessionId: expect.any(String) }));
-    (document.querySelector('[data-testid="match-collection-toggle"]') as HTMLButtonElement).click();
-    expect(emit).toHaveBeenCalledWith('endMatchCollection', {});
+  it('does not put match-collection controls or status cards in the room browser', () => {
+    render({ nearbyBroadcastProgress: { sent: 3, total: 7 } });
+    expect(document.querySelector('[data-testid="match-collection-card"]')).toBeNull();
+    expect(document.querySelector('[data-testid="match-collection-toggle"]')).toBeNull();
+    expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
   });
 });
 
 describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
-  it('names Nearby "People near you" and counts my list, then everyone online', () => {
-    render({ activeRooms: ROOMS, chatroomMemberCounts: new Map([[NEARBY_ID, 12], [PLACE_ID, 46]]), nearbyOnline: 12_345 });
-    const current = document.querySelector('[data-testid="current-group-section"]');
-    expect(current?.querySelector('.chatroom-name')?.textContent).toContain('People near you');
-    expect(current?.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('12 near you · 12,345 online');
-    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('12,345 online · 2 rooms');
+  it('formats my list count and the broader online count for the AppBar', () => {
+    const nearbyMembers = Array.from({ length: 12 }, (_, index) => ({ userId: `person-${index}`, stageName: `Person ${index}` }));
+    render({ activeRooms: ROOMS, nearbyMembers, nearbyOnline: 12_345 });
+    expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
+    expect(nearbyHeadcountText({ text: (key) => uiText('en', key), nearbyOnline: 12_345 }, 12))
+      .toBe('12 near you · 12,345 online');
+    expect(document.querySelector('[data-testid="nearby-headcount"]')).toBeNull();
+    expect(document.querySelector('[data-testid="room-list-total"]')).toBeNull();
+  });
+
+  it('omits the rooms section when no custom room exists', () => {
+    render({
+      customChatrooms: [],
+      activeRooms: { rooms: [], totalOnline: 1, totalRooms: 0, hasMore: false },
+      nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }],
+    });
+    expect(document.querySelector('[data-testid="rooms-near-you-section"]')).toBeNull();
+    expect(document.querySelector('[data-testid="room-list-header"]')).toBeNull();
+    expect(document.querySelector('[data-testid="room-list-sort"]')).toBeNull();
+    expect(document.querySelector('[data-testid="nearby-person-row"]')?.textContent).toContain('Alice');
   });
 
   it('says only "N near you" until the hub reports who is online', () => {
     render({ chatroomMemberCounts: new Map([[NEARBY_ID, 0]]) });
-    expect(document.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('0 near you');
+    expect(nearbyHeadcountText({ text: (key) => uiText('en', key) }, 0)).toBe('0 near you');
+    expect(document.querySelector('[data-testid="nearby-headcount"]')).toBeNull();
   });
 
-  it('shows "Sent to N of M" for the latest broadcast, in Nearby and in a Place (both are my list)', () => {
+  it('keeps broadcast progress out of the file-browser list', () => {
     render({ nearbyBroadcastProgress: { sent: 120, total: 498 } });
-    expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')?.textContent).toBe('Sent to 120 of 498');
-    render({ currentChatroom: PLACE_ID, nearbyBroadcastProgress: { sent: 3, total: 7 } });
-    expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')?.textContent).toBe('Sent to 3 of 7');
-    render({ currentChatroom: 'local_contacts_only_v1', nearbyBroadcastProgress: { sent: 3, total: 7 } });
     expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
   });
 
-  it('lists the people on my group without me, with the group bar and its confirmed switch', async () => {
-    document.body.innerHTML = '<div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>';
+  it('lists the people on my group without me, with the AppBar action and its confirmed switch', async () => {
+    document.body.innerHTML = `
+      <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+      <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
+      <div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>`;
     const emit = jest.fn();
     const counts = new Map<string, number>();
     updateChatroomMembers({
@@ -197,21 +246,24 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(counts.get(NEARBY_ID)).toBe(2);
     expect(document.getElementById('current-chatroom-status')?.textContent).toBe('2 near you · 7 online');
     expect(document.querySelectorAll('.chatroom-member-item')).toHaveLength(2);
-    // The group bar (§3.7 "Meeting new people in groups"): group 1, and a confirmed switch.
-    expect(document.querySelector('[data-testid="nearby-group-title"]')?.textContent).toBe('Group 1 · the people nearest you');
-    expect(document.querySelector('[data-testid="nearby-back-to-first-group"]')).toBeNull();
-    (document.querySelector('[data-testid="nearby-meet-new-people"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    expect((document.querySelector('[data-testid="nearby-back-to-first-group-action"]') as HTMLElement).style.display).toBe('none');
+    (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
     expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent).toContain('Swap these 2 people for the next people near you.');
     (document.querySelector('[data-testid="nearby-meet-cancel"]') as HTMLButtonElement).click();
     expect(document.querySelector('[data-testid="nearby-meet-confirm"]')).toBeNull();
     expect(emit).not.toHaveBeenCalledWith('nearbyMeetNewPeople');
-    (document.querySelector('[data-testid="nearby-meet-new-people"]') as HTMLButtonElement).click();
+    (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
     (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
     await Promise.resolve();
     expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
   });
 
-  it('shows the group, "Back to group 1" and the end of the groups', () => {
+  it('shows "Back to group 1" in the AppBar at the end of the groups', () => {
+    document.body.innerHTML = `
+      <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+      <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
+      <div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>`;
     const emit = jest.fn();
     const deps = {
       currentChatroom: NEARBY_ID,
@@ -231,11 +283,76 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       apiBase: '',
     } as never;
     updateChatroomMembers(deps, [{ userId: 'me', stageName: 'Me' }], 'me');
-    expect(document.querySelector('[data-testid="nearby-group-title"]')?.textContent).toBe('Group 3 · the next people near you');
-    expect(document.querySelector('[data-testid="nearby-group-note"]')?.textContent).toBe("You've met everyone here for now.");
-    expect(document.querySelector('[data-testid="nearby-meet-new-people"]')).toBeNull();
-    (document.querySelector('[data-testid="nearby-back-to-first-group"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    expect((document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLElement).style.display).toBe('none');
+    expect((document.querySelector('[data-testid="nearby-back-to-first-group-action"]') as HTMLElement).style.display).toBe('inline-flex');
+    (document.querySelector('[data-testid="nearby-back-to-first-group-action"]') as HTMLButtonElement).click();
     expect(emit).toHaveBeenCalledWith('nearbyBackToFirstGroup');
+  });
+
+  it('uses the same AppBar paging action inside a Place', async () => {
+    document.body.innerHTML = `
+      <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+      <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
+      <div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>`;
+    const emit = jest.fn();
+    updateChatroomMembers({
+      currentChatroom: PLACE_ID,
+      chatroomMemberCounts: new Map(),
+      chatroomVisitCounts: new Map(),
+      matchedUserIds: new Set(),
+      customChatrooms: [],
+      nearbyGroup: { group: 1, exhausted: false },
+      setCurrentChatroomMembers: jest.fn(),
+      renderChatroomList: jest.fn(),
+      escapeHtml: (value: string) => value,
+      emit,
+      text: (key: string) => uiText('en', key as never),
+      isUserOnline: () => false,
+      formatDate: () => '',
+      currentUserId: 'me',
+      apiBase: '',
+    } as never, [
+      { userId: 'me', stageName: 'Me' },
+      { userId: 'ann', stageName: 'Ann' },
+      { userId: 'bo', stageName: 'Bo' },
+    ], 'me');
+
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent)
+      .toContain('Swap these 2 people for the next people in this Place.');
+    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
+  });
+
+  it('preserves the v3 roster order inside the opened room', () => {
+    document.body.innerHTML = '<div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>';
+    const deps = {
+      currentChatroom: NEARBY_ID,
+      chatroomMemberCounts: new Map(),
+      chatroomVisitCounts: new Map(),
+      matchedUserIds: new Set(),
+      customChatrooms: [],
+      setCurrentChatroomMembers: jest.fn(),
+      renderChatroomList: jest.fn(),
+      escapeHtml: (value: string) => value,
+      emit: jest.fn(),
+      text: (key: string) => uiText('en', key as never),
+      isUserOnline: () => false,
+      formatDate: () => '',
+      currentUserId: 'me',
+      apiBase: '',
+    } as never;
+    updateChatroomMembers(deps, [
+      { userId: 'me', stageName: 'Me' },
+      { userId: 'farther', stageName: 'First by v3', joinedAt: '2020-01-01T00:00:00.000Z' },
+      { userId: 'newer', stageName: 'Second by v3', joinedAt: '2030-01-01T00:00:00.000Z' },
+    ], 'me');
+
+    expect(Array.from(document.querySelectorAll('.chatroom-member-name'), (row) => row.textContent?.trim()))
+      .toEqual(['First by v3', 'Second by v3']);
   });
 });
 

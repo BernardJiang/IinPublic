@@ -1,6 +1,6 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { getAnsweredTalkByContent, setAnsweredTalkByContent } from './answer-preferences-storage';
-import { getTalkContentKey, saveFlatAnswerHistoryRecord } from './answer-history-storage';
+import { deleteFlatAnswerHistoryForTalk, getTalkContentKey, saveFlatAnswerHistoryRecord } from './answer-history-storage';
 import { getCopyTalkAutoSave } from './ui-settings-storage';
 import { getMyTalks, setMyTalks, type MyTalkEntry } from './my-talks-storage';
 import type { UiTranslationKey } from './ui-translations';
@@ -121,7 +121,11 @@ export function completeTalk(
   }, deps);
   // Ignore is a talk-list state, not an answer. Keep it out of the normal Me-tab Q&A history;
   // the dedicated Ignored list is the one place where it should remain visible.
-  if (!wasIgnored) {
+  if (wasIgnored) {
+    // A later Pass replaces an earlier Like. Do not leave the accepted tag behind in Me while
+    // its Talks row is now in Passed.
+    deleteFlatAnswerHistoryForTalk(talkIdToUse);
+  } else {
     saveFlatAnswerHistoryRecord(
       talkIdToUse, talk, completedAnswers, outcome ?? existingEntry?.outcome ?? 'mismatch', senders,
       meta?.answeredByChatbot ? { answeredBy: 'chatbot' } : {},

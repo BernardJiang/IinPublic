@@ -259,9 +259,11 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
   const viewPanels = document.querySelectorAll('.view-panel');
   const headerTitle = document.getElementById('header-title');
   const headerActions = document.getElementById('header-actions');
+  let settingsRenderToken = 0;
 
   navButtons.forEach((button) => {
     button.addEventListener('click', () => {
+      const renderToken = ++settingsRenderToken;
       const targetView = (button as HTMLElement).dataset.view;
       if (!targetView) return;
       document.getElementById('broadcast-preamble-modal')?.remove();
@@ -296,8 +298,20 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
         deps.displayAnswersList();
       }
       if (targetView === 'settings') {
-        const user = deps.getCurrentUser();
-        if (user) deps.renderSettingsView(user);
+        const content = document.getElementById('settings-content');
+        if (content && !content.hasChildNodes()) content.textContent = deps.t('loading');
+        const render = () => {
+          if (renderToken !== settingsRenderToken || !button.classList.contains('active')) return;
+          const user = deps.getCurrentUser();
+          if (user) deps.renderSettingsView(user);
+        };
+        // Commit the active-tab chrome first. requestAnimationFrame callbacks run before paint,
+        // so put the expensive render in the following task to guarantee a responsive tap.
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => window.setTimeout(render, 0));
+        } else {
+          window.setTimeout(render, 0);
+        }
       }
     });
   });

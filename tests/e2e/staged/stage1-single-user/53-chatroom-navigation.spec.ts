@@ -196,7 +196,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     await home.click();
     await afterNav();
     await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby-v3$/);
-    await expect(home).toBeDisabled();
+    await expect(home).toBeHidden();
 
     await p.locator(`.chatroom-item[data-chatroom-id="${createdPlaceId}"]`).click();
     await afterNav();

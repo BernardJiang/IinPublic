@@ -8,5 +8,5 @@ Covers the Place lifecycle and creation limits in
    does not open. E2E bundles otherwise bake a minimum of zero; release is 12.
 2. **Trademark reminder.** The New Room form shows the trademark notice.
 3. **Empty Places stay reachable, one ever per person.** The user creates a Place and is moved into it,
-   returns home, and finds the now-empty Place under "Places near you" in the room list. Creating a
+   returns home, and finds the now-empty Place in the compact room-folder list. Creating a
    second Place is refused with "You already have a room". Tapping the listed Place enters it.

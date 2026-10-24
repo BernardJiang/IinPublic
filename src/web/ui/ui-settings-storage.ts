@@ -15,6 +15,20 @@ export function setCopyTalkAutoSave(enabled: boolean): void {
   localStorage.setItem('copyTalkAutoSave', String(enabled));
 }
 
+const MATCH_COLLECTION_ENABLED_KEY = 'iinpublic_match_collection_enabled_v1';
+
+/**
+ * Nearby match collection is an ambient behavior, not a mode people have to start from the
+ * Chatrooms page. It is on for new devices; Settings holds the one explicit opt-out.
+ */
+export function getMatchCollectionEnabled(): boolean {
+  return localStorage.getItem(MATCH_COLLECTION_ENABLED_KEY) !== 'false';
+}
+
+export function setMatchCollectionEnabled(enabled: boolean): void {
+  localStorage.setItem(MATCH_COLLECTION_ENABLED_KEY, String(enabled));
+}
+
 export function getChatbotEnabled(): boolean {
   const value = localStorage.getItem('chatbotEnabled');
   return value === null || value === 'true';

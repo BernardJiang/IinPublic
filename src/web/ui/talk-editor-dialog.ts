@@ -505,7 +505,7 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           titleInput.placeholder = text('editorTagPlaceholder', 'e.g., Coffee, Tennis, Jobs');
           titleInput.setAttribute('aria-label', text('editorTagKeyword', 'Tag keyword'));
         }
-        if (desc) (desc as HTMLElement).textContent = text('editorTagDescription', 'Tag: one keyword. Others answer with a checkbox - checked = match, unchecked = ignore.');
+        if (desc) (desc as HTMLElement).textContent = text('editorTagDescription', 'Tag: one keyword. Others answer directly with Like or Pass.');
         return;
       }
 
