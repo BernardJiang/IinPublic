@@ -12,6 +12,49 @@ export interface BrowserWindowPlacement {
   bounds: BrowserWindowBounds;
 }
 
+async function windowIdForPage(cdp: CDPSession): Promise<number> {
+  const { targetInfo } = await cdp.send('Target.getTargetInfo');
+  const { windowId } = await cdp.send('Browser.getWindowForTarget', {
+    targetId: targetInfo.targetId,
+  });
+  return windowId;
+}
+
+/**
+ * Read the physical desktop work area rather than `window.screen`, which Playwright replaces with
+ * the BrowserContext's emulated viewport. The maximize/read/restore sequence works through the
+ * same Chromium window-management API used by the demo and does not depend on a host OS command.
+ */
+export async function getBrowserWindowWorkArea(
+  page: Page,
+): Promise<BrowserWindowBounds | undefined> {
+  if (page.context().browser()?.browserType().name() !== 'chromium') return undefined;
+
+  let cdp: CDPSession | undefined;
+  try {
+    cdp = await page.context().newCDPSession(page);
+    const windowId = await windowIdForPage(cdp);
+    await cdp.send('Browser.setWindowBounds', {
+      windowId,
+      bounds: { windowState: 'maximized' },
+    });
+    await page.waitForTimeout(250);
+    const maximized = await cdp.send('Browser.getWindowBounds', { windowId });
+    await cdp.send('Browser.setWindowBounds', {
+      windowId,
+      bounds: { windowState: 'normal' },
+    });
+
+    const { left, top, width, height } = maximized.bounds;
+    if (left === undefined || top === undefined || width === undefined || height === undefined) {
+      return undefined;
+    }
+    return { left, top, width, height };
+  } finally {
+    await cdp?.detach().catch(() => {});
+  }
+}
+
 /** Position and size one headed Chromium window for multi-user visual demos. */
 export async function setBrowserWindowBounds(
   page: Page,
@@ -24,10 +67,7 @@ export async function setBrowserWindowBounds(
     cdp = await page.context().newCDPSession(page);
     // Omitting targetId can resolve the same active Chrome window for every BrowserContext.
     // Resolve this page's target explicitly so multi-user demos position the intended window.
-    const { targetInfo } = await cdp.send('Target.getTargetInfo');
-    const { windowId } = await cdp.send('Browser.getWindowForTarget', {
-      targetId: targetInfo.targetId,
-    });
+    const windowId = await windowIdForPage(cdp);
     await cdp.send('Browser.setWindowBounds', { windowId, bounds });
     const actual = await cdp.send('Browser.getWindowBounds', { windowId });
     return {

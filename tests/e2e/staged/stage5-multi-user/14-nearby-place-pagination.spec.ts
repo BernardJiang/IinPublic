@@ -7,7 +7,12 @@
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { setBrowserWindowBounds } from '../../helpers/browser-window';
+import {
+  getBrowserWindowWorkArea,
+  setBrowserWindowBounds,
+  type BrowserWindowBounds,
+  type BrowserWindowPlacement,
+} from '../../helpers/browser-window';
 import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -32,57 +37,62 @@ const visualPause = async (page: Page, multiplier = 1): Promise<void> => {
 async function arrangeDemoWindows(pages: Page[]): Promise<void> {
   if (headless || pages.length === 0) return;
 
-  const screen = await pages[0]!.evaluate(() => ({
-    width: window.screen.availWidth,
-    height: window.screen.availHeight,
-  }));
-  const margin = 24;
-  const firstWidth = Math.min(720, Math.max(560, Math.floor(screen.width * 0.47)));
-  const firstHeight = Math.min(1_020, screen.height - (margin * 2));
-  const cascadeWidth = Math.min(620, Math.max(440, Math.floor(screen.width * 0.36)));
-  const cascadeLeft = Math.min(firstWidth + (margin * 2), screen.width - cascadeWidth - margin);
-  const cascadeTop = 48;
-  const cascadeHeight = Math.min(760, Math.max(560, screen.height - 240));
-  const cascadeCount = Math.max(1, pages.length - 2);
-  const xStep = Math.max(12, Math.min(32,
-    Math.floor((screen.width - cascadeLeft - cascadeWidth - margin) / cascadeCount)));
-  const yStep = Math.max(10, Math.min(22,
-    Math.floor((screen.height - cascadeTop - cascadeHeight - margin) / cascadeCount)));
+  const workArea = await getBrowserWindowWorkArea(pages[0]!);
+  if (!workArea) throw new Error('14-user demo could not read the physical browser work area');
 
-  const placements = [];
-  const firstPlacement = await setBrowserWindowBounds(pages[0]!, {
-    left: margin,
-    top: margin,
-    width: firstWidth,
-    height: firstHeight,
+  // A 5×4 mosaic uses the whole physical display. Nearby 01 owns a readable 2×2 block; the
+  // remaining users occupy individual cells around it. This keeps every title bar and page visible
+  // instead of moving thirteen almost-completely-overlapping windows by a few pixels each.
+  const columns = 5;
+  const rows = 4;
+  const margin = 12;
+  const gap = 10;
+  const cellWidth = Math.floor((workArea.width - (margin * 2) - (gap * (columns - 1))) / columns);
+  const cellHeight = Math.floor((workArea.height - (margin * 2) - (gap * (rows - 1))) / rows);
+  const cell = (column: number, row: number, columnSpan = 1, rowSpan = 1): BrowserWindowBounds => ({
+    left: workArea.left + margin + (column * (cellWidth + gap)),
+    top: workArea.top + margin + (row * (cellHeight + gap)),
+    width: (cellWidth * columnSpan) + (gap * (columnSpan - 1)),
+    height: (cellHeight * rowSpan) + (gap * (rowSpan - 1)),
   });
-  if (firstPlacement) placements.push(firstPlacement);
-  for (const [index, page] of pages.slice(1).entries()) {
-    const placement = await setBrowserWindowBounds(page, {
-      left: cascadeLeft + (index * xStep),
-      top: cascadeTop + (index * yStep),
-      width: cascadeWidth,
-      height: cascadeHeight,
-    });
+  const peerCells: BrowserWindowBounds[] = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      if (row < 2 && column < 2) continue;
+      peerCells.push(cell(column, row));
+    }
+  }
+
+  const requested = [cell(0, 0, 2, 2), ...peerCells.slice(0, pages.length - 1)];
+  const placements: BrowserWindowPlacement[] = [];
+  for (const [index, page] of pages.entries()) {
+    const placement = await setBrowserWindowBounds(page, requested[index]!);
     if (placement) placements.push(placement);
   }
 
   const windowIds = new Set(placements.map(({ windowId }) => windowId));
-  const positions = new Set(placements.map(({ bounds }) => `${bounds.left},${bounds.top}`));
-  if (placements.length !== pages.length || windowIds.size !== pages.length || positions.size !== pages.length) {
-    throw new Error(
-      `14-user demo window layout failed: ${placements.length} placements, ${windowIds.size} windows, ${positions.size} positions`,
-    );
+  const overlaps = (a: BrowserWindowBounds, b: BrowserWindowBounds): boolean =>
+    a.left < b.left + b.width && a.left + a.width > b.left
+      && a.top < b.top + b.height && a.top + a.height > b.top;
+  const overlappingPairs: string[] = [];
+  for (let first = 0; first < placements.length; first += 1) {
+    for (let second = first + 1; second < placements.length; second += 1) {
+      if (overlaps(placements[first]!.bounds, placements[second]!.bounds)) {
+        overlappingPairs.push(`${first + 1}/${second + 1}`);
+      }
+    }
   }
-  if (placements.slice(1).some(({ bounds }) => bounds.left <= placements[0]!.bounds.left)) {
-    throw new Error('14-user demo window layout failed: peer cascade is not to the right of Nearby 01');
+  if (placements.length !== pages.length || windowIds.size !== pages.length || overlappingPairs.length > 0) {
+    throw new Error(
+      `14-user demo window layout failed: ${placements.length} placements, ${windowIds.size} windows, `
+        + `overlaps=${overlappingPairs.join(',') || 'none'}`,
+    );
   }
 
   await pages[0]!.bringToFront();
   console.log(
-    `[14-user demo] Nearby 01 at ${placements[0]!.bounds.left},${placements[0]!.bounds.top}; `
-      + `Nearby 02-14 cascade from ${placements[1]!.bounds.left},${placements[1]!.bounds.top} `
-      + `to ${placements.at(-1)!.bounds.left},${placements.at(-1)!.bounds.top}.`,
+    `[14-user demo] Tiled 14 non-overlapping windows across ${workArea.width}×${workArea.height}; `
+      + `Nearby 01 is ${placements[0]!.bounds.width}×${placements[0]!.bounds.height}.`,
   );
 }
 
