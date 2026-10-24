@@ -49,24 +49,40 @@ async function arrangeDemoWindows(pages: Page[]): Promise<void> {
   const yStep = Math.max(10, Math.min(22,
     Math.floor((screen.height - cascadeTop - cascadeHeight - margin) / cascadeCount)));
 
-  await setBrowserWindowBounds(pages[0]!, {
+  const placements = [];
+  const firstPlacement = await setBrowserWindowBounds(pages[0]!, {
     left: margin,
     top: margin,
     width: firstWidth,
     height: firstHeight,
   });
+  if (firstPlacement) placements.push(firstPlacement);
   for (const [index, page] of pages.slice(1).entries()) {
-    await setBrowserWindowBounds(page, {
+    const placement = await setBrowserWindowBounds(page, {
       left: cascadeLeft + (index * xStep),
       top: cascadeTop + (index * yStep),
       width: cascadeWidth,
       height: cascadeHeight,
     });
+    if (placement) placements.push(placement);
+  }
+
+  const windowIds = new Set(placements.map(({ windowId }) => windowId));
+  const positions = new Set(placements.map(({ bounds }) => `${bounds.left},${bounds.top}`));
+  if (placements.length !== pages.length || windowIds.size !== pages.length || positions.size !== pages.length) {
+    throw new Error(
+      `14-user demo window layout failed: ${placements.length} placements, ${windowIds.size} windows, ${positions.size} positions`,
+    );
+  }
+  if (placements.slice(1).some(({ bounds }) => bounds.left <= placements[0]!.bounds.left)) {
+    throw new Error('14-user demo window layout failed: peer cascade is not to the right of Nearby 01');
   }
 
   await pages[0]!.bringToFront();
   console.log(
-    `[14-user demo] Nearby 01 is separate; Nearby 02-14 cascade by ${xStep}px × ${yStep}px.`,
+    `[14-user demo] Nearby 01 at ${placements[0]!.bounds.left},${placements[0]!.bounds.top}; `
+      + `Nearby 02-14 cascade from ${placements[1]!.bounds.left},${placements[1]!.bounds.top} `
+      + `to ${placements.at(-1)!.bounds.left},${placements.at(-1)!.bounds.top}.`,
   );
 }
 

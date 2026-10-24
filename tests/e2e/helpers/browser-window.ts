@@ -7,18 +7,38 @@ export interface BrowserWindowBounds {
   height: number;
 }
 
+export interface BrowserWindowPlacement {
+  windowId: number;
+  bounds: BrowserWindowBounds;
+}
+
 /** Position and size one headed Chromium window for multi-user visual demos. */
 export async function setBrowserWindowBounds(
   page: Page,
   bounds: BrowserWindowBounds,
-): Promise<void> {
-  if (page.context().browser()?.browserType().name() !== 'chromium') return;
+): Promise<BrowserWindowPlacement | undefined> {
+  if (page.context().browser()?.browserType().name() !== 'chromium') return undefined;
 
   let cdp: CDPSession | undefined;
   try {
     cdp = await page.context().newCDPSession(page);
-    const { windowId } = await cdp.send('Browser.getWindowForTarget');
+    // Omitting targetId can resolve the same active Chrome window for every BrowserContext.
+    // Resolve this page's target explicitly so multi-user demos position the intended window.
+    const { targetInfo } = await cdp.send('Target.getTargetInfo');
+    const { windowId } = await cdp.send('Browser.getWindowForTarget', {
+      targetId: targetInfo.targetId,
+    });
     await cdp.send('Browser.setWindowBounds', { windowId, bounds });
+    const actual = await cdp.send('Browser.getWindowBounds', { windowId });
+    return {
+      windowId,
+      bounds: {
+        left: actual.bounds.left ?? bounds.left,
+        top: actual.bounds.top ?? bounds.top,
+        width: actual.bounds.width ?? bounds.width,
+        height: actual.bounds.height ?? bounds.height,
+      },
+    };
   } finally {
     await cdp?.detach().catch(() => {});
   }
