@@ -422,6 +422,11 @@ export async function bootstrapUser(
   const context = await browser.newContext({
     viewport: { width: 640, height: 1000 },
     deviceScaleFactor: 1,
+    // Give every browser context a real browser-level GPS fix as well as the app's deterministic
+    // test injection below. This keeps the identity a Resident on every code path; no fallback
+    // encounter point or Traveler mode is needed.
+    geolocation: { latitude: location.latitude, longitude: location.longitude, accuracy: 10 },
+    permissions: ['geolocation'],
   });
   await context.addInitScript(({ latitude, longitude }) => {
     (window as Window & { __test_location?: { latitude: number; longitude: number; accuracy: number } }).__test_location = {

@@ -252,6 +252,9 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     expect(new Set(cardLocations.slice(0, SAN_DIEGO_NAMES.length)).size).toBe(1);
     expect(new Set(cardLocations.slice(SAN_DIEGO_NAMES.length)).size).toBe(1);
     expect(cardLocations[0]).not.toBe(cardLocations.at(-1));
+    const travelerFlags = await Promise.all(pages.map((page) => page.evaluate(() =>
+      (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.()?.traveler)));
+    expect(travelerFlags).toEqual(Array.from({ length: NAMES.length }, () => false));
     // Bootstrapping 20 full app identities takes longer than the hub's narrow online window on a
     // development laptop. Refresh every already-signed card together so this begins with twenty
     // genuinely live participants rather than letting the earliest setup tabs age out.
