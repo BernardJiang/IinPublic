@@ -2,6 +2,36 @@
 
 Last updated: 2026-10-24
 
+## 2026-10-24 — OPEN-86 Nearby audience pages, radio eligibility, map and UI completed
+
+- **E1 pages:** `src/shared/nearby-v3-audience.ts` decides each viewer's audience — everyone when
+  `A <= C`; the nearest `C` worldwide with no page 2 when the selected area holds `R <= C`; pages
+  inside the area only when `R > C`; a Place pages only past `C` other members. The hub ranks the
+  live leases in the viewer's own order and returns the whole first page with
+  `audience { mode, nearby, pageable, hasMore, area }`; heartbeats carry `pageable`. Viewers send
+  their page size and the hub uses `min(viewer C, hub C)`. The client re-searches when gossip brings
+  someone new into a non-pageable audience, resets to group 1 on point/size/scope/beacon changes,
+  and offers "Meet new people" only while `hasMore` (no empty last page).
+- **E2 radio:** a crowded audience's list accepts only cards inside the selected area, whichever
+  route brought them; radio sightings change no list or count; Place lists refuse Nearby cards.
+- **E3 map:** `/api/nearby/v3/stats` adds at most 1,000 public-point dots (one per count key, Nearby
+  only) for views ≤ 2.5°; green = counted by my audience (including later pages), yellow otherwise.
+  Place markers take their occupancy from the hub's room list (the map used this device's stale
+  count and showed 0 for a Place the viewer was not in — found by stage5/14).
+- **E4 UI:** `N nearby · G online` in Nearby and in a Place, where `N` = occupancy minus me (owner
+  decision 2026-10-24; room list and map keep occupancy); Settings → Area explains precision vs.
+  Nearby breadth; a newer stats count revision re-sends the current card for fresh counts.
+- **Bugs found on the way:** the hub counted with its own C (50 in E2E) against pages of 3
+  ("19 nearby"), and `service.stop()` signs a leave, which the 20-user spec used only to freeze
+  gossip ("0 online"); `stop({ leave: false })` now freezes without leaving.
+- **Verification:** typecheck, lint, Nearby/flat-view unit suites (101 tests), full unit run 3,115
+  passing with 4 unrelated baseline failures. Browsers: `stage4/08`, `stage5/14` (13 nearby / 5
+  nearby · 20 online, 5 Nearby pages, 2 Place pages, "6 nearby · 20 online" in a 7-person Place,
+  outsider's map marker 7) and new `stage5/15` (all → exactly A = C → nearest → exactly R = C →
+  crowded area with map 4 green / 1 yellow → travel → 50 km area). Phones, app 1.0.190, P30 (1 km)
+  + C10 (50 km, cells ~26 km apart): `native-app/30` offline Wi-Fi Direct (group, lists, ring Talks,
+  background delivery) and online (`1 nearby · 2 online` on both, no paging) both pass.
+
 ## 2026-10-24 — OPEN-85 authoritative presence and headcounts completed
 
 - Replaced rolling, salted count windows and the fixed 50 km Nearby filter with one expiring,

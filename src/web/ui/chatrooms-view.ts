@@ -429,7 +429,11 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       return {
         ...room,
         ...(location ? { location } : {}),
-        memberCount: deps.chatroomMemberCounts.get(room.id) || 0,
+        // The hub's room list is the occupancy of every Place; this device's own count is only
+        // current for the Place it is in (and stale for one it left), as in the list above.
+        memberCount: deps.activeRooms
+          ? deps.activeRooms.rooms.find((row) => row.roomId === room.id)?.memberCount ?? 0
+          : deps.chatroomMemberCounts.get(room.id) || 0,
         visitCount: visits.visitCount,
         uniqueVisitorCount: visits.uniqueVisitorCount,
       };

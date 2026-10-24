@@ -391,5 +391,13 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
 
     expect([...placeSeen].sort()).toEqual(NAMES.slice(1, 7).sort());
     expect(placeSeen.size).toBe(6);
+
+    // Someone outside the Place sees it on the map as one icon carrying its full occupancy (7),
+    // never as seven yellow person dots (OPEN-86 E3/E5).
+    const outsider = pages[7]!;
+    await outsider.evaluate(async () => { await (window as any).__iinpublic_app?.getApp?.()?.refreshActiveRooms?.(); });
+    await outsider.locator('[data-testid="chatroom-map-view-btn"]').click();
+    await expect(outsider.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"] .chatroom-map-marker-count`))
+      .toHaveText('7', { timeout: 60_000 });
   });
 });

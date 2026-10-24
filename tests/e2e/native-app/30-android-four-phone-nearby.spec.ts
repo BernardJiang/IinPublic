@@ -49,6 +49,13 @@ const OFFLINE_WIFI_DIRECT = process.env.E2E_NEARBY_OFFLINE_WIFI_DIRECT === '1';
 /** Diagnostic: hub path only, LAN NSD off (isolates LAN-peer effects on delivery). */
 const LAN_OFF = process.env.E2E_NEARBY_LAN_OFF === '1';
 const OFFLINE_PHONE_COUNT = Number(process.env.E2E_NEARBY_OFFLINE_PHONE_COUNT || '3');
+/**
+ * OPEN-86 E5: one area size per phone, in launch order (`close-nearby`, `neighborhood`, `citywide`,
+ * `regional`), e.g. `neighborhood,regional`. Different sizes put the phones in different blurred
+ * cells; radio is only a route, so they must still find each other and exchange Talks.
+ */
+const AREA_SIZES = (process.env.E2E_NEARBY_AREA_SIZES || '').split(',').map((value) => value.trim()).filter(Boolean);
+const AREA_METERS: Record<string, number> = { 'close-nearby': 400, neighborhood: 1_000, citywide: 10_000, regional: 50_000 };
 const FIXED_LOCATION = {
   latitude: 32.7157,
   longitude: -117.1611,
@@ -153,6 +160,25 @@ async function readBattery(serial: string): Promise<BatterySnapshot> {
 }
 
 /** Nearby v3: every phone at the same public point, each in its own list (no shared room). */
+/** Choose this phone's area size the way Settings does, and wait until its card uses it. */
+async function setAreaSize(peer: Omit<Peer, 'roomId'>, mode: string): Promise<void> {
+  const meters = AREA_METERS[mode];
+  if (!meters) throw new Error(`unknown area size ${mode}`);
+  await peer.user.window.evaluate((nearbyPrivacyMode) => {
+    const key = 'iinpublic_connectivity_settings_v1';
+    // A freshly cleared app has saved nothing yet; settings without a valid preset load as the
+    // defaults, so start from the default preset the way the Settings form does.
+    const settings = { preset: 'automatic', ...JSON.parse(localStorage.getItem(key) || '{}'), nearbyPrivacyMode };
+    localStorage.setItem(key, JSON.stringify(settings));
+    (window as any).__iinpublic_app?.getApp?.()?.uiManager?.emit('connectivitySettingsChanged', settings);
+  }, mode);
+  await expect.poll(() => peer.user.window.evaluate(() =>
+    (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.()?.point?.precisionMeters ?? null), {
+    timeout: 60_000,
+    message: `${peer.device.name} should publish its ${mode} area`,
+  }).toBe(meters);
+}
+
 async function routeToFixedNearby(peer: Omit<Peer, 'roomId'>): Promise<string> {
   const roomId = await enterNearbyAt(peer.user.window, FIXED_LOCATION);
   // The shared active scope may carry the scope id, but never the coordinate behind it.
@@ -260,7 +286,9 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       ready: await isAndroidDeviceReady(device.serial),
     })));
     const available = readiness.filter((entry) => entry.ready).map((entry) => entry.device);
-    const expectedPhoneCount = OFFLINE_WIFI_DIRECT ? OFFLINE_PHONE_COUNT : 4;
+    const expectedPhoneCount = OFFLINE_WIFI_DIRECT
+      ? OFFLINE_PHONE_COUNT
+      : Number(process.env.E2E_NEARBY_ONLINE_PHONE_COUNT || '4');
     test.skip(
       available.length !== expectedPhoneCount,
       `This scenario requires exactly ${expectedPhoneCount} connected phones; found ${available.length}.`,
@@ -298,8 +326,19 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       });
       const partial = { device, user, id, sdk: Number(metadata.sdk || 0) };
       const roomId = await routeToFixedNearby(partial);
+      if (AREA_SIZES[index]) await setAreaSize(partial, AREA_SIZES[index]!);
       peers.push({ ...partial, roomId });
       console.log(`[four-phone-nearby] ready ${device.name}: ${id} -> ${roomId}`);
+    }
+
+    if (AREA_SIZES.length) {
+      // Different area sizes publish different blurred cells (the precondition of this variant).
+      const cells = await Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {
+        const point = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.()?.point;
+        return point ? `${point.latitude},${point.longitude},${point.precisionMeters}` : '';
+      })));
+      console.log(`[four-phone-nearby] published cells: ${cells.join(' | ')}`);
+      expect(new Set(cells).size).toBe(peers.length);
     }
 
     const roomIds = new Set(peers.map((peer) => peer.roomId));
@@ -326,6 +365,15 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       }).toEqual(peers.map(() => peers.length - 1));
     } else {
       await everyoneListsEveryone(peers.map(participant));
+      // Online, the hub counts everyone else whatever their area size: all fit on one page here.
+      if (AREA_SIZES.length) {
+        await expect.poll(() => Promise.all(peers.map((peer) => peer.user.window.evaluate(() =>
+          document.querySelector('[data-testid="nearby-headcount"]')?.textContent?.trim() ?? ''))), {
+          timeout: 120_000,
+          intervals: [2_000, 5_000],
+          message: 'every phone should count the others whatever their area size',
+        }).toEqual(peers.map(() => `${peers.length - 1} nearby · ${peers.length} online`));
+      }
 
       // Talks can travel over the hub alone; this proves every phone also found every other over LAN NSD.
       if (!LAN_OFF) await expect.poll(async () => Promise.all(peers.map((peer) => peer.user.window.evaluate(() => {

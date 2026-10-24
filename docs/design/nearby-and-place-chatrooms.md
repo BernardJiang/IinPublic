@@ -575,8 +575,8 @@ travel. Travel lands in your own lane.
 Status: **the 2026-10-19 baseline and OPEN-85's 2026-10-24 authoritative presence/headcount
 foundation are implemented; OPEN-86 E1–E4 (audience pages, directional radio eligibility,
 green/yellow map dots, paging UI and bounded count refresh) landed on 2026-10-24 in
-`src/shared/nearby-v3-audience.ts`, the hub and the client; E5 browser/device qualification
-remains.** There
+`src/shared/nearby-v3-audience.ts`, the hub and the client, and E5 browser/device qualification
+passed the same day (see `docs/completed.md`).** There
 is no prior official release to preserve, so v3 replaced v2 outright. The revision keeps personal
 lists and removes no working transport, but restores yellow map dots, separates the uncapped
 candidate headcount from the at-most-`C` visible page, and makes the user's selected blurred

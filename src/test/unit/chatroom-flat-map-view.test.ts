@@ -27,7 +27,17 @@ describe('flat chatroom map', () => {
 
     renderChatroomList({
       currentChatroom: NEARBY_ID,
-      chatroomMemberCounts: new Map(),
+      // Stale on this device (a Place it is not in); the hub's room list has the occupancy.
+      chatroomMemberCounts: new Map([[PLACE_ID, 0]]),
+      activeRooms: {
+        totalOnline: 9,
+        totalRooms: 1,
+        hasMore: false,
+        rooms: [{
+          roomId: PLACE_ID, kind: 'place', name: 'Bean There Café', memberCount: 7,
+          latitude: 32.71, longitude: -117.17, distanceMeters: 900, bearingDegrees: 200,
+        }],
+      },
       chatroomVisitCounts: new Map(),
       chatroomBrowseMode: 'map',
       expandedChatrooms: new Set(),
@@ -57,6 +67,7 @@ describe('flat chatroom map', () => {
     const options = mapRenderer.mock.calls[0]![0];
     // Nearby is my own people list, never a map destination (§3.7, OPEN-86 E3): only Place pins.
     expect(options.rooms.map((room) => room.id)).toEqual([PLACE_ID]);
+    expect(options.rooms[0]?.memberCount).toBe(7);
     expect(options.rooms.find((room) => room.id === PLACE_ID)?.location).toEqual({
       latitude: 32.71,
       longitude: -117.17,
