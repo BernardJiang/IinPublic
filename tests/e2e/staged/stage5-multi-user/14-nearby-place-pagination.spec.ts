@@ -265,6 +265,14 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
       const card = runtime?.service?.card?.();
       if (card) await runtime.hub.heartbeat(card);
     })));
+    // The first pass makes every card live. Heartbeat once more only after that barrier so every
+    // browser receives counts from the same complete population. Without this, a long headed run
+    // could leave an early response at 10 San Diego users while later cards were still refreshing.
+    await Promise.all(pages.map((page) => page.evaluate(async () => {
+      const runtime = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3;
+      const card = runtime?.service?.card?.();
+      if (card) await runtime.hub.heartbeat(card);
+    })));
     await expect.poll(() => Promise.all(pages.map((page) => page.evaluate(() =>
       String((window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.()?.stageName || '')))),
     { timeout: 60_000, intervals: [250, 500, 1_000] }).toEqual(NAMES);
@@ -273,6 +281,23 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     // during the deliberate two-second pause between actions.
     await Promise.all(pages.map((page) => page.evaluate(() =>
       (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.stop?.())));
+    await Promise.all(pages.slice(0, SAN_DIEGO_NAMES.length).map((page) =>
+      expect(page.locator('[data-testid="nearby-headcount"]')).toHaveText(
+        '13 nearby · 20 online',
+        { timeout: 120_000 },
+      )));
+    await Promise.all(pages.slice(SAN_DIEGO_NAMES.length).map((page) =>
+      expect(page.locator('[data-testid="nearby-headcount"]')).toHaveText(
+        '5 nearby · 20 online',
+        { timeout: 120_000 },
+      )));
+    if (!headless) {
+      // Show one LA resident's final self-exclusive count, then restore the unobstructed actor.
+      await pages[SAN_DIEGO_NAMES.length]!.bringToFront();
+      await visualPause(first);
+      await first.bringToFront();
+      await visualPause(first);
+    }
     await first.waitForTimeout(1_000);
     // The first page may have cached cards received before peers finished their profile rename.
     // Merge every peer's newly signed card into the first user's bounded list. This refreshes any

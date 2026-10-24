@@ -77,6 +77,8 @@ describe('Nearby v3 hub', () => {
 
     const result = hub.ingest(card('sd-0', SD), NOW + 1);
     expect(result).toMatchObject({ nearby: 13, online: 20 });
+    const losAngelesResult = hub.ingest(card('la-0', LA), NOW + 2);
+    expect(losAngelesResult).toMatchObject({ nearby: 5, online: 20 });
   });
 
   it('stops introducing a phone that missed two heartbeats, although its card is still valid', () => {
