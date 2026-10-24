@@ -142,30 +142,23 @@ export function roomMetaText(row: RoomListRow, t: T): string {
   return t('roomListPeople').replace('{count}', String(row.memberCount));
 }
 
-/** Header: my Nearby headcount (and the hub total when known), plus the room sort choice. */
+/** The room sort row. Nearby headcounts live in the AppBar, where they remain visible. */
 export function renderRoomListHeader(
-  view: ActiveRoomsView | undefined,
   sort: ActiveRoomSort,
   t: T,
-  nearbyCount: number,
   showSort: boolean,
-  nearbyOnline?: number,
 ): string {
-  const online = nearbyOnline ?? view?.totalOnline;
-  const total = online !== undefined
-    ? t('nearbyCountOnline').replace('{count}', String(nearbyCount)).replace('{online}', online.toLocaleString('en-US'))
-    : t('nearbyCountNearYou').replace('{count}', String(nearbyCount));
+  if (!showSort) return '';
   const option = (value: ActiveRoomSort, key: UiTranslationKey) =>
     `<option value="${value}" ${sort === value ? 'selected' : ''}>${t(key)}</option>`;
-  return `<div class="room-list-header" data-testid="room-list-header">
-      <span class="room-list-total" data-testid="room-list-total"><span data-testid="nearby-headcount">${total}</span></span>
-      ${showSort ? `<label class="room-list-sort">${t('roomListSort')}
+  return `<div class="room-list-header room-list-header-sort-only" data-testid="room-list-header">
+      <label class="room-list-sort">${t('roomListSort')}
         <select id="room-list-sort" data-testid="room-list-sort">
           ${option('nearest', 'roomListSortNearest')}
           ${option('busiest', 'roomListSortBusiest')}
           ${option('most-room', 'roomListSortMostRoom')}
         </select>
-      </label>` : ''}
+      </label>
     </div>`;
 }
 

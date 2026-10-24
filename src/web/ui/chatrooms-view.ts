@@ -338,7 +338,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   };
 
   chatroomList.innerHTML = `
-    ${renderRoomListHeader(deps.activeRooms, sort, deps.text, nearbyPeople.length, showRoomsSection, deps.nearbyOnline)}
+    ${renderRoomListHeader(sort, deps.text, showRoomsSection)}
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
       <div id="nearby-browser-members">

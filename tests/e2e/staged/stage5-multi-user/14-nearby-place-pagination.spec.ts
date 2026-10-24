@@ -177,7 +177,11 @@ test.describe('14-user Nearby and Place pagination demo', () => {
       await app?.refreshActiveRooms?.();
     });
     await first.bringToFront();
-    await expect(first.locator('[data-testid="nearby-headcount"]')).toContainText('14 online', { timeout: 120_000 });
+    await expect(first.locator('[data-testid="nearby-headcount"]')).toHaveText(
+      '3 near you · 14 online',
+      { timeout: 120_000 },
+    );
+    await expect(first.locator('[data-testid="room-list-total"]')).toHaveCount(0);
 
     const nearbySeen = new Set<string>();
     const nearbyPageSizes = [3, 3, 3, 3, 1];

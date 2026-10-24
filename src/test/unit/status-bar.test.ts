@@ -54,6 +54,19 @@ describe('updateStatusBar', () => {
     updateStatusBar('Global', 3, undefined, { tf, getTotalMatches: () => 2 });
     expect((document.getElementById('status-bar-text') as HTMLElement).dataset.statusBarBase).toBe('statusBarUsers(3)');
   });
+
+  it('uses a scope-specific Nearby summary instead of the redundant inclusive user count', () => {
+    updateStatusBar('Nearby', 4, undefined, {
+      tf,
+      getTotalMatches: () => 0,
+      baseText: '3 near you · 14 online',
+      baseTestId: 'nearby-headcount',
+    });
+    const bar = document.getElementById('status-bar-text')!;
+    expect(bar.textContent).toBe('3 near you · 14 online');
+    expect(bar.dataset.statusBarBase).toBe('3 near you · 14 online');
+    expect(bar.getAttribute('data-testid')).toBe('nearby-headcount');
+  });
 });
 
 describe('syncStatusBarMatchCount', () => {

@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import '@testing-library/jest-dom';
-import { renderChatroomList, updateChatroomMembers, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
+import { nearbyHeadcountText, renderChatroomList, updateChatroomMembers, type CustomChatroomRow } from '../../web/ui/chatrooms-view';
 import { uiText } from '../../web/ui/ui-translations';
 import type { ActiveRoomsView } from '../../shared/active-rooms';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
@@ -77,7 +77,7 @@ describe('flat Nearby and Places list', () => {
       ],
     });
 
-    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('2 near you · 49 online');
+    expect(document.querySelector('[data-testid="room-list-total"]')).toBeNull();
     expect(document.querySelector('[data-testid="current-group-section"]')).toBeNull();
     expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
     const rows = Array.from(document.querySelectorAll('[data-testid="room-list-row"]'));
@@ -186,12 +186,14 @@ describe('flat Nearby and Places list', () => {
 });
 
 describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
-  it('counts my list in the top row, then everyone online', () => {
+  it('formats my list count and the broader online count for the AppBar', () => {
     const nearbyMembers = Array.from({ length: 12 }, (_, index) => ({ userId: `person-${index}`, stageName: `Person ${index}` }));
     render({ activeRooms: ROOMS, nearbyMembers, nearbyOnline: 12_345 });
     expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
-    expect(document.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('12 near you · 12,345 online');
-    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('12 near you · 12,345 online');
+    expect(nearbyHeadcountText({ text: (key) => uiText('en', key), nearbyOnline: 12_345 }, 12))
+      .toBe('12 near you · 12,345 online');
+    expect(document.querySelector('[data-testid="nearby-headcount"]')).toBeNull();
+    expect(document.querySelector('[data-testid="room-list-total"]')).toBeNull();
   });
 
   it('omits the rooms section when no custom room exists', () => {
@@ -201,13 +203,15 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }],
     });
     expect(document.querySelector('[data-testid="rooms-near-you-section"]')).toBeNull();
+    expect(document.querySelector('[data-testid="room-list-header"]')).toBeNull();
     expect(document.querySelector('[data-testid="room-list-sort"]')).toBeNull();
     expect(document.querySelector('[data-testid="nearby-person-row"]')?.textContent).toContain('Alice');
   });
 
   it('says only "N near you" until the hub reports who is online', () => {
     render({ chatroomMemberCounts: new Map([[NEARBY_ID, 0]]) });
-    expect(document.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('0 near you');
+    expect(nearbyHeadcountText({ text: (key) => uiText('en', key) }, 0)).toBe('0 near you');
+    expect(document.querySelector('[data-testid="nearby-headcount"]')).toBeNull();
   });
 
   it('keeps broadcast progress out of the file-browser list', () => {

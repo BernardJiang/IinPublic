@@ -17,6 +17,10 @@ export function countMatchConversations(conversations: Record<string, unknown>):
 export type UpdateStatusBarDeps = {
   tf: (key: UiTranslationKey, vars: Record<string, string | number>) => string;
   getTotalMatches: () => number;
+  /** Scope-specific text such as "3 near you · 14 online". */
+  baseText?: string;
+  /** Applied to the status element so E2E and accessibility checks can identify the summary. */
+  baseTestId?: string;
 };
 
 /**
@@ -33,9 +37,11 @@ export function updateStatusBar(
   const statusBarText = document.getElementById('status-bar-text');
   if (!statusBarText) return;
 
-  const userText = deps.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
-  const base = userText;
+  const base = deps.baseText
+    ?? deps.tf(memberCount === 1 ? 'statusBarUser' : 'statusBarUsers', { count: memberCount });
   statusBarText.dataset.statusBarBase = base;
+  if (deps.baseTestId) statusBarText.setAttribute('data-testid', deps.baseTestId);
+  else statusBarText.removeAttribute('data-testid');
   const localTotalMatches = deps.getTotalMatches();
   const effectiveTotalMatches = localTotalMatches > 0 ? localTotalMatches : (totalMatches ?? 0);
   let text = base;
