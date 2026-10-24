@@ -79,6 +79,7 @@ import {
   hasNoHubRoster,
   hasRoomChat,
   isPersonalListScope,
+  isCatchUpRecipient,
   isNearbyPublicMode,
   isNearbyRoomId,
   type NearbyPrivacyMode,
@@ -3515,6 +3516,11 @@ export class IinPublicApp {
     if (peerId === TECHSUPPORT_ROOT_USER_ID) return;
     const scope = this.activeExchangeRoomController?.getScope();
     if (!scope || scope.roomId !== roomId || this.currentChatroomId !== roomId) return;
+    // A link opened from the other side is only a route: in Nearby and Places my Talks catch up
+    // only with people on my current page (found by stage5/14: "page1" reached someone whose own
+    // page held me, although mine did not hold them).
+    const currentList = new Set(this.nearbyV3?.service.entries().map((entry) => entry.card.userId) ?? []);
+    if (!isCatchUpRecipient(roomId, peerId, currentList)) return;
     const key = `${roomId}|${peerId}`;
     const now = Date.now();
     if (!options.ignoreInterval && now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;

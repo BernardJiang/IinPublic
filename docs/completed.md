@@ -24,6 +24,11 @@ Last updated: 2026-10-24
 - **Bugs found on the way:** the hub counted with its own C (50 in E2E) against pages of 3
   ("19 nearby"), and `service.stop()` signs a leave, which the 20-user spec used only to freeze
   gossip ("0 online"); `stop({ leave: false })` now freezes without leaving.
+- **Follow-up (same day):** `stage5/14` now exchanges one tag per page (`page1`–`page5`,
+  `custompage1`–`2`, `LAPage1`–`2`) and checks that only that page receives and likes it. It found
+  that automatic catch-up sent owed Talks to anyone who opened a link — someone whose own page held
+  the author, although the author's did not hold them. Catch-up in Nearby and Places now goes only
+  to the author's current list (`isCatchUpRecipient`, `src/shared/nearby-rooms.ts`).
 - **Verification:** typecheck, lint, Nearby/flat-view unit suites (101 tests), full unit run 3,115
   passing with 4 unrelated baseline failures. Browsers: `stage4/08`, `stage5/14` (13 nearby / 5
   nearby · 20 online, 5 Nearby pages, 2 Place pages, "6 nearby · 20 online" in a 7-person Place,

@@ -1,8 +1,10 @@
 /**
  * Visible 20-user pagination journey: 14 in San Diego, 6 in Los Angeles.
  *
- * Capacity C = 3. The first user pages through all 13 other people in Nearby, creates a Place,
- * then six other users enter it and the first user pages through both three-person Place groups.
+ * Capacity C = 3. The first user pages through all 13 other people in Nearby with one tag Talk per
+ * page ("page1" … "page5"), creates a Place that five others enter ("custompage1", "custompage2"),
+ * then travels to Los Angeles ("LAPage1", "LApage2"). Each tag reaches exactly the people on that
+ * page, who like it; the author collects exactly those likes; nobody else holds it.
  * The deliberate headed pauses make this suitable as both an E2E gate and a visual demo.
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
@@ -17,6 +19,9 @@ import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { webAppURLStableChatroom } from '../../helpers/ports';
+import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
+import type { TestActor } from '../../helpers/test-actor';
+import { createTagTalk } from '../../journeys/nearby-ring-journey';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -142,6 +147,100 @@ async function expectFreshPage(
   return names;
 }
 
+type Person = { page: Page; name: string; userId: string };
+
+/** Incoming Talk titles on this device's own local graph (exact titles, not substrings). */
+const incomingTalks = (page: Page): Promise<Array<{ title: string; talkId: string }>> => page.evaluate(async () => {
+  const app = (window as any).__iinpublic_app?.getApp?.();
+  const clusters = (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
+  return clusters.map((cluster: { title?: string; latestTalkId?: string }) => ({
+    title: String(cluster.title || ''),
+    talkId: String(cluster.latestTalkId || '').split('__')[0] || '',
+  }));
+});
+
+/**
+ * The first user's Talk exchanges with the people on their current page (Nearby or Place). Each
+ * exchange: create a tag, broadcast, every person on the page receives and likes it, the author
+ * collects exactly those likes, and nobody else holds that tag. A broadcast carries all of the
+ * author's active Talks and each new audience catches up on them (§3.7 "A new group and a new Place
+ * are the same kind of move"), so an older tag may also reach people met later — but never anyone
+ * the author has not had on a page.
+ */
+class TalkExchanges {
+  private readonly tags: string[] = [];
+  private readonly met = new Set<string>();
+  private readonly author: Person;
+
+  constructor(private readonly people: Person[]) {
+    this.author = people[0]!;
+  }
+
+  async run(title: string, expectedCount: number): Promise<void> {
+    const { page } = this.author;
+    const startedAt = Date.now();
+    const pageIds: string[] = await page.evaluate(() => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const me = String(app?.currentUser?.id || '');
+      return (app?.uiManager?.getCurrentChatroomMembers?.() ?? [])
+        .map((member: { userId: string }) => member.userId)
+        .filter((userId: string) => userId && userId !== me);
+    });
+    expect(pageIds, `${title}: the current page`).toHaveLength(expectedCount);
+    const recipients = pageIds.map((userId) => this.people.find((person) => person.userId === userId)!);
+    expect(recipients.every(Boolean)).toBe(true);
+    pageIds.forEach((userId) => this.met.add(userId));
+
+    const actor: TestActor = { id: this.author.name, runtime: 'browser', page };
+    const talk = await createTagTalk(actor, title);
+    const sent = await page.evaluate((count) =>
+      (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(count), expectedCount);
+    expect(sent?.receivers, `${title}: broadcast audience`).toBe(expectedCount);
+
+    // Every person on the page receives the tag and likes it.
+    await Promise.all(recipients.map(async (person) => {
+      let talkId = '';
+      await expect.poll(async () => {
+        talkId = (await incomingTalks(person.page)).find((entry) => entry.title === title)?.talkId ?? '';
+        return talkId;
+      }, { timeout: 120_000, intervals: [1_000, 2_000], message: `${person.name} should receive ${title}` }).not.toBe('');
+      expect(talkId).toBe(talk.talkId);
+      const talkData = await person.page.evaluate((id) =>
+        (window as any).__iinpublic_app?.getApp?.()?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }) ?? null, talkId);
+      expect(talkData, `${person.name} should open ${title}`).toBeTruthy();
+      await completeTalkInAppByAnswerIds(person.page, talkId, talkData, ['a_0_match'], 'match');
+    }));
+
+    // The author collects exactly those likes: one match conversation per person, for this tag.
+    await expect.poll(() => page.evaluate((talkId) => {
+      const conversations = (window as any).__iinpublic_app?.getApp?.()?.uiManager?.getMyConversations?.() ?? {};
+      return Object.values(conversations)
+        .filter((conversation: any) => conversation?.talkId === talkId)
+        .map((conversation: any) => String(conversation.otherUserId))
+        .sort();
+    }, talk.talkId), { timeout: 120_000, intervals: [1_000, 2_000], message: `the author should collect ${title} likes` })
+      .toEqual([...pageIds].sort());
+    this.tags.push(title);
+
+    // Nobody else holds this tag, and no earlier tag reached anyone the author never had on a page.
+    await page.waitForTimeout(5_000);
+    const holdings = await Promise.all(this.people.slice(1).map(async (person) => ({
+      person,
+      titles: new Set((await incomingTalks(person.page)).map((entry) => entry.title)),
+    })));
+    const holders = holdings.filter(({ titles }) => titles.has(title)).map(({ person }) => person.userId).sort();
+    expect(holders, `only the people on this page should hold ${title}`).toEqual([...pageIds].sort());
+    for (const earlier of this.tags) {
+      const strangers = holdings
+        .filter(({ person, titles }) => titles.has(earlier) && !this.met.has(person.userId))
+        .map(({ person }) => person.name);
+      expect(strangers, `${earlier} must not reach anyone the author never met`).toEqual([]);
+    }
+    console.log(`[20-user demo] ${title}: ${recipients.map((person) => person.name).join(', ')} liked it `
+      + `(${Date.now() - startedAt} ms); nobody else holds it`);
+  }
+}
+
 test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', () => {
   test.describe.configure({ retries: 0 });
   const browsers: Browser[] = [];
@@ -160,8 +259,8 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     await clearGunForStage5Spec();
   });
 
-  test('first user sees 13 Nearby people, then all 6 people in a custom Place', async () => {
-    test.setTimeout(900_000);
+  test('first user exchanges one tag per page: 5 Nearby pages, 2 Place pages, 2 Los Angeles pages', async () => {
+    test.setTimeout(2_400_000);
     const appUrl = new URL(webAppURLStableChatroom());
     appUrl.searchParams.set('e2e_capacity', String(CAPACITY));
     appUrl.searchParams.set('e2e_place_min_friends', '0');
@@ -276,12 +375,8 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     await expect.poll(() => Promise.all(pages.map((page) => page.evaluate(() =>
       String((window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.()?.stageName || '')))),
     { timeout: 60_000, intervals: [250, 500, 1_000] }).toEqual(NAMES);
-    // Freeze periodic background swaps for the visual demo. Explicit page turns and scope changes
-    // still call refresh themselves, while the three rows being inspected no longer reshuffle
-    // during the deliberate two-second pause between actions. Freezing must not leave the hub
-    // (a plain stop() is a logout since OPEN-85 and dropped everyone: "19 nearby · 0 online").
-    await Promise.all(pages.map((page) => page.evaluate(() =>
-      (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.stop?.({ leave: false }))));
+    // The app keeps running normally from here on: hub presence expires two reissue periods after
+    // the last heartbeat, and the Talk exchanges below take longer than that.
     await Promise.all(pages.slice(0, SAN_DIEGO_NAMES.length).map((page) =>
       expect(page.locator('[data-testid="nearby-headcount"]')).toHaveText(
         '13 nearby · 20 online',
@@ -320,11 +415,20 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     );
     await expect(first.locator('[data-testid="room-list-total"]')).toHaveCount(0);
 
+    const people = await Promise.all(pages.map(async (page, index) => ({
+      page,
+      name: NAMES[index]!,
+      userId: await page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || '')),
+    })));
+    const exchanges = new TalkExchanges(people);
+
+    // Nearby, San Diego: one tag per page, each reaching exactly the people on that page.
     const nearbySeen = new Set<string>();
     const nearbyPageSizes = [3, 3, 3, 3, 1];
     for (const [index, expectedCount] of nearbyPageSizes.entries()) {
       const names = await expectFreshPage(() => nearbyNames(first), expectedCount, nearbySeen);
       console.log(`[20-user demo] Nearby page ${index + 1}: ${names.join(', ')}`);
+      await exchanges.run(`page${index + 1}`, expectedCount);
       await visualPause(first);
       if (index === nearbyPageSizes.length - 1) break;
 
@@ -349,8 +453,8 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     await expect(first.locator('#current-chatroom-title')).toContainText(roomName);
     await visualPause(first);
 
-    // Six other people enter the real Place. Keep the creator in front so each arrival is visible.
-    const entrants = pages.slice(1, 7);
+    // Five other people enter the real Place. Keep the creator in front so each arrival is visible.
+    const entrants = pages.slice(1, 6);
     for (const [index, entrant] of entrants.entries()) {
       await entrant.evaluate((id) =>
         (window as any).__iinpublic_app?.getApp?.()?.uiManager?.emit('chatroomChanged', id), placeId);
@@ -361,7 +465,7 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     }
 
     // A room switch commits before its fire-and-forget Place-card refresh necessarily finishes.
-    // Make all seven Place cards present before paging, especially in the zero-pause CI run.
+    // Make all six Place cards present before paging, especially in the zero-pause CI run.
     await Promise.all([first, ...entrants].map((page) => page.evaluate(async () => {
       await (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.refresh?.();
     })));
@@ -372,32 +476,55 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
       for (const card of cards) await service?.offerCard?.(card);
     }, entrantCards);
 
-    // Inside a Place the header counts its occupancy minus me: seven people, "6 nearby", and the
+    // Inside a Place the header counts its occupancy minus me: six people, "5 nearby", and the
     // online total does not change when people move from Nearby into a Place.
-    await expect(first.locator('[data-testid="nearby-headcount"]')).toHaveText('6 nearby · 20 online', { timeout: 60_000 });
+    // The header appends " · N matches" once likes arrive; the count part is its base text.
+    await expect(first.locator('[data-testid="nearby-headcount"]')).toHaveAttribute('data-status-bar-base', '5 nearby · 20 online', { timeout: 60_000 });
 
     const placeSeen = new Set<string>();
     const firstPlacePage = await expectFreshPage(() => placeNames(first), 3, placeSeen);
     console.log(`[20-user demo] Place page 1: ${firstPlacePage.join(', ')}`);
     await expect(first.locator('[data-testid="nearby-group-bar"]')).toHaveCount(0);
     await expect(first.locator('[data-testid="nearby-meet-new-people-action"]')).toBeVisible();
+    await exchanges.run('custompage1', 3);
     await visualPause(first);
 
     await first.locator('[data-testid="nearby-meet-new-people-action"]').click();
     await expect(first.locator('[data-testid="nearby-meet-confirm"]')).toHaveCount(0);
-    const secondPlacePage = await expectFreshPage(() => placeNames(first), 3, placeSeen);
+    const secondPlacePage = await expectFreshPage(() => placeNames(first), 2, placeSeen);
     console.log(`[20-user demo] Place page 2: ${secondPlacePage.join(', ')}`);
+    await exchanges.run('custompage2', 2);
     await visualPause(first, 1.5);
 
-    expect([...placeSeen].sort()).toEqual(NAMES.slice(1, 7).sort());
-    expect(placeSeen.size).toBe(6);
+    expect([...placeSeen].sort()).toEqual(NAMES.slice(1, 6).sort());
+    expect(placeSeen.size).toBe(5);
 
-    // Someone outside the Place sees it on the map as one icon carrying its full occupancy (7),
-    // never as seven yellow person dots (OPEN-86 E3/E5).
+    // Someone outside the Place sees it on the map as one icon carrying its full occupancy (6),
+    // never as six yellow person dots (OPEN-86 E3/E5).
     const outsider = pages[7]!;
     await outsider.evaluate(async () => { await (window as any).__iinpublic_app?.getApp?.()?.refreshActiveRooms?.(); });
     await outsider.locator('[data-testid="chatroom-map-view-btn"]').click();
     await expect(outsider.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"] .chatroom-map-marker-count`))
-      .toHaveText('7', { timeout: 60_000 });
+      .toHaveText('6', { timeout: 60_000 });
+    await outsider.locator('[data-testid="chatroom-list-view-btn"]').click();
+
+    // The first user travels to Los Angeles: a new area, group 1, and six people there (R = 6 > C).
+    await first.evaluate((point) =>
+      (window as any).__iinpublic_app?.getApp?.()?.uiManager?.emit('travelNearbyAtPoint', point), LOS_ANGELES);
+    await expect.poll(() => first.evaluate(() => {
+      const card = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.();
+      return card ? { scope: card.scope, latitude: Math.round(card.point.latitude), traveler: card.traveler } : null;
+    }), { timeout: 60_000 }).toEqual({ scope: 'nearby', latitude: 34, traveler: true });
+    await expect(first.locator('[data-testid="nearby-headcount"]')).toHaveAttribute('data-status-bar-base', '6 nearby · 20 online', { timeout: 120_000 });
+    const laSeen = new Set<string>();
+    for (const [index, title] of ['LAPage1', 'LApage2'].entries()) {
+      const names = await expectFreshPage(() => nearbyNames(first), 3, laSeen);
+      console.log(`[20-user demo] Los Angeles page ${index + 1}: ${names.join(', ')}`);
+      expect(names.every((name) => LOS_ANGELES_NAMES.includes(name))).toBe(true);
+      await exchanges.run(title, 3);
+      await visualPause(first);
+      if (index === 0) await first.locator('[data-testid="nearby-meet-new-people-action"]').click();
+    }
+    expect([...laSeen].sort()).toEqual([...LOS_ANGELES_NAMES].sort());
   });
 });

@@ -62,6 +62,20 @@ export function isPersonalListScope(value: string | null | undefined): boolean {
   return isNearbyRoomId(value) || isPlaceRoomId(String(value || ''));
 }
 
+/**
+ * Whether an automatic catch-up (my Talks owed in this scope, sent when a link to a peer comes up)
+ * may go to this peer. In a personal-list scope (Nearby, a Place) the audience is my own current
+ * list, never whoever links to me: eligibility is one-way (§3.7, OPEN-86 E2), so a person whose
+ * page includes me may open a link without being on mine. Shared rooms keep their roster rule.
+ */
+export function isCatchUpRecipient(
+  scopeId: string,
+  peerId: string,
+  currentListUserIds: ReadonlySet<string>,
+): boolean {
+  return !isPersonalListScope(scopeId) || currentListUserIds.has(peerId);
+}
+
 /** Scopes with no hub roster or membership writes: Contacts only and the personal-list scopes. */
 export function hasNoHubRoster(value: string | null | undefined): boolean {
   return isLocalOnlyRoomScope(value) || isPersonalListScope(value);
