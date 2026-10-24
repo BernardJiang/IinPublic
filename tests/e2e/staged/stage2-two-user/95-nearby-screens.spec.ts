@@ -39,8 +39,8 @@ test.describe('Nearby screens', () => {
     // My people list (Jerry, not me) and everyone the hub counts online (both of us) are visible
     // directly. Nearby is an internal delivery scope, not a room row.
     await expect(pageTom.locator('.chatroom-item[data-chatroom-id="nearby-v3"]')).toHaveCount(0);
-    await expect(pageTom.locator('[data-testid="nearby-headcount"]')).toHaveText('1 near you · 2 online', { timeout: 60_000 });
-    await expect(pageTom.locator('[data-testid="room-list-total"]')).toHaveText('1 near you · 2 online');
+    await expect(pageTom.locator('[data-testid="nearby-headcount"]')).toHaveText('1 nearby · 2 online', { timeout: 60_000 });
+    await expect(pageTom.locator('[data-testid="room-list-total"]')).toHaveText('1 nearby · 2 online');
     await expect(pageTom.getByText('People near you', { exact: true })).toHaveCount(0);
     await expect(pageTom.getByText('Loading rooms…', { exact: true })).toHaveCount(0);
     await expect(pageTom.locator('[data-testid="room-list-sort"]')).toHaveCount(0);

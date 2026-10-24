@@ -65,7 +65,10 @@ export class HttpNearbyKnockChannel {
 }
 
 export class FetchNearbyV3Hub implements NearbyV3Hub {
-  constructor(private readonly apiBase: () => string) {}
+  constructor(
+    private readonly apiBase: () => string,
+    private readonly onCounts?: (counts: { nearby: number; online: number }) => void,
+  ) {}
 
   async heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat> {
     const response = await fetch(`${this.apiBase()}/api/nearby/v3/card`, {
@@ -77,7 +80,13 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
       const body = await response.json().catch(() => null) as { error?: unknown } | null;
       throw new Error(`hub refused the card (${response.status}${body?.error ? `: ${String(body.error)}` : ''})`);
     }
-    return await response.json().catch(() => ({})) as NearbyHubHeartbeat;
+    const answer = await response.json().catch(() => ({})) as NearbyHubHeartbeat;
+    const nearby = Number(answer.nearby);
+    const online = Number(answer.online);
+    if (Number.isFinite(nearby) && nearby >= 0 && Number.isFinite(online) && online >= 0) {
+      this.onCounts?.({ nearby: Math.floor(nearby), online: Math.floor(online) });
+    }
+    return answer;
   }
 
   async introductions(input: { point: { latitude: number; longitude: number }; scope: string; excludePub: string }): Promise<NearbyCard[]> {
@@ -134,6 +143,8 @@ export type NearbyV3RuntimeDeps = {
   isPaused?: () => boolean;
   /** The list changed: it is the roster of the current scope (Nearby or the Place). */
   onRoster: (members: NearbyV3RosterMember[], entries: readonly NearbyListEntry[]) => void;
+  /** Fresh hub headcounts from this identity's own heartbeat. */
+  onCounts?: (counts: { nearby: number; online: number }) => void;
 };
 
 export class NearbyV3Runtime {
@@ -150,7 +161,7 @@ export class NearbyV3Runtime {
   private refreshing = false;
 
   constructor(private readonly deps: NearbyV3RuntimeDeps) {
-    this.hub = new FetchNearbyV3Hub(deps.apiBase);
+    this.hub = new FetchNearbyV3Hub(deps.apiBase, deps.onCounts);
     this.knocks = new GunNearbyKnockChannel(deps.gunService.getGun() as never);
     this.hubKnocks = new HttpNearbyKnockChannel(deps.apiBase);
     this.board = new GunNearbyLocalBoard(deps.gunService.getGun() as never, (card) => {

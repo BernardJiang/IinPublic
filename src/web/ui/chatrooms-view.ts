@@ -1,4 +1,3 @@
-import { confirmMeetNewPeople } from './nearby-group-bar';
 import { getEncounterLocation } from '../services/encounter-location';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { emptyPlaceRows, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
@@ -53,6 +52,8 @@ type ChatroomsViewDeps = {
   activeRooms?: ActiveRoomsView;
   /** The hub's count of everyone online in Nearby (§3.7 headcounts), once known. */
   nearbyOnline?: number;
+  /** Everyone near my current public point, excluding me; independent of the visible page. */
+  nearbyCount?: number;
   /** The latest Nearby broadcast: delivered so far, of the people on my list then. */
   nearbyBroadcastProgress?: { sent: number; total: number };
   /** Nearby v3 is a personal list. Show its people directly above the custom-room rows. */
@@ -222,7 +223,6 @@ function syncNearbyPagingActions(deps: ChatroomsViewDeps, people: number): void 
   const onNearbyList = !detailOpen && isNearbyRoomId(deps.currentChatroom) && deps.chatroomBrowseMode === 'list';
   const inPersonalRoom = detailOpen && isPersonalListScope(deps.currentChatroom);
   const pagingVisible = onNearbyList || inPersonalRoom;
-  const place = inPersonalRoom && !isNearbyRoomId(deps.currentChatroom);
   const group = deps.nearbyGroup?.group ?? 1;
   const meetVisible = pagingVisible && people > 0;
   const backVisible = pagingVisible && group > 1;
@@ -232,13 +232,7 @@ function syncNearbyPagingActions(deps: ChatroomsViewDeps, people: number): void 
     meet.disabled = !meetVisible;
     meet.title = deps.text('nearbyMeetNewPeople');
     meet.setAttribute('aria-label', deps.text('nearbyMeetNewPeople'));
-    meet.onclick = meetVisible
-      ? () => {
-          void confirmMeetNewPeople({ text: deps.text, emit: deps.emit }, people, place).then((confirmed) => {
-            if (confirmed) deps.emit('nearbyMeetNewPeople');
-          });
-        }
-      : null;
+    meet.onclick = meetVisible ? () => deps.emit('nearbyMeetNewPeople') : null;
   }
   if (back) {
     back.style.display = backVisible ? 'inline-flex' : 'none';
@@ -554,7 +548,9 @@ export function updateChatroomMembers(
   if (chatroomMembersList) {
     if (chatroomStatus) {
       const visits = deps.chatroomVisitCounts.get(deps.currentChatroom) || { visitCount: 0, uniqueVisitorCount: 0 };
-      chatroomStatus.textContent = nearby ? nearbyHeadcountText(deps, memberCount) : formatMetrics(deps, memberCount, visits);
+      chatroomStatus.textContent = nearby
+        ? nearbyHeadcountText(deps, deps.nearbyCount ?? memberCount)
+        : formatMetrics(deps, memberCount, visits);
     }
     const detailOpen = document.body.dataset.chatroomDetail === 'open'
       || !document.getElementById('chatroom-list');

@@ -4,7 +4,7 @@ import type { UiTranslationKey } from './ui-translations';
 /**
  * The group bar above the people on the room screen, for Nearby and Places alike (§3.7 "Meeting new
  * people in groups"): which group of my order I am meeting, "Meet new people" (swap the whole
- * group for the next one, after a confirmation) and, past group 1, "Back to group 1".
+ * group for the next one immediately) and, past group 1, "Back to group 1".
  */
 export type NearbyGroupBarState = {
   group: number;
@@ -43,13 +43,7 @@ export function syncNearbyGroupBar(
       const current = latestDeps.get(bar!);
       if (!current) return;
       if (action === 'back') current.emit('nearbyBackToFirstGroup');
-      if (action === 'meet') {
-        const people = Number(bar!.dataset.people || '0');
-        const place = bar!.dataset.place === 'true';
-        void confirmMeetNewPeople(current, people, place).then((confirmed) => {
-          if (confirmed) current.emit('nearbyMeetNewPeople');
-        });
-      }
+      if (action === 'meet') current.emit('nearbyMeetNewPeople');
     });
   }
   // The list and room-detail views share one bar. Move it to the currently rendered people list
@@ -76,36 +70,4 @@ export function syncNearbyGroupBar(
       ${state.group > 1 ? `<button type="button" class="btn btn-secondary" data-group-action="back" data-testid="nearby-back-to-first-group">${escapeHtml(deps.text('nearbyBackToFirstGroup'))}</button>` : ''}
     </div>
   `;
-}
-
-/** In-page confirmation (a browser `confirm()` would block the app's own event loop). */
-export function confirmMeetNewPeople(deps: NearbyGroupBarDeps, people: number, place: boolean): Promise<boolean> {
-  document.getElementById('nearby-meet-confirm')?.remove();
-  const modal = document.createElement('div');
-  modal.id = 'nearby-meet-confirm';
-  modal.setAttribute('data-testid', 'nearby-meet-confirm');
-  modal.className = 'nearby-meet-confirm';
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  const body = deps.text(place ? 'placeMeetConfirmBody' : 'nearbyMeetConfirmBody').replace('{count}', String(people));
-  modal.innerHTML = `
-    <div class="nearby-meet-confirm-card">
-      <div class="nearby-meet-confirm-title">${escapeHtml(deps.text('nearbyMeetConfirmTitle'))}</div>
-      <p class="nearby-meet-confirm-body">${escapeHtml(body)}</p>
-      <div class="nearby-meet-confirm-actions">
-        <button type="button" class="btn btn-secondary" data-testid="nearby-meet-cancel">${escapeHtml(deps.text('cancel'))}</button>
-        <button type="button" class="btn primary-btn" data-testid="nearby-meet-confirm-action">${escapeHtml(deps.text('nearbyMeetNewPeople'))}</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-  return new Promise((resolve) => {
-    const close = (confirmed: boolean) => {
-      modal.remove();
-      resolve(confirmed);
-    };
-    modal.querySelector('[data-testid="nearby-meet-cancel"]')?.addEventListener('click', () => close(false));
-    modal.querySelector('[data-testid="nearby-meet-confirm-action"]')?.addEventListener('click', () => close(true));
-    modal.addEventListener('click', (event) => { if (event.target === modal) close(false); });
-  });
 }

@@ -59,12 +59,12 @@ describe('updateStatusBar', () => {
     updateStatusBar('Nearby', 4, undefined, {
       tf,
       getTotalMatches: () => 0,
-      baseText: '3 near you · 14 online',
+      baseText: '3 nearby · 14 online',
       baseTestId: 'nearby-headcount',
     });
     const bar = document.getElementById('status-bar-text')!;
-    expect(bar.textContent).toBe('3 near you · 14 online');
-    expect(bar.dataset.statusBarBase).toBe('3 near you · 14 online');
+    expect(bar.textContent).toBe('3 nearby · 14 online');
+    expect(bar.dataset.statusBarBase).toBe('3 nearby · 14 online');
     expect(bar.getAttribute('data-testid')).toBe('nearby-headcount');
   });
 });

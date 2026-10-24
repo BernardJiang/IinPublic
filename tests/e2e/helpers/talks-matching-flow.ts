@@ -385,6 +385,11 @@ export async function pinStableE2eLocation(
   coords: { latitude: number; longitude: number } = DEFAULT_E2E_COORDS,
 ): Promise<void> {
   await page.evaluate(async ({ lat, lng }) => {
+    (window as Window & { __test_location?: { latitude: number; longitude: number; accuracy: number } }).__test_location = {
+      latitude: lat,
+      longitude: lng,
+      accuracy: 10,
+    };
     const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
     if (!app?.currentUser?.id) return;
     const location = {
@@ -393,11 +398,11 @@ export async function pinStableE2eLocation(
       accuracy: 10,
       timestamp: new Date(),
     };
-    app.currentLocation = location;
-    app.uiManager?.setCurrentLocation?.(location);
-    if (app.userService?.updateUserLocation) {
-      await app.userService.updateUserLocation(app.currentUser.id, location);
-    }
+    // Use the app's real location transition so the signed Nearby card is reissued at the new
+    // point. Merely assigning currentLocation left the boot-time San Diego card alive for an LA
+    // test user until its normal reissue interval elapsed.
+    app.updateCurrentLocation?.(location);
+    await app.nearbyV3?.service?.refresh?.();
   }, { lat: coords.latitude, lng: coords.longitude });
 }
 
@@ -411,11 +416,20 @@ export async function bootstrapUser(
   appReadyTimeoutMs?: number,
   /** Another app URL (e.g. a small `e2e_capacity`); default the stable-chatroom URL. */
   appUrl: string = webAppURLStableChatroom(),
+  /** Set before the app loads, so its first signed Nearby card is born at this point. */
+  location: { latitude: number; longitude: number } = DEFAULT_E2E_COORDS,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     viewport: { width: 640, height: 1000 },
     deviceScaleFactor: 1,
   });
+  await context.addInitScript(({ latitude, longitude }) => {
+    (window as Window & { __test_location?: { latitude: number; longitude: number; accuracy: number } }).__test_location = {
+      latitude,
+      longitude,
+      accuracy: 10,
+    };
+  }, location);
   const page = await context.newPage();
   attachFilteredConsoleLog(page, label);
   // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
@@ -463,7 +477,7 @@ export async function bootstrapUser(
   await expectCurrentUserIsOrdinaryUser(page, stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
-  await pinStableE2eLocation(page);
+  await pinStableE2eLocation(page, location);
   await expectTechSupportGreetingReceived(page);
   attachE2eBrowserTabLabel(page, label);
   return { context, page };

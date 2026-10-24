@@ -8,6 +8,7 @@ import {
   pyramidSearch,
   type PyramidPoint,
 } from '../../shared/nearby-v3-pyramid';
+import { publicPointDistanceMeters } from '../../shared/nearby-v3-ranking';
 
 /**
  * The hub's whole part in Nearby v3 (§3.7 "The hub: counts and introductions, not lists"):
@@ -44,6 +45,8 @@ export type NearbyStats = { online: number; heat: NearbyHeatCell[]; level: numbe
 const MAX_HEAT_CELLS = 2_500;
 /** Most distinct cell or Place samples the hub keeps; the least recently fed is dropped first. */
 const MAX_SAMPLES = 500_000;
+/** Nearby stays local; the global online total still includes people beyond this radius. */
+const NEARBY_LOCAL_RADIUS_METERS = 50_000;
 
 export class NearbyV3Hub {
   private config: NearbyV3Config;
@@ -55,7 +58,12 @@ export class NearbyV3Hub {
    * introduced, and a card that moves (into a Place, back to Nearby, to a new point) leaves the
    * samples it was in.
    */
-  private lastHeartbeat = new Map<string, { atMs: number; cells: string[] }>();
+  private lastHeartbeat = new Map<string, {
+    atMs: number;
+    cells: string[];
+    point: PyramidPoint;
+    scope: string;
+  }>();
   /** userId → pub while that user's card is live, so another key cannot speak for them. */
   private owners = new Map<string, { pub: string; expiresAtMs: number }>();
 
@@ -82,14 +90,14 @@ export class NearbyV3Hub {
   }
 
   /** A phone's (re)issued card. Throws when the card does not verify. */
-  async heartbeat(value: unknown, now = new Date()): Promise<{ accepted: true; online: number }> {
+  async heartbeat(value: unknown, now = new Date()): Promise<{ accepted: true; online: number; nearby: number }> {
     const verification = await verifyNearbyCard(value, { maxLifetimeMs: this.config.cardLifetimeMs, now });
     if (!verification.ok) throw new Error(verification.reason);
     return this.ingest(verification.card, now.getTime());
   }
 
   /** Count and sample a card whose signature was already checked. */
-  ingest(card: NearbyCard, nowMs: number): { accepted: true; online: number } {
+  ingest(card: NearbyCard, nowMs: number): { accepted: true; online: number; nearby: number } {
     const owner = this.owners.get(card.userId);
     if (owner && owner.pub !== card.pub && owner.expiresAtMs > nowMs) throw new Error('userId is held by another key');
     this.owners.set(card.userId, { pub: card.pub, expiresAtMs: Date.parse(card.expiresAt) });
@@ -117,17 +125,33 @@ export class NearbyV3Hub {
       if (sample?.delete(card.pub) && !sample.size) this.samples.delete(cell);
     }
     this.lastHeartbeat.delete(card.pub);
-    this.lastHeartbeat.set(card.pub, { atMs: nowMs, cells });
+    this.lastHeartbeat.set(card.pub, { atMs: nowMs, cells, point: card.point, scope: card.scope });
     while (this.lastHeartbeat.size > MAX_SAMPLES) this.lastHeartbeat.delete(this.lastHeartbeat.keys().next().value as string);
     for (const cell of cells) this.addSample(cell, card);
     if (card.scope !== 'nearby') this.onPlaceCard?.(card.scope.slice('place:'.length));
-    return { accepted: true, online: this.online(nowMs) };
+    // The headline describes the local public-location crowd, not the global online population.
+    // Thus Los Angeles is online without being included in a San Diego user's "nearby" count.
+    const nearby = card.scope === 'nearby'
+      ? Math.max(0, this.liveNearbyCount(card.point, nowMs) - 1)
+      : Math.max(0, this.count(card.scope, nowMs) - 1);
+    return { accepted: true, online: this.online(nowMs), nearby };
   }
 
   /** People online in a cell (or Place scope): the larger of this window and the last full one. */
   count(cellId: string, nowMs = Date.now()): number {
     this.roll(nowMs);
     return Math.max(this.current.cells.get(cellId) ?? 0, this.previous?.cells.get(cellId) ?? 0);
+  }
+
+  /** Currently live people within the local area, using only deliberately blurred points. */
+  private liveNearbyCount(point: PyramidPoint, nowMs: number): number {
+    const recent = nowMs - 2 * this.config.cardReissueMs;
+    let count = 0;
+    for (const heartbeat of this.lastHeartbeat.values()) {
+      if (heartbeat.scope === 'nearby' && heartbeat.atMs >= recent
+        && publicPointDistanceMeters(point, heartbeat.point) <= NEARBY_LOCAL_RADIUS_METERS) count += 1;
+    }
+    return count;
   }
 
   /**
@@ -177,7 +201,10 @@ export class NearbyV3Hub {
     const out = new Map<string, NearbyCard>();
     const take = (cellId: string) => {
       for (const card of this.liveSample(cellId, nowMs)) {
-        if (card.pub !== input.excludePub && card.scope === scope) out.set(card.pub, card);
+        if (card.pub === input.excludePub || card.scope !== scope) continue;
+        if (scope === 'nearby'
+          && publicPointDistanceMeters(input.point, card.point) > NEARBY_LOCAL_RADIUS_METERS) continue;
+        out.set(card.pub, card);
       }
     };
     if (scope !== 'nearby') {
@@ -261,7 +288,14 @@ export class NearbyV3Hub {
   }
 
   private newWindow(index: number): CountWindow {
-    return { index, salt: randomBytes(16), seen: new Set(), seenAt: new Set(), cells: new Map(), total: 0 };
+    return {
+      index,
+      salt: randomBytes(16),
+      seen: new Set(),
+      seenAt: new Set(),
+      cells: new Map(),
+      total: 0,
+    };
   }
 
   private roll(nowMs: number): void {

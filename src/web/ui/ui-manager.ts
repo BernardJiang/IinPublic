@@ -255,6 +255,7 @@ export class UIManager extends EventEmitter {
   private chatroomsDetailRoomId: string | null = null;
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private nearbyOnline: number | undefined;
+  private nearbyCount: number | undefined;
   private talksShowIncoming = true;
   private talksShowOutgoing = true;
   private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
@@ -1128,6 +1129,14 @@ export class UIManager extends EventEmitter {
   setNearbyOnline(online: number): void {
     this.nearbyOnline = online;
     this.chatroomShell().setNearbyOnline(online);
+    if (isNearbyRoomId(this.currentChatroom)) {
+      this.updateStatusBar('', '', this.currentChatroomMembers.length, this.getTotalMatches());
+    }
+  }
+  /** Everyone near my public point, excluding me; paging never changes this total. */
+  setNearbyCount(count: number): void {
+    this.nearbyCount = count;
+    this.chatroomShell().setNearbyCount(count);
     if (isNearbyRoomId(this.currentChatroom)) {
       this.updateStatusBar('', '', this.currentChatroomMembers.length, this.getTotalMatches());
     }
@@ -2282,7 +2291,7 @@ export class UIManager extends EventEmitter {
       ? nearbyHeadcountText({
           text: (key) => this.t(key),
           ...(this.nearbyOnline !== undefined ? { nearbyOnline: this.nearbyOnline } : {}),
-        }, this.currentChatroomMembers.length)
+        }, this.nearbyCount ?? this.currentChatroomMembers.length)
       : undefined;
     updateStatusBarImpl(chatroomName, memberCount, totalMatches, {
       tf: this.tf.bind(this),

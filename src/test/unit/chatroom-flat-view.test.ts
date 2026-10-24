@@ -111,7 +111,7 @@ describe('flat Nearby and Places list', () => {
     expect(document.querySelector('[data-testid="nearby-people-section"]')).not.toBeNull();
   });
 
-  it('puts Meet new people in the action bar and confirms before changing groups', async () => {
+  it('puts Meet new people in the action bar and changes groups immediately', async () => {
     const emit = jest.fn();
     render({
       emit,
@@ -122,10 +122,8 @@ describe('flat Nearby and Places list', () => {
     expect(action.style.display).toBe('inline-flex');
     expect(action.getAttribute('aria-label')).toBe('Meet new people');
     action.click();
-    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent)
-      .toContain('Swap these 2 people for the next people near you.');
-    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
     await Promise.resolve();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')).toBeNull();
     expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
   });
 
@@ -191,7 +189,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     render({ activeRooms: ROOMS, nearbyMembers, nearbyOnline: 12_345 });
     expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
     expect(nearbyHeadcountText({ text: (key) => uiText('en', key), nearbyOnline: 12_345 }, 12))
-      .toBe('12 near you · 12,345 online');
+      .toBe('12 nearby · 12,345 online');
     expect(document.querySelector('[data-testid="nearby-headcount"]')).toBeNull();
     expect(document.querySelector('[data-testid="room-list-total"]')).toBeNull();
   });
@@ -208,9 +206,9 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(document.querySelector('[data-testid="nearby-person-row"]')?.textContent).toContain('Alice');
   });
 
-  it('says only "N near you" until the hub reports who is online', () => {
+  it('says only "N nearby" until the hub reports who is online', () => {
     render({ chatroomMemberCounts: new Map([[NEARBY_ID, 0]]) });
-    expect(nearbyHeadcountText({ text: (key) => uiText('en', key) }, 0)).toBe('0 near you');
+    expect(nearbyHeadcountText({ text: (key) => uiText('en', key) }, 0)).toBe('0 nearby');
     expect(document.querySelector('[data-testid="nearby-headcount"]')).toBeNull();
   });
 
@@ -219,7 +217,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
   });
 
-  it('lists the people on my group without me, with the AppBar action and its confirmed switch', async () => {
+  it('lists the people on my group without me, with an immediate AppBar page switch', async () => {
     document.body.innerHTML = `
       <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
       <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
@@ -233,6 +231,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       matchedUserIds: new Set(),
       customChatrooms: [],
       nearbyOnline: 7,
+      nearbyCount: 6,
       setCurrentChatroomMembers: jest.fn(),
       renderChatroomList: jest.fn(),
       escapeHtml: (value: string) => value,
@@ -244,17 +243,12 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       apiBase: '',
     } as never, [{ userId: 'me', stageName: 'Me' }, { userId: 'ann', stageName: 'Ann' }, { userId: 'bo', stageName: 'Bo' }], 'me');
     expect(counts.get(NEARBY_ID)).toBe(2);
-    expect(document.getElementById('current-chatroom-status')?.textContent).toBe('2 near you · 7 online');
+    expect(document.getElementById('current-chatroom-status')?.textContent).toBe('6 nearby · 7 online');
     expect(document.querySelectorAll('.chatroom-member-item')).toHaveLength(2);
     expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
     expect((document.querySelector('[data-testid="nearby-back-to-first-group-action"]') as HTMLElement).style.display).toBe('none');
     (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
-    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent).toContain('Swap these 2 people for the next people near you.');
-    (document.querySelector('[data-testid="nearby-meet-cancel"]') as HTMLButtonElement).click();
     expect(document.querySelector('[data-testid="nearby-meet-confirm"]')).toBeNull();
-    expect(emit).not.toHaveBeenCalledWith('nearbyMeetNewPeople');
-    (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
-    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
     await Promise.resolve();
     expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
   });
@@ -320,10 +314,8 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
 
     expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
     (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
-    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent)
-      .toContain('Swap these 2 people for the next people in this Place.');
-    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
     await Promise.resolve();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')).toBeNull();
     expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
   });
 

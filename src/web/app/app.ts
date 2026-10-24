@@ -1973,6 +1973,10 @@ export class IinPublicApp {
         return point ? { point, traveler: this.appearsAsTraveler() } : null;
       },
       isPaused: isPageHidden,
+      onCounts: ({ nearby, online }) => {
+        this.uiManager.setNearbyCount(nearby);
+        this.uiManager.setNearbyOnline(online);
+      },
       onRoster: (members) => {
         const scopeId = this.currentChatroomId;
         if (!scopeId || !isPersonalListScope(scopeId)) return;

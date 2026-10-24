@@ -1,5 +1,5 @@
 /**
- * Visible 14-user pagination journey.
+ * Visible 20-user pagination journey: 14 in San Diego, 6 in Los Angeles.
  *
  * Capacity C = 3. The first user pages through all 13 other people in Nearby, creates a Place,
  * then six other users enter it and the first user pages through both three-person Place groups.
@@ -20,10 +20,17 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const NAMES = [
+const SAN_DIEGO_NAMES = [
   'onearby 0',
   ...Array.from({ length: 13 }, (_, index) => `Nearby ${String(index + 1).padStart(2, '0')}`),
 ];
+const LOS_ANGELES_NAMES = Array.from(
+  { length: 6 },
+  (_, index) => `Los Angeles ${String(index + 1).padStart(2, '0')}`,
+);
+const NAMES = [...SAN_DIEGO_NAMES, ...LOS_ANGELES_NAMES];
+const SAN_DIEGO = { latitude: 32.7157, longitude: -117.1611 };
+const LOS_ANGELES = { latitude: 34.0522, longitude: -118.2437 };
 const CAPACITY = 3;
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -46,10 +53,10 @@ interface DemoWindowLayout {
 
 async function createDemoWindowLayout(first: Page, pageCount: number): Promise<DemoWindowLayout> {
   const workArea = await getBrowserWindowWorkArea(first);
-  if (!workArea) throw new Error('14-user demo could not read the physical browser work area');
+  if (!workArea) throw new Error('20-user demo could not read the physical browser work area');
 
   // Reserve the entire left side for the actor. No peer window may sit above, below or behind it.
-  // The other thirteen users may overlap one another in a readable diagonal cascade on the right.
+  // The other nineteen users may overlap one another in a readable diagonal cascade on the right.
   const margin = 12;
   const zoneGap = 24;
   const actorWidth = Math.floor(workArea.width * 0.46);
@@ -100,16 +107,16 @@ async function arrangeDemoWindows(pages: Page[], layout: DemoWindowLayout): Prom
   if (placements.length !== pages.length || windowIds.size !== pages.length
       || positions.size !== pages.length || actorOverlaps.length > 0) {
     throw new Error(
-      `14-user demo window layout failed: ${placements.length} placements, ${windowIds.size} windows, `
+      `20-user demo window layout failed: ${placements.length} placements, ${windowIds.size} windows, `
         + `${positions.size} positions, actor overlaps peers=${actorOverlaps.join(',') || 'none'}`,
     );
   }
 
   await pages[0]!.bringToFront();
   console.log(
-    `[14-user demo] ${NAMES[0]} is alone at ${placements[0]!.bounds.left},${placements[0]!.bounds.top} `
+    `[20-user demo] ${NAMES[0]} is alone at ${placements[0]!.bounds.left},${placements[0]!.bounds.top} `
       + `(${placements[0]!.bounds.width}×${placements[0]!.bounds.height}); `
-      + `13 peers cascade on the right by ${layout.xStep}×${layout.yStep}px.`,
+      + `${pages.length - 1} peers cascade on the right by ${layout.xStep}×${layout.yStep}px.`,
   );
 }
 
@@ -135,7 +142,7 @@ async function expectFreshPage(
   return names;
 }
 
-test.describe('14-user Nearby and Place pagination demo', () => {
+test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', () => {
   test.describe.configure({ retries: 0 });
   const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
@@ -174,7 +181,7 @@ test.describe('14-user Nearby and Place pagination demo', () => {
     // placed in the reserved left zone do we start a second process for the supporting identities.
     const actorBrowser = await launchBrowser();
     browsers.push(actorBrowser);
-    const actor = await bootstrapUser(actorBrowser, 'U1', NAMES[0]!, 60_000, appUrl.toString());
+    const actor = await bootstrapUser(actorBrowser, 'U1', NAMES[0]!, 60_000, appUrl.toString(), SAN_DIEGO);
     contexts.push(actor.context);
     pages.push(actor.page);
 
@@ -184,7 +191,7 @@ test.describe('14-user Nearby and Place pagination demo', () => {
       layout = await createDemoWindowLayout(actor.page, NAMES.length);
       await setBrowserWindowBounds(actor.page, layout.actorBounds);
       await actor.page.bringToFront();
-      console.log(`[14-user demo] Created ${NAMES[0]} separately.`);
+      console.log(`[20-user demo] Created ${NAMES[0]} separately.`);
       await visualPause(actor.page);
 
       // Every future window is born on the right, not over the actor. Peers share this second
@@ -198,7 +205,14 @@ test.describe('14-user Nearby and Place pagination demo', () => {
       for (let start = 1; start < NAMES.length; start += 4) {
         const batch = NAMES.slice(start, start + 4);
         const ready = await Promise.all(batch.map((name, offset) =>
-          bootstrapUser(peerBrowser, `U${start + offset + 1}`, name, 60_000, appUrl.toString())));
+          bootstrapUser(
+            peerBrowser,
+            `U${start + offset + 1}`,
+            name,
+            60_000,
+            appUrl.toString(),
+            start + offset < SAN_DIEGO_NAMES.length ? SAN_DIEGO : LOS_ANGELES,
+          )));
         ready.forEach(({ context, page }) => {
           contexts.push(context);
           pages.push(page);
@@ -213,20 +227,33 @@ test.describe('14-user Nearby and Place pagination demo', () => {
           NAMES[index]!,
           60_000,
           appUrl.toString(),
+          index < SAN_DIEGO_NAMES.length ? SAN_DIEGO : LOS_ANGELES,
         );
         contexts.push(ready.context);
         pages.push(ready.page);
         await setBrowserWindowBounds(ready.page, layout!.peerBounds[index - 1]!);
         await actor.page.bringToFront();
-        console.log(`[14-user demo] Created ${NAMES[index]} (${index + 1}/${NAMES.length}).`);
+        console.log(`[20-user demo] Created ${NAMES[index]} (${index + 1}/${NAMES.length}).`);
+        await actor.page.evaluate(async () => {
+          const runtime = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3;
+          const card = runtime?.service?.card?.();
+          if (card) await runtime.hub.heartbeat(card);
+        });
         await visualPause(actor.page);
       }
       await arrangeDemoWindows(pages, layout!);
     }
 
     const first = pages[0]!;
-    // Bootstrapping 14 full app identities takes longer than the hub's narrow online window on a
-    // development laptop. Refresh every already-signed card together so this begins with fourteen
+    const cardLocations = await Promise.all(pages.map((page) => page.evaluate(() => {
+      const point = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.()?.point;
+      return point ? `${point.latitude},${point.longitude},${point.precisionMeters}` : '';
+    })));
+    expect(new Set(cardLocations.slice(0, SAN_DIEGO_NAMES.length)).size).toBe(1);
+    expect(new Set(cardLocations.slice(SAN_DIEGO_NAMES.length)).size).toBe(1);
+    expect(cardLocations[0]).not.toBe(cardLocations.at(-1));
+    // Bootstrapping 20 full app identities takes longer than the hub's narrow online window on a
+    // development laptop. Refresh every already-signed card together so this begins with twenty
     // genuinely live participants rather than letting the earliest setup tabs age out.
     await Promise.all(pages.map((page) => page.evaluate(async () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
@@ -247,7 +274,7 @@ test.describe('14-user Nearby and Place pagination demo', () => {
     // The first page may have cached cards received before peers finished their profile rename.
     // Merge every peer's newly signed card into the first user's bounded list. This refreshes any
     // cached row without marking that person unreachable or excluding them from a later page.
-    const peerCards = await Promise.all(pages.slice(1).map((page) => page.evaluate(() =>
+    const peerCards = await Promise.all(pages.slice(1, SAN_DIEGO_NAMES.length).map((page) => page.evaluate(() =>
       (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.card?.())));
     await first.evaluate(async (cards) => {
       const service = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service;
@@ -259,7 +286,7 @@ test.describe('14-user Nearby and Place pagination demo', () => {
     });
     await first.bringToFront();
     await expect(first.locator('[data-testid="nearby-headcount"]')).toHaveText(
-      '3 near you · 14 online',
+      '13 nearby · 20 online',
       { timeout: 120_000 },
     );
     await expect(first.locator('[data-testid="room-list-total"]')).toHaveCount(0);
@@ -268,17 +295,15 @@ test.describe('14-user Nearby and Place pagination demo', () => {
     const nearbyPageSizes = [3, 3, 3, 3, 1];
     for (const [index, expectedCount] of nearbyPageSizes.entries()) {
       const names = await expectFreshPage(() => nearbyNames(first), expectedCount, nearbySeen);
-      console.log(`[14-user demo] Nearby page ${index + 1}: ${names.join(', ')}`);
+      console.log(`[20-user demo] Nearby page ${index + 1}: ${names.join(', ')}`);
       await visualPause(first);
       if (index === nearbyPageSizes.length - 1) break;
 
       await first.locator('[data-testid="nearby-meet-new-people-action"]').click();
-      await expect(first.locator('[data-testid="nearby-meet-confirm"]')).toBeVisible();
-      await visualPause(first, 0.5);
-      await first.locator('[data-testid="nearby-meet-confirm-action"]').click();
+      await expect(first.locator('[data-testid="nearby-meet-confirm"]')).toHaveCount(0);
     }
 
-    expect([...nearbySeen].sort()).toEqual(NAMES.slice(1).sort());
+    expect([...nearbySeen].sort()).toEqual(SAN_DIEGO_NAMES.slice(1).sort());
     expect(nearbySeen.size).toBe(13);
 
     // The first user creates the Place through the real UI while still visible.
@@ -302,7 +327,7 @@ test.describe('14-user Nearby and Place pagination demo', () => {
         (window as any).__iinpublic_app?.getApp?.()?.uiManager?.emit('chatroomChanged', id), placeId);
       await expect.poll(() => currentRoom(entrant), { timeout: 30_000 }).toBe(placeId);
       await first.bringToFront();
-      console.log(`[14-user demo] ${NAMES[index + 1]} entered ${roomName}`);
+      console.log(`[20-user demo] ${NAMES[index + 1]} entered ${roomName}`);
       await visualPause(first, 0.5);
     }
 
@@ -320,19 +345,15 @@ test.describe('14-user Nearby and Place pagination demo', () => {
 
     const placeSeen = new Set<string>();
     const firstPlacePage = await expectFreshPage(() => placeNames(first), 3, placeSeen);
-    console.log(`[14-user demo] Place page 1: ${firstPlacePage.join(', ')}`);
+    console.log(`[20-user demo] Place page 1: ${firstPlacePage.join(', ')}`);
     await expect(first.locator('[data-testid="nearby-group-bar"]')).toHaveCount(0);
     await expect(first.locator('[data-testid="nearby-meet-new-people-action"]')).toBeVisible();
     await visualPause(first);
 
     await first.locator('[data-testid="nearby-meet-new-people-action"]').click();
-    await expect(first.locator('[data-testid="nearby-meet-confirm"]')).toContainText(
-      'Swap these 3 people for the next people in this Place.',
-    );
-    await visualPause(first, 0.5);
-    await first.locator('[data-testid="nearby-meet-confirm-action"]').click();
+    await expect(first.locator('[data-testid="nearby-meet-confirm"]')).toHaveCount(0);
     const secondPlacePage = await expectFreshPage(() => placeNames(first), 3, placeSeen);
-    console.log(`[14-user demo] Place page 2: ${secondPlacePage.join(', ')}`);
+    console.log(`[20-user demo] Place page 2: ${secondPlacePage.join(', ')}`);
     await visualPause(first, 1.5);
 
     expect([...placeSeen].sort()).toEqual(NAMES.slice(1, 7).sort());

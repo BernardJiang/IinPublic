@@ -116,6 +116,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   });
   let activeRooms: ChatroomsViewDeps['activeRooms'];
   let nearbyOnline: number | undefined;
+  let nearbyCount: number | undefined;
   let nearbyBroadcastProgress: ChatroomsViewDeps['nearbyBroadcastProgress'];
   let nearbyGroup: ChatroomsViewDeps['nearbyGroup'];
 
@@ -135,6 +136,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
       ...(mapUserDots ? { mapUserDots, roomMemberCard: roomMemberCard() } : {}),
       ...(activeRooms ? { activeRooms } : {}),
       ...(nearbyOnline !== undefined ? { nearbyOnline } : {}),
+      ...(nearbyCount !== undefined ? { nearbyCount } : {}),
       ...(nearbyBroadcastProgress ? { nearbyBroadcastProgress } : {}),
       ...(nearbyGroup ? { nearbyGroup } : {}),
       nearbyMembers: roomMembers,
@@ -339,6 +341,12 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     renderChatroomList();
   };
 
+  const setNearbyCount = (count: number): void => {
+    if (count === nearbyCount) return;
+    nearbyCount = count;
+    renderChatroomList();
+  };
+
   const setNearbyBroadcastProgress = (progress: ChatroomsViewDeps['nearbyBroadcastProgress'] | null): void => {
     nearbyBroadcastProgress = progress ?? undefined;
     renderChatroomList();
@@ -359,6 +367,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     setMapUserDotSource,
     setActiveRooms,
     setNearbyOnline,
+    setNearbyCount,
     setNearbyBroadcastProgress,
     setNearbyGroup,
     renderChatroomList,

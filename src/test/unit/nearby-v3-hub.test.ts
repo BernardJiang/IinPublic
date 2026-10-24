@@ -70,6 +70,15 @@ describe('Nearby v3 hub', () => {
     expect(hub.onlineUserIds(['user-a', 'user-b'], stale)).toEqual([]);
   });
 
+  it('reports the whole local crowd separately from the global online total', () => {
+    const hub = new NearbyV3Hub(config({ capacity: 3 }), NOW);
+    for (let index = 0; index < 14; index += 1) hub.ingest(card(`sd-${index}`, SD), NOW);
+    for (let index = 0; index < 6; index += 1) hub.ingest(card(`la-${index}`, LA), NOW);
+
+    const result = hub.ingest(card('sd-0', SD), NOW + 1);
+    expect(result).toMatchObject({ nearby: 13, online: 20 });
+  });
+
   it('stops introducing a phone that missed two heartbeats, although its card is still valid', () => {
     const hub = new NearbyV3Hub(config(), NOW);
     hub.ingest(card('a', SD), NOW);
@@ -79,18 +88,19 @@ describe('Nearby v3 hub', () => {
     expect(hub.introductions({ point: SD, now: new Date(later) }).cards).toHaveLength(0);
   });
 
-  it('keeps a bounded sample per cell and introduces a newcomer to the nearest crowd', () => {
+  it('keeps a bounded sample per cell without introducing people outside the local area', () => {
     const hub = new NearbyV3Hub(config({ capacity: 20, hubCellSample: 8 }), NOW);
     for (let i = 0; i < 30; i += 1) hub.ingest(card(`sd${i}`, SD), NOW);
     hub.ingest(card('la', LA), NOW);
     const intro = hub.introductions({ point: LA, excludePub: 'la', now: new Date(NOW) });
     expect(intro.online).toBe(31);
-    expect(intro.cards.map((entry) => entry.pub)).not.toContain('la');
-    expect(intro.cards.length).toBeGreaterThanOrEqual(8);
-    expect(intro.cards.length).toBeLessThanOrEqual(8 * 9 * intro.steps.length);
+    expect(intro.cards).toEqual([]);
     expect(intro.steps.at(-1)!.people).toBeGreaterThanOrEqual(20);
     // In the crowd itself the first block is enough.
-    expect(hub.introductions({ point: SD, now: new Date(NOW) }).steps).toHaveLength(1);
+    const local = hub.introductions({ point: SD, now: new Date(NOW) });
+    expect(local.steps).toHaveLength(1);
+    expect(local.cards.length).toBeGreaterThanOrEqual(8);
+    expect(local.cards.length).toBeLessThanOrEqual(8 * 9);
   });
 
   it('keeps Places separate from Nearby and shows heat cells for a map view', () => {
@@ -126,13 +136,13 @@ describe('Nearby v3 hub when a card moves between lists', () => {
     hub.ingest(card('a', SD, NOW + 2_000), NOW + 2_000);
     expect(intro(hub, 'place:cafe')).toEqual([]);
     expect(intro(hub).sort()).toEqual(['a', 'b']);
-    // Moving to another city leaves the old cells too: what is left of a is her card in LA, which
-    // the search reaches only by climbing (two people are far fewer than C).
+    // Moving to another city leaves the old cells and the old city's local introductions too.
     hub.ingest(card('a', LA, NOW + 2_000), NOW + 2_000);
     const fine = pyramidCellIds(SD, NEARBY_V3_DEFAULTS.pyramidFinestLevel)[0]!;
     expect((hub as any).samples.get(fine)?.has('a') ?? false).toBe(false);
     const cards = hub.introductions({ point: SD, now: new Date(NOW + 2_000) }).cards.filter((entry) => entry.pub === 'a');
-    expect(cards.map((entry) => entry.point)).toEqual([LA]);
+    expect(cards).toEqual([]);
+    expect(hub.introductions({ point: LA, now: new Date(NOW + 2_000) }).cards.map((entry) => entry.pub)).toEqual(['a']);
   });
 
   it('counts me in a Place I enter mid-window, and once in the online total', () => {
@@ -153,13 +163,10 @@ describe('Nearby v3 lists converge by gossip from the hub\'s introductions', () 
     const cfg = config({ capacity: C, hubCellSample: 16, swapCards: 12 });
     const random = seededRandom(7);
     const beacon = nearbyDailyBeacon(NOW);
-    // 240 people in and around San Diego (a few km), 60 scattered across Southern California.
+    // 300 people in and around San Diego (a few km), all inside the local Nearby radius.
     const points: PublicLocation[] = [];
-    for (let i = 0; i < 240; i += 1) {
+    for (let i = 0; i < 300; i += 1) {
       points.push(snapPublicLocation({ latitude: 32.70 + random() * 0.08, longitude: -117.20 + random() * 0.08 }, 1_000));
-    }
-    for (let i = 0; i < 60; i += 1) {
-      points.push(snapPublicLocation({ latitude: 32.5 + random() * 2.5, longitude: -119 + random() * 3 }, 1_000));
     }
     const pubs = points.map((_, i) => `p${i}`);
     const hub = new NearbyV3Hub(cfg, NOW);

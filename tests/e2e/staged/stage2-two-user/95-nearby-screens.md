@@ -5,7 +5,7 @@ covers: SPEC-3.7
 Tom and Jerry are in Nearby (design §3.7 "Map, list and headcounts").
 
 1. Nearby has no room row or redundant **People near you** heading. Tom sees
-   **1 near you · 2 online** in the top list row, and Jerry is directly visible as a person row.
+   **1 nearby · 2 online** in the top list row, and Jerry is directly visible as a person row.
    No match-collection buttons appear, and the AppBar does not repeat the static `📍 Nearby` label.
 2. **Meet new people** is a compact AppBar icon, not a large group card. Pressing it opens a
    confirmation; cancelling it changes nothing (stage4/08 covers an actual switch). The person

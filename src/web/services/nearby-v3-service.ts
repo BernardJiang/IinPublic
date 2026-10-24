@@ -39,7 +39,15 @@ import type { PublicLocation } from '../../shared/public-location';
  * the clock, so the whole cycle runs in unit tests.
  */
 /** What the hub adds to a heartbeat answer (unverified until the service checks it). */
-export type NearbyHubHeartbeat = { beacon?: unknown; age?: unknown; attestor?: unknown };
+export type NearbyHubHeartbeat = {
+  beacon?: unknown;
+  age?: unknown;
+  attestor?: unknown;
+  /** Everyone near this card's public point, excluding the card owner. */
+  nearby?: unknown;
+  /** Everyone whose Nearby/Place card is currently online. */
+  online?: unknown;
+};
 
 export type NearbyV3Hub = {
   heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat | void>;

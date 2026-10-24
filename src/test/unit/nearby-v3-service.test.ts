@@ -154,7 +154,7 @@ describe('NearbyV3Service', () => {
     net.advance(cfg.cardReissueMs);
     await p2.service.tick();
     expect(net.heartbeats.filter((pub) => pub === 'p2')).toHaveLength(2);
-    expect(p2.service.entries().map((entry) => entry.card.pub).sort()).toEqual(['p0', 'p1']);
+    expect(p2.service.entries()).toEqual([]);
     p2.position = { ...p2.position, point: SD };
     await p2.service.refresh();
     expect(net.heartbeats.filter((pub) => pub === 'p2')).toHaveLength(3);
