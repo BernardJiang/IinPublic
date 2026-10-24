@@ -11,6 +11,7 @@ import { NearbyV3Hub as HubStore } from '../../server/services/nearby-v3-hub';
 import {
   NEARBY_V3_GROUPS_STORAGE_KEY,
   NEARBY_V3_STORAGE_KEY,
+  NearbyHubPresenceConflictError,
   NearbyV3Service,
   type NearbyV3Link,
   type NearbyV3Position,
@@ -23,7 +24,9 @@ const LA = snapPublicLocation({ latitude: 34.0522, longitude: -118.2437 }, 1_000
 
 /** Unsigned cards: the test injects `sign` and `verify`, so no SEA keys are needed. */
 const fakeSign = async (input: {
-  userId: string; pair: SeaSigningPair; stageName?: string; point: PublicLocation; traveler?: boolean; scope?: NearbyCard['scope']; lifetimeMs: number; now?: Date;
+  userId: string; pair: SeaSigningPair; stageName?: string; point: PublicLocation; traveler?: boolean;
+  scope?: NearbyCard['scope']; lifetimeMs: number; countIdentity?: { countKey: string };
+  scopeRevision?: number; now?: Date;
 }): Promise<NearbyCard> => {
   const now = input.now ?? new Date();
   return {
@@ -31,6 +34,8 @@ const fakeSign = async (input: {
     kind: 'nearby-card',
     userId: input.userId,
     pub: input.pair.pub,
+    countKey: input.countIdentity?.countKey ?? input.pair.pub,
+    scopeRevision: input.scopeRevision ?? now.getTime(),
     ...(input.stageName ? { stageName: input.stageName } : {}),
     point: input.point,
     traveler: input.traveler === true,
@@ -148,18 +153,53 @@ describe('NearbyV3Service', () => {
     const net = network(cfg, [SD, SD, LA]);
     for (const phone of net.phones.values()) await phone.service.tick();
     const p2 = net.phones.get('p2')!;
+    const firstRevision = p2.service.card()!.scopeRevision;
     expect(net.heartbeats.filter((pub) => pub === 'p2')).toHaveLength(1);
     await net.round();
     expect(net.heartbeats.filter((pub) => pub === 'p2')).toHaveLength(1);
     net.advance(cfg.cardReissueMs);
     await p2.service.tick();
     expect(net.heartbeats.filter((pub) => pub === 'p2')).toHaveLength(2);
-    expect(p2.service.entries()).toEqual([]);
+    expect(p2.service.card()!.scopeRevision).toBe(firstRevision);
+    // The selected cell is sparse, so the first page falls back to the nearest global identities.
+    expect(p2.service.entries().map((entry) => entry.card.pub).sort()).toEqual(['p0', 'p1']);
     p2.position = { ...p2.position, point: SD };
     await p2.service.refresh();
     expect(net.heartbeats.filter((pub) => pub === 'p2')).toHaveLength(3);
+    expect(p2.service.card()!.scopeRevision).toBeGreaterThan(firstRevision);
     expect(p2.service.card()!.point).toEqual(SD);
     expect(p2.service.entries()[0]!.key.distanceMeters).toBe(0);
+  });
+
+  it('adopts a linked peer revision for the same scope and becomes a live writer', async () => {
+    const cfg = config();
+    const revisions: number[] = [];
+    const acceptedRevision = START + 10;
+    const service = new NearbyV3Service({
+      config: () => cfg,
+      identity: () => ({ userId: 'user-member', pair: { pub: 'member', priv: 'x' } as SeaSigningPair }),
+      position: () => ({ point: SD, traveler: false, scope: 'nearby' }),
+      hub: {
+        async heartbeat(card) {
+          revisions.push(card.scopeRevision);
+          if (revisions.length === 1) {
+            throw new NearbyHubPresenceConflictError(acceptedRevision, 'nearby', SD);
+          }
+        },
+        async introductions() { return []; },
+      },
+      link: { request: async () => null },
+      sign: fakeSign as never,
+      verify: async () => true,
+      now: () => START,
+      log: () => undefined,
+    });
+
+    await service.tick();
+
+    expect(revisions).toEqual([START, acceptedRevision]);
+    expect(service.card()?.scopeRevision).toBe(acceptedRevision);
+    expect(service.isHubReachable()).toBe(true);
   });
 
   it('announces a newcomer to the three nearest people at once', async () => {

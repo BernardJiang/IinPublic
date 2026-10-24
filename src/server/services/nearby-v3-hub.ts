@@ -1,313 +1,432 @@
-import { randomBytes, createHash } from 'crypto';
+import SEA from 'gun/sea';
+import { verifyLinkAttestation, type LinkCrypto } from '../../shared/identity-linking';
 import { verifyNearbyCard, type NearbyCard } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
 import {
   parsePyramidCellId,
+  pyramidCell,
   pyramidCellBounds,
+  pyramidCellId,
   pyramidCellIds,
   pyramidSearch,
   type PyramidPoint,
 } from '../../shared/nearby-v3-pyramid';
-import { publicPointDistanceMeters } from '../../shared/nearby-v3-ranking';
+import { publicLocationContains, type PublicLocation } from '../../shared/public-location';
 
-/**
- * The hub's whole part in Nearby v3 (§3.7 "The hub: counts and introductions, not lists"):
- *
- * 1. statistics: people online, in total and per pyramid cell, counted from verified card
- *    heartbeats. A key is counted once per window through a salted hash set that is thrown away with
- *    the window, so counting keeps no identities;
- * 2. introductions: a bounded, rotating sample of recent cards per cell (and per Place), from which a
- *    newcomer gets its first cards.
- *
- * It never stores or serves anyone's nearby list.
- */
-/** `seen` holds a person once (the total); `seenAt`, once per list and point (the cell counts). */
-type CountWindow = {
-  index: number;
-  salt: Buffer;
-  seen: Set<string>;
-  seenAt: Set<string>;
-  cells: Map<string, number>;
-  total: number;
+type PresenceWriter = {
+  card: NearbyCard;
+  heartbeatAtMs: number;
+  expiresAtMs: number;
+};
+
+/** The authoritative, single active presence for one countable identity. */
+type PresenceLease = {
+  countKey: string;
+  scopeRevision: number;
+  scope: NearbyCard['scope'];
+  point: PublicLocation;
+  writers: Map<string, PresenceWriter>;
+  updatedAtMs: number;
+};
+
+export type NearbyHeartbeatResult = {
+  accepted: true;
+  online: number;
+  nearby: number;
+  activeHeadcount: number;
+  countRevision: number;
+  scopeRevision: number;
 };
 
 export type NearbyIntroductions = {
   cards: NearbyCard[];
   steps: Array<{ level: number; people: number }>;
   online: number;
+  countRevision: number;
 };
 
 export type NearbyHeatCell = { latitude: number; longitude: number; count: number };
 
-export type NearbyStats = { online: number; heat: NearbyHeatCell[]; level: number | null };
+export type NearbyStats = {
+  online: number;
+  heat: NearbyHeatCell[];
+  level: number | null;
+  countRevision: number;
+};
 
-/** Most cells one heat query returns. */
 const MAX_HEAT_CELLS = 2_500;
-/** Most distinct cell or Place samples the hub keeps; the least recently fed is dropped first. */
-const MAX_SAMPLES = 500_000;
-/** Nearby stays local; the global online total still includes people beyond this radius. */
-const NEARBY_LOCAL_RADIUS_METERS = 50_000;
+const MAX_PRESENCES = 500_000;
 
+/** A stale or conflicting writer must not silently restore an old scope. */
+export class NearbyPresenceConflictError extends Error {
+  readonly status = 409;
+
+  constructor(
+    message: string,
+    readonly acceptedRevision: number,
+    readonly countRevision: number,
+    readonly acceptedScope: NearbyCard['scope'],
+    readonly acceptedPoint: PublicLocation,
+  ) {
+    super(message);
+    this.name = 'NearbyPresenceConflictError';
+  }
+}
+
+/**
+ * Nearby v3 hub presence foundation (§3.7, OPEN-85).
+ *
+ * A count key owns one revisioned lease. Counts, Places, heat and introductions all read that same
+ * lease map; no rolling/add-only counter can leave a moved identity in two audiences. An unlinked
+ * card uses its own pub as the count key. A directly linked device may use the smaller linked pub
+ * only when it carries both existing mutual-link attestations.
+ */
 export class NearbyV3Hub {
   private config: NearbyV3Config;
-  private current: CountWindow;
-  private previous: CountWindow | null = null;
-  private samples = new Map<string, Map<string, NearbyCard>>();
-  /**
-   * pub → when its last heartbeat arrived and which samples hold its card; only recent ones are
-   * introduced, and a card that moves (into a Place, back to Nearby, to a new point) leaves the
-   * samples it was in.
-   */
-  private lastHeartbeat = new Map<string, {
-    atMs: number;
-    cells: string[];
-    point: PyramidPoint;
-    scope: string;
-  }>();
-  /** userId → pub while that user's card is live, so another key cannot speak for them. */
-  private owners = new Map<string, { pub: string; expiresAtMs: number }>();
+  private readonly leases = new Map<string, PresenceLease>();
+  /** Pyramid cell or `place:<id>` → live count keys. */
+  private readonly members = new Map<string, Set<string>>();
+  private revision = 0;
 
   constructor(
     config: NearbyV3Config,
-    nowMs = Date.now(),
+    _nowMs = Date.now(),
     /** A member's card for a Place arrived: the Place is in use (§4.2 liveness). */
     private readonly onPlaceCard?: (placeId: string) => void,
   ) {
     this.config = config;
-    this.current = this.newWindow(this.windowIndex(nowMs));
   }
 
   setConfig(config: NearbyV3Config): void {
     this.config = config;
   }
 
-  clear(nowMs = Date.now()): void {
-    this.samples.clear();
-    this.owners.clear();
-    this.lastHeartbeat.clear();
-    this.previous = null;
-    this.current = this.newWindow(this.windowIndex(nowMs));
+  clear(_nowMs = Date.now()): void {
+    this.leases.clear();
+    this.members.clear();
+    this.revision = 0;
   }
 
-  /** A phone's (re)issued card. Throws when the card does not verify. */
-  async heartbeat(value: unknown, now = new Date()): Promise<{ accepted: true; online: number; nearby: number }> {
+  /** A phone's (re)issued card. Throws when the card or linked count identity does not verify. */
+  async heartbeat(value: unknown, now = new Date()): Promise<NearbyHeartbeatResult> {
     const verification = await verifyNearbyCard(value, { maxLifetimeMs: this.config.cardLifetimeMs, now });
     if (!verification.ok) throw new Error(verification.reason);
+    if (!await this.verifyCountIdentity(verification.card)) throw new Error('invalid Nearby count identity proof');
     return this.ingest(verification.card, now.getTime());
   }
 
-  /** Count and sample a card whose signature was already checked. */
-  ingest(card: NearbyCard, nowMs: number): { accepted: true; online: number; nearby: number } {
-    const owner = this.owners.get(card.userId);
-    if (owner && owner.pub !== card.pub && owner.expiresAtMs > nowMs) throw new Error('userId is held by another key');
-    this.owners.set(card.userId, { pub: card.pub, expiresAtMs: Date.parse(card.expiresAt) });
+  /** Immediately remove this device writer; another linked writer may keep the lease live. */
+  async leave(value: unknown, now = new Date()): Promise<{ accepted: true; online: number; countRevision: number }> {
+    const verification = await verifyNearbyCard(value, { maxLifetimeMs: this.config.cardLifetimeMs, now });
+    if (!verification.ok) throw new Error(verification.reason);
+    const card = verification.card;
+    if (!await this.verifyCountIdentity(card)) throw new Error('invalid Nearby count identity proof');
+    this.purgeExpired(now.getTime());
+    const lease = this.leases.get(card.countKey);
+    if (!lease) return { accepted: true, online: this.leases.size, countRevision: this.revision };
+    if (card.scopeRevision !== lease.scopeRevision) {
+      throw this.conflict('stale Nearby scope revision', lease);
+    }
+    lease.writers.delete(card.pub);
+    if (!lease.writers.size) this.removeLease(lease);
+    else {
+      lease.updatedAtMs = now.getTime();
+      this.touchLease(lease);
+    }
+    return { accepted: true, online: this.leases.size, countRevision: this.revision };
+  }
 
-    this.roll(nowMs);
-    const cells = card.scope === 'nearby'
-      ? pyramidCellIds(card.point, this.config.pyramidFinestLevel)
-      : [card.scope];
-    const hashed = createHash('sha256').update(this.current.salt).update(card.pub).digest('base64');
-    if (!this.current.seen.has(hashed)) {
-      this.current.seen.add(hashed);
-      // Everyone online, in Nearby or in a Place ("M online", §3.7).
-      this.current.total += 1;
+  /** Count and index a card whose signatures were already checked. Used directly by unit models. */
+  ingest(card: NearbyCard, nowMs: number): NearbyHeartbeatResult {
+    this.purgeExpired(nowMs);
+    let lease = this.leases.get(card.countKey);
+    const fingerprint = this.scopeFingerprint(card.scope, card.point);
+    if (lease && card.scopeRevision < lease.scopeRevision) {
+      throw this.conflict('stale Nearby scope revision', lease);
     }
-    const at = `${card.scope}|${card.point.latitude},${card.point.longitude}`;
-    const hashedAt = createHash('sha256').update(this.current.salt).update(card.pub).update('\n').update(at).digest('base64');
-    if (!this.current.seenAt.has(hashedAt)) {
-      // Someone entering a Place counts there in this window, not only from the next one.
-      this.current.seenAt.add(hashedAt);
-      for (const cell of cells) this.current.cells.set(cell, (this.current.cells.get(cell) ?? 0) + 1);
+    if (lease && card.scopeRevision === lease.scopeRevision
+      && fingerprint !== this.scopeFingerprint(lease.scope, lease.point)) {
+      throw this.conflict('conflicting Nearby scope at accepted revision', lease);
     }
-    const previous = this.lastHeartbeat.get(card.pub);
-    for (const cell of previous?.cells ?? []) {
-      const sample = cells.includes(cell) ? undefined : this.samples.get(cell);
-      if (sample?.delete(card.pub) && !sample.size) this.samples.delete(cell);
+
+    if (!lease) {
+      lease = {
+        countKey: card.countKey,
+        scopeRevision: card.scopeRevision,
+        scope: card.scope,
+        point: card.point,
+        writers: new Map(),
+        updatedAtMs: nowMs,
+      };
+      this.leases.set(card.countKey, lease);
+      this.addToIndexes(lease);
+      this.bumpRevision();
+    } else if (card.scopeRevision > lease.scopeRevision) {
+      this.removeFromIndexes(lease);
+      lease.scopeRevision = card.scopeRevision;
+      lease.scope = card.scope;
+      lease.point = card.point;
+      lease.writers.clear();
+      this.addToIndexes(lease);
+      this.bumpRevision();
     }
-    this.lastHeartbeat.delete(card.pub);
-    this.lastHeartbeat.set(card.pub, { atMs: nowMs, cells, point: card.point, scope: card.scope });
-    while (this.lastHeartbeat.size > MAX_SAMPLES) this.lastHeartbeat.delete(this.lastHeartbeat.keys().next().value as string);
-    for (const cell of cells) this.addSample(cell, card);
+
+    const expiresAtMs = Math.min(Date.parse(card.expiresAt), nowMs + 2 * this.config.cardReissueMs);
+    lease.writers.set(card.pub, { card, heartbeatAtMs: nowMs, expiresAtMs });
+    lease.updatedAtMs = nowMs;
+    this.touchLease(lease);
     if (card.scope !== 'nearby') this.onPlaceCard?.(card.scope.slice('place:'.length));
-    // The headline describes the local public-location crowd, not the global online population.
-    // Thus Los Angeles is online without being included in a San Diego user's "nearby" count.
+    this.enforcePresenceBound();
+
     const nearby = card.scope === 'nearby'
-      ? Math.max(0, this.liveNearbyCount(card.point, nowMs) - 1)
-      : Math.max(0, this.count(card.scope, nowMs) - 1);
-    return { accepted: true, online: this.online(nowMs), nearby };
+      ? this.nearbyHeadcount(card.countKey, card.point)
+      : this.count(card.scope, nowMs);
+    return {
+      accepted: true,
+      online: this.leases.size,
+      nearby,
+      activeHeadcount: nearby,
+      countRevision: this.revision,
+      scopeRevision: lease.scopeRevision,
+    };
   }
 
-  /** People online in a cell (or Place scope): the larger of this window and the last full one. */
+  /** People online in one pyramid cell or Place scope, from the authoritative live leases. */
   count(cellId: string, nowMs = Date.now()): number {
-    this.roll(nowMs);
-    return Math.max(this.current.cells.get(cellId) ?? 0, this.previous?.cells.get(cellId) ?? 0);
+    this.purgeExpired(nowMs);
+    return this.members.get(cellId)?.size ?? 0;
   }
 
-  /** Currently live people within the local area, using only deliberately blurred points. */
-  private liveNearbyCount(point: PyramidPoint, nowMs: number): number {
-    const recent = nowMs - 2 * this.config.cardReissueMs;
-    let count = 0;
-    for (const heartbeat of this.lastHeartbeat.values()) {
-      if (heartbeat.scope === 'nearby' && heartbeat.atMs >= recent
-        && publicPointDistanceMeters(point, heartbeat.point) <= NEARBY_LOCAL_RADIUS_METERS) count += 1;
-    }
-    return count;
-  }
-
-  /**
-   * People in each Place with anyone in it (the room list, §3.7 "Places in v3"): those whose card
-   * is live there now, so a Place empties the moment its people leave. Only a crowd larger than the
-   * sample falls back to the window count.
-   */
+  /** Place headcounts include the viewer and every other distinct live count key there. */
   placeCounts(nowMs = Date.now()): Array<{ placeId: string; count: number }> {
-    this.roll(nowMs);
-    const ids = new Set<string>();
-    for (const window of [this.current, this.previous]) {
-      for (const key of window?.cells.keys() ?? []) if (key.startsWith('place:')) ids.add(key);
-    }
-    return [...ids].map((key) => {
-      const live = this.liveSample(key, nowMs).length;
-      const count = live < this.config.hubCellSample ? live : Math.max(live, this.count(key, nowMs));
-      return { placeId: key.slice('place:'.length), count };
-    }).filter((row) => row.count > 0);
+    this.purgeExpired(nowMs);
+    return [...this.members]
+      .filter(([key, value]) => key.startsWith('place:') && value.size > 0)
+      .map(([key, value]) => ({ placeId: key.slice('place:'.length), count: value.size }))
+      .sort((a, b) => a.placeId.localeCompare(b.placeId));
   }
 
-  /**
-   * Which of these users are online (§3.7 "Contacts online"): their card's key heartbeated within
-   * two reissue periods. Answers only yes or no per id, never where.
-   */
+  /** Which requested user ids have at least one live device writer. */
   onlineUserIds(userIds: readonly string[], nowMs = Date.now()): string[] {
-    const window = 2 * this.config.cardReissueMs;
-    return userIds.filter((userId) => {
-      const owner = this.owners.get(userId);
-      if (!owner || owner.expiresAtMs <= nowMs) return false;
-      const last = this.lastHeartbeat.get(owner.pub);
-      return !!last && nowMs - last.atMs <= window;
-    });
+    this.purgeExpired(nowMs);
+    const live = new Set<string>();
+    for (const lease of this.leases.values()) {
+      for (const writer of lease.writers.values()) live.add(writer.card.userId);
+    }
+    return userIds.filter((userId) => live.has(userId));
   }
 
   online(nowMs = Date.now()): number {
-    this.roll(nowMs);
-    return Math.max(this.current.total, this.previous?.total ?? 0);
+    this.purgeExpired(nowMs);
+    return this.leases.size;
+  }
+
+  countRevision(nowMs = Date.now()): number {
+    this.purgeExpired(nowMs);
+    return this.revision;
   }
 
   /**
-   * A newcomer's first cards (§3.7 "Finding how far to look"): climb the pyramid until the 3×3 block
-   * around `point` holds C people, sampling every block on the way. For a Place, its own sample.
+   * A newcomer's bounded introductions. OPEN-86 owns final paging; OPEN-85 supplies exact live
+   * counts and removes the former fixed-50-km filter.
    */
   introductions(input: { point: PyramidPoint; scope?: string; excludePub?: string; now?: Date }): NearbyIntroductions {
     const nowMs = (input.now ?? new Date()).getTime();
+    this.purgeExpired(nowMs);
     const scope = input.scope ?? 'nearby';
     const out = new Map<string, NearbyCard>();
-    const take = (cellId: string) => {
-      for (const card of this.liveSample(cellId, nowMs)) {
-        if (card.pub === input.excludePub || card.scope !== scope) continue;
-        if (scope === 'nearby'
-          && publicPointDistanceMeters(input.point, card.point) > NEARBY_LOCAL_RADIUS_METERS) continue;
-        out.set(card.pub, card);
+    const excludedCountKey = input.excludePub ? this.countKeyForPub(input.excludePub) : undefined;
+    const take = (indexKey: string) => {
+      for (const [countKey, card] of this.liveSample(indexKey)) {
+        if (countKey === excludedCountKey || card.pub === input.excludePub || card.scope !== scope) continue;
+        out.set(countKey, card);
       }
     };
     if (scope !== 'nearby') {
       take(scope);
-      return { cards: [...out.values()], steps: [], online: this.count(scope, nowMs) };
+      return {
+        cards: [...out.values()],
+        steps: [],
+        online: this.leases.size,
+        countRevision: this.revision,
+      };
     }
     const steps = pyramidSearch({
       point: input.point,
       finestLevel: this.config.pyramidFinestLevel,
       target: this.config.capacity,
-      count: (cellId) => this.count(cellId, nowMs),
+      count: (cellId) => this.members.get(cellId)?.size ?? 0,
+      ...(excludedCountKey ? { self: 1 } : {}),
     });
     for (const step of steps) for (const cellId of step.cells) take(cellId);
     return {
       cards: [...out.values()],
       steps: steps.map(({ level, people }) => ({ level, people })),
-      online: this.online(nowMs),
+      online: this.leases.size,
+      countRevision: this.revision,
     };
   }
 
-  /**
-   * Online total plus heat cells for a map view: the level whose cells are about 1/48 of the view's
-   * larger side, never finer than the pyramid's finest level.
-   */
+  /** Online total plus exact live heat cells for a map view. */
   stats(bounds?: { west: number; south: number; east: number; north: number }, nowMs = Date.now()): NearbyStats {
-    const online = this.online(nowMs);
-    if (!bounds) return { online, heat: [], level: null };
+    this.purgeExpired(nowMs);
+    const online = this.leases.size;
+    if (!bounds) return { online, heat: [], level: null, countRevision: this.revision };
     const width = bounds.west <= bounds.east ? bounds.east - bounds.west : 360 - bounds.west + bounds.east;
     const span = Math.max(width / 360, (bounds.north - bounds.south) / 180, 1e-9);
     const level = Math.max(0, Math.min(this.config.pyramidFinestLevel, Math.floor(Math.log2(48 / span))));
-    const heat: NearbyHeatCell[] = [];
     const cells = new Map<string, number>();
-    for (const window of [this.previous, this.current]) {
-      if (!window) continue;
-      for (const [cellId, count] of window.cells) {
-        if (!cellId.startsWith(`${level}/`)) continue;
-        cells.set(cellId, Math.max(cells.get(cellId) ?? 0, count));
-      }
+    for (const lease of this.leases.values()) {
+      if (lease.scope !== 'nearby') continue;
+      const id = pyramidCellId(pyramidCell(lease.point, level));
+      cells.set(id, (cells.get(id) ?? 0) + 1);
     }
+    const heat: NearbyHeatCell[] = [];
     for (const [cellId, count] of cells) {
       const cell = parsePyramidCellId(cellId);
       if (!cell) continue;
       const box = pyramidCellBounds(cell);
-      const latitude = (box.south + box.north) / 2;
-      const longitude = (box.west + box.east) / 2;
-      if (!pointInBounds({ latitude, longitude }, bounds)) continue;
-      heat.push({ latitude, longitude, count });
+      const point = { latitude: (box.south + box.north) / 2, longitude: (box.west + box.east) / 2 };
+      if (!pointInBounds(point, bounds)) continue;
+      heat.push({ ...point, count });
       if (heat.length >= MAX_HEAT_CELLS) break;
     }
-    return { online, heat, level };
+    return { online, heat, level, countRevision: this.revision };
   }
 
-  private liveSample(cellId: string, nowMs: number): NearbyCard[] {
-    const sample = this.samples.get(cellId);
-    if (!sample) return [];
-    const live: NearbyCard[] = [];
-    // A phone heartbeats once per reissue period; one that missed two has left, whatever its
-    // card's lifetime says, so it is no longer introduced.
-    const recent = nowMs - 2 * this.config.cardReissueMs;
-    for (const [pub, card] of sample) {
-      if (Date.parse(card.expiresAt) <= nowMs) sample.delete(pub);
-      else if ((this.lastHeartbeat.get(pub)?.atMs ?? 0) >= recent) live.push(card);
+  private nearbyHeadcount(viewerCountKey: string, viewerPoint: PublicLocation): number {
+    let eligible = 0;
+    let regional = 0;
+    for (const lease of this.leases.values()) {
+      if (lease.countKey === viewerCountKey || lease.scope !== 'nearby') continue;
+      eligible += 1;
+      if (publicLocationContains(viewerPoint, lease.point)) regional += 1;
     }
-    if (!sample.size) this.samples.delete(cellId);
-    return live;
+    return Math.min(eligible, Math.max(this.config.capacity, regional));
   }
 
-  private addSample(cellId: string, card: NearbyCard): void {
-    let sample = this.samples.get(cellId);
-    if (sample) this.samples.delete(cellId);
-    else sample = new Map();
-    this.samples.set(cellId, sample);
-    sample.delete(card.pub);
-    sample.set(card.pub, card);
-    while (sample.size > this.config.hubCellSample) sample.delete(sample.keys().next().value as string);
-    while (this.samples.size > MAX_SAMPLES) this.samples.delete(this.samples.keys().next().value as string);
+  private liveSample(indexKey: string): Array<[string, NearbyCard]> {
+    const keys = this.members.get(indexKey);
+    if (!keys) return [];
+    return [...keys]
+      .map((countKey) => this.leases.get(countKey))
+      .filter((lease): lease is PresenceLease => !!lease)
+      .sort((a, b) => b.updatedAtMs - a.updatedAtMs || a.countKey.localeCompare(b.countKey))
+      .slice(0, this.config.hubCellSample)
+      .map((lease) => [lease.countKey, this.representativeCard(lease)]);
   }
 
-  private windowIndex(nowMs: number): number {
-    return Math.floor(nowMs / this.config.cardReissueMs);
+  private representativeCard(lease: PresenceLease): NearbyCard {
+    const preferred = lease.writers.get(lease.countKey);
+    if (preferred) return preferred.card;
+    return [...lease.writers.values()]
+      .sort((a, b) => a.card.pub.localeCompare(b.card.pub))[0]!.card;
   }
 
-  private newWindow(index: number): CountWindow {
-    return {
-      index,
-      salt: randomBytes(16),
-      seen: new Set(),
-      seenAt: new Set(),
-      cells: new Map(),
-      total: 0,
+  private countKeyForPub(pub: string): string | undefined {
+    for (const lease of this.leases.values()) if (lease.writers.has(pub)) return lease.countKey;
+    return undefined;
+  }
+
+  private addToIndexes(lease: PresenceLease): void {
+    for (const key of this.indexKeys(lease)) {
+      let set = this.members.get(key);
+      if (!set) {
+        set = new Set();
+        this.members.set(key, set);
+      }
+      set.add(lease.countKey);
+    }
+  }
+
+  private removeFromIndexes(lease: PresenceLease): void {
+    for (const key of this.indexKeys(lease)) {
+      const set = this.members.get(key);
+      set?.delete(lease.countKey);
+      if (!set?.size) this.members.delete(key);
+    }
+  }
+
+  private indexKeys(lease: Pick<PresenceLease, 'scope' | 'point'>): string[] {
+    return lease.scope === 'nearby'
+      ? pyramidCellIds(lease.point, this.config.pyramidFinestLevel)
+      : [lease.scope];
+  }
+
+  private removeLease(lease: PresenceLease): void {
+    this.removeFromIndexes(lease);
+    this.leases.delete(lease.countKey);
+    this.bumpRevision();
+  }
+
+  private purgeExpired(nowMs: number): void {
+    for (const lease of [...this.leases.values()]) {
+      for (const [pub, writer] of lease.writers) {
+        if (writer.expiresAtMs <= nowMs) lease.writers.delete(pub);
+      }
+      if (!lease.writers.size) this.removeLease(lease);
+    }
+  }
+
+  private touchLease(lease: PresenceLease): void {
+    this.leases.delete(lease.countKey);
+    this.leases.set(lease.countKey, lease);
+  }
+
+  private enforcePresenceBound(): void {
+    while (this.leases.size > MAX_PRESENCES) {
+      const oldest = this.leases.values().next().value as PresenceLease | undefined;
+      if (!oldest) break;
+      this.removeLease(oldest);
+    }
+  }
+
+  private bumpRevision(): void {
+    this.revision = this.revision >= Number.MAX_SAFE_INTEGER ? 1 : this.revision + 1;
+  }
+
+  private scopeFingerprint(scope: NearbyCard['scope'], point: PublicLocation): string {
+    return `${scope}|${point.latitude}|${point.longitude}|${point.precisionMeters}`;
+  }
+
+  private conflict(message: string, lease: PresenceLease): NearbyPresenceConflictError {
+    return new NearbyPresenceConflictError(
+      message,
+      lease.scopeRevision,
+      this.revision,
+      lease.scope,
+      { ...lease.point },
+    );
+  }
+
+  private async verifyCountIdentity(card: NearbyCard): Promise<boolean> {
+    if (card.countKey === card.pub) return card.countProof === undefined;
+    const proof = card.countProof;
+    if (!proof || proof.anchorPub !== card.countKey) return false;
+    const crypto: LinkCrypto = {
+      sign: async () => '',
+      verify: async (data, signature, pub) => {
+        try {
+          return await SEA.verify(signature, pub) === data;
+        } catch {
+          return false;
+        }
+      },
+      hash: async () => '',
+      randomSecret: () => '',
     };
-  }
-
-  private roll(nowMs: number): void {
-    const index = this.windowIndex(nowMs);
-    if (index === this.current.index) return;
-    this.previous = index === this.current.index + 1 ? this.current : null;
-    this.current = this.newWindow(index);
-    for (const [userId, owner] of this.owners) if (owner.expiresAtMs <= nowMs) this.owners.delete(userId);
+    const [forward, reverse] = await Promise.all([
+      verifyLinkAttestation(proof.memberToAnchor, crypto),
+      verifyLinkAttestation(proof.anchorToMember, crypto),
+    ]);
+    return forward && reverse;
   }
 }
 
-function pointInBounds(point: PyramidPoint, bounds: { west: number; south: number; east: number; north: number }): boolean {
+function pointInBounds(
+  point: PyramidPoint,
+  bounds: { west: number; south: number; east: number; north: number },
+): boolean {
   if (point.latitude < bounds.south || point.latitude > bounds.north) return false;
   return bounds.west <= bounds.east
     ? point.longitude >= bounds.west && point.longitude <= bounds.east

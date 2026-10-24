@@ -23,37 +23,9 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-- [ ] **OPEN-85 — Build the authoritative presence and headcount foundation (product design frozen
-  2026-10-24).** Replace independent rolling location windows with one revisioned lease per count
-  key, then derive global, blurred-area and Place counts from those leases. This issue owns data
-  correctness and server APIs; `OPEN-86` consumes them for audience selection and presentation.
-  - [x] **D0 — Canonical design and requirements.** Define `G` (all live count keys), `A` (other
-    Nearby count keys), `R` (members of `A` inside the viewer's selected blurred cell),
-    `online = G`, and `nearby = min(A, max(C, R))`. Freeze the transition table, selected-area rule,
-    Place self-inclusive headcount and linked/unlinked device semantics in the design and technical
-    specification.
-  - [ ] **D1 — One leased presence per count key.** Key each expiring record by an unlinked
-    installation identity or explicitly linked identity. Add monotonic signed scope revisions so
-    only the accepted revision renews the lease; reject stale linked-device heartbeats and moves.
-    Two unlinked devices count twice, while linked devices sharing one identity count once.
-  - [ ] **D2 — Atomic scope and location transitions.** Login/logout/crash expiry, travel,
-    blur-size changes, Nearby↔Place and Place↔Place must replace the one lease and apply the
-    documented global/old-audience/new-audience deltas exactly once. A move must never leave one
-    count key in two scopes.
-  - [ ] **D3 — Exact count queries and refresh contract.** Make the selected published cell (Close
-    ≈400 m, Neighborhood ≈1 km, Citywide ≈10 km, Regional ≈50 km) the exact `R` boundary; remove the
-    fixed 50 km count filter and exclude self from `A` and `R`. Return `online`, active Nearby/Place
-    headcount and a count revision. Publish transitions immediately, heartbeat periodically, and
-    expire crashed clients after the bounded lease timeout.
-  - [ ] **D4 — Backend qualification.** Deterministically cover singleton (`0 nearby · 1 online`),
-    linked and unlinked multi-device counting, mixed blur sizes, every scope transition, duplicate
-    and stale revisions, graceful logout, crash expiry and Place self-inclusive counts. With 14
-    identities in one San Diego cell and 6 in one Los Angeles cell, verify San Diego reports
-    `13 nearby · 20 online` and Los Angeles reports `5 nearby · 20 online`.
-
 - [ ] **OPEN-86 — Implement personal audience pages, radio eligibility, map/UI and E2E behavior
-  (depends on OPEN-85).** Use the authoritative counts and leases without allowing paging or a
-  transport sighting to redefine a user's selected blurred area.
+  (OPEN-85 foundation completed 2026-10-24).** Use the authoritative counts and leases without
+  allowing paging or a transport sighting to redefine a user's selected blurred area.
   - [ ] **E1 — First-page and paging contract.** If `A <= C`, make all `A` identities reachable. If
     `A > C` and `R <= C`, use the pyramid only to reach the nearest `C` worldwide and expose no next
     page. If `R > C`, page only through those `R` identities. Guarantee the first `min(C, A)` without

@@ -4,6 +4,7 @@ import {
   parseNearbyCard,
   verifyNearbyCard,
   type NearbyCard,
+  type NearbyCountIdentity,
   type NearbyCardScope,
 } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
@@ -47,10 +48,28 @@ export type NearbyHubHeartbeat = {
   nearby?: unknown;
   /** Everyone whose Nearby/Place card is currently online. */
   online?: unknown;
+  /** Monotonic hub count snapshot revision. */
+  countRevision?: unknown;
+  /** The count key's accepted scope revision. */
+  scopeRevision?: unknown;
 };
+
+/** A linked device uses this to adopt the accepted revision when it already shares the scope. */
+export class NearbyHubPresenceConflictError extends Error {
+  constructor(
+    readonly acceptedRevision: number,
+    readonly acceptedScope: NearbyCardScope,
+    readonly acceptedPoint: PublicLocation,
+    message = 'Nearby presence revision conflict',
+  ) {
+    super(message);
+    this.name = 'NearbyHubPresenceConflictError';
+  }
+}
 
 export type NearbyV3Hub = {
   heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat | void>;
+  leave?(card: NearbyCard): Promise<unknown>;
   introductions(input: { point: { latitude: number; longitude: number }; scope: NearbyCardScope; excludePub: string }): Promise<NearbyCard[]>;
 };
 
@@ -71,7 +90,13 @@ export type NearbyV3Position = { point: PublicLocation; traveler: boolean; scope
 
 export type NearbyV3ServiceDeps = {
   config: () => NearbyV3Config;
-  identity: () => { userId: string; pair: SeaSigningPair; stageName?: string } | null;
+  identity: () => {
+    userId: string;
+    pair: SeaSigningPair;
+    stageName?: string;
+    /** Omitted for an unlinked device, whose count key is its own public key. */
+    countIdentity?: NearbyCountIdentity;
+  } | null;
   /** The public point to publish and the active scope; null publishes nothing (no point chosen yet). */
   position: () => NearbyV3Position | null;
   hub: NearbyV3Hub;
@@ -98,6 +123,8 @@ export type NearbyV3ServiceDeps = {
 };
 
 export const NEARBY_V3_STORAGE_KEY = 'iinpublic_nearby_v3_list_v1';
+/** Last accepted local scope fingerprint/revision; ordinary card refreshes reuse the revision. */
+export const NEARBY_V3_PRESENCE_STORAGE_KEY = 'iinpublic_nearby_v3_presence_v1';
 /** Group number and boundary per scope, for the day (§3.7 "Meeting new people in groups"). */
 export const NEARBY_V3_GROUPS_STORAGE_KEY = 'iinpublic_nearby_v3_groups_v1';
 
@@ -105,6 +132,7 @@ export const NEARBY_V3_GROUPS_STORAGE_KEY = 'iinpublic_nearby_v3_groups_v1';
 export type NearbyGroupInfo = { group: number; exhausted: boolean };
 
 type NearbyGroupState = { day: string; group: number; after: NearbyRankKey; met: string[] };
+type NearbyPresenceState = { countKey: string; fingerprint: string; scopeRevision: number };
 /** The hub's attestor key, today's beacon and my own age proof (§3.7 "Ranking"). */
 export const NEARBY_V3_ATTESTATION_STORAGE_KEY = 'iinpublic_nearby_v3_attestation_v1';
 const MAX_ATTESTOR_KEYS = 4;
@@ -165,6 +193,7 @@ export class NearbyV3Service {
   private attestationLoaded = false;
   /** People who did not answer, with the card they had: only a newer card brings them back. */
   private readonly silent = new Map<string, number>();
+  private presenceState: NearbyPresenceState | null | undefined;
   private readonly deps: NearbyV3ServiceDeps;
 
   constructor(deps: NearbyV3ServiceDeps) {
@@ -189,6 +218,7 @@ export class NearbyV3Service {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.ownCard && this.deps.hub.leave) void this.deps.hub.leave(this.ownCard).catch(() => undefined);
   }
 
   /** My card is for a scope or point I am no longer at (or I left Nearby and still have one). */
@@ -196,8 +226,11 @@ export class NearbyV3Service {
     const card = this.ownCard;
     if (!card) return false;
     const position = this.deps.position();
+    const identity = this.deps.identity();
     if (!position) return true;
-    return card.scope !== position.scope || card.traveler !== position.traveler
+    const countKey = identity?.countIdentity?.countKey || identity?.pair.pub;
+    return card.countKey !== countKey
+      || card.scope !== position.scope || card.traveler !== position.traveler
       || card.point.latitude !== position.point.latitude || card.point.longitude !== position.point.longitude;
   }
 
@@ -491,6 +524,8 @@ export class NearbyV3Service {
   ): Promise<boolean> {
     const previous = this.ownCard;
     const sign = this.deps.sign ?? createNearbyCard;
+    const countIdentity = identity.countIdentity ?? { countKey: identity.pair.pub };
+    const scopeRevision = this.scopeRevision(position, countIdentity.countKey, nowMs);
     const card = await sign({
       userId: identity.userId,
       pair: identity.pair,
@@ -498,6 +533,8 @@ export class NearbyV3Service {
       point: position.point,
       traveler: position.traveler,
       scope: position.scope,
+      countIdentity,
+      scopeRevision,
       lifetimeMs: config.cardLifetimeMs,
       age: this.ownAge,
       now: new Date(nowMs),
@@ -507,18 +544,41 @@ export class NearbyV3Service {
     const current = this.deps.position();
     if (!current || current.scope !== card.scope || current.traveler !== card.traveler
       || current.point.latitude !== card.point.latitude || current.point.longitude !== card.point.longitude) return false;
+    // Linking/unlinking changes the count key. Retire this device's old writer before publishing the
+    // new key so the short migration does not count one device in both identities.
+    if (previous && previous.countKey !== card.countKey && this.deps.hub.leave) {
+      await this.deps.hub.leave(previous).catch(() => undefined);
+    }
     this.ownCard = card;
-    await this.deps.hub.heartbeat(card).then(
-      async (answer) => {
-        this.setHubReachable(true);
-        if (answer) await this.absorbHeartbeat(answer, card.pub);
-      },
-      (error) => {
-        this.log(`hub heartbeat failed: ${String(error)}`);
-        this.setHubReachable(false);
-      },
-    );
+    try {
+      const answer = await this.deps.hub.heartbeat(card);
+      this.setHubReachable(true);
+      if (answer) await this.absorbHeartbeat(answer, card.pub);
+    } catch (error) {
+      if (error instanceof NearbyHubPresenceConflictError
+        && error.acceptedRevision > card.scopeRevision
+        && error.acceptedScope === card.scope
+        && error.acceptedPoint.latitude === card.point.latitude
+        && error.acceptedPoint.longitude === card.point.longitude
+        && error.acceptedPoint.precisionMeters === card.point.precisionMeters) {
+        // A linked peer won the revision race for this same presence. Adopt it and re-sign once so
+        // this device also becomes a live writer; otherwise the shared lease would disappear when
+        // only the winning device logs out.
+        this.savePresenceState({
+          countKey: card.countKey,
+          fingerprint: this.presenceFingerprint(position),
+          scopeRevision: error.acceptedRevision,
+        });
+        return this.reissueCard(position, identity, nowMs, config);
+      }
+      this.log(`hub heartbeat failed: ${String(error)}`);
+      // A revision conflict proves the hub is reachable; other failures may be connectivity.
+      this.setHubReachable(error instanceof NearbyHubPresenceConflictError);
+    }
     return !!previous && (previous.stageName !== card.stageName
+      || previous.countKey !== card.countKey
+      || previous.scopeRevision !== card.scopeRevision
+      || previous.scope !== card.scope
       || previous.traveler !== card.traveler
       || previous.point.latitude !== card.point.latitude
       || previous.point.longitude !== card.point.longitude);
@@ -621,8 +681,11 @@ export class NearbyV3Service {
   private cardIsStale(position: NearbyV3Position, userId: string, nowMs: number, config: NearbyV3Config): boolean {
     const card = this.ownCard;
     if (!card) return true;
+    const identity = this.deps.identity();
+    const countKey = identity?.countIdentity?.countKey || identity?.pair.pub;
     return card.userId !== userId
-      || (card.stageName ?? '') !== (this.deps.identity()?.stageName ?? '')
+      || card.countKey !== countKey
+      || (card.stageName ?? '') !== (identity?.stageName ?? '')
       || card.scope !== position.scope
       || card.traveler !== position.traveler
       || card.point.latitude !== position.point.latitude
@@ -630,6 +693,46 @@ export class NearbyV3Service {
       || card.point.precisionMeters !== position.point.precisionMeters
       || (!!this.ownAge && card.age?.since !== this.ownAge.since)
       || nowMs - nearbyCardIssuedAtMs(card) >= config.cardReissueMs;
+  }
+
+  /** Scope/point changes advance once; ordinary reissues and heartbeats reuse the revision. */
+  private scopeRevision(position: NearbyV3Position, countKey: string, nowMs: number): number {
+    const fingerprint = this.presenceFingerprint(position);
+    const previous = this.loadPresenceState();
+    if (previous?.countKey === countKey && previous.fingerprint === fingerprint) return previous.scopeRevision;
+    const scopeRevision = Math.max(1, nowMs, (previous?.scopeRevision ?? 0) + 1);
+    this.savePresenceState({ countKey, fingerprint, scopeRevision });
+    return scopeRevision;
+  }
+
+  private presenceFingerprint(position: NearbyV3Position): string {
+    return `${position.scope}|${position.point.latitude}|${position.point.longitude}|${position.point.precisionMeters}`;
+  }
+
+  private savePresenceState(state: NearbyPresenceState): void {
+    this.presenceState = state;
+    try {
+      this.deps.storage?.setItem(NEARBY_V3_PRESENCE_STORAGE_KEY, JSON.stringify(this.presenceState));
+    } catch {
+      // In-memory monotonicity remains for this session when storage is unavailable.
+    }
+  }
+
+  private loadPresenceState(): NearbyPresenceState | null {
+    if (this.presenceState !== undefined) return this.presenceState;
+    this.presenceState = null;
+    try {
+      const raw = this.deps.storage?.getItem(NEARBY_V3_PRESENCE_STORAGE_KEY);
+      if (!raw) return this.presenceState;
+      const value = JSON.parse(raw) as Partial<NearbyPresenceState>;
+      if (typeof value.countKey === 'string' && typeof value.fingerprint === 'string'
+        && Number.isSafeInteger(value.scopeRevision) && Number(value.scopeRevision) >= 1) {
+        this.presenceState = value as NearbyPresenceState;
+      }
+    } catch {
+      this.presenceState = null;
+    }
+    return this.presenceState;
   }
 
   /** A partner's list as they rank it, past their group boundary when they sent one. */

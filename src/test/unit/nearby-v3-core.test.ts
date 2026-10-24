@@ -32,6 +32,8 @@ function card(pub: string, point: PublicLocation, issuedAtMs = NOW, scope: Nearb
     kind: 'nearby-card',
     userId: `user-${pub}`,
     pub,
+    countKey: pub,
+    scopeRevision: issuedAtMs,
     point,
     traveler: false,
     scope,

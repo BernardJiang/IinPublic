@@ -1,4 +1,5 @@
 import { parseNearbyAgeProof, type NearbyAgeProof } from './nearby-v3-attestation';
+import type { LinkAttestation } from './identity-linking';
 import { isPublicLocation, type PublicLocation } from './public-location';
 import { portableSha256Hex } from './portable-sha256';
 import {
@@ -10,17 +11,46 @@ import {
 
 /**
  * A Nearby v3 card (§3.7 "Cards"): a signed, expiring "I am around here" record. It carries the
- * public point (the centre of the privacy-floor square, public-location.ts), never a room id or an
- * exact location. People build their personal nearby lists from these cards, the hub samples them
- * to introduce newcomers, and a Place's members gossip cards scoped to that Place.
+ * public point (the centre of the privacy-floor square, public-location.ts), never an exact
+ * location. Its scope is Nearby or one public Place. People build their personal nearby lists from
+ * these cards, the hub samples them to introduce newcomers, and a Place's members gossip cards
+ * scoped to that Place.
  */
 export type NearbyCardScope = 'nearby' | `place:${string}`;
+
+/**
+ * Proof that this device and `anchorPub` deliberately linked. The lexicographically smaller key is
+ * the pair's count key, so two directly linked devices independently choose the same value without
+ * sharing private keys. The hub verifies both existing identity-link attestations before accepting
+ * a non-self count key.
+ */
+export type NearbyCountIdentityProof = {
+  version: 1;
+  anchorPub: string;
+  memberToAnchor: LinkAttestation;
+  anchorToMember: LinkAttestation;
+};
+
+export type NearbyCountIdentity = {
+  countKey: string;
+  proof?: NearbyCountIdentityProof;
+};
+
+export function nearbyCountAnchor(firstPub: string, secondPub: string): string {
+  return firstPub < secondPub ? firstPub : secondPub;
+}
 
 export type NearbyCard = {
   version: 1;
   kind: 'nearby-card';
   userId: string;
   pub: string;
+  /** Unlinked: `pub`. Directly linked pair: the smaller of the two public keys. */
+  countKey: string;
+  /** Monotonic for count-key scope/point changes; ordinary heartbeats reuse it. */
+  scopeRevision: number;
+  /** Required when `countKey !== pub`. */
+  countProof?: NearbyCountIdentityProof;
   /** Public display name, so a list can be shown without a lookup per person. */
   stageName?: string;
   point: PublicLocation;
@@ -51,6 +81,9 @@ function signingPayload(card: Omit<NearbyCard, 'proof'>): unknown {
     kind: card.kind,
     userId: card.userId,
     pub: card.pub,
+    countKey: card.countKey,
+    scopeRevision: card.scopeRevision,
+    ...(card.countProof ? { countProof: card.countProof } : {}),
     ...(card.stageName ? { stageName: card.stageName } : {}),
     point: card.point,
     traveler: card.traveler,
@@ -70,14 +103,21 @@ export async function createNearbyCard(input: {
   scope?: NearbyCardScope;
   lifetimeMs: number;
   age?: NearbyAgeProof | null;
+  countIdentity?: NearbyCountIdentity | null;
+  scopeRevision?: number;
   now?: Date;
 }): Promise<NearbyCard> {
   const now = input.now ?? new Date();
+  const countKey = String(input.countIdentity?.countKey || input.pair.pub || '').trim();
+  const scopeRevision = input.scopeRevision ?? Math.max(1, now.getTime());
   const unsigned: Omit<NearbyCard, 'proof'> = {
     version: 1,
     kind: 'nearby-card',
     userId: String(input.userId || '').trim(),
     pub: String(input.pair.pub || '').trim(),
+    countKey,
+    scopeRevision,
+    ...(input.countIdentity?.proof ? { countProof: input.countIdentity.proof } : {}),
     ...(input.stageName ? { stageName: String(input.stageName).slice(0, 80) } : {}),
     point: { ...input.point },
     traveler: input.traveler === true,
@@ -87,6 +127,7 @@ export async function createNearbyCard(input: {
     ...(input.age && input.age.pub === input.pair.pub ? { age: input.age } : {}),
   };
   if (!unsigned.userId || !unsigned.pub) throw new Error('a Nearby card needs userId and pub');
+  if (!isNearbyCountIdentity(unsigned)) throw new Error('invalid Nearby count identity');
   if (!isPublicLocation(unsigned.point)) throw new Error('a Nearby card point must be a public grid centre');
   if (!isNearbyCardScope(unsigned.scope)) throw new Error('invalid Nearby card scope');
   const proof = await createSignedP2PEnvelopeProof({
@@ -105,6 +146,7 @@ export function parseNearbyCard(value: unknown): NearbyCard | null {
     || card.kind !== 'nearby-card'
     || typeof card.userId !== 'string' || card.userId.length < 1 || card.userId.length > 256
     || typeof card.pub !== 'string' || card.pub.length < 1 || card.pub.length > 2_048
+    || !isNearbyCountIdentity(card)
     || (card.stageName !== undefined && (typeof card.stageName !== 'string' || card.stageName.length > 80))
     || !isPublicLocation(card.point)
     || typeof card.traveler !== 'boolean'
@@ -116,6 +158,33 @@ export function parseNearbyCard(value: unknown): NearbyCard | null {
     || card.proof.pub !== card.pub
     || card.proof.timestamp !== card.issuedAt) return null;
   return card as NearbyCard;
+}
+
+/** Structural validation only; the hub additionally verifies both attestation signatures. */
+export function isNearbyCountIdentity(value: {
+  pub?: unknown;
+  countKey?: unknown;
+  scopeRevision?: unknown;
+  countProof?: unknown;
+}): boolean {
+  if (typeof value.pub !== 'string' || !value.pub || value.pub.length > 2_048
+    || typeof value.countKey !== 'string' || !value.countKey || value.countKey.length > 2_048
+    || !Number.isSafeInteger(value.scopeRevision) || Number(value.scopeRevision) < 1) return false;
+  if (value.countKey === value.pub) return value.countProof === undefined;
+  if (value.countKey !== nearbyCountAnchor(value.pub, value.countKey)) return false;
+  if (!value.countProof || typeof value.countProof !== 'object') return false;
+  const proof = value.countProof as Partial<NearbyCountIdentityProof>;
+  if (proof.version !== 1 || proof.anchorPub !== value.countKey) return false;
+  const forward = proof.memberToAnchor;
+  const reverse = proof.anchorToMember;
+  return !!forward && !!reverse
+    && forward.fromPub === value.pub && forward.toPub === value.countKey
+    && reverse.fromPub === value.countKey && reverse.toPub === value.pub
+    && typeof forward.secretHash === 'string' && !!forward.secretHash
+    && forward.secretHash === reverse.secretHash
+    && Number.isSafeInteger(forward.issuedAt) && Number.isSafeInteger(reverse.issuedAt)
+    && typeof forward.sig === 'string' && !!forward.sig
+    && typeof reverse.sig === 'string' && !!reverse.sig;
 }
 
 export function nearbyCardIssuedAtMs(card: Pick<NearbyCard, 'issuedAt'>): number {

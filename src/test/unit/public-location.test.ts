@@ -2,6 +2,7 @@ import {
   PUBLIC_LOCATION_MIN_METERS,
   isPublicLocation,
   parsePublicLocationRegion,
+  publicLocationContains,
   publicLocationFor,
   publicLocationPrecisionMeters,
   publicLocationRegion,
@@ -14,7 +15,7 @@ const metersBetween = (a: { latitude: number; longitude: number }, b: { latitude
   Math.hypot((a.latitude - b.latitude) * 111_320, (a.longitude - b.longitude) * 111_320 * Math.cos((a.latitude * Math.PI) / 180));
 
 describe('public location', () => {
-  it('publishes at least 1 km, follows coarser settings, and publishes nothing for private ones', () => {
+  it('publishes the selected 400 m minimum, follows coarser settings, and publishes nothing for private ones', () => {
     expect(publicLocationPrecisionMeters('close-nearby')).toBe(PUBLIC_LOCATION_MIN_METERS);
     expect(publicLocationPrecisionMeters('neighborhood')).toBe(1_000);
     expect(publicLocationPrecisionMeters('citywide')).toBe(10_000);
@@ -24,6 +25,21 @@ describe('public location', () => {
     // A vague fix moves up a grid, never down.
     expect(publicLocationPrecisionMeters('neighborhood', 900)).toBe(10_000);
     expect(publicLocationFor({ ...SD, accuracy: 10 }, 'location-off')).toBeNull();
+  });
+
+  it('uses the viewer cell as an exact, potentially asymmetric containment boundary', () => {
+    const regionalViewer = snapPublicLocation(SD, 50_000);
+    const closeCandidate = snapPublicLocation({
+      latitude: regionalViewer.latitude + 0.01,
+      longitude: regionalViewer.longitude,
+    }, 400);
+    const outside = snapPublicLocation({
+      latitude: regionalViewer.latitude + 0.6,
+      longitude: regionalViewer.longitude,
+    }, 400);
+    expect(publicLocationContains(regionalViewer, closeCandidate)).toBe(true);
+    expect(publicLocationContains(regionalViewer, outside)).toBe(false);
+    expect(publicLocationContains(closeCandidate, regionalViewer)).toBe(false);
   });
 
   it('gives everyone in one square exactly the same point, never the exact fix', () => {

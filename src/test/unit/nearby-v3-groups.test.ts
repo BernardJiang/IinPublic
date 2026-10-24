@@ -19,6 +19,8 @@ function card(pub: string, point: PublicLocation = SD): NearbyCard {
     kind: 'nearby-card',
     userId: `user-${pub}`,
     pub,
+    countKey: pub,
+    scopeRevision: NOW,
     point,
     traveler: false,
     scope: 'nearby',

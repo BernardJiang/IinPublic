@@ -34,6 +34,7 @@ import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-clie
 import { BlockStatusCache } from '../services/block-status-cache';
 import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
 import { NearbyV3Runtime, FetchNearbyV3Hub } from '../services/nearby-v3-runtime';
+import type { NearbyCountIdentity } from '../../shared/nearby-v3-card';
 import { nearbyV3AttestorKeysFromManifest, nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
 import { IncomingTalkBudget } from '../../shared/incoming-talk-budget';
 import { placesMissingFromCatalogue } from '../ui/room-list-view';
@@ -385,6 +386,8 @@ export class IinPublicApp {
   private nearbyPointShownKey = '';
   /** Nearby (§3.7): my personal list, the audience of `NEARBY_V3_ROOM_ID`. */
   private nearbyV3: NearbyV3Runtime | null = null;
+  /** Verified direct-link proof when this device shares another device's Nearby count key. */
+  private nearbyCountIdentity: NearbyCountIdentity | null = null;
   /** The latest Nearby broadcast, for "Sent to N of M". */
   private nearbyBroadcast: { talkIds: Set<string>; total: number; delivered: Set<string> } | null = null;
   /** Last published home square (hysteresis memory for `publicHomeLocation`). */
@@ -1219,19 +1222,30 @@ export class IinPublicApp {
       readIncomingRequest: () => this.identityLinkService.readIncomingLinkRequest(),
       approveIncomingRequest: async (pub) => {
         const approved = await this.identityLinkService.confirmIncomingLink(pub);
-        if (approved) this.deviceSyncService.watchPeerForSync(pub);
+        if (approved) {
+          this.deviceSyncService.watchPeerForSync(pub);
+          await this.refreshNearbyCountIdentity();
+        }
         return approved;
       },
       cancelPendingRequest: (requestId) => this.identityLinkService.cancelPendingLink(requestId),
       refreshRecords: async () => {
         await this.identityLinkService.refreshLocalRecords();
+        await this.refreshNearbyCountIdentity();
       },
       completeFromCode: async (code) => {
         const result = await this.identityLinkService.completeLinkFromCode(code);
-        if (result.ok) this.deviceSyncService.watchPeerForSync(result.peerPub);
+        if (result.ok) {
+          this.deviceSyncService.watchPeerForSync(result.peerPub);
+          await this.refreshNearbyCountIdentity();
+        }
         return result.ok ? null : result.error;
       },
-      unlink: (pub) => this.identityLinkService.unlink(pub),
+      unlink: async (pub) => {
+        const result = await this.identityLinkService.unlink(pub);
+        await this.refreshNearbyCountIdentity();
+        return result;
+      },
       isLinked: (pub) => this.identityLinkService.isLinked(pub),
     });
     this.uiManager.setSupportDelegateInviteHooks({
@@ -1605,7 +1619,7 @@ export class IinPublicApp {
       this.currentUser.talkFilters = filters;
     }
     this.startQuietWatch();
-    this.startNearbyV3();
+    await this.startNearbyV3();
     this.refreshNearbyPoint();
     this.startActiveRooms();
     this.startPresenceRefresh();
@@ -1945,9 +1959,12 @@ export class IinPublicApp {
     }
   }
 
-  private startNearbyV3(): void {
+  private async startNearbyV3(): Promise<void> {
     const user = this.currentUser;
     if (this.nearbyV3 || !user || isTechSupportUser(user)) return;
+    const countIdentity = await this.identityLinkService.nearbyCountIdentity().catch(() => null);
+    if (this.nearbyV3 || this.currentUser !== user) return;
+    this.nearbyCountIdentity = countIdentity;
     const mesh = this.ensurePeerMeshService();
     if (!mesh) return;
     const extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions;
@@ -1957,6 +1974,7 @@ export class IinPublicApp {
       apiBase: () => this.getBackendApiBase(),
       userId: user.id,
       stageName: () => this.currentUser?.stageName || user.id,
+      countIdentity: () => this.nearbyCountIdentity,
       config: () => this.nearbyV3Config(extensions),
       pinnedAttestorKeys: () => nearbyV3AttestorKeysFromManifest(extensions ? { extensions } : null),
       position: () => {
@@ -1997,6 +2015,14 @@ export class IinPublicApp {
     const runtime = this.nearbyV3;
     (window as unknown as { __iinpublicNearbyV3?: () => Record<string, unknown> }).__iinpublicNearbyV3 = () => runtime.diagnostics();
     runtime.start();
+  }
+
+  /** Reissue immediately when linking or unlinking changes this device's count key. */
+  private async refreshNearbyCountIdentity(): Promise<void> {
+    const next = await this.identityLinkService.nearbyCountIdentity().catch(() => null);
+    const previousKey = this.nearbyCountIdentity?.countKey ?? null;
+    this.nearbyCountIdentity = next;
+    if (previousKey !== (next?.countKey ?? null)) await this.nearbyV3?.service.refresh();
   }
 
   private nearbyV3Config(extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions) {

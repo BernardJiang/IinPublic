@@ -1,12 +1,17 @@
-import type { NearbyCard, NearbyCardScope } from '../../shared/nearby-v3-card';
+import type { NearbyCard, NearbyCardScope, NearbyCountIdentity } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
 import type { NearbyAttestorKey } from '../../shared/nearby-v3-attestation';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import type { PublicLocation } from '../../shared/public-location';
+import { isPublicLocation, type PublicLocation } from '../../shared/public-location';
 import type { NearbyListEntry } from '../../shared/nearby-v3-list';
 import { nearbyKnockChannel, type NearbyKnock } from '../../shared/nearby-v3-knock';
 import { GunNearbyKnockChannel, GunNearbyLocalBoard, NearbyKnockGate, NearbyV3MeshLink, type NearbyV3MeshPort } from './nearby-v3-link';
-import { NearbyV3Service, type NearbyHubHeartbeat, type NearbyV3Hub } from './nearby-v3-service';
+import {
+  NearbyHubPresenceConflictError,
+  NearbyV3Service,
+  type NearbyHubHeartbeat,
+  type NearbyV3Hub,
+} from './nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
 
 /**
@@ -77,7 +82,25 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
       body: JSON.stringify({ card }),
     });
     if (!response.ok) {
-      const body = await response.json().catch(() => null) as { error?: unknown } | null;
+      const body = await response.json().catch(() => null) as {
+        error?: unknown;
+        acceptedRevision?: unknown;
+        acceptedScope?: unknown;
+        acceptedPoint?: unknown;
+      } | null;
+      const acceptedPoint = body?.acceptedPoint;
+      if (response.status === 409
+        && Number.isSafeInteger(body?.acceptedRevision)
+        && (body?.acceptedScope === 'nearby'
+          || (typeof body?.acceptedScope === 'string' && body.acceptedScope.startsWith('place:')))
+        && isPublicLocation(acceptedPoint)) {
+        throw new NearbyHubPresenceConflictError(
+          Number(body.acceptedRevision),
+          body.acceptedScope as NearbyCardScope,
+          acceptedPoint,
+          typeof body.error === 'string' ? body.error : undefined,
+        );
+      }
       throw new Error(`hub refused the card (${response.status}${body?.error ? `: ${String(body.error)}` : ''})`);
     }
     const answer = await response.json().catch(() => ({})) as NearbyHubHeartbeat;
@@ -87,6 +110,16 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
       this.onCounts?.({ nearby: Math.floor(nearby), online: Math.floor(online) });
     }
     return answer;
+  }
+
+  async leave(card: NearbyCard): Promise<void> {
+    const response = await fetch(`${this.apiBase()}/api/nearby/v3/leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ card }),
+      keepalive: true,
+    });
+    if (!response.ok && response.status !== 409) throw new Error(`leave failed (${response.status})`);
   }
 
   async introductions(input: { point: { latitude: number; longitude: number }; scope: string; excludePub: string }): Promise<NearbyCard[]> {
@@ -119,11 +152,16 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
   async stats(bounds?: { west: number; south: number; east: number; north: number }): Promise<{
     online: number;
     heat: Array<{ latitude: number; longitude: number; count: number }>;
+    countRevision?: number;
   }> {
     const query = bounds ? `?${new URLSearchParams(Object.entries(bounds).map(([key, value]) => [key, String(value)]))}` : '';
     const response = await fetch(`${this.apiBase()}/api/nearby/v3/stats${query}`, { cache: 'no-store' });
     if (!response.ok) throw new Error(`stats failed (${response.status})`);
-    return await response.json() as { online: number; heat: Array<{ latitude: number; longitude: number; count: number }> };
+    return await response.json() as {
+      online: number;
+      heat: Array<{ latitude: number; longitude: number; count: number }>;
+      countRevision?: number;
+    };
   }
 }
 
@@ -135,6 +173,7 @@ export type NearbyV3RuntimeDeps = {
   apiBase: () => string;
   userId: string;
   stageName: () => string;
+  countIdentity?: () => NearbyCountIdentity | null;
   config: () => NearbyV3Config;
   /** Hub attestor keys the signed manifest pins (empty: trust the hub's announced key). */
   pinnedAttestorKeys?: () => readonly NearbyAttestorKey[];
@@ -172,7 +211,12 @@ export class NearbyV3Runtime {
       ...(deps.pinnedAttestorKeys ? { pinnedAttestorKeys: deps.pinnedAttestorKeys } : {}),
       identity: () => {
         const local = this.pair();
-        return local?.pub && local.priv ? { userId: deps.userId, pair: local, stageName: deps.stageName() } : null;
+        return local?.pub && local.priv ? {
+          userId: deps.userId,
+          pair: local,
+          stageName: deps.stageName(),
+          ...(deps.countIdentity?.() ? { countIdentity: deps.countIdentity()! } : {}),
+        } : null;
       },
       position: () => {
         const position = deps.position();

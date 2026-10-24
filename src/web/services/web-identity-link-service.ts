@@ -2,6 +2,10 @@ import { getSEA } from '../sea-gun';
 import type { WebGunService } from './web-gun-service';
 import { getGraphRelay, putGraphRelay } from './graph-relay-client';
 import {
+  nearbyCountAnchor,
+  type NearbyCountIdentity,
+} from '../../shared/nearby-v3-card';
+import {
   LinkCrypto,
   PairingPayload,
   LinkAttestation,
@@ -195,6 +199,13 @@ export class WebIdentityLinkService {
       this.publishAttestation(att),
       this.publishIncomingRequest(payload.pub, payload.requestId, att),
     ]);
+    this.upsertLocalRecord({
+      pub: payload.pub,
+      stageName: 'Linked identity',
+      platform: 'unknown',
+      linkedAt: now,
+      state: 'waiting',
+    });
     this.markPairingConsumed(payload.requestId, payload.expiresAt, now);
     return { ok: true, peerPub: payload.pub };
   }
@@ -359,6 +370,38 @@ export class WebIdentityLinkService {
   /** Do these two identities have a verified direct mutual link? */
   async isLinked(peerPub: string): Promise<boolean> {
     return (await this.linkStateWith(peerPub)) === 'linked';
+  }
+
+  /**
+   * Nearby's count identity for this device. An unlinked device (or the smaller key in a linked
+   * pair) uses its own pub. The other device carries both already-published mutual attestations so
+   * the hub can verify that sharing the count key was deliberate.
+   */
+  async nearbyCountIdentity(): Promise<NearbyCountIdentity | null> {
+    const selfPub = this.selfPub();
+    if (!selfPub) return null;
+    const linkedPeers: string[] = [];
+    for (const record of this.listLocalRecords()) {
+      if (record.state === 'linked' && await this.isLinked(record.pub).catch(() => false)) {
+        linkedPeers.push(record.pub);
+      }
+    }
+    if (!linkedPeers.length) return { countKey: selfPub };
+    const anchorPub = linkedPeers.reduce(
+      (smallest, pub) => nearbyCountAnchor(smallest, pub),
+      selfPub,
+    );
+    if (anchorPub === selfPub) return { countKey: selfPub };
+    const [memberToAnchor, anchorToMember] = await Promise.all([
+      this.readAttestation(selfPub, anchorPub),
+      this.readAttestation(anchorPub, selfPub),
+    ]);
+    if (!memberToAnchor || !anchorToMember
+      || !(await linkVerified(memberToAnchor, anchorToMember, this.crypto()))) return { countKey: selfPub };
+    return {
+      countKey: anchorPub,
+      proof: { version: 1, anchorPub, memberToAnchor, anchorToMember },
+    };
   }
 
   /** Re-resolve local candidate rows from signed graph state. */

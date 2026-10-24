@@ -572,13 +572,13 @@ travel. Travel lands in your own lane.
 
 ### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, revised 2026-10-24)
 
-Status: **the 2026-10-19 baseline is implemented; the 2026-10-24 headcount and blurred-area
-revision is pending under OPEN-85 and OPEN-86.** There is no prior official release to preserve, so
-v3 replaced v2 outright. The revision keeps personal lists and removes no working transport, but
-restores yellow map dots, separates the uncapped candidate headcount from the at-most-`C` visible
-page, and makes the user's selected blurred location area the only geographic Nearby boundary. It
-replaces §3 to §3.3 and the Nearby parts of §3.6. Places (§4) stay rooms, with the changes in
-"Places in v3" below.
+Status: **the 2026-10-19 baseline and OPEN-85's 2026-10-24 authoritative presence/headcount
+foundation are implemented; OPEN-86's audience paging, map and UI revision remains pending.** There
+is no prior official release to preserve, so v3 replaced v2 outright. The revision keeps personal
+lists and removes no working transport, but restores yellow map dots, separates the uncapped
+candidate headcount from the at-most-`C` visible page, and makes the user's selected blurred
+location area the only geographic Nearby boundary. It replaces §3 to §3.3 and the Nearby parts of
+§3.6. Places (§4) stay rooms, with the changes in "Places in v3" below.
 
 **Why.** Room capacity exists only to bound traffic. It never required two people to share the
 same list of nearby people, and making them share one is what costs the most today:
@@ -1005,10 +1005,10 @@ Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contac
 
 #### Historical v3 simulation results
 
-The following evidence qualified the 2026-10-19 nearest-list baseline. OPEN-85 must add cases for
-blurred-area headcounts, linked-device deduplication and scope moves. OPEN-86 must add sparse
-nearest-`C` without paging, crowded-area-only paging, directional radio eligibility and green/yellow
-map classification before the revised design is called implemented.
+The following evidence qualified the 2026-10-19 nearest-list baseline. OPEN-85 added deterministic
+coverage for blurred-area headcounts, linked-device deduplication and scope moves on 2026-10-24.
+OPEN-86 must add sparse nearest-`C` without paging, crowded-area-only paging, directional radio
+eligibility and green/yellow map classification before the revised design is called implemented.
 
 `scripts/nearby-gossip-experiment.ts` (model `src/test/support/nearby-gossip-model.ts`), C = 498,
 everyone arriving at once (the hardest start), 30 s gossip periods assumed. The model has no network
@@ -1040,12 +1040,13 @@ timing, NAT failures or connection cost.
 Results: `docs/testing/nearby-gossip-experiment.md`. Unit gate:
 `src/test/unit/nearby-gossip-personal-lists.test.ts`.
 
-#### Baseline implementation plan (2026-10-19; revised behavior tracked by OPEN-85 and OPEN-86)
+#### Baseline implementation plan (2026-10-19; remaining revision tracked by OPEN-86)
 
 Android first. Each phase lands with unit tests; phases 3–6 also with phone-path journeys and a
 real-phone run.
 
-1. **Core and hub — done (2026-10-19).**
+1. **Core and hub — done (2026-10-19; authoritative lease/count revision done under OPEN-85,
+   2026-10-24).**
    - Shared: `nearby-v3-config.ts` (C and every tunable from the manifest, `extensions['nearby-v3']`),
      `nearby-v3-card.ts` (signed cards), `nearby-v3-ranking.ts` (distance, then
      `hash(viewer, member, beacon)`), `nearby-v3-pyramid.ts` (cells, 3×3 blocks, the climb),

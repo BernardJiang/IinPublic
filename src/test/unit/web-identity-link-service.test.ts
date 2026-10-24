@@ -193,6 +193,17 @@ describe('WebIdentityLinkService graph wiring', () => {
     await expect(serviceA.confirmIncomingLink('deviceB.pub', 4_000)).resolves.toBe(true);
     await expect(serviceA.isLinked('deviceB.pub')).resolves.toBe(true);
     await expect(serviceB.isLinked('deviceA.pub')).resolves.toBe(true);
+    await serviceB.refreshLocalRecords();
+    await expect(serviceA.nearbyCountIdentity()).resolves.toEqual({ countKey: 'deviceA.pub' });
+    await expect(serviceB.nearbyCountIdentity()).resolves.toEqual({
+      countKey: 'deviceA.pub',
+      proof: expect.objectContaining({
+        version: 1,
+        anchorPub: 'deviceA.pub',
+        memberToAnchor: expect.objectContaining({ fromPub: 'deviceB.pub', toPub: 'deviceA.pub' }),
+        anchorToMember: expect.objectContaining({ fromPub: 'deviceA.pub', toPub: 'deviceB.pub' }),
+      }),
+    });
 
     await expect(serviceB.completeLinkFromCode(code, 5_000)).resolves.toEqual({
       ok: false,

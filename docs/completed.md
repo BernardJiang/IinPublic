@@ -1,6 +1,27 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-22
+Last updated: 2026-10-24
+
+## 2026-10-24 — OPEN-85 authoritative presence and headcounts completed
+
+- Replaced rolling, salted count windows and the fixed 50 km Nearby filter with one expiring,
+  revisioned lease per count key. All global, selected blurred-cell, Place, heat, online-contact and
+  introduction queries now read the same live lease set, and scope/point changes atomically replace
+  the old indexes.
+- Nearby cards now sign their count key and monotonic scope revision. Unlinked installations count
+  independently; directly linked devices prove their shared deterministic count key with the two
+  mutual identity-link attestations, share one lease, and adopt the winning revision when they are
+  already in the same scope. Stale or conflicting moves receive HTTP 409 and cannot renew or restore
+  an old presence.
+- Implemented `online = G` and viewer-relative `nearby = min(A, max(C, R))`, with the selected
+  published cell as the exact boundary and self excluded. Place headcounts remain self-inclusive.
+  Graceful stop uses the signed `/api/nearby/v3/leave` route; crashes expire after two card-reissue
+  periods; heartbeat responses, introductions and statistics carry a monotonic count revision.
+- Verification: TypeScript and focused ESLint pass; 10 focused Jest suites pass 93 tests, including
+  singleton, linked/unlinked devices, revision races, all scope transitions, mixed blur sizes,
+  graceful leave, expiry and Place counts. The deterministic two-city case verifies San Diego as
+  `13 nearby · 20 online` and Los Angeles as `5 nearby · 20 online`. Web and server production builds
+  pass. UI paging, green/yellow map population and slow multi-browser qualification remain OPEN-86.
 
 ## 2026-10-22 — OPEN-70 Nearby v3 and reputation-gated Places closed
 

@@ -49,10 +49,21 @@ function fakeNetwork() {
   };
 }
 
-const fakeSign = async (input: { userId: string; pair: SeaSigningPair; point: PublicLocation; scope?: NearbyCard['scope']; lifetimeMs: number; now?: Date }): Promise<NearbyCard> => {
+const fakeSign = async (input: {
+  userId: string;
+  pair: SeaSigningPair;
+  point: PublicLocation;
+  scope?: NearbyCard['scope'];
+  lifetimeMs: number;
+  countIdentity?: { countKey: string };
+  scopeRevision?: number;
+  now?: Date;
+}): Promise<NearbyCard> => {
   const now = input.now ?? new Date();
   return {
-    version: 1, kind: 'nearby-card', userId: input.userId, pub: input.pair.pub, point: input.point, traveler: false,
+    version: 1, kind: 'nearby-card', userId: input.userId, pub: input.pair.pub,
+    countKey: input.countIdentity?.countKey ?? input.pair.pub,
+    scopeRevision: input.scopeRevision ?? now.getTime(), point: input.point, traveler: false,
     scope: input.scope ?? 'nearby', issuedAt: now.toISOString(), expiresAt: new Date(now.getTime() + input.lifetimeMs).toISOString(),
     proof: { pub: input.pair.pub, timestamp: now.toISOString() } as NearbyCard['proof'],
   };
@@ -317,4 +328,3 @@ describe('Nearby v3 broadcast loop', () => {
     for (const mesh of Object.values(meshes)) mesh.leaveRoom();
   }, 20_000);
 });
-

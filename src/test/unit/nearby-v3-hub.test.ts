@@ -4,10 +4,11 @@
  * (nearby-gossip-personal-lists.test.ts), on the real modules.
  */
 import SEA from 'gun/sea';
+import { buildLinkAttestation, type LinkCrypto } from '../../shared/identity-linking';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { snapPublicLocation, type PublicLocation } from '../../shared/public-location';
 import { NEARBY_V3_DEFAULTS, type NearbyV3Config } from '../../shared/nearby-v3-config';
-import { createNearbyCard, type NearbyCard } from '../../shared/nearby-v3-card';
+import { createNearbyCard, nearbyCountAnchor, type NearbyCard } from '../../shared/nearby-v3-card';
 import { nearbyDailyBeacon, publicPointDistanceMeters } from '../../shared/nearby-v3-ranking';
 import { NearbyList } from '../../shared/nearby-v3-list';
 import { pyramidCellIds } from '../../shared/nearby-v3-pyramid';
@@ -22,12 +23,23 @@ function config(overrides: Partial<NearbyV3Config> = {}): NearbyV3Config {
   return { ...NEARBY_V3_DEFAULTS, ...overrides };
 }
 
+function linkCrypto(pair: SeaSigningPair): LinkCrypto {
+  return {
+    sign: async (data) => String(await SEA.sign(data, pair)),
+    verify: async (data, signature, pub) => await SEA.verify(signature, pub) === data,
+    hash: async (data) => String(await SEA.work(data, null, null, { name: 'SHA-256' })),
+    randomSecret: () => 'not-used',
+  };
+}
+
 function card(pub: string, point: PublicLocation, issuedAtMs = NOW, scope: NearbyCard['scope'] = 'nearby'): NearbyCard {
   return {
     version: 1,
     kind: 'nearby-card',
     userId: `user-${pub}`,
     pub,
+    countKey: pub,
+    scopeRevision: issuedAtMs,
     point,
     traveler: false,
     scope,
@@ -38,7 +50,7 @@ function card(pub: string, point: PublicLocation, issuedAtMs = NOW, scope: Nearb
 }
 
 describe('Nearby v3 hub', () => {
-  it('verifies heartbeats, counts each key once per window and binds a userId to one key', async () => {
+  it('verifies heartbeats and counts two unlinked devices separately even with one login id', async () => {
     const hub = new NearbyV3Hub(config(), NOW);
     const pair = await SEA.pair() as SeaSigningPair;
     const now = new Date(NOW);
@@ -49,10 +61,10 @@ describe('Nearby v3 hub', () => {
     expect(hub.count(pyramidCellIds(SD, 15)[0]!, NOW)).toBe(1);
     await expect(hub.heartbeat({ ...signed, point: LA }, now)).rejects.toThrow();
     const thief = await createNearbyCard({ userId: 'u1', pair: await SEA.pair() as SeaSigningPair, point: SD, lifetimeMs: NEARBY_V3_DEFAULTS.cardLifetimeMs, now });
-    await expect(hub.heartbeat(thief, now)).rejects.toThrow('held by another key');
+    await expect(hub.heartbeat(thief, now)).resolves.toMatchObject({ online: 2, nearby: 1 });
   });
 
-  it('keeps counts for one full window after the last heartbeat, then forgets them', () => {
+  it('keeps a lease for two heartbeat periods after the last heartbeat, then expires it', () => {
     const hub = new NearbyV3Hub(config(), NOW);
     hub.ingest(card('a', SD), NOW);
     const window = NEARBY_V3_DEFAULTS.cardReissueMs;
@@ -81,6 +93,81 @@ describe('Nearby v3 hub', () => {
     expect(losAngelesResult).toMatchObject({ nearby: 5, online: 20 });
   });
 
+  it('uses each viewer\'s selected blurred cell when precision choices differ', () => {
+    const hub = new NearbyV3Hub(config({ capacity: 1 }), NOW);
+    const regional = snapPublicLocation({ latitude: 32.7157, longitude: -117.1611 }, 50_000);
+    const closeNorth = snapPublicLocation({
+      latitude: regional.latitude + 0.01,
+      longitude: regional.longitude,
+    }, 400);
+    const closeSouth = snapPublicLocation({
+      latitude: regional.latitude - 0.01,
+      longitude: regional.longitude,
+    }, 400);
+    hub.ingest(card('regional', regional), NOW);
+    hub.ingest(card('north', closeNorth), NOW);
+    hub.ingest(card('south', closeSouth), NOW);
+
+    expect(hub.ingest(card('regional', regional), NOW + 1)).toMatchObject({ nearby: 2, online: 3 });
+    expect(hub.ingest(card('north', closeNorth), NOW + 1)).toMatchObject({ nearby: 1, online: 3 });
+  });
+
+  it('counts a mutually linked device pair once and keeps it live until both writers leave', async () => {
+    const hub = new NearbyV3Hub(config({ capacity: 3 }), NOW);
+    const first = await SEA.pair() as SeaSigningPair;
+    const second = await SEA.pair() as SeaSigningPair;
+    const anchor = nearbyCountAnchor(first.pub, second.pub) === first.pub ? first : second;
+    const member = anchor === first ? second : first;
+    const secret = 'one-explicit-link-secret';
+    const memberToAnchor = await buildLinkAttestation({
+      selfPub: member.pub,
+      peerPub: anchor.pub,
+      secret,
+      crypto: linkCrypto(member),
+      now: NOW,
+    });
+    const anchorToMember = await buildLinkAttestation({
+      selfPub: anchor.pub,
+      peerPub: member.pub,
+      secret,
+      crypto: linkCrypto(anchor),
+      now: NOW,
+    });
+    const now = new Date(NOW);
+    const anchorCard = await createNearbyCard({
+      userId: 'same-person-anchor', pair: anchor, point: SD, scopeRevision: 10,
+      lifetimeMs: NEARBY_V3_DEFAULTS.cardLifetimeMs, now,
+    });
+    const memberCard = await createNearbyCard({
+      userId: 'same-person-member', pair: member, point: SD, scopeRevision: 10,
+      countIdentity: {
+        countKey: anchor.pub,
+        proof: { version: 1, anchorPub: anchor.pub, memberToAnchor, anchorToMember },
+      },
+      lifetimeMs: NEARBY_V3_DEFAULTS.cardLifetimeMs,
+      now,
+    });
+
+    await expect(hub.heartbeat(anchorCard, now)).resolves.toMatchObject({ online: 1, nearby: 0 });
+    await expect(hub.heartbeat(memberCard, now)).resolves.toMatchObject({ online: 1, nearby: 0 });
+    expect(hub.countRevision(NOW)).toBe(1);
+    await expect(hub.leave(memberCard, now)).resolves.toMatchObject({ online: 1, countRevision: 1 });
+    await expect(hub.leave(anchorCard, now)).resolves.toMatchObject({ online: 0, countRevision: 2 });
+  });
+
+  it('atomically moves one lease and rejects stale or conflicting scope revisions', () => {
+    const hub = new NearbyV3Hub(config(), NOW);
+    const nearby = { ...card('a', SD), scopeRevision: 10 };
+    const place = { ...card('a', SD, NOW + 1, 'place:cafe'), scopeRevision: 11 };
+    expect(hub.ingest(nearby, NOW)).toMatchObject({ online: 1, countRevision: 1 });
+    expect(hub.ingest(place, NOW + 1)).toMatchObject({ online: 1, nearby: 1, countRevision: 2 });
+    expect(hub.placeCounts(NOW + 1)).toEqual([{ placeId: 'cafe', count: 1 }]);
+    expect(() => hub.ingest(nearby, NOW + 2)).toThrow('stale Nearby scope revision');
+    expect(() => hub.ingest({ ...place, point: LA }, NOW + 2)).toThrow('conflicting Nearby scope');
+    expect(hub.online(NOW + 2)).toBe(1);
+    expect(hub.countRevision(NOW + 2)).toBe(2);
+  });
+
   it('stops introducing a phone that missed two heartbeats, although its card is still valid', () => {
     const hub = new NearbyV3Hub(config(), NOW);
     hub.ingest(card('a', SD), NOW);
@@ -90,13 +177,14 @@ describe('Nearby v3 hub', () => {
     expect(hub.introductions({ point: SD, now: new Date(later) }).cards).toHaveLength(0);
   });
 
-  it('keeps a bounded sample per cell without introducing people outside the local area', () => {
+  it('keeps bounded per-cell samples and uses wider pyramid cells for the sparse fallback', () => {
     const hub = new NearbyV3Hub(config({ capacity: 20, hubCellSample: 8 }), NOW);
     for (let i = 0; i < 30; i += 1) hub.ingest(card(`sd${i}`, SD), NOW);
     hub.ingest(card('la', LA), NOW);
     const intro = hub.introductions({ point: LA, excludePub: 'la', now: new Date(NOW) });
     expect(intro.online).toBe(31);
-    expect(intro.cards).toEqual([]);
+    expect(intro.cards.length).toBeGreaterThan(0);
+    expect(intro.cards.every((entry) => entry.pub.startsWith('sd'))).toBe(true);
     expect(intro.steps.at(-1)!.people).toBeGreaterThanOrEqual(20);
     // In the crowd itself the first block is enough.
     const local = hub.introductions({ point: SD, now: new Date(NOW) });
@@ -139,12 +227,10 @@ describe('Nearby v3 hub when a card moves between lists', () => {
     expect(intro(hub, 'place:cafe')).toEqual([]);
     expect(intro(hub).sort()).toEqual(['a', 'b']);
     // Moving to another city leaves the old cells and the old city's local introductions too.
-    hub.ingest(card('a', LA, NOW + 2_000), NOW + 2_000);
+    hub.ingest(card('a', LA, NOW + 3_000), NOW + 3_000);
     const fine = pyramidCellIds(SD, NEARBY_V3_DEFAULTS.pyramidFinestLevel)[0]!;
-    expect((hub as any).samples.get(fine)?.has('a') ?? false).toBe(false);
-    const cards = hub.introductions({ point: SD, now: new Date(NOW + 2_000) }).cards.filter((entry) => entry.pub === 'a');
-    expect(cards).toEqual([]);
-    expect(hub.introductions({ point: LA, now: new Date(NOW + 2_000) }).cards.map((entry) => entry.pub)).toEqual(['a']);
+    expect(hub.count(fine, NOW + 3_000)).toBe(1); // only b remains in San Diego
+    expect(hub.introductions({ point: LA, now: new Date(NOW + 3_000) }).cards.map((entry) => entry.pub)).toContain('a');
   });
 
   it('counts me in a Place I enter mid-window, and once in the online total', () => {

@@ -9,9 +9,9 @@ import { nearbyBasePrecisionMeters, isNearbyPublicMode, type NearbyPrivacyMode }
  * coarser), so everyone in one square publishes exactly the same point. A snapped point re-snaps
  * to itself, which lets a receiver reject any point that is not a grid centre.
  */
-export const PUBLIC_LOCATION_MIN_METERS = 1_000;
-/** Allowed public grid sizes. Close nearby (400 m) is used only to pick a room, never published. */
-export const PUBLIC_LOCATION_PRECISIONS = [1_000, 10_000, 50_000] as const;
+export const PUBLIC_LOCATION_MIN_METERS = 400;
+/** Allowed public grid sizes. The selected size is also the viewer's exact Nearby area. */
+export const PUBLIC_LOCATION_PRECISIONS = [400, 1_000, 10_000, 50_000] as const;
 export type PublicLocationPrecision = (typeof PUBLIC_LOCATION_PRECISIONS)[number];
 
 export type PublicLocation = {
@@ -110,6 +110,24 @@ export function isPublicLocation(value: unknown): value is PublicLocation {
     || Math.abs(candidate.longitude!) > 180) return false;
   const again = snapPublicLocation(candidate as PublicLocation, candidate.precisionMeters as PublicLocationPrecision);
   return again.latitude === candidate.latitude && again.longitude === candidate.longitude;
+}
+
+/**
+ * Is another published point inside the viewer's selected blurred cell?
+ *
+ * Nearby is deliberately viewer-relative: the viewer's precision defines the rectangle while the
+ * candidate contributes only its own already-blurred public point. Different precision choices can
+ * therefore produce asymmetric answers. Longitude wraps across the antimeridian.
+ */
+export function publicLocationContains(viewer: PublicLocation, candidate: PublicLocation): boolean {
+  const latHalf = (viewer.precisionMeters / METERS_PER_DEGREE) / 2;
+  if (Math.abs(candidate.latitude - viewer.latitude) > latHalf) return false;
+  const lonHalf = Math.min(
+    180,
+    viewer.precisionMeters / (METERS_PER_DEGREE * Math.cos((viewer.latitude * Math.PI) / 180)),
+  ) / 2;
+  const longitudeGap = Math.abs(((((candidate.longitude - viewer.longitude) + 540) % 360) - 180));
+  return longitudeGap <= lonHalf;
 }
 
 const REGION_PATTERN = /^cell_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)_(\d+)$/;

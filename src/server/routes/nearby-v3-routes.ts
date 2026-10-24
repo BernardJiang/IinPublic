@@ -3,7 +3,7 @@ import { CONFIG } from '../../shared/config';
 import { nearbyV3ConfigFromManifest, type NearbyV3Config } from '../../shared/nearby-v3-config';
 import { BUNDLED_PROTOCOL_MANIFEST_HISTORY } from '../../shared/production-protocol-manifest';
 import { parseMapBounds } from '../../shared/map-dots';
-import { NearbyV3Hub } from '../services/nearby-v3-hub';
+import { NearbyPresenceConflictError, NearbyV3Hub } from '../services/nearby-v3-hub';
 import type { NearbyAttestor } from '../services/nearby-attestor';
 import { NEARBY_KNOCK_MAX_WAIT_MS, type NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
 
@@ -85,6 +85,35 @@ export function registerNearbyV3Routes(
       const [beacon, age] = await Promise.all([signer.beacon(), signer.ageProof(String(req.body.card.pub))]);
       res.json({ ...result, beacon, age, attestor: signer.key });
     } catch (error) {
+      if (error instanceof NearbyPresenceConflictError) {
+        res.status(error.status).json({
+          error: error.message,
+          acceptedRevision: error.acceptedRevision,
+          countRevision: error.countRevision,
+          acceptedScope: error.acceptedScope,
+          acceptedPoint: error.acceptedPoint,
+        });
+        return;
+      }
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  app.post('/api/nearby/v3/leave', async (req, res) => {
+    if (await relay(res, '/api/nearby/v3/leave', 'POST', req.body || {})) return;
+    try {
+      res.json(await hub.leave(req.body?.card));
+    } catch (error) {
+      if (error instanceof NearbyPresenceConflictError) {
+        res.status(error.status).json({
+          error: error.message,
+          acceptedRevision: error.acceptedRevision,
+          countRevision: error.countRevision,
+          acceptedScope: error.acceptedScope,
+          acceptedPoint: error.acceptedPoint,
+        });
+        return;
+      }
       res.status(400).json({ error: (error as Error).message });
     }
   });
