@@ -3,6 +3,8 @@ import { CONFIG } from '../../shared/config';
 import { nearbyV3ConfigFromManifest, type NearbyV3Config } from '../../shared/nearby-v3-config';
 import { BUNDLED_PROTOCOL_MANIFEST_HISTORY } from '../../shared/production-protocol-manifest';
 import { parseMapBounds } from '../../shared/map-dots';
+import { parseNearbyRankKey } from '../../shared/nearby-v3-ranking';
+import { isPublicLocation } from '../../shared/public-location';
 import { NearbyPresenceConflictError, NearbyV3Hub } from '../services/nearby-v3-hub';
 import type { NearbyAttestor } from '../services/nearby-attestor';
 import { NEARBY_KNOCK_MAX_WAIT_MS, type NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
@@ -76,7 +78,8 @@ export function registerNearbyV3Routes(
   app.post('/api/nearby/v3/card', async (req, res) => {
     if (await relay(res, '/api/nearby/v3/card', 'POST', req.body || {})) return;
     try {
-      const result = await hub.heartbeat(req.body?.card);
+      const capacity = Number(req.body?.capacity);
+      const result = await hub.heartbeat(req.body?.card, new Date(), Number.isSafeInteger(capacity) ? capacity : undefined);
       if (!attestor) {
         res.json(result);
         return;
@@ -129,7 +132,18 @@ export function registerNearbyV3Routes(
     }
     const scope = typeof req.body?.scope === 'string' ? req.body.scope : 'nearby';
     const excludePub = typeof req.body?.excludePub === 'string' ? req.body.excludePub : undefined;
-    res.json(hub.introductions({ point: { latitude, longitude }, scope, ...(excludePub ? { excludePub } : {}) }));
+    const beacon = typeof req.body?.beacon === 'string' ? req.body.beacon : undefined;
+    const after = parseNearbyRankKey(req.body?.after);
+    // A full public point carries the viewer's selected area size; a bare point falls back to 1 km.
+    const area = isPublicLocation(point) ? point : { latitude, longitude };
+    res.json(hub.introductions({
+      point: area,
+      scope,
+      ...(excludePub ? { excludePub } : {}),
+      ...(beacon ? { beacon } : {}),
+      ...(after ? { after } : {}),
+      ...(Number.isSafeInteger(Number(req.body?.capacity)) ? { capacity: Number(req.body.capacity) } : {}),
+    }));
   });
 
   // Contacts' online dots (§3.7 "Contacts online"): which of these ids are online, at most 500.

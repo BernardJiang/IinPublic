@@ -8,6 +8,7 @@ import {
   type NearbyCardScope,
 } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
+import { parseNearbyAudienceSummary, type NearbyAudienceSummary } from '../../shared/nearby-v3-audience';
 import {
   parseNearbyGossipMessage,
   type NearbyGossipMessage,
@@ -52,7 +53,12 @@ export type NearbyHubHeartbeat = {
   countRevision?: unknown;
   /** The count key's accepted scope revision. */
   scopeRevision?: unknown;
+  /** The active Nearby area or Place holds more than `C` other identities (OPEN-86 E1). */
+  pageable?: unknown;
 };
+
+/** The hub's page for a search: its cards and, from a current hub, which audience they come from. */
+export type NearbyIntroductionsAnswer = { cards: NearbyCard[]; audience?: unknown };
 
 /** A linked device uses this to adopt the accepted revision when it already shares the scope. */
 export class NearbyHubPresenceConflictError extends Error {
@@ -70,7 +76,15 @@ export class NearbyHubPresenceConflictError extends Error {
 export type NearbyV3Hub = {
   heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat | void>;
   leave?(card: NearbyCard): Promise<unknown>;
-  introductions(input: { point: { latitude: number; longitude: number }; scope: NearbyCardScope; excludePub: string }): Promise<NearbyCard[]>;
+  introductions(input: {
+    point: PublicLocation;
+    scope: NearbyCardScope;
+    excludePub: string;
+    /** My ranking beacon string, so the hub pages in my order. */
+    beacon?: string;
+    /** The last rank key of my previous group (a crowded area or Place only). */
+    after?: NearbyRankKey;
+  }): Promise<NearbyCard[] | NearbyIntroductionsAnswer>;
 };
 
 export type NearbyV3Link = {
@@ -128,8 +142,12 @@ export const NEARBY_V3_PRESENCE_STORAGE_KEY = 'iinpublic_nearby_v3_presence_v1';
 /** Group number and boundary per scope, for the day (§3.7 "Meeting new people in groups"). */
 export const NEARBY_V3_GROUPS_STORAGE_KEY = 'iinpublic_nearby_v3_groups_v1';
 
-/** Which group of my order I am meeting; `exhausted`: searches past the boundary found nobody. */
-export type NearbyGroupInfo = { group: number; exhausted: boolean };
+/**
+ * Which group of my order I am meeting; `exhausted`: searches past the boundary found nobody.
+ * `pageable`/`hasMore` come from the hub (OPEN-86 E1): "Meet new people" exists only when the
+ * active crowded area or Place has another page, never for a sparse nearest-`C` fallback.
+ */
+export type NearbyGroupInfo = { group: number; exhausted: boolean; pageable: boolean; hasMore: boolean };
 
 type NearbyGroupState = { day: string; group: number; after: NearbyRankKey; met: string[] };
 type NearbyPresenceState = { countKey: string; fingerprint: string; scopeRevision: number };
@@ -194,6 +212,17 @@ export class NearbyV3Service {
   /** People who did not answer, with the card they had: only a newer card brings them back. */
   private readonly silent = new Map<string, number>();
   private presenceState: NearbyPresenceState | null | undefined;
+  /** The hub's audience for `audienceKey` (my scope, point and area size); null until it answers. */
+  private audience: NearbyAudienceSummary | null = null;
+  private audienceKey = '';
+  /**
+   * Someone new reached a non-pageable list by gossip: the crowd may have grown past `C` since the
+   * search, so ask the hub again (at most once per gossip period).
+   */
+  private audienceStale = false;
+  /** The group scope this session is in; leaving it forgets its boundary (§3.7 "Beyond C"). */
+  private activeGroupKey = '';
+  private lastAudienceSearchAt = 0;
   private readonly deps: NearbyV3ServiceDeps;
 
   constructor(deps: NearbyV3ServiceDeps) {
@@ -214,11 +243,17 @@ export class NearbyV3Service {
     this.schedule(0);
   }
 
-  stop(): void {
+  /**
+   * Stop the periodic work. By default this also leaves the hub at once (logout, app stop);
+   * `leave: false` only freezes gossip and reissues, and the lease expires on its own.
+   */
+  stop(options: { leave?: boolean } = {}): void {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    if (this.ownCard && this.deps.hub.leave) void this.deps.hub.leave(this.ownCard).catch(() => undefined);
+    if (options.leave !== false && this.ownCard && this.deps.hub.leave) {
+      void this.deps.hub.leave(this.ownCard).catch(() => undefined);
+    }
   }
 
   /** My card is for a scope or point I am no longer at (or I left Nearby and still have one). */
@@ -250,6 +285,24 @@ export class NearbyV3Service {
     return this.tick().then(() => {
       if (this.waitingForLink) this.schedule(LINK_WAIT_RETRY_MS);
     });
+  }
+
+  /**
+   * The hub's counts changed (a newer count revision from the map/online poll): send my current
+   * card again so its answer refreshes my Nearby count and pageability now, not at the next
+   * reissue (OPEN-86 E4 bounded staleness). Same card, same scope revision: no move, no new lease.
+   */
+  async refreshCounts(): Promise<void> {
+    const card = this.ownCard;
+    const position = this.deps.position();
+    if (!card || !position || this.cardIsOutOfPlace() || !this.hubReachable) return;
+    if (Date.parse(card.expiresAt) <= this.now()) return;
+    try {
+      const answer = await this.deps.hub.heartbeat(card);
+      if (answer) this.absorbPageable(answer, position);
+    } catch (error) {
+      this.log(`count refresh failed: ${String(error)}`);
+    }
   }
 
   /**
@@ -285,7 +338,43 @@ export class NearbyV3Service {
     const position = this.deps.position();
     const state = position ? this.groupState(position) : null;
     const group = state?.group ?? 1;
-    return { group, exhausted: group > 1 && (this.list?.size ?? 0) === 0 && this.emptySearches >= EXHAUSTED_AFTER_EMPTY_SEARCHES };
+    const audience = position ? this.currentAudience(position) : null;
+    const pageable = audience?.pageable === true;
+    const exhausted = group > 1 && (this.list?.size ?? 0) === 0 && this.emptySearches >= EXHAUSTED_AFTER_EMPTY_SEARCHES;
+    return { group, exhausted, pageable, hasMore: pageable && audience!.hasMore && !exhausted };
+  }
+
+  /** The hub's audience for where I am now, or null when it has not answered for this position. */
+  audienceInfo(): NearbyAudienceSummary | null {
+    const position = this.deps.position();
+    return position ? this.currentAudience(position) : null;
+  }
+
+  private currentAudience(position: NearbyV3Position): NearbyAudienceSummary | null {
+    return this.audienceKey === this.searchKeyFor(position) ? this.audience : null;
+  }
+
+  /** Scope, public point and selected area size: any change is a new audience and resets paging. */
+  private searchKeyFor(position: NearbyV3Position): string {
+    return `${position.scope}|${position.point.latitude}|${position.point.longitude}|${position.point.precisionMeters}`;
+  }
+
+  private setAudience(position: NearbyV3Position, audience: NearbyAudienceSummary | null): void {
+    const key = this.searchKeyFor(position);
+    const before = this.currentAudience(position);
+    this.audience = audience;
+    this.audienceKey = key;
+    // A crowd that thinned below a page is no longer pageable: back to group 1 (§3.7 "Beyond C").
+    if (audience && !audience.pageable && this.groupState(position)) {
+      this.setGroupState(position, null);
+      this.searchedKey = '';
+      this.log('the audience no longer pages: back to group 1');
+    }
+    // Re-owns the list with the new area filter (it reports the change itself).
+    this.ensureList();
+    if (before?.mode !== audience?.mode || before?.pageable !== audience?.pageable || before?.hasMore !== audience?.hasMore) {
+      this.changed();
+    }
   }
 
   /**
@@ -298,6 +387,8 @@ export class NearbyV3Service {
     const list = this.ensureList();
     const last = list?.lastKey();
     if (!position || !list || !last) return false;
+    // Only a crowded area or Place with another page pages; a sparse fallback never does.
+    if (!this.groupInfo().hasMore) return false;
     const current = this.groupState(position);
     const met = [...new Set([
       ...(current?.met ?? []),
@@ -467,17 +558,30 @@ export class NearbyV3Service {
       ? (await this.reissueCard(position, identity, nowMs, config)) || backOnline
       : false;
 
-    const searchKey = `${position.scope}|${position.point.latitude}|${position.point.longitude}`;
+    const searchKey = this.searchKeyFor(position);
     let announce = false;
     // Past group 1 my partners' lists are not paged like mine, so a group short of C asks the hub
     // again once per gossip period (its rotating sample has people past my boundary).
     const groupShort = !!list.ownerInfo.after && list.size < config.capacity
       && nowMs - this.lastGroupSearchAt >= config.gossipPeriodMs;
-    if (searchKey !== this.searchedKey || list.size === 0 || groupShort) {
+    const audienceRecheck = this.audienceStale && nowMs - this.lastAudienceSearchAt >= config.gossipPeriodMs;
+    if (searchKey !== this.searchedKey || list.size === 0 || groupShort || audienceRecheck) {
       if (list.ownerInfo.after) this.lastGroupSearchAt = nowMs;
+      this.audienceStale = false;
+      this.lastAudienceSearchAt = nowMs;
       try {
-        const cards = await this.deps.hub.introductions({ point: position.point, scope: position.scope, excludePub: identity.pair.pub });
+        const answer = await this.deps.hub.introductions({
+          point: position.point,
+          scope: position.scope,
+          excludePub: identity.pair.pub,
+          beacon: this.beaconString(),
+          ...(list.ownerInfo.after ? { after: list.ownerInfo.after } : {}),
+        });
         this.setHubReachable(true);
+        const cards = Array.isArray(answer) ? answer : Array.isArray(answer?.cards) ? answer.cards : [];
+        const audience = Array.isArray(answer) ? null : parseNearbyAudienceSummary(answer?.audience);
+        // An older hub sends no audience: keep the last one rather than enabling paging blindly.
+        if (audience) this.setAudience(position, audience);
         // A newcomer (or someone who just moved) swaps with the nearest few people at once, so the
         // people around learn of them now rather than at their next period.
         announce = searchKey !== this.searchedKey || this.searchedEmpty;
@@ -553,7 +657,10 @@ export class NearbyV3Service {
     try {
       const answer = await this.deps.hub.heartbeat(card);
       this.setHubReachable(true);
-      if (answer) await this.absorbHeartbeat(answer, card.pub);
+      if (answer) {
+        await this.absorbHeartbeat(answer, card.pub);
+        this.absorbPageable(answer, position);
+      }
     } catch (error) {
       if (error instanceof NearbyHubPresenceConflictError
         && error.acceptedRevision > card.scopeRevision
@@ -661,6 +768,7 @@ export class NearbyV3Service {
     }
     if (!valid.length) return;
     const result = list.merge(valid, this.now());
+    if (result.added && this.audience && !this.audience.pageable) this.audienceStale = true;
     if (result.added || result.refreshed || result.dropped) this.changed();
   }
 
@@ -750,6 +858,25 @@ export class NearbyV3Service {
   /** In dense ties, keys the hub saw before today rank first (§3.7 "Ranking"). */
   private readonly isEstablished = (card: NearbyCard): boolean =>
     isEstablishedBefore(this.ageSince.get(`${card.pub}|${card.issuedAt}`), nearbyUtcDay(this.now()));
+
+  /**
+   * A heartbeat says whether my audience pages now (people arrived or left since the search). In
+   * group 1 that is also whether another page exists; past group 1 only a search can tell.
+   */
+  private absorbPageable(answer: NearbyHubHeartbeat, position: NearbyV3Position): void {
+    if (typeof answer.pageable !== 'boolean') return;
+    const known = this.currentAudience(position);
+    if (!known || known.pageable === answer.pageable) return;
+    const group = this.groupState(position)?.group ?? 1;
+    this.setAudience(position, {
+      ...known,
+      pageable: answer.pageable,
+      hasMore: answer.pageable && (group === 1 || known.hasMore),
+      // A crowded area that thinned becomes the sparse fallback, and the other way round.
+      ...(known.mode !== 'place' ? { mode: answer.pageable ? 'area' as const : 'nearest' as const } : {}),
+    });
+    this.searchedKey = '';
+  }
 
   /** Today's beacon, the hub's key and my age proof, from a heartbeat answer. */
   private async absorbHeartbeat(answer: NearbyHubHeartbeat, ownPub: string): Promise<void> {
@@ -850,6 +977,13 @@ export class NearbyV3Service {
     const identity = this.deps.identity();
     if (!position || !identity) return null;
     this.loadAttestation();
+    // Moving to another point or area size, or entering/leaving a Place, starts again at group 1.
+    const groupKey = this.groupScopeKey(position);
+    if (this.activeGroupKey && this.activeGroupKey !== groupKey) {
+      this.loadGroups().delete(this.activeGroupKey);
+      this.saveGroups();
+    }
+    this.activeGroupKey = groupKey;
     const group = this.groupState(position);
     const after = group?.after;
     const owner: NearbyListOwner = {
@@ -860,6 +994,7 @@ export class NearbyV3Service {
       isEstablished: this.isEstablished,
       ...(after ? { after } : {}),
       ...(group?.met.length ? { excludedPubs: group.met } : {}),
+      ...(this.areaFor(position) ? { area: this.areaFor(position)! } : {}),
     };
     const capacity = this.deps.config().capacity;
     if (this.list && this.list.ownerInfo.pub === owner.pub && this.list.ownerInfo.scope !== owner.scope) {
@@ -885,6 +1020,9 @@ export class NearbyV3Service {
     if (current.scope !== owner.scope
       || current.beacon !== owner.beacon
       || current.after !== owner.after
+      || current.area?.latitude !== owner.area?.latitude
+      || current.area?.longitude !== owner.area?.longitude
+      || current.area?.precisionMeters !== owner.area?.precisionMeters
       || current.point.latitude !== owner.point.latitude
       || current.point.longitude !== owner.point.longitude) {
       this.list.setOwner(owner);
@@ -894,10 +1032,20 @@ export class NearbyV3Service {
   }
 
 
-  /** Nearby groups belong to a public point; a Place's to the Place (its pin never moves). */
+  /** A crowded Nearby audience keeps only cards inside my selected area (OPEN-86 E1/E2). */
+  private areaFor(position: NearbyV3Position): PublicLocation | null {
+    if (position.scope !== 'nearby') return null;
+    const audience = this.currentAudience(position);
+    return audience?.mode === 'area' ? audience.area ?? position.point : null;
+  }
+
+  /**
+   * Nearby groups belong to a public point and area size; a Place's to the Place (its pin never
+   * moves). Changing either starts again at group 1.
+   */
   private groupScopeKey(position: NearbyV3Position): string {
     return position.scope === 'nearby'
-      ? `nearby|${position.point.latitude},${position.point.longitude}`
+      ? `nearby|${position.point.latitude},${position.point.longitude},${position.point.precisionMeters}`
       : position.scope;
   }
 

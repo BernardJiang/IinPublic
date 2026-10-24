@@ -43,7 +43,7 @@ import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { tileIdAt } from '../../shared/room-tiles';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isLocalOnlyRoomScope, isNearbyRoomId, isPersonalListScope } from '../../shared/nearby-rooms';
 import type { SupportInboxEntry, SupportFaqEntry } from '../../shared/techsupport-faq';
 import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate';
 import type { RecoveryAnchorRecord } from '../../shared/techsupport-recovery';
@@ -256,6 +256,8 @@ export class UIManager extends EventEmitter {
   private currentChatroomMembers: Array<{ userId: string; stageName: string }> = [];
   private nearbyOnline: number | undefined;
   private nearbyCount: number | undefined;
+  /** The scope (Nearby or a Place id) the hub's `nearbyCount` was computed for. */
+  private nearbyCountScope: string | undefined;
   private talksShowIncoming = true;
   private talksShowOutgoing = true;
   private talksEnabledTypes = new Set<string>(['tag', 'flow', 'survey', 'route']);
@@ -1129,21 +1131,25 @@ export class UIManager extends EventEmitter {
   setNearbyOnline(online: number): void {
     this.nearbyOnline = online;
     this.chatroomShell().setNearbyOnline(online);
-    if (isNearbyRoomId(this.currentChatroom)) {
+    if (isPersonalListScope(this.currentChatroom)) {
       this.updateStatusBar('', '', this.currentChatroomMembers.length, this.getTotalMatches());
     }
   }
-  /** Everyone near my public point, excluding me; paging never changes this total. */
-  setNearbyCount(count: number): void {
+  /**
+   * The hub's self-exclusive headcount for one scope: everyone in my Nearby audience, or everyone
+   * else in the Place I am in (occupancy minus me). Paging never changes it.
+   */
+  setNearbyCount(count: number, scopeId?: string): void {
     this.nearbyCount = count;
-    this.chatroomShell().setNearbyCount(count);
-    if (isNearbyRoomId(this.currentChatroom)) {
+    this.nearbyCountScope = scopeId;
+    if (!scopeId || isNearbyRoomId(scopeId)) this.chatroomShell().setNearbyCount(count);
+    if (isPersonalListScope(this.currentChatroom)) {
       this.updateStatusBar('', '', this.currentChatroomMembers.length, this.getTotalMatches());
     }
   }
   /** "Sent to N of M" for the latest Nearby broadcast; null hides it. */
   setNearbyBroadcastProgress(progress: { sent: number; total: number } | null): void { this.chatroomShell().setNearbyBroadcastProgress(progress); }
-  setNearbyGroup(group: { group: number; exhausted: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
+  setNearbyGroup(group: { group: number; exhausted: boolean; pageable?: boolean; hasMore?: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
 
   displayTalksList(): void {
     displayTalksListView({
@@ -2286,12 +2292,19 @@ export class UIManager extends EventEmitter {
     memberCount: number,
     totalMatches?: number,
   ): void {
-    const nearby = isNearbyRoomId(this.currentChatroom);
-    const nearbyText = nearby
+    // Nearby and a Place share one header: "N nearby · G online", N excluding me (in a Place,
+    // its occupancy minus me). A count the hub made for another scope is not shown here.
+    const personal = isPersonalListScope(this.currentChatroom);
+    const hubCount = this.nearbyCount !== undefined
+      && (this.nearbyCountScope === undefined || this.nearbyCountScope === this.currentChatroom
+        || (isNearbyRoomId(this.nearbyCountScope) && isNearbyRoomId(this.currentChatroom)))
+      ? this.nearbyCount
+      : undefined;
+    const nearbyText = personal
       ? nearbyHeadcountText({
           text: (key) => this.t(key),
           ...(this.nearbyOnline !== undefined ? { nearbyOnline: this.nearbyOnline } : {}),
-        }, this.nearbyCount ?? this.currentChatroomMembers.length)
+        }, hubCount ?? this.currentChatroomMembers.length)
       : undefined;
     updateStatusBarImpl(chatroomName, memberCount, totalMatches, {
       tf: this.tf.bind(this),

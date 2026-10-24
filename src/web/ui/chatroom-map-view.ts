@@ -77,6 +77,11 @@ export type MapUserDotSource = {
   selfTraveler?: boolean;
   /** Where the people on my Nearby list are: the map fits itself to them (§3.7). */
   listPoints?: () => ReadonlyArray<{ latitude: number; longitude: number }>;
+  /**
+   * Counted by my Nearby audience although not on my current page (OPEN-86 E3): green like the
+   * people on it. Everyone else in view is yellow.
+   */
+  isCandidate?: (dot: MapPresenceDot) => boolean;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
 };
 
@@ -98,6 +103,7 @@ export function createMapUserDots(
     ...(source.selfPoint ? { selfPoint: source.selfPoint } : {}),
     selfTraveler: source.selfTraveler === true,
     ...(source.listPoints ? { listPoints: source.listPoints } : {}),
+    ...(source.isCandidate ? { isCandidate: source.isCandidate } : {}),
     roomMemberIds: new Set(roomMembers.map((member) => member.userId)),
     load: source.load,
     selfText: t('mapUserSelf'),
@@ -115,6 +121,7 @@ export type MapUserDots = {
   listPoints?: () => ReadonlyArray<{ latitude: number; longitude: number }>;
   /** Current room roster: these users can exchange Talks with me. */
   roomMemberIds: ReadonlySet<string>;
+  isCandidate?: (dot: MapPresenceDot) => boolean;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
   selfText: string;
   roomText: (count: number) => string;
@@ -823,11 +830,17 @@ function scheduleUserDots(maplibre: MapLibre, state: MapState, delayMs = 400): v
 const STRANGER_DOT_MIN_ZOOM = 10;
 
 /** Users sharing one snapped point and one colour become a single dot with a count. */
-export function groupUserDots(source: Pick<MapUserDots, 'selfUserId' | 'selfPoint' | 'selfTraveler' | 'roomMemberIds'>, dots: ReadonlyArray<MapPresenceDot>): UserDotGroup[] {
+export function groupUserDots(
+  source: Pick<MapUserDots, 'selfUserId' | 'selfPoint' | 'selfTraveler' | 'roomMemberIds' | 'isCandidate'>,
+  dots: ReadonlyArray<MapPresenceDot>,
+): UserDotGroup[] {
   const groups = new Map<string, UserDotGroup>();
+  const seen = new Set<string>();
   for (const dot of dots) {
-    if (dot.userId === source.selfUserId) continue;
-    const kind = source.roomMemberIds.has(dot.userId) ? 'room' : 'other';
+    // My list and the hub can both report one person: draw them once.
+    if (dot.userId === source.selfUserId || seen.has(dot.userId)) continue;
+    seen.add(dot.userId);
+    const kind = source.roomMemberIds.has(dot.userId) || source.isCandidate?.(dot) === true ? 'room' : 'other';
     const key = `${kind}:${dot.latitude}:${dot.longitude}`;
     const group = groups.get(key);
     if (group) {

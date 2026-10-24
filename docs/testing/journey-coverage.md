@@ -66,7 +66,7 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-NEARBY-03 | A Talk sent to a backgrounded phone is there when it comes back | — (needs the Android shell) | — | ✅ `native-app/30` |
 | J-NEARBY-04 | Three people send Talks at once; each receives the other two | ✅ `stage3/81` | — | ✅ `native-app/13` (1.0.186) |
 | J-NEARBY-05 | A Talk sent while someone is offline arrives when they return; the others carry on | ◐ `stage3/81` (browser offline may keep WebRTC up) | — | ✅ `native-app/13` (1.0.186) |
-| J-NEARBY-06 | "Meet new people" swaps the whole group for the next one (my Talks go to them); past the last group it says so; "Back to group 1" | ✅ `stage4/08` | — | ✅ `native-app/30` (1.0.187: group 1 → met everyone → back) |
+| J-NEARBY-06 | "Meet new people" appears only when the hub reports another page of a crowded area or Place (OPEN-86 E1); it swaps the whole group for the next one (my Talks go to them), disappears on the last page; "Back to group 1" | ✅ `stage4/08` (area pages), `stage5/14` (area + Place pages) | — | ◐ `native-app/30` (everyone fits on one page: no paging action; to rerun after OPEN-86) |
 | J-NEARBY-07 | Online dots (Contacts, room members) come from the hub's card heartbeats; "Online now" filter | ✅ `stage4/08` (dots), unit (filter) | — | ✅ `native-app/30` (1.0.187: query through the phone's node) |
 | J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | ✅ `phone-path/04` | — |
 | **Places** | | | | |

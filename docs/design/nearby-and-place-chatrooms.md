@@ -573,7 +573,10 @@ travel. Travel lands in your own lane.
 ### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, revised 2026-10-24)
 
 Status: **the 2026-10-19 baseline and OPEN-85's 2026-10-24 authoritative presence/headcount
-foundation are implemented; OPEN-86's audience paging, map and UI revision remains pending.** There
+foundation are implemented; OPEN-86 E1–E4 (audience pages, directional radio eligibility,
+green/yellow map dots, paging UI and bounded count refresh) landed on 2026-10-24 in
+`src/shared/nearby-v3-audience.ts`, the hub and the client; E5 browser/device qualification
+remains.** There
 is no prior official release to preserve, so v3 replaced v2 outright. The revision keeps personal
 lists and removes no working transport, but restores yellow map dots, separates the uncapped
 candidate headcount from the at-most-`C` visible page, and makes the user's selected blurred
@@ -656,14 +659,16 @@ classification. If some identities enter Places, `online` stays 20 while each vi
 population drops and the relevant Place markers gain those identities.
 
 For a viewer inside a Place, let `P` be the number of distinct live count keys whose active scope
-is that Place, including the viewer. The same header then shows:
+is that Place, including the viewer (its occupancy). The same header then shows (product decision
+2026-10-24: self-exclusive, like Nearby):
 
 ```text
 online = G
-nearby = P
+nearby = P - 1
 ```
 
-The word `nearby` remains the compact UI label, but in this state it is the Place room headcount.
+The word `nearby` remains the compact UI label; in this state it is everyone else in the Place. The
+room list and the Place's map icon keep showing the occupancy `P`.
 The member list still excludes the viewer and shows at most `C` other members per page.
 
 The selected blurred area is a deterministic cell represented by the published public point and
@@ -935,7 +940,7 @@ reputation-weighted dense-crowd ranking remain separate deferred defenses.
   rows but never reorders them. The overlapping Nearby groups ("Here · 2…") disappear.
 - **Headcounts:** "N nearby · G online". `N` is the candidate-population formula above and may be
   larger than the visible page while Nearby is active. Inside a Place, `N` is that Place's
-  self-inclusive room headcount. `G` is the number of live count keys across Nearby and Places.
+  occupancy minus me (the room list and map icon show the full occupancy). `G` is the number of live count keys across Nearby and Places.
   Neither number claims unique physical humans. TechSupport stays a Contact and is never counted.
 
 #### Places in v3
@@ -989,8 +994,8 @@ Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contac
   only the latest `4 × C` messages and returns at most 50 per opaque-cursor poll; if a busy Place
   produces more than one page between polls, recency wins and the middle is deliberately skipped.
   Embedded Android nodes forward the endpoint to the hub, and an unavailable hub fails explicitly.
-  A Place's headcount includes me; Nearby's does not. The room list and its map icon show the full
-  room occupancy, never "Full", while the people list shows at most `C` others per page. "Sent to N
+  Inside a Place the header counts everyone but me, as in Nearby (2026-10-24). The room list and its
+  map icon show the full room occupancy, never "Full", while the people list shows at most `C` others per page. "Sent to N
   of M" works in a Place too.
 - A card that moves (into a Place, back to Nearby, to a new point) leaves the hub's old samples at
   once, so the hub stops introducing someone where they were.

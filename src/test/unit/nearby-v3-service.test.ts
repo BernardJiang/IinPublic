@@ -86,11 +86,11 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
         async heartbeat(card) {
           if (hubDown || !phone.online) throw new Error('hub unreachable');
           heartbeats.push(card.pub);
-          hub.ingest(card, nowMs);
+          return hub.ingest(card, nowMs);
         },
         async introductions(input) {
           if (hubDown || !phone.online) throw new Error('hub unreachable');
-          return hub.introductions({ ...input, now: new Date(nowMs) }).cards;
+          return hub.introductions({ ...input, now: new Date(nowMs) });
         },
       },
       link,
@@ -500,30 +500,27 @@ describe('meeting new people in groups (§3.7)', () => {
     await settle(net);
     const group1 = listOf(me);
     expect(group1).toHaveLength(2);
-    expect(me.service.groupInfo()).toEqual({ group: 1, exhausted: false });
+    expect(me.service.groupInfo()).toEqual({ group: 1, exhausted: false, pageable: true, hasMore: true });
 
     const met = new Set(group1);
     for (const group of [2, 3]) {
       expect(await me.service.meetNewPeople()).toBe(true);
       await settle(net);
       const people = listOf(me);
-      expect(me.service.groupInfo()).toEqual({ group, exhausted: false });
+      expect(me.service.groupInfo()).toEqual({ group, exhausted: false, pageable: true, hasMore: group < 3 });
       expect(people).toHaveLength(2);
       for (const pub of people) expect(met.has(pub)).toBe(false); // nobody from an earlier group
       for (const pub of people) met.add(pub);
     }
     expect(met.size).toBe(6); // groups 1–3 covered everyone
 
-    // Past the last group: nobody left, and the bar can say so.
-    expect(await me.service.meetNewPeople()).toBe(true);
-    await settle(net);
-    expect(listOf(me)).toEqual([]);
-    expect(me.service.groupInfo()).toEqual({ group: 4, exhausted: true });
-    expect(await me.service.meetNewPeople()).toBe(false); // nothing to move on from
+    // The hub says group 3 is the last: no empty group 4 (OPEN-86 E1).
+    expect(await me.service.meetNewPeople()).toBe(false);
+    expect(listOf(me)).toHaveLength(2);
 
     await me.service.backToFirstGroup();
     await settle(net);
-    expect(me.service.groupInfo()).toEqual({ group: 1, exhausted: false });
+    expect(me.service.groupInfo()).toEqual({ group: 1, exhausted: false, pageable: true, hasMore: true });
     expect(listOf(me)).toEqual(group1);
   });
 
@@ -549,11 +546,11 @@ describe('meeting new people in groups (§3.7)', () => {
     // A new day reorders everyone: group 1 again.
     net.advance(24 * 3_600_000);
     await settle(net);
-    expect(restarted.service.groupInfo()).toEqual({ group: 1, exhausted: false });
+    expect(restarted.service.groupInfo()).toMatchObject({ group: 1, exhausted: false });
     expect(listOf(restarted)).toHaveLength(2);
   });
 
-  it('a Place and Nearby keep their own group', async () => {
+  it('entering a Place and coming back both start again at group 1 (§3.7 "Beyond C")', async () => {
     const net = network(config({ capacity: 1, hubCellSample: 8 }), Array.from({ length: 4 }, () => SD));
     const me = net.phones.get('p0')!;
     await settle(net);
@@ -565,6 +562,47 @@ describe('meeting new people in groups (§3.7)', () => {
     expect(me.service.groupInfo().group).toBe(1);
     for (const phone of net.phones.values()) phone.position = { ...phone.position, scope: 'nearby' };
     await settle(net);
-    expect(me.service.groupInfo().group).toBe(2);
+    expect(me.service.groupInfo().group).toBe(1);
+  });
+});
+
+describe('directional eligibility with different blurred areas (OPEN-86 E2)', () => {
+  const FINE = snapPublicLocation({ latitude: 32.7157, longitude: -117.1611 }, 400);
+  const WIDE = snapPublicLocation({ latitude: 32.7157, longitude: -117.1611 }, 50_000);
+  const listOf = (phone: Phone) => phone.service.entries().map((entry) => entry.card.pub).sort();
+
+  it('lets a wide-area viewer list a crowded fine-area cell while that cell never lists the outsider', async () => {
+    // C = 2. Four people share one 400 m cell (each sees R = 3 > C: a crowded area). One person
+    // chose the 50 km size; their area contains the cell, but their own point is outside it.
+    const net = network(config({ capacity: 2 }), [FINE, FINE, FINE, FINE]);
+    const wide = net.add('wide', WIDE);
+    for (let i = 0; i < 12; i += 1) await net.round();
+    const fine = net.phones.get('p0')!;
+
+    expect(fine.service.audienceInfo()).toMatchObject({ mode: 'area', nearby: 3, pageable: true });
+    expect(wide.service.audienceInfo()).toMatchObject({ mode: 'area', nearby: 4, pageable: true });
+    expect(listOf(wide).every((pub) => pub.startsWith('p'))).toBe(true);
+    for (const phone of [...net.phones.values()].filter((entry) => entry !== wide)) {
+      expect(listOf(phone)).not.toContain('wide');
+    }
+
+    // A radio sighting (offline board, LAN, Wi-Fi Direct) carries the outsider's card straight to
+    // the fine cell: it is a route, not eligibility, so neither the list nor any count changes.
+    const before = listOf(fine);
+    await fine.service.localCard(wide.service.card());
+    await fine.service.offerCard(wide.service.card()!);
+    expect(listOf(fine)).toEqual(before);
+    expect(net.hub.ingest(fine.service.card()!, net.now())).toMatchObject({ nearby: 3, online: 5 });
+    expect(net.hub.ingest(wide.service.card()!, net.now())).toMatchObject({ nearby: 4, online: 5 });
+  });
+
+  it('never lets a radio card from Nearby join a Place list', async () => {
+    const net = network(config({ capacity: 4 }), [SD, SD]);
+    const [a, b] = [net.phones.get('p0')!, net.phones.get('p1')!];
+    a.position = { ...a.position, scope: 'place:cafe' };
+    for (let i = 0; i < 4; i += 1) await net.round();
+    await a.service.localCard(b.service.card());
+    await a.service.offerCard(b.service.card()!);
+    expect(listOf(a)).toEqual([]);
   });
 });

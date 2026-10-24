@@ -233,8 +233,8 @@ export async function offlineResyncJourney(people: NearbyParticipant[], offline:
 }
 
 /**
- * J-NEARBY-06 (§3.7 "Meeting new people in groups"): when everyone around fits in one group,
- * "Meet new people" finds nobody past it and says so; "Back to group 1" brings everyone back.
+ * J-NEARBY-06 (§3.7 "Beyond `C`", OPEN-86 E1): when everyone around fits in one group, the hub
+ * reports the audience as not pageable and "Meet new people" refuses — there is no empty page 2.
  * J-NEARBY-07: the hub reports every participant online, asked through this person's own node
  * (a phone forwards it to the hub).
  */
@@ -256,12 +256,9 @@ export async function groupRoundTripJourney(person: NearbyParticipant, others: N
   expect([...online].sort()).toEqual(everyone);
 
   const groupInfo = () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.groupInfo());
-  expect(await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.meetNewPeople())).toBe(true);
-  await expect.poll(groupInfo, { timeout: 120_000, message: `${person.actor.id} should find nobody past group 1` })
-    .toEqual({ group: 2, exhausted: true });
-  expect(await listIds()).toEqual([]);
-
-  await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.backToFirstGroup());
-  await expect.poll(groupInfo, { timeout: 30_000 }).toEqual({ group: 1, exhausted: false });
-  await expect.poll(listIds, { timeout: 120_000, message: `${person.actor.id} should list everyone again` }).toEqual(everyone);
+  await expect.poll(groupInfo, { timeout: 30_000, message: `${person.actor.id} should have one page only` })
+    .toEqual({ group: 1, exhausted: false, pageable: false, hasMore: false });
+  expect(await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.meetNewPeople())).toBe(false);
+  await expect(page.getByTestId('nearby-meet-new-people-action')).toBeHidden();
+  expect(await listIds()).toEqual(everyone);
 }

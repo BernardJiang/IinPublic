@@ -2,16 +2,17 @@ import SEA from 'gun/sea';
 import { verifyLinkAttestation, type LinkCrypto } from '../../shared/identity-linking';
 import { verifyNearbyCard, type NearbyCard } from '../../shared/nearby-v3-card';
 import type { NearbyV3Config } from '../../shared/nearby-v3-config';
+import { selectNearbyAudience, type NearbyAudienceSummary } from '../../shared/nearby-v3-audience';
 import {
   parsePyramidCellId,
   pyramidCell,
   pyramidCellBounds,
   pyramidCellId,
   pyramidCellIds,
-  pyramidSearch,
   type PyramidPoint,
 } from '../../shared/nearby-v3-pyramid';
-import { publicLocationContains, type PublicLocation } from '../../shared/public-location';
+import { nearbyDailyBeacon, type NearbyRankKey } from '../../shared/nearby-v3-ranking';
+import { isPublicLocation, snapPublicLocation, type PublicLocation } from '../../shared/public-location';
 
 type PresenceWriter = {
   card: NearbyCard;
@@ -34,27 +35,43 @@ export type NearbyHeartbeatResult = {
   online: number;
   nearby: number;
   activeHeadcount: number;
+  /** The active Nearby area or Place holds more than `C` other identities (OPEN-86 E1). */
+  pageable: boolean;
   countRevision: number;
   scopeRevision: number;
 };
 
 export type NearbyIntroductions = {
   cards: NearbyCard[];
-  steps: Array<{ level: number; people: number }>;
+  audience: NearbyAudienceSummary;
   online: number;
   countRevision: number;
 };
 
 export type NearbyHeatCell = { latitude: number; longitude: number; count: number };
 
+/** One live Nearby identity on the map: its public blurred point only, never a card or key. */
+export type NearbyMapDot = PublicLocation & { userId: string; traveler: boolean };
+
 export type NearbyStats = {
   online: number;
   heat: NearbyHeatCell[];
+  /**
+   * Live Nearby identities in a city-sized view (OPEN-86 E3), one per count key, bounded. Absent
+   * for wider views, where the heat layer stands for them. Place members are never dots.
+   */
+  dots?: NearbyMapDot[];
+  /** True when the view held more identities than `dots` carries. */
+  dotsTruncated?: boolean;
   level: number | null;
   countRevision: number;
 };
 
 const MAX_HEAT_CELLS = 2_500;
+/** Most person dots one map answer carries. */
+export const MAX_MAP_DOTS = 1_000;
+/** Dots only for views at most this many degrees across: a 50 km Nearby area fits with margin. */
+export const MAP_DOT_MAX_SPAN_DEGREES = 2.5;
 const MAX_PRESENCES = 500_000;
 
 /** A stale or conflicting writer must not silently restore an old scope. */
@@ -108,11 +125,11 @@ export class NearbyV3Hub {
   }
 
   /** A phone's (re)issued card. Throws when the card or linked count identity does not verify. */
-  async heartbeat(value: unknown, now = new Date()): Promise<NearbyHeartbeatResult> {
+  async heartbeat(value: unknown, now = new Date(), viewerCapacity?: number): Promise<NearbyHeartbeatResult> {
     const verification = await verifyNearbyCard(value, { maxLifetimeMs: this.config.cardLifetimeMs, now });
     if (!verification.ok) throw new Error(verification.reason);
     if (!await this.verifyCountIdentity(verification.card)) throw new Error('invalid Nearby count identity proof');
-    return this.ingest(verification.card, now.getTime());
+    return this.ingest(verification.card, now.getTime(), viewerCapacity);
   }
 
   /** Immediately remove this device writer; another linked writer may keep the lease live. */
@@ -137,7 +154,7 @@ export class NearbyV3Hub {
   }
 
   /** Count and index a card whose signatures were already checked. Used directly by unit models. */
-  ingest(card: NearbyCard, nowMs: number): NearbyHeartbeatResult {
+  ingest(card: NearbyCard, nowMs: number, viewerCapacity?: number): NearbyHeartbeatResult {
     this.purgeExpired(nowMs);
     let lease = this.leases.get(card.countKey);
     const fingerprint = this.scopeFingerprint(card.scope, card.point);
@@ -178,14 +195,13 @@ export class NearbyV3Hub {
     if (card.scope !== 'nearby') this.onPlaceCard?.(card.scope.slice('place:'.length));
     this.enforcePresenceBound();
 
-    const nearby = card.scope === 'nearby'
-      ? this.nearbyHeadcount(card.countKey, card.point)
-      : this.count(card.scope, nowMs);
+    const audience = this.audience({ countKey: card.countKey, pub: card.pub, point: card.point, scope: card.scope }, { countsOnly: true, ...(viewerCapacity ? { capacity: viewerCapacity } : {}) });
     return {
       accepted: true,
       online: this.leases.size,
-      nearby,
-      activeHeadcount: nearby,
+      nearby: audience.nearby,
+      activeHeadcount: audience.nearby,
+      pageable: audience.pageable,
       countRevision: this.revision,
       scopeRevision: lease.scopeRevision,
     };
@@ -227,44 +243,41 @@ export class NearbyV3Hub {
   }
 
   /**
-   * A newcomer's bounded introductions. OPEN-86 owns final paging; OPEN-85 supplies exact live
-   * counts and removes the former fixed-50-km filter.
+   * The cards of one viewer's page (§3.7 "Finding the local population", OPEN-86 E1). Page 1 holds
+   * the first `min(C, A)` eligible identities without a page turn: everyone when `A <= C`, the
+   * nearest `C` worldwide when the viewer's selected area holds no more than `C`, otherwise the best
+   * of that area. Later pages (`after`) exist only inside a crowded area or Place. The viewer's
+   * accepted lease, when it has one, decides its area; a request point is only the fallback.
    */
-  introductions(input: { point: PyramidPoint; scope?: string; excludePub?: string; now?: Date }): NearbyIntroductions {
+  introductions(input: {
+    point: PyramidPoint | PublicLocation;
+    scope?: string;
+    excludePub?: string;
+    /** The viewer's ranking beacon string; today's UTC-day fallback when absent or malformed. */
+    beacon?: string;
+    /** The last rank key of the viewer's previous page. */
+    after?: NearbyRankKey | null;
+    /** The viewer's own page size `C`; never above the hub's. */
+    capacity?: number;
+    now?: Date;
+  }): NearbyIntroductions {
     const nowMs = (input.now ?? new Date()).getTime();
     this.purgeExpired(nowMs);
-    const scope = input.scope ?? 'nearby';
-    const out = new Map<string, NearbyCard>();
-    const excludedCountKey = input.excludePub ? this.countKeyForPub(input.excludePub) : undefined;
-    const take = (indexKey: string) => {
-      for (const [countKey, card] of this.liveSample(indexKey)) {
-        if (countKey === excludedCountKey || card.pub === input.excludePub || card.scope !== scope) continue;
-        out.set(countKey, card);
-      }
-    };
-    if (scope !== 'nearby') {
-      take(scope);
-      return {
-        cards: [...out.values()],
-        steps: [],
-        online: this.leases.size,
-        countRevision: this.revision,
-      };
-    }
-    const steps = pyramidSearch({
-      point: input.point,
-      finestLevel: this.config.pyramidFinestLevel,
-      target: this.config.capacity,
-      count: (cellId) => this.members.get(cellId)?.size ?? 0,
-      ...(excludedCountKey ? { self: 1 } : {}),
-    });
-    for (const step of steps) for (const cellId of step.cells) take(cellId);
-    return {
-      cards: [...out.values()],
-      steps: steps.map(({ level, people }) => ({ level, people })),
-      online: this.leases.size,
-      countRevision: this.revision,
-    };
+    const scope = (input.scope ?? 'nearby') as NearbyCard['scope'];
+    const countKey = input.excludePub ? this.countKeyForPub(input.excludePub) : undefined;
+    const lease = countKey ? this.leases.get(countKey) : undefined;
+    const point = lease && lease.scope === scope
+      ? lease.point
+      : isPublicLocation(input.point) ? input.point : snapPublicLocation(input.point, 1_000);
+    const beacon = typeof input.beacon === 'string' && /^(?:beacon|utc-day):\d{4}-\d{2}-\d{2}(?::[0-9a-f]{64})?$/.test(input.beacon)
+      ? input.beacon
+      : nearbyDailyBeacon(nowMs);
+    const page = this.audience(
+      { ...(countKey ? { countKey } : {}), pub: input.excludePub ?? '', point, scope },
+      { beacon, ...(input.after ? { after: input.after } : {}), ...(input.capacity ? { capacity: input.capacity } : {}) },
+    );
+    const { cards, ...audience } = page;
+    return { cards, audience, online: this.leases.size, countRevision: this.revision };
   }
 
   /** Online total plus exact live heat cells for a map view. */
@@ -282,6 +295,20 @@ export class NearbyV3Hub {
       cells.set(id, (cells.get(id) ?? 0) + 1);
     }
     const heat: NearbyHeatCell[] = [];
+    const dots: NearbyMapDot[] = [];
+    let dotsTruncated = false;
+    const withDots = width <= MAP_DOT_MAX_SPAN_DEGREES && bounds.north - bounds.south <= MAP_DOT_MAX_SPAN_DEGREES;
+    if (withDots) {
+      for (const lease of this.leases.values()) {
+        if (lease.scope !== 'nearby' || !pointInBounds(lease.point, bounds)) continue;
+        if (dots.length >= MAX_MAP_DOTS) {
+          dotsTruncated = true;
+          break;
+        }
+        const card = this.representativeCard(lease);
+        dots.push({ ...lease.point, userId: card.userId, traveler: card.traveler });
+      }
+    }
     for (const [cellId, count] of cells) {
       const cell = parsePyramidCellId(cellId);
       if (!cell) continue;
@@ -291,29 +318,46 @@ export class NearbyV3Hub {
       heat.push({ ...point, count });
       if (heat.length >= MAX_HEAT_CELLS) break;
     }
-    return { online, heat, level, countRevision: this.revision };
+    return {
+      online,
+      heat,
+      ...(withDots ? { dots, ...(dotsTruncated ? { dotsTruncated } : {}) } : {}),
+      level,
+      countRevision: this.revision,
+    };
   }
 
-  private nearbyHeadcount(viewerCountKey: string, viewerPoint: PublicLocation): number {
-    let eligible = 0;
-    let regional = 0;
-    for (const lease of this.leases.values()) {
-      if (lease.countKey === viewerCountKey || lease.scope !== 'nearby') continue;
-      eligible += 1;
-      if (publicLocationContains(viewerPoint, lease.point)) regional += 1;
-    }
-    return Math.min(eligible, Math.max(this.config.capacity, regional));
+  /** One viewer's audience over the live leases of its scope, the viewer's own count key excluded. */
+  private audience(
+    viewer: { countKey?: string; pub: string; point: PublicLocation; scope: NearbyCard['scope'] },
+    options: { beacon?: string; after?: NearbyRankKey; countsOnly?: boolean; capacity?: number } = {},
+  ) {
+    const others: NearbyCard[] = [];
+    const add = (lease: PresenceLease | undefined) => {
+      if (!lease || lease.countKey === viewer.countKey || lease.scope !== viewer.scope) return;
+      const card = this.representativeCard(lease);
+      if (card.pub !== viewer.pub) others.push(card);
+    };
+    if (viewer.scope === 'nearby') for (const lease of this.leases.values()) add(lease);
+    else for (const countKey of this.members.get(viewer.scope) ?? []) add(this.leases.get(countKey));
+    return selectNearbyAudience({
+      viewer: { pub: viewer.pub, point: viewer.point, scope: viewer.scope },
+      others,
+      capacity: this.pageSize(options.capacity),
+      beacon: options.beacon ?? nearbyDailyBeacon(Date.now()),
+      ...(options.after ? { after: options.after } : {}),
+      ...(options.countsOnly ? { countsOnly: true } : {}),
+    });
   }
 
-  private liveSample(indexKey: string): Array<[string, NearbyCard]> {
-    const keys = this.members.get(indexKey);
-    if (!keys) return [];
-    return [...keys]
-      .map((countKey) => this.leases.get(countKey))
-      .filter((lease): lease is PresenceLease => !!lease)
-      .sort((a, b) => b.updatedAtMs - a.updatedAtMs || a.countKey.localeCompare(b.countKey))
-      .slice(0, this.config.hubCellSample)
-      .map((lease) => [lease.countKey, this.representativeCard(lease)]);
+  /**
+   * The viewer's page size: the hub's `C`, or a smaller `C` the viewer's own manifest/test build
+   * uses. Counts and pages are viewer-relative, so a smaller value changes only that viewer's
+   * view; it can never enlarge anyone's audience past the hub's `C`.
+   */
+  private pageSize(requested?: number): number {
+    const hub = this.config.capacity;
+    return Number.isSafeInteger(requested) && requested! >= 2 ? Math.min(hub, requested!) : hub;
   }
 
   private representativeCard(lease: PresenceLease): NearbyCard {

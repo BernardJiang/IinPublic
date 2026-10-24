@@ -5,6 +5,7 @@ import {
   type NearbyCard,
   type NearbyCardScope,
 } from './nearby-v3-card';
+import { publicLocationContains, type PublicLocation } from './public-location';
 import {
   compareNearbyRankKeys,
   nearbyRankKey,
@@ -40,6 +41,12 @@ export type NearbyListOwner = {
    * change its rank keys. Exact exclusions keep that late re-ranking from showing someone twice.
    */
   excludedPubs?: readonly string[];
+  /**
+   * The selected blurred area of a crowded Nearby audience (OPEN-86 E1/E2): only cards whose public
+   * point falls inside it belong on the list, whichever route (hub, gossip, radio) brought them.
+   * Absent for a sparse audience (everyone, or the nearest `C` worldwide) and in a Place.
+   */
+  area?: PublicLocation;
 };
 
 export type NearbyListEntry = {
@@ -117,7 +124,8 @@ export class NearbyList {
     for (const [pub, entry] of this.byPub) {
       entry.key = this.rankOf(entry.card);
       if (this.owner.excludedPubs?.includes(pub)
-        || (!hasExactExclusions && !this.pastBoundary(entry.key))) this.byPub.delete(pub);
+        || (!hasExactExclusions && !this.pastBoundary(entry.key))
+        || !this.inArea(entry.card)) this.byPub.delete(pub);
     }
     this.resort();
   }
@@ -232,7 +240,12 @@ export class NearbyList {
     const hasExactExclusions = (this.owner.excludedPubs?.length ?? 0) > 0;
     return card.pub !== this.owner.pub && card.scope === this.owner.scope && isNearbyCardLive(card, nowMs)
       && !this.owner.excludedPubs?.includes(card.pub)
+      && this.inArea(card)
       && (hasExactExclusions || !this.owner.after || this.pastBoundary(this.rankOf(card)));
+  }
+
+  private inArea(card: NearbyCard): boolean {
+    return !this.owner.area || publicLocationContains(this.owner.area, card.point);
   }
 
   private pastBoundary(key: NearbyRankKey): boolean {

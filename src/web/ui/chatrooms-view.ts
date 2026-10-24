@@ -59,7 +59,11 @@ type ChatroomsViewDeps = {
   /** Nearby v3 is a personal list. Show its people directly above the custom-room rows. */
   nearbyMembers?: ReadonlyArray<ChatroomMember>;
   /** The group of my order I am meeting here (§3.7 "Meeting new people in groups"). */
-  nearbyGroup?: { group: number; exhausted: boolean };
+  /**
+   * My group in the active Nearby area or Place. `hasMore` is the hub's answer that another page
+   * exists (OPEN-86 E1): only then does "Meet new people" appear.
+   */
+  nearbyGroup?: { group: number; exhausted: boolean; pageable?: boolean; hasMore?: boolean };
   travelModeActive: boolean;
   setChatroomBrowseMode: (mode: 'list' | 'map') => void;
   setCurrentChatroom: (chatroomId: string) => void;
@@ -224,7 +228,7 @@ function syncNearbyPagingActions(deps: ChatroomsViewDeps, people: number): void 
   const inPersonalRoom = detailOpen && isPersonalListScope(deps.currentChatroom);
   const pagingVisible = onNearbyList || inPersonalRoom;
   const group = deps.nearbyGroup?.group ?? 1;
-  const meetVisible = pagingVisible && people > 0;
+  const meetVisible = pagingVisible && people > 0 && deps.nearbyGroup?.hasMore === true;
   const backVisible = pagingVisible && group > 1;
 
   if (meet) {

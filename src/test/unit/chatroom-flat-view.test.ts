@@ -70,6 +70,7 @@ describe('flat Nearby and Places list', () => {
   it('shows Nearby people and custom rooms in one compact browser list', () => {
     render({
       activeRooms: ROOMS,
+      nearbyGroup: { group: 1, exhausted: false, pageable: true, hasMore: true },
       nearbyMembers: [
         { userId: 'me', stageName: 'Me' },
         { userId: 'alice', stageName: 'Alice' },
@@ -115,6 +116,13 @@ describe('flat Nearby and Places list', () => {
     const emit = jest.fn();
     render({
       emit,
+      nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }],
+    });
+    // A sparse audience (no next page from the hub) has no paging action at all (OPEN-86 E1).
+    expect((document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLElement).style.display).toBe('none');
+    render({
+      emit,
+      nearbyGroup: { group: 1, exhausted: false, pageable: true, hasMore: true },
       nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }],
     });
 
@@ -232,6 +240,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       customChatrooms: [],
       nearbyOnline: 7,
       nearbyCount: 6,
+      nearbyGroup: { group: 1, exhausted: false, pageable: true, hasMore: true },
       setCurrentChatroomMembers: jest.fn(),
       renderChatroomList: jest.fn(),
       escapeHtml: (value: string) => value,
@@ -296,7 +305,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       chatroomVisitCounts: new Map(),
       matchedUserIds: new Set(),
       customChatrooms: [],
-      nearbyGroup: { group: 1, exhausted: false },
+      nearbyGroup: { group: 1, exhausted: false, pageable: true, hasMore: true },
       setCurrentChatroomMembers: jest.fn(),
       renderChatroomList: jest.fn(),
       escapeHtml: (value: string) => value,

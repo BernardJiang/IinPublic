@@ -2,7 +2,8 @@
  * Chatrooms browser layout and Nearby paging (docs/design/nearby-and-place-chatrooms.md §3.7):
  * people come first, three custom rooms follow, and the top row owns the headcount. With C = 3,
  * Adam's first page holds three of the four other people. The compact AppBar action advances to the
- * remaining person, who receives Adam's active Talk without a new broadcast, and can return to page 1.
+ * remaining person, who receives Adam's active Talk without a new broadcast. That is the last page,
+ * so the action disappears; "Back to group 1" returns to page 1.
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -38,7 +39,7 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
     await clearGunForStage4Spec();
   });
 
-  test('people-first multi-room layout; page 1 → page 2 → met everyone → page 1', async () => {
+  test('people-first multi-room layout; page 1 → last page 2 → page 1', async () => {
     test.setTimeout(420_000);
     // C = 3: each person's page holds at most three of the four others.
     const url = webAppURLStableChatroom().replace('e2e_capacity=50', 'e2e_capacity=3');
@@ -58,7 +59,7 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
 
     // Page 1 is already the root screen: no Nearby room or redundant people heading.
     await expect(groupMembers(adam)).toHaveCount(3, { timeout: 90_000 });
-    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('4 near you', { timeout: 90_000 });
+    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('4 nearby', { timeout: 90_000 });
     await expect(adam.getByText('People near you', { exact: true })).toHaveCount(0);
     await expect(adam.getByText('Loading rooms…', { exact: true })).toHaveCount(0);
     await expect(adam.locator('.chatroom-item[data-chatroom-id="nearby-v3"]')).toHaveCount(0);
@@ -128,16 +129,15 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
     await meetAction.click();
     await expect(adam.locator('[data-testid="nearby-meet-confirm"]')).toHaveCount(0);
     await expect.poll(() => memberNames(adam), { timeout: 90_000 }).toEqual(notMet);
-    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('4 near you');
+    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('4 nearby');
     await expect(adam.locator('[data-testid="nearby-back-to-first-group-action"]')).toBeVisible();
     // The new person gets Adam's active Talk without another broadcast (same as entering a Place).
     expect(await waitForIncomingTalk(othersByName.get(notMet[0]!)!, notMet[0]!, talk.title)).toBe(talk.talkId);
 
-    // Past the last group: nobody is left, and the bar says so.
-    await meetAction.click();
-    await expect(groupMembers(adam)).toHaveCount(0);
-    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('4 near you');
-    await expect(meetAction).toBeHidden();
+    // Group 2 is the last page: the hub reports no next one, so the action disappears instead of
+    // leading to an empty group (OPEN-86 E1).
+    await expect(meetAction).toBeHidden({ timeout: 30_000 });
+    await expect(groupMembers(adam)).toHaveCount(1);
 
     // Back to group 1: the currently highest-ranked two again. Membership can differ from the
     // early snapshot if gossip learned a better-ranked card while Adam visited later groups.

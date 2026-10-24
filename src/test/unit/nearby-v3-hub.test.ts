@@ -9,7 +9,7 @@ import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { snapPublicLocation, type PublicLocation } from '../../shared/public-location';
 import { NEARBY_V3_DEFAULTS, type NearbyV3Config } from '../../shared/nearby-v3-config';
 import { createNearbyCard, nearbyCountAnchor, type NearbyCard } from '../../shared/nearby-v3-card';
-import { nearbyDailyBeacon, publicPointDistanceMeters } from '../../shared/nearby-v3-ranking';
+import { nearbyDailyBeacon, publicPointDistanceMeters, type NearbyRankKey } from '../../shared/nearby-v3-ranking';
 import { NearbyList } from '../../shared/nearby-v3-list';
 import { pyramidCellIds } from '../../shared/nearby-v3-pyramid';
 import { NearbyV3Hub } from '../../server/services/nearby-v3-hub';
@@ -160,7 +160,8 @@ describe('Nearby v3 hub', () => {
     const nearby = { ...card('a', SD), scopeRevision: 10 };
     const place = { ...card('a', SD, NOW + 1, 'place:cafe'), scopeRevision: 11 };
     expect(hub.ingest(nearby, NOW)).toMatchObject({ online: 1, countRevision: 1 });
-    expect(hub.ingest(place, NOW + 1)).toMatchObject({ online: 1, nearby: 1, countRevision: 2 });
+    // Alone in the Place: occupancy 1, nobody else (the header excludes me).
+    expect(hub.ingest(place, NOW + 1)).toMatchObject({ online: 1, nearby: 0, countRevision: 2 });
     expect(hub.placeCounts(NOW + 1)).toEqual([{ placeId: 'cafe', count: 1 }]);
     expect(() => hub.ingest(nearby, NOW + 2)).toThrow('stale Nearby scope revision');
     expect(() => hub.ingest({ ...place, point: LA }, NOW + 2)).toThrow('conflicting Nearby scope');
@@ -177,20 +178,110 @@ describe('Nearby v3 hub', () => {
     expect(hub.introductions({ point: SD, now: new Date(later) }).cards).toHaveLength(0);
   });
 
-  it('keeps bounded per-cell samples and uses wider pyramid cells for the sparse fallback', () => {
-    const hub = new NearbyV3Hub(config({ capacity: 20, hubCellSample: 8 }), NOW);
+  it('returns everyone when A <= C, with no next page', () => {
+    const hub = new NearbyV3Hub(config({ capacity: 3 }), NOW);
+    hub.ingest(card('me', SD), NOW);
+    hub.ingest(card('sd', SD), NOW);
+    hub.ingest(card('la-1', LA), NOW);
+    hub.ingest(card('la-2', LA), NOW);
+    const intro = hub.introductions({ point: SD, excludePub: 'me', now: new Date(NOW) });
+    expect(intro.cards.map((entry) => entry.pub).sort()).toEqual(['la-1', 'la-2', 'sd']);
+    expect(intro.audience).toMatchObject({ mode: 'all', nearby: 3, pageable: false, hasMore: false, area: SD });
+  });
+
+  it('fills page 1 with the nearest C worldwide when the area is sparse, and never pages it', () => {
+    const hub = new NearbyV3Hub(config({ capacity: 20 }), NOW);
     for (let i = 0; i < 30; i += 1) hub.ingest(card(`sd${i}`, SD), NOW);
     hub.ingest(card('la', LA), NOW);
     const intro = hub.introductions({ point: LA, excludePub: 'la', now: new Date(NOW) });
     expect(intro.online).toBe(31);
-    expect(intro.cards.length).toBeGreaterThan(0);
+    // All 30 tie on distance; page 1 must not stop at a 64-card per-cell sample or at C − 1.
+    expect(intro.cards.length).toBeGreaterThanOrEqual(20);
     expect(intro.cards.every((entry) => entry.pub.startsWith('sd'))).toBe(true);
-    expect(intro.steps.at(-1)!.people).toBeGreaterThanOrEqual(20);
-    // In the crowd itself the first block is enough.
-    const local = hub.introductions({ point: SD, now: new Date(NOW) });
-    expect(local.steps).toHaveLength(1);
-    expect(local.cards.length).toBeGreaterThanOrEqual(8);
-    expect(local.cards.length).toBeLessThanOrEqual(8 * 9);
+    expect(intro.audience).toMatchObject({ mode: 'nearest', nearby: 20, pageable: false, hasMore: false });
+    // A boundary is ignored for a sparse audience: there is no page 2.
+    const list = new NearbyList({ pub: 'la', point: LA, scope: 'nearby', beacon: nearbyDailyBeacon(NOW) }, { capacity: 20 });
+    list.merge(intro.cards, NOW);
+    const again = hub.introductions({ point: LA, excludePub: 'la', after: list.lastKey(), now: new Date(NOW) });
+    expect(again.cards.map((entry) => entry.pub)).toEqual(intro.cards.map((entry) => entry.pub));
+  });
+
+  it('keeps exactly C on one page', () => {
+    const hub = new NearbyV3Hub(config({ capacity: 3 }), NOW);
+    for (let i = 0; i < 4; i += 1) hub.ingest(card(`sd${i}`, SD), NOW);
+    hub.ingest(card('la', LA), NOW);
+    const intro = hub.introductions({ point: SD, excludePub: 'sd0', now: new Date(NOW) });
+    // A = 4 > C, but R = 3 = C: the nearest C, no page turn.
+    expect(intro.audience).toMatchObject({ mode: 'nearest', nearby: 3, pageable: false, hasMore: false });
+    expect(intro.cards.slice(0, 3).map((entry) => entry.pub).sort()).toEqual(['sd1', 'sd2', 'sd3']);
+  });
+
+  it('pages a crowded area only through that area, in the viewer\'s own order, until it is met', () => {
+    const C = 3;
+    const hub = new NearbyV3Hub(config({ capacity: C }), NOW);
+    for (let i = 0; i < 14; i += 1) hub.ingest(card(`sd${i}`, SD), NOW);
+    for (let i = 0; i < 6; i += 1) hub.ingest(card(`la${i}`, LA), NOW);
+    expect(hub.ingest(card('sd0', SD), NOW + 1)).toMatchObject({ nearby: 13, online: 20, pageable: true });
+    expect(hub.ingest(card('la0', LA), NOW + 1)).toMatchObject({ nearby: 5, online: 20, pageable: true });
+
+    const beacon = nearbyDailyBeacon(NOW);
+    const seen: string[] = [];
+    let after: NearbyRankKey | null = null;
+    let pages = 0;
+    for (;;) {
+      const intro = hub.introductions({ point: SD, excludePub: 'sd0', beacon, ...(after ? { after } : {}), now: new Date(NOW + 2) });
+      expect(intro.audience).toMatchObject({ mode: 'area', nearby: 13, pageable: true, area: SD });
+      const list: NearbyList = new NearbyList({ pub: 'sd0', point: SD, scope: 'nearby', beacon, area: SD, ...(after ? { after } : {}) }, { capacity: C });
+      list.merge(intro.cards, NOW + 2);
+      const page = list.entries().map((entry) => entry.card.pub);
+      expect(page.every((pub) => pub.startsWith('sd'))).toBe(true);
+      seen.push(...page);
+      pages += 1;
+      if (!intro.audience.hasMore) break;
+      after = list.lastKey();
+    }
+    expect(pages).toBe(5); // 13 people, 3 per page
+    expect(new Set(seen).size).toBe(13);
+    expect(seen).not.toContain('sd0');
+  });
+
+  it('pages a Place only when more than C other members are in it, and counts occupancy minus me', () => {
+    const hub = new NearbyV3Hub(config({ capacity: 3 }), NOW);
+    for (let i = 0; i < 4; i += 1) hub.ingest(card(`p${i}`, SD, NOW, 'place:cafe'), NOW);
+    expect(hub.placeCounts(NOW + 1)).toEqual([{ placeId: 'cafe', count: 4 }]); // the room list: occupancy
+    expect(hub.ingest(card('p0', SD, NOW, 'place:cafe'), NOW + 1)).toMatchObject({ nearby: 3, pageable: false });
+    expect(hub.introductions({ point: SD, scope: 'place:cafe', excludePub: 'p0', now: new Date(NOW + 1) }).audience)
+      .toMatchObject({ mode: 'place', nearby: 3, pageable: false, area: null });
+    hub.ingest(card('p4', SD, NOW, 'place:cafe'), NOW + 2);
+    expect(hub.ingest(card('p0', SD, NOW, 'place:cafe'), NOW + 3)).toMatchObject({ nearby: 4, pageable: true });
+    expect(hub.introductions({ point: SD, scope: 'place:cafe', excludePub: 'p0', now: new Date(NOW + 3) }).audience)
+      .toMatchObject({ mode: 'place', nearby: 4, pageable: true, hasMore: true });
+  });
+
+  it('counts with the viewer\'s own smaller C, never a larger one (E2E: hub 50, page 3)', async () => {
+    const hub = new NearbyV3Hub(config({ capacity: 50 }), NOW);
+    for (let i = 0; i < 14; i += 1) hub.ingest(card(`sd${i}`, SD), NOW);
+    for (let i = 0; i < 6; i += 1) hub.ingest(card(`la${i}`, LA), NOW);
+    // With the hub's C = 50 every viewer would see all 19 others; with the page's C = 3 the
+    // crowded San Diego cell is the audience.
+    expect(hub.ingest(card('sd0', SD), NOW + 1)).toMatchObject({ nearby: 19, online: 20, pageable: false });
+    expect(hub.ingest(card('sd0', SD), NOW + 2, 3)).toMatchObject({ nearby: 13, online: 20, pageable: true });
+    expect(hub.ingest(card('la0', LA), NOW + 2, 3)).toMatchObject({ nearby: 5, online: 20, pageable: true });
+    expect(hub.introductions({ point: SD, excludePub: 'sd0', capacity: 3, now: new Date(NOW + 2) }).audience)
+      .toMatchObject({ mode: 'area', nearby: 13, pageable: true });
+    // A viewer cannot widen its page past the hub's C.
+    expect(hub.ingest(card('sd0', SD), NOW + 3, 10_000)).toMatchObject({ nearby: 19 });
+  });
+
+  it('uses the viewer\'s accepted lease for its area, not a point it sends', () => {
+    const hub = new NearbyV3Hub(config({ capacity: 1 }), NOW);
+    hub.ingest(card('me', SD), NOW);
+    hub.ingest(card('a', SD), NOW);
+    hub.ingest(card('b', SD), NOW);
+    hub.ingest(card('c', LA), NOW);
+    const intro = hub.introductions({ point: LA, excludePub: 'me', now: new Date(NOW) });
+    expect(intro.audience).toMatchObject({ mode: 'area', area: SD, nearby: 2 });
+    expect(intro.cards.map((entry) => entry.pub)).not.toContain('c');
   });
 
   it('keeps Places separate from Nearby and shows heat cells for a map view', () => {
@@ -246,9 +337,9 @@ describe('Nearby v3 hub when a card moves between lists', () => {
 });
 
 describe('Nearby v3 lists converge by gossip from the hub\'s introductions', () => {
-  it('reaches the true nearest-C distance band within a few periods', () => {
+  it('starts every list on the true nearest-C distance band, and gossip keeps it there (OPEN-86 E1)', () => {
     const C = 32;
-    const cfg = config({ capacity: C, hubCellSample: 16, swapCards: 12 });
+    const cfg = config({ capacity: C, swapCards: 12 });
     const random = seededRandom(7);
     const beacon = nearbyDailyBeacon(NOW);
     // 300 people in and around San Diego (a few km), all inside the local Nearby radius.
@@ -275,10 +366,11 @@ describe('Nearby v3 lists converge by gossip from the hub\'s introductions', () 
       return total / points.length;
     };
 
-    const start = quality();
+    // Page 1 comes complete from the hub, without waiting for gossip or a page turn.
+    expect(quality()).toBe(1);
     let rounds = 0;
     let nowMs = NOW;
-    while (quality() < 0.95 && rounds < 20) {
+    while (rounds < 5) {
       rounds += 1;
       nowMs += cfg.gossipPeriodMs;
       for (let i = 0; i < lists.length; i += 1) {
@@ -297,9 +389,7 @@ describe('Nearby v3 lists converge by gossip from the hub\'s introductions', () 
         list.merge(list.useful(toMe, nowMs), nowMs);
       }
     }
-    expect(start).toBeLessThan(0.95);
-    expect(quality()).toBeGreaterThanOrEqual(0.95);
-    expect(rounds).toBeLessThanOrEqual(10);
+    expect(quality()).toBe(1);
     expect(lists.every((list) => list.size === C)).toBe(true);
   });
 });

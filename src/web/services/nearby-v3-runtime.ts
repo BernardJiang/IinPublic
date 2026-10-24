@@ -3,6 +3,7 @@ import type { NearbyV3Config } from '../../shared/nearby-v3-config';
 import type { NearbyAttestorKey } from '../../shared/nearby-v3-attestation';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { isPublicLocation, type PublicLocation } from '../../shared/public-location';
+import type { MapPresenceDot } from '../../shared/map-dots';
 import type { NearbyListEntry } from '../../shared/nearby-v3-list';
 import { nearbyKnockChannel, type NearbyKnock } from '../../shared/nearby-v3-knock';
 import { GunNearbyKnockChannel, GunNearbyLocalBoard, NearbyKnockGate, NearbyV3MeshLink, type NearbyV3MeshPort } from './nearby-v3-link';
@@ -10,6 +11,7 @@ import {
   NearbyHubPresenceConflictError,
   NearbyV3Service,
   type NearbyHubHeartbeat,
+  type NearbyIntroductionsAnswer,
   type NearbyV3Hub,
 } from './nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
@@ -72,14 +74,16 @@ export class HttpNearbyKnockChannel {
 export class FetchNearbyV3Hub implements NearbyV3Hub {
   constructor(
     private readonly apiBase: () => string,
-    private readonly onCounts?: (counts: { nearby: number; online: number }) => void,
+    private readonly onCounts?: (counts: { nearby: number; online: number; scope: NearbyCardScope }) => void,
+    /** My page size `C`: the hub counts and pages my audience with it (OPEN-86). */
+    private readonly capacity?: () => number,
   ) {}
 
   async heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat> {
     const response = await fetch(`${this.apiBase()}/api/nearby/v3/card`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ card }),
+      body: JSON.stringify({ card, ...(this.capacity ? { capacity: this.capacity() } : {}) }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null) as {
@@ -107,7 +111,7 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
     const nearby = Number(answer.nearby);
     const online = Number(answer.online);
     if (Number.isFinite(nearby) && nearby >= 0 && Number.isFinite(online) && online >= 0) {
-      this.onCounts?.({ nearby: Math.floor(nearby), online: Math.floor(online) });
+      this.onCounts?.({ nearby: Math.floor(nearby), online: Math.floor(online), scope: card.scope });
     }
     return answer;
   }
@@ -122,15 +126,18 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
     if (!response.ok && response.status !== 409) throw new Error(`leave failed (${response.status})`);
   }
 
-  async introductions(input: { point: { latitude: number; longitude: number }; scope: string; excludePub: string }): Promise<NearbyCard[]> {
+  async introductions(input: Parameters<NearbyV3Hub['introductions']>[0]): Promise<NearbyIntroductionsAnswer> {
     const response = await fetch(`${this.apiBase()}/api/nearby/v3/introductions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, ...(this.capacity ? { capacity: this.capacity() } : {}) }),
     });
     if (!response.ok) throw new Error(`introductions failed (${response.status})`);
-    const body = await response.json() as { cards?: unknown };
-    return Array.isArray(body.cards) ? body.cards as NearbyCard[] : [];
+    const body = await response.json() as { cards?: unknown; audience?: unknown };
+    return {
+      cards: Array.isArray(body.cards) ? body.cards as NearbyCard[] : [],
+      ...(body.audience !== undefined ? { audience: body.audience } : {}),
+    };
   }
 
   /** Which of these users are online now (§3.7 "Contacts online"), 500 ids per hub call. */
@@ -152,16 +159,29 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
   async stats(bounds?: { west: number; south: number; east: number; north: number }): Promise<{
     online: number;
     heat: Array<{ latitude: number; longitude: number; count: number }>;
+    /** Live Nearby identities in a city-sized view: public points only (OPEN-86 E3). */
+    dots?: MapPresenceDot[];
     countRevision?: number;
   }> {
     const query = bounds ? `?${new URLSearchParams(Object.entries(bounds).map(([key, value]) => [key, String(value)]))}` : '';
     const response = await fetch(`${this.apiBase()}/api/nearby/v3/stats${query}`, { cache: 'no-store' });
     if (!response.ok) throw new Error(`stats failed (${response.status})`);
-    return await response.json() as {
+    const body = await response.json() as {
       online: number;
       heat: Array<{ latitude: number; longitude: number; count: number }>;
+      dots?: unknown;
       countRevision?: number;
     };
+    // A dot is drawn only from a valid public grid point; anything else from the wire is dropped.
+    const dots = Array.isArray(body.dots)
+      ? body.dots.filter((dot): dot is MapPresenceDot => isPublicLocation(dot)
+        && typeof (dot as MapPresenceDot).userId === 'string' && typeof (dot as MapPresenceDot).traveler === 'boolean')
+        .map((dot) => ({
+          latitude: dot.latitude, longitude: dot.longitude, precisionMeters: dot.precisionMeters, userId: dot.userId, traveler: dot.traveler,
+        }))
+      : undefined;
+    const { dots: _wire, ...rest } = body;
+    return dots ? { ...rest, dots } : rest;
   }
 }
 
@@ -182,8 +202,8 @@ export type NearbyV3RuntimeDeps = {
   isPaused?: () => boolean;
   /** The list changed: it is the roster of the current scope (Nearby or the Place). */
   onRoster: (members: NearbyV3RosterMember[], entries: readonly NearbyListEntry[]) => void;
-  /** Fresh hub headcounts from this identity's own heartbeat. */
-  onCounts?: (counts: { nearby: number; online: number }) => void;
+  /** Fresh hub headcounts from this identity's own heartbeat, for the scope its card was in. */
+  onCounts?: (counts: { nearby: number; online: number; scope: NearbyCardScope }) => void;
 };
 
 export class NearbyV3Runtime {
@@ -200,7 +220,7 @@ export class NearbyV3Runtime {
   private refreshing = false;
 
   constructor(private readonly deps: NearbyV3RuntimeDeps) {
-    this.hub = new FetchNearbyV3Hub(deps.apiBase, deps.onCounts);
+    this.hub = new FetchNearbyV3Hub(deps.apiBase, deps.onCounts, () => deps.config().capacity);
     this.knocks = new GunNearbyKnockChannel(deps.gunService.getGun() as never);
     this.hubKnocks = new HttpNearbyKnockChannel(deps.apiBase);
     this.board = new GunNearbyLocalBoard(deps.gunService.getGun() as never, (card) => {

@@ -44,6 +44,7 @@ import { QUIET_GPS_REFRESH_MS, quietStateFor, shouldRefreshQuietGps, type QuietS
 import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
+import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
 import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
@@ -415,6 +416,8 @@ export class IinPublicApp {
   private peerMeshService: PeerMeshService | null = null;
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private nearbyOfflineService: NearbyOfflineService | null = null;
+  /** The hub count revision the last stats poll saw (OPEN-86 E4). */
+  private nearbyCountRevisionSeen: number | null = null;
   private activeRoomRoster: { roomId: string; count: number; pubs: string[] } | null = null;
   private readonly talkWakeThrottle = new TalkWakeThrottle();
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
@@ -1995,8 +1998,8 @@ export class IinPublicApp {
         return point ? { point, traveler: this.appearsAsTraveler() } : null;
       },
       isPaused: isPageHidden,
-      onCounts: ({ nearby, online }) => {
-        this.uiManager.setNearbyCount(nearby);
+      onCounts: ({ nearby, online, scope }) => {
+        this.uiManager.setNearbyCount(nearby, scope === 'nearby' ? NEARBY_V3_ROOM_ID : scope.slice('place:'.length));
         this.uiManager.setNearbyOnline(online);
       },
       onRoster: (members) => {
@@ -2061,7 +2064,15 @@ export class IinPublicApp {
   private async refreshActiveRooms(): Promise<void> {
     if (!this.currentUser) return;
     // "M online" (§3.7): the hub's count of everyone heartbeating a Nearby card.
-    void this.nearbyV3?.hub.stats().then((stats) => this.uiManager.setNearbyOnline(stats.online)).catch(() => undefined);
+    const runtime = this.nearbyV3;
+    void runtime?.hub.stats().then((stats) => {
+      this.uiManager.setNearbyOnline(stats.online);
+      // Someone joined, moved or left since my last heartbeat: refresh my own Nearby count too.
+      if (typeof stats.countRevision === 'number' && stats.countRevision !== this.nearbyCountRevisionSeen) {
+        this.nearbyCountRevisionSeen = stats.countRevision;
+        void runtime.service.refreshCounts();
+      }
+    }).catch(() => undefined);
     const origin = this.nearbyPublicPoint();
     try {
       const view = await fetchActiveRooms(this.getBackendApiBase(), {
@@ -2106,11 +2117,16 @@ export class IinPublicApp {
       ...(location ? { selfPoint: location } : {}),
       selfTraveler: this.appearsAsTraveler(),
       listPoints: () => this.nearbyV3?.service.entries().map((entry) => entry.card.point) ?? [],
+      isCandidate: (dot) => isNearbyAudienceCandidate(this.nearbyV3?.service.audienceInfo() ?? null, dot),
       load: (bounds) => this.loadNearbyMapDots(bounds),
     });
   }
 
-  /** Green dots: the people on my list in view. Heat: the hub's count per cell. */
+  /**
+   * The people on my list in view, then every other live Nearby identity the hub has in a
+   * city-sized view (OPEN-86 E3); the map colours them green or yellow. Heat: the hub's count per
+   * cell.
+   */
   private async loadNearbyMapDots(bounds: MapBounds): Promise<{
     dots: Array<PublicLocation & { userId: string; traveler: boolean }>;
     density: Array<{ latitude: number; longitude: number; count: number }>;
@@ -2121,7 +2137,7 @@ export class IinPublicApp {
       .filter((entry) => boundsContain(bounds, entry.card.point))
       .map((entry) => ({ ...entry.card.point, userId: entry.card.userId, traveler: entry.card.traveler }));
     const stats = await runtime.hub.stats(bounds).catch(() => null);
-    return { dots, density: stats?.heat ?? [] };
+    return { dots: [...dots, ...(stats?.dots ?? [])], density: stats?.heat ?? [] };
   }
 
   /**

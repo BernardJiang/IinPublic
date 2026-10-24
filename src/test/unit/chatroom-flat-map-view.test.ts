@@ -13,7 +13,7 @@ const NEARBY_ID = NEARBY_V3_ROOM_ID;
 const PLACE_ID = 'place_32.71_-117.17_abcdefabcdef';
 
 describe('flat chatroom map', () => {
-  it('renders only the current group plus Place pins and emits deliberate point travel', () => {
+  it('renders only Place pins (no Nearby pin) and emits deliberate point travel', () => {
     jest.useFakeTimers();
     document.body.innerHTML = `
       <button id="chatroom-list-view-btn"></button>
@@ -55,7 +55,8 @@ describe('flat chatroom map', () => {
 
     expect(mapRenderer).toHaveBeenCalledTimes(1);
     const options = mapRenderer.mock.calls[0]![0];
-    expect(options.rooms.map((room) => room.id)).toEqual([NEARBY_ID, PLACE_ID]);
+    // Nearby is my own people list, never a map destination (§3.7, OPEN-86 E3): only Place pins.
+    expect(options.rooms.map((room) => room.id)).toEqual([PLACE_ID]);
     expect(options.rooms.find((room) => room.id === PLACE_ID)?.location).toEqual({
       latitude: 32.71,
       longitude: -117.17,
@@ -63,7 +64,7 @@ describe('flat chatroom map', () => {
     options.selectNearbyPoint?.({ latitude: 40.71, longitude: -74.0 });
     expect(emit).toHaveBeenCalledWith('travelNearbyAtPoint', { latitude: 40.71, longitude: -74.0 });
     expect(options).not.toHaveProperty('openTile');
-    expect(options.rooms).toHaveLength(2);
+    expect(options.rooms).toHaveLength(1);
     expect(options.nearbyPointAction).toBe('Join as traveler');
     expect(document.getElementById('chatroom-map-status')?.textContent).not.toContain('groups share');
     const status = document.getElementById('chatroom-map-status') as HTMLElement;

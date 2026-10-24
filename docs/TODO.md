@@ -24,24 +24,46 @@ its ID.
 ## Active execution queue — website and Android first
 
 - [ ] **OPEN-86 — Implement personal audience pages, radio eligibility, map/UI and E2E behavior
-  (OPEN-85 foundation completed 2026-10-24).** Use the authoritative counts and leases without
-  allowing paging or a transport sighting to redefine a user's selected blurred area.
-  - [ ] **E1 — First-page and paging contract.** If `A <= C`, make all `A` identities reachable. If
+  (OPEN-85 foundation completed 2026-10-24; E1–E4 code landed 2026-10-24, E5 open).** Use the
+  authoritative counts and leases without allowing paging or a transport sighting to redefine a
+  user's selected blurred area. Shared contract: `src/shared/nearby-v3-audience.ts`
+  (`selectNearbyAudience`, `isNearbyAudienceCandidate`); unit gates `nearby-v3-hub`,
+  `nearby-v3-service`, `nearby-v3-audience-map`, `chatroom-flat-view`.
+  - [x] **E1 — First-page and paging contract (2026-10-24).** The hub ranks the live leases in the
+    viewer's own order (beacon + identity age) and returns the whole first page plus
+    `audience { mode: all|nearest|area|place, nearby, pageable, hasMore, area }`; `after` is
+    honoured only for a crowded area or Place. Heartbeats carry `pageable`; the client re-searches
+    when gossip brings someone new into a non-pageable audience, resets to group 1 on point, size,
+    scope or beacon changes, and "Meet new people" exists only while `hasMore`. Heartbeats and
+    introductions carry the viewer's page size `C`; the hub uses `min(viewer C, hub C)`, so a
+    test build at `C = 3` against a hub at 50 no longer shows "19 nearby" (found by stage5/14,
+    together with `stop()` leaving the hub when the spec only meant to freeze gossip). Original text: If `A <= C`, make all `A` identities reachable. If
     `A > C` and `R <= C`, use the pyramid only to reach the nearest `C` worldwide and expose no next
     page. If `R > C`, page only through those `R` identities. Guarantee the first `min(C, A)` without
     a page turn; exactly `C` has no next page. Places page only when more than `C` other members
     remain. Return selected area and explicit `hasMore`/pageability; reset page 1 after point,
     size, scope or daily-beacon changes.
-  - [ ] **E2 — Directional radio eligibility.** Treat LAN, BLE and Wi-Fi Direct as routes, never as
+  - [x] **E2 — Directional radio eligibility (2026-10-24).** A crowded audience's list accepts only
+    cards inside the selected area (`NearbyListOwner.area`), whichever route brought them (hub,
+    gossip, knock, offline board/LAN/Wi-Fi Direct); radio sightings change no list or count, and
+    Place lists keep refusing Nearby cards. Original text: Treat LAN, BLE and Wi-Fi Direct as routes, never as
     headcount or audience overrides. With different blurred areas, each user independently decides
     whether the other is on their active Nearby page; one-way eligibility is valid. A radio sighting
     alone must not add either identity, change either count or bypass same-Place membership.
-  - [ ] **E3 — Map population and Place markers.** Extend the bounded viewport API so every identity
+  - [x] **E3 — Map population and Place markers (2026-10-24, code + unit).** `GET /api/nearby/v3/stats`
+    adds up to 1,000 public-point dots (one per count key, Nearby scope only) for views ≤ 2.5°;
+    the client draws list + hub dots once each, green when the audience counts them (everyone,
+    or the crowded area including later pages), otherwise yellow from city zoom. Place members
+    stay inside the existing Place icon + room count. Browser-visible check is part of E5. Original text: Extend the bounded viewport API so every identity
     represented by Nearby is green (including later pages), other Nearby identities are yellow at
     city zoom and closer, and wide views retain anonymous heat. Represent Place-scoped identities
     only through a Place type icon with the self-inclusive room count. Enforce response bounds,
     deduplication and the public-blurred-point privacy boundary.
-  - [ ] **E4 — UI, Settings and bounded refresh.** Show `N nearby · G online` without implying
+  - [x] **E4 — UI, Settings and bounded refresh (2026-10-24).** Header unchanged (`N nearby · G
+    online`; in a Place `N` = occupancy − me, product decision 2026-10-24, while the room list
+    and map icon keep occupancy); paging action gated on the hub's `hasMore`; Settings →
+    Area explains precision vs. Nearby breadth and the shared Resident/Traveler size; a newer
+    stats `countRevision` (20 s poll) re-sends the current card for fresh counts. Original text: Show `N nearby · G online` without implying
     unique humans; in a Place use its self-inclusive room count for `N`; show no more than `C` other
     identities as rows. Explain that a larger blur size reveals less precision but may broaden
     Nearby, keep the same size for Residents and Travelers, and consume count revisions so other

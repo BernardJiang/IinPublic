@@ -301,9 +301,10 @@ the user switches to them.
   anonymous density at wide zoom, and each Place as its type icon with its live room count. A
   Place-scoped identity SHALL be represented by its Place marker rather than a yellow person dot.
   Dense identities at one public point MAY be represented by a counted grouped dot.
-- **FR-CR-40 (Place count and pages)**: A Place headcount SHALL be the distinct live count keys in
-  that Place and SHALL include the viewer. While a Place is active, the compact `nearby` UI value
-  SHALL equal this Place headcount while `online` remains `G`. Its member page SHALL exclude the
+- **FR-CR-40 (Place count and pages)**: A Place's occupancy SHALL be the distinct live count keys in
+  that Place, including the viewer; the room list and the Place's map marker SHALL show occupancy.
+  While a Place is active, the compact `nearby` UI value SHALL equal occupancy minus the viewer
+  (product decision 2026-10-24, the same self-exclusive rule as Nearby) while `online` remains `G`. Its member page SHALL exclude the
   viewer and show at most `C` others. Paging SHALL be offered only when more than `C` other Place
   members remain, and every page SHALL remain inside that Place. A Place SHALL never be full merely
   because it exceeds one page.

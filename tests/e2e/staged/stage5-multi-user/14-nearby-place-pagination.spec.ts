@@ -278,9 +278,10 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     { timeout: 60_000, intervals: [250, 500, 1_000] }).toEqual(NAMES);
     // Freeze periodic background swaps for the visual demo. Explicit page turns and scope changes
     // still call refresh themselves, while the three rows being inspected no longer reshuffle
-    // during the deliberate two-second pause between actions.
+    // during the deliberate two-second pause between actions. Freezing must not leave the hub
+    // (a plain stop() is a logout since OPEN-85 and dropped everyone: "19 nearby · 0 online").
     await Promise.all(pages.map((page) => page.evaluate(() =>
-      (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.stop?.())));
+      (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.stop?.({ leave: false }))));
     await Promise.all(pages.slice(0, SAN_DIEGO_NAMES.length).map((page) =>
       expect(page.locator('[data-testid="nearby-headcount"]')).toHaveText(
         '13 nearby · 20 online',
@@ -370,6 +371,10 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
       const service = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service;
       for (const card of cards) await service?.offerCard?.(card);
     }, entrantCards);
+
+    // Inside a Place the header counts its occupancy minus me: seven people, "6 nearby", and the
+    // online total does not change when people move from Nearby into a Place.
+    await expect(first.locator('[data-testid="nearby-headcount"]')).toHaveText('6 nearby · 20 online', { timeout: 60_000 });
 
     const placeSeen = new Set<string>();
     const firstPlacePage = await expectFreshPage(() => placeNames(first), 3, placeSeen);
