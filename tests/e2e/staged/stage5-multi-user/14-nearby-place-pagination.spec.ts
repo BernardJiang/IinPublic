@@ -7,7 +7,11 @@
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
-import { getBrowserWindowWorkArea, setBrowserWindowBounds } from '../../helpers/browser-window';
+import {
+  getBrowserWindowWorkArea,
+  setBrowserWindowBounds,
+  type BrowserWindowBounds,
+} from '../../helpers/browser-window';
 import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -32,10 +36,16 @@ const visualPause = async (page: Page, multiplier = 1): Promise<void> => {
   await page.waitForTimeout(positiveInt(process.env.E2E_DEMO_PAUSE_MS, 2_000) * multiplier);
 };
 
-async function arrangeDemoWindows(pages: Page[]): Promise<void> {
-  if (headless || pages.length === 0) return;
+interface DemoWindowLayout {
+  workArea: BrowserWindowBounds;
+  actorBounds: BrowserWindowBounds;
+  peerBounds: BrowserWindowBounds[];
+  xStep: number;
+  yStep: number;
+}
 
-  const workArea = await getBrowserWindowWorkArea(pages[0]!);
+async function createDemoWindowLayout(first: Page, pageCount: number): Promise<DemoWindowLayout> {
+  const workArea = await getBrowserWindowWorkArea(first);
   if (!workArea) throw new Error('14-user demo could not read the physical browser work area');
 
   // Reserve the entire left side for the actor. No peer window may sit above, below or behind it.
@@ -53,22 +63,26 @@ async function arrangeDemoWindows(pages: Page[]): Promise<void> {
   const peerZoneWidth = (workArea.left + workArea.width - margin) - peerZoneLeft;
   const peerWidth = Math.max(440, Math.floor(peerZoneWidth * 0.58));
   const peerHeight = Math.max(520, Math.floor(actorBounds.height * 0.52));
-  const peerCount = pages.length - 1;
+  const peerCount = pageCount - 1;
   const xStep = peerCount > 1
     ? Math.max(12, Math.floor((peerZoneWidth - peerWidth) / (peerCount - 1)))
     : 0;
   const yStep = peerCount > 1
     ? Math.max(12, Math.floor((actorBounds.height - peerHeight) / (peerCount - 1)))
     : 0;
-  const requested = [
-    actorBounds,
-    ...pages.slice(1).map((_, index) => ({
+  const peerBounds = Array.from({ length: peerCount }, (_, index) => ({
       left: peerZoneLeft + (index * xStep),
       top: workArea.top + margin + (index * yStep),
       width: peerWidth,
       height: peerHeight,
-    })),
-  ];
+    }));
+  return { workArea, actorBounds, peerBounds, xStep, yStep };
+}
+
+async function arrangeDemoWindows(pages: Page[], layout: DemoWindowLayout): Promise<void> {
+  if (headless || pages.length === 0) return;
+
+  const requested = [layout.actorBounds, ...layout.peerBounds];
   const placements = [];
   for (const [index, page] of pages.entries()) {
     const placement = await setBrowserWindowBounds(page, requested[index]!);
@@ -77,7 +91,7 @@ async function arrangeDemoWindows(pages: Page[]): Promise<void> {
 
   const windowIds = new Set(placements.map(({ windowId }) => windowId));
   const positions = new Set(placements.map(({ bounds }) => `${bounds.left},${bounds.top}`));
-  const overlaps = (a: typeof actorBounds, b: typeof actorBounds): boolean =>
+  const overlaps = (a: BrowserWindowBounds, b: BrowserWindowBounds): boolean =>
     a.left < b.left + b.width && a.left + a.width > b.left
       && a.top < b.top + b.height && a.top + a.height > b.top;
   const actorOverlaps = placements.slice(1)
@@ -95,7 +109,7 @@ async function arrangeDemoWindows(pages: Page[]): Promise<void> {
   console.log(
     `[14-user demo] ${NAMES[0]} is alone at ${placements[0]!.bounds.left},${placements[0]!.bounds.top} `
       + `(${placements[0]!.bounds.width}×${placements[0]!.bounds.height}); `
-      + `13 peers cascade on the right by ${xStep}×${yStep}px.`,
+      + `13 peers cascade on the right by ${layout.xStep}×${layout.yStep}px.`,
   );
 }
 
@@ -123,7 +137,7 @@ async function expectFreshPage(
 
 test.describe('14-user Nearby and Place pagination demo', () => {
   test.describe.configure({ retries: 0 });
-  let browser: Browser | undefined;
+  const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
 
@@ -135,7 +149,7 @@ test.describe('14-user Nearby and Place pagination demo', () => {
     await Promise.all(pages.map((page) =>
       page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {})));
     await Promise.all(contexts.map((context) => context.close().catch(() => {})));
-    await browser?.close().catch(() => {});
+    await Promise.all(browsers.map((browser) => browser.close().catch(() => {})));
     await clearGunForStage5Spec();
   });
 
@@ -145,32 +159,70 @@ test.describe('14-user Nearby and Place pagination demo', () => {
     appUrl.searchParams.set('e2e_capacity', String(CAPACITY));
     appUrl.searchParams.set('e2e_place_min_friends', '0');
 
-    browser = await chromium.launch({
+    const launchBrowser = (bounds?: BrowserWindowBounds): Promise<Browser> => chromium.launch({
       headless,
       slowMo: headless ? 0 : positiveInt(process.env.PW_SLOW_MO, 180),
       args: [
         ...WEBRTC_CHROMIUM_ARGS,
-        '--window-position=80,40',
-        '--window-size=720,1080',
+        `--window-position=${bounds?.left ?? 80},${bounds?.top ?? 40}`,
+        `--window-size=${bounds?.width ?? 720},${bounds?.height ?? 1080}`,
         '--force-device-scale-factor=1',
       ],
     });
 
-    // Keep setup bounded on a laptop: four independent identities bootstrap at a time in one
-    // browser process. Each still owns a separate browser context and local identity database.
-    for (let start = 0; start < NAMES.length; start += 4) {
-      const batch = NAMES.slice(start, start + 4);
-      const ready = await Promise.all(batch.map((name, offset) =>
-        bootstrapUser(browser!, `U${start + offset + 1}`, name, 60_000, appUrl.toString())));
-      ready.forEach(({ context, page }) => {
-        contexts.push(context);
-        pages.push(page);
-      });
+    // Create the actor first and alone in its own browser process. Only after it is fully ready and
+    // placed in the reserved left zone do we start a second process for the supporting identities.
+    const actorBrowser = await launchBrowser();
+    browsers.push(actorBrowser);
+    const actor = await bootstrapUser(actorBrowser, 'U1', NAMES[0]!, 60_000, appUrl.toString());
+    contexts.push(actor.context);
+    pages.push(actor.page);
+
+    let layout: DemoWindowLayout | undefined;
+    let peerBrowser = actorBrowser;
+    if (!headless) {
+      layout = await createDemoWindowLayout(actor.page, NAMES.length);
+      await setBrowserWindowBounds(actor.page, layout.actorBounds);
+      await actor.page.bringToFront();
+      console.log(`[14-user demo] Created ${NAMES[0]} separately.`);
+      await visualPause(actor.page);
+
+      // Every future window is born on the right, not over the actor. Peers share this second
+      // process and may cover one another as the requested cascade grows.
+      peerBrowser = await launchBrowser(layout.peerBounds[0]);
+      browsers.push(peerBrowser);
     }
 
-    // Keep the actor easy to follow: onearby 0 owns the entire left side with no window above,
-    // below or behind it, while every supporting user remains in a title-bar cascade on the right.
-    await arrangeDemoWindows(pages);
+    if (headless) {
+      // Preserve a fast CI setup; the visual transition is a headed-demo concern.
+      for (let start = 1; start < NAMES.length; start += 4) {
+        const batch = NAMES.slice(start, start + 4);
+        const ready = await Promise.all(batch.map((name, offset) =>
+          bootstrapUser(peerBrowser, `U${start + offset + 1}`, name, 60_000, appUrl.toString())));
+        ready.forEach(({ context, page }) => {
+          contexts.push(context);
+          pages.push(page);
+        });
+      }
+    } else {
+      // In the visible demo, create and settle one user at a time so every transition is legible.
+      for (let index = 1; index < NAMES.length; index += 1) {
+        const ready = await bootstrapUser(
+          peerBrowser,
+          `U${index + 1}`,
+          NAMES[index]!,
+          60_000,
+          appUrl.toString(),
+        );
+        contexts.push(ready.context);
+        pages.push(ready.page);
+        await setBrowserWindowBounds(ready.page, layout!.peerBounds[index - 1]!);
+        await actor.page.bringToFront();
+        console.log(`[14-user demo] Created ${NAMES[index]} (${index + 1}/${NAMES.length}).`);
+        await visualPause(actor.page);
+      }
+      await arrangeDemoWindows(pages, layout!);
+    }
 
     const first = pages[0]!;
     // Bootstrapping 14 full app identities takes longer than the hub's narrow online window on a
