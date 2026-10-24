@@ -155,6 +155,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     isUserOnline: deps.isUserOnline,
     ...(deps.getCachedHeadshot ? { getCachedHeadshot: deps.getCachedHeadshot } : {}),
     ...(deps.resolvePeerHeadshot ? { resolvePeerHeadshot: deps.resolvePeerHeadshot } : {}),
+    syncAppBarOverflow: deps.syncAppBarOverflow,
       onChatroomDetailOpened: (chatroomId) => deps.setChatroomsDetailRoomId(chatroomId),
     };
   };

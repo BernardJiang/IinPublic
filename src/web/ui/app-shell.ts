@@ -41,6 +41,8 @@ export function renderAppShell(
             <span class="app-bar-actions" id="app-bar-actions">
               <button type="button" class="header-btn app-bar-action-btn chatroom-view-mode-btn" id="chatroom-map-view-btn" data-testid="chatroom-map-view-btn" data-appbar-view="chatrooms" data-appbar-priority="0" aria-pressed="false" title="${text('chatroomMapView')}"><span class="app-bar-btn-icon" aria-hidden="true">🗺️</span><span class="app-bar-btn-label">${text('chatroomMapView')}</span></button>
               <button type="button" class="header-btn app-bar-action-btn chatroom-view-mode-btn" id="chatroom-list-view-btn" data-testid="chatroom-list-view-btn" data-appbar-view="chatrooms" data-appbar-priority="1" aria-pressed="true" title="${text('chatroomListView')}"><span class="app-bar-btn-icon" aria-hidden="true">☰</span><span class="app-bar-btn-label">${text('chatroomListView')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" data-appbar-view="chatrooms" data-appbar-priority="2" title="${text('nearbyMeetNewPeople')}" aria-label="${text('nearbyMeetNewPeople')}" style="display:none;"><span class="app-bar-btn-icon" aria-hidden="true">👥→</span><span class="app-bar-btn-label">${text('nearbyMeetNewPeople')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" data-appbar-view="chatrooms" data-appbar-priority="2" title="${text('nearbyBackToFirstGroup')}" aria-label="${text('nearbyBackToFirstGroup')}" style="display:none;"><span class="app-bar-btn-icon" aria-hidden="true">↩</span><span class="app-bar-btn-label">${text('nearbyBackToFirstGroup')}</span></button>
               <button class="header-btn app-bar-action-btn" id="create-talk-btn" data-testid="create-talk-btn" data-appbar-view="talks" data-appbar-priority="2" title="Create talk"><span class="app-bar-btn-icon">➕</span><span class="app-bar-btn-label">Create talk</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="3" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="return-home-btn" data-testid="return-home-btn" data-appbar-view="chatrooms" data-appbar-priority="4" disabled title="Return Home"><span class="app-bar-btn-icon">🏠</span><span class="app-bar-btn-label">Return Home</span></button>
@@ -506,6 +508,8 @@ export function applyAppShellTranslations(
     ['#broadcast-talk-btn .app-bar-btn-label', 'broadcast'],
     ['#chatroom-list-view-btn .app-bar-btn-label', 'chatroomListView'],
     ['#chatroom-map-view-btn .app-bar-btn-label', 'chatroomMapView'],
+    ['#nearby-meet-new-people-btn .app-bar-btn-label', 'nearbyMeetNewPeople'],
+    ['#nearby-back-to-first-group-btn .app-bar-btn-label', 'nearbyBackToFirstGroup'],
     ['#creator-replies-panel strong', 'repliesTitle'],
     ['#reply-clear-filters', 'clear'],
     ['#settings-refresh-location-btn .app-bar-btn-label', 'refreshLocation'],
@@ -526,7 +530,7 @@ export function applyAppShellTranslations(
   const chatroomMap = root.getElementById('chatroom-map');
   if (chatroomMap) chatroomMap.setAttribute('aria-label', text('chatroomMapAriaLabel'));
   // AppBar icon buttons: translated label doubles as the tooltip.
-  for (const id of ['chatroom-list-view-btn', 'chatroom-map-view-btn', 'create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn', 'settings-refresh-location-btn']) {
+  for (const id of ['chatroom-list-view-btn', 'chatroom-map-view-btn', 'nearby-meet-new-people-btn', 'nearby-back-to-first-group-btn', 'create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn', 'settings-refresh-location-btn']) {
     const btn = root.getElementById(id);
     const label = btn?.querySelector<HTMLElement>('.app-bar-btn-label');
     if (btn && label && id !== 'return-home-btn') btn.title = label.textContent || '';

@@ -26,6 +26,8 @@ function render(overrides: Record<string, unknown> = {}): void {
   document.body.innerHTML = `
     <button id="chatroom-list-view-btn"></button>
     <button id="chatroom-map-view-btn"></button>
+    <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+    <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
     <button id="return-home-btn">Return Home</button>
     <div id="chatroom-list-container">
       <div id="chatroom-map-status"></div>
@@ -75,7 +77,7 @@ describe('flat Nearby and Places list', () => {
       ],
     });
 
-    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('49 online · 2 rooms');
+    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('2 near you · 49 online');
     expect(document.querySelector('[data-testid="current-group-section"]')).toBeNull();
     expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
     const rows = Array.from(document.querySelectorAll('[data-testid="room-list-row"]'));
@@ -95,7 +97,11 @@ describe('flat Nearby and Places list', () => {
     expect(browserSections.map((section) => section.getAttribute('data-testid')))
       .toEqual(['nearby-people-section', 'rooms-near-you-section']);
     expect(rows.every((row) => row.querySelector('button') === null)).toBe(true);
-    expect(document.querySelector('[data-testid="nearby-group-bar"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    expect((document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLElement).style.display)
+      .toBe('inline-flex');
+    expect(document.body.textContent).not.toContain('People near you');
+    expect(document.body.textContent).not.toContain('Loading rooms');
   });
 
   it('does not turn a map-selected Nearby audience into a visible room', () => {
@@ -103,6 +109,24 @@ describe('flat Nearby and Places list', () => {
 
     expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
     expect(document.querySelector('[data-testid="nearby-people-section"]')).not.toBeNull();
+  });
+
+  it('puts Meet new people in the action bar and confirms before changing groups', async () => {
+    const emit = jest.fn();
+    render({
+      emit,
+      nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }],
+    });
+
+    const action = document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement;
+    expect(action.style.display).toBe('inline-flex');
+    expect(action.getAttribute('aria-label')).toBe('Meet new people');
+    action.click();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent)
+      .toContain('Swap these 2 people for the next people near you.');
+    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
   });
 
   it('tapping a room enters it and tapping a person opens that person', () => {
@@ -162,12 +186,12 @@ describe('flat Nearby and Places list', () => {
 });
 
 describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
-  it('counts my list beside the people heading, then everyone online', () => {
+  it('counts my list in the top row, then everyone online', () => {
     const nearbyMembers = Array.from({ length: 12 }, (_, index) => ({ userId: `person-${index}`, stageName: `Person ${index}` }));
     render({ activeRooms: ROOMS, nearbyMembers, nearbyOnline: 12_345 });
     expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
     expect(document.querySelector('[data-testid="nearby-headcount"]')?.textContent).toBe('12 near you · 12,345 online');
-    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('12,345 online · 2 rooms');
+    expect(document.querySelector('[data-testid="room-list-total"]')?.textContent).toBe('12 near you · 12,345 online');
   });
 
   it('omits the rooms section when no custom room exists', () => {
@@ -177,6 +201,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       nearbyMembers: [{ userId: 'alice', stageName: 'Alice' }],
     });
     expect(document.querySelector('[data-testid="rooms-near-you-section"]')).toBeNull();
+    expect(document.querySelector('[data-testid="room-list-sort"]')).toBeNull();
     expect(document.querySelector('[data-testid="nearby-person-row"]')?.textContent).toContain('Alice');
   });
 

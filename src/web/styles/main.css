@@ -1078,7 +1078,7 @@ button:focus:not(:focus-visible) {
   pointer-events: none;
 }
 
-/* Room list header: everyone online and the sort choice. Full rooms are shown but greyed. */
+/* Room list header: Nearby headcount and the custom-room sort choice. */
 .room-list-header {
   display: flex;
   align-items: center;
@@ -1414,20 +1414,6 @@ button:focus:not(:focus-visible) {
   margin: 0;
   padding: 10px 14px 7px;
   background: var(--bg-subtle);
-}
-
-.nearby-people-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-right: 14px;
-  background: var(--bg-subtle);
-}
-
-.nearby-people-heading .chatroom-headcount {
-  flex: 0 0 auto;
-  font-size: 0.82rem;
 }
 
 .nearby-browser-list .chatroom-item,

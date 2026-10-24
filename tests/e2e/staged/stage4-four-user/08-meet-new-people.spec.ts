@@ -1,9 +1,8 @@
 /**
- * Meeting new people in groups (docs/design/nearby-and-place-chatrooms.md §3.7): with C = 2, Adam's
- * group 1 holds two of the three other people. "Meet new people" swaps the whole group for the next
- * one — only the person he was not grouped with — and that person gets Adam's active Talk without
- * a new broadcast. Past the last group the bar says he has met everyone; "Back to group 1" returns.
- * Room members carry the hub's online dot (§3.7 "Contacts online").
+ * Chatrooms browser layout and Nearby paging (docs/design/nearby-and-place-chatrooms.md §3.7):
+ * people come first, three custom rooms follow, and the top row owns the headcount. With C = 3,
+ * Adam's first page holds three of the four other people. The compact AppBar action advances to the
+ * remaining person, who receives Adam's active Talk without a new broadcast, and can return to page 1.
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -16,13 +15,13 @@ import { createTagTalk, waitForIncomingTalk } from '../../journeys/nearby-ring-j
 import type { TestActor } from '../../helpers/test-actor';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const NAMES = ['Adam', 'Eve', 'Bob', 'Alice'] as const;
+const NAMES = ['Adam', 'Eve', 'Bob', 'Alice', 'Carol'] as const;
 
-const groupMembers = (page: Page) => page.locator('#chatroom-members-list .chatroom-member-item');
+const groupMembers = (page: Page) => page.locator('[data-testid="nearby-person-row"]');
 const memberNames = async (page: Page): Promise<string[]> =>
   (await groupMembers(page).evaluateAll((rows) => rows.map((row) => row.getAttribute('data-stage-name') || ''))).sort();
 
-test.describe('Meet new people: swap the whole group for the next one (§3.7)', () => {
+test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
   const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
   const pages: Page[] = [];
@@ -39,10 +38,10 @@ test.describe('Meet new people: swap the whole group for the next one (§3.7)', 
     await clearGunForStage4Spec();
   });
 
-  test('group 1 → group 2 (the person not met yet, who gets my Talk) → met everyone → back to group 1', async () => {
+  test('people-first multi-room layout; page 1 → page 2 → met everyone → page 1', async () => {
     test.setTimeout(420_000);
-    // C = 2: each person's group holds two of the three others.
-    const url = webAppURLStableChatroom().replace('e2e_capacity=50', 'e2e_capacity=2');
+    // C = 3: each person's page holds at most three of the four others.
+    const url = webAppURLStableChatroom().replace('e2e_capacity=50', 'e2e_capacity=3');
     browsers.push(...await Promise.all(NAMES.map(() => chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS] }))));
     for (const [index, name] of NAMES.entries()) {
       const { context, page } = await bootstrapUser(browsers[index], name, `${name} G`, 30_000, url);
@@ -52,14 +51,59 @@ test.describe('Meet new people: swap the whole group for the next one (§3.7)', 
     const [adam, ...others] = pages;
     const othersByName = new Map(others.map((page, i) => [`${NAMES[i + 1]} G`, page]));
 
-    // Group 1: Adam opens Nearby and sees two people.
-    await adam.locator('.chatroom-item.current-room').click();
-    await expect(groupMembers(adam)).toHaveCount(2, { timeout: 90_000 });
-    await expect(adam.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you');
+    // Page 1 is already the root screen: no Nearby room or redundant people heading.
+    await expect(groupMembers(adam)).toHaveCount(3, { timeout: 90_000 });
+    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('3 near you', { timeout: 90_000 });
+    await expect(adam.getByText('People near you', { exact: true })).toHaveCount(0);
+    await expect(adam.getByText('Loading rooms…', { exact: true })).toHaveCount(0);
+    await expect(adam.locator('.chatroom-item[data-chatroom-id="nearby-v3"]')).toHaveCount(0);
+
+    // Exercise the actual browser layout with several custom rooms. The app's public UI methods
+    // receive the same catalogue/active-room shapes that its network refresh supplies.
+    await adam.evaluate(() => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      const rooms = [
+        { id: 'place_32.71_-117.17_111111111111', name: 'Coffee Room', type: 'business', description: 'Coffee', location: { latitude: 32.71, longitude: -117.17 } },
+        { id: 'place_32.72_-117.18_222222222222', name: 'Book Room', type: 'custom', description: 'Books', location: { latitude: 32.72, longitude: -117.18 } },
+        { id: 'place_32.73_-117.19_333333333333', name: 'Music Room', type: 'custom', description: 'Music', location: { latitude: 32.73, longitude: -117.19 } },
+      ];
+      ui?.setCustomChatroomsFromServer(rooms);
+      ui?.setActiveRooms({
+        totalOnline: 5,
+        totalRooms: 3,
+        hasMore: false,
+        rooms: rooms.map((room, index) => ({
+          roomId: room.id,
+          kind: 'place',
+          name: room.name,
+          memberCount: index + 1,
+          latitude: room.location.latitude,
+          longitude: room.location.longitude,
+          distanceMeters: 1_000 + index * 500,
+          bearingDegrees: 90,
+        })),
+      });
+      ui?.setNearbyOnline(5);
+    });
+    await expect(adam.locator('[data-testid="nearby-headcount"]')).toHaveText('3 near you · 5 online');
+    const sections = adam.locator('[data-testid="nearby-browser-list"] > section');
+    await expect(sections).toHaveCount(2);
+    await expect(sections.nth(0)).toHaveAttribute('data-testid', 'nearby-people-section');
+    await expect(sections.nth(1)).toHaveAttribute('data-testid', 'rooms-near-you-section');
+    const roomRows = adam.locator('[data-testid="room-list-row"]');
+    await expect(roomRows).toHaveCount(3);
+    await expect(adam.locator('[data-testid="room-list-sort"]')).toBeVisible();
+    await expect(roomRows.locator('.chatroom-icon')).toHaveText(['🚪', '🚪', '🚪']);
+    await expect(roomRows.locator('.chatroom-name')).toHaveText(['Coffee Room', 'Book Room', 'Music Room']);
+
+    const meetAction = adam.locator('[data-testid="nearby-meet-new-people-action"]');
+    await expect(meetAction).toBeVisible();
+    await expect(meetAction).toHaveAttribute('aria-label', 'Meet new people');
+    await expect(adam.locator('[data-testid="nearby-group-bar"]')).toHaveCount(0);
     const firstSeenGroup = await memberNames(adam);
 
     // Online dots come from the hub's card heartbeats (refreshed at start and every minute).
-    await expect(adam.locator('#chatroom-members-list .presence-indicator.online')).toHaveCount(2, { timeout: 75_000 });
+    await expect(adam.locator('[data-testid="nearby-person-row"] .presence-indicator.online')).toHaveCount(3, { timeout: 75_000 });
 
     // Adam's active Talk reaches his group.
     const adamActor: TestActor = { id: 'Adam', runtime: 'browser', page: adam };
@@ -76,28 +120,28 @@ test.describe('Meet new people: swap the whole group for the next one (§3.7)', 
     const group1 = await memberNames(adam);
     const notMet = [...othersByName.keys()].filter((name) => !group1.includes(name));
     expect(notMet).toHaveLength(1);
-    await adam.locator('[data-testid="nearby-meet-new-people"]').click();
-    await expect(adam.locator('[data-testid="nearby-meet-confirm"]')).toContainText('Swap these 2 people for the next people near you.');
+    await meetAction.click();
+    await expect(adam.locator('[data-testid="nearby-meet-confirm"]')).toContainText('Swap these 3 people for the next people near you.');
     await adam.locator('[data-testid="nearby-meet-confirm-action"]').click();
-    await expect(adam.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 2 · the next people near you', { timeout: 30_000 });
     await expect.poll(() => memberNames(adam), { timeout: 90_000 }).toEqual(notMet);
+    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('1 near you');
+    await expect(adam.locator('[data-testid="nearby-back-to-first-group-action"]')).toBeVisible();
     // The new person gets Adam's active Talk without another broadcast (same as entering a Place).
     expect(await waitForIncomingTalk(othersByName.get(notMet[0]!)!, notMet[0]!, talk.title)).toBe(talk.talkId);
 
     // Past the last group: nobody is left, and the bar says so.
-    await adam.locator('[data-testid="nearby-meet-new-people"]').click();
+    await meetAction.click();
     await adam.locator('[data-testid="nearby-meet-confirm-action"]').click();
-    await expect(adam.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 3 · the next people near you', { timeout: 30_000 });
-    await expect(adam.locator('[data-testid="nearby-group-note"]')).toHaveText("You've met everyone here for now.", { timeout: 90_000 });
     await expect(groupMembers(adam)).toHaveCount(0);
+    await expect(adam.locator('[data-testid="nearby-headcount"]')).toContainText('0 near you');
+    await expect(meetAction).toBeHidden();
 
     // Back to group 1: the currently highest-ranked two again. Membership can differ from the
     // early snapshot if gossip learned a better-ranked card while Adam visited later groups.
-    await adam.locator('[data-testid="nearby-back-to-first-group"]').click();
-    await expect(adam.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you', { timeout: 30_000 });
-    await expect(groupMembers(adam)).toHaveCount(2, { timeout: 90_000 });
+    await adam.locator('[data-testid="nearby-back-to-first-group-action"]').click();
+    await expect(groupMembers(adam)).toHaveCount(3, { timeout: 90_000 });
     const returnedGroup = await memberNames(adam);
     expect(returnedGroup.every((name) => othersByName.has(name))).toBe(true);
-    expect(new Set(returnedGroup).size).toBe(2);
+    expect(new Set(returnedGroup).size).toBe(3);
   });
 });

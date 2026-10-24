@@ -1,4 +1,4 @@
-import { syncNearbyGroupBar } from './nearby-group-bar';
+import { confirmMeetNewPeople, syncNearbyGroupBar } from './nearby-group-bar';
 import { getEncounterLocation } from '../services/encounter-location';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { emptyPlaceRows, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
@@ -55,7 +55,7 @@ type ChatroomsViewDeps = {
   nearbyOnline?: number;
   /** The latest Nearby broadcast: delivered so far, of the people on my list then. */
   nearbyBroadcastProgress?: { sent: number; total: number };
-  /** Nearby v3 is a personal list. Show its people directly beside the Place folders. */
+  /** Nearby v3 is a personal list. Show its people directly above the custom-room rows. */
   nearbyMembers?: ReadonlyArray<ChatroomMember>;
   /** The group of my order I am meeting here (§3.7 "Meeting new people in groups"). */
   nearbyGroup?: { group: number; exhausted: boolean };
@@ -66,7 +66,7 @@ type ChatroomsViewDeps = {
   escapeHtml: (text: string) => string;
   renderChatroomList: () => void;
   openPeerDetail: (userId: string, stageName: string) => void;
-  emit: (eventName: string, payload: unknown) => void;
+  emit: (eventName: string, payload?: unknown) => void;
   currentUserId: string;
   apiBase: string;
   text: (key: UiTranslationKey) => string;
@@ -77,6 +77,8 @@ type ChatroomsViewDeps = {
   getCachedHeadshot?: (userId: string) => string | null;
   /** Fetch (or refresh) a peer's profile photo; non-blocking, called after the roster renders. */
   resolvePeerHeadshot?: (userId: string) => Promise<string | null>;
+  /** Reflows action buttons after Nearby paging controls appear or disappear. */
+  syncAppBarOverflow?: () => void;
   /**
    * Fired every time showChatroomDetail actually opens a room's detail panel — both the Tree
    * row click and the Map marker click (via the openChatroom callback below) go through this
@@ -212,6 +214,37 @@ function splitTitleIcon(title: string): { icon: string; name: string } {
   return { icon: '📍', name: title };
 }
 
+function syncNearbyPagingActions(deps: ChatroomsViewDeps, people: number): void {
+  const meet = document.getElementById('nearby-meet-new-people-btn') as HTMLButtonElement | null;
+  const back = document.getElementById('nearby-back-to-first-group-btn') as HTMLButtonElement | null;
+  const onNearbyList = isNearbyRoomId(deps.currentChatroom) && deps.chatroomBrowseMode === 'list';
+  const group = deps.nearbyGroup?.group ?? 1;
+  const meetVisible = onNearbyList && people > 0;
+  const backVisible = onNearbyList && group > 1;
+
+  if (meet) {
+    meet.style.display = meetVisible ? 'inline-flex' : 'none';
+    meet.disabled = !meetVisible;
+    meet.title = deps.text('nearbyMeetNewPeople');
+    meet.setAttribute('aria-label', deps.text('nearbyMeetNewPeople'));
+    meet.onclick = meetVisible
+      ? () => {
+          void confirmMeetNewPeople({ text: deps.text, emit: deps.emit }, people, false).then((confirmed) => {
+            if (confirmed) deps.emit('nearbyMeetNewPeople');
+          });
+        }
+      : null;
+  }
+  if (back) {
+    back.style.display = backVisible ? 'inline-flex' : 'none';
+    back.disabled = !backVisible;
+    back.title = deps.text('nearbyBackToFirstGroup');
+    back.setAttribute('aria-label', deps.text('nearbyBackToFirstGroup'));
+    back.onclick = backVisible ? () => deps.emit('nearbyBackToFirstGroup') : null;
+  }
+  deps.syncAppBarOverflow?.();
+}
+
 export function renderChatroomList(deps: ChatroomsViewDeps): void {
   // The product model is intentionally flat: Nearby people live directly on this screen, while
   // only custom Places are enterable rooms. Geographic subdivision, the Nearby delivery scope,
@@ -300,13 +333,9 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   };
 
   chatroomList.innerHTML = `
-    ${renderRoomListHeader(deps.activeRooms, sort, deps.text, deps.nearbyOnline)}
+    ${renderRoomListHeader(deps.activeRooms, sort, deps.text, nearbyPeople.length, showRoomsSection, deps.nearbyOnline)}
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
-      <div class="nearby-people-heading">
-        <h2 class="chatroom-flat-heading">${deps.text('nearbyPeopleNearYou')}</h2>
-        <span class="chatroom-headcount" data-testid="nearby-headcount">${deps.escapeHtml(nearbyHeadcountText(deps, nearbyPeople.length))}</span>
-      </div>
       <div id="nearby-browser-members">
         ${nearbyPeople.length
           ? nearbyPeople.map((member) => renderOrdinaryMemberRow(member, deps, true)).join('')
@@ -321,21 +350,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       </section>` : ''}
     </div>`;
 
-  const nearbyBrowserMembers = document.getElementById('nearby-browser-members');
-  if (nearbyBrowserMembers) {
-    syncNearbyGroupBar(
-      { text: deps.text, emit: deps.emit },
-      nearbyBrowserMembers,
-      isNearbyRoomId(deps.currentChatroom)
-        ? {
-            group: deps.nearbyGroup?.group ?? 1,
-            exhausted: deps.nearbyGroup?.exhausted === true,
-            people: nearbyPeople.length,
-            place: false,
-          }
-        : null,
-    );
-  }
+  syncNearbyPagingActions(deps, nearbyPeople.length);
 
   document.getElementById('room-list-sort')?.addEventListener('change', (event) => {
     setRoomListSort((event.currentTarget as HTMLSelectElement).value as ActiveRoomSort);
@@ -465,12 +480,16 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   const detailContainer = document.getElementById('chatroom-detail-container');
   const createRoomButton = document.getElementById('create-custom-chatroom-btn');
   const broadcastButton = document.getElementById('broadcast-talk-btn');
+  const nearbyMeetButton = document.getElementById('nearby-meet-new-people-btn');
+  const nearbyBackButton = document.getElementById('nearby-back-to-first-group-btn');
 
   if (listContainer) listContainer.style.display = 'none';
   // Keep flex column layout from CSS (#chatroom-detail-container) so #chatroom-members-list can scroll.
   if (detailContainer) detailContainer.style.display = 'flex';
   if (createRoomButton) createRoomButton.style.display = 'none';
   if (broadcastButton) broadcastButton.style.display = 'inline-flex';
+  if (nearbyMeetButton) nearbyMeetButton.style.display = 'none';
+  if (nearbyBackButton) nearbyBackButton.style.display = 'none';
   document.body.dataset.chatroomDetail = 'open';
   const backBtn = document.getElementById('back-to-chatrooms') as HTMLElement | null;
   if (backBtn) backBtn.style.display = 'inline-flex';

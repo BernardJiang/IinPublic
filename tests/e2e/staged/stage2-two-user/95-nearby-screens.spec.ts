@@ -40,21 +40,25 @@ test.describe('Nearby screens', () => {
     // directly. Nearby is an internal delivery scope, not a room row.
     await expect(pageTom.locator('.chatroom-item[data-chatroom-id="nearby-v3"]')).toHaveCount(0);
     await expect(pageTom.locator('[data-testid="nearby-headcount"]')).toHaveText('1 near you · 2 online', { timeout: 60_000 });
-    await expect(pageTom.locator('[data-testid="room-list-total"]')).toContainText('2 online');
+    await expect(pageTom.locator('[data-testid="room-list-total"]')).toHaveText('1 near you · 2 online');
+    await expect(pageTom.getByText('People near you', { exact: true })).toHaveCount(0);
+    await expect(pageTom.getByText('Loading rooms…', { exact: true })).toHaveCount(0);
+    await expect(pageTom.locator('[data-testid="room-list-sort"]')).toHaveCount(0);
     await expect(pageTom.locator('[data-testid="nearby-person-row"]').filter({ hasText: 'Jerry Screens' })).toBeVisible();
     await expect(pageTom.locator('[data-testid="match-collection-toggle"]')).toHaveCount(0);
     await expect(pageTom.locator('#status-bar-text')).not.toContainText('Nearby');
     await expect(pageTom.locator('#status-bar-text')).not.toContainText('📍');
 
-    // Group controls are on that same people list; no second screen repeats Jerry.
-    await expect(pageTom.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you');
-    await expect(pageTom.locator('[data-testid="nearby-meet-new-people"]')).toHaveText('Meet new people');
+    // Paging is a compact AppBar icon; no group card or second screen repeats Jerry.
+    const meetAction = pageTom.locator('[data-testid="nearby-meet-new-people-action"]');
+    await expect(pageTom.locator('[data-testid="nearby-group-bar"]')).toHaveCount(0);
+    await expect(meetAction).toBeVisible();
+    await expect(meetAction).toHaveAttribute('aria-label', 'Meet new people');
     // Cancelling the confirmation changes nothing: Jerry stays.
-    await pageTom.locator('[data-testid="nearby-meet-new-people"]').click();
+    await meetAction.click();
     await pageTom.locator('[data-testid="nearby-meet-cancel"]').click();
     await afterSync();
     await expect(pageTom.locator('[data-testid="nearby-person-row"]')).toHaveCount(1);
-    await expect(pageTom.locator('[data-testid="nearby-group-title"]')).toHaveText('Group 1 · the people nearest you');
 
     // A broadcast still delivers; its progress is intentionally not another control/status card
     // in the file-browser list.
