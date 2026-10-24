@@ -1,4 +1,4 @@
-import { confirmMeetNewPeople, syncNearbyGroupBar } from './nearby-group-bar';
+import { confirmMeetNewPeople } from './nearby-group-bar';
 import { getEncounterLocation } from '../services/encounter-location';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { emptyPlaceRows, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
@@ -217,10 +217,15 @@ function splitTitleIcon(title: string): { icon: string; name: string } {
 function syncNearbyPagingActions(deps: ChatroomsViewDeps, people: number): void {
   const meet = document.getElementById('nearby-meet-new-people-btn') as HTMLButtonElement | null;
   const back = document.getElementById('nearby-back-to-first-group-btn') as HTMLButtonElement | null;
-  const onNearbyList = isNearbyRoomId(deps.currentChatroom) && deps.chatroomBrowseMode === 'list';
+  const detailOpen = document.body.dataset.chatroomDetail === 'open'
+    || !document.getElementById('chatroom-list');
+  const onNearbyList = !detailOpen && isNearbyRoomId(deps.currentChatroom) && deps.chatroomBrowseMode === 'list';
+  const inPersonalRoom = detailOpen && isPersonalListScope(deps.currentChatroom);
+  const pagingVisible = onNearbyList || inPersonalRoom;
+  const place = inPersonalRoom && !isNearbyRoomId(deps.currentChatroom);
   const group = deps.nearbyGroup?.group ?? 1;
-  const meetVisible = onNearbyList && people > 0;
-  const backVisible = onNearbyList && group > 1;
+  const meetVisible = pagingVisible && people > 0;
+  const backVisible = pagingVisible && group > 1;
 
   if (meet) {
     meet.style.display = meetVisible ? 'inline-flex' : 'none';
@@ -229,7 +234,7 @@ function syncNearbyPagingActions(deps: ChatroomsViewDeps, people: number): void 
     meet.setAttribute('aria-label', deps.text('nearbyMeetNewPeople'));
     meet.onclick = meetVisible
       ? () => {
-          void confirmMeetNewPeople({ text: deps.text, emit: deps.emit }, people, false).then((confirmed) => {
+          void confirmMeetNewPeople({ text: deps.text, emit: deps.emit }, people, place).then((confirmed) => {
             if (confirmed) deps.emit('nearbyMeetNewPeople');
           });
         }
@@ -554,13 +559,10 @@ export function updateChatroomMembers(
     const detailOpen = document.body.dataset.chatroomDetail === 'open'
       || !document.getElementById('chatroom-list');
     if (detailOpen) {
-      syncNearbyGroupBar(
-        { text: deps.text, emit: deps.emit },
-        chatroomMembersList,
-        isPersonalListScope(deps.currentChatroom)
-          ? { group: deps.nearbyGroup?.group ?? 1, exhausted: deps.nearbyGroup?.exhausted === true, people: otherMembers.length, place: !nearby }
-          : null,
-      );
+      // Nearby and Places share the compact AppBar paging controls. Never put the former large
+      // green action bar back above a room's people list.
+      document.getElementById('nearby-group-bar')?.remove();
+      syncNearbyPagingActions(deps, otherMembers.length);
     }
 
     if (otherMembers.length === 0) {

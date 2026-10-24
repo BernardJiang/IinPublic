@@ -735,9 +735,9 @@ online.
 2. keep Contacts reachable, unlimited, with an online dot and an "Online now" filter;
 3. send my active Talks to the new people automatically (the same-room catch-up when a link
    opens) and show "Sent to N of M";
-4. use the same room screen: a group bar ("Group 2 · the next people near you") with **Meet new
-   people** and, past group 1, **Back to group 1**. A Place has the bar too: above `C` members,
-   each member pages through the Place's members the same way.
+4. use the same compact AppBar actions: **Meet new people** and, past group 1,
+   **Back to group 1**. A Place uses the same actions: above `C` members, each member pages
+   through the Place's members the same way. No large paging bar is inserted above the people.
 
 **Contacts online.** A contact is online when the hub has a heartbeat of their card from the last
 two reissue periods (about 6 minutes; `POST /api/nearby/v3/online`, at most 500 ids per call,

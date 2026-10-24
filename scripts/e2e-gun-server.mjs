@@ -10,6 +10,9 @@ if (!Number.isInteger(port) || port <= 0 || port > 65535) {
 Object.assign(process.env, {
   CHATROOM_MAX_CAPACITY: '50',
   CHATROOM_ENABLE_FIFO: 'false',
+  // UI-driven E2E specs create Places without first constructing twelve unrelated reputation
+  // histories. Dedicated reputation specs override the client threshold they are exercising.
+  PLACE_CREATE_MIN_FRIEND_MARKS: process.env.PLACE_CREATE_MIN_FRIEND_MARKS || '0',
   E2E_GUN_MEMORY_ONLY: '1',
   P2P_NODE_ENABLED: p2pNodeEnabled,
   P2P_RATE_LIMIT_MAX_EVENTS: '5000',

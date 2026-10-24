@@ -215,8 +215,11 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
   });
 
-  it('lists the people on my group without me, with the group bar and its confirmed switch', async () => {
-    document.body.innerHTML = '<div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>';
+  it('lists the people on my group without me, with the AppBar action and its confirmed switch', async () => {
+    document.body.innerHTML = `
+      <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+      <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
+      <div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>`;
     const emit = jest.fn();
     const counts = new Map<string, number>();
     updateChatroomMembers({
@@ -239,21 +242,24 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     expect(counts.get(NEARBY_ID)).toBe(2);
     expect(document.getElementById('current-chatroom-status')?.textContent).toBe('2 near you · 7 online');
     expect(document.querySelectorAll('.chatroom-member-item')).toHaveLength(2);
-    // The group bar (§3.7 "Meeting new people in groups"): group 1, and a confirmed switch.
-    expect(document.querySelector('[data-testid="nearby-group-title"]')?.textContent).toBe('Group 1 · the people nearest you');
-    expect(document.querySelector('[data-testid="nearby-back-to-first-group"]')).toBeNull();
-    (document.querySelector('[data-testid="nearby-meet-new-people"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    expect((document.querySelector('[data-testid="nearby-back-to-first-group-action"]') as HTMLElement).style.display).toBe('none');
+    (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
     expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent).toContain('Swap these 2 people for the next people near you.');
     (document.querySelector('[data-testid="nearby-meet-cancel"]') as HTMLButtonElement).click();
     expect(document.querySelector('[data-testid="nearby-meet-confirm"]')).toBeNull();
     expect(emit).not.toHaveBeenCalledWith('nearbyMeetNewPeople');
-    (document.querySelector('[data-testid="nearby-meet-new-people"]') as HTMLButtonElement).click();
+    (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
     (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
     await Promise.resolve();
     expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
   });
 
-  it('shows the group, "Back to group 1" and the end of the groups', () => {
+  it('shows "Back to group 1" in the AppBar at the end of the groups', () => {
+    document.body.innerHTML = `
+      <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+      <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
+      <div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>`;
     const emit = jest.fn();
     const deps = {
       currentChatroom: NEARBY_ID,
@@ -273,11 +279,48 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
       apiBase: '',
     } as never;
     updateChatroomMembers(deps, [{ userId: 'me', stageName: 'Me' }], 'me');
-    expect(document.querySelector('[data-testid="nearby-group-title"]')?.textContent).toBe('Group 3 · the next people near you');
-    expect(document.querySelector('[data-testid="nearby-group-note"]')?.textContent).toBe("You've met everyone here for now.");
-    expect(document.querySelector('[data-testid="nearby-meet-new-people"]')).toBeNull();
-    (document.querySelector('[data-testid="nearby-back-to-first-group"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    expect((document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLElement).style.display).toBe('none');
+    expect((document.querySelector('[data-testid="nearby-back-to-first-group-action"]') as HTMLElement).style.display).toBe('inline-flex');
+    (document.querySelector('[data-testid="nearby-back-to-first-group-action"]') as HTMLButtonElement).click();
     expect(emit).toHaveBeenCalledWith('nearbyBackToFirstGroup');
+  });
+
+  it('uses the same AppBar paging action inside a Place', async () => {
+    document.body.innerHTML = `
+      <button id="nearby-meet-new-people-btn" data-testid="nearby-meet-new-people-action" style="display:none"></button>
+      <button id="nearby-back-to-first-group-btn" data-testid="nearby-back-to-first-group-action" style="display:none"></button>
+      <div id="current-chatroom-status"></div><div id="chatroom-members-list"></div>`;
+    const emit = jest.fn();
+    updateChatroomMembers({
+      currentChatroom: PLACE_ID,
+      chatroomMemberCounts: new Map(),
+      chatroomVisitCounts: new Map(),
+      matchedUserIds: new Set(),
+      customChatrooms: [],
+      nearbyGroup: { group: 1, exhausted: false },
+      setCurrentChatroomMembers: jest.fn(),
+      renderChatroomList: jest.fn(),
+      escapeHtml: (value: string) => value,
+      emit,
+      text: (key: string) => uiText('en', key as never),
+      isUserOnline: () => false,
+      formatDate: () => '',
+      currentUserId: 'me',
+      apiBase: '',
+    } as never, [
+      { userId: 'me', stageName: 'Me' },
+      { userId: 'ann', stageName: 'Ann' },
+      { userId: 'bo', stageName: 'Bo' },
+    ], 'me');
+
+    expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
+    (document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-testid="nearby-meet-confirm"]')?.textContent)
+      .toContain('Swap these 2 people for the next people in this Place.');
+    (document.querySelector('[data-testid="nearby-meet-confirm-action"]') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(emit).toHaveBeenCalledWith('nearbyMeetNewPeople');
   });
 
   it('preserves the v3 roster order inside the opened room', () => {

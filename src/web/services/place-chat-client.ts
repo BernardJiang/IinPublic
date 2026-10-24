@@ -11,10 +11,16 @@ type FetchLike = typeof fetch;
 
 /** HTTP client for OPEN-80's bounded recent Place feed. */
 export class PlaceChatClient {
+  private readonly fetchImpl: FetchLike;
+
   constructor(
     private readonly apiBase: () => string,
-    private readonly fetchImpl: FetchLike = fetch,
-  ) {}
+    fetchImpl: FetchLike = fetch,
+  ) {
+    // Native browser fetch validates its receiver. Calling a stored `window.fetch` as
+    // `this.fetchImpl(...)` binds `this` to the client instance and throws "Illegal invocation".
+    this.fetchImpl = fetchImpl.bind(globalThis);
+  }
 
   async page(placeId: string, after?: string): Promise<PlaceChatPage> {
     const params = new URLSearchParams({ limit: String(PLACE_CHAT_PAGE_SIZE) });
