@@ -13,10 +13,10 @@ The first San Diego user then exchanges one tag Talk per page:
    three Los Angeles people each.
 
 For every tag: each person on the current page receives it and likes it, the author collects
-exactly those likes (one match conversation per person), and after a pause no one else among the
-20 holds that tag. A broadcast carries all of the author's active Talks and each new page catches
-up on them, so an older tag may reach people met later, but never anyone the author has not had
-on a page.
+exactly those likes (one match conversation per person), then disables the tag (the Talks-tab
+broadcast toggle's action: withdraw + retract) before the next exchange. After a pause no one else among the 20 holds that tag, and no earlier
+(disabled) tag has reached anyone outside its own page — without disabling, a new page would catch
+up on the author's still-active older tags.
 
 This run found that catch-up sent the author's Talks to anyone who opened a link to them — someone
 whose own page held the author, although the author's did not hold them. Catch-up in Nearby and

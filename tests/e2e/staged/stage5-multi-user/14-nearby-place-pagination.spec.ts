@@ -162,14 +162,14 @@ const incomingTalks = (page: Page): Promise<Array<{ title: string; talkId: strin
 /**
  * The first user's Talk exchanges with the people on their current page (Nearby or Place). Each
  * exchange: create a tag, broadcast, every person on the page receives and likes it, the author
- * collects exactly those likes, and nobody else holds that tag. A broadcast carries all of the
- * author's active Talks and each new audience catches up on them (§3.7 "A new group and a new Place
- * are the same kind of move"), so an older tag may also reach people met later — but never anyone
- * the author has not had on a page.
+ * collects exactly those likes, nobody else holds that tag, and the author then disables it before
+ * the next exchange. A broadcast carries all of the author's active Talks and each
+ * new audience catches up on them (§3.7), so without disabling, an older tag would follow the
+ * author to the next page; disabled, every tag stays with exactly the page it was sent to.
  */
 class TalkExchanges {
-  private readonly tags: string[] = [];
-  private readonly met = new Set<string>();
+  /** Each finished tag and the page it was sent to. */
+  private readonly sent = new Map<string, Set<string>>();
   private readonly author: Person;
 
   constructor(private readonly people: Person[]) {
@@ -189,7 +189,6 @@ class TalkExchanges {
     expect(pageIds, `${title}: the current page`).toHaveLength(expectedCount);
     const recipients = pageIds.map((userId) => this.people.find((person) => person.userId === userId)!);
     expect(recipients.every(Boolean)).toBe(true);
-    pageIds.forEach((userId) => this.met.add(userId));
 
     const actor: TestActor = { id: this.author.name, runtime: 'browser', page };
     const talk = await createTagTalk(actor, title);
@@ -220,9 +219,13 @@ class TalkExchanges {
         .sort();
     }, talk.talkId), { timeout: 120_000, intervals: [1_000, 2_000], message: `the author should collect ${title} likes` })
       .toEqual([...pageIds].sort());
-    this.tags.push(title);
+    this.sent.set(title, new Set(pageIds));
 
-    // Nobody else holds this tag, and no earlier tag reached anyone the author never had on a page.
+    // Done with this page: disable the tag on the Talks tab so it cannot follow me to the next one.
+    await this.disable(talk.talkId, title);
+
+    // Nobody else holds this tag, and no earlier tag reached anyone outside its own page. (A
+    // disabled tag is retracted, so a person on its page may no longer hold it; that is fine.)
     await page.waitForTimeout(5_000);
     const holdings = await Promise.all(this.people.slice(1).map(async (person) => ({
       person,
@@ -230,14 +233,30 @@ class TalkExchanges {
     })));
     const holders = holdings.filter(({ titles }) => titles.has(title)).map(({ person }) => person.userId).sort();
     expect(holders, `only the people on this page should hold ${title}`).toEqual([...pageIds].sort());
-    for (const earlier of this.tags) {
-      const strangers = holdings
-        .filter(({ person, titles }) => titles.has(earlier) && !this.met.has(person.userId))
+    for (const [earlier, itsPage] of this.sent) {
+      if (earlier === title) continue;
+      const leaked = holdings
+        .filter(({ person, titles }) => titles.has(earlier) && !itsPage.has(person.userId))
         .map(({ person }) => person.name);
-      expect(strangers, `${earlier} must not reach anyone the author never met`).toEqual([]);
+      expect(leaked, `${earlier} (disabled) must not reach anyone outside its own page`).toEqual([]);
     }
     console.log(`[20-user demo] ${title}: ${recipients.map((person) => person.name).join(', ')} liked it `
-      + `(${Date.now() - startedAt} ms); nobody else holds it`);
+      + `(${Date.now() - startedAt} ms); nobody else holds it; disabled`);
+  }
+
+  /**
+   * Disable the tag: the same action as the Talks tab's broadcast toggle (withdraw + retract,
+   * kept in My Talks). Tag chips show no toggle since 1.0.188 — only × (Remove), which deletes —
+   * so the test calls the toggle's handler directly instead of tapping a control.
+   */
+  private async disable(talkId: string, title: string): Promise<void> {
+    const { page } = this.author;
+    await page.evaluate((id) => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.setTalkDisabled?.(id, true), talkId);
+    await expect.poll(() => page.evaluate((id) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      return talks[id]?.disabled === true && !app?.uiManager?.getBroadcastableTalkIds?.().includes(id);
+    }, talkId), { timeout: 30_000, message: `${title} should be disabled` }).toBe(true);
   }
 }
 
