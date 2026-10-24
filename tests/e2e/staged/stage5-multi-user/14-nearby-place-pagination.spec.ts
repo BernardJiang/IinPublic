@@ -7,6 +7,7 @@
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
+import { setBrowserWindowBounds } from '../../helpers/browser-window';
 import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -27,6 +28,47 @@ const visualPause = async (page: Page, multiplier = 1): Promise<void> => {
   if (headless) return;
   await page.waitForTimeout(positiveInt(process.env.E2E_DEMO_PAUSE_MS, 2_000) * multiplier);
 };
+
+async function arrangeDemoWindows(pages: Page[]): Promise<void> {
+  if (headless || pages.length === 0) return;
+
+  const screen = await pages[0]!.evaluate(() => ({
+    width: window.screen.availWidth,
+    height: window.screen.availHeight,
+  }));
+  const margin = 24;
+  const firstWidth = Math.min(720, Math.max(560, Math.floor(screen.width * 0.47)));
+  const firstHeight = Math.min(1_020, screen.height - (margin * 2));
+  const cascadeWidth = Math.min(620, Math.max(440, Math.floor(screen.width * 0.36)));
+  const cascadeLeft = Math.min(firstWidth + (margin * 2), screen.width - cascadeWidth - margin);
+  const cascadeTop = 48;
+  const cascadeHeight = Math.min(760, Math.max(560, screen.height - 240));
+  const cascadeCount = Math.max(1, pages.length - 2);
+  const xStep = Math.max(12, Math.min(32,
+    Math.floor((screen.width - cascadeLeft - cascadeWidth - margin) / cascadeCount)));
+  const yStep = Math.max(10, Math.min(22,
+    Math.floor((screen.height - cascadeTop - cascadeHeight - margin) / cascadeCount)));
+
+  await setBrowserWindowBounds(pages[0]!, {
+    left: margin,
+    top: margin,
+    width: firstWidth,
+    height: firstHeight,
+  });
+  for (const [index, page] of pages.slice(1).entries()) {
+    await setBrowserWindowBounds(page, {
+      left: cascadeLeft + (index * xStep),
+      top: cascadeTop + (index * yStep),
+      width: cascadeWidth,
+      height: cascadeHeight,
+    });
+  }
+
+  await pages[0]!.bringToFront();
+  console.log(
+    `[14-user demo] Nearby 01 is separate; Nearby 02-14 cascade by ${xStep}px × ${yStep}px.`,
+  );
+}
 
 const nearbyNames = async (page: Page): Promise<string[]> =>
   page.locator('[data-testid="nearby-person-row"]').evaluateAll((rows) =>
@@ -96,6 +138,10 @@ test.describe('14-user Nearby and Place pagination demo', () => {
         pages.push(page);
       });
     }
+
+    // Keep the actor easy to follow: Nearby 01 owns the large left window while every supporting
+    // user remains individually visible in a title-bar cascade on the right.
+    await arrangeDemoWindows(pages);
 
     const first = pages[0]!;
     // Bootstrapping 14 full app identities takes longer than the hub's narrow online window on a
