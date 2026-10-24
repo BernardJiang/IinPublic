@@ -1,6 +1,6 @@
 # Nearby and place chatrooms
 
-Status: **accepted product design, revised 2026-10-10**
+Status: **accepted product design, revised 2026-10-24**
 Tracking: `OPEN-40`
 Supersedes: `room-tree-routing.md`, the Global-first cascade, visible L1-L4 rooms, and numbered
 `_part_N` rooms  
@@ -10,20 +10,21 @@ Related: Technical Specification §3.3, §6.1, §19.7, §19.14, and §29
 
 IinPublic has three independent ways to reach people:
 
-1. **Nearby** is one shared adaptive chatroom containing at most `C` online strangers. Its footprint
-   grows when the network is sparse and is repartitioned geographically when occupancy exceeds `C`.
+1. **Nearby** is a personal candidate population derived from the viewer's blurred location area.
+   Its visible page and automatic Talk audience contain at most `C` other online identities; a
+   crowded area's larger candidate headcount can be traversed page by page.
 2. **Places** are user-created map destinations such as a restaurant, event, club, or community.
-   A user taps a pin to enter one deliberately. A busy Place may contain several invisible,
-   capacity-bounded exchange cohorts while remaining one visible Place.
+   A user taps a pin to enter one deliberately. A busy Place remains one visible Place and may be
+   browsed in personal member pages containing at most `C` other online identities.
 3. **Contacts** are direct relationships independent of room membership. TechSupport exists only
    here; it has no room presence, map pin, headcount, or capacity exemption.
 
 There is no user-facing Global room, geographic tree, country/state hierarchy, L1-L4 navigation,
 or numbered overflow room. Internal spatial-index buckets must not appear as rooms or pins.
 
-Exactly one shared chatroom drives stranger discovery and Talk exchange at a time: the automatic
-Nearby room, a Nearby room selected by traveling on the map, or one named Place. Contacts may
-reconnect on demand without joining that room.
+Exactly one stranger audience drives discovery and Talk exchange at a time: the automatic Nearby
+page at the current blurred area, a Traveler's Nearby page at a selected map point, or one named
+Place. Contacts may reconnect on demand without joining that audience.
 
 ## 2. Nearby placement and privacy
 
@@ -35,8 +36,8 @@ presence:
 - A web user must choose and confirm a self-defined location on the map before joining stranger
   discovery. Browser geolocation may center the picker, but it is neither required nor silently
   published.
-- A traveler deliberately moves the encounter location to another point and joins the shared
-  Nearby chatroom covering that point. Returning home recomputes or restores the home room.
+- A traveler deliberately moves the encounter location to another point and starts the personal
+  Nearby population for that blurred cell. Returning home recomputes or restores the home cell.
 
 GPS can be spoofed and a map location can be fictional. IinPublic describes this as the area where
 the user chooses to meet people, never as verified physical presence. BLE/LAN observations may add
@@ -44,9 +45,9 @@ useful proximity evidence but do not turn the location into an identity or truth
 
 Initial publication precisions are approximately 400 metres for **Close nearby**, 1 km for
 **Neighborhood**, 10 km for **Citywide**, and 50 km for **Regional**. These control how precisely a
-device may place the user, not a promise about physical radio range. The partition controller may
-coalesce sparse groups into a broader shared group, but it must never publish a location more
-precise than the user's choice.
+device may place the user, not a promise about physical radio range. The selected precision defines
+the user's blurred cell; the sparse-population fallback may search beyond it for the first `C`
+people, but it must never publish a location more precise than the user's choice.
 
 Every user has exactly one public location (product decision 2026-10-11). There are two kinds:
 
@@ -56,11 +57,18 @@ Every user has exactly one public location (product decision 2026-10-11). There 
 
 The Traveler marker is room-roster and map-presence metadata, and it is self-declared.
 
-The **area size** applies to either kind:
-- **Close nearby:** about 400 m, used only to pick the room. The public point is still 1 km.
+The **area size** applies to either kind and defines the actual published blurred cell used for
+Nearby counting:
+- **Close nearby:** about 400 m.
 - **Neighborhood:** about 1 km.
 - **Citywide:** about 10 km.
 - **Regional:** about 50 km.
+
+One selected area size applies to both Resident and Traveler locations. A Traveler who selects a
+new point keeps the same area size: only the cell moves. A user may choose a larger area at any
+time; that both publishes a less precise point and deliberately broadens the population considered
+local for Nearby. Changing the size changes the Nearby region, resets its first page, and is
+presented with both consequences. It is not a hidden discovery-radius control.
 
 Settings show the area in the user's distance unit (km or miles, one choice for the whole app).
 
@@ -83,13 +91,13 @@ is never echoed in the UI, in logs meant for sharing, in room names, or in publi
 
 **Radio nearby is not a separate audience or location mode.** Bluetooth is one discovery-provider
 switch, alongside Internet, LAN, and Wi-Fi Direct. Turning a provider on or off changes how the
-device can find and reach eligible peers; it never changes active-room membership.
+device can find and reach eligible peers; it never changes the active Nearby page or Place.
 
 Hashing a predictable cell is obfuscation, not location secrecy. The UI must state the approximate
 area revealed by each mode. Exact coordinates, accuracy, and GPS timestamps are never public.
 
-Wi-Fi Direct range cannot define the chatroom: radio reach changes with walls and hardware,
-and physical nearness is not transitive. The active shared room defines the eligible audience; BLE
+Wi-Fi Direct range cannot define the audience: radio reach changes with walls and hardware,
+and physical nearness is not transitive. The active Nearby page or Place defines eligibility; BLE
 can confirm and prioritize a currently reachable peer; LAN, Wi-Fi
 Direct, direct Internet, and TURN are replaceable routes between the same endpoints.
 
@@ -103,7 +111,7 @@ normally has Internet discovery and WebRTC routes, but no native BLE, Wi-Fi Dire
 scanner.
 
 Enabling discovery does not mean eagerly forming every possible connection. All provider sightings
-are deduplicated to the same verified peer identity and active-room capability. The route selector
+are deduplicated to the same verified peer identity and active-audience capability. The route selector
 chooses LAN, direct Internet, Wi-Fi Direct, or relay without changing eligibility. Wi-Fi Direct must
 never form an empty group and should form a group only when an eligible peer needs that route.
 Scanning and advertising use bounded duty cycles/backoff, including a quiet singleton state, while
@@ -111,11 +119,11 @@ remaining discoverable often enough for a newcomer.
 
 **Implemented policy (2026-10-10, `src/shared/nearby-discovery-policy.ts`).**
 - **Network-free principle (product owner, 2026-10-11).** Every provider works with whatever
-  network is up, and any working network is used to reach as many room members as possible.
+  network is up, and any working network is used to reach as many eligible peers as possible.
 - **Cellular** is the only uplink switch. Off, discovery never uses mobile data; the hub is still
   reached over Wi-Fi/Ethernet.
-- **LAN NSD** runs only while the active room has another member, a same-room radio sighting
-  exists, or the hub is unavailable.
+- **LAN NSD** runs only while the active page or Place has another member, an eligible radio
+  sighting exists, or the hub is unavailable.
 - **BLE** keeps a beacon advertising and scans in 30 s windows. After each empty window the
   quiet-singleton backoff doubles: offline 30 s → 10 min, online 60 s → 30 min.
   - Online, the beacon needs an already-granted permission.
@@ -123,42 +131,43 @@ remaining discoverable often enough for a newcomer.
 - **Wi-Fi Direct** does not depend on the hub.
   - Offline, discovery runs in scan windows and a group forms for any eligible peer the LAN does
     not reach, including an online one.
-  - Online, it stays idle until an eligible OFFLINE same-room phone is seen. The online phone then
+  - Online, it stays idle until an eligible OFFLINE peer is seen. The online phone then
     links with it so the two can exchange Talks, leaving one minute after no offline phone remains.
     Relaying the offline phone onward to the hub (bridging) is deferred (product owner,
     2026-10-11).
   - Two online phones never group; the hub and its matchmade link upgrade are their route.
   - Every eligible phone, online or not, takes part in the host election, so all sides agree on
     one host.
-- **Eligibility** is either a full-room-token proof bound to the rotating id (BLE v3, DNS-SD TXT
-  `q`) or a rotating id that matches a signed roster member's
-  `rotatingNearbyId(pub, room, epoch)`. A bare token prefix (BLE v2) never qualifies. Talk exchange
-  still requires the signed roster/mesh path.
+- **Eligibility** is a signed Place-scope proof for two members of the same Place, or a signed
+  Nearby card admissible to the receiver's personal candidate page/local board. Nearby eligibility
+  may be asymmetric. Compact BLE/DNS-SD values are only prefilters bound to rotating identifiers;
+  a bare token prefix never qualifies. Talk exchange still requires full signed verification.
 
-### One active-room definition across every provider
+### One active-audience definition across every provider
 
-The client derives one signed `RoomPresence` before starting any provider. It binds the active room,
-privacy precision, current travel generation, rotating discovery identifier, expiry, and signed
-global policy version. Every provider represents that same room capability in the form its payload
-allows:
+The client derives one signed presence before starting any provider. It binds the active Nearby or
+Place scope, privacy precision, current travel generation, rotating discovery identifier, expiry,
+count-key revision, and signed global policy version. Every provider represents that same audience
+capability in the form its payload allows:
 
 | Provider | Room representation | Possible route after discovery |
 | --- | --- | --- |
-| Internet | Full signed presence under the active shared room | Direct WebRTC or TURN |
-| LAN | Compact active-room token in local service discovery | WebRTC over the existing LAN |
-| BLE | Compact rotating active-room token | Discovery and proximity evidence only |
-| Wi-Fi Direct | Compact active-room token; credentials negotiated after membership proof | WebRTC over the Wi-Fi Direct IP link |
+| Internet | Full signed presence under the active Nearby or Place scope | Direct WebRTC or TURN |
+| LAN | Compact active-audience token in local service discovery | WebRTC over the existing LAN |
+| BLE | Compact rotating active-audience token | Discovery and proximity evidence only |
+| Wi-Fi Direct | Compact active-audience token; credentials negotiated after eligibility proof | WebRTC over the Wi-Fi Direct IP link |
 
 Range changes which provider can observe a peer; all providers require the same room and global `C`
-policy. Several observations of the same eligible device become one logical peer: a
+policy. Several observations of the same eligible count key become one logical peer: a
 rotating discovery identifier may merge early observations, and authenticated SEA identity becomes
 canonical after the handshake. Internet, LAN, and Wi-Fi Direct are route candidates attached to
 that peer; BLE is evidence, not a Talk-body transport. Talk delivery and receipts are deduplicated
 above the route layer.
 
 A compact radio token is only a prefilter. Before exchanging Talks or forming/joining a Wi-Fi
-Direct group, both sides verify the full signed presence, policy version, same-room membership, and
-identity. This prevents a truncated-token collision from becoming access.
+Direct group, both sides verify the full signed presence, policy version,
+same-audience eligibility, and identity. This prevents a truncated-token collision from becoming
+access.
 
 ### The first user and the second arrival
 
@@ -168,8 +177,9 @@ a bounded, quiet-singleton schedule. It creates no connection and no empty Wi-Fi
 completely offline first phone must continue bounded local advertising; otherwise an offline second
 phone cannot find it.
 
-If the second person is the only other online user, both users occupy the same broad root chatroom
-regardless of the distance between their declared locations. Internet discovery therefore connects them. If their
+If the second person is the only other online user, each user's `A` is one, so both personal Nearby
+lists contain the other regardless of the distance between their declared locations. Internet
+discovery therefore connects them. If their
 devices are also physically within LAN, BLE, or Wi-Fi Direct reach, those providers report the same
 pair and contribute routes/evidence to the one logical session. “Find each other in all possible
 ways” does not imply that a radio can cross physical range or that a web browser gains native radio
@@ -177,15 +187,15 @@ APIs.
 
 | First + second user | Available discovery | Result |
 | --- | --- | --- |
-| Web + web, online | Shared root-room roster | They find each other; WebRTC may select a LAN host path, direct Internet, or TURN. |
-| Web + phone, online | Shared root-room roster | They find each other. The browser cannot scan native LAN/BLE/Wi-Fi Direct, but WebRTC may still select a same-LAN path. |
+| Web + web, online | Personal Nearby lists | They find each other; WebRTC may select a LAN host path, direct Internet, or TURN. |
+| Web + phone, online | Personal Nearby lists | They find each other. The browser cannot scan native LAN/BLE/Wi-Fi Direct, but WebRTC may still select a same-LAN path. |
 | Phone + phone, online and on one LAN | Internet, LAN, and possibly BLE/Wi-Fi Direct | Merge all observations into one peer; prefer the existing LAN and do not create an unnecessary Wi-Fi Direct group. |
 | Phone + phone, online, physically close but not on one LAN | Internet plus BLE/Wi-Fi Direct | Merge observations; Wi-Fi Direct may become the local/free IP route without creating a second session. |
 | Phone + phone, online but physically far apart | Internet only | They still find each other when the online population has no closer candidates. |
-| Phone + phone, hub unavailable but on one LAN | LAN, and possibly BLE | Verify the same cached active-room capability, cap the roster at `C`, and exchange over LAN. Reconcile later. |
-| Phone + phone, hub unavailable, no shared LAN, physically close | BLE/Wi-Fi Direct | Verify the same cached active-room capability, elect one group, and exchange over its IP link. |
+| Phone + phone, hub unavailable but on one LAN | LAN, and possibly BLE | Verify cached signed cards or one Place scope, cap each personal page at `C`, and exchange over LAN. Reconcile later. |
+| Phone + phone, hub unavailable, no shared LAN, physically close | BLE/Wi-Fi Direct | Verify cached signed cards or one Place scope, elect one transport group, and exchange over its IP link. |
 | Web + phone or web + web, Internet index unavailable | No common cold-discovery provider in the current architecture | No new session until Internet discovery returns or a future browser-compatible rendezvous path exists. |
-| More than `C` users in one room | Signed occupancy control | Split the room geographically; each user follows one shared child with at most `C` members. |
+| More than `C` Nearby identities in one blurred area | Personal paging | Nearby shows the full area headcount; each visible page contains at most `C` others and never leaves the area. |
 | Any pair deliberately in the same Place | Same Place scope through every supported provider | Apply Place membership; home or traveler location does not alter that explicit audience. |
 | Contacts-only user + stranger | Stranger discovery is disabled | No stranger exchange. Existing Contacts use their independent authenticated path. |
 
@@ -200,7 +210,12 @@ Nearby stranger discovery. Choosing an encounter location is distinct from enter
 The confirmation states the approximate public area and that the map/tile provider may observe the
 requested viewport and network address.
 
-## 3. Adaptive shared chatrooms and capacity
+## 3. Historical adaptive shared-room model (superseded by §3.7)
+
+This section records the v2 split/coalesce design and its experiment history. Nearby v3 in §3.7 is
+the current product model and supersedes the shared-room membership, partition, capacity and travel
+rules below. Sections explicitly revised after §3.7, including map privacy and Place lifecycle,
+remain applicable where §3.7 references them.
 
 One signed, versioned global capacity `C` limits every shared Nearby and Place chatroom. The current
 value `498` is an arbitrary experimental default, not a proven optimum and not a room attribute. It
@@ -421,15 +436,19 @@ must not be presented as an empirically optimal capacity.
 The map shows people so users can see where the crowd is:
 
 - **★ me**, larger, drawn at my own public point, so I see exactly what others see of me.
-- **Green dots:** members of my current room roster. I can exchange Talks with them.
-- **Yellow dots:** everyone else in the visible area, outside my Nearby. They are shown from city
-  zoom (10) upward.
+- **Green dots:** the complete candidate population represented by my Nearby headcount, including
+  people on later pages. When my blurred area is sparse this is the nearest `C`; when it is crowded
+  it is everyone in that area.
+- **Yellow dots:** other Nearby-eligible identities in the visible area, outside that candidate
+  population. They are shown from city zoom (10) upward. Someone currently inside a Place is not a
+  yellow dot; the Place pin represents that active audience.
+- **Place markers:** the Place type icon with its current room headcount in the marker.
 - **Heat layer:** anonymous per-square headcounts, so density shows at every zoom.
 
 **Public point.** The public point (`src/shared/public-location.ts`) is the only form in which a
-location leaves the device. It is the centre of a grid square sized by the user's setting:
-1 km for Close nearby and Neighborhood, 10 km for Citywide, 50 km for Regional. A poor GPS fix
-moves to a coarser square. Only a quiet place set to Hide me (§3.5) publishes nothing.
+location leaves the device. It is the centre of a grid square sized by the user's setting: about
+400 m for Close nearby, 1 km for Neighborhood, 10 km for Citywide, and 50 km for Regional. A poor
+GPS fix moves to a coarser square. Only a quiet place set to Hide me (§3.5) publishes nothing.
 
 Everyone in a square publishes the identical point, so the exact fix cannot be recovered from a
 snapshot. A dot keeps its old square until the device is 15% of a square past the edge, which
@@ -438,15 +457,19 @@ the remedy.
 
 `users/<id>/location` and a Talk's `authorLocation` use the same public point.
 
-**Map presence.** Map presence (`src/shared/map-presence.ts`) is a signed record with a 3-minute
-lifetime, refreshed every 60 s. It carries `{userId, pub, public point}` and no room id. Viewers
-colour a dot green from their own room roster.
+**Map presence.** The hub's one active presence lease per countable identity is the source for the
+people layer. It carries the active scope plus the signed public point when that scope is Nearby;
+there is no second map-only presence that could keep a moved identity in two places. The viewer's
+candidate-set result classifies a Nearby dot as green or yellow. Place-scoped presences contribute
+only to their Place marker and the global online count.
 
 The hub index:
 - verifies the signature;
 - rejects any point that is not a grid centre;
-- binds a live userId to its key;
-- returns at most 500 dots per view, plus complete density squares (1/48 of the view per side).
+- binds an unlinked installation identity, or one linked multi-device identity, to one live scope;
+- returns at most 500 individual or public-point-grouped dots per view, plus complete density
+  squares (1/48 of the view per side). A grouped green dot carries a count so a dense candidate
+  population remains represented without creating one DOM marker per identity.
 
 ### 3.5 Quiet places and Talk audience (product decision 2026-10-11)
 
@@ -547,14 +570,15 @@ Older splits without a threshold keep the legacy 1-in-4 identity digit.
 **Known limit:** groups of the same area that differ only by identity lane cannot be targeted by
 travel. Travel lands in your own lane.
 
-### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, implemented 2026-10-22)
+### 3.7 Nearby v3: personal Nearby lists (accepted 2026-10-19, revised 2026-10-24)
 
-Status: **implemented; OPEN-70 closed 2026-10-22.** The product owner accepted the design on
-2026-10-19, including retiring the yellow map dots and Nearby room chat. There is no prior official
-release to preserve, so v3 replaced v2 outright: no protocol epoch or compatibility layer, and the
-v2 code is removed. Simulated in `docs/testing/nearby-gossip-experiment.md` and qualified on the
-website plus the supported Android hardware matrix. It replaces §3 to §3.3 and the Nearby parts of
-§3.6. Places (§4) stay rooms, with the changes in "Places in v3" below.
+Status: **the 2026-10-19 baseline is implemented; the 2026-10-24 headcount and blurred-area
+revision is pending under OPEN-85 and OPEN-86.** There is no prior official release to preserve, so
+v3 replaced v2 outright. The revision keeps personal lists and removes no working transport, but
+restores yellow map dots, separates the uncapped candidate headcount from the at-most-`C` visible
+page, and makes the user's selected blurred location area the only geographic Nearby boundary. It
+replaces §3 to §3.3 and the Nearby parts of §3.6. Places (§4) stay rooms, with the changes in
+"Places in v3" below.
 
 **Why.** Room capacity exists only to bound traffic. It never required two people to share the
 same list of nearby people, and making them share one is what costs the most today:
@@ -566,10 +590,105 @@ same list of nearby people, and making them share one is what costs the most tod
 - in an arena, 30 groups share one map square and a user cannot move to any of them (§3.6
   "Known limit").
 
-**Model.** Nearby is no longer a room. Each person has their own **nearby list** of at most `C`
-people. Two people's lists differ, and that is fine: if Adam's list has Eve and Eve's does not
-have Adam, Adam's Talks still reach Eve. Once Eve answers and they become Contacts, she reaches him
-directly. Places (below) and Contacts work as before.
+**Model.** Nearby is no longer a room. Each countable identity has a personal **Nearby candidate
+population** and a visible list page of at most `C` other identities. The candidate population may
+be larger than `C`; that larger number is the Nearby headcount. Two people's populations and pages
+may differ, especially when they choose different blur sizes, and that is fine. Places (below) and
+Contacts work as before.
+
+#### Countable identity and one active presence
+
+Headcounts count active identities, not verified physical humans:
+
+- An unlinked installation has its own device-local identity and counts once. If one person uses
+  two unlinked devices, they count as two; the protocol neither knows nor claims otherwise.
+- Devices deliberately linked into one identity share one count key and count once while any of
+  them remains online.
+- One count key has exactly one current, expiring presence: Nearby at one blurred public area, or
+  one `place:<id>`. Remembered home/travel points and inactive Places are not presences.
+- A newer signed scope revision atomically replaces the old scope. Only a heartbeat carrying the
+  accepted revision renews the lease; a stale linked device cannot renew or move the identity back.
+  Linked devices receive and follow the accepted scope.
+
+The hub's source of truth is therefore one lease per count key, not a sum of rolling per-location
+windows. A login creates a lease; travel or an area-size change moves the same lease between Nearby
+areas; entering/leaving a Place moves it between Nearby and that Place; logout removes it; and two
+missed heartbeats let it expire. A move never increments the global total and never leaves the same
+count key in both old and new audiences.
+
+#### Nearby and global headcounts
+
+For a viewer currently in Nearby, let:
+
+- `G` be all live count keys in any active scope, including the viewer and people in Places;
+- `A` be the number of *other* live count keys whose active scope is Nearby;
+- `R` be the number of those identities whose public blurred point falls inside the viewer's
+  selected blurred location area; and
+- `C` be the signed maximum number of other identities displayed/reached on one page.
+
+The displayed values are:
+
+```text
+online = G
+nearby = min(A, max(C, R))
+```
+
+This gives `0 nearby · 1 online` for a singleton. If no more than `C` other Nearby identities exist,
+all are shown regardless of distance. If more exist but the viewer's area contains no more than
+`C`, page 1 is the nearest `C` worldwide and there is no page turn; changing people requires travel
+or changing the selected blur size. If the area contains more than `C`, Nearby is `R` and page
+turns traverse only those `R` identities. Exactly `C` fits on one page. The viewer is never included
+in Nearby. Users in Places remain in `online` but are not in `A` or `R`.
+
+Examples with `C = 3`:
+
+| Live distribution | Viewer | Nearby | Online | Page behavior |
+| --- | --- | ---: | ---: | --- |
+| One identity | The only identity | 0 | 1 | No page |
+| Two identities in different cells | Either identity | 1 | 2 | The other identity is the sparse fallback |
+| 14 identities in one San Diego cell | A San Diego identity | 13 | 14 | Three rows per page, all pages stay in that cell |
+| 14 in one San Diego cell and 6 in one Los Angeles cell | A San Diego identity | 13 | 20 | Three rows per page, San Diego only |
+| 14 in one San Diego cell and 6 in one Los Angeles cell | A Los Angeles identity | 5 | 20 | Three rows per page, Los Angeles only |
+
+In the last two cases, a San Diego viewer sees the other San Diego identities as green and Los
+Angeles identities as yellow when they are in the viewport; a Los Angeles viewer gets the reverse
+classification. If some identities enter Places, `online` stays 20 while each viewer's Nearby
+population drops and the relevant Place markers gain those identities.
+
+For a viewer inside a Place, let `P` be the number of distinct live count keys whose active scope
+is that Place, including the viewer. The same header then shows:
+
+```text
+online = G
+nearby = P
+```
+
+The word `nearby` remains the compact UI label, but in this state it is the Place room headcount.
+The member list still excludes the viewer and shows at most `C` other members per page.
+
+The selected blurred area is a deterministic cell represented by the published public point and
+precision. Membership uses the other identity's published point inside the viewer's cell. This is
+deliberately viewer-relative and may be asymmetric. Residents and Travelers use the same selected
+area size; travel moves the cell without changing its size. Choosing a larger area discloses less
+precision and may create a larger local crowd, so Settings must state both effects.
+
+Counts update from the one presence transition, with no independent add-only counters:
+
+| Event | Global `G` | Old audience | New audience |
+| --- | ---: | ---: | ---: |
+| New count key comes online or resumes its selected scope | +1 | — | Nearby area or Place +1 |
+| Travel or blur-size change | unchanged | old Nearby area −1 | new Nearby area +1 |
+| Nearby → Place | unchanged | Nearby area −1 | Place +1 |
+| Place A → Place B | unchanged | Place A −1 | Place B +1 |
+| Place → Nearby | unchanged | Place −1 | Nearby area +1 |
+| Same-scope heartbeat | unchanged | unchanged | unchanged |
+| Logout or lease expiry | −1 | active audience −1 | — |
+
+Clients publish immediately on every transition and heartbeat periodically. The response carries
+`online`, the active Nearby/Place headcount, pageability and a count revision. A graceful logout is
+immediate; a crash disappears after the lease timeout. Other screens refresh on their next
+heartbeat or a small count-revision notification, so the hub is authoritative immediately and UI
+staleness is bounded by the refresh interval.
 
 #### C is a manifest value, not a constant
 
@@ -592,10 +711,11 @@ own range once device measurements exist.
 
 #### Cards
 
-A **card** is a signed, expiring record: public key, public point (§3.4, the centre of the
-privacy-floor square), and a timestamp. The owner re-signs it every few minutes. It carries no room
-id, no exact location and nothing private. A card replaces both the Nearby control presence and the
-map-presence record. Compact, a card is about 250 bytes.
+A **card** is a signed, expiring record: count key, public key, active scope, scope revision,
+timestamp, and—only in Nearby—the public point (§3.4, the centre of the selected blurred cell). The
+owner re-signs it every few minutes. It carries no exact location and nothing private. A card
+replaces both the Nearby control presence and the map-presence record. Compact, a Nearby card is
+about 250 bytes.
 
 #### Ranking: distance, then my own hash order
 
@@ -627,50 +747,52 @@ them back to their population share.
 
 The hub never stores or serves anyone's nearby list. It keeps:
 
-1. **Statistics:** total users, users online, and online counts per cell of a geographic pyramid
-   (the existing quadtree levels). It counts verified heartbeats and does not keep identities for
-   counting. A per-minute Bloom filter stops one key from being counted twice. The pyramid also
-   feeds the map's density heat layer.
-2. **Introductions:** a bounded, rotating sample of recent cards per pyramid cell (64 in the
+1. **One live presence lease per count key:** active scope, accepted scope revision, expiry, and a
+   public blurred point only while the scope is Nearby. Global online is the number of distinct live
+   leases. Nearby-area and Place counts query those same leases, so changing scope cannot count one
+   identity twice. Aggregate indexes may cache the result, but must be derived from this source of
+   truth rather than summed as an independent global count.
+2. **Statistics:** live Nearby counts by blurred geographic cells and live Place counts. These feed
+   the Nearby formula, Place markers, and the map's density heat layer.
+3. **Introductions:** a bounded, rotating sample of recent cards per pyramid cell (64 in the
    model). Newcomers start from it. In a sparse area the sample holds most of the people there,
    because the hub cannot introduce lone people it does not know exist.
-3. **Connection setup** (WebRTC signalling), as today.
+4. **Connection setup** (WebRTC signalling), as today.
 
-The current yellow dots (everyone else in view) are retired: they would need the hub to serve every
-public point. The heat layer shows the crowd instead.
+The map endpoint returns a bounded set of live Nearby presences inside the viewport plus complete
+anonymous density cells. The client classifies the candidate population green and other eligible
+Nearby identities yellow. Yellow dots are city-zoom-and-closer detail; the heat layer represents
+larger populations and wider zooms. Place-scoped identities are represented by one Place icon with
+the room headcount, not by yellow person dots.
 
-#### Finding how far to look: pyramid plus 3×3 cells
+#### Finding the local population and the nearest-C fallback
 
-A list must reach farther when the area is sparse and stop sooner when it is dense, without walking
-500 million squares and without missing a crowd just across a cell edge. A newcomer's first cards
-come from the pyramid:
+The user's selected blurred cell, not a dynamically enlarged pyramid block or fixed-radius circle,
+defines `R`. The hub first counts and samples that exact cell. If `R > C`, the first page is the best
+`C` identities in the cell and later pages remain inside it. If `R <= C` while `A > C`, the pyramid
+is only a search index for finding the nearest `C` identities across successively wider cells; it
+does not redefine the viewer's region and it does not enable a second page. If `A <= C`, all other
+Nearby identities form the first and only page.
 
-1. Start at the finest level (the privacy-floor square).
-2. Look at the **3×3 block of cells around me** at that level, not just my own cell. Any point
-   within one cell width of me is inside the block, whatever the cell edges.
-3. Take a sample of cards from the block's cells.
-4. If the block holds at least `C` people, stop. Otherwise go up one level and repeat.
-
-The cost is at most about 24 levels × 9 counts, whatever the size of the world. A lone person in the
-desert climbs until the block reaches the nearest city. A lone person 3 km from an arena, but in a
-different cell, gets the arena from the first block that contains it. The cards then go through
-ranking, and gossip fills in the rest.
+The first page must be reachable without a page turn. A bounded rotating sample and gossip may
+assist convergence, but the introductions contract must return or make reachable enough eligible
+cards to fill the first `min(C, A)` positions; it cannot stop at `C` including the requester or rely
+on a page action to complete page 1.
 
 #### When the search runs
 
-The pyramid search is not repeated on every heartbeat. It runs only:
+The candidate search is not repeated on every heartbeat. It runs only:
 
 1. at first start;
 2. when my public point changes: I travel to a point on the map, or my GPS moves to another square
    (past the existing 15 % edge hysteresis, §3.4);
-3. when my list has emptied, for example after a long time offline.
+3. when my selected blur size changes; or
+4. when my list has emptied, for example after a long time offline.
 
-Otherwise gossip keeps the list current, and newcomers find me through it: a newcomer, someone
-who moved, and someone whose card changed (a new name, the traveler flag) swap with the **three
-nearest** people at once, so a small group sees them right away rather than one period later. In a
-dense area the
-search does not climb at all: the first 3×3 block already holds `C` people, so it stops at the
-finest level. Only sparse areas climb, and only once per location change.
+Otherwise gossip keeps the list current, and newcomers find me through it. A newcomer, someone who
+moved, and someone whose card changed swaps with the **three nearest** people at once. A crowded
+blurred cell never searches outside itself. A sparse cell may use the pyramid to fill page 1, but
+that wider search does not become a pageable audience.
 
 **Places near me** use the same pyramid, with Place counts per cell instead of people. Places are
 public descriptors the hub already holds (§4.2), so this is an ordinary hub query. The list looks
@@ -703,31 +825,24 @@ only they read it; each reads its own cell and the eight around it, merges the c
 introductions and swaps with anyone new at once. Back online it stops posting
 (`nearby-v3-local.ts`, `GunNearbyLocalBoard`).
 
-**Beyond `C`: meeting new people in groups** (product decision 2026-10-20; replaces "Show more
-people here", which grew the list to 2C, 3C… and multiplied what every broadcast sends).
+**Beyond `C`: page only inside a crowded area or Place** (revised product decision 2026-10-24).
 
-`C` bounds the automatic traffic, so a list never grows past it. Instead a person can **swap their
-whole group for the next one**. The reason to move on is that they have already exchanged Talks
-with this group; anyone they matched is in Contacts, which has no limit, and Contacts show who is
-online.
+`C` bounds the active page and its automatic traffic. Group 1 is always the best `C` eligible cards
+and requires no page turn. **Meet new people** appears only when the current audience itself has
+more than `C` other identities:
 
-- **A group is a page of my own order.** Group 1 is my best `C` cards (the list as above). "Meet
-  new people" takes the rank key of the last person in the group as a boundary, and group 2 is the
-  best `C` cards ranked *after* it — the next `C` people in my order, by distance and then hash
-  order. In an arena everyone ties on distance, so group 2 is the next 498 in my hash order: people
-  I have not been grouped with before. In a sparse area it is the next ring outwards.
-- **Nobody needs to store who I met.** The boundary is one rank key (distance, newcomer flag,
-  16-hex tie). Every card at or before it stays off my list, whatever its source (hub
-  introductions, gossip, the local board). A swap request and reply carry the sender's boundary,
-  so partners offer only cards past it.
-- **Switching** empties the list (all of it is before the boundary) and searches again at once:
-  the hub's introductions, then swaps with the first new people.
-- **When a group resets to 1:** a new day (the beacon reorders everyone, so the old boundary means
-  nothing), a move to another public point, or "Back to group 1". The group number is kept per
-  scope for the day, so Nearby and each Place remember their own.
-- **The end:** when a search past the boundary finds nobody, the UI says "You've met everyone
-  here for now" and offers "Back to group 1". New arrivals who rank before my boundary appear only
-  after a reset, which keeps groups disjoint.
+- In Nearby, paging is allowed only when `R > C`, and every page is drawn from that same blurred
+  location area. A sparse-area nearest-`C` fallback has no next page; the user must travel or change
+  the selected blur size to change the audience.
+- In a Place, paging is allowed only when the Place contains more than `C` other identities. Every
+  page remains inside that Place.
+- A page boundary is the last person's rank key. Cards at or before it stay off later pages, and
+  the service reports whether another eligible card remains before the UI shows the action.
+- Moving to another public cell, changing blur size, entering/leaving a Place, returning to page 1,
+  or a new daily beacon resets the boundary. A scope revision, not a stale heartbeat from another
+  linked device, decides the active location.
+- At the end, the UI says that everyone in this area or Place has been met and offers a return to
+  page 1. It never silently expands Nearby into a farther area.
 
 **A new group and a new Place are the same kind of move: a new audience.** Both
 
@@ -735,9 +850,9 @@ online.
 2. keep Contacts reachable, unlimited, with an online dot and an "Online now" filter;
 3. send my active Talks to the new people automatically (the same-room catch-up when a link
    opens) and show "Sent to N of M";
-4. use the same compact AppBar actions: **Meet new people** and, past group 1,
-   **Back to group 1**. A Place uses the same actions: above `C` members, each member pages
-   through the Place's members the same way. No large paging bar is inserted above the people.
+4. use the same compact AppBar actions when the active area or Place is actually pageable:
+   **Meet new people** and, past page 1, **Back to group 1**. No large paging bar is inserted above
+   the people.
 
 **Contacts online.** A contact is online when the hub has a heartbeat of their card from the last
 two reissue periods (about 6 minutes; `POST /api/nearby/v3/online`, at most 500 ids per call,
@@ -805,18 +920,23 @@ reputation-weighted dense-crowd ranking remain separate deferred defenses.
 
 #### Map, list and headcounts
 
-- **Map:** fits itself to the people on my list. Green dots are my list, ★ is me, the heat layer
-  shows the crowd. An arena is one square with "498 of 10,000 here".
+- **Map:** fits itself to my candidate population. Green dots are every identity counted by Nearby,
+  including later pages; yellow dots are other Nearby-eligible identities in view; ★ is me; and the
+  heat layer represents wider or larger crowds. People inside Places are represented by a Place
+  type icon with the room headcount, not individual yellow dots.
 - **List:** one compact browser surface. Nearby is not a room. Its headcount occupies the top
   utility row, and the list begins directly with people—there is no redundant "People near you"
-  heading or room-loading message. Room sorting appears only when rooms exist. "Meet new people"
-  is an icon in the AppBar; after paging, "Back to group 1" appears there too. Only custom Places
-  appear as enterable room rows, with a
+  heading or room-loading message. It shows at most `C` other identities. Room sorting appears only
+  when rooms exist. "Meet new people" appears only for a crowded blurred area or Place with another
+  page; after paging, "Back to group 1" appears there too. Only custom Places appear as enterable
+  room rows, with a
   door icon, in a section below the people. Person rows preserve the v3 rank order: public
   distance, established identity, then the daily per-viewer hash. Relationship history decorates
   rows but never reorders them. The overlapping Nearby groups ("Here · 2…") disappear.
-- **Headcounts:** "498 near you · 12,345 online". The first number is my own list; the second is
-  the hub's statistic. TechSupport stays a Contact and is never counted.
+- **Headcounts:** "N nearby · G online". `N` is the candidate-population formula above and may be
+  larger than the visible page while Nearby is active. Inside a Place, `N` is that Place's
+  self-inclusive room headcount. `G` is the number of live count keys across Nearby and Places.
+  Neither number claims unique physical humans. TechSupport stays a Contact and is never counted.
 
 #### Places in v3
 
@@ -829,11 +949,13 @@ unchanged.
 - **Members find each other the same way as Nearby**, scoped to the Place: the hub keeps the
   Place's headcount and a bounded sample of its members' cards, and members gossip cards tagged with
   the Place id. Inside a Place everyone is "at" the Place, so ranking is my hash order alone.
-- **Up to `C` members:** everyone's list is everyone, so the Place behaves like a shared room.
+- **Up to `C` other members:** everyone's visible list contains every other member, so the Place
+  behaves like a shared room without a page turn.
   Its casual public chat is a bounded recent feed, not a lifetime replicated Gun map.
-- **Above `C`:** each member sees their own 498, in their own order, and can page for more. A Place
-  is **never full**. The v1 first-`C` seat claims, two-phase reservation and reconciliation losses,
-  and the §4.1 cohort extension are no longer needed.
+- **More than `C` other members:** each member sees at most `C` others in their own order and can
+  page through the remaining members. A Place is **never full**. The v1 first-`C` seat claims,
+  two-phase reservation and reconciliation losses, and the §4.1 cohort extension are no longer
+  needed.
 - **Creators have no powers**, as today.
 - **Only accounts passing the starter custom-room credit create Places**, enforced by the hub:
   12 distinct incoming Friend marks, fewer than three received blocks, and one room per creator.
@@ -867,8 +989,9 @@ Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contac
   only the latest `4 × C` messages and returns at most 50 per opaque-cursor poll; if a busy Place
   produces more than one page between polls, recency wins and the middle is deliberately skipped.
   Embedded Android nodes forward the endpoint to the hub, and an unavailable hub fails explicitly.
-  A Place's headcount includes me; Nearby's does not. The room list shows "N people", never "Full",
-  and "Sent to N of M" works in a Place too.
+  A Place's headcount includes me; Nearby's does not. The room list and its map icon show the full
+  room occupancy, never "Full", while the people list shows at most `C` others per page. "Sent to N
+  of M" works in a Place too.
 - A card that moves (into a Place, back to Nearby, to a new point) leaves the hub's old samples at
   once, so the hub stops introducing someone where they were.
 
@@ -876,10 +999,16 @@ Nearby has no room id in v3, so Nearby has no shared chat feed; Talks and Contac
 
 - the adaptive partition lineage, split and merge records and the server's partition store (§3.1);
 - the cohort control plane (§3.3) and Place seat claims (§4);
-- the Nearby part of `GET /api/active-rooms` and the map-presence index;
+- the Nearby room row in `GET /api/active-rooms`; the bounded viewport-presence index remains for
+  green/yellow dots and density;
 - the tournament `K`-link schedule for Nearby delivery.
 
-#### Simulation results
+#### Historical v3 simulation results
+
+The following evidence qualified the 2026-10-19 nearest-list baseline. OPEN-85 must add cases for
+blurred-area headcounts, linked-device deduplication and scope moves. OPEN-86 must add sparse
+nearest-`C` without paging, crowded-area-only paging, directional radio eligibility and green/yellow
+map classification before the revised design is called implemented.
 
 `scripts/nearby-gossip-experiment.ts` (model `src/test/support/nearby-gossip-model.ts`), C = 498,
 everyone arriving at once (the hardest start), 30 s gossip periods assumed. The model has no network
@@ -911,7 +1040,7 @@ timing, NAT failures or connection cost.
 Results: `docs/testing/nearby-gossip-experiment.md`. Unit gate:
 `src/test/unit/nearby-gossip-personal-lists.test.ts`.
 
-#### Implementation plan (2026-10-19)
+#### Baseline implementation plan (2026-10-19; revised behavior tracked by OPEN-85 and OPEN-86)
 
 Android first. Each phase lands with unit tests; phases 3–6 also with phone-path journeys and a
 real-phone run.
@@ -949,14 +1078,16 @@ real-phone run.
    whose link fails twice after the knock grace leaves the list. A newcomer swaps with the nearest
    person at once, and an empty list asks the hub again every 5 s, doubling. Still to do:
    "Sent to N of M".
-4. **UI — done (2026-10-22).** Map: green dots for my list, ★ for me, the heat layer from
-   `GET /api/nearby/v3/stats`, fitted to me and my list; no yellow dots, no tile grid. List: the
+4. **UI baseline — done (2026-10-22); OPEN-86 revision pending.** Map currently has green dots for
+   my list, ★ for me, and the heat layer from `GET /api/nearby/v3/stats`; OPEN-86 restores bounded
+   yellow viewport dots and classifies the complete candidate population green. List: the
    Nearby and Place rows look like folders and the current v3 roster is shown directly as person
    rows in the same compact browser; opening Nearby starts with the group bar (2026-10-20: "Show
-   more people here" was replaced by "Meet new people", see "Meeting new people in groups"). Headcounts:
-   "N near you · M online" — N is my list without me, M the hub's count; the room-list header uses
-   M too. Match collection is ambient and defaults on; its opt-out is under Settings rather than a
-   card on this list. Nearby has no chat feed. Web e2e `stage2-two-user/95-nearby-screens`.
+   more people here" was replaced by "Meet new people", see "Meeting new people in groups"). The
+   current N-is-list headcount and unconditional paging eligibility are superseded by the formula
+   and gates above. Match collection is ambient and defaults on; its opt-out is under Settings
+   rather than a card on this list. Nearby has no chat feed. Web e2e
+   `stage2-two-user/95-nearby-screens`.
 5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, bounded recent chat kept for
    Places; seat claims and cohorts go.
 6. **Removal of v2 — done (2026-10-19)** (no epoch switch, no compatibility): the partition
@@ -1026,12 +1157,12 @@ The device keeps these values separate:
 ```text
 home encounter location    = confirmed GPS-derived or saved self-defined area
 current encounter location = home or a deliberately selected travel area
-active stranger audience   = shared Nearby leaf at that location, or one selected Place
+active stranger audience   = personal Nearby page at that location, or one selected Place
 traveler                    = current encounter location differs from home, or a Place is active
 ```
 
-Selecting **Meet people around here** on the map changes the current encounter location and joins
-the shared Nearby room covering that point. Joining a named Place instead stops Nearby discovery
+Selecting **Meet people around here** on the map changes the current encounter location and starts
+the personal Nearby population for that blurred cell. Joining a named Place instead stops Nearby discovery
 before joining the Place's explicit audience. **Return home** recomputes or restores the home
 encounter location and clears traveler state. A travel point or selected Place may persist across
 restart, but the UI must keep that state visible.

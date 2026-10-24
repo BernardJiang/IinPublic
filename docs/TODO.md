@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-22.
+Last reconciled: 2026-10-24.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -22,6 +22,63 @@ move its outcome and verification evidence to `docs/completed.md`, remove it her
 its ID.
 
 ## Active execution queue — website and Android first
+
+- [ ] **OPEN-85 — Build the authoritative presence and headcount foundation (product design frozen
+  2026-10-24).** Replace independent rolling location windows with one revisioned lease per count
+  key, then derive global, blurred-area and Place counts from those leases. This issue owns data
+  correctness and server APIs; `OPEN-86` consumes them for audience selection and presentation.
+  - [x] **D0 — Canonical design and requirements.** Define `G` (all live count keys), `A` (other
+    Nearby count keys), `R` (members of `A` inside the viewer's selected blurred cell),
+    `online = G`, and `nearby = min(A, max(C, R))`. Freeze the transition table, selected-area rule,
+    Place self-inclusive headcount and linked/unlinked device semantics in the design and technical
+    specification.
+  - [ ] **D1 — One leased presence per count key.** Key each expiring record by an unlinked
+    installation identity or explicitly linked identity. Add monotonic signed scope revisions so
+    only the accepted revision renews the lease; reject stale linked-device heartbeats and moves.
+    Two unlinked devices count twice, while linked devices sharing one identity count once.
+  - [ ] **D2 — Atomic scope and location transitions.** Login/logout/crash expiry, travel,
+    blur-size changes, Nearby↔Place and Place↔Place must replace the one lease and apply the
+    documented global/old-audience/new-audience deltas exactly once. A move must never leave one
+    count key in two scopes.
+  - [ ] **D3 — Exact count queries and refresh contract.** Make the selected published cell (Close
+    ≈400 m, Neighborhood ≈1 km, Citywide ≈10 km, Regional ≈50 km) the exact `R` boundary; remove the
+    fixed 50 km count filter and exclude self from `A` and `R`. Return `online`, active Nearby/Place
+    headcount and a count revision. Publish transitions immediately, heartbeat periodically, and
+    expire crashed clients after the bounded lease timeout.
+  - [ ] **D4 — Backend qualification.** Deterministically cover singleton (`0 nearby · 1 online`),
+    linked and unlinked multi-device counting, mixed blur sizes, every scope transition, duplicate
+    and stale revisions, graceful logout, crash expiry and Place self-inclusive counts. With 14
+    identities in one San Diego cell and 6 in one Los Angeles cell, verify San Diego reports
+    `13 nearby · 20 online` and Los Angeles reports `5 nearby · 20 online`.
+
+- [ ] **OPEN-86 — Implement personal audience pages, radio eligibility, map/UI and E2E behavior
+  (depends on OPEN-85).** Use the authoritative counts and leases without allowing paging or a
+  transport sighting to redefine a user's selected blurred area.
+  - [ ] **E1 — First-page and paging contract.** If `A <= C`, make all `A` identities reachable. If
+    `A > C` and `R <= C`, use the pyramid only to reach the nearest `C` worldwide and expose no next
+    page. If `R > C`, page only through those `R` identities. Guarantee the first `min(C, A)` without
+    a page turn; exactly `C` has no next page. Places page only when more than `C` other members
+    remain. Return selected area and explicit `hasMore`/pageability; reset page 1 after point,
+    size, scope or daily-beacon changes.
+  - [ ] **E2 — Directional radio eligibility.** Treat LAN, BLE and Wi-Fi Direct as routes, never as
+    headcount or audience overrides. With different blurred areas, each user independently decides
+    whether the other is on their active Nearby page; one-way eligibility is valid. A radio sighting
+    alone must not add either identity, change either count or bypass same-Place membership.
+  - [ ] **E3 — Map population and Place markers.** Extend the bounded viewport API so every identity
+    represented by Nearby is green (including later pages), other Nearby identities are yellow at
+    city zoom and closer, and wide views retain anonymous heat. Represent Place-scoped identities
+    only through a Place type icon with the self-inclusive room count. Enforce response bounds,
+    deduplication and the public-blurred-point privacy boundary.
+  - [ ] **E4 — UI, Settings and bounded refresh.** Show `N nearby · G online` without implying
+    unique humans; in a Place use its self-inclusive room count for `N`; show no more than `C` other
+    identities as rows. Explain that a larger blur size reveals less precision but may broaden
+    Nearby, keep the same size for Residents and Travelers, and consume count revisions so other
+    screens have bounded staleness. Show paging controls only when the server reports another page.
+  - [ ] **E5 — Browser and device qualification.** Cover worldwide `A <= C`, sparse nearest-`C`
+    without paging, exactly `R = C`, crowded `R > C`, two cities, travel, size changes, Place pages,
+    green/yellow dots, icon+count markers and two Wi-Fi Direct peers with different blur sizes/cells.
+    Update the slow 20-browser journey to preserve `13 nearby · 20 online` in San Diego and
+    `5 nearby · 20 online` in Los Angeles at `C = 3`, with paging confined to each crowded cell.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

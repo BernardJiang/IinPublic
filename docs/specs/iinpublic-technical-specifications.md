@@ -166,17 +166,21 @@ IinPublic is:
 
 - A **decentralized**, Gun.js-backed application. No central server stores user data.
 - Web-first (browser + embedded Node.js peer), followed by Android, with iOS TBD.
-- A real-time system using one automatic **Nearby** room plus user-selected map **Places** to manage
-  stranger discovery and scale without exposing an implementation hierarchy.
+- A real-time system using one personal blurred-area **Nearby** audience or one user-selected map
+  **Place** to manage stranger discovery without exposing an implementation hierarchy.
 
-The product is not a traditional group chat: chatrooms are for **discovery and routing only**; all conversations remain one-on-one with optional chatbot participation. A device participates in exactly one active Talk-exchange room at a time. Other memberships remain navigable but create no live discovery, radio advertisement, room gossip, or automatic peer links until the user manually switches to that room.
+The product is not a traditional group chat: Nearby and Places are for **discovery and routing**;
+all conversations remain one-on-one with optional chatbot participation. A countable identity has
+exactly one active Nearby or Place Talk-exchange audience at a time. Other destinations remain
+navigable but create no live discovery, radio advertisement, gossip, or automatic peer links until
+the user switches to them.
 
 **Long-term architecture goal:** The website (`www.iinpublic.com`) is only a discovery and bootstrap entry point. User-to-user communication occurs directly whenever possible; no central server is required for message storage. User identity is cryptographically verifiable from the public key alone. Communities and talks are designed to survive even if the original website disappears — the network should be resilient through overlapping peer neighborhoods, content-addressed identifiers, and optional distributed peer discovery (Phase D, §19.12).
 
 ### 2.2 Product Functions (High-Level)
 
 - Automatic user identity assignment and location-based chatroom placement.
-- Flat Nearby groups with automatic geographic repartitioning when a group exceeds capacity.
+- Personal Nearby populations defined by each viewer's blurred location area, with bounded pages.
 - User profiles as Q/A attribute lists with StageName and a reputation section.
 - Simple predefined Q/A talk system (DAG, no loops, logic-OR allowed).
 - Bulk sending of talks to up to N users (default 1000) in a given scope.
@@ -259,8 +263,63 @@ The product is not a traditional group chat: chatrooms are for **discovery and r
 
 ### 3.3 Chatroom Management
 
-> Accepted replacement design: `docs/design/nearby-and-place-chatrooms.md` (revised 2026-10-10). It
-> supersedes the Global-first L1-L4 cascade, visible hierarchy, and numbered overflow rooms.
+> Accepted replacement design: `docs/design/nearby-and-place-chatrooms.md` (revised 2026-10-24).
+> Nearby is a personal, blurred-area candidate population rather than a shared room. The
+> 2026-10-24 requirements FR-CR-34–43 supersede the adaptive-room, split/coalesce, full-Place and
+> exact-nearest paging rules in FR-CR-1, FR-CR-3–4, FR-CR-7, FR-CR-13, FR-CR-15–16, FR-CR-19–20 and
+> FR-CR-30–32 below; those older entries are retained only as protocol-design history until the next
+> full specification consolidation.
+
+- **FR-CR-34 (Countable online identity)**: Headcounts SHALL count authenticated active identities,
+  not claim unique physical humans. Each unlinked installation identity SHALL count independently.
+  Devices explicitly linked into one identity SHALL share one count key and count once while any
+  linked device remains online. TechSupport SHALL never be a count key.
+- **FR-CR-35 (One active presence)**: One count key SHALL have at most one live expiring presence:
+  Nearby at one published blurred area, or one selected Place. A newer signed scope revision SHALL
+  atomically replace the old scope; only a heartbeat carrying the accepted revision SHALL renew the
+  lease. A stale linked device SHALL NOT renew or restore an older scope. Global online SHALL count
+  distinct live presence records directly, never sum possibly overlapping geographic counters.
+- **FR-CR-36 (Nearby and global headcounts)**: Let `G` be the number of live count keys in every
+  scope, `A` the number of other live count keys in Nearby, `R` the number of those identities
+  whose published points fall inside the viewer's selected blurred cell, and `C` the signed maximum
+  other identities per visible page.
+  The UI SHALL show `online = G` and `nearby = min(A, max(C, R))`. Nearby SHALL exclude the viewer;
+  Place-scoped identities SHALL remain in `G` but SHALL NOT be in `A` or `R`.
+- **FR-CR-37 (Blurred area is the region)**: The selected published cell SHALL be the only
+  geographic definition of the viewer's smallest Nearby region. Resident GPS and Traveler map
+  points SHALL use the same selected area size; travel moves the cell but keeps its size. Close,
+  Neighborhood, Citywide and Regional SHALL publish cells of approximately 400 m, 1 km, 10 km and
+  50 km respectively. Choosing a larger area SHALL state both effects: less precise disclosure and
+  a potentially larger local population. Changing point or size SHALL reset page 1.
+- **FR-CR-38 (First page and paging)**: A Nearby list SHALL show at most `C` other identities. If
+  `A <= C`, it SHALL show all `A`. If `A > C` and `R <= C`, it SHALL show the nearest `C` worldwide
+  without offering another page; changing the audience requires travel or a blur-size change. If
+  `R > C`, it SHALL page only through those `R` regional identities. Exactly `C` SHALL fit on one
+  page. The first `min(C, A)` eligible identities SHALL be reachable without a page turn.
+- **FR-CR-39 (Map classification)**: Map view SHALL draw ★ for the viewer, every identity counted
+  by Nearby as green (including later pages), other viewport-visible Nearby identities as yellow,
+  anonymous density at wide zoom, and each Place as its type icon with its live room count. A
+  Place-scoped identity SHALL be represented by its Place marker rather than a yellow person dot.
+  Dense identities at one public point MAY be represented by a counted grouped dot.
+- **FR-CR-40 (Place count and pages)**: A Place headcount SHALL be the distinct live count keys in
+  that Place and SHALL include the viewer. While a Place is active, the compact `nearby` UI value
+  SHALL equal this Place headcount while `online` remains `G`. Its member page SHALL exclude the
+  viewer and show at most `C` others. Paging SHALL be offered only when more than `C` other Place
+  members remain, and every page SHALL remain inside that Place. A Place SHALL never be full merely
+  because it exceeds one page.
+- **FR-CR-41 (Atomic count updates)**: Login SHALL add one global and one active-audience presence;
+  travel/blur changes SHALL move the same presence between Nearby areas; Nearby↔Place and
+  Place↔Place transitions SHALL decrement the old audience and increment the new while leaving
+  global unchanged; same-scope heartbeats SHALL change no count; logout or lease expiry SHALL
+  remove one global and one active-audience presence.
+- **FR-CR-42 (Refresh contract)**: Clients SHALL publish immediately on login, travel, blur-size
+  change, Place entry/exit and logout, and SHALL heartbeat periodically. Responses SHALL include
+  global online, the active headcount, pageability and a count revision. Graceful departure SHALL
+  update immediately; crashes SHALL disappear after the bounded lease timeout. Other clients MAY
+  refresh on heartbeat or a compact revision notification.
+- **FR-CR-43 (No human-accuracy claim)**: User-facing and operator documentation SHALL describe
+  Nearby, Place and online values as active identity counts. Two unlinked devices used by one
+  person legitimately count twice; linked devices sharing one identity count once.
 
 - **FR-CR-1 (Adaptive shared Nearby room)**: **Nearby** SHALL be one shared chatroom containing at
   most `C` online strangers. A sparse population shares one broad group; over-capacity groups are
@@ -772,7 +831,7 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 
 ```
 /chatrooms
-├── /nearby/{policy-epoch + adaptive-shared-group}
+├── /nearby                         (personal candidate population; no shared room roster)
 └── /places/{content-addressed-place-id}           (manual map destinations)
 ```
 
@@ -780,30 +839,40 @@ The flat answer list for Q2 contains two distinct entries, keyed by their differ
 - A phone may confirm a GPS-derived blurred encounter location. A web user must choose a
   self-defined map location, which may be fictional, before stranger discovery. Exact GPS remains
   local and declared location is not proof of physical presence.
-- Signed occupancy control replaces an over-capacity group with disjoint geographic groups and
-  coalesces adjacent sparse groups after hysteresis. Each user publishes presence in exactly one
-  shared active group. No parent/child chatrooms are created.
-- Moving the encounter location stops the old room and joins the active shared group covering the
-  selected map point.
+- The selected blurred cell is the viewer's smallest Nearby region. Residents and Travelers use
+  the same selected cell size; a Traveler changes only its location. A larger size discloses less
+  precision and may include a larger local population.
+- Each count key publishes one expiring active presence in Nearby or one Place. Moving, changing
+  blur size or entering/leaving a Place atomically replaces that presence; it never creates a
+  second headcount contribution.
+- Nearby page 1 holds at most `C` other identities. A sparse cell fills it with the nearest `C`
+  Nearby identities worldwide but offers no later page. A cell with more than `C` others pages
+  only inside that cell.
 - A map Place is an immutable signed descriptor. Selecting it stops Nearby exchange, enters the
   Place, and marks the user as a traveler only when it is outside the current home zone.
 - Returning home restores/recomputes the home encounter location. Political boundaries are never
   routing input.
 - TechSupport is a Contact and never appears in this graph.
 
-**Nearby room derivation:** The device applies the signed protocol manifest's blur precision,
-spatial index, global `C`, split/merge state, and hysteresis policy to the confirmed declared location. A cell
-identifier reveals an approximate area even if hashed; hashing is not a privacy guarantee. Presence
-publishes no exact GPS, accuracy, or raw fix timestamp.
+**Nearby candidate derivation:** A cell identifier reveals an approximate area even if hashed;
+hashing is not a privacy guarantee. Presence publishes no exact GPS, accuracy, or raw fix timestamp.
+`countKeys` below means unlinked installation identities plus linked multi-device identities, each
+deduplicated once.
 
 ```typescript
-export function deriveNearbyRoom(
-  declaredPoint: Coordinates,
-  policy: NearbyRoomPolicy,
-  verifiedControl: SplitMergeControl,
-): RoomId {
-  const blurredArea = policy.spatialIndex.cellAt(declaredPoint, policy.precision);
-  return resolveActiveLeaf(blurredArea, verifiedControl, policy.version);
+export function deriveNearbyCounts(viewer: Presence, live: Presence[], C: number) {
+  const global = uniqueByCountKey(live);
+  const eligible = uniqueByCountKey(
+    live.filter((p) => p.scope === 'nearby' && p.countKey !== viewer.countKey),
+  );
+  const local = uniqueByCountKey(
+    eligible.filter((p) => viewer.blurredArea.contains(p.publicPoint)),
+  );
+  return {
+    online: global.length,
+    nearby: Math.min(eligible.length, Math.max(C, local.length)),
+    pageable: local.length > C,
+  };
 }
 ```
 
@@ -2605,9 +2674,9 @@ The following items are known open questions or planned post-MVP work:
 ## 17. Key Technical Decisions
 
 - **Decentralized-first**: No central server stores user data. Gun.js P2P is the only data layer.
-- **Adaptive shared Nearby + Places, flat room model**: sparse users share a broad room;
-  over-capacity groups are replaced by disjoint geographically compact rooms of at most `C`;
-  content-addressed Places and map-selected travel rooms remain deliberate destinations.
+- **Personal blurred-area Nearby + Places**: each identity has one active Nearby or Place presence;
+  sparse areas receive one nearest-`C` page without outward paging, crowded blurred cells page only
+  within that cell, and content-addressed Places remain deliberate destinations.
 - **Stranger-first trust with encrypted transport**: all users start Unknown, but the first signed
   handshake still establishes an ephemeral encrypted session. Contact status pins identity and
   durable pair state rather than enabling encryption for the first time.
@@ -4357,8 +4426,8 @@ Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks 
 > **Status:** Direct Talk delivery is authoritative as of 2026-10-09. Legacy room gossip remains
 > only as disabled-by-default experimental compatibility code. Test impact: `docs/testing/testplan.md`.
 > **Goal:** delete star-topology talk delivery. The Node server keeps only **rendezvous** (who/where peers are) and **signaling** (WebRTC handshake + STUN/TURN). No talk body, offer, response, incoming index, match, conversation, or talk-derived stat is created, relayed, or stored on the server.
-> **Current audience decision:** `docs/design/nearby-and-place-chatrooms.md` defines adaptive shared
-> Nearby rooms and explicit Places. `docs/design/chatroom-scoped-p2p-traffic.md` is
+> **Current audience decision:** `docs/design/nearby-and-place-chatrooms.md` defines personal
+> blurred-area Nearby candidate populations and explicit Places. `docs/design/chatroom-scoped-p2p-traffic.md` is
 > retained as a superseded historical record for transport/background constraints.
 
 ### 23.1 Principles
@@ -4370,9 +4439,9 @@ Pipeline: `rankPeople(viewer, candidates, sortId, filters)` filters, then ranks 
 3. **Receiver-side policy.** Intake filtering (language, distance, content, adult, cutoff) is evaluated by the *receiver* on arrival, not by a server preview. This also removes the `broadcast-receiver-preview` HTTP round-trip.
 4. **Local-first derivation.** Contacts, matches, talk history, and stats are computed locally from what a peer has sent/received — no server peer endpoints.
 5. **Rotating direct pairs, not full mesh.** At N peers a full mesh is N² connections (1000 peers ≈ 500k channels). A symmetric schedule rotates each endpoint through at most K direct peers; a Talk body crosses only its author/receiver pair.
-6. **One active shared room, not parallel overlays.** Capacity bounds the candidate set only
-   when inactive travel points/Places are silent. Changing encounter location or entering a Place
-   stops the old audience before the new one starts.
+6. **One active stranger audience, not parallel overlays.** One count key has one live Nearby or
+   Place presence. `C` bounds the active page. Changing encounter location, blur size or Place
+   atomically replaces the old audience before the new one starts.
 7. **Transport does not define audience.** Internet, LAN, BLE discovery, Wi-Fi Aware, and Wi-Fi
    Direct are replaceable paths beneath the room/Place authorization boundary. Discovering a radio
    peer never bypasses room eligibility.
@@ -4442,10 +4511,10 @@ Announce carries only metadata + content hash; the body is pulled on demand (`ta
 
 ### 23.6 Feature-by-feature migration
 
-- **Discovery & connection:** keep the bounded shared room roster plus signed presence as control
-  data. Both endpoints derive the same circle-method pairings for each 30-second window and open at
-  most K scheduled channels. A stable N-member room covers every pair within
-  `ceil((N-1)/K)` windows.
+- **Discovery & connection:** keep the signed one-scope presence and the bounded personal page as
+  control data. Nearby uses the viewer's blurred-cell candidate rules; a Place uses its member
+  pages. Endpoints open only the adaptive number of direct channels required by pending exchange,
+  without constructing a full mesh.
 - **Broadcast:** sender commits one encrypted local outbox entry per eligible receiver/revision. When that pair's direct slot opens, it sends a compact `talk-announce`. The receiver runs `talkPassesIntakeFilters`; if accepted and missing, it requests the body directly from the author, persists its private incoming cluster, and only then ACKs. No third phone or server mailbox carries the ordinary body.
 - **Mutual exchange suppression (REQ-LEDGER-16):** before announcing, the sender drops, per tag/identity, any neighbor whose `exchanged/<peerId>/<identityKey>` entry already covers that identity at the current version. So Jerry, having already answered Tom's `tennis`, never re-broadcasts `tennis` to Tom; other not-yet-exchanged tags in the same talk still go through. A new `identityKey` (content change) or a `TALK_ANSWERED` change-of-mind delta is what re-opens delivery.
 - **Incoming index:** `ownerIncomingTalkIndex` stays **local only** (`encrypted-user-owned`), populated from mesh `talk-body`.
