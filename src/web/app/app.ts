@@ -454,6 +454,10 @@ export class IinPublicApp {
   private supportAnsweredCheckInFlight = false;
   private techSupportAdminPanelTick = 0;
   private mailboxDrainPromise: Promise<void> | null = null;
+  private nativeBackgroundSyncQueued = false;
+  private nativeBackgroundSyncRunning = false;
+  private nativeBackgroundReplayQueued = false;
+  private nativeBackgroundReplayRunning = false;
   /**
    * GUN/SEA signs writes in the authenticated user namespace. Overlapping talk completions
    * from the same device can race that signer and produce `Unverified data` acknowledgements,
@@ -3617,10 +3621,15 @@ export class IinPublicApp {
    * Keystore custody and provisions the loopback-only embedded node itself.
    */
   private syncNativeBackgroundAgent(): void {
+    if (this.nativeBackgroundSyncRunning || !this.currentUser?.id) {
+      this.nativeBackgroundSyncQueued = true;
+      return;
+    }
     const bridge = (window as unknown as {
       IinPublicBackground?: { configure?: (configJson: string) => boolean };
     }).IinPublicBackground;
-    if (!this.currentUser?.id || typeof bridge?.configure !== 'function') return;
+    if (typeof bridge?.configure !== 'function') return;
+    this.nativeBackgroundSyncRunning = true;
     const parseMap = (key: string): Record<string, any> => {
       try {
         const parsed = JSON.parse(localStorage.getItem(key) || '{}');
@@ -3652,11 +3661,21 @@ export class IinPublicApp {
       }));
     } catch {
       // Older native shells and a full native policy store are both non-fatal to the foreground UI.
+    } finally {
+      this.nativeBackgroundSyncRunning = false;
+      if (this.nativeBackgroundSyncQueued) {
+        this.nativeBackgroundSyncQueued = false;
+        queueMicrotask(() => this.syncNativeBackgroundAgent());
+      }
     }
   }
 
   /** Reconcile the encrypted native journal through the same idempotent UI handlers. */
   private async replayNativeBackgroundEvents(): Promise<void> {
+    if (this.nativeBackgroundReplayRunning) {
+      this.nativeBackgroundReplayQueued = true;
+      return;
+    }
     const bridge = (window as unknown as {
       IinPublicBackground?: {
         events?: () => string;
@@ -3664,42 +3683,51 @@ export class IinPublicApp {
       };
     }).IinPublicBackground;
     if (!this.currentUser?.id || typeof bridge?.events !== 'function') return;
-    let events: any[] = [];
+    this.nativeBackgroundReplayRunning = true;
     try {
-      const parsed = JSON.parse(bridge.events());
-      events = Array.isArray(parsed?.events) ? parsed.events : [];
-    } catch { return; }
-    const acknowledged: string[] = [];
-    for (const event of events) {
+      let events: any[] = [];
       try {
-        if (event?.kind === 'incoming-talk' && event.payload) {
-          const accepted = await this.handleMeshTalkBody(event.payload, { suppressAutoReply: true });
-          if (accepted && Array.isArray(event.answers) && event.answers.length > 0) {
-            const talkData = { ...event.payload.talkData, id: event.payload.talkId, authorId: event.payload.authorId };
-            const outcome = checkIfMatch(talkData, event.answers) ? 'match' : 'mismatch';
-            this.uiManager.recordChatbotAnsweredTalk(talkData, event.answers, outcome);
-            await this.submitTalkResponsePairDirect({
-              talkId: event.payload.talkId,
-              talkData,
-              answers: event.answers,
-              isChatbotResponse: true,
-              authorId: event.payload.authorId,
-              authorName: event.payload.authorName || event.payload.authorId,
-              isAutoResponse: true,
-            });
+        const parsed = JSON.parse(bridge.events());
+        events = Array.isArray(parsed?.events) ? parsed.events : [];
+      } catch { return; }
+      const acknowledged: string[] = [];
+      for (const event of events) {
+        try {
+          if (event?.kind === 'incoming-talk' && event.payload) {
+            const accepted = await this.handleMeshTalkBody(event.payload, { suppressAutoReply: true });
+            if (accepted && Array.isArray(event.answers) && event.answers.length > 0) {
+              const talkData = { ...event.payload.talkData, id: event.payload.talkId, authorId: event.payload.authorId };
+              const outcome = checkIfMatch(talkData, event.answers) ? 'match' : 'mismatch';
+              this.uiManager.recordChatbotAnsweredTalk(talkData, event.answers, outcome);
+              await this.submitTalkResponsePairDirect({
+                talkId: event.payload.talkId,
+                talkData,
+                answers: event.answers,
+                isChatbotResponse: true,
+                authorId: event.payload.authorId,
+                authorName: event.payload.authorName || event.payload.authorId,
+                isAutoResponse: true,
+              });
+            }
+          } else if (event?.kind === 'talk-response' && event.payload) {
+            await this.handleMeshTalkResponse(event.payload);
+          } else {
+            continue;
           }
-        } else if (event?.kind === 'talk-response' && event.payload) {
-          await this.handleMeshTalkResponse(event.payload);
-        } else {
-          continue;
+          if (event.id) acknowledged.push(String(event.id));
+        } catch (error) {
+          console.warn('[BackgroundAgent] Native event retained for retry:', error);
         }
-        if (event.id) acknowledged.push(String(event.id));
-      } catch (error) {
-        console.warn('[BackgroundAgent] Native event retained for retry:', error);
       }
-    }
-    if (acknowledged.length > 0 && typeof bridge.acknowledge === 'function') {
-      try { bridge.acknowledge(JSON.stringify(acknowledged)); } catch { /* retry on next resume */ }
+      if (acknowledged.length > 0 && typeof bridge.acknowledge === 'function') {
+        try { bridge.acknowledge(JSON.stringify(acknowledged)); } catch { /* retry on next resume */ }
+      }
+    } finally {
+      this.nativeBackgroundReplayRunning = false;
+      if (this.nativeBackgroundReplayQueued) {
+        this.nativeBackgroundReplayQueued = false;
+        queueMicrotask(() => { void this.replayNativeBackgroundEvents(); });
+      }
     }
   }
 
@@ -9706,33 +9734,51 @@ export class IinPublicApp {
     // dispatches `iinpublic-native-resume`: several WebViews do not emit visibilitychange after
     // HOME even though onResume ran, which otherwise leaves stale WebRTC sessions untouched.
     let lastForegroundRecoveryAt = 0;
+    let foregroundRecoveryRunning = false;
+    let foregroundRecoveryQueued = false;
     const recoverAfterForeground = () => {
       if (!this.currentUser) return;
+      if (foregroundRecoveryRunning) {
+        foregroundRecoveryQueued = true;
+        return;
+      }
       const now = Date.now();
-      if (now - lastForegroundRecoveryAt < 500) return;
+      if (now - lastForegroundRecoveryAt < 500) {
+        foregroundRecoveryQueued = true;
+        return;
+      }
       lastForegroundRecoveryAt = now;
-      this.userService.setUserStatus(this.currentUser.id, 'online');
-      const settings = loadConnectivitySettings();
-      if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
-        const pub = this.gunService.getStoredPair()?.pub;
-        if (pub) this.initNearbyOffline(String(pub));
+      foregroundRecoveryRunning = true;
+      try {
+        this.userService.setUserStatus(this.currentUser.id, 'online');
+        const settings = loadConnectivitySettings();
+        if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
+          const pub = this.gunService.getStoredPair()?.pub;
+          if (pub) this.initNearbyOffline(String(pub));
+        }
+        // Android can freeze a background WebView while its WebRTC objects still report
+        // "connected". Rebuild only the bounded room transports on foreground and drain any
+        // encrypted fallback that accumulated meanwhile. Without this, an author's durable
+        // direct-Talk outbox can keep retrying a stale session indefinitely after the receiver
+        // returns, even though both phones still show the same room.
+        if (this.currentChatroomId && !isLocalOnlyRoomScope(this.currentChatroomId)) {
+          void this.peerMeshService?.resumeRoomConnections().catch((error) => {
+            console.warn('Could not refresh room connections after foregrounding:', error);
+          });
+          this.chatroomService.announceMembershipNow();
+          this.chatroomService.pullMembersFromPeers(this.currentChatroomId);
+        }
+        void this.drainMailbox().catch(() => {});
+        void this.retryFailedMailboxPosts().catch(() => {});
+        this.syncNativeBackgroundAgent();
+        void this.replayNativeBackgroundEvents();
+      } finally {
+        foregroundRecoveryRunning = false;
+        if (foregroundRecoveryQueued) {
+          foregroundRecoveryQueued = false;
+          queueMicrotask(() => recoverAfterForeground());
+        }
       }
-      // Android can freeze a background WebView while its WebRTC objects still report
-      // "connected". Rebuild only the bounded room transports on foreground and drain any
-      // encrypted fallback that accumulated meanwhile. Without this, an author's durable
-      // direct-Talk outbox can keep retrying a stale session indefinitely after the receiver
-      // returns, even though both phones still show the same room.
-      if (this.currentChatroomId && !isLocalOnlyRoomScope(this.currentChatroomId)) {
-        void this.peerMeshService?.resumeRoomConnections().catch((error) => {
-          console.warn('Could not refresh room connections after foregrounding:', error);
-        });
-        this.chatroomService.announceMembershipNow();
-        this.chatroomService.pullMembersFromPeers(this.currentChatroomId);
-      }
-      void this.drainMailbox().catch(() => {});
-      void this.retryFailedMailboxPosts().catch(() => {});
-      this.syncNativeBackgroundAgent();
-      void this.replayNativeBackgroundEvents();
     };
     window.addEventListener('iinpublic-native-resume', recoverAfterForeground);
     document.addEventListener('visibilitychange', () => {
