@@ -1824,6 +1824,12 @@ button:focus:not(:focus-visible) {
   justify-content: center;
   font-weight: 600;
   font-size: 1.1em;
+  flex-shrink: 0;
+}
+
+/* Holds the avatar and, for a Traveler, the ✈ badge on its top-right corner. */
+.chatroom-member-avatar-wrap {
+  position: relative;
   margin-right: 12px;
   flex-shrink: 0;
 }
@@ -1897,16 +1903,21 @@ button:focus:not(:focus-visible) {
 }
 
 .chatroom-member-traveler-badge {
-  display: inline-flex;
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  display: flex;
   align-items: center;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--accent-soft);
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
   color: var(--accent-hover);
-  font-size: 0.68em;
-  font-weight: 700;
-  margin-left: 7px;
-  vertical-align: middle;
+  border: 1px solid var(--border-strong);
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
 }
 
 @keyframes flashMember {

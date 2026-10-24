@@ -119,7 +119,11 @@ describe('chatroom roster shows peers\' profile photos', () => {
     const visitor = document.querySelector<HTMLElement>('[data-user-id="visitor"]')!;
     const local = document.querySelector<HTMLElement>('[data-user-id="local"]')!;
     expect(visitor.dataset.traveler).toBe('true');
-    expect(visitor.querySelector('.chatroom-member-traveler-badge')?.textContent).toContain('chatroomTraveler');
+    // Only an airplane on the avatar's corner; the row carries no "✈ Traveler" text.
+    const badge = visitor.querySelector('.chatroom-member-avatar-wrap > .chatroom-member-traveler-badge');
+    expect(badge?.textContent).toBe('✈');
+    expect(badge?.getAttribute('aria-label')).toBe('chatroomTraveler');
+    expect(visitor.querySelector('.chatroom-member-name')?.textContent).not.toContain('chatroomTraveler');
     expect(local.dataset.traveler).toBe('false');
     expect(local.querySelector('.chatroom-member-traveler-badge')).toBeNull();
   });

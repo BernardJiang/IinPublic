@@ -52,10 +52,14 @@ people, but it must never publish a location more precise than the user's choice
 Every user has exactly one public location (product decision 2026-10-11). There are two kinds:
 
 - **Resident:** the device's GPS, blurred to the selected area size. This is the default on phones.
-- **Traveler ✈:** a point chosen on the map. GPS is never used. The website has no GPS, so web
-  users are always Travelers. A Resident who travels to a map point is also marked ✈ while away.
+- **Traveler ✈:** a cyber traveler — anyone who does not appear at their own real GPS location
+  (product definition 2026-10-24). That is a point chosen on the map (the website has no GPS, so
+  web users are always Travelers), a Resident who travels to a map point, and anyone in a Place
+  whose pin is not in the same blurred area as their real GPS fix. Physical distance from home
+  does not matter: someone with a real fix who stays at it is at home wherever they are.
 
-The Traveler marker is room-roster and map-presence metadata, and it is self-declared.
+The Traveler marker is room-roster and map-presence metadata, and it is self-declared. A person
+row shows it only as a small ✈ on the top-right corner of the avatar, never as a "✈ Traveler" label.
 
 The **area size** applies to either kind and defines the actual published blurred cell used for
 Nearby counting:

@@ -633,14 +633,18 @@ function renderOrdinaryMemberRow(
   // .presence-indicator treatment the Contacts tab uses (contacts-view.ts).
   const online = deps.isUserOnline(member.userId);
   const onlineIndicator = `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(member.userId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
+  // A Traveler (not at their real GPS location) gets a small ✈ on the avatar's corner, outside
+  // the avatar itself because a loaded headshot replaces the avatar's contents.
   const travelerBadge = member.isTraveler
-    ? `<span class="chatroom-member-traveler-badge" title="${deps.text('chatroomTraveler')}" aria-label="${deps.text('chatroomTraveler')}">✈ ${deps.text('chatroomTraveler')}</span>`
+    ? `<span class="chatroom-member-traveler-badge" role="img" title="${deps.text('chatroomTraveler')}" aria-label="${deps.text('chatroomTraveler')}">✈</span>`
     : '';
   return `
     <div class="${browserRow ? 'nearby-person-item' : 'chatroom-member-item'} ${isMatched ? 'member-matched' : ''} ${relationClass}" ${browserRow ? 'data-testid="nearby-person-row"' : ''} data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}" data-traveler="${member.isTraveler === true}"${isMatched ? ' data-matched="true"' : ''}>
-      <div class="chatroom-member-avatar">${avatarInnerHtml(deps.getCachedHeadshot?.(member.userId) ?? undefined, member.stageName.charAt(0).toUpperCase(), deps.escapeHtml)}</div>
+      <div class="chatroom-member-avatar-wrap">
+        <div class="chatroom-member-avatar">${avatarInnerHtml(deps.getCachedHeadshot?.(member.userId) ?? undefined, member.stageName.charAt(0).toUpperCase(), deps.escapeHtml)}</div>${travelerBadge}
+      </div>
       <div class="chatroom-member-info">
-        <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}${travelerBadge}${onlineIndicator}</div>
+        <div class="chatroom-member-name">${deps.escapeHtml(member.stageName)}${onlineIndicator}</div>
         <div class="chatroom-member-status">${statusText}</div>
       </div>
       <div class="chatroom-member-arrow">›</div>

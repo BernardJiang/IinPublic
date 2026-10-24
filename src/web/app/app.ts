@@ -1145,10 +1145,7 @@ export class IinPublicApp {
       if (usesSelfDefinedEncounterLocation() && (isNearbyRoomId(chatroomId) || isPlaceRoomId(chatroomId))) return true;
       if (isNearbyRoomId(chatroomId)) return this.pendingNearbyTravel != null || (this.travelModeActive && this.travelNearbyPoint != null);
       if (!isPlaceRoomId(chatroomId)) return false;
-      const place = this.uiManager.getCustomChatroomMeta(chatroomId)?.location;
-      if (!place || !this.currentLocation || !this.locationConfirmed) return true;
-      return LocationPrivacy.blurLocation(this.currentLocation).region
-        !== LocationPrivacy.blurLocation({ ...this.currentLocation, ...place }).region;
+      return !this.placeIsAtMyGps(chatroomId);
     });
     this.talkService = new WebTalkService(this.gunService, this.getBackendApiBase(), {
       meshLocalFirst: usesMeshTalkDelivery(this.p2pRuntimeFlags),
@@ -1841,9 +1838,26 @@ export class IinPublicApp {
     return loadConnectivitySettings().nearbyPrivacyMode;
   }
 
-  /** A Traveler appears at a chosen point (always on the website) or is visiting away from it. */
+  /**
+   * A Traveler is a cyber traveler: someone who does not appear at their own real GPS location
+   * (product definition 2026-10-24). A Resident with a real fix is at home wherever that fix is —
+   * moving with the phone is not travel. Travelers are: no usable GPS or the Traveler setting
+   * (every website user), Nearby at a point picked on the map, and a Place that is not where the
+   * real GPS is.
+   */
   private appearsAsTraveler(): boolean {
-    return usesSelfDefinedEncounterLocation() || this.travelModeActive;
+    if (usesSelfDefinedEncounterLocation()) return true;
+    const roomId = this.currentChatroomId;
+    if (roomId && isPlaceRoomId(roomId)) return !this.placeIsAtMyGps(roomId);
+    return this.travelModeActive && this.travelNearbyPoint != null;
+  }
+
+  /** The Place's pin is in the same blurred area as my real GPS fix. */
+  private placeIsAtMyGps(placeId: string): boolean {
+    const place = this.uiManager.getCustomChatroomMeta(placeId)?.location;
+    if (!place || !this.currentLocation || !this.locationConfirmed) return false;
+    return LocationPrivacy.blurLocation(this.currentLocation).region
+      === LocationPrivacy.blurLocation({ ...this.currentLocation, ...place }).region;
   }
 
   /** Quiet places use the device's own GPS, so they only apply to a Resident with a real fix. */
