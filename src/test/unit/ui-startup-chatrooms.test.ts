@@ -70,9 +70,12 @@ describe('startup chatroom first paint', () => {
     expect(document.getElementById('talk-editor-modal')).not.toBeNull();
     (document.getElementById('cancel-talk-btn') as HTMLButtonElement).click();
 
-    // Direct messages opens its picker with no room member/contact selected first.
-    (document.getElementById('dm-inbox-btn') as HTMLButtonElement).click();
-    expect(document.getElementById('dm-inbox-modal')).not.toBeNull();
+    // Direct messages is grayed out until someone has an unread message for me: its picker would
+    // list nobody (renderMatchBadge enables it, notification-badges.test.ts).
+    const dmButton = document.getElementById('dm-inbox-btn') as HTMLButtonElement;
+    expect(dmButton.disabled).toBe(true);
+    dmButton.click();
+    expect(document.getElementById('dm-inbox-modal')).toBeNull();
   });
 
   it('keeps the first-paint room list when identity hydration completes', () => {

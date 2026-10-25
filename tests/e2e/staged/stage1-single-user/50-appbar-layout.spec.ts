@@ -54,10 +54,11 @@ test.describe('AppBar layout', () => {
     // Chatrooms root: only view switching and New Room are relevant.
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'create-custom-chatroom-btn']) {
+    // Broadcast sits right after the List toggle: Nearby's people are on this list (owner, 2026-10-24).
+    for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'broadcast-talk-btn', 'create-custom-chatroom-btn']) {
       await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
     }
-    for (const id of ['create-talk-btn', 'broadcast-talk-btn', 'return-home-btn']) {
+    for (const id of ['create-talk-btn', 'return-home-btn']) {
       await expect(p.locator(`#${id}`)).toBeHidden();
     }
     await expect(p.locator('#settings-refresh-location-btn')).toBeHidden();

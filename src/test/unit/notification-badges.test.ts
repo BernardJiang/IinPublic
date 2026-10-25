@@ -54,6 +54,19 @@ describe('renderMatchBadge', () => {
     expect(document.querySelectorAll('.nav-icon .notification-badge').length).toBe(1);
   });
 
+  it('grays out the DM inbox unless someone has an unread message for me', () => {
+    const dm = document.getElementById('dm-inbox-btn') as HTMLButtonElement;
+    renderMatchBadge({});
+    expect(dm.disabled).toBe(true);
+    // TechSupport's channel and read conversations list nobody in the inbox.
+    renderMatchBadge({ s: { unread: true, supportChannel: true, otherUserId: 'support' }, r: { unread: false, otherUserId: 'bob' } });
+    expect(dm.disabled).toBe(true);
+    renderMatchBadge({ a: { unread: true, otherUserId: 'alice' } });
+    expect(dm.disabled).toBe(false);
+    renderMatchBadge({ a: { unread: false, otherUserId: 'alice' } });
+    expect(dm.disabled).toBe(true);
+  });
+
   it('is a no-op when neither target element exists', () => {
     document.body.innerHTML = '';
     expect(() => renderMatchBadge({ a: { unread: true } })).not.toThrow();

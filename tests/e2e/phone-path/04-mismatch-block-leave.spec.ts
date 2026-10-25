@@ -43,7 +43,7 @@ test.describe('Mismatch, block and leave across two phones', () => {
   });
 
   test('J-ROOM-03: when Alice leaves, Bob\'s member list and headcount drop her', async ({ browser }) => {
-    test.setTimeout(600_000);
+    test.setTimeout(900_000);
     alice = await openUser(browser, 'Alice', 'phoneA');
     bob = await openUser(browser, 'Bob', 'phoneB');
     const { goneAfterMs } = await leaveJourney(actor(alice), actor(bob), {

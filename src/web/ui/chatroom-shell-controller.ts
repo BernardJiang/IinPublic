@@ -16,6 +16,7 @@ import type { CustomChatroomDraft } from './custom-chatroom-dialogs';
 import { createMapUserDots, type MapUserDotSource, type RoomMemberCardSource } from './chatroom-map-view';
 import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 import type { QuestionAnswer } from '../../shared/types';
+import { isLocalOnlyRoomScope } from '../../shared/nearby-rooms';
 type ChatroomsViewDeps = Parameters<typeof renderChatrooms>[0];
 
 export type ChatroomShellControllerDeps = {
@@ -268,8 +269,14 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
         void handleCreateCustomChatroomClick();
       };
     }
-    const broadcastButton = document.getElementById('broadcast-talk-btn');
-    if (broadcastButton) broadcastButton.style.display = 'none';
+    // Broadcast stays on the list (owner, 2026-10-24): Nearby's people are listed right here, so
+    // this is where a Nearby user broadcasts. Contacts-only has no audience to broadcast to.
+    const broadcastButton = document.getElementById('broadcast-talk-btn') as HTMLButtonElement | null;
+    if (broadcastButton) {
+      broadcastButton.style.display = 'inline-flex';
+      const current = deps.getCurrentChatroom();
+      broadcastButton.disabled = !current || isLocalOnlyRoomScope(current);
+    }
     const ownerBar = document.getElementById('chatroom-owner-bar');
     if (ownerBar) {
       ownerBar.style.display = 'none';

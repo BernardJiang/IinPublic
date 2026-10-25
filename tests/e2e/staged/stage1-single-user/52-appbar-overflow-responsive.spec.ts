@@ -34,31 +34,31 @@ test.describe('AppBar overflow responsive', () => {
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
 
-    // 1024 and 768: all three root actions inline, no ⋯.
+    // 1024 and 768: all four root actions inline, no ⋯.
     for (const width of [1024, 768]) {
       await p.setViewportSize({ width, height: 800 });
       await afterAction();
-      for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'create-custom-chatroom-btn']) {
+      for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'broadcast-talk-btn', 'create-custom-chatroom-btn']) {
         await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
       }
       await expect(p.locator('#app-bar-overflow-menu')).toBeHidden();
     }
 
-    // 390: all three contextual actions still fit inline.
+    // 390: all four contextual actions still fit inline.
     await p.setViewportSize({ width: 390, height: 844 });
     await afterAction();
-    for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'create-custom-chatroom-btn']) {
+    for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'broadcast-talk-btn', 'create-custom-chatroom-btn']) {
       await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
     }
     await expect(p.locator('#app-bar-overflow-menu')).toBeHidden();
 
-    // 320: Map stays inline; List and New Room collapse into ⋯ in priority order.
+    // 320: Map stays inline; List, Broadcast and New Room collapse into ⋯ in priority order.
     await p.setViewportSize({ width: 320, height: 700 });
     await afterAction();
     await expect(p.locator('#app-bar-actions #chatroom-map-view-btn')).toBeVisible();
     await expect(p.locator('#app-bar-overflow-menu')).toBeVisible();
     const panelOrder = await p.locator('#app-bar-overflow-panel .app-bar-action-btn').evaluateAll((els) => els.map((el) => el.id));
-    expect(panelOrder).toEqual(['chatroom-list-view-btn', 'create-custom-chatroom-btn']);
+    expect(panelOrder).toEqual(['chatroom-list-view-btn', 'broadcast-talk-btn', 'create-custom-chatroom-btn']);
 
     // Menu items show icon + label and are the same elements (testids preserved).
     await p.locator('#app-bar-overflow-btn').click();

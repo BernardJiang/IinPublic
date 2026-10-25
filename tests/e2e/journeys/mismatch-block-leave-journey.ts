@@ -224,6 +224,9 @@ export async function leaveJourney(alice: TestActor, bob: TestActor, options: { 
     await openCurrentRoom(bob.page);
     return memberItem(bob.page, aliceId).count();
   }, { timeout: 120_000, intervals: [5_000] }).toBe(0);
-  await expect.poll(() => roomHeadcount(bob.page), { timeout: 60_000 }).toBe(together - 1);
+  // In Nearby and Places the header is the hub's audience size (OPEN-86): a killed app sends no
+  // leave, so her lease runs out at most 2 × cardReissueMs (6 min) after her last heartbeat.
+  await expect.poll(() => roomHeadcount(bob.page), { timeout: personal ? 7 * 60_000 : 60_000, intervals: [5_000] })
+    .toBe(together - 1);
   return { goneAfterMs: Date.now() - closedAt };
 }

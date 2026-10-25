@@ -5,6 +5,7 @@ import { renderChatroomList, showChatroomDetail, updateChatroomMembers } from '.
 import type { User } from '../../shared/types';
 import { ROOM_CREATE_MIN_FRIEND_MARKS } from '../../shared/room-creation-credit';
 import { CONFIG } from '../../shared/config';
+import { CONTACTS_ONLY_SCOPE_ID } from '../../shared/nearby-rooms';
 
 function userWithCredit(friendsCount: number, blockCount = 0): User {
   return {
@@ -128,6 +129,20 @@ describe('chatroom shell controller', () => {
     expect((document.getElementById('chatroom-detail-container') as HTMLElement).style.display).toBe('none');
     expect(renderRooms).toHaveBeenCalledTimes(1);
     expect(deps.syncReturnHomeButton).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Broadcast on the list for Nearby and grays it out with no audience (Contacts only)', () => {
+    document.body.innerHTML = `<div id="chatroom-list-container"></div><div id="chatroom-detail-container"></div>
+      <button id="broadcast-talk-btn" style="display:none"></button>`;
+    const broadcast = () => document.getElementById('broadcast-talk-btn') as HTMLButtonElement;
+
+    createChatroomShellController(makeDeps({ getCurrentChatroom: () => 'nearby-v3' })).showChatroomList();
+    expect(broadcast().style.display).toBe('inline-flex');
+    expect(broadcast().disabled).toBe(false);
+
+    createChatroomShellController(makeDeps({ getCurrentChatroom: () => CONTACTS_ONLY_SCOPE_ID })).showChatroomList();
+    expect(broadcast().style.display).toBe('inline-flex');
+    expect(broadcast().disabled).toBe(true);
   });
 
   it('hands a Place draft to the app layer for device-side signing and publication', async () => {

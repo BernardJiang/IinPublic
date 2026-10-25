@@ -56,7 +56,8 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#top-header #create-custom-chatroom-btn')).toBeVisible();
     await expect(p.locator('#create-custom-chatroom-btn')).toHaveAttribute('title', 'New Room');
     await expect(p.locator('#top-header #return-home-btn')).toBeHidden();
-    await expect(p.locator('#top-header #broadcast-talk-btn')).toBeHidden();
+    // Nearby's people are on this list, so Broadcast is here too (owner, 2026-10-24).
+    await expect(p.locator('#top-header #broadcast-talk-btn')).toBeVisible();
     await expect(p.locator('#broadcast-talk-btn .app-bar-btn-icon')).toHaveText('📣');
     await expect(p.locator('body')).not.toContainText('Uses talks from Talks OUT');
     // A fresh user boots straight into Nearby, so there is no Return Home action to show.

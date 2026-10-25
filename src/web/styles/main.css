@@ -390,7 +390,8 @@ button:focus:not(:focus-visible) {
   border-radius: var(--radius-sm);
 }
 
-.app-bar-action-btn:disabled {
+.app-bar-action-btn:disabled,
+#dm-inbox-btn:disabled {
   opacity: 0.4;
   cursor: default;
 }

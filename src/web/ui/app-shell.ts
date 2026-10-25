@@ -54,8 +54,9 @@ export function renderAppShell(
               <div class="app-bar-overflow-panel" id="app-bar-overflow-panel"></div>
             </div>
             <!-- Always last: it opens the unread-sender picker and never depends on selecting a
-                 person in either the Map or List first. -->
-            <button type="button" class="header-btn" id="dm-inbox-btn" data-testid="dm-inbox-btn" title="Direct messages">
+                 person in either the Map or List first. Grayed out while nobody has an unread
+                 message for me (renderMatchBadge). -->
+            <button type="button" class="header-btn" id="dm-inbox-btn" data-testid="dm-inbox-btn" title="Direct messages" disabled>
               <span class="app-bar-btn-icon">💬</span>
             </button>
           </div>
