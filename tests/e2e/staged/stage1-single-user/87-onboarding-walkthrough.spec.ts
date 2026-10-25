@@ -1,4 +1,7 @@
-/** First-run product introduction plus removable demo contacts and their incoming Talks. */
+/**
+ * First-run product introduction, then the Talks tab with the starter interest tags first and the
+ * removable demo contacts' Talks last (OPEN-87).
+ */
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
@@ -6,6 +9,9 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { afterNav, reloadAppReady } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
+import { STARTER_TAGS } from '../../../../src/shared/starter-tags';
+
+const STARTER_TAG_COUNT = STARTER_TAGS.length;
 
 test.describe('First-run introduction', () => {
   let context: BrowserContext | undefined;
@@ -57,9 +63,14 @@ test.describe('First-run introduction', () => {
     await expect(p.locator('[data-testid="walkthrough-step-2"]')).toBeVisible();
     await p.locator('[data-testid="walkthrough-close-btn"]').click();
     await expect(introduction).toHaveCount(0);
-    await p.locator('.nav-btn[data-view="talks"]').click();
-    await afterNav();
-    await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(7);
+    // Closing the introduction opens Talks by itself: starter interest tags first, demo Talks last.
+    await expect(p.locator('.nav-btn[data-view="talks"]')).toHaveClass(/active/);
+    const incoming = p.locator('.talk-list-item[data-role="incoming"]');
+    await expect(incoming).toHaveCount(STARTER_TAG_COUNT + 7);
+    await expect(incoming.first()).toHaveAttribute('data-starter-tag', 'true');
+    await expect(incoming.first()).toContainText(`${STARTER_TAGS[0]!.emoji} ${STARTER_TAGS[0]!.en}`);
+    await expect(incoming.nth(STARTER_TAG_COUNT - 1)).toHaveAttribute('data-starter-tag', 'true');
+    await expect(incoming.nth(STARTER_TAG_COUNT)).not.toHaveAttribute('data-starter-tag', 'true');
     await expect.poll(() => p.evaluate(() => localStorage.getItem('iinpublic_actionable_guide_seen_v1'))).toBe('true');
 
     await p.locator('.nav-btn[data-view="contacts"]').click();
@@ -70,7 +81,7 @@ test.describe('First-run introduction', () => {
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
-    await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(3);
+    await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(STARTER_TAG_COUNT + 3);
 
     await reloadAppReady(p);
     await expect(introduction).toHaveCount(0);
@@ -95,8 +106,7 @@ test.describe('First-run introduction', () => {
     }));
     expect(widths.scroll).toBeLessThanOrEqual(widths.client);
     await p.locator('[data-testid="walkthrough-close-btn"]').click();
-    await p.locator('.nav-btn[data-view="talks"]').click();
-    await afterNav();
-    await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(7);
+    await expect(p.locator('.nav-btn[data-view="talks"]')).toHaveClass(/active/);
+    await expect(p.locator('.talk-list-item[data-role="incoming"]')).toHaveCount(STARTER_TAG_COUNT + 7);
   });
 });

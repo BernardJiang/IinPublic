@@ -1,4 +1,5 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { isStarterTagTalk } from '../../shared/starter-tags';
 import { getAnsweredTalkByContent, setAnsweredTalkByContent } from './answer-preferences-storage';
 import { deleteFlatAnswerHistoryForTalk, getTalkContentKey, saveFlatAnswerHistoryRecord } from './answer-history-storage';
 import { getCopyTalkAutoSave } from './ui-settings-storage';
@@ -146,6 +147,8 @@ export function completeTalk(
     ...(meta?.withholdFromSender ? { withholdFromSender: true } : {}),
   });
 
+  // A starter interest tag has no other person to answer (OPEN-87): its motion is the feedback.
+  if (isStarterTagTalk(talk)) return;
   deps.showNotification(
     wasIgnored
       ? deps.t('talksIgnored')

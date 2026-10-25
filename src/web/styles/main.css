@@ -2489,6 +2489,35 @@ button.contacts-broadcast-icon-btn {
   color: var(--accent-text);
 }
 
+/* One-tap tag answering (OPEN-87): Like moves right, then down; Pass flies left, then up. */
+.talk-list-item.talk-tag-chip.talk-tag-fly-like {
+  animation: talk-tag-fly-like 520ms ease-in forwards;
+  pointer-events: none;
+}
+.talk-list-item.talk-tag-chip.talk-tag-fly-pass {
+  animation: talk-tag-fly-pass 520ms ease-in forwards;
+  pointer-events: none;
+}
+@keyframes talk-tag-fly-like {
+  0% { transform: none; opacity: 1; }
+  45% { transform: translateX(45vw); opacity: 1; }
+  100% { transform: translate(45vw, 60vh); opacity: 0; }
+}
+@keyframes talk-tag-fly-pass {
+  0% { transform: none; opacity: 1; }
+  45% { transform: translateX(-45vw); opacity: 1; }
+  100% { transform: translate(-45vw, -60vh); opacity: 0; }
+}
+@keyframes talk-tag-fade {
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .talk-list-item.talk-tag-chip.talk-tag-fly-like,
+  .talk-list-item.talk-tag-chip.talk-tag-fly-pass {
+    animation: talk-tag-fade 200ms linear forwards;
+  }
+}
+
 .talk-list-item.talk-tag-chip:hover {
   transform: translateX(2px);
   border-color: var(--accent);

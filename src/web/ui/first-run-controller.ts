@@ -36,6 +36,11 @@ export function showFirstRunIfNeeded(deps: FirstRunControllerDeps): void {
   if (process.env.DISABLE_HMR === 'true' && !enabledForE2E) return;
   showWalkthroughDialog({
     text: translated(deps),
-    onClose: () => setHasSeenActionableGuide(true),
+    // Finished or skipped, the introduction hands over to the Talks tab, where the starter interest
+    // tags wait as incoming tags (OPEN-87).
+    onClose: () => {
+      setHasSeenActionableGuide(true);
+      deps.openStarterTalks();
+    },
   });
 }

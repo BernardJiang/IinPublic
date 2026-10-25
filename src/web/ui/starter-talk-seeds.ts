@@ -1,4 +1,14 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
+import {
+  STARTER_TAGS,
+  STARTER_TAGS_CONTACT_ID,
+  STARTER_TAGS_SOURCE_ID,
+  STARTER_TAGS_VERSION,
+  detachStarterTagTalk,
+  isStarterTagTalk,
+  starterTagTalk,
+} from '../../shared/starter-tags';
+import { getMyTalks, patchMyTalk } from './my-talks-storage';
 import type { KnownPerson } from '../../shared/types';
 import type { MyTalkMap } from './my-talks-storage';
 import type { UiLanguage } from './ui-translations';
@@ -216,4 +226,95 @@ export function starterIncomingTalkClusters(contacts: StarterPracticeContact[]):
     talkIds: { [talk.id]: talk.createdAt },
     starterContactId: contact.id,
   })));
+}
+
+const interestStateKey = (userId: string): string =>
+  `iinpublic_starter_interests_v${STARTER_TAGS_VERSION}:${userId}`;
+
+/**
+ * Starter interest tags (OPEN-87) for this identity, as incoming tag clusters from the local starter
+ * source. Enrollment follows the demo contacts (a new identity with no real Talks, contacts or
+ * conversations) and is remembered per user, so answering a tag does not make the rest disappear.
+ * They sort above the demo contacts' Talks: newer `updatedAt`, catalog order kept (first = newest).
+ */
+export function starterInterestClusters(
+  userId: string,
+  locale: UiLanguage,
+  eligible: boolean,
+  storage: Storage = localStorage,
+): any[] {
+  if (!userId) return [];
+  try {
+    if (storage.getItem(STARTER_CONTACTS_DISABLED_KEY) === 'true') return [];
+    if (storage.getItem(interestStateKey(userId)) !== 'enrolled') {
+      if (!eligible) return [];
+      storage.setItem(interestStateKey(userId), 'enrolled');
+    }
+  } catch {
+    if (!eligible) return [];
+  }
+  const normalizedLocale = lang(locale);
+  const newest = Date.UTC(2026, 0, 2);
+  return STARTER_TAGS.map((tag, index) => {
+    const talk = starterTagTalk(tag, normalizedLocale);
+    return {
+      identityKey: talk.id,
+      latestTalkId: talk.id,
+      title: talk.title,
+      type: talk.type,
+      language: talk.language,
+      updatedAt: new Date(newest - index * 60_000).toISOString(),
+      isAnswered: false,
+      latestTalk: talk,
+      senders: {
+        [STARTER_TAGS_SOURCE_ID]: {
+          senderId: STARTER_TAGS_SOURCE_ID,
+          senderName: 'IinPublic',
+          lastTalkId: talk.id,
+          starterContactId: STARTER_TAGS_CONTACT_ID,
+        },
+      },
+      talkIds: { [talk.id]: talk.createdAt },
+      starterContactId: STARTER_TAGS_CONTACT_ID,
+      starterTagId: tag.id,
+    };
+  });
+}
+
+/**
+ * The local starter seeds for one identity: the demo contacts and every starter cluster for the
+ * incoming list (interest tags first, then the demo Talks). Enrollment needs a new identity with no
+ * real Talks, contacts or conversations; once enrolled it is remembered per user.
+ */
+export function starterSeedsFor(
+  userId: string,
+  locale: UiLanguage,
+  state: { myTalks: MyTalkMap; conversations: Record<string, any>; knownPeople: KnownPerson[]; incoming?: any[] },
+): { contacts: StarterPracticeContact[]; clusters: any[] } {
+  const eligible = isStarterContactEligible(state.myTalks, state.conversations, state.knownPeople);
+  const contacts = getStarterPracticeContacts(userId, locale, eligible);
+  // Once a real person has sent the same tag, theirs is the row: answering it must reach them.
+  const sentByPeople = new Set((state.incoming || []).map((cluster) => String(cluster?.identityKey || '')));
+  const interests = starterInterestClusters(userId, locale, eligible).filter((cluster) => !sentByPeople.has(cluster.identityKey));
+  return { contacts, clusters: [...interests, ...starterIncomingTalkClusters(contacts)] };
+}
+
+/** The starter Talk a list row stands for, by talk id or identity key. */
+export function findStarterTalk(clusters: any[], talkId: string, identityKeyFallback?: string): any | null {
+  const cluster = clusters.find((candidate) =>
+    String(candidate?.latestTalkId || '') === String(talkId || '')
+    || String(candidate?.identityKey || '') === String(identityKeyFallback || ''));
+  return cluster?.latestTalk || null;
+}
+
+/**
+ * After a starter interest tag is answered with the normal tag logic: a Like's copy in My Talks
+ * becomes the user's own Talk (no starter author or marker, same content and identity key) so it is
+ * delivered to Nearby and answered like any Talk.
+ */
+export function adoptLikedStarterTag(talk: any, author: { id: string; name: string }): void {
+  if (!isStarterTagTalk(talk) || !author.id) return;
+  const entry = getMyTalks()[talk.id];
+  if (!entry?.fullTalk) return;
+  patchMyTalk(talk.id, { fullTalk: detachStarterTagTalk(entry.fullTalk, author) });
 }

@@ -115,12 +115,13 @@ import {
   setCopyTalkAutoSave,
 } from './ui-settings-storage';
 import {
-  getStarterPracticeContacts,
-  isStarterContactEligible,
+  adoptLikedStarterTag,
+  findStarterTalk,
   removeStarterPracticeContact,
-  starterIncomingTalkClusters,
+  starterSeedsFor,
   type StarterPracticeContactId,
 } from './starter-talk-seeds';
+import { isStarterTagTalk } from '../../shared/starter-tags';
 import { filterIncomingTalkClustersByContactPolicy } from '../../shared/talk-contact-policy';
 import { showActionableFirstRun, showFirstRunIfNeeded, showProductReferenceTour } from './first-run-controller';
 import { showMyTalksDialog as openMyTalksDialog } from './my-talks-dialog';
@@ -973,7 +974,7 @@ export class UIManager extends EventEmitter {
       updateStatsStrip: (prefix: string) => this.displayContextualStatistics('contacts-stats-strip', prefix),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
-      getStarterPracticeContacts: () => this.starterPracticeContacts(),
+      getStarterPracticeContacts: () => this.starterSeeds().contacts,
       removeStarterPracticeContact: (id) => this.removeStarterPracticeContact(id),
       saveKnownPerson: peer.saveKnownPerson,
       submitPeerReview: peer.submitPeerReview,
@@ -1789,14 +1790,15 @@ export class UIManager extends EventEmitter {
       completed.map((item) => ({ questionId: item.questionId, answerText: item.answerText })),
       'auto',
     );
-    if (checked) this.showNotification(this.t('responseMatch'), 'success');
-    else this.showNotification(this.t('responseTagIgnored'), 'info');
+    // A starter interest tag has no other person: the chip's motion is the feedback (OPEN-87).
+    if (!isStarterTagTalk(talk)) this.showNotification(this.t(checked ? 'responseMatch' : 'responseTagIgnored'), checked ? 'success' : 'info');
     this.completeTalk(
       talk,
       completed,
       checked ? 'match' : 'mismatch',
       checked ? { forceCopyToMyTalks: true } : undefined,
     );
+    if (checked) adoptLikedStarterTag(talk, { id: this.currentUserId, name: this.currentUser?.stageName || '' });
   }
 
   private quickIgnoreIncomingTalk(talkId: string, identityKeyFallback?: string): void {
@@ -1804,6 +1806,8 @@ export class UIManager extends EventEmitter {
     if (starterTalk) {
       const question = starterTalk.questions?.[0];
       const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
+      // A passed interest tag is passed again automatically when someone sends the same tag.
+      if (question && isStarterTagTalk(starterTalk)) this.saveAnswerPreference(starterTalk, starterTalk.id, question, 'ignore', 'ignore', answers, 'suppressed');
       this.completeTalk(starterTalk, answers, 'mismatch', { withholdFromSender: true });
       return;
     }
@@ -1871,10 +1875,7 @@ export class UIManager extends EventEmitter {
   }
 
   private findStarterIncomingTalk(talkId: string, identityKeyFallback?: string): any | null {
-    const cluster = starterIncomingTalkClusters(this.starterPracticeContacts()).find((candidate) =>
-      String(candidate?.latestTalkId || '') === String(talkId || '')
-      || String(candidate?.identityKey || '') === String(identityKeyFallback || ''));
-    return cluster?.latestTalk || null;
+    return findStarterTalk(this.starterSeeds().clusters, talkId, identityKeyFallback);
   }
 
   displayConversationsList(): void {
@@ -2506,9 +2507,11 @@ export class UIManager extends EventEmitter {
   showWalkthrough(onClose: () => void = () => {}): void { showProductReferenceTour(this.firstRunDeps(), onClose); }
   showActionableGuide(): void { showActionableFirstRun(this.firstRunDeps()); }
 
-  private starterPracticeContacts() {
-    const eligible = isStarterContactEligible(this.getMyTalks(), this.getMyConversations(), this.currentUser?.knownPeople || []);
-    return getStarterPracticeContacts(this.currentUserId, this.getUiLanguage(), eligible);
+  /** Demo contacts and starter clusters (interest tags first, OPEN-87, then the demo Talks). */
+  private starterSeeds() {
+    return starterSeedsFor(this.currentUserId, this.getUiLanguage(), {
+      myTalks: this.getMyTalks(), conversations: this.getMyConversations(), knownPeople: this.currentUser?.knownPeople || [], incoming: this.incomingTalkClusters,
+    });
   }
 
   private allIncomingTalkClusters(): any[] {
@@ -2517,7 +2520,7 @@ export class UIManager extends EventEmitter {
       this.currentUser?.talkFilters ?? getTalkIntakeFilters(),
       this.currentUser?.knownPeople,
     );
-    return [...starterIncomingTalkClusters(this.starterPracticeContacts()), ...actualIncoming];
+    return [...this.starterSeeds().clusters, ...actualIncoming];
   }
 
   private removeStarterPracticeContact(id: StarterPracticeContactId): void {

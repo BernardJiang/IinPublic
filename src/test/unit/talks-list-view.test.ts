@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import type { DisplayTalksListDeps } from '../../web/ui/talks-list-view';
+import { TAG_CHIP_FLY_MS } from '../../web/ui/tag-chip-fly';
 
 function renderFresh(deps: DisplayTalksListDeps): void {
   jest.isolateModules(() => {
@@ -307,13 +308,24 @@ describe('displayTalksList', () => {
     expect(like).not.toBeNull();
     expect(document.querySelector('.talk-tag-in-checkbox')).toBeNull();
     expect(document.querySelector('.talk-tag-in .talk-add-to-my-talks-btn')).toBeNull();
+    // The decision runs once the like/pass motion has played (OPEN-87).
     like?.click();
+    expect(document.querySelectorAll('.talk-tag-fly-ghost.talk-tag-fly-like')).toHaveLength(1);
+    expect(quickAnswerIncomingTag).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
     expect(quickAnswerIncomingTag).toHaveBeenCalledWith(
       'incoming-tag',
       'qa_tag_one',
       true,
     );
+    // A chip in flight ignores further taps until the list re-renders.
     pass?.click();
+    jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
+    expect(quickIgnoreIncomingTalk).not.toHaveBeenCalled();
+    like?.closest('.talk-tag-chip')?.removeAttribute('aria-busy');
+    pass?.click();
+    expect(document.querySelectorAll('.talk-tag-fly-ghost.talk-tag-fly-pass')).toHaveLength(1);
+    jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
     expect(quickIgnoreIncomingTalk).toHaveBeenCalledWith('incoming-tag', 'qa_tag_one');
   });
 

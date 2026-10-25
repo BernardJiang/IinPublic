@@ -12,6 +12,8 @@ import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { filterIncomingTalkClusters, getTalkIntakeFilters } from './talk-intake-filters';
 import { formatTalkExpiryTone, getIncomingQuestionCount } from './talk-list-metadata';
 import { escapeHtml, tagAnswerSuffix } from './ui-formatters';
+import { flyTagChips, starterChipsScrolledPast } from './tag-chip-fly';
+import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
@@ -635,7 +637,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               }
               if (incomingType === 'tag') {
                 return `
-      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag" data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}">
+      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${cluster?.starterContactId === STARTER_TAGS_CONTACT_ID ? ' data-starter-tag="true"' : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}">
         <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
           <button type="button" class="talk-tag-decision-button talk-tag-pass-button talk-tag-in-pass" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagPass'))}" title="${escapeHtml(deps.t('talksTagPass'))}">×</button>
           <button type="button" class="talk-tag-decision-button talk-tag-like-button talk-tag-in-like" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagLike'))}" title="${escapeHtml(deps.t('talksTagLike'))}">♡</button>
@@ -799,11 +801,23 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           e.stopPropagation();
           const talkId = incomingTagDecision.dataset.talkId || '';
           const identityKey = incomingTagDecision.dataset.identityKey || '';
-          if (incomingTagDecision.classList.contains('talk-tag-in-like')) {
-            currentDeps.quickAnswerIncomingTag(talkId, identityKey || undefined, true);
-          } else {
-            currentDeps.quickIgnoreIncomingTalk(talkId, identityKey || undefined);
-          }
+          const like = incomingTagDecision.classList.contains('talk-tag-in-like');
+          const row = incomingTagDecision.closest('.talk-tag-chip') as HTMLElement | null;
+          if (row?.getAttribute('aria-busy') === 'true') return;
+          // Like moves right then down; Pass flies left then up. Liking a starter tag also passes
+          // the starter tags above it that were scrolled past without a tap (OPEN-87).
+          const passedAbove = like && row ? starterChipsScrolledPast(row) : [];
+          const moves = [
+            ...passedAbove.map((chip) => ({ chip, direction: 'pass' as const })),
+            ...(row ? [{ chip: row, direction: like ? 'like' as const : 'pass' as const }] : []),
+          ];
+          flyTagChips(moves, () => {
+            for (const chip of passedAbove) {
+              currentDeps.quickIgnoreIncomingTalk(chip.dataset.talkId || '', chip.dataset.identityKey || undefined);
+            }
+            if (like) currentDeps.quickAnswerIncomingTag(talkId, identityKey || undefined, true);
+            else currentDeps.quickIgnoreIncomingTalk(talkId, identityKey || undefined);
+          });
           return;
         }
 
