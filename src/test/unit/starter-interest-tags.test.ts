@@ -6,11 +6,12 @@
  */
 import { buildTalkIdentityKey } from '../../shared/cid';
 import {
-  STARTER_TAGS,
+  STARTER_TAG_SETS,
   STARTER_TAGS_CONTACT_ID,
   detachStarterTagTalk,
   isStarterTagTalk,
   starterTagTalk,
+  starterTagsFor,
 } from '../../shared/starter-tags';
 import {
   STARTER_CONTACTS_DISABLED_KEY,
@@ -19,38 +20,52 @@ import {
   starterSeedsFor,
 } from '../../web/ui/starter-talk-seeds';
 import { getMyTalks, setMyTalks } from '../../web/ui/my-talks-storage';
-import { flyTagChips, starterChipsScrolledPast } from '../../web/ui/tag-chip-fly';
+import { flyTagChips, starterChipsScrolledPast, starterGroupHeadings } from '../../web/ui/tag-chip-fly';
 import { showFirstRunIfNeeded } from '../../web/ui/first-run-controller';
 
 const fresh = { myTalks: {}, conversations: {}, knownPeople: [] };
+const EN = starterTagsFor('en');
+const ZH = starterTagsFor('zh');
 
 describe('starter interest tags', () => {
   beforeEach(() => { localStorage.clear(); document.body.innerHTML = ''; });
 
-  it('gives each tag one identity key in every UI language, and a manual tag with the same word matches it', () => {
-    const hiking = STARTER_TAGS.find((tag) => tag.id === 'hiking')!;
-    const en = starterTagTalk(hiking, 'en');
-    const zh = starterTagTalk(hiking, 'zh');
-    expect(zh.title).toBe('🥾 徒步');
-    expect(en.id).toBe(zh.id);
+  it('has one content set per language, each tag matched by its keyword alone', () => {
+    expect(EN.length).toBeGreaterThanOrEqual(50);
+    expect(ZH.length).toBeGreaterThanOrEqual(50);
+    expect(ZH.every((tag) => starterTagTalk(tag).language === 'zh')).toBe(true);
+    // Unique ids and identity keys within each set.
+    for (const set of [EN, ZH]) {
+      expect(new Set(set.map((tag) => tag.id)).size).toBe(set.length);
+      expect(new Set(set.map((tag) => starterTagTalk(tag).id)).size).toBe(set.length);
+    }
+    // The emoji is display only: a manual tag with the same keyword in the same language is the same tag.
+    const hiking = EN.find((tag) => tag.id === 'hiking')!;
+    expect(starterTagTalk(hiking).title).toBe('🥾 Hiking');
     expect(buildTalkIdentityKey({
       type: 'tag', language: 'en',
       questions: [{ id: 'q_0', text: 'Hiking', tagKind: 'simple', answers: [
         { id: 'm', text: 'Hiking', isMatch: true }, { id: 'i', text: 'Ignore', isIgnore: true },
       ] }],
-    })).toBe(en.id);
-    expect(new Set(STARTER_TAGS.map((tag) => starterTagTalk(tag, 'en').id)).size).toBe(STARTER_TAGS.length);
+    })).toBe(starterTagTalk(hiking).id);
+    // Every group has an icon heading and a few tags.
+    for (const set of Object.values(STARTER_TAG_SETS)) {
+      expect(set.every((tagGroup) => tagGroup.icon && tagGroup.label && tagGroup.tags.length >= 4)).toBe(true);
+    }
   });
 
   it('lists interest tags first, then the demo Talks, from a source that is no sender', () => {
     const { clusters, contacts } = starterSeedsFor('u1', 'en', fresh);
-    expect(clusters.slice(0, STARTER_TAGS.length).every((cluster) => cluster.starterContactId === STARTER_TAGS_CONTACT_ID)).toBe(true);
-    expect(clusters.length).toBe(STARTER_TAGS.length + 7);
+    expect(clusters.slice(0, EN.length).every((cluster) => cluster.starterContactId === STARTER_TAGS_CONTACT_ID)).toBe(true);
+    expect(clusters.length).toBe(EN.length + 7);
+    expect(clusters[0].starterGroup).toEqual({ id: EN[0]!.group.id, icon: EN[0]!.group.icon, label: EN[0]!.group.label });
+    // A Chinese UI gets the Chinese set.
+    expect(starterSeedsFor('u9', 'zh', fresh).clusters[0].title).toBe(`${ZH[0]!.emoji} ${ZH[0]!.text}`);
     expect(contacts.map((contact) => contact.id)).not.toContain(STARTER_TAGS_CONTACT_ID);
     // Newer than the demo Talks and in catalog order, so the incoming list shows them first.
     const times = clusters.map((cluster) => Date.parse(cluster.updatedAt));
     expect(times[0]).toBeGreaterThan(times[1]!);
-    expect(times[STARTER_TAGS.length - 1]).toBeGreaterThan(times[STARTER_TAGS.length]!);
+    expect(times[EN.length - 1]).toBeGreaterThan(times[EN.length]!);
   });
 
   it('stays enrolled after the first answer, skips existing users and the E2E opt-out', () => {
@@ -63,14 +78,14 @@ describe('starter interest tags', () => {
   });
 
   it('gives way to the same tag sent by a real person, so answering reaches them', () => {
-    const hiking = starterTagTalk(STARTER_TAGS[0]!, 'en');
+    const hiking = starterTagTalk(EN[0]!);
     const { clusters } = starterSeedsFor('u1', 'en', { ...fresh, incoming: [{ identityKey: hiking.id }] });
     expect(clusters.some((cluster) => cluster.identityKey === hiking.id)).toBe(false);
     expect(findStarterTalk(clusters, hiking.id, hiking.id)).toBeNull();
   });
 
   it("adopts a liked starter copy as the user's own Talk with the same identity key", () => {
-    const talk = starterTagTalk(STARTER_TAGS[1]!, 'en');
+    const talk = starterTagTalk(EN[1]!);
     setMyTalks({ [talk.id]: { role: 'copied', fullTalk: talk } as any });
     adoptLikedStarterTag(talk, { id: 'me', name: 'Me' });
     const adopted = getMyTalks()[talk.id]!.fullTalk;
@@ -91,6 +106,16 @@ describe('starter interest tags', () => {
     const row = document.getElementById('c')!;
     expect(starterChipsScrolledPast(row).map((chip) => chip.id)).toEqual(['a']);
     expect(starterChipsScrolledPast(document.getElementById('real')!)).toEqual([]);
+  });
+
+  it('puts each group heading on the first remaining tag of that group', () => {
+    const food = { id: 'food', icon: '🍜', label: 'Food' };
+    const music = { id: 'music', icon: '🎵', label: 'Music' };
+    const headings = starterGroupHeadings([
+      { identityKey: 'a', starterGroup: food }, { identityKey: 'b', starterGroup: food },
+      { identityKey: 'real' }, { identityKey: 'c', starterGroup: music },
+    ]);
+    expect(Array.from(headings.entries())).toEqual([['a', food], ['c', music]]);
   });
 
   it('plays the like/pass motion, then answers once', () => {

@@ -12,7 +12,7 @@ import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { filterIncomingTalkClusters, getTalkIntakeFilters } from './talk-intake-filters';
 import { formatTalkExpiryTone, getIncomingQuestionCount } from './talk-list-metadata';
 import { escapeHtml, tagAnswerSuffix } from './ui-formatters';
-import { flyTagChips, starterChipsScrolledPast } from './tag-chip-fly';
+import { flyTagChips, starterChipsScrolledPast, starterGroupHeadings } from './tag-chip-fly';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
 
@@ -237,11 +237,14 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     });
   // IN: backend-consolidated incoming talks (content-hash merged)
   const rawIncomingEntries = (deps.incomingTalkClusters || []).filter((c: any) => c && c.identityKey);
-  const incomingFilterResult = filterIncomingTalkClusters(
-    rawIncomingEntries,
+  // Starter tags are chosen by the UI language already (OPEN-87); intake filters apply to people.
+  const isStarter = (c: any) => c?.starterContactId === STARTER_TAGS_CONTACT_ID;
+  const filteredIncoming = filterIncomingTalkClusters(
+    rawIncomingEntries.filter((c: any) => !isStarter(c)),
     deps.currentUser?.talkFilters || getTalkIntakeFilters(),
     deps.currentLocation,
   );
+  const incomingFilterResult = { ...filteredIncoming, visible: [...rawIncomingEntries.filter(isStarter), ...filteredIncoming.visible] };
   const hiddenReasonsText = deps.formatReasonCounts(incomingFilterResult.hiddenByReason);
   const answeredByContent = getAnsweredTalkByContent();
   const backendInEntries = incomingFilterResult.visible.filter((cluster: any) => {
@@ -537,6 +540,9 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     };
 
     // TODO §R2: named so it can be passed to renderListProgressively as `renderRow`.
+    // OPEN-87: starter tags sit under their group heading (icon + label), set after sorting below.
+    let starterHeadings = new Map<string, { id: string; icon: string; label: string }>();
+    let lastStarterKey = '';
     const renderInRow = (cluster: any): string => {
               const sendersObj = cluster?.senders && typeof cluster.senders === 'object' ? cluster.senders : {};
               const senderNames = Array.from(
@@ -636,15 +642,22 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     `;
               }
               if (incomingType === 'tag') {
-                return `
-      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${cluster?.starterContactId === STARTER_TAGS_CONTACT_ID ? ' data-starter-tag="true"' : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}">
+                const heading = starterHeadings.get(identityKey);
+                return `${heading ? `
+      <div class="starter-tag-group-heading" data-testid="starter-tag-group-heading" data-starter-group="${escapeHtml(heading.id)}"><span aria-hidden="true">${escapeHtml(heading.icon)}</span> ${escapeHtml(heading.label)}</div>` : ''}
+      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${cluster?.starterContactId === STARTER_TAGS_CONTACT_ID ? ' data-starter-tag="true"' : ''}${cluster?.starterGroup?.id ? ` data-starter-group="${escapeHtml(cluster.starterGroup.id)}"` : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}">
         <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
           <button type="button" class="talk-tag-decision-button talk-tag-pass-button talk-tag-in-pass" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagPass'))}" title="${escapeHtml(deps.t('talksTagPass'))}">×</button>
           <button type="button" class="talk-tag-decision-button talk-tag-like-button talk-tag-in-like" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagLike'))}" title="${escapeHtml(deps.t('talksTagLike'))}">♡</button>
         </span>
         <span class="talk-tag-text">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
         ${pinButtonHtml(pinKey)}
-      </div>
+      </div>${identityKey === lastStarterKey ? `
+      <div class="starter-tag-create-prompt" data-testid="starter-tag-create-prompt">
+        <div class="starter-tag-create-title">✨ ${escapeHtml(deps.t('starterCreatePromptTitle'))}</div>
+        <div class="starter-tag-create-body">${escapeHtml(deps.t('starterCreatePromptBody'))}</div>
+        <button type="button" class="btn primary-btn starter-tag-create-btn" data-testid="starter-tag-create-btn">${escapeHtml(deps.t('starterCreatePromptAction'))}</button>
+      </div>` : ''}
     `;
               }
               // Row is a single tap target (opens the talk to answer, with the details below
@@ -746,6 +759,11 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         })
       : [...inRows, ...outRows];
     const mergedRows = pinnedFirst(mergedRowsByCurrentSort, 'talks', (row) => row.pinKey);
+    const inPayloads = mergedRows.filter((row) => row.direction === 'in').map((row) => row.payload);
+    starterHeadings = starterGroupHeadings(inPayloads);
+    // The last starter interest tag carries the "Create my tag" prompt, just above the Tag Guide demo.
+    lastStarterKey = String([...inPayloads].reverse()
+      .find((cluster: any) => cluster?.starterContactId === STARTER_TAGS_CONTACT_ID)?.identityKey || '');
     const renderMergedRow = (row: MergedTalkRow): string =>
       row.direction === 'out' ? renderOutRow(row.payload) : renderInRow(row.payload);
 
@@ -792,6 +810,14 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
             if (outgoingTagPass.dataset.role === 'copied') currentDeps.quickIgnoreIncomingTalk(talkId, undefined);
             else currentDeps.deleteMyTalk(talkId);
           }
+          return;
+        }
+
+        if (target.closest('[data-testid="starter-tag-create-btn"]')) {
+          e.preventDefault();
+          e.stopPropagation();
+          // A new Talk opens as a tag (talk-editor-dialog.ts defaults to it).
+          document.getElementById('create-talk-btn')?.click();
           return;
         }
 

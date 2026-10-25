@@ -55,3 +55,19 @@ export function flyTagChips(
     done();
   }, TAG_CHIP_FLY_MS);
 }
+
+/**
+ * Which starter tag carries its group heading: the first one of each group in list order (answered
+ * starter tags leave the list, so a heading moves to the group's next tag and goes with the last).
+ */
+export function starterGroupHeadings(clusters: any[]): Map<string, { id: string; icon: string; label: string }> {
+  const headings = new Map<string, { id: string; icon: string; label: string }>();
+  const seen = new Set<string>();
+  for (const cluster of clusters) {
+    const group = cluster?.starterGroup;
+    if (!group?.id || seen.has(group.id)) continue;
+    seen.add(group.id);
+    headings.set(String(cluster.identityKey || ''), group);
+  }
+  return headings;
+}

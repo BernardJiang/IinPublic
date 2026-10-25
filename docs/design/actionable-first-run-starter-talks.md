@@ -58,8 +58,21 @@ interests, the Tag Guide and the other guides lead to the next step, creating th
   screen; reaching the end passes the rest. Swipe right likes, swipe left passes; tapping a tray chip
   undoes a like. Two-step transforms of about 250 ms; with reduced motion the chips fade. The same
   list behaviour is meant for every incoming tag later, not only starter tags.
-- **Catalog.** `src/shared/starter-tags.ts`: about 24 interest tags `{ id, emoji, en, zh }` with a
-  version. Interests only; buy/sell intents stay in TODO2 (DRAFT-OPEN-82).
+- **Catalog: content tags, one set per language.** `src/shared/starter-tags.ts` holds an English
+  and a Chinese set (60 tags each, 9 groups), written for each audience: specific things people
+  watch, read, play, eat and follow (Sci-fi, Hip-hop, NBA; 火锅, 国产剧, 剧本杀) rather than broad
+  activities, because sharing a rarer interest attracts more (Alves 2018). A tag is stored in its
+  set's language, so people in the same set match. Groups are display only: an icon heading with
+  the group's tags indented below. Emoji are display only too; only the keyword enters the identity
+  key. Order: the most widely shared groups first (food, screen, music), the most common tag first
+  inside a group, so it is reached before a Like further down passes it. Starter tags skip the
+  intake filters (they already follow the UI language). Interests only; buy/sell intents stay in
+  TODO2 (DRAFT-OPEN-82).
+- **Create my tag.** After the last starter tag a "Something more specific?" prompt explains that a
+  tag only a few people share finds your people best; **＋ Create my tag** opens the editor on a new
+  tag. Right below it the Tag Guide's examples sit under their own heading, indented like the
+  starter groups, showing how. Rarer tags are what bond people most, and creating them is what
+  keeps people engaged.
 - **After matches** the user travels a person↔tag graph built from local data, in any order: a tag
   page lists who likes the tag (senders of that tag ∪ people whose tag exchange with me matched); a
   person page lists their tags, shared first; a tag directory (Contacts → 🏷️) lists every known tag

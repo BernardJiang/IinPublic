@@ -2489,6 +2489,25 @@ button.contacts-broadcast-icon-btn {
   color: var(--accent-text);
 }
 
+/* Starter tags (OPEN-87): an icon heading per group, its tags indented below it. */
+.starter-tag-group-heading {
+  margin: 14px 0 4px;
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.talk-list-item.talk-tag-chip[data-starter-group] { margin-left: 18px; }
+
+.starter-tag-create-prompt {
+  margin: 14px 0 6px 18px;
+  padding: 12px 14px;
+  border: 1px dashed var(--accent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.starter-tag-create-title { font-weight: 700; margin-bottom: 4px; }
+.starter-tag-create-body { font-size: 0.88em; color: var(--text-secondary); margin-bottom: 10px; }
+
 /* One-tap tag answering (OPEN-87): Like moves right, then down; Pass flies left, then up. */
 .talk-list-item.talk-tag-chip.talk-tag-fly-like {
   animation: talk-tag-fly-like 520ms ease-in forwards;

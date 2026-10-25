@@ -1,12 +1,12 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import {
-  STARTER_TAGS,
   STARTER_TAGS_CONTACT_ID,
   STARTER_TAGS_SOURCE_ID,
   STARTER_TAGS_VERSION,
   detachStarterTagTalk,
   isStarterTagTalk,
   starterTagTalk,
+  starterTagsFor,
 } from '../../shared/starter-tags';
 import { getMyTalks, patchMyTalk } from './my-talks-storage';
 import type { KnownPerson } from '../../shared/types';
@@ -225,7 +225,17 @@ export function starterIncomingTalkClusters(contacts: StarterPracticeContact[]):
     },
     talkIds: { [talk.id]: talk.createdAt },
     starterContactId: contact.id,
+    // Right after the starter tags and the "Create my tag" prompt: examples of making one's own.
+    ...(contact.id === 'tag-guide' ? { starterGroup: tagGuideHeading(contact.talks[0]?.language) } : {}),
   })));
+}
+
+function tagGuideHeading(locale: UiLanguage | undefined): { id: string; icon: string; label: string } {
+  return {
+    id: 'tag-guide',
+    icon: '🏷️',
+    label: locale === 'zh' ? '标签向导' : 'Tag Guide',
+  };
 }
 
 const interestStateKey = (userId: string): string =>
@@ -253,10 +263,10 @@ export function starterInterestClusters(
   } catch {
     if (!eligible) return [];
   }
-  const normalizedLocale = lang(locale);
+  // One set per UI language (content written for that audience); groups are headings only.
   const newest = Date.UTC(2026, 0, 2);
-  return STARTER_TAGS.map((tag, index) => {
-    const talk = starterTagTalk(tag, normalizedLocale);
+  return starterTagsFor(lang(locale)).map((tag, index) => {
+    const talk = starterTagTalk(tag);
     return {
       identityKey: talk.id,
       latestTalkId: talk.id,
@@ -277,6 +287,7 @@ export function starterInterestClusters(
       talkIds: { [talk.id]: talk.createdAt },
       starterContactId: STARTER_TAGS_CONTACT_ID,
       starterTagId: tag.id,
+      starterGroup: { id: tag.group.id, icon: tag.group.icon, label: tag.group.label },
     };
   });
 }

@@ -6,8 +6,9 @@ Last updated: 2026-10-24
 
 Design: `docs/design/actionable-first-run-starter-talks.md` (owner decisions 2026-10-24).
 - **Placement:** closing or skipping the introduction opens the Talks tab; the incoming list starts
-  with 24 starter interest tags (`src/shared/starter-tags.ts`) and ends with the demo contacts'
-  Talks.
+  with the starter tags of the UI language (`src/shared/starter-tags.ts`: English and Chinese
+  content sets, 60 each, under icon group headings, indented), then a "Create my tag" prompt (opens
+  the editor on a tag), then the Tag Guide's examples under their heading and the other demo Talks.
 - **Ordinary tags with no sender:** a starter tag is a normal `tag` Talk from a local source that is
   not a Contact; answering sends nothing and creates no Contact. Like teaches the chatbot and copies
   the tag into My Talks as the user's own Talk (no starter author or marker); one canonical form per

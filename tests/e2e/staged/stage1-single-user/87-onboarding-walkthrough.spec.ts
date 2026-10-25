@@ -9,8 +9,9 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { afterNav, reloadAppReady } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
-import { STARTER_TAGS } from '../../../../src/shared/starter-tags';
+import { starterTagsFor } from '../../../../src/shared/starter-tags';
 
+const STARTER_TAGS = starterTagsFor('en');
 const STARTER_TAG_COUNT = STARTER_TAGS.length;
 
 test.describe('First-run introduction', () => {
@@ -68,10 +69,26 @@ test.describe('First-run introduction', () => {
     const incoming = p.locator('.talk-list-item[data-role="incoming"]');
     await expect(incoming).toHaveCount(STARTER_TAG_COUNT + 7);
     await expect(incoming.first()).toHaveAttribute('data-starter-tag', 'true');
-    await expect(incoming.first()).toContainText(`${STARTER_TAGS[0]!.emoji} ${STARTER_TAGS[0]!.en}`);
+    await expect(incoming.first()).toContainText(`${STARTER_TAGS[0]!.emoji} ${STARTER_TAGS[0]!.text}`);
+    // Grouped under icon headings, one per group, the first above the first tag.
+    const headings = p.locator('[data-testid="starter-tag-group-heading"]');
+    await expect(headings.first()).toContainText(STARTER_TAGS[0]!.group.label);
+    // One per starter group, plus the Tag Guide demo's.
+    await expect(headings).toHaveCount(new Set(STARTER_TAGS.map((tag) => tag.group.id)).size + 1);
     await expect(incoming.nth(STARTER_TAG_COUNT - 1)).toHaveAttribute('data-starter-tag', 'true');
     await expect(incoming.nth(STARTER_TAG_COUNT)).not.toHaveAttribute('data-starter-tag', 'true');
     await expect.poll(() => p.evaluate(() => localStorage.getItem('iinpublic_actionable_guide_seen_v1'))).toBe('true');
+    // After the last starter tag: "Create my tag", then the Tag Guide's examples under their heading.
+    const prompt = p.locator('[data-testid="starter-tag-create-prompt"]');
+    await expect(prompt).toHaveCount(1);
+    expect(await prompt.evaluate((element) =>
+      element.previousElementSibling?.getAttribute('data-starter-tag') === 'true'
+      && element.nextElementSibling?.getAttribute('data-starter-group') === 'tag-guide')).toBe(true);
+    await expect(p.locator('[data-testid="starter-tag-group-heading"][data-starter-group="tag-guide"]')).toHaveText(/Tag Guide/);
+    await prompt.locator('[data-testid="starter-tag-create-btn"]').click();
+    await expect(p.locator('#talk-editor-form')).toBeVisible();
+    await expect(p.locator('input[name="talk-type-radio"][value="tag"]')).toBeChecked();
+    await p.locator('#cancel-talk-btn').click();
 
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
