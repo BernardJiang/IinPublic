@@ -1896,9 +1896,12 @@ On the very first launch the runtime establishes identity and room context:
 1. The app **auto-generates a unique ID** (Gun SEA public key pair) and a random **stageName** (changeable at any time; not unique).
 2. The SEA key pair is stored locally — it is the sole proof of identity.
 3. The user is immediately placed in the appropriate chatroom based on device location.
-4. The app opens its normal shell and shows a three-step, actionable guide. It asks what the user
-   wishes they did not have to repeat, offers six bilingual starter Talks plus custom text, and
-   ends by opening the selected content in the normal Talk editor for review.
+4. The app opens its normal shell and shows the product introduction. Finishing or skipping it
+   opens the Talks tab, whose incoming list starts with the starter interest tags and ends with the
+   demo contacts' Talks (docs/design/actionable-first-run-starter-talks.md, OPEN-87). Starter tags
+   are ordinary incoming tags with no sender: answering sends nothing and creates no Contact, while
+   Like still teaches the chatbot and copies the tag into My Talks for normal Nearby delivery.
+   The three-step guide described below is superseded by this flow.
 
 The guide is a drafting aid, not an automation grant. It MUST NOT save, publish, broadcast, or send
 anything. Those effects remain behind the editor's explicit **Create** action. Its versioned seen
