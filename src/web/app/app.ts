@@ -49,6 +49,7 @@ import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
 import { getAnsweredTalkByContent, getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
+import { findAutoAnswer, LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
@@ -6249,7 +6250,18 @@ export class IinPublicApp {
     } catch {
       return false;
     }
-    return !this.alreadyAnsweredForAuthor(contentId, authorId) && this.chatbotHasAnswersFor(talkId, contentId, talkData);
+    return !this.alreadyAnsweredForAuthor(contentId, authorId)
+      && (this.chatbotHasAnswersFor(talkId, contentId, talkData) || this.isPassedTag(talkData));
+  }
+
+  /** A one-keyword tag whose keyword the user passed (a suppressed question in exact memory). */
+  private isPassedTag(talkData: any): boolean {
+    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
+    if (String(talkData?.type || '').toLowerCase() !== 'tag' || questions.length !== 1 || !questions[0]?.text) return false;
+    const options = (questions[0].answers || []).map((answer: any) => String(answer?.text || ''));
+    return findAutoAnswer(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, String(questions[0].text), options, Date.now(), {
+      language: String(talkData?.language || 'en').toLowerCase(),
+    }).reason === 'QUESTION_SUPPRESSED';
   }
 
   /**
@@ -6278,6 +6290,20 @@ export class IinPublicApp {
       return;
     }
     const canAuto = this.chatbotHasAnswersFor(talkId, contentId, talkData);
+    if (!canAuto && this.isPassedTag(talkData)) {
+      // A tag the user passed, sent again by someone: pass it again. A pass is a talk-level
+      // opt-out, so nothing goes back to the sender — only the user's list records it (🤖).
+      this.chatbotAutoReplySentForPair.add(pairKey);
+      const question = talkData.questions[0];
+      console.log('🤖 Chatbot passed a tag the user passed before', { talkId, authorId });
+      this.uiManager.recordChatbotAnsweredTalk(
+        { ...talkData, id: talkId, authorId },
+        [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore' }],
+        'mismatch',
+        true,
+      );
+      return;
+    }
     if (!canAuto) {
       const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
       if (retries < 6) {

@@ -2392,8 +2392,8 @@ export class UIManager extends EventEmitter {
   }
 
   /** Record (locally, quietly) a talk the chatbot already answered for the user — marked 🤖. */
-  recordChatbotAnsweredTalk(talk: any, answers: any[], outcome: 'match' | 'mismatch'): void {
-    this.completeTalk(talk, answers, outcome, { answeredByChatbot: true });
+  recordChatbotAnsweredTalk(talk: any, answers: any[], outcome: 'match' | 'mismatch', withholdFromSender = false): void {
+    this.completeTalk(talk, answers, outcome, { answeredByChatbot: true, withholdFromSender });
   }
 
   private completeTalk(

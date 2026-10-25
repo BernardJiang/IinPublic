@@ -176,12 +176,13 @@ function buildDisplayName(stageName: string, known?: KnownPerson): string {
   return nickname || baseStageName;
 }
 
-function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps): string {
+/** `commonTags`: the tag-graph count (OPEN-87); 0 leaves it out, as does the tags sort, whose chip shows it. */
+function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps, commonTags: number): string {
   const matchedTalks = summary.stats.sent.matches + summary.stats.received.matches;
   const parts = [
     formatCountText(deps, summary.stats.totalTalks, 'contactsTalkCountOne', 'contactsTalkCount'),
     formatCountText(deps, matchedTalks, 'contactsMatchCountOne', 'contactsMatchCount'),
-    formatCountText(deps, summary.stats.mutualTagCount, 'contactsCommonTagCountOne', 'contactsCommonTagCount'),
+    ...(commonTags > 0 ? [formatCountText(deps, commonTags, 'contactsCommonTagCountOne', 'contactsCommonTagCount')] : []),
     known?.labels?.length ? formatRelationshipLabel(known, deps) : deps.text('stranger'),
   ];
   return parts.join(' · ');
@@ -727,8 +728,8 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     });
     const tieBreak = (a: PeerSummary, b: PeerSummary): number =>
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
-    // OPEN-87: one graph snapshot per render for the "Most tags in common" sort.
-    const sharedTags = sortOrder === 'shared-tags' ? sharedTagCounter() : () => 0;
+    // OPEN-87: one graph snapshot per render, for the "Most tags in common" sort and each row.
+    const sharedTags = sharedTagCounter();
     const visiblePeersByCurrentSort = peers
       .filter((peer) => {
         // Never show the current user as their own contact.
@@ -838,7 +839,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
               <span class="contact-item-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;overflow:hidden;">${headshotHtml}</span>
               <div style="min-width: 0;">
                 <div class="contact-item-name" style="font-weight: 700; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; display: inline-block; cursor: pointer;" title="${deps.escapeHtml(deps.text('contactsOpenDm'))}">${deps.escapeHtml(displayName)}</div>${presenceIndicator}${blockedBadge}
-                <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
+                <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps, sortOrder === 'shared-tags' ? 0 : sharedTags(peer.peerId)))}</div>
                 <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks}</div>
                 ${sortOrder === 'match-rate' ? matchRateChip : ''}
                 ${sortOrder === 'shared-tags' ? sharedTagsChipHtml(sharedTags(peer.peerId), deps.text('tagsInCommon')) : ''}

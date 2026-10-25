@@ -7,6 +7,7 @@
  */
 
 import { displayContactsList, saveKnownPerson, setBlocked, showContactDetail } from '../../web/ui/contacts-view';
+import { configureTagGraphView } from '../../web/ui/tag-graph-view';
 import type { KnownPerson } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { languageOptionLabel, uiText } from '../../web/ui/ui-translations';
@@ -315,9 +316,32 @@ describe('Contacts ranking and relationship filters', () => {
     await displayContactsList(contactDeps);
 
     expect(contactDeps.updateStatsStrip).toHaveBeenCalledWith('1 contact from exchanged talks · ');
-    // 1 talk, 1 match; mutualTagCount comes from exchanges (0 stored)
     expect(document.getElementById('contacts-list')?.textContent).toContain('1 talk');
     expect(document.getElementById('contacts-list')?.textContent).toContain('1 match');
+  });
+
+  it('states the tags in common from the tag graph, not a stored count that is always 0 (OPEN-87)', async () => {
+    localStorage.clear();
+    const exchanges = {
+      'strong::tag-coffee': { peerId: 'strong', peerName: 'Strong', talkId: 'tag-coffee', type: 'tag', title: '☕ Coffee', outcome: 'match', direction: 'sent', date: '2026-05-21T00:00:00.000Z' },
+      'strong::tag-tea': { peerId: 'strong', peerName: 'Strong', talkId: 'tag-tea', type: 'tag', title: '🍵 Tea', outcome: 'match', direction: 'sent', date: '2026-05-21T00:00:00.000Z' },
+      'weak::tag-jazz': { peerId: 'weak', peerName: 'Weak', talkId: 'tag-jazz', type: 'tag', title: '🎷 Jazz', outcome: 'match', direction: 'sent', date: '2026-05-21T00:00:00.000Z' },
+    };
+    localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+    const tag = (id: string) => ({ role: 'created', fullTalk: { id, type: 'tag', title: id } });
+    configureTagGraphView({
+      graphInput: () => ({ currentUserId: 'me', incoming: [], myTalks: { 'tag-coffee': tag('tag-coffee'), 'tag-tea': tag('tag-tea') }, exchanges }),
+      openPerson: () => {},
+      t: (key) => uiText('en', key),
+    });
+    try {
+      await displayContactsList(deps());
+      const meta = (id: string) => document.querySelector(`.contact-item[data-contact-user-id="${id}"] .contact-item-meta`)?.textContent || '';
+      expect(meta('strong')).toContain('2 common tags');
+      expect(meta('weak')).not.toContain('common tag');
+    } finally {
+      configureTagGraphView({ graphInput: () => ({ currentUserId: '', incoming: [], myTalks: {}, exchanges: {} }), openPerson: () => {}, t: (key) => uiText('en', key) });
+    }
   });
 
   it('localizes contact details and relationship controls independently of English labels', async () => {
