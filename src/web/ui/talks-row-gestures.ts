@@ -90,9 +90,17 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
       // swallow a real, separate click on something inside the popup that just opened
       // (e.g. a test or a fast double-tap landing on the sender-name a moment later).
       deps.setSuppressClickUntil(Date.now() + 60);
-      // The finger or button is still down: also swallow the click its release fires, however long
-      // the press lasted, so it neither opens the row nor clears the selection made here.
-      window.addEventListener('pointerup', () => deps.setSuppressClickUntil(Date.now() + 60), { once: true, capture: true });
+      // The finger or button is still down: swallow exactly the one click its release fires, however
+      // long the press lasted, so it neither opens the row nor clears the selection made here. Any
+      // later click (e.g. on the details popup) goes through.
+      window.addEventListener('pointerup', () => {
+        const swallow = (event: MouseEvent): void => {
+          event.stopPropagation();
+          event.preventDefault();
+        };
+        window.addEventListener('click', swallow, { once: true, capture: true });
+        window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+      }, { once: true, capture: true });
       // A long-press selects the row for the AppBar's ✕ Pass · ♡ Like · 📌 Pin (tag-tap-mode.ts).
       selectTalkRow(row);
       const details = row.querySelector('.talk-item-details') as HTMLElement | null;
