@@ -81,8 +81,9 @@ test.describe('First-run introduction', () => {
     // After the last starter tag: "Create my tag", then the Tag Guide's examples under their heading.
     const prompt = p.locator('[data-testid="starter-tag-create-prompt"]');
     await expect(prompt).toHaveCount(1);
+    // Chips sit side by side in a wrapping row, so the prompt follows the last starter group's row.
     expect(await prompt.evaluate((element) =>
-      element.previousElementSibling?.getAttribute('data-starter-tag') === 'true'
+      element.previousElementSibling?.lastElementChild?.getAttribute('data-starter-tag') === 'true'
       && element.nextElementSibling?.getAttribute('data-starter-group') === 'tag-guide')).toBe(true);
     await expect(p.locator('[data-testid="starter-tag-group-heading"][data-starter-group="tag-guide"]')).toHaveText(/Tag Guide/);
     await prompt.locator('[data-testid="starter-tag-create-btn"]').click();

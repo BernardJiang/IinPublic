@@ -11,4 +11,4 @@ Width-matrix check of the `⋯` overflow (gui-redesign-plan §1/§6, test plan T
 3. Panel items are the same live elements — same ids/testids, labels visible — and invoking
    one (🆕) opens the Create Room dialog and closes the panel.
 4. Growing the window back to 1024 restores every contextual icon inline.
-5. Tabs with a single action (Talks: ➕) never overflow, even at 320.
+5. Talks keeps ➕ inline at 320; its ✕ Pass · ♡ Like · 📌 Pin fold into `⋯` in that order.

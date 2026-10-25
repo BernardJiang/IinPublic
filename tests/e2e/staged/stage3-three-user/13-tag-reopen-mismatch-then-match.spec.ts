@@ -102,7 +102,7 @@ test.describe('Talks matching — change a Tag from Passed to Liked', () => {
     const tagRow = pageTom.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
     await expect(tagRow).toHaveCount(0);
 
-    // The dedicated Passed list offers a direct Like action; no Restore/intermediate state.
+    // In the Passed list a tap likes the tag again; no Restore/intermediate state.
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
     await pageTom.locator('#talks-filter-outgoing').uncheck();
@@ -111,7 +111,7 @@ test.describe('Talks matching — change a Tag from Passed to Liked', () => {
     await afterSync();
     const passedTag = pageTom.locator('.talk-list-item[data-role="ignored"]').filter({ hasText: TAG_TITLE });
     await expect(passedTag).toBeVisible();
-    await passedTag.locator('.talk-tag-in-like').click();
+    await passedTag.click();
     await expect(passedTag).toHaveCount(0);
 
     await pageTom.locator('#talks-filter-outgoing').check();

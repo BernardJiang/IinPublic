@@ -114,7 +114,8 @@ export function tagAnswerSuffix(talk: {
       return declaredAnswer === keyword ? '' : renderTagAnswerSuffixHtml(declaredAnswer);
     }
   }
-  const keyword = talk?.title ?? talk?.fullTalk?.title;
+  // The tag's own keyword is its question text; the title may add an emoji ("☕ Coffee").
+  const keyword = rootQuestion?.text || (talk?.title ?? talk?.fullTalk?.title);
   const matchAnswerText = rootQuestion?.answers?.find((a) => a?.isMatch)?.text;
   if (!keyword || !matchAnswerText || matchAnswerText === keyword) return '';
   return renderTagAnswerSuffixHtml(matchAnswerText);

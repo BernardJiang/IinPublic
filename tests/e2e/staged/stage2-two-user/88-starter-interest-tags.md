@@ -14,6 +14,10 @@ starter seeds the harness turns off for ordinary specs.
 3. The liked tag is copied into My Talks as Una's own Talk: her id as author, no starter marker,
    same content identity key. The two above are passed; tags below are untouched.
 4. Nothing is sent and no Contact or conversation appears.
+5. A divider splits Incoming from Outgoing, where the liked tag now sits.
+6. The AppBar's ✕ ♡ 📌 are grayed out until a long-press selects a row; ✕ then passes the
+   selected tag.
+7. Tapping the liked tag in Outgoing passes it — the way back from a regretted Like.
 
 ## 2. Same starter tag, ordinary Talk exchange, a match
 

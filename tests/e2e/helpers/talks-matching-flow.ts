@@ -354,19 +354,19 @@ export async function clickIncomingTagDecision(
   await syncIncomingFromServer(page);
   await afterSync();
 
-  const selector = decision === 'like' ? '.talk-tag-in-like' : '.talk-tag-in-pass';
+  // Tag rows have no buttons: a tap likes, Delete passes (owner design 2026-10-24).
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     const clicked = await page.evaluate(
-      ({ title, buttonSelector }) => {
+      ({ title, like }) => {
         const rows = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item[data-role="incoming"]'));
         const current = rows.find((candidate) => candidate.textContent?.includes(title));
-        const button = current?.querySelector<HTMLButtonElement>(buttonSelector);
-        if (!button) return false;
-        button.click();
+        if (!current) return false;
+        if (like) current.click();
+        else current.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
         return true;
       },
-      { title: titleSubstring, buttonSelector: selector },
+      { title: titleSubstring, like: decision === 'like' },
     );
     if (clicked) return;
 
@@ -916,7 +916,9 @@ export async function dragTalkRow(
   await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
   const box = await row.boundingBox();
   if (!box) throw new Error('dragTalkRow: row has no bounding box (not visible?)');
-  const startX = box.x + box.width / 2;
+  // Start at the far edge from the direction of travel so a short chip near the screen edge can
+  // still be dragged its full distance without leaving the window.
+  const startX = direction === 'left' ? box.x + box.width - 6 : direction === 'right' ? box.x + 6 : box.x + box.width / 2;
   const startY = box.y + box.height / 2;
   const [dx, dy] = direction === 'up'
     ? [0, -100]

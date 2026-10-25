@@ -12,7 +12,7 @@ export type TalkDeletionDeps = {
   emit: (event: string, payload: unknown) => void;
 };
 
-function removeLocalTalkState(talkId: string): void {
+export function removeLocalTalkState(talkId: string): void {
   deleteMyTalkEntry(talkId);
   deleteFlatAnswerHistoryForTalk(talkId);
   deleteAnswerPreferencesForTalk(talkId);

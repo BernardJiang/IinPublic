@@ -11,6 +11,8 @@
  * identical for a singleton `UIManager`, one fewer thing threaded through the deps object.
  */
 
+import { selectTalkRow } from './tag-tap-mode';
+
 export interface TalksRowGesturesDeps {
   /** A committed or cancelled drag swallows the click that would otherwise follow release —
    *  the only piece of this method's state actually read elsewhere in `UIManager`. */
@@ -31,6 +33,7 @@ type GestureState = {
   startY: number;
   dragging: boolean;
   committedAt: number;
+  longPressOnly: boolean;
 };
 
 let bound = false;
@@ -41,8 +44,12 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
 
   const MOVE_THRESHOLD = 12;
   const COMMIT_THRESHOLD = 64;
+  // Tag chips are short and sit side by side from the left edge: a smaller swipe commits them.
+  const TAG_COMMIT_THRESHOLD = 48;
+  const commitThreshold = (row: HTMLElement): number =>
+    (row.classList.contains('talk-tag-chip') ? TAG_COMMIT_THRESHOLD : COMMIT_THRESHOLD);
   const LONG_PRESS_MS = 500;
-  const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-pin-button, .talk-copy-button, .talk-tag-decision-actions, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details, .talk-restore-ignored-btn';
+  const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-copy-button, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details, .talk-restore-ignored-btn';
 
   let gestureState: GestureState | null = null;
 
@@ -61,7 +68,8 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
     if (!row) return;
     const isIncoming = row.dataset.role === 'incoming';
     if (target.closest(excluded) && !(isIncoming && target.closest('.view-talk-btn'))) return;
-    if (row.classList.contains('talk-tag-chip') && !isIncoming) return;
+    // My own tags and passed tags only take a long-press (to select them); they do not drag.
+    const longPressOnly = row.classList.contains('talk-tag-chip') && !isIncoming;
     const state: GestureState = {
       row,
       talkId: row.dataset.talkId || '',
@@ -71,6 +79,7 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
       startY: e.clientY,
       dragging: false,
       committedAt: 0,
+      longPressOnly,
     };
     gestureState = state;
     const longPressTimer = window.setTimeout(() => {
@@ -81,6 +90,11 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
       // swallow a real, separate click on something inside the popup that just opened
       // (e.g. a test or a fast double-tap landing on the sender-name a moment later).
       deps.setSuppressClickUntil(Date.now() + 60);
+      // The finger or button is still down: also swallow the click its release fires, however long
+      // the press lasted, so it neither opens the row nor clears the selection made here.
+      window.addEventListener('pointerup', () => deps.setSuppressClickUntil(Date.now() + 60), { once: true, capture: true });
+      // A long-press selects the row for the AppBar's ✕ Pass · ♡ Like · 📌 Pin (tag-tap-mode.ts).
+      selectTalkRow(row);
       const details = row.querySelector('.talk-item-details') as HTMLElement | null;
       if (details) deps.showDetailsPopupFor(details, row);
     }, LONG_PRESS_MS);
@@ -91,7 +105,7 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
 
   document.body.addEventListener('pointermove', (e: PointerEvent) => {
     const state = gestureState;
-    if (!state) return;
+    if (!state || state.longPressOnly) return;
     const dx = e.clientX - state.startX;
     const dy = e.clientY - state.startY;
     if (!state.dragging && Math.max(Math.abs(dx), Math.abs(dy)) < MOVE_THRESHOLD) return;
@@ -138,19 +152,20 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
     const dy = e.clientY - state.startY;
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
-    if (state.role === 'incoming' && absDx > absDy && absDx >= COMMIT_THRESHOLD && dx < 0) {
+    const threshold = commitThreshold(state.row);
+    if (state.role === 'incoming' && absDx > absDy && absDx >= threshold && dx < 0) {
       deps.quickIgnoreIncomingTalk(state.talkId, state.identityKey || undefined);
     } else if (
       state.role === 'incoming'
       && absDx > absDy
-      && absDx >= COMMIT_THRESHOLD
+      && absDx >= threshold
       && dx > 0
       && (state.row.dataset.incomingType === 'tag' || state.row.classList.contains('talk-tag-in'))
     ) {
       deps.quickAnswerIncomingTag(state.talkId, state.identityKey || undefined, true);
-    } else if (state.role === 'incoming' && absDy >= absDx && dy >= COMMIT_THRESHOLD) {
+    } else if (state.role === 'incoming' && absDy >= absDx && dy >= threshold) {
       deps.quickCopyIncomingTalk(state.talkId, state.identityKey || undefined);
-    } else if (absDx > absDy && absDx >= COMMIT_THRESHOLD && (state.role === 'created' || state.role === 'copied') && dx < 0 && state.talkId) {
+    } else if (absDx > absDy && absDx >= threshold && (state.role === 'created' || state.role === 'copied') && dx < 0 && state.talkId) {
       deps.deleteMyTalk(state.talkId);
     }
   });

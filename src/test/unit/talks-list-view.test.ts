@@ -3,12 +3,17 @@
 import type { DisplayTalksListDeps } from '../../web/ui/talks-list-view';
 import { TAG_CHIP_FLY_MS } from '../../web/ui/tag-chip-fly';
 
+/** The row selection of the module instance the latest renderFresh used (long-press selects). */
+let selectTalkRow: (row: HTMLElement) => void = () => undefined;
+
 function renderFresh(deps: DisplayTalksListDeps): void {
   jest.isolateModules(() => {
     // Listener/render sequence state is document-scoped inside the module; a fresh module keeps
     // each characterization independent.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { displayTalksList } = require('../../web/ui/talks-list-view');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    selectTalkRow = require('../../web/ui/tag-tap-mode').selectTalkRow;
     displayTalksList(deps);
   });
 }
@@ -227,7 +232,7 @@ describe('displayTalksList', () => {
     expect(document.getElementById('talks-list')?.textContent).toContain('talksNoTalks');
   });
 
-  it('pins an older talk above the current sort and unpins it without opening the row', () => {
+  it('pins a long-pressed row with the toolbar and grays the toolbar out without a selection', () => {
     installTalksDom();
     localStorage.setItem('myTalks', JSON.stringify({
       newer: {
@@ -242,15 +247,24 @@ describe('displayTalksList', () => {
       },
     }));
     const emit = jest.fn();
+    document.body.insertAdjacentHTML('beforeend', ['pass', 'like', 'pin']
+      .map((action) => `<button class="talks-tap-mode-btn" id="talks-tap-${action}-btn" disabled></button>`).join(''));
     renderFresh(makeDeps({ emit }));
 
-    document.querySelector<HTMLButtonElement>('[data-talk-id="older"] .talk-pin-button')?.click();
+    const pin = () => document.getElementById('talks-tap-pin-btn') as HTMLButtonElement;
+    // Nothing selected: the toolbar is grayed out.
+    expect(pin().disabled).toBe(true);
+    // A long-press selects the row; 📌 then pins it, and it shows a badge instead of a button.
+    selectTalkRow(document.querySelector<HTMLElement>('[data-talk-id="older"]')!);
+    expect(pin().disabled).toBe(false);
+    pin().click();
     let ids = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item')).map((row) => row.dataset.talkId);
     expect(ids).toEqual(['older', 'newer']);
-    expect(document.querySelector('[data-talk-id="older"] .talk-pin-button')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-talk-id="older"] .talk-pin-badge')).not.toBeNull();
+    expect(document.querySelector('.talk-pin-button')).toBeNull();
     expect(emit).not.toHaveBeenCalledWith('loadTalkForEdit', expect.anything());
 
-    document.querySelector<HTMLButtonElement>('[data-talk-id="older"] .talk-pin-button')?.click();
+    pin().click();
     ids = Array.from(document.querySelectorAll<HTMLElement>('.talk-list-item')).map((row) => row.dataset.talkId);
     expect(ids).toEqual(['newer', 'older']);
   });
@@ -282,9 +296,11 @@ describe('displayTalksList', () => {
     expect(showNotification).toHaveBeenCalledWith('talksBroadcastDisabled', 'success');
   });
 
-  it('renders compact Pass/Like actions and delegates both incoming tag decisions', () => {
+  it('likes a tag on tap, passes it on Delete or with the toolbar on a selection', () => {
     jest.useFakeTimers();
     installTalksDom();
+    document.body.insertAdjacentHTML('beforeend', ['pass', 'like', 'pin']
+      .map((action) => `<button class="talks-tap-mode-btn" id="talks-tap-${action}-btn" disabled></button>`).join(''));
     const quickAnswerIncomingTag = jest.fn();
     const quickIgnoreIncomingTalk = jest.fn();
     renderFresh(makeDeps({
@@ -302,34 +318,38 @@ describe('displayTalksList', () => {
       }],
     }));
 
-    const pass = document.querySelector<HTMLButtonElement>('.talk-tag-in-pass');
-    const like = document.querySelector<HTMLButtonElement>('.talk-tag-in-like');
-    expect(pass).not.toBeNull();
-    expect(like).not.toBeNull();
-    expect(document.querySelector('.talk-tag-in-checkbox')).toBeNull();
-    expect(document.querySelector('.talk-tag-in .talk-add-to-my-talks-btn')).toBeNull();
-    // The decision runs once the like/pass motion has played (OPEN-87).
-    like?.click();
+    // No buttons on the row: a tap likes it, Delete passes it, and the toolbar acts on a selection.
+    const chip = () => document.querySelector<HTMLElement>('.talk-tag-in')!;
+    expect(chip().querySelector('button')).toBeNull();
+    chip().click();
     expect(document.querySelectorAll('.talk-tag-fly-ghost.talk-tag-fly-like')).toHaveLength(1);
     expect(quickAnswerIncomingTag).not.toHaveBeenCalled();
     jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
-    expect(quickAnswerIncomingTag).toHaveBeenCalledWith(
-      'incoming-tag',
-      'qa_tag_one',
-      true,
-    );
+    expect(quickAnswerIncomingTag).toHaveBeenCalledWith('incoming-tag', 'qa_tag_one', true);
+
     // A chip in flight ignores further taps until the list re-renders.
-    pass?.click();
+    chip().dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
     jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
     expect(quickIgnoreIncomingTalk).not.toHaveBeenCalled();
-    like?.closest('.talk-tag-chip')?.removeAttribute('aria-busy');
-    pass?.click();
+    chip().removeAttribute('aria-busy');
+    chip().dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
     expect(document.querySelectorAll('.talk-tag-fly-ghost.talk-tag-fly-pass')).toHaveLength(1);
+    jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
+    expect(quickIgnoreIncomingTalk).toHaveBeenCalledWith('incoming-tag', 'qa_tag_one');
+
+    // Toolbar ✕ on the long-pressed row.
+    quickIgnoreIncomingTalk.mockClear();
+    chip().removeAttribute('aria-busy');
+    chip().style.visibility = '';
+    selectTalkRow(chip());
+    const passButton = document.getElementById('talks-tap-pass-btn') as HTMLButtonElement;
+    expect(passButton.disabled).toBe(false);
+    passButton.click();
     jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
     expect(quickIgnoreIncomingTalk).toHaveBeenCalledWith('incoming-tag', 'qa_tag_one');
   });
 
-  it('uses the same compact Pass/Like actions for an incoming Pair-tag', () => {
+  it('renders an incoming Pair-tag as the same button-free chip', () => {
     installTalksDom();
     renderFresh(makeDeps({
       incomingTalkClusters: [{
@@ -348,10 +368,11 @@ describe('displayTalksList', () => {
       }],
     }));
 
+    // Same tap-to-like chip, no buttons.
     const row = document.querySelector('.talk-tag-in');
-    expect(row?.querySelector('.talk-tag-in-pass')).not.toBeNull();
-    expect(row?.querySelector('.talk-tag-in-like')).not.toBeNull();
-    expect(row?.querySelector('.talk-tag-in-checkbox')).toBeNull();
+    expect(row?.getAttribute('role')).toBe('button');
+    expect(row?.querySelector('button')).toBeNull();
+    expect(row?.textContent).toContain('Sell');
   });
 
   it('keeps ignored content out of normal views and restores it from the Ignored list', () => {

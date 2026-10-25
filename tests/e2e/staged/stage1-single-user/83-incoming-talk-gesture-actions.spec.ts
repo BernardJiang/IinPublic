@@ -174,8 +174,9 @@ test.describe('Incoming talk gesture actions', () => {
       senderName: 'Alice',
       receivedAt: '2026-10-01T11:00:00.000Z',
     }]);
-    await expect(incomingRow(page, ignoredFirst.title).locator('.talk-tag-in-pass')).toBeVisible();
-    await expect(incomingRow(page, ignoredFirst.title).locator('.talk-tag-in-like')).toBeVisible();
+    // No buttons on a tag row: the chip itself is the control (tap likes, swipe left passes).
+    await expect(incomingRow(page, ignoredFirst.title)).toHaveAttribute('role', 'button');
+    await expect(incomingRow(page, ignoredFirst.title).locator('button')).toHaveCount(0);
     await dragTalkRow(page, incomingRow(page, ignoredFirst.title), 'left');
     await expect(incomingRow(page, ignoredFirst.title)).toHaveCount(0);
 
@@ -194,7 +195,7 @@ test.describe('Incoming talk gesture actions', () => {
     await page.locator('#talks-filter-completion').selectOption('ignored', { force: true });
     const ignoredRow = page.locator('.talk-list-item[data-role="ignored"]').filter({ hasText: ignoredAgain.title });
     await expect(ignoredRow).toBeVisible();
-    await ignoredRow.locator('.talk-tag-in-like').click();
+    await ignoredRow.click();
     await page.locator('#talks-filter-completion').selectOption('unanswered', { force: true });
     await expect(page.locator('.talk-list-item[data-role="copied"]').filter({ hasText: ignoredAgain.title })).toBeVisible();
 
@@ -233,7 +234,7 @@ test.describe('Incoming talk gesture actions', () => {
       senderName: 'Erin',
       receivedAt: '2026-10-01T11:20:00.000Z',
     }]);
-    await incomingRow(page, accepted.title).locator('.talk-tag-in-like').click();
+    await incomingRow(page, accepted.title).click();
 
     const acceptedOut = page.locator(
       `.talk-list-item[data-role="copied"][data-talk-id="${accepted.id}"]`,
@@ -247,7 +248,8 @@ test.describe('Incoming talk gesture actions', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
-    await acceptedOut.locator('.talk-tag-out-pass').click();
+    // A regretted Like: tapping the liked tag in Outgoing passes it.
+    await acceptedOut.click();
     await expect(acceptedOut).toHaveCount(0);
 
     await page.click('.nav-btn[data-view="me"]');
@@ -258,7 +260,7 @@ test.describe('Incoming talk gesture actions', () => {
     await waitForTabActive(page, 'talks');
     await page.locator('#talks-filter-completion').selectOption('ignored', { force: true });
     const passedAccepted = page.locator('.talk-list-item[data-role="ignored"]').filter({ hasText: accepted.title });
-    await passedAccepted.locator('.talk-tag-in-like').click();
+    await passedAccepted.click();
     await page.locator('#talks-filter-completion').selectOption('unanswered', { force: true });
     await expect(acceptedOut).toBeVisible();
   });

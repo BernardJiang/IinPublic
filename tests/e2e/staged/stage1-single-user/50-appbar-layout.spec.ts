@@ -63,10 +63,13 @@ test.describe('AppBar layout', () => {
     }
     await expect(p.locator('#settings-refresh-location-btn')).toBeHidden();
 
-    // Talks: only ➕.
+    // Talks: ➕ plus ✕ Pass · ♡ Like · 📌 Pin, grayed out until a row is long-pressed.
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await expect(p.locator('#app-bar-actions #create-talk-btn')).toBeVisible();
+    for (const action of ['pass', 'like', 'pin']) {
+      await expect(p.locator(`#talks-tap-${action}-btn`)).toBeDisabled();
+    }
     await expect(p.locator('#broadcast-talk-btn')).toBeHidden();
     await expect(p.locator('#create-custom-chatroom-btn')).toBeHidden();
 

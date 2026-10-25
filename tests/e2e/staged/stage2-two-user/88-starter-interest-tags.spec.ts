@@ -6,6 +6,8 @@
  * 1. One tap: liking the third starter tag passes the two above it (scrolled past) — they fly left
  *    and up, the liked one right and down. Nothing is sent and no Contact appears; the Like is
  *    copied into My Talks as the user's own Talk (no starter author or marker, same identity key).
+ *    A divider splits Incoming from Outgoing. The toolbar is grayed out until a long-press selects
+ *    a row; ✕ then passes it. Tapping the liked tag in Outgoing passes it (a regretted Like).
  * 2. Matching: Alice and Bob both like the first starter tag; Carol likes the second, which passes the
  *    first above it. Bob broadcasts: Alice's chatbot answers his copy from her own Like and they
  *    match; Carol's chatbot passes it from her pass, and nothing matches for her.
@@ -19,6 +21,7 @@ import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { starterTagsFor } from '../../../../src/shared/starter-tags';
+import { talkToolbarAction } from '../../helpers/talk-row-actions';
 
 const STARTER_TAGS = starterTagsFor('en');
 
@@ -36,7 +39,7 @@ async function showStarterTags(page: Page): Promise<void> {
 }
 
 async function like(page: Page, keyword: string): Promise<void> {
-  await chipFor(page, keyword).locator('.talk-tag-in-like').click();
+  await chipFor(page, keyword).click();
   await expect.poll(() => myTalkRole(page, keyword), { timeout: 10_000 }).toBe('copied');
 }
 
@@ -67,7 +70,7 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     await showStarterTags(page);
     const [first, second, third] = STARTER_TAGS;
 
-    await chipFor(page, third!.text).locator('.talk-tag-in-like').click();
+    await chipFor(page, third!.text).click();
     // The motion: the two above fly left/up, the tapped one right/down (fixed-position copies).
     await expect(page.locator('.talk-tag-fly-ghost.talk-tag-fly-pass')).toHaveCount(2);
     await expect(page.locator('.talk-tag-fly-ghost.talk-tag-fly-like')).toContainText(third!.text);
@@ -95,6 +98,19 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     expect(adopted.starter).toBeNull();
     expect(adopted.contentId).toBe(adopted.id);
     expect(adopted.contacts).toBe(0);
+
+    // Incoming and Outgoing are split by a divider; the Like now sits in Outgoing.
+    await expect(page.locator('[data-testid="talks-direction-divider"]')).toHaveCount(1);
+    const likedOut = page.locator('.talk-tag-chip[data-role="copied"]').filter({ hasText: third!.text });
+    await expect(likedOut).toHaveCount(1);
+    // The toolbar is grayed out until a long-press selects a row; ✕ then passes the selected tag.
+    for (const action of ['pass', 'like', 'pin']) await expect(page.locator(`#talks-tap-${action}-btn`)).toBeDisabled();
+    const fourth = STARTER_TAGS[3]!;
+    await talkToolbarAction(page, chipFor(page, fourth.text), 'pass');
+    await expect.poll(() => myTalkRole(page, fourth.text), { timeout: 10_000 }).toBe('ignored');
+    // A regretted Like: a tap on the liked tag in Outgoing passes it.
+    await likedOut.click();
+    await expect.poll(() => myTalkRole(page, third!.text), { timeout: 10_000 }).toBe('ignored');
   });
 
   test('people who liked the same starter tag match through ordinary Talk exchange', async () => {
@@ -119,7 +135,7 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     const ids = await Promise.all([alice, bob, carol].map((user) =>
       user.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id as string)));
     const [aliceId, , carolId] = ids;
-    // Bob sends his own Talks (the Hiking copy) the way Broadcast does.
+    // Bob sends his own Talks (his copy of the shared tag) the way Broadcast does.
     const sent = await bob.page.evaluate(async (receiverUsers) =>
       (window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(0, {
         skipAudiencePreview: true, skipDeliveryAcks: true, receiverUsers,

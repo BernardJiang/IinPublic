@@ -79,13 +79,15 @@ test.describe('AppBar overflow responsive', () => {
     await expect(p.locator('#app-bar-overflow-menu')).toBeHidden();
   });
 
-  test('tabs with a single action never overflow', async () => {
+  test('Talks keeps ➕ inline at 320; the row actions fold into ⋯', async () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await p.setViewportSize({ width: 320, height: 700 });
     await afterAction();
     await expect(p.locator('#app-bar-actions #create-talk-btn')).toBeVisible();
-    await expect(p.locator('#app-bar-overflow-menu')).toBeHidden();
+    await expect(p.locator('#app-bar-overflow-menu')).toBeVisible();
+    const panelOrder = await p.locator('#app-bar-overflow-panel .app-bar-action-btn').evaluateAll((els) => els.map((el) => el.id));
+    expect(panelOrder).toEqual(['talks-tap-pass-btn', 'talks-tap-like-btn', 'talks-tap-pin-btn']);
   });
 });

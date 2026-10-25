@@ -9,6 +9,7 @@ import { gotoWebApp, injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterNav } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { talkToolbarAction } from '../../helpers/talk-row-actions';
 
 test.describe('manual pins across Contacts, Talks, and Me', () => {
   let context: BrowserContext;
@@ -140,9 +141,10 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
 
     await openOutgoingTalks();
     await expect(outgoingTalks().first()).toHaveAttribute('data-talk-id', 'pin-talk-new');
-    await page.locator('[data-talk-id="pin-talk-old"] .talk-pin-button').click();
+    // Talks: long-press selects the row, the AppBar's 📌 pins it, and a badge shows it is pinned.
+    await talkToolbarAction(page, page.locator('.talk-list-item[data-talk-id="pin-talk-old"]'), 'pin');
     await expect(outgoingTalks().first()).toHaveAttribute('data-talk-id', 'pin-talk-old');
-    await expect(page.locator('[data-talk-id="pin-talk-old"] .talk-pin-button')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-talk-id="pin-talk-old"] .talk-pin-badge')).toBeVisible();
 
     await openAnswers();
     await expect(answerRows().first()).toHaveAttribute('data-question-id', 'pin-answer-new');
@@ -161,7 +163,7 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
 
     await openOutgoingTalks();
     await expect(outgoingTalks().first()).toHaveAttribute('data-talk-id', 'pin-talk-old');
-    await page.locator('[data-talk-id="pin-talk-old"] .talk-pin-button').click();
+    await talkToolbarAction(page, page.locator('.talk-list-item[data-talk-id="pin-talk-old"]'), 'pin');
     await expect(outgoingTalks().first()).toHaveAttribute('data-talk-id', 'pin-talk-new');
 
     await openAnswers();

@@ -13,6 +13,14 @@ import { filterIncomingTalkClusters, getTalkIntakeFilters } from './talk-intake-
 import { formatTalkExpiryTone, getIncomingQuestionCount } from './talk-list-metadata';
 import { escapeHtml, tagAnswerSuffix } from './ui-formatters';
 import { flyTagChips, starterChipsScrolledPast, starterGroupHeadings } from './tag-chip-fly';
+import {
+  clearTalkRowSelection,
+  flowTagChips,
+  getSelectedTalkRow,
+  reapplyTalkRowSelection,
+  toolbarActionApplies,
+  type TalkToolbarAction,
+} from './tag-tap-mode';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
 
@@ -98,6 +106,61 @@ export type DisplayTalksListDeps = {
 };
 
 /** Owns Talks-tab filtering, rendering, delegated events, and progressive-render lifecycle. */
+/**
+ * What a tag row does (owner design 2026-10-24). `tap` is a plain tap: an incoming tag is liked
+ * and moves to Outgoing (liking a starter tag also passes the starter tags scrolled past above it),
+ * a liked tag in Outgoing is passed — the way back from a regretted Like — and a passed tag is
+ * liked again; a tag I created ignores taps. `like` / `pass` come from the toolbar for a selected
+ * row (Pass removes a tag I created).
+ */
+function actOnTagRow(chip: HTMLElement, intent: 'tap' | 'like' | 'pass', deps: DisplayTalksListDeps): void {
+  if (chip.getAttribute('aria-busy') === 'true') return;
+  const talkId = chip.dataset.talkId || '';
+  const identityKey = chip.dataset.identityKey || undefined;
+  const role = chip.dataset.role || '';
+  if (!talkId) return;
+  if (role === 'ignored') {
+    if (intent !== 'pass') deps.quickAnswerIncomingTag(talkId, undefined, true);
+    return;
+  }
+  if (role === 'copied' || role === 'created') {
+    if (intent === 'like' || (intent === 'tap' && role === 'created')) return;
+    flyTagChips([{ chip, direction: 'pass' }], () => {
+      if (role === 'copied') deps.quickIgnoreIncomingTalk(talkId, undefined);
+      else deps.deleteMyTalk(talkId);
+    });
+    return;
+  }
+  const like = intent !== 'pass';
+  const passedAbove = like ? starterChipsScrolledPast(chip) : [];
+  flyTagChips([
+    ...passedAbove.map((above) => ({ chip: above, direction: 'pass' as const })),
+    { chip, direction: like ? 'like' as const : 'pass' as const },
+  ], () => {
+    for (const above of passedAbove) deps.quickIgnoreIncomingTalk(above.dataset.talkId || '', above.dataset.identityKey || undefined);
+    if (like) deps.quickAnswerIncomingTag(talkId, identityKey, true);
+    else deps.quickIgnoreIncomingTalk(talkId, identityKey);
+  });
+}
+
+/** A toolbar action on the long-press-selected row. */
+function actOnSelectedRow(action: TalkToolbarAction, deps: DisplayTalksListDeps): void {
+  const row = getSelectedTalkRow();
+  if (!row || !toolbarActionApplies(action, row)) return;
+  if (action === 'pin') {
+    toggleListItemPin('talks', row.dataset.pinId || '');
+    displayTalksList(deps);
+    return;
+  }
+  clearTalkRowSelection();
+  if (row.classList.contains('talk-tag-chip')) {
+    actOnTagRow(row, action, deps);
+    return;
+  }
+  // An incoming Flow/Survey/Route: Pass ignores it.
+  deps.quickIgnoreIncomingTalk(row.dataset.talkId || '', row.dataset.identityKey || undefined);
+}
+
 export function displayTalksList(deps: DisplayTalksListDeps): void {
   const documentState = getDocumentState();
   documentState.latestDeps = deps;
@@ -109,13 +172,11 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
   const myTalks = getMyTalks();
   const pinnedTalkIds = getPinnedIds('talks');
   const incomingPinKey = (cluster: any, talkId: string): string => `in:${String(cluster?.identityKey || talkId)}`;
+  // Pinning is a toolbar mode (📌, tag-tap-mode.ts); a row shows a badge only while it is pinned.
   const pinButtonHtml = (pinKey: string): string => {
-    const pinned = pinnedTalkIds.has(pinKey);
-    const label = deps.t(pinned ? 'unpinItem' : 'pinItem');
-    // Not `.talk-item-actions` — that class means "the dedicated actions row", which
-    // compact rows deliberately have none of (37/79 specs assert its count is 0). Gesture
-    // exclusion for this button goes through `.talk-pin-button` instead (talks-row-gestures.ts).
-    return `<button type="button" class="list-pin-button talk-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${escapeHtml(pinKey)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${pinned}">📌</button>`;
+    if (!pinnedTalkIds.has(pinKey)) return '';
+    const label = deps.t('unpinItem');
+    return `<span class="talk-pin-badge" data-testid="talk-pin-badge" data-pin-id="${escapeHtml(pinKey)}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">📌</span>`;
   };
   // A non-tag talk is copied into My Talks (and so re-broadcast) only by the user's own choice:
   // this toggle, or dragging the row down. Same look as the pin; ✓ once copied.
@@ -476,14 +537,9 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                   : talkTypeLower === 'route' ? '🔀'
                   : '➡️';
                 if (talkTypeLower === 'tag') {
-                  const isCopiedTag = talk.role === 'copied';
-                  const passLabel = isCopiedTag ? deps.t('talksTagPass') : deps.t('talksRemove');
                   return `
-      <div class="talk-list-item talk-tag-chip talk-tag-out ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag">
-        <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
-          <button type="button" class="talk-tag-decision-button talk-tag-pass-button talk-tag-out-pass" data-talk-id="${escapeHtml(talkId)}" data-role="${escapeHtml(String(talk.role || 'created'))}" aria-label="${escapeHtml(passLabel)}" title="${escapeHtml(passLabel)}">×</button>
-          <button type="button" class="talk-tag-decision-button talk-tag-like-button is-selected" aria-label="${escapeHtml(deps.t('talksTagLiked'))}" title="${escapeHtml(deps.t('talksTagLiked'))}" aria-pressed="true">♥</button>
-        </span>
+      <div class="talk-list-item talk-tag-chip talk-tag-out is-liked ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag" role="button" tabindex="0" aria-label="${escapeHtml(`${deps.t('talksTagLiked')}: ${talk.title || ''}`)}">
+        <span class="talk-tag-liked-mark" aria-hidden="true">♥</span>
         <span class="talk-tag-text">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</span>
         ${pinButtonHtml(`out:${talkId}`)}
       </div>
@@ -622,11 +678,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               if (isIgnored) {
                 if (incomingType === 'tag') {
                   return `
-      <div class="talk-list-item talk-tag-chip talk-tag-passed talk-ignored-row" data-talk-id="${escapeHtml(talkId)}" data-role="ignored" data-incoming-type="tag">
-        <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
-          <button type="button" class="talk-tag-decision-button talk-tag-pass-button is-selected" aria-label="${escapeHtml(deps.t('talksTagPassed'))}" title="${escapeHtml(deps.t('talksTagPassed'))}" aria-pressed="true">×</button>
-          <button type="button" class="talk-tag-decision-button talk-tag-like-button talk-tag-in-like" data-talk-id="${escapeHtml(talkId)}" aria-label="${escapeHtml(deps.t('talksTagLike'))}" title="${escapeHtml(deps.t('talksTagLike'))}">♡</button>
-        </span>
+      <div class="talk-list-item talk-tag-chip talk-tag-passed talk-ignored-row" data-talk-id="${escapeHtml(talkId)}" data-role="ignored" data-incoming-type="tag" role="button" tabindex="0" aria-label="${escapeHtml(`${deps.t('talksTagPassed')}: ${cluster?.title || ''}`)}">
         <span class="talk-tag-text">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
       </div>
     `;
@@ -645,11 +697,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 const heading = starterHeadings.get(identityKey);
                 return `${heading ? `
       <div class="starter-tag-group-heading" data-testid="starter-tag-group-heading" data-starter-group="${escapeHtml(heading.id)}"><span aria-hidden="true">${escapeHtml(heading.icon)}</span> ${escapeHtml(heading.label)}</div>` : ''}
-      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${cluster?.starterContactId === STARTER_TAGS_CONTACT_ID ? ' data-starter-tag="true"' : ''}${cluster?.starterGroup?.id ? ` data-starter-group="${escapeHtml(cluster.starterGroup.id)}"` : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}">
-        <span class="talk-tag-decision-actions" role="group" aria-label="${escapeHtml(deps.t('talksTagDecisionActions'))}">
-          <button type="button" class="talk-tag-decision-button talk-tag-pass-button talk-tag-in-pass" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagPass'))}" title="${escapeHtml(deps.t('talksTagPass'))}">×</button>
-          <button type="button" class="talk-tag-decision-button talk-tag-like-button talk-tag-in-like" data-talk-id="${escapeHtml(talkId)}" data-identity-key="${escapeHtml(identityKey)}" aria-label="${escapeHtml(deps.t('talksTagLike'))}" title="${escapeHtml(deps.t('talksTagLike'))}">♡</button>
-        </span>
+      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${cluster?.starterContactId === STARTER_TAGS_CONTACT_ID ? ' data-starter-tag="true"' : ''}${cluster?.starterGroup?.id ? ` data-starter-group="${escapeHtml(cluster.starterGroup.id)}"` : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}" role="button" tabindex="0" aria-label="${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}">
         <span class="talk-tag-text">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
         ${pinButtonHtml(pinKey)}
       </div>${identityKey === lastStarterKey ? `
@@ -734,7 +782,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     // redundant wording on top of that. When only one direction is checked, the
     // richer OUT-specific sort modes (matches/responses/weighted/...) still apply;
     // mixing both directions together only makes sense sorted by recency.
-    type MergedTalkRow = { direction: 'in' | 'out'; sortTime: number; needsAnswer: boolean; pinKey: string; payload: any };
+    type MergedTalkRow = { direction: 'in' | 'out' | 'divider'; sortTime: number; needsAnswer: boolean; pinKey: string; payload: any };
     const outRows: MergedTalkRow[] = filteredOutEntries.map(([id, talk]: [string, any]) => ({
       direction: 'out' as const,
       sortTime: new Date(talk.lastInteraction || 0).getTime(),
@@ -749,29 +797,35 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       pinKey: incomingPinKey(cluster, deps.pickIncomingRowTalkId(cluster)),
       payload: cluster,
     }));
-    const mergedRowsByCurrentSort: MergedTalkRow[] = (deps.talksShowIncoming && deps.talksShowOutgoing)
-      // Unanswered incoming talks are actionable, so they keep floating to the top
-      // (an existing invariant, unrelated to this merge) — recency only breaks ties
-      // within that same tier, both for the "needs answer" group and everything else.
-      ? [...outRows, ...inRows].sort((a, b) => {
-          if (a.needsAnswer !== b.needsAnswer) return a.needsAnswer ? -1 : 1;
-          return b.sortTime - a.sortTime;
-        })
-      : [...inRows, ...outRows];
-    const mergedRows = pinnedFirst(mergedRowsByCurrentSort, 'talks', (row) => row.pinKey);
+    // Incoming first (unanswered on top, then recency), then a divider, then outgoing (owner,
+    // 2026-10-24); pins float to the top of their own section.
+    const byActionThenRecency = (a: MergedTalkRow, b: MergedTalkRow): number =>
+      (a.needsAnswer !== b.needsAnswer ? (a.needsAnswer ? -1 : 1) : b.sortTime - a.sortTime);
+    const inSection = pinnedFirst(deps.talksShowIncoming && deps.talksShowOutgoing ? [...inRows].sort(byActionThenRecency) : inRows, 'talks', (row) => row.pinKey);
+    const outSection = pinnedFirst(deps.talksShowIncoming && deps.talksShowOutgoing ? [...outRows].sort(byActionThenRecency) : outRows, 'talks', (row) => row.pinKey);
+    const divider: MergedTalkRow = { direction: 'divider', sortTime: 0, needsAnswer: false, pinKey: '', payload: null };
+    const mergedRows = inSection.length > 0 && outSection.length > 0
+      ? [...inSection, divider, ...outSection]
+      : [...inSection, ...outSection];
     const inPayloads = mergedRows.filter((row) => row.direction === 'in').map((row) => row.payload);
     starterHeadings = starterGroupHeadings(inPayloads);
     // The last starter interest tag carries the "Create my tag" prompt, just above the Tag Guide demo.
     lastStarterKey = String([...inPayloads].reverse()
       .find((cluster: any) => cluster?.starterContactId === STARTER_TAGS_CONTACT_ID)?.identityKey || '');
     const renderMergedRow = (row: MergedTalkRow): string =>
-      row.direction === 'out' ? renderOutRow(row.payload) : renderInRow(row.payload);
+      row.direction === 'divider'
+        ? `<div class="talks-direction-divider" data-testid="talks-direction-divider" role="separator"><span>${escapeHtml(deps.t('talksOutgoingSection'))}</span></div>`
+        : row.direction === 'out' ? renderOutRow(row.payload) : renderInRow(row.payload);
 
     // mergedRows is guaranteed non-empty here — the outer `filteredOutEntries.length
     // === 0 && inEntries.length === 0` check above already handled the true-empty case.
+    const hasTagChips = mergedRows.some((row) => String(row.payload?.type || row.payload?.[1]?.type || '').toLowerCase() === 'tag');
     renderListProgressively(talksList, mergedRows, {
       firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
       renderRow: renderMergedRow,
+      prefixHtml: hasTagChips ? `<div class="talks-tap-hint" data-testid="talks-tap-hint">${escapeHtml(deps.t('talksTapHint'))}</div>` : '',
+      onFirstChunkRendered: () => { flowTagChips(talksList); reapplyTalkRowSelection(); },
+      onRemainderRendered: () => { flowTagChips(talksList); reapplyTalkRowSelection(); },
       isStale,
     });
 
@@ -793,6 +847,19 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       // scoped to #talks-list would stop catching it once moved. The row-click-to-edit
       // branch below is unaffected: it requires a `.talk-list-item` ancestor, which
       // popup content never has once relocated, so it naturally no-ops there.
+      // Keyboard: Enter/Space taps a tag; Delete/Backspace passes it.
+      document.body.addEventListener('keydown', (e) => {
+        const chip = (e.target as HTMLElement | null)?.closest?.('#talks-list .talk-tag-chip') as HTMLElement | null;
+        if (!chip) return;
+        const currentDeps = documentState.latestDeps || deps;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          actOnTagRow(chip, 'tap', currentDeps);
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault();
+          actOnTagRow(chip, 'pass', currentDeps);
+        }
+      });
       document.body.addEventListener('click', (e) => {
         // A row-drag gesture (ignore/copy/delete) or a long-press-for-details just
         // committed or cancelled — the click that naturally follows pointerup should
@@ -801,15 +868,21 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         if (Date.now() < currentDeps.getTalksGestureSuppressClickUntil()) return;
         const target = e.target as HTMLElement;
 
-        const outgoingTagPass = target.closest('.talk-tag-out-pass') as HTMLButtonElement | null;
-        if (outgoingTagPass) {
+        // AppBar ✕ Pass · ♡ Like · 📌 Pin act on the long-pressed row (tag-tap-mode.ts).
+        const toolbarButton = target.closest('.talks-tap-mode-btn') as HTMLButtonElement | null;
+        if (toolbarButton) {
+          e.preventDefault();
+          const action = toolbarButton.id.replace('talks-tap-', '').replace('-btn', '') as TalkToolbarAction;
+          actOnSelectedRow(action, currentDeps);
+          return;
+        }
+        if (target.closest('#talks-list')) clearTalkRowSelection();
+        // A plain tap on a tag acts at once (see actOnTagRow).
+        const tappedChip = target.closest('#talks-list .talk-tag-chip') as HTMLElement | null;
+        if (tappedChip) {
           e.preventDefault();
           e.stopPropagation();
-          const talkId = outgoingTagPass.dataset.talkId || '';
-          if (talkId) {
-            if (outgoingTagPass.dataset.role === 'copied') currentDeps.quickIgnoreIncomingTalk(talkId, undefined);
-            else currentDeps.deleteMyTalk(talkId);
-          }
+          actOnTagRow(tappedChip, 'tap', currentDeps);
           return;
         }
 
@@ -818,32 +891,6 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           e.stopPropagation();
           // A new Talk opens as a tag (talk-editor-dialog.ts defaults to it).
           document.getElementById('create-talk-btn')?.click();
-          return;
-        }
-
-        const incomingTagDecision = target.closest('.talk-tag-in-pass, .talk-tag-in-like') as HTMLButtonElement | null;
-        if (incomingTagDecision) {
-          e.preventDefault();
-          e.stopPropagation();
-          const talkId = incomingTagDecision.dataset.talkId || '';
-          const identityKey = incomingTagDecision.dataset.identityKey || '';
-          const like = incomingTagDecision.classList.contains('talk-tag-in-like');
-          const row = incomingTagDecision.closest('.talk-tag-chip') as HTMLElement | null;
-          if (row?.getAttribute('aria-busy') === 'true') return;
-          // Like moves right then down; Pass flies left then up. Liking a starter tag also passes
-          // the starter tags above it that were scrolled past without a tap (OPEN-87).
-          const passedAbove = like && row ? starterChipsScrolledPast(row) : [];
-          const moves = [
-            ...passedAbove.map((chip) => ({ chip, direction: 'pass' as const })),
-            ...(row ? [{ chip: row, direction: like ? 'like' as const : 'pass' as const }] : []),
-          ];
-          flyTagChips(moves, () => {
-            for (const chip of passedAbove) {
-              currentDeps.quickIgnoreIncomingTalk(chip.dataset.talkId || '', chip.dataset.identityKey || undefined);
-            }
-            if (like) currentDeps.quickAnswerIncomingTag(talkId, identityKey || undefined, true);
-            else currentDeps.quickIgnoreIncomingTalk(talkId, identityKey || undefined);
-          });
           return;
         }
 
@@ -869,18 +916,6 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
             });
           }
           else currentDeps.quickCopyIncomingTalk(talkId, copyButton.dataset.identityKey || undefined);
-          return;
-        }
-
-        const pinButton = target.closest('.talk-pin-button') as HTMLElement | null;
-        if (pinButton) {
-          e.preventDefault();
-          e.stopPropagation();
-          const pinId = pinButton.dataset.pinId;
-          if (pinId) {
-            toggleListItemPin('talks', pinId);
-            displayTalksList(currentDeps);
-          }
           return;
         }
 
