@@ -54,6 +54,7 @@ import {
 import { CONFIG } from '../../shared/config';
 import type { CustomChatroomRow } from './chatrooms-view';
 import { roomCreationCredit } from '../../shared/room-creation-credit';
+import { CONTACTS_CAP_OPTIONS, getContactsCap } from '../services/contacts-prune';
 
 export interface SettingsViewDeps {
   currentLocation: GPSCoordinate | undefined;
@@ -546,6 +547,13 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             </select>
           </label>
           <div style="font-size:0.82em;color:var(--text-tertiary);margin-top:3px;">${deps.t('settingsAutoAnswerScopeHelp')}</div>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:0.9em;margin-top:14px;">
+            <span>${deps.t('settingsContactsCap')}</span>
+            <select class="form-input" id="settings-contacts-cap" data-testid="settings-contacts-cap">
+              ${CONTACTS_CAP_OPTIONS.map((cap) => `<option value="${cap}" ${getContactsCap() === cap ? 'selected' : ''}>${cap.toLocaleString()}</option>`).join('')}
+            </select>
+          </label>
+          <div style="font-size:0.82em;color:var(--text-tertiary);margin-top:3px;">${deps.t('settingsContactsCapHelp')}</div>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-location-auto-match-consent" ${getLocationAutoMatchConsent() ? 'checked' : ''}>
             <span>${deps.t('settingsLocationAutoMatch')}</span>

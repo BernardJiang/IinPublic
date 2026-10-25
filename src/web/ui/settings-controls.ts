@@ -42,6 +42,7 @@ import { bindDirtyWordEditor } from './dirty-word-editor';
 import { avatarInnerHtml } from './profile-avatar';
 import { ProfilePhotoError, shrinkProfilePhoto } from './profile-photo';
 import type { UiTranslationKey } from './ui-translations';
+import { setContactsCap } from '../services/contacts-prune';
 
 interface ProfileUpdates {
   headshot?: string;
@@ -394,6 +395,10 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
       setNearbySetting(kind, (event.currentTarget as HTMLInputElement).checked);
     });
   }
+  document.getElementById('settings-contacts-cap')?.addEventListener('change', (event) => {
+    setContactsCap(Number((event.currentTarget as HTMLSelectElement).value));
+    deps.emit('contactsCapChanged', undefined);
+  });
   document.getElementById('settings-chatbot-enabled')?.addEventListener('change', (event) => {
     setChatbotEnabled((event.currentTarget as HTMLInputElement).checked);
   });

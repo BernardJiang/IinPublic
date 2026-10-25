@@ -234,6 +234,10 @@ import {
   markTalkSentToPeer,
 } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
+import { applyContactsPrune, getContactsCap, planContactsPrune, unprunePeer } from '../services/contacts-prune';
+import { sharedTagCounter } from '../ui/tag-graph-view';
+import { deriveLocalPeers } from '../services/local-peer-derivation';
+import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
 import {
   buildTagIdentityKeys,
@@ -2595,6 +2599,8 @@ export class IinPublicApp {
 
     // Subscribe to user's conversations (for matches)
     this.subscribeToUserConversations();
+    // OPEN-87: keep the Contacts list within its cap from the start.
+    this.scheduleContactsPrune();
     
     // Subscribe to backend-driven incoming talk clusters
     this.subscribeToIncomingTalks();
@@ -6321,6 +6327,38 @@ export class IinPublicApp {
     return [...byKey.values()];
   }
 
+  private contactsPruneTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * OPEN-87 S5: people only exchanged Talks with are capped (Settings); beyond the cap the ones with
+   * the fewest shared tags and the oldest exchange are pruned. Debounced: exchanges come in bursts.
+   */
+  private scheduleContactsPrune(delayMs = 3_000): void {
+    if (this.contactsPruneTimer) clearTimeout(this.contactsPruneTimer);
+    this.contactsPruneTimer = setTimeout(() => {
+      this.contactsPruneTimer = null;
+      const me = this.currentUser;
+      if (!me) return;
+      const conversations = this.uiManager.getMyConversations();
+      const knownPeople = me.knownPeople ?? [];
+      const blocked = new Set(me.blockedUserIds ?? []);
+      const { drop, keepAlways } = planContactsPrune({
+        peers: deriveLocalPeers({ currentUserId: me.id, conversations, knownPeople }),
+        conversations,
+        knownPeopleIds: new Set(knownPeople.map((person) => person.userId)),
+        isBlocked: (peerId) => blocked.has(peerId),
+        pinnedIds: new Set(getPinnedIds('contacts')),
+        cap: getContactsCap(),
+        sharedTags: sharedTagCounter(),
+      });
+      applyContactsPrune(drop, keepAlways);
+      if (drop.length > 0) {
+        console.log(`[contacts-prune] pruned ${drop.length} exchange-only contact(s) beyond the cap`);
+        this.uiManager.displayContactsList();
+      }
+    }, delayMs);
+  }
+
   private recordLocalTalkExchange(
     peerId: string,
     peerName: string,
@@ -6338,6 +6376,9 @@ export class IinPublicApp {
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
     console.log(`[RESP-RECORD] talk=${talkId.slice(-8)} peer=${peerId.slice(0, 8)} outcome=${outcome} dir=${meta?.direction || 'sent'}`);
+    // A new exchange brings a pruned person back; the cap is checked again shortly after.
+    unprunePeer(peerId);
+    this.scheduleContactsPrune();
     const collectionTag = meta?.direction === 'received'
       ? null
       : recordMatchCollectionExchange(peerId, talkId, outcome);
@@ -8315,6 +8356,7 @@ export class IinPublicApp {
   private setupEventHandlers(): void {
     // Handle UI events
 
+    this.uiManager.on('contactsCapChanged', () => this.scheduleContactsPrune(0));
     this.uiManager.on('connectivitySettingsChanged', (settings: ConnectivitySettings) => {
       const mesh = this.ensurePeerMeshService();
       mesh?.updateForwardingSettings(settings.forwarding);

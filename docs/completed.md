@@ -2,6 +2,37 @@
 
 Last updated: 2026-10-24
 
+## 2026-10-24 — OPEN-87 starter interest tags, one-tap answering, the tag graph, bounded Contacts
+
+Design: `docs/design/actionable-first-run-starter-talks.md` (owner decisions 2026-10-24).
+- **Placement:** closing or skipping the introduction opens the Talks tab; the incoming list starts
+  with 24 starter interest tags (`src/shared/starter-tags.ts`) and ends with the demo contacts'
+  Talks.
+- **Ordinary tags with no sender:** a starter tag is a normal `tag` Talk from a local source that is
+  not a Contact; answering sends nothing and creates no Contact. Like teaches the chatbot and copies
+  the tag into My Talks as the user's own Talk (no starter author or marker); one canonical form per
+  tag (language `en`, English keyword) keeps the identity key equal in every UI language, so
+  ordinary Talk exchange matches people who liked the same tag. Once a real person sends the same
+  tag, their row replaces the starter one. Starter answers show no match/submitted toast.
+- **One tap:** Like moves the chip right, then down; Pass flies left, then up; liking a starter tag
+  passes the unanswered starter tags above it. Fixed-position copies fly so list re-renders cannot
+  cut the motion; reduced motion fades.
+- **Tag graph (local data only, `src/web/services/tag-graph.ts`):** tag page (who likes it, whether
+  it is mine), person view tags (shared first), tag directory (Contacts → 🏷️), Contacts sort "Most
+  tags in common".
+- **Bounded Contacts (`src/web/services/contacts-prune.ts`):** people with a relationship (explicit
+  Contact, messages, pin, block, TechSupport) always stay; exchange-only people are capped
+  (Settings → Talk behavior: 500 / 1,000 / 2,000, default 1,000) and the rest are pruned, fewest
+  shared tags and oldest exchange first; a new exchange brings a person back. Per-person exchange
+  storage is OPEN-88.
+- **Found on the way:** a starter row would have swallowed a real sender's identical tag (no reply
+  would reach them); `.talk-list-item`'s `transition: all` kept a hidden chip visible mid-flight.
+- **Verification:** unit `starter-interest-tags`, `tag-graph`, `contacts-prune`, `talks-list-view`;
+  e2e stage1/87 (Talks after the tour, starter tags then demo Talks), stage2/88 (one tap; Alice and
+  Bob match on a liked starter tag; Carol's pass holds; graph walk Contacts → Tags → Hiking → Bob →
+  his tags → Hiking), stage1/89 (cap 500 prunes the 100 oldest, keeps a Friend, a new exchange
+  restores); tag/contacts/peer-detail/Chinese-UI specs pass.
+
 ## 2026-10-24 — OPEN-86 Nearby audience pages, radio eligibility, map and UI completed
 
 - **E1 pages:** `src/shared/nearby-v3-audience.ts` decides each viewer's audience — everyone when

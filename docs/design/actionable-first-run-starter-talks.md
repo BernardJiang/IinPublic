@@ -61,8 +61,14 @@ interests, the Tag Guide and the other guides lead to the next step, creating th
 - **Catalog.** `src/shared/starter-tags.ts`: about 24 interest tags `{ id, emoji, en, zh }` with a
   version. Interests only; buy/sell intents stay in TODO2 (DRAFT-OPEN-82).
 - **After matches** the user travels a person↔tag graph built from local data, in any order: a tag
-  page lists who likes the tag (senders of that tag ∪ people who liked my copy); a person page lists
-  their tags, shared first; a tag directory lists every known tag with its local like count.
+  page lists who likes the tag (senders of that tag ∪ people whose tag exchange with me matched); a
+  person page lists their tags, shared first; a tag directory (Contacts → 🏷️) lists every known tag
+  with its local like count; Contacts can sort by "Most tags in common".
+- **Bounded Contacts.** Every exchange makes a Contact, so people the user has only exchanged Talks
+  with are capped (Settings → Talk behavior: 500 / 1,000 / 2,000, default 1,000); beyond it the ones
+  sharing the fewest tags and met longest ago are pruned (exchange records deleted, hidden from
+  Contacts) until a new exchange brings them back. Explicit Contacts, people with messages, pinned,
+  blocked and TechSupport always stay.
 
 ## Demo contacts
 

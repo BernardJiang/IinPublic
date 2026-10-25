@@ -23,58 +23,13 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-- [ ] **OPEN-87 — Starter interest tags after the introduction, swipe-style tag answering, a local
-  person↔tag graph, and a bounded Contacts list (owner design 2026-10-24;
-  docs/design/actionable-first-run-starter-talks.md).** First-time users get a preloaded list of
-  interest tags to like or pass; liking works exactly like answering a received tag, so ordinary
-  Talk exchange then finds people with the same tags. Interests only; the buy/sell catalog
-  (TODO2 DRAFT-OPEN-82) stays as is.
-  - **S1 — Starter catalog.** `src/shared/starter-tags.ts`: 24 interest tags `{ id, emoji, en, zh }`
-    plus a version. Each builds one canonical single-keyword `tag` Talk (fixed language `en`,
-    English text) so every user's copy has the same content identity key in any UI language; the
-    UI shows the localized label by id. Picks: about 3–8.
-  - **S2 — Placement: after the introduction, on the Talks tab.** Finishing or skipping the
-    introduction tour opens the Talks tab's incoming list (the existing `openStarterTalks` hook).
-    The starter interest tags come first; the existing demo contacts' Talks (Tag/Flow/Survey/Route
-    Guide) come last, as the next step: creating one's own Tags.
-  - **S3 — Starter tags are ordinary incoming tags with no sender.** They come from a local starter
-    source that is not a Contact (no Demo bot row). The only differences from a tag received from a
-    nearby user: no response is sent (there is no sender) and no Contact or exchange row is created.
-    Everything else is unchanged: Like records the answer, teaches the chatbot
-    (`saveChatbotTemplate` — today `handleTalkCompleted` returns before that step for demo-sender
-    Talks, so starter Talks must still reach it), and auto-copies the tag into My Talks (tags copy on
-    answer, `copyTalkAutoSave` default on). The copy must not carry the starter marker, so it is
-    delivered to Nearby and answered normally. Pass records an ignore the chatbot then repeats. A tag
-    match behaves like any tag match today (conversation + Contact). No new protocol or storage.
-  - **S3a — One-tap answering with swipe motion (all incoming tags, starter first).** A vertical
-    list of tag chips: tapping a chip likes it (it moves right, then down into a "My tags" tray);
-    every chip above it that was scrolled past without a tap is passed and flies left, then up off
-    the screen; reaching the end passes the rest. Swipe right = like, left = pass. Tapping a tray chip
-    undoes the like. Two-step CSS transforms, about 250 ms each; reduced motion fades instead. Later
-    the same list handles every incoming tag.
-  - **S4 — Travel the person↔tag graph in any order (local data only).**
-    - Tag page: people who like the tag = senders in my incoming cluster for that identity key ∪
-      people who liked my copy (`localTalkExchanges` matches); nearest/online first; my Like state.
-    - Person page: their tags (received from them ∪ my tags they liked), shared ones first; each
-      tag opens its tag page.
-    - Tag directory: every tag I know with its local like count, searchable.
-    - Shared-tag chips on person rows ("🥾 📚 +1") and a "most in common" sort.
-  - **S5 — Bound the Contacts list.** Every tag/Talk exchange makes a Contact, and
-    `localTalkExchanges` is one localStorage JSON map rewritten on every exchange: it grows without
-    limit (slower each time, and localStorage overflows at a few MB).
-    - Always keep people with a relationship: a conversation from a flow/survey/route match, a DM,
-      a Friend mark, a relationship label, a block.
-    - Exchange-only people are capped (Settings: keep up to 500 / 1,000 / 2,000; default 1,000) and
-      pruned lowest first by (shared liked tags, then last exchange), the same size-triggered
-      pattern as `planIncomingTalkClusterPrune`; a pruned person's tag likes still count on tag pages.
-    - Move exchange records out of the single localStorage blob into per-peer records (IndexedDB or
-      local Gun) so an exchange writes one record, not the whole map.
-    - Contacts renders in pages (about 50) with name/tag search.
-  - **Tests.** Unit: canonical ids/identity keys across UI languages; starter answers send nothing
-    and create no Contact; pass/like ordering of the list; graph queries; prune ordering and the
-    always-keep rules. Journey: 5 users like overlapping starter tags; Talk exchange matches the
-    shared ones; the most similar person ranks first; a tag page lists exactly its likers; a person
-    page lists their tags. Phones: starter likes travel and match over Wi-Fi Direct.
+- [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5).** `localTalkExchanges`
+  is still one localStorage JSON map that is parsed and rewritten on every exchange. The OPEN-87
+  Contacts cap bounds its size (exchange-only people beyond 500/1,000/2,000 are pruned), but each
+  write still costs O(size). Move the records to per-person entries (IndexedDB or local Gun) behind
+  `readLocalTalkExchanges`/`recordLocalTalkExchange`, and migrate the ~25 e2e specs and seed helpers
+  that read or write the blob directly (`tests/e2e/helpers/heavy-user-seed.ts`, `durable-ui.ts`,
+  `talk-demo-ui.ts`, mass specs). Keep the prune and the tag graph on the same reader.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

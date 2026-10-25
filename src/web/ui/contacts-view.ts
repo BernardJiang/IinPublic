@@ -14,6 +14,7 @@ import type { StarterPracticeContact, StarterPracticeContactId } from './starter
 import { bindStarterContactRemoval, renderStarterContactRows } from './starter-contacts-view';
 import { sharedTagCounter, sharedTagsChipHtml } from './tag-graph-view';
 import { publicProfileFromFoundation } from './public-profile-foundation';
+import { getPrunedPeerIds } from '../services/contacts-prune';
 
 /**
  * TODO §R1: how many contact rows render synchronously, immediately — matches
@@ -652,11 +653,12 @@ let contactsCoreRenderSeq = 0;
 function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): void {
     const coreSeq = ++contactsCoreRenderSeq;
     // P0 step 5: peers derived from local stores only — no server call.
+    const pruned = getPrunedPeerIds(); // OPEN-87: people pruned beyond the Contacts cap stay hidden
     const rawPeers = deriveLocalPeers({
       currentUserId: deps.currentUserId,
       conversations: deps.getMyConversations() || {},
       knownPeople: deps.getKnownPeople(),
-    });
+    }).filter((peer) => !pruned.has(peer.peerId));
     // Apply getPeerName for resolved stage names (may read from Gun public profiles)
     const peers: PeerSummary[] = rawPeers.map((p) => ({
       ...p,
