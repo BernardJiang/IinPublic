@@ -656,10 +656,11 @@ test.describe('UI navigation and settings shell', () => {
       ui?.displayAnswersList();
     });
     // docs/TODO.md §LL.2 follow-up: no talk metadata (senders/location/mode/type/language
-    // badges) is shown on the Me tab anymore — the row shows the tag prompt and its
-    // translated Checked/Unchecked choice only.
+    // badges) is shown on the Me tab anymore — a tag row shows ♡ (liked) or ✕ (passed) and its
+    // keyword only (owner design 2026-10-25).
     await expect(p.locator('#answers-content')).toContainText('Coffee');
-    await expect(p.locator('#answers-content')).toContainText('已勾选');
+    await expect(p.locator('#answers-content [data-testid="answer-tag-mark"]').first()).toHaveText('♡');
+    await expect(p.locator('#answers-content [data-testid="answer-tag-mark"]').first()).toHaveAttribute('aria-label', '喜欢');
     await expect(p.locator('#answers-content')).not.toContainText('Welcome to IinPublic');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');

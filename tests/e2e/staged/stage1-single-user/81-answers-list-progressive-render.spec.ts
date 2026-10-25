@@ -18,6 +18,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { rowToolbarAction } from '../../helpers/list-row-actions';
 
 const ANSWER_COUNT = 40;
 
@@ -117,7 +118,8 @@ test.describe('Me tab: progressive render for long answer lists (R3)', () => {
     const remainderRow = page.locator('.answer-talk-item[data-question-id="q-progressive-answer-039"]');
     await expect(remainderRow).toBeVisible();
     await expect(remainderRow).toContainText('Answer 39');
-    await remainderRow.locator('.answer-context-jump').click();
+    // Me rows carry no buttons: long-press selects the row, 💬 Talk opens it (owner design 2026-10-25).
+    await rowToolbarAction(page, remainderRow, 'me-talk-btn');
     await expect(page.locator('#creator-replies-panel')).toBeVisible({ timeout: 10_000 });
   });
 });

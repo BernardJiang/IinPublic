@@ -11,9 +11,9 @@
  * boolean gate covered at the type level and by the existing Contacts/Talks responses-list
  * spec (09-contacts-talks-cross-navigation.spec.ts) this reuses showCreatorRepliesForTalk from.
  *
- * "View sender" (`.answer-view-contact-jump`): only rendered when senderIds.length > 0, jumps
- * to the sender's Contacts detail via the same navigateToGraphNode dispatcher other
- * cross-navigation uses.
+ * Me rows lead through the graph (owner design 2026-10-25): tapping a row opens Contacts narrowed
+ * to the people who exchanged that question with me, the most recent first; a long-press selects
+ * the row and the AppBar's 💬 Talk opens its Talk.
  *
  * Companion doc: tests/e2e/staged/stage2-two-user/78-answer-to-talk-and-contact-navigation.md
  */
@@ -27,6 +27,7 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
+import { rowToolbarAction } from '../../helpers/list-row-actions';
 
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
@@ -97,24 +98,27 @@ test.describe('Me tab: an answer links to its talk and to the sender\'s contact'
       await pageJerry.click('.nav-btn[data-view="me"]');
       await waitForTabActive(pageJerry, 'me');
       await afterSync();
-      // docs/TODO.md §LL.2 follow-up: the Me tab no longer shows talk titles or an expand-in-
-      // place popup — the row is found by its question prompt; the answer jump and the
-      // "view sender" link are independent, non-nested click targets on the same line.
+      // Me rows lead through the graph (owner design 2026-10-25): tapping a row lists the people
+      // who exchanged that question with me, the most recent first; 💬 Talk opens its Talk.
       const answerRow = pageJerry.locator('.answer-talk-item').filter({ hasText: 'Coming to trivia night?' }).first();
       await expect(answerRow).toBeVisible({ timeout: 15_000 });
+      await expect(answerRow.locator('[data-testid="answer-people"]')).toContainText('1', { timeout: 10_000 });
 
-      // A talk someone else (Tom) sent me: the "view sender" link is offered.
-      const viewContactLink = answerRow.locator('.answer-view-contact-jump');
-      await expect(viewContactLink).toBeVisible({ timeout: 10_000 });
-
-      // Clicking the answer itself is unchanged for this case: opens the single-talk response view.
-      await answerRow.locator('.answer-context-jump').click();
+      // Long-press the row and 💬 Talk: a Talk someone else sent me opens the single-talk response view.
+      await rowToolbarAction(pageJerry, answerRow, 'me-talk-btn');
       await expect(pageJerry.locator('#talk-response-modal')).toBeVisible({ timeout: 10_000 });
       await pageJerry.locator('#talk-response-modal .response-close-button, #talk-response-modal .close-button').first().click().catch(() => {});
       await pageJerry.evaluate(() => document.getElementById('talk-response-modal')?.remove());
 
-      // Clicking "view sender" jumps to the Contacts detail.
-      await viewContactLink.click();
+      // Tap the row: Contacts, narrowed to the one person who exchanged it — Tom.
+      await answerRow.locator('.qa-question').click();
+      await expect(pageJerry.locator('[data-testid="contacts-focus-chip"]')).toContainText('Coming to trivia night?', { timeout: 10_000 });
+      const people = pageJerry.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])');
+      await expect(people).toHaveCount(1);
+      await expect(people.first()).toContainText('Tom');
+
+      // Tom's row opens his person page, with the Talk in its history.
+      await people.first().locator('.contact-item-meta').first().click();
       await afterNav();
       await waitForContactDetailReady(pageJerry, 20_000);
       await expect(pageJerry.locator('.peer-history-item').filter({ hasText: 'Trivia Night' })).toBeVisible({ timeout: 10_000 });

@@ -10,6 +10,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterAction, afterNav } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { talkToolbarAction } from '../../helpers/talk-row-actions';
+import { rowToolbarAction } from '../../helpers/list-row-actions';
 
 test.describe('manual pins across Contacts, Talks, and Me', () => {
   let context: BrowserContext;
@@ -135,9 +136,10 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
 
     await openContacts();
     await expect(ordinaryContacts().first()).toHaveAttribute('data-contact-user-id', 'pin-contact-new');
-    await page.locator('[data-contact-user-id="pin-contact-old"] .contact-pin-button').click();
+    // Contacts and Me, like Talks: long-press selects the row, the AppBar's 📌 pins it, a badge shows it.
+    await rowToolbarAction(page, page.locator('[data-contact-user-id="pin-contact-old"]'), 'contacts-pin-btn');
     await expect(ordinaryContacts().first()).toHaveAttribute('data-contact-user-id', 'pin-contact-old');
-    await expect(page.locator('[data-contact-user-id="pin-contact-old"] .contact-pin-button')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-contact-user-id="pin-contact-old"] [data-testid="contact-pin-badge"]')).toBeVisible();
 
     await openOutgoingTalks();
     await expect(outgoingTalks().first()).toHaveAttribute('data-talk-id', 'pin-talk-new');
@@ -148,9 +150,9 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
 
     await openAnswers();
     await expect(answerRows().first()).toHaveAttribute('data-question-id', 'pin-answer-new');
-    await page.locator('[data-question-id="pin-answer-old"] .answer-pin-button').click();
+    await rowToolbarAction(page, page.locator('.answer-talk-item[data-question-id="pin-answer-old"]'), 'me-pin-btn');
     await expect(answerRows().first()).toHaveAttribute('data-question-id', 'pin-answer-old');
-    await expect(page.locator('[data-question-id="pin-answer-old"] .answer-pin-button')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-question-id="pin-answer-old"] [data-testid="answer-pin-badge"]')).toBeVisible();
 
     // A genuine document reload proves these are persisted preferences, not DOM-only moves.
     await gotoWebApp(page, webBaseURL());
@@ -158,7 +160,7 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
 
     await openContacts();
     await expect(ordinaryContacts().first()).toHaveAttribute('data-contact-user-id', 'pin-contact-old');
-    await page.locator('[data-contact-user-id="pin-contact-old"] .contact-pin-button').click();
+    await rowToolbarAction(page, page.locator('[data-contact-user-id="pin-contact-old"]'), 'contacts-pin-btn');
     await expect(ordinaryContacts().first()).toHaveAttribute('data-contact-user-id', 'pin-contact-new');
 
     await openOutgoingTalks();
@@ -168,7 +170,7 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
 
     await openAnswers();
     await expect(answerRows().first()).toHaveAttribute('data-question-id', 'pin-answer-old');
-    await page.locator('[data-question-id="pin-answer-old"] .answer-pin-button').click();
+    await rowToolbarAction(page, page.locator('.answer-talk-item[data-question-id="pin-answer-old"]'), 'me-pin-btn');
     await expect(answerRows().first()).toHaveAttribute('data-question-id', 'pin-answer-new');
   });
 });

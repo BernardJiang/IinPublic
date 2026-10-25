@@ -3,6 +3,8 @@
  */
 
 import { answerTalkMatchesQuery, applyMeAnswerFilter, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
+import { longPress } from './helpers/long-press';
+import { clearContactsFocus, getContactsFocus } from '../../web/ui/graph-focus';
 import {
   appendAutoUse,
   createEmptyExactChatbotMemoryState,
@@ -529,14 +531,25 @@ describe('answers view models', () => {
         // the pinned tier while applying the selected answer ordering beneath it.
         onRowsRendered: () => applyMeAnswerFilter((key) => uiText('en', key)),
       });
+      document.body.insertAdjacentHTML('beforeend', '<button id="me-pin-btn" disabled></button>');
+      const pin = document.getElementById('me-pin-btn') as HTMLButtonElement;
       displayAnswersList(deps as any);
+      expect(document.querySelector('[data-question-id="q-answer-000"] button')).toBeNull();
 
-      document.querySelector<HTMLButtonElement>('[data-question-id="q-answer-000"] .answer-pin-button')?.click();
+      // No button on the row: a long-press selects it and the AppBar's 📌 Pin acts on it.
+      jest.useFakeTimers();
+      try {
+        longPress(document.querySelector('[data-question-id="q-answer-000"] .qa-question')!);
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(pin.disabled).toBe(false);
+      pin.click();
       let ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item')).map((row) => row.dataset.questionId);
       expect(ids).toEqual(['q-answer-000', 'q-answer-002', 'q-answer-001']);
-      expect(document.querySelector('[data-question-id="q-answer-000"] .answer-pin-button')?.getAttribute('aria-pressed')).toBe('true');
+      expect(document.querySelector('[data-question-id="q-answer-000"] [data-testid="answer-pin-badge"]')).not.toBeNull();
 
-      document.querySelector<HTMLButtonElement>('[data-question-id="q-answer-000"] .answer-pin-button')?.click();
+      pin.click();
       ids = Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item')).map((row) => row.dataset.questionId);
       expect(ids).toEqual(['q-answer-002', 'q-answer-001', 'q-answer-000']);
     });
@@ -578,7 +591,8 @@ describe('answers view models', () => {
       expect(onRowsRendered).toHaveBeenCalledTimes(2);
     });
 
-    it('a deferred-remainder row is fully interactive: clicking its answer jumps to the current deps\' showTalkDetail', async () => {
+    it('a deferred-remainder row is fully interactive: 💬 Talk on it opens the current deps\' showTalkDetail', async () => {
+      document.body.insertAdjacentHTML('beforeend', '<button id="me-talk-btn" disabled></button>');
       const showTalkDetail = jest.fn();
       displayAnswersList(baseDeps(40, { showTalkDetail }) as any);
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -592,8 +606,16 @@ describe('answers view models', () => {
       const remainderRow = document.querySelector<HTMLElement>('.answer-talk-item[data-question-id="q-answer-039"]');
       expect(remainderRow).toBeTruthy();
 
-      const jumpEl = remainderRow!.querySelector<HTMLElement>('.answer-context-jump');
-      jumpEl!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      // A tap on a row nobody exchanged leads nowhere; the Talk opens from the AppBar's 💬.
+      remainderRow!.querySelector<HTMLElement>('.answer-context-jump')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(showTalkDetail2).not.toHaveBeenCalled();
+      jest.useFakeTimers();
+      try {
+        longPress(remainderRow!.querySelector('.qa-question')!);
+      } finally {
+        jest.useRealTimers();
+      }
+      document.getElementById('me-talk-btn')!.click();
       expect(showTalkDetail2).toHaveBeenCalledWith('talk-answer-039', 'q-answer-039');
       expect(showTalkDetail).not.toHaveBeenCalled();
     });
@@ -904,5 +926,116 @@ describe('applyMeAnswerFilter', () => {
     applyMeAnswerFilter(t);
     const empty = document.getElementById('answers-filter-empty')!;
     expect(empty.style.display).toBe('none');
+  });
+});
+
+describe('Me rows lead through the graph (owner design 2026-10-25)', () => {
+  const tagHistory = (keyword: string, talkId: string, liked: boolean) => ({
+    [talkId]: {
+      id: talkId,
+      talkId,
+      title: keyword,
+      type: 'tag',
+      language: 'en',
+      outcome: liked ? 'match' : 'mismatch',
+      answeredAt: new Date(2026, 0, 1).toISOString(),
+      senderIds: [],
+      items: [{ questionId: 'q_0', answerId: liked ? 'q_0_match' : 'q_0_ignore', prompt: keyword, choice: liked ? 'Checked' : 'Unchecked', kind: 'tag' as const, booleanTag: true, contextPath: [], contextHash: '' }],
+    },
+  });
+  const deps = (history: Record<string, unknown>, overrides: Record<string, unknown> = {}) => ({
+    getMyTalks: () => ({}),
+    getFlatAnswerHistory: () => history,
+    escapeHtml: (value: string) => value,
+    showTalkDetail: jest.fn(),
+    showPreferencesDialog: jest.fn(),
+    showItemDetailsPopup: jest.fn(),
+    getTalkContentKey: jest.fn(),
+    text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+    formatDate: () => 'date',
+    formatType: () => 'Tag',
+    formatLanguage: () => 'English',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="answers-content"></div><button class="nav-btn" data-view="contacts"></button><input id="contacts-filter-topic"><button id="me-like-btn" disabled></button><button id="me-pass-btn" disabled></button>';
+    localStorage.clear();
+  });
+
+  it('a liked tag shows ♡ and its keyword only, and leads to the people who like it, the latest first', () => {
+    localStorage.setItem('localTalkExchanges', JSON.stringify({
+      'ann::tag-pizza': { peerId: 'ann', talkId: 'tag-pizza', type: 'tag', outcome: 'match', date: '2026-10-25T10:00:00.000Z' },
+      'ben::tag-pizza': { peerId: 'ben', talkId: 'tag-pizza', type: 'tag', outcome: 'match', date: '2026-10-25T11:00:00.000Z' },
+      'cy::tag-pizza': { peerId: 'cy', talkId: 'tag-pizza', type: 'tag', outcome: 'mismatch', date: '2026-10-25T12:00:00.000Z' },
+    }));
+    displayAnswersList(deps({ ...tagHistory('Pizza', 'tag-pizza', true), ...tagHistory('Jazz', 'tag-jazz', true) }) as any);
+
+    const pizza = document.querySelector<HTMLElement>('.answer-talk-item[data-talk-id="tag-pizza"]')!;
+    expect(pizza.querySelector('[data-testid="answer-tag-mark"]')?.textContent).toBe('♡');
+    expect(pizza.textContent).not.toMatch(/Checked|Liked/);
+    expect(pizza.dataset.peopleCount).toBe('2');
+    expect(pizza.querySelector('[data-testid="answer-people"]')?.textContent).toContain('2');
+    expect(pizza.querySelector('[data-testid="answer-talks"]')?.textContent).toContain('1');
+
+    let opened = false;
+    document.querySelector('.nav-btn[data-view="contacts"]')!.addEventListener('click', () => {
+      opened = true;
+      expect(getContactsFocus()).toEqual({ label: '♡ Pizza', peerIds: ['ben', 'ann'] });
+    });
+    pizza.click();
+    expect(opened).toBe(true);
+
+    // A tag nobody asked me about stays alone.
+    opened = false;
+    clearContactsFocus();
+    const jazz = document.querySelector<HTMLElement>('.answer-talk-item[data-talk-id="tag-jazz"]')!;
+    expect(jazz.querySelector('[data-testid="answer-people"]')).toBeNull();
+    jazz.click();
+    expect(opened).toBe(false);
+  });
+
+  it('a passed tag shows ✕ and can be liked again from the AppBar; a liked one can be passed', () => {
+    const answerTag = jest.fn();
+    displayAnswersList(deps({ ...tagHistory('Horror', 'tag-horror', false), ...tagHistory('Pizza', 'tag-pizza', true) }, { answerTag }) as any);
+    const horror = document.querySelector<HTMLElement>('.answer-talk-item[data-talk-id="tag-horror"]')!;
+    expect(horror.querySelector('[data-testid="answer-tag-mark"]')?.textContent).toBe('✕');
+    const like = document.getElementById('me-like-btn') as HTMLButtonElement;
+    const pass = document.getElementById('me-pass-btn') as HTMLButtonElement;
+
+    jest.useFakeTimers();
+    try {
+      longPress(horror.querySelector('.qa-question')!);
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(like.disabled).toBe(false);
+    expect(pass.disabled).toBe(true);
+    like.click();
+    expect(answerTag).toHaveBeenCalledWith('tag-horror', true);
+
+    jest.useFakeTimers();
+    try {
+      longPress(document.querySelector('.answer-talk-item[data-talk-id="tag-pizza"] .qa-question')!);
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(like.disabled).toBe(true);
+    pass.click();
+    expect(answerTag).toHaveBeenCalledWith('tag-pizza', false);
+  });
+
+  it('hides passed tags until the Passed filter is ticked', () => {
+    document.body.insertAdjacentHTML('beforeend', `
+      <label class="me-talk-type-filter"><input type="checkbox" class="me-talk-type-checkbox" value="tag" checked></label>
+      <input type="checkbox" class="me-tag-state-checkbox" value="checked" checked>
+      <input type="checkbox" class="me-tag-state-checkbox" id="passed" value="unchecked">`);
+    displayAnswersList(deps({ ...tagHistory('Horror', 'tag-horror', false), ...tagHistory('Pizza', 'tag-pizza', true) }) as any);
+    applyMeAnswerFilter((key) => uiText('en', key));
+    const shown = () => Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item')).filter((row) => row.style.display !== 'none').map((row) => row.dataset.talkId);
+    expect(shown()).toEqual(['tag-pizza']);
+    (document.getElementById('passed') as HTMLInputElement).checked = true;
+    applyMeAnswerFilter((key) => uiText('en', key));
+    expect(shown().sort()).toEqual(['tag-horror', 'tag-pizza']);
   });
 });

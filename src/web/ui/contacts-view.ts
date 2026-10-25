@@ -8,10 +8,12 @@ import {
   localTalkHistoryForPeer,
 } from '../services/local-peer-derivation';
 import { renderListProgressively } from './render-list-progressively';
-import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
+import { getPinnedIds, pinnedFirst } from './list-pins';
 import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
 import type { StarterPracticeContact, StarterPracticeContactId } from './starter-talk-seeds';
-import { bindStarterContactRemoval, renderStarterContactRows } from './starter-contacts-view';
+import { renderStarterContactRows } from './starter-contacts-view';
+import { contactsRowSelection } from './contacts-row-selection';
+import { clearContactsFocus, getContactsFocus, syncFocusChip, syncTopicOptions } from './graph-focus';
 import { sharedTagCounter, sharedTagsChipHtml } from './tag-graph-view';
 import { publicProfileFromFoundation } from './public-profile-foundation';
 import { getPrunedPeerIds } from '../services/contacts-prune';
@@ -780,7 +782,16 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         const timeDiff = new Date(b.lastInteractionAt || 0).getTime() - new Date(a.lastInteractionAt || 0).getTime();
         return timeDiff !== 0 ? timeDiff : tieBreak(a, b);
       });
-    const visiblePeers = pinnedFirst(visiblePeersByCurrentSort, 'contacts', (peer) => peer.peerId);
+    // A Me row's people (contacts-focus.ts): only them, whoever most recently got my answer first.
+    const focus = getContactsFocus();
+    syncFocusChip('contacts-focus-chip', focus?.label ?? null, deps.text, () => { clearContactsFocus(); void displayContactsList(deps); });
+    syncTopicOptions();
+    const topicInput = document.getElementById('contacts-filter-topic') as HTMLInputElement | null;
+    if (topicInput) topicInput.oninput = () => void displayContactsList(deps);
+    const peerById = new Map(peers.map((peer) => [peer.peerId, peer]));
+    const visiblePeers = focus
+      ? focus.peerIds.flatMap((peerId) => peerById.get(peerId) ?? [])
+      : pinnedFirst(visiblePeersByCurrentSort, 'contacts', (peer) => peer.peerId);
     const pinnedContactIds = getPinnedIds('contacts');
 
     if (peers.length === 0 && !showSupportContact && visibleStarterContacts.length === 0) {
@@ -798,7 +809,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
 
     // One combined summary line instead of two (header count + a separate "Stats: ..."
     // row below) — same "merge the redundant top lines" move the Talks tab redesign made.
-    deps.updateStatsStrip(formatCountText(deps, visiblePeers.length + visibleStarterContacts.length, 'contactsCountOne', 'contactsCount') + ' · ');
+    deps.updateStatsStrip(formatCountText(deps, visiblePeers.length + (focus ? 0 : visibleStarterContacts.length), 'contactsCountOne', 'contactsCount') + ' · ');
 
     const supportOnline = deps.isTechSupportOnline();
     // TODO §M5: compact to a single line — the "Built-in" badge already conveys what the old
@@ -806,7 +817,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     // than merged; mute state becomes a small inline icon (full explanation still reachable via
     // openSupportControlsDialog, not lost) instead of its own full-sentence line.
     const supportMuted = deps.isSupportNotificationsMuted();
-    const supportRow = showSupportContact
+    const supportRow = showSupportContact && !focus
       ? `
           <div class="contact-item contact-support-item" data-support-contact="true" data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}" data-contact-name="${TECHSUPPORT_STAGE_NAME}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: var(--accent-soft); border-radius: 12px; border: 1px solid var(--accent-border); cursor: pointer;">
             <div style="min-width:0;">
@@ -816,7 +827,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
           </div>
         `
       : '';
-    const starterRows = renderStarterContactRows(visibleStarterContacts, deps);
+    const starterRows = focus ? '' : renderStarterContactRows(visibleStarterContacts, deps);
     const renderContactRow = (peer: PeerSummary): string => {
       const known = knownMap.get(peer.peerId);
       const resolvedStageName = deps.getPeerName(peer.peerId, peer.stageName);
@@ -846,7 +857,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
                 ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
               </div>
             </div>
-            <button type="button" class="list-pin-button contact-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${deps.escapeHtml(peer.peerId)}" aria-label="${deps.escapeHtml(deps.text(pinned ? 'unpinItem' : 'pinItem'))}" title="${deps.escapeHtml(deps.text(pinned ? 'unpinItem' : 'pinItem'))}" aria-pressed="${pinned}">📌</button>
+            ${pinned ? `<span class="list-pin-badge" data-testid="contact-pin-badge" role="img" title="${deps.escapeHtml(deps.text('unpinItem'))}" aria-label="${deps.escapeHtml(deps.text('unpinItem'))}">📌</span>` : ''}
             <span style="color: #999; flex-shrink: 0;">›</span>
           </div>
         `;
@@ -862,8 +873,10 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       prefixHtml: starterRows + supportRow,
       renderRow: renderContactRow,
       isStale: () => coreSeq !== contactsCoreRenderSeq,
+      onFirstChunkRendered: () => contactsRowSelection({ rerender: () => void displayContactsList(deps), removeStarterPracticeContact: deps.removeStarterPracticeContact }).reapply(),
+      onRemainderRendered: () => contactsRowSelection({ rerender: () => void displayContactsList(deps), removeStarterPracticeContact: deps.removeStarterPracticeContact }).reapply(),
     });
-    bindStarterContactRemoval(listEl, deps);
+    contactsRowSelection({ rerender: () => void displayContactsList(deps), removeStarterPracticeContact: deps.removeStarterPracticeContact }).reapply();
 
     // Delegated click handling (bound once, survives every re-render/re-chunk): a row
     // rendered into the deferred remainder is clickable the instant it lands in the DOM,
@@ -879,17 +892,6 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         const currentDeps = (listEl as unknown as { __contactsDeps?: ContactsViewDeps }).__contactsDeps;
         if (!currentDeps) return;
         const target = event.target as HTMLElement;
-        const pinButton = target.closest('.contact-pin-button') as HTMLElement | null;
-        if (pinButton) {
-          event.preventDefault();
-          event.stopPropagation();
-          const pinId = pinButton.dataset.pinId;
-          if (pinId) {
-            toggleListItemPin('contacts', pinId);
-            void displayContactsList(currentDeps);
-          }
-          return;
-        }
         const row = target.closest('.contact-item') as HTMLElement | null;
         const userId = row?.dataset.contactUserId;
         const stageName = row?.dataset.contactName;

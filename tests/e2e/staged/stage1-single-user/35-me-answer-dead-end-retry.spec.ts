@@ -13,6 +13,7 @@ import { afterLoad, afterSync, afterNav, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { rowToolbarAction } from '../../helpers/list-row-actions';
 
 // A syntactically valid talk id (matches TALK_CONTENT_HASH_ID, qa_[0-9a-f]{8}) that was never
 // actually created anywhere — guarantees demandFullTalk's mesh-cache/local-storage/short-retry
@@ -85,7 +86,8 @@ test.describe('Me-tab answer dead-end retry (P)', () => {
     // straight to showTalkDetail, hitting the dead-end lookup directly.
     const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Do you like tea?' }).first();
     await expect(answerItem).toBeVisible({ timeout: 15_000 });
-    await answerItem.locator('.answer-context-jump').click();
+    // Me rows carry no buttons: long-press selects the row, 💬 Talk opens it (owner design 2026-10-25).
+    await rowToolbarAction(page, answerItem, 'me-talk-btn');
 
     // First attempt fails (nothing anywhere resolves DEAD_TALK_ID) — real retry affordance,
     // not just a dead toast: the notification is marked retryable and no talk dialog opened.

@@ -1,10 +1,9 @@
-import type { StarterPracticeContact, StarterPracticeContactId } from './starter-talk-seeds';
+import type { StarterPracticeContact } from './starter-talk-seeds';
 import type { UiTranslationKey } from './ui-translations';
 
 type StarterContactsViewDeps = {
   escapeHtml: (text: string) => string;
   text: (key: UiTranslationKey) => string;
-  removeStarterPracticeContact: (id: StarterPracticeContactId) => void;
 };
 
 export function renderStarterContactRows(
@@ -20,16 +19,5 @@ export function renderStarterContactRows(
           <div class="contact-item-meta" style="font-size:0.85em;color:var(--text-secondary);margin-top:4px;">${deps.escapeHtml(contact.description)}</div>
         </div>
       </div>
-      <button type="button" class="btn starter-contact-remove" data-starter-contact-id="${deps.escapeHtml(contact.id)}">${deps.escapeHtml(deps.text('starterContactRemove'))}</button>
     </div>`).join('');
-}
-
-export function bindStarterContactRemoval(root: HTMLElement, deps: StarterContactsViewDeps): void {
-  root.querySelectorAll<HTMLButtonElement>('.starter-contact-remove').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      deps.removeStarterPracticeContact(button.dataset.starterContactId as StarterPracticeContactId);
-    });
-  });
 }

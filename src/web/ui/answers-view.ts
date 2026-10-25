@@ -10,6 +10,9 @@ import type { UiTranslationKey } from './ui-translations';
 import { renderListProgressively } from './render-list-progressively';
 import { avatarInnerHtml } from './profile-avatar';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
+import { createRowSelection, type RowSelection } from './list-row-selection';
+import { bindGraphLinks, openContactsTopic, peopleLinkHtml, peopleWhoExchanged, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
+import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
 const ANSWERS_FIRST_CHUNK_SIZE = 25;
@@ -31,9 +34,8 @@ type AnswersViewDeps = {
    *  the Talks tab and opens that talk's scoped responses list instead of the single-talk
    *  detail view, mirroring the ⟨User⟩ layout's peer-history-item title-link behavior. */
   openTalkResponses?: (talkId: string, talkTitle: string) => void;
-  /** Jumps to the Contacts detail for a variant's sender — only rendered when
-   *  senderIds.length > 0 (a talk someone else sent me). */
-  viewContact?: (userId: string) => void;
+  /** Answers a tag again from the AppBar (♡ Like / ✕ Pass): `talkId` is its My Talks entry. */
+  answerTag?: (talkId: string, liked: boolean) => void;
   showPreferencesDialog: () => void;
   /** Reuses ui-manager.ts's shared reparent-into-popup mechanism (showDetailsPopupFor) so
    *  the moved-out metadata/context/variant list keeps working without a second popup
@@ -340,7 +342,8 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
           ...(item.mode ? { mode: item.mode } : {}),
           answeredAt,
           outcome: record.outcome === 'match' ? 'match' : 'mismatch',
-          senderIds: record.senderIds || [],
+          // Answers saved before starter tags lost their sender still name the starter source.
+          senderIds: (record.senderIds || []).filter((id) => id !== STARTER_TAGS_SOURCE_ID),
           language,
           ...(record.locationRadiusMiles != null ? { locationRadiusMiles: record.locationRadiusMiles } : {}),
           chatbotGenerated: item.mode === 'auto' || item.mode === 'permanent',
@@ -434,7 +437,63 @@ function formatChoiceForDisplay(variant: AnswerVariant, deps: Pick<AnswersViewDe
 }
 
 
+/**
+ * The source Talk at that question. "No senders" (a Talk I authored myself) opens that Talk's
+ * Talks-tab responses list instead.
+ */
+function openAnswerTalk(row: HTMLElement, deps: AnswersViewDeps | null): void {
+  const talkId = row.dataset.talkId || '';
+  if (!deps || !talkId) return;
+  if (row.dataset.hasSenders !== '1' && deps.openTalkResponses) deps.openTalkResponses(talkId, row.dataset.talkTitle || '');
+  else deps.showTalkDetail(talkId, row.dataset.answerQuestionId || undefined);
+}
+
+/**
+ * Me rows carry no buttons: a long-press selects a row, and the AppBar's 📌 Pin, ✕ Pass · ♡ Like
+ * (tags) and 💬 Talk act on it (`list-row-selection.ts`). Created once; actions read the latest
+ * render's deps.
+ */
+let answersRowSelection: RowSelection | null = null;
+let selectionDeps: AnswersViewDeps | null = null;
+function answersSelection(deps: AnswersViewDeps): RowSelection {
+  selectionDeps = deps;
+  answersRowSelection ??= createRowSelection({
+    list: '#answers-list',
+    row: '.answer-talk-item',
+    key: (row) => row.dataset.pinId || row.dataset.questionId || '',
+    actions: [
+      {
+        buttonId: 'me-pin-btn',
+        applies: (row) => !!row.dataset.pinId,
+        run: (row) => {
+          toggleListItemPin('answers', row.dataset.pinId!);
+          if (selectionDeps) displayAnswersList(selectionDeps);
+        },
+      },
+      // A tag can be answered again: ♡ Like a passed one, ✕ Pass a liked one (not one I created).
+      {
+        buttonId: 'me-like-btn',
+        applies: (row) => row.dataset.tagState === 'unchecked' && !!selectionDeps?.answerTag,
+        run: (row) => selectionDeps?.answerTag?.(row.dataset.talkId || '', true),
+      },
+      {
+        buttonId: 'me-pass-btn',
+        applies: (row) => row.dataset.tagState === 'checked' && !!selectionDeps?.answerTag
+          && selectionDeps.getMyTalks()[row.dataset.talkId || '']?.role !== 'created',
+        run: (row) => selectionDeps?.answerTag?.(row.dataset.talkId || '', false),
+      },
+      {
+        buttonId: 'me-talk-btn',
+        applies: (row) => !!row.dataset.talkId,
+        run: (row) => openAnswerTalk(row, selectionDeps),
+      },
+    ],
+  });
+  return answersRowSelection;
+}
+
 export function displayAnswersList(deps: AnswersViewDeps): void {
+  bindGraphLinks();
   const container = document.getElementById('answers-content');
   if (!container) return;
   const renderSeq = ++answersRenderSeq;
@@ -452,49 +511,18 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       const currentDeps = (liveContainer as unknown as { __answersDeps?: AnswersViewDeps } | null)?.__answersDeps;
       if (!currentDeps) return;
 
-      const pinButton = target.closest('.answer-pin-button') as HTMLElement | null;
-      if (pinButton) {
-        e.preventDefault();
-        e.stopPropagation();
-        const pinId = pinButton.dataset.pinId;
-        if (pinId) {
-          toggleListItemPin('answers', pinId);
-          displayAnswersList(currentDeps);
-        }
-        return;
-      }
-
       if (target.closest('#view-preferences-btn')) {
         currentDeps.showPreferencesDialog();
         return;
       }
 
-      // docs/TODO.md §LL.2 follow-up: "trace back to who sent this, from which talk" — a small
-      // sibling link next to any answer that has a sender, independent of the answer-jump target
-      // below. Checked first since it's a non-nested sibling, not an ancestor of the jump target.
-      const contactJumpEl = target.closest('.answer-view-contact-jump') as HTMLElement | null;
-      if (contactJumpEl) {
-        e.stopPropagation();
-        const senderId = contactJumpEl.dataset.senderId;
-        if (senderId) currentDeps.viewContact?.(senderId);
-        return;
-      }
-
-      // Every context/answer line jumps straight to its source talk at that specific question —
-      // no expand-in-place detail step anymore (see renderQuestionRow). "No senders" (a talk I
-      // authored myself) opens that talk's Talks-tab responses list instead, same as the
-      // previous popup's "View talk" button did.
-      const jumpEl = target.closest('.answer-context-jump') as HTMLElement | null;
-      if (jumpEl) {
-        const talkId = jumpEl.dataset.talkId;
-        const questionId = jumpEl.dataset.questionId || undefined;
-        const talkTitle = jumpEl.dataset.talkTitle || '';
-        const hasSenders = jumpEl.dataset.hasSenders === '1';
-        if (talkId && !hasSenders && currentDeps.openTalkResponses) {
-          currentDeps.openTalkResponses(talkId, talkTitle);
-        } else if (talkId) {
-          currentDeps.showTalkDetail(talkId, questionId);
-        }
+      // A row is a link through the graph (owner design 2026-10-25): it opens Contacts narrowed to
+      // the people who exchanged this question with me (for a tag, who like it), the most recent
+      // first. A question nobody asked me about stays alone. Its Talk opens from the AppBar's 💬.
+      const row = target.closest('.answer-talk-item') as HTMLElement | null;
+      if (row && Number(row.dataset.peopleCount || 0) > 0) {
+        const topic = row.dataset.topic || '';
+        openContactsTopic(topic, { label: topic, talkIds: (row.dataset.talkIds || '').split(' ').filter(Boolean), isTag: !!row.dataset.tagState });
       }
     });
   }
@@ -548,8 +576,8 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
     // an indented, independently-clickable line per context. Clicking any answer jumps straight
     // to its source talk at that question (the click handler above) — no talk metadata (date,
     // outcome, senders, language, chatbot use) is shown on this page at all.
-    // Answered automatically by the chatbot: a 🤖 mark next to the answer (and a tinted row) is
-    // the user's record of it; clicking the answer opens the talk to review or re-answer it.
+    // Answered automatically by the chatbot: a 🤖 mark next to the answer is the user's record of
+    // it. The row is not tinted: the answer is still the user's own (owner feedback 2026-10-25).
     const chatbotMark = (variant: AnswerVariant): string => variant.answeredByChatbot
       ? ` <span class="answer-chatbot-mark" data-testid="answer-answered-by-chatbot" title="${deps.escapeHtml(deps.text('talksAnsweredByChatbot'))}">🤖</span>`
       : '';
@@ -558,18 +586,11 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       const contextSuffix = variant.contextLabel
         ? ` <span style="color:var(--text-tertiary);font-size:0.85em;">(${deps.escapeHtml(variant.contextLabel.replace(/→/g, ' -> '))})</span>`
         : '';
-      // docs/TODO.md §LL.2 follow-up: "trace back to who sent this, from which talk" — the
-      // answer text itself jumps to the source talk; the small independent "view sender" link
-      // (only when this variant has a sender) jumps to that sender's Contacts detail. Adding an
-      // incoming talk to My Talks belongs on the Talks tab, not in this answer-history view.
-      const contactLink = hasSenders
-        ? ` · <span class="answer-view-contact-jump" data-sender-id="${deps.escapeHtml(variant.senderIds[0])}" style="cursor:pointer;color:var(--accent-text);font-size:0.85em;">${deps.escapeHtml(deps.text('meViewContact'))}</span>`
-        : '';
       return `
         <span style="${indent ? 'display:block;padding:2px 0;' : 'display:inline;'}">
           <span class="answer-context-jump" data-talk-id="${deps.escapeHtml(variant.talkId)}" data-talk-title="${deps.escapeHtml(variant.talkTitle)}" data-question-id="${deps.escapeHtml(variant.questionId)}" data-has-senders="${hasSenders ? '1' : '0'}" style="cursor:pointer;">
             → ${deps.escapeHtml(formatChoiceForDisplay(variant, deps))}${chatbotMark(variant)}${contextSuffix}
-          </span>${contactLink}
+          </span>
         </span>
       `;
     };
@@ -586,37 +607,50 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       // Preserved for the top filter bar (ui-manager.ts's applyMeAnswerFilter) — computed from
       // the most-recent variant, same rule renderTagRow used to apply.
       const tagState = primary.booleanTag === true ? (primary.choice === 'Checked' ? 'checked' : 'unchecked') : '';
-      const bodyHtml = rowVariants.length === 1
+      // A tag is a short question answered publicly: ♡ liked or ✕ passed, no answer text.
+      // Who exchanged this question with me (for a tag, who like it), the most recent first, and the
+      // Talks that asked it: the two ways a row leads through the graph (graph-focus.ts).
+      const people = peopleWhoExchanged(talkIds, tagState !== '');
+      const linksHtml = peopleLinkHtml(group.prompt, people.length, deps, talkIds, tagState !== '') + talksLinkHtml(group.prompt, talkIds, deps);
+      const bodyHtml = tagState
+        ? `<div class="qa-line qa-question" style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;font-weight:600;">
+            ${tagFaceHtml({ state: tagState === 'checked' ? 'liked' : 'passed', text: tagText(primary.talkTitle, group.prompt), topic: group.prompt, people: 0 }, deps)}${linksHtml}
+          </div>`
+        : rowVariants.length === 1
         ? `<div class="qa-line" style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">
             <span class="qa-question" style="font-weight:600;">${deps.escapeHtml(group.prompt)}</span>
-            ${renderAnswerLine(rowVariants[0], false)}
+            ${renderAnswerLine(rowVariants[0], false)}${linksHtml}
           </div>`
         : `
-          <div class="qa-question" style="font-weight:600;">${deps.escapeHtml(group.prompt)}</div>
+          <div class="qa-question" style="font-weight:600;">${deps.escapeHtml(group.prompt)}${linksHtml}</div>
           <div class="qa-context-list" style="margin-left:14px;">
             ${rowVariants.map((v) => renderAnswerLine(v, true)).join('')}
           </div>
         `;
       return `
-        <div class="answer-question-item answer-talk-item${primary.answeredByChatbot ? ' answer-answered-by-chatbot' : ''} ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-pin-id="${deps.escapeHtml(pinKey)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" style="display: flex;flex-direction:column;gap:2px;padding:10px 48px 10px 14px;border:1px solid ${primary.answeredByChatbot ? 'var(--chatbot-accent, #7c5cd6)' : 'var(--border)'};border-radius:10px;background:${primary.answeredByChatbot ? 'var(--chatbot-soft, #f1ecfb)' : 'var(--surface)'};">
-          <button type="button" class="list-pin-button answer-pin-button ${pinned ? 'is-pinned' : ''}" data-pin-id="${deps.escapeHtml(pinKey)}" aria-label="${deps.escapeHtml(pinLabel)}" title="${deps.escapeHtml(pinLabel)}" aria-pressed="${pinned}">📌</button>
+        <div class="answer-question-item answer-talk-item${primary.answeredByChatbot ? ' answer-answered-by-chatbot' : ''} ${talkTypes.map((t) => `talk-type-${deps.escapeHtml(t)}`).join(' ')}" data-question-id="${deps.escapeHtml(group.questionId)}" data-pin-id="${deps.escapeHtml(pinKey)}" data-talk-type="${deps.escapeHtml(talkTypes.join(' '))}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" data-tag-state="${tagState}" data-outcome="${deps.escapeHtml(primary.outcome)}" data-answered-at="${primary.answeredAt}" data-chatbot-use-count="${group.variants.reduce((t, v) => t + v.autoUseCount, 0)}" data-chatbot-last-used-at="${Math.max(0, ...group.variants.map((v) => v.latestAutoUseAt || 0))}" data-answer-text="${deps.escapeHtml(primary.choice.toLowerCase())}" data-search-text="${deps.escapeHtml(searchText)}" data-context-count="${rowVariants.length}" data-talk-id="${deps.escapeHtml(primary.talkId)}" data-talk-title="${deps.escapeHtml(primary.talkTitle)}" data-answer-question-id="${deps.escapeHtml(primary.questionId)}" data-has-senders="${primary.senderIds.length > 0 ? '1' : '0'}" data-people-count="${people.length}" data-topic="${deps.escapeHtml(group.prompt)}" style="display: flex;flex-direction:column;gap:2px;padding:10px 48px 10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);${people.length > 0 ? 'cursor:pointer;' : ''}">
+          ${pinned ? `<span class="list-pin-badge" data-testid="answer-pin-badge" role="img" title="${deps.escapeHtml(pinLabel)}" aria-label="${deps.escapeHtml(pinLabel)}">📌</span>` : ''}
           ${bodyHtml}
         </div>
       `;
     };
 
     const listEl = document.getElementById('answers-list');
-    const onRowsRendered = deps.onRowsRendered;
+    const selection = answersSelection(deps);
+    const onRowsRendered = (): void => {
+      selection.reapply();
+      deps.onRowsRendered?.();
+    };
     if (listEl) {
       renderListProgressively(listEl, groups, {
         firstChunkSize: ANSWERS_FIRST_CHUNK_SIZE,
         renderRow: renderQuestionRow,
         isStale: () => renderSeq !== answersRenderSeq,
-        ...(onRowsRendered
-          ? { onFirstChunkRendered: onRowsRendered, onRemainderRendered: onRowsRendered }
-          : {}),
+        onFirstChunkRendered: onRowsRendered,
+        onRemainderRendered: onRowsRendered,
       });
     }
+    selection.reapply();
   }
 
   const searchInput = document.getElementById('answers-search-input') as HTMLInputElement | null;

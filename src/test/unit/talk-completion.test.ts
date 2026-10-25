@@ -4,6 +4,7 @@ import { completeTalk, saveMyTalk, type TalkCompletionDeps } from '../../web/ui/
 import { getMyTalks } from '../../web/ui/my-talks-storage';
 import { getAnsweredTalkByContent } from '../../web/ui/answer-preferences-storage';
 import { getFlatAnswerHistory } from '../../web/ui/answer-history-storage';
+import { starterTagsFor, starterTagTalk } from '../../shared/starter-tags';
 
 function deps(overrides: Partial<TalkCompletionDeps> = {}): TalkCompletionDeps {
   return {
@@ -239,5 +240,18 @@ describe('completeTalk — answered by the chatbot', () => {
     expect(getMyTalks().t1.answeredBy).toBeUndefined();
     expect(Object.values(getFlatAnswerHistory())[0].answeredBy).toBeUndefined();
     expect(d.emit).toHaveBeenCalledWith('talkCompleted', expect.objectContaining({ talkId: 't1' }));
+  });
+});
+
+describe('starter tags have no sender (OPEN-87)', () => {
+  it('an answered starter tag records no sender, so it reads as the user’s own tag', () => {
+    const starter = starterTagTalk(starterTagsFor('en')[0]!);
+    completeTalk(starter, [{ questionId: 'q_0', answerId: 'q_0_ignore', answerText: 'ignore' }], 'mismatch', { withholdFromSender: true }, deps());
+    expect(getMyTalks()[starter.id]?.senders).toEqual([]);
+    expect(Object.values(getFlatAnswerHistory()).find((record) => record.talkId === starter.id)?.senderIds).toEqual([]);
+
+    // A person sending the same tag later is still recorded.
+    completeTalk({ ...starter, authorId: 'person-1', starterContactId: undefined }, [{ questionId: 'q_0', answerId: 'q_0_ignore', answerText: 'ignore' }], 'mismatch', undefined, deps());
+    expect(getMyTalks()[starter.id]?.senders).toEqual(['person-1']);
   });
 });

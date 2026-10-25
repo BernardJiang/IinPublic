@@ -11,6 +11,7 @@ import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
 import { longPressTalkRow } from '../../helpers/talks-matching-flow';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
+import { rowToolbarAction } from '../../helpers/list-row-actions';
 
 test.describe('Talks: create and edit', () => {
   let browser: Browser;
@@ -150,7 +151,8 @@ test.describe('Talks: create and edit', () => {
     // the talk/response dialog directly.
     const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Do you like tea?' }).first();
     await expect(answerItem).toBeVisible({ timeout: 15000 });
-    await answerItem.locator('.answer-context-jump').click();
+    // Me rows carry no buttons: long-press selects the row, 💬 Talk opens it (owner design 2026-10-25).
+    await rowToolbarAction(page, answerItem, 'me-talk-btn');
     await expect(page.locator('#talk-response-modal')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#talk-editor-modal')).toHaveCount(0);
   });

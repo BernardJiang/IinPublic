@@ -47,6 +47,14 @@ export function renderAppShell(
               <button type="button" class="header-btn app-bar-action-btn talks-tap-mode-btn" id="talks-tap-pass-btn" data-testid="talks-tap-pass-btn" data-appbar-view="talks" data-appbar-priority="3" disabled title="${text('talksTapModePass')}" aria-label="${text('talksTapModePass')}"><span class="app-bar-btn-icon" aria-hidden="true">✕</span><span class="app-bar-btn-label">${text('talksTagPass')}</span></button>
               <button type="button" class="header-btn app-bar-action-btn talks-tap-mode-btn" id="talks-tap-like-btn" data-testid="talks-tap-like-btn" data-appbar-view="talks" data-appbar-priority="3" disabled title="${text('talksTapModeLike')}" aria-label="${text('talksTapModeLike')}"><span class="app-bar-btn-icon" aria-hidden="true">♡</span><span class="app-bar-btn-label">${text('talksTagLike')}</span></button>
               <button type="button" class="header-btn app-bar-action-btn talks-tap-mode-btn" id="talks-tap-pin-btn" data-testid="talks-tap-pin-btn" data-appbar-view="talks" data-appbar-priority="3" disabled title="${text('talksTapModePin')}" aria-label="${text('talksTapModePin')}"><span class="app-bar-btn-icon" aria-hidden="true">📌</span><span class="app-bar-btn-label">${text('pinItem')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="contacts-pin-btn" data-testid="contacts-pin-btn" data-appbar-view="contacts" data-appbar-priority="2" disabled title="${text('listActionPin')}" aria-label="${text('listActionPin')}"><span class="app-bar-btn-icon" aria-hidden="true">📌</span><span class="app-bar-btn-label">${text('pinItem')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="contacts-remove-btn" data-testid="contacts-remove-btn" data-appbar-view="contacts" data-appbar-priority="3" disabled title="${text('contactsActionRemove')}" aria-label="${text('contactsActionRemove')}"><span class="app-bar-btn-icon" aria-hidden="true">✕</span><span class="app-bar-btn-label">${text('starterContactRemove')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="contacts-broadcast-group-btn" data-testid="contacts-broadcast-group-btn" data-appbar-view="contacts" data-appbar-priority="4" title="${text('contactsBroadcastGroupBtn')}" aria-label="${text('contactsBroadcastGroupBtn')}"><span class="app-bar-btn-icon" aria-hidden="true">📣</span><span class="app-bar-btn-label">${text('contactsBroadcastGroupBtn')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="contacts-tag-directory-btn" data-testid="contacts-tag-directory-btn" data-appbar-view="contacts" data-appbar-priority="4" title="${text('tagDirectoryTitle')}" aria-label="${text('tagDirectoryTitle')}"><span class="app-bar-btn-icon" aria-hidden="true">🏷️</span><span class="app-bar-btn-label">${text('tagDirectoryTitle')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="me-pin-btn" data-testid="me-pin-btn" data-appbar-view="me" data-appbar-priority="2" disabled title="${text('listActionPin')}" aria-label="${text('listActionPin')}"><span class="app-bar-btn-icon" aria-hidden="true">📌</span><span class="app-bar-btn-label">${text('pinItem')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="me-pass-btn" data-testid="me-pass-btn" data-appbar-view="me" data-appbar-priority="2" disabled title="${text('meActionPass')}" aria-label="${text('meActionPass')}"><span class="app-bar-btn-icon" aria-hidden="true">✕</span><span class="app-bar-btn-label">${text('talksTagPass')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="me-like-btn" data-testid="me-like-btn" data-appbar-view="me" data-appbar-priority="2" disabled title="${text('meActionLike')}" aria-label="${text('meActionLike')}"><span class="app-bar-btn-icon" aria-hidden="true">♡</span><span class="app-bar-btn-label">${text('talksTagLike')}</span></button>
+              <button type="button" class="header-btn app-bar-action-btn" id="me-talk-btn" data-testid="me-talk-btn" data-appbar-view="me" data-appbar-priority="3" disabled title="${text('meActionTalk')}" aria-label="${text('meActionTalk')}"><span class="app-bar-btn-icon" aria-hidden="true">💬</span><span class="app-bar-btn-label">${text('meOpenTalk')}</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="3" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="return-home-btn" data-testid="return-home-btn" data-appbar-view="chatrooms" data-appbar-priority="4" disabled title="Return Home"><span class="app-bar-btn-icon">🏠</span><span class="app-bar-btn-label">Return Home</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn" data-appbar-view="chatrooms" data-appbar-priority="5" title="New Room"><span class="app-bar-btn-icon">🆕</span><span class="app-bar-btn-label">New Room</span></button>
@@ -100,10 +108,12 @@ export function renderAppShell(
             <div class="view-content">
               <div class="filter-bar contacts-action-bar">
                 <button type="button" class="filter-bar-toggle" data-testid="contacts-filter-toggle" aria-expanded="false">Filters ▾</button>
-                <button type="button" class="btn contacts-broadcast-icon-btn" id="contacts-broadcast-group-btn" data-testid="contacts-broadcast-group-btn" title="${text('contactsBroadcastGroupBtn')}" aria-label="${text('contactsBroadcastGroupBtn')}">📣</button>
-                <button type="button" class="btn contacts-broadcast-icon-btn" id="contacts-tag-directory-btn" data-testid="contacts-tag-directory-btn" title="${text('tagDirectoryTitle')}" aria-label="${text('tagDirectoryTitle')}">🏷️</button>
+                <!-- The people of a tag or question (graph-focus.ts): "♡ Pizza ✕", shown while the filter below is set. -->
+                <span class="focus-chip" id="contacts-focus-chip" data-testid="contacts-focus-chip" hidden><span class="focus-chip-label"></span><button type="button" class="focus-chip-clear" data-testid="contacts-focus-clear">✕</button></span>
                 <div class="filter-bar-content">
                 <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
+                <input class="form-input" id="contacts-filter-topic" data-testid="contacts-filter-topic" type="search" list="contacts-filter-topic-options" placeholder="${text('contactsFilterTopic')}" aria-label="${text('contactsFilterTopic')}" style="flex:1 1 160px; min-width:0;">
+                <datalist id="contacts-filter-topic-options"></datalist>
                 <select class="form-input" id="contacts-filter-relation" style="flex:0 0 150px;">
                   <option value="all">All relations</option>
                   <option value="friend">Friends</option>
@@ -172,6 +182,8 @@ export function renderAppShell(
                   </label>
                 </div>
                 <button type="button" class="filter-bar-toggle" data-testid="talks-filter-toggle" aria-expanded="false">Filters ▾</button>
+                <!-- The Talks that asked a question (graph-focus.ts): "💬 Pizza ✕", shown only while the list is narrowed to them. -->
+                <span class="focus-chip" id="talks-focus-chip" data-testid="talks-focus-chip" hidden><span class="focus-chip-label"></span><button type="button" class="focus-chip-clear" data-testid="talks-focus-clear">✕</button></span>
                 <div class="filter-bar-content">
                 <select class="form-input" id="talks-out-sort-order" aria-label="Sort outgoing talks" style="flex:0 0 180px;">
                   <option value="recent">Latest activity</option>
@@ -418,11 +430,12 @@ export function renderAppShell(
                 <span id="me-tag-state-filter-label" style="font-size:0.82em;color:var(--text-tertiary);font-weight:700;margin-left:6px;">Tag states</span>
                 <label class="me-tag-state-filter" data-me-tag-state="checked" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
                   <input type="checkbox" class="me-tag-state-checkbox" value="checked" checked>
-                  <span class="me-tag-state-label">Checked</span>
+                  <span class="me-tag-state-label">Liked</span>
                 </label>
                 <label class="me-tag-state-filter" data-me-tag-state="unchecked" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
-                  <input type="checkbox" class="me-tag-state-checkbox" value="unchecked" checked>
-                  <span class="me-tag-state-label">Unchecked</span>
+                  <!-- Passed tags are hidden until this is ticked: only liked tags matter by default. -->
+                  <input type="checkbox" class="me-tag-state-checkbox" value="unchecked">
+                  <span class="me-tag-state-label">Passed</span>
                 </label>
                 <label class="me-tag-state-filter" data-me-tag-state="indeterminate" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">
                   <input type="checkbox" class="me-tag-state-checkbox" value="indeterminate" checked>
@@ -525,8 +538,8 @@ export function applyAppShellTranslations(
     ['.me-talk-type-filter[data-me-talk-type="survey"] .me-talk-type-label', 'talkTypeSurvey'],
     ['.me-talk-type-filter[data-me-talk-type="route"] .me-talk-type-label', 'talkTypeRoute'],
     ['#me-tag-state-filter-label', 'meTagStateFilters'],
-    ['.me-tag-state-filter[data-me-tag-state="checked"] .me-tag-state-label', 'meChecked'],
-    ['.me-tag-state-filter[data-me-tag-state="unchecked"] .me-tag-state-label', 'meUnchecked'],
+    ['.me-tag-state-filter[data-me-tag-state="checked"] .me-tag-state-label', 'meFilterLiked'],
+    ['.me-tag-state-filter[data-me-tag-state="unchecked"] .me-tag-state-label', 'meFilterPassed'],
     ['.me-tag-state-filter[data-me-tag-state="indeterminate"] .me-tag-state-label', 'meIndeterminate'],
   ];
   for (const [selector, key] of textBySelector) {

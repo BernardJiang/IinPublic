@@ -8,6 +8,8 @@
 
 import { displayContactsList, saveKnownPerson, setBlocked, showContactDetail } from '../../web/ui/contacts-view';
 import { configureTagGraphView } from '../../web/ui/tag-graph-view';
+import { longPress } from './helpers/long-press';
+import { clearContactsFocus, openContactsTopic } from '../../web/ui/graph-focus';
 import type { KnownPerson } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { languageOptionLabel, uiText } from '../../web/ui/ui-translations';
@@ -169,9 +171,24 @@ describe('Contacts ranking and relationship filters', () => {
     }];
     contactDeps.removeStarterPracticeContact = removeStarterPracticeContact;
 
+    document.body.insertAdjacentHTML('beforeend', '<button id="contacts-remove-btn" disabled></button><button id="contacts-pin-btn" disabled></button>');
+
     await displayContactsList(contactDeps);
-    expect(document.querySelector('.starter-practice-contact')?.textContent).toContain('Tag Guide');
-    document.querySelector<HTMLButtonElement>('.starter-contact-remove')?.click();
+    const bot = document.querySelector('.starter-practice-contact')!;
+    expect(bot.textContent).toContain('Tag Guide');
+    expect(bot.querySelector('button')).toBeNull();
+    // No button on the row: a long-press selects it and the AppBar's ✕ Remove acts on it.
+    jest.useFakeTimers();
+    try {
+      longPress(bot);
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(bot.classList.contains('is-selected')).toBe(true);
+    expect((document.getElementById('contacts-pin-btn') as HTMLButtonElement).disabled).toBe(true);
+    const remove = document.getElementById('contacts-remove-btn') as HTMLButtonElement;
+    expect(remove.disabled).toBe(false);
+    remove.click();
     expect(removeStarterPracticeContact).toHaveBeenCalledWith('tag-guide');
   });
 
@@ -193,20 +210,34 @@ describe('Contacts ranking and relationship filters', () => {
     expect(document.getElementById('contacts-list')?.textContent).toContain('8 matches');
   });
 
-  it('pins and unpins a contact at the top without opening its detail', async () => {
+  it('pins and unpins a long-pressed contact from the AppBar, without opening its detail', async () => {
+    document.body.insertAdjacentHTML('beforeend', '<button id="contacts-pin-btn" disabled></button>');
+    const pin = document.getElementById('contacts-pin-btn') as HTMLButtonElement;
     const contactDeps = deps();
     await displayContactsList(contactDeps);
+    expect(pin.disabled).toBe(true);
+    expect(document.querySelector('[data-contact-user-id="weak"] button')).toBeNull();
 
-    const weakPin = document.querySelector<HTMLButtonElement>('[data-contact-user-id="weak"] .contact-pin-button');
-    weakPin?.click();
+    jest.useFakeTimers();
+    try {
+      longPress(document.querySelector('[data-contact-user-id="weak"] .contact-item-meta')!);
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(pin.disabled).toBe(false);
+    pin.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     let rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
     expect(rows).toEqual(['Weak', 'Strong']);
-    expect(document.querySelector('[data-contact-user-id="weak"] .contact-pin-button')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-contact-user-id="weak"] [data-testid="contact-pin-badge"]')).not.toBeNull();
+    // The selection survives the re-render, so a second 📌 unpins.
+    expect(document.querySelector('[data-contact-user-id="weak"]')?.classList.contains('is-selected')).toBe(true);
     expect(contactDeps.openPeerDetail).not.toHaveBeenCalled();
     expect(contactDeps.openPeerDetailOnly).not.toHaveBeenCalled();
 
-    document.querySelector<HTMLButtonElement>('[data-contact-user-id="weak"] .contact-pin-button')?.click();
+    pin.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     rows = Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
     expect(rows).toEqual(['Strong', 'Weak']);
   });
@@ -318,6 +349,45 @@ describe('Contacts ranking and relationship filters', () => {
     expect(contactDeps.updateStatsStrip).toHaveBeenCalledWith('1 contact from exchanged talks · ');
     expect(document.getElementById('contacts-list')?.textContent).toContain('1 talk');
     expect(document.getElementById('contacts-list')?.textContent).toContain('1 match');
+  });
+
+  it('a tag or question filter lists its people, latest first: tapped on Me or typed, the same list', async () => {
+    document.body.insertAdjacentHTML('afterbegin', `
+      <span id="contacts-focus-chip" hidden><span class="focus-chip-label"></span><button type="button" class="focus-chip-clear">✕</button></span>
+      <input id="contacts-filter-topic"><datalist id="contacts-filter-topic-options"></datalist>`);
+    const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+    exchanges['strong::tag-pizza'] = { peerId: 'strong', peerName: 'Strong', talkId: 'tag-pizza', type: 'tag', title: 'Pizza', outcome: 'match', direction: 'sent', date: '2026-10-25T10:00:00.000Z' };
+    exchanges['weak::tag-pizza'] = { peerId: 'weak', peerName: 'Weak', talkId: 'tag-pizza', type: 'tag', title: 'Pizza', outcome: 'match', direction: 'sent', date: '2026-10-25T11:00:00.000Z' };
+    localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+    const chip = document.getElementById('contacts-focus-chip')!;
+    const topic = document.getElementById('contacts-filter-topic') as HTMLInputElement;
+    const contactDeps = deps();
+    const names = () => Array.from(document.querySelectorAll('.contact-item-name')).map((row) => row.textContent);
+    try {
+      // From a Me row (its 👥 link): the filter is filled in.
+      openContactsTopic('Pizza', { label: 'Pizza', talkIds: ['tag-pizza'], isTag: true });
+      expect(topic.value).toBe('Pizza');
+      await displayContactsList(contactDeps);
+      expect(chip.hidden).toBe(false);
+      expect(chip.textContent).toContain('♡ Pizza');
+      expect(contactDeps.updateStatsStrip).toHaveBeenLastCalledWith('2 contacts from exchanged talks · ');
+      expect(names()).toEqual(['Weak', 'Strong']);
+
+      // ✕ shows everyone again.
+      chip.querySelector<HTMLElement>('.focus-chip-clear')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(topic.value).toBe('');
+      expect(chip.hidden).toBe(true);
+      expect(names()).toEqual(['Strong', 'Weak']);
+
+      // Typed into the filter (any case): the same list.
+      topic.value = 'pizza';
+      topic.dispatchEvent(new Event('input'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(names()).toEqual(['Weak', 'Strong']);
+    } finally {
+      clearContactsFocus();
+    }
   });
 
   it('states the tags in common from the tag graph, not a stored count that is always 0 (OPEN-87)', async () => {

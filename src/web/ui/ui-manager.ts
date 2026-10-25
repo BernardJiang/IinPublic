@@ -1367,9 +1367,7 @@ export class UIManager extends EventEmitter {
       openTalkResponses: (talkId: string, talkTitle: string) => {
         this.showCreatorRepliesForTalk(talkId, talkTitle);
       },
-      viewContact: (userId: string) => {
-        this.navigateToGraphNode({ type: 'person', id: userId, name: this.getPeerName(userId) });
-      },
+      answerTag: (talkId, liked) => (liked ? this.quickAnswerIncomingTag(talkId, undefined, true) : this.quickIgnoreIncomingTalk(talkId)),
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       showItemDetailsPopup: this.showDetailsPopupFor.bind(this),
       getTalkContentKey,

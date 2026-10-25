@@ -1,5 +1,5 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
-import { isStarterTagTalk } from '../../shared/starter-tags';
+import { isStarterTagTalk, STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { getAnsweredTalkByContent, setAnsweredTalkByContent } from './answer-preferences-storage';
 import { deleteFlatAnswerHistoryForTalk, getTalkContentKey, saveFlatAnswerHistoryRecord } from './answer-history-storage';
 import { getCopyTalkAutoSave } from './ui-settings-storage';
@@ -62,6 +62,8 @@ export function completeTalk(
   const existingTalkId = answeredByContent[contentKey];
   const myTalks = getMyTalks();
   const authorId = talk.authorId || (talk as any).authorId;
+  // A starter tag has no sender: answered, it is the user's own tag, not one from a person (OPEN-87).
+  const isPerson = (id: unknown): id is string => !!id && id !== STARTER_TAGS_SOURCE_ID;
 
   let talkIdToUse: string;
   let senders: string[];
@@ -70,10 +72,10 @@ export function completeTalk(
     talkIdToUse = existingTalkId;
     const existing = myTalks[existingTalkId];
     const prevSenders = existing.senders || (existing.fullTalk?.authorId ? [existing.fullTalk.authorId] : []);
-    senders = [...new Set([...prevSenders, authorId].filter(Boolean))];
+    senders = [...new Set([...prevSenders, authorId].filter(isPerson))];
   } else {
     talkIdToUse = talk.id;
-    senders = authorId ? [authorId] : [];
+    senders = isPerson(authorId) ? [authorId] : [];
     answeredByContent[contentKey] = talk.id;
     try {
       answeredByContent[computeTalkIdFromTalkData(talk)] = talk.id;

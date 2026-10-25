@@ -28,6 +28,7 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openCollapsedFilters } from '../../helpers/filter-bar';
 
 const TAG_TITLE = 'Lifecycle Matrix Tag';
 
@@ -127,6 +128,10 @@ test.describe('Talk lifecycle — tag multi-responder matrix (D4)', () => {
     await waitForTabActive(pageBob, 'me');
     await afterSync();
     const bobTagRow = pageBob.locator('#answers-content .answer-talk-item').filter({ hasText: TAG_TITLE }).first();
+    // A passed tag is hidden until the Passed filter is ticked (owner design 2026-10-25).
+    await expect(bobTagRow).toBeHidden({ timeout: 30_000 });
+    await openCollapsedFilters(pageBob, 'me-filter-toggle');
+    await pageBob.locator('.me-tag-state-checkbox[value="unchecked"]').check();
     await expect(bobTagRow).toBeVisible({ timeout: 30_000 });
     await expect(bobTagRow).toHaveAttribute('data-outcome', 'mismatch');
     await afterAction();

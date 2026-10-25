@@ -23,6 +23,7 @@ import {
 } from './tag-tap-mode';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
+import { bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoExchanged, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const TALKS_FIRST_CHUNK_SIZE = 25;
@@ -162,6 +163,7 @@ function actOnSelectedRow(action: TalkToolbarAction, deps: DisplayTalksListDeps)
 }
 
 export function displayTalksList(deps: DisplayTalksListDeps): void {
+  bindGraphLinks();
   const documentState = getDocumentState();
   documentState.latestDeps = deps;
   const talksList = document.getElementById('talks-list');
@@ -383,6 +385,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       };
     });
   const allIncomingEntries = [...ignoredIncomingEntries, ...answeredIncomingEntries, ...backendInEntries];
+  // A Me answer's 💬 (graph-focus.ts): only the Talks that asked that question.
+  const focus = getTalksFocus();
+  syncFocusChip('talks-focus-chip', focus?.label ?? null, deps.t, () => { clearTalksFocus(); displayTalksList(deps); });
+  const focusIds = (entry: any, isIncoming: boolean): string[] => (isIncoming
+    ? [entry?.latestTalkId, entry?.latestTalk?.id, String(entry?.identityKey || '').replace(/^ignored:/, ''), ...Object.keys(entry?.talkIds || {})]
+    : [entry[0], entry[1]?.fullTalk?.id]).filter(Boolean).map(String);
   const matchesTalkFilter = (entry: any, isIncoming: boolean): boolean => {
     const talk = isIncoming ? entry : entry[1];
     const type = String(talk?.type || talk?.fullTalk?.type || talk?.latestTalk?.type || 'flow').toLowerCase();
@@ -395,6 +403,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     const from = deps.talksDateFrom ? new Date(`${deps.talksDateFrom}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
     const to = deps.talksDateTo ? new Date(`${deps.talksDateTo}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
     return (!query || title.includes(query))
+      && (!focus || focusIds(entry, isIncoming).some((id) => focus.talkIds.includes(id)))
       && deps.talksEnabledTypes.has(type)
       && (!isIncoming || deps.talksOutcomeFilter === 'all' || outcome === deps.talksOutcomeFilter)
       && timestamp >= from && timestamp <= to
@@ -539,8 +548,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 if (talkTypeLower === 'tag') {
                   return `
       <div class="talk-list-item talk-tag-chip talk-tag-out is-liked ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag" role="button" tabindex="0" aria-label="${escapeHtml(`${deps.t('talksTagLiked')}: ${talk.title || ''}`)}">
-        <span class="talk-tag-liked-mark" aria-hidden="true">♥</span>
-        <span class="talk-tag-text">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</span>
+        ${tagFace({ state: 'liked', talk, talkId, suffixHtml: tagAnswerSuffix(talk) })}
         ${pinButtonHtml(`out:${talkId}`)}
       </div>
     `;
@@ -679,7 +687,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 if (incomingType === 'tag') {
                   return `
       <div class="talk-list-item talk-tag-chip talk-tag-passed talk-ignored-row" data-talk-id="${escapeHtml(talkId)}" data-role="ignored" data-incoming-type="tag" role="button" tabindex="0" aria-label="${escapeHtml(`${deps.t('talksTagPassed')}: ${cluster?.title || ''}`)}">
-        <span class="talk-tag-text">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
+        ${tagFace({ state: 'passed', talk: cluster?.latestTalk || cluster, talkId: String(talkId) })}
       </div>
     `;
                 }
@@ -698,7 +706,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 return `${heading ? `
       <div class="starter-tag-group-heading" data-testid="starter-tag-group-heading" data-starter-group="${escapeHtml(heading.id)}"><span aria-hidden="true">${escapeHtml(heading.icon)}</span> ${escapeHtml(heading.label)}</div>` : ''}
       <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${cluster?.starterContactId === STARTER_TAGS_CONTACT_ID ? ' data-starter-tag="true"' : ''}${cluster?.starterGroup?.id ? ` data-starter-group="${escapeHtml(cluster.starterGroup.id)}"` : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}" role="button" tabindex="0" aria-label="${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}">
-        <span class="talk-tag-text">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</span>
+        ${tagFace({ state: 'open', talk: cluster?.latestTalk || cluster, talkId: String(talkId) })}
         ${pinButtonHtml(pinKey)}
       </div>${identityKey === lastStarterKey ? `
       <div class="starter-tag-create-prompt" data-testid="starter-tag-create-prompt">
@@ -773,6 +781,24 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         </div>
       </div>
     `;
+    };
+
+    // One face for a tag on Talks and Me (graph-focus.ts): ♡ / ✕ / none, its text, and "👥 N".
+    const tagFace = (face: { state: 'liked' | 'passed' | 'open'; talk: any; talkId: string; suffixHtml?: string }): string => {
+      const questions = face.talk?.fullTalk?.questions || face.talk?.questions || [];
+      const keyword = String(questions[0]?.text || '');
+      const title = String(face.talk?.title || face.talk?.fullTalk?.title || deps.t('talksIncomingFallback'));
+      // A Pair tag or a many-keyword tag reads by its title; a one-keyword tag like its Me row.
+      const simple = questions.length === 1 && !questions[0]?.reciprocalTagContext;
+      const people = face.state === 'liked' ? peopleWhoExchanged([face.talkId], true).length : 0;
+      return tagFaceHtml({
+        state: face.state,
+        text: simple ? tagText(title, keyword) : title,
+        topic: keyword || title,
+        people,
+        talkIds: [face.talkId],
+        ...(face.suffixHtml ? { suffixHtml: face.suffixHtml } : {}),
+      }, { escapeHtml, text: deps.t });
     };
 
     const isStale = () => renderSeq !== documentState.renderSeq;

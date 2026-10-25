@@ -2163,10 +2163,10 @@ button:focus:not(:focus-visible) {
   position: relative;
 }
 
-.answer-question-item > .list-pin-button {
+.answer-question-item > .list-pin-badge {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 8px;
+  right: 10px;
 }
 
 .talk-list-item {
@@ -5633,6 +5633,18 @@ body.iinpublic-debug .conversation-health-status {
 .talk-tag-liked-mark { color: var(--accent); font-size: 0.9em; }
 .talk-list-item.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 .talk-pin-badge { font-size: 0.8em; line-height: 1; }
+/* Rows without buttons (list-row-selection.ts): a long-press selects, the AppBar acts. */
+.contact-item.is-selected,
+.answer-talk-item.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.list-pin-badge { font-size: 0.8em; line-height: 1; flex-shrink: 0; }
+/* Me: a tag row's ♡ / ✕, and the people a row leads to (contacts-focus.ts). */
+.answer-tag-mark { color: var(--accent); font-weight: 700; width: 1.1em; text-align: center; }
+.focus-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--accent-soft); border: 1px solid var(--accent-border); font-size: 0.85em; font-weight: 600; }
+.focus-chip[hidden] { display: none; }
+.focus-chip-clear { background: none; border: none; font-size: 1em; cursor: pointer; color: var(--text-tertiary); }
+.graph-link { font-size: 0.8em; color: var(--accent-text); margin-left: 6px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.contact-item,
+.answer-talk-item { -webkit-touch-callout: none; user-select: none; }
 .talks-tap-hint { font-size: 0.8em; color: var(--text-tertiary); margin: 2px 2px 8px; }
 .talks-direction-divider {
   display: flex;

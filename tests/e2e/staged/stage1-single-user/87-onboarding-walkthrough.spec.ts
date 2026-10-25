@@ -10,6 +10,7 @@ import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-na
 import { afterNav, reloadAppReady } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { starterTagsFor } from '../../../../src/shared/starter-tags';
+import { rowToolbarAction } from '../../helpers/list-row-actions';
 
 const STARTER_TAGS = starterTagsFor('en');
 const STARTER_TAG_COUNT = STARTER_TAGS.length;
@@ -94,7 +95,7 @@ test.describe('First-run introduction', () => {
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
     await expect(p.locator('.starter-practice-contact')).toHaveCount(4);
-    await p.locator('.starter-practice-contact[data-starter-contact-id="tag-guide"] .starter-contact-remove').click();
+    await rowToolbarAction(p, p.locator('.starter-practice-contact[data-starter-contact-id="tag-guide"]'), 'contacts-remove-btn');
     await expect(p.locator('.starter-practice-contact')).toHaveCount(3);
 
     await p.locator('.nav-btn[data-view="talks"]').click();

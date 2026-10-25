@@ -22,6 +22,15 @@ covers: SPEC-3.7, OPEN-87
 5. **Who is most similar.** The spec prints the 6×6 overlap matrix and each user's Contacts
    order, plus who is most similar overall (including people outside the user's exchanges).
 
+6. **Friend and message.** Each user opens the top person in that list (their most similar), marks
+   them a Friend, and sends them "we share lots of interests." The receiver's conversation with
+   the sender shows the message.
+
+Feedback takes minutes, not seconds: a phone admits 24 new Talks a minute from people who are not
+its contacts (§3.7 "Balance", `incomingTalksPerMinute`), and each user receives up to 5 × 30.
+Offers over the limit go unanswered and the sender's outbox offers them again, so the spec waits
+up to 10 minutes for every count to settle.
+
 Headed runs stay open on Contacts for 3 minutes at the end.
 
 ## Knobs
@@ -48,6 +57,7 @@ The six windows sit side by side in one row (640 px each, 3,840 px in all).
   version of this spec) a Talk lost between browsers was never sent again, and counts stayed
   short.
 - Contacts are ordered by that count, and the top row is the most similar person the user knows.
+- Each user's most similar person shows "Friend" in Contacts, and receives the message.
 - No tag sent by a person waits in anyone's Incoming list: the chatbot matched the liked ones and
   passed the passed ones again (silently: a pass sends nothing back).
 

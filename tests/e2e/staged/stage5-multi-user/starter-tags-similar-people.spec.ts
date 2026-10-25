@@ -92,9 +92,19 @@ const groupMembers = (page: Page) => page.locator('[data-testid="nearby-person-r
 const memberNames = async (page: Page): Promise<string[]> =>
   groupMembers(page).evaluateAll((rows) => rows.map((row) => row.getAttribute('data-stage-name') || ''));
 
+/** Back to the Contacts list from a person page or the relationship dialog (headed runs can be clicked). */
+async function backToContactsList(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  const close = page.locator('#close-contact-relationship-modal');
+  if (await close.isVisible()) await close.click();
+  const back = page.locator('#back-from-peer-detail');
+  if (await back.isVisible()) await back.click();
+  await page.locator('.nav-btn[data-view="contacts"]').click();
+}
+
 /** Contacts sorted by "Most tags in common": each row's peer id and shared-tag count, top first. */
 async function sharedTagRows(page: Page): Promise<Array<{ peerId: string; shared: number }>> {
-  await page.locator('.nav-btn[data-view="contacts"]').click();
+  await backToContactsList(page);
   const sort = page.locator('#contacts-sort-order');
   if (!(await sort.isVisible())) await openCollapsedFilters(page, 'contacts-filter-toggle');
   // Re-select to re-render with the latest exchanges.
@@ -127,8 +137,8 @@ test.describe('Find similar people with starter tags', () => {
     await clearGunForStage5Spec();
   });
 
-  test('six users decide all 60 starter tags, broadcast to their Nearby group, and find who is most similar', async () => {
-    test.setTimeout(600_000 + HOLD_MS);
+  test('six users decide all 60 starter tags, broadcast to their Nearby group, find who is most similar, befriend and message them', async () => {
+    test.setTimeout(1_200_000 + HOLD_MS);
     console.log(`[starter-similar] seed=${SEED} users=${NUM_USERS} capacity=${CAPACITY} likes=${LIKES_PER_USER}/${STARTER_TAGS.length}`);
 
     // ── 1. Six new users at the same point, C = 3, tour skipped ──────────────
@@ -213,6 +223,9 @@ test.describe('Find similar people with starter tags', () => {
     // Who that is cannot be predicted: at C = 3 the Nearby group keeps changing, and a person who
     // joins someone's group receives their active Talks without a new broadcast. So every person
     // listed must show the true overlap, and everyone knows at least their own group.
+    // It takes minutes: a phone admits 24 new Talks a minute from non-contacts (§3.7 "Balance",
+    // `incomingTalksPerMinute`) and each user receives up to 5 × 30; offers over that limit go
+    // unanswered and the sender's outbox offers them again later.
     const results = await Promise.all(users.map(async ({ page, index }) => {
       const expected = new Map<string, number>();
       let rows: Array<{ peerId: string; shared: number }> = [];
@@ -222,7 +235,7 @@ test.describe('Find similar people with starter tags', () => {
           expected.clear();
           for (const row of rows) expected.set(row.peerId, overlap(index, indexById.get(row.peerId)!));
           return rows.length >= Math.min(CAPACITY, NUM_USERS - 1) && rows.every((row) => row.shared === expected.get(row.peerId));
-        }, { timeout: 180_000, intervals: [2_000] }).toBe(true);
+        }, { timeout: 600_000, intervals: [5_000] }).toBe(true);
       } catch (error) {
         const state = await page.evaluate(() => {
           const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
@@ -268,6 +281,78 @@ test.describe('Find similar people with starter tags', () => {
       const bestAll = NUM_USERS_RANGE.filter((j) => j !== index && overlap(index, j) === best).map((j) => NAMES[j]).join('/');
       console.log(`[${NAMES[index]}] Contacts by tags in common: ${list} · most similar overall: ${bestAll} (${best})`);
     }
+
+    // ── 6. Each opens their most similar person, marks them a Friend, and messages them ─
+    const MESSAGE = 'we share lots of interests.';
+    const picks = new Map(results.map(({ index, known }) => [index, known[0]!.peerId]));
+    await Promise.all(users.map(async ({ page, index }) => {
+      const peerId = picks.get(index)!;
+      await sharedTagRows(page);
+      // The row (not the name, which opens the chat) opens the person page.
+      await page.locator(`.contact-item[data-contact-user-id="${peerId}"] .contact-item-meta`).first().click();
+      await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+      await page.locator('#contact-edit-relationship-btn').click();
+      await expect(page.locator('#contact-relationship-modal')).toBeVisible({ timeout: 10_000 });
+      await page.locator('.contact-relationship-label-checkbox[value="friend"]').check();
+      await page.locator('#contact-relationship-save-btn').click();
+      await expect(page.locator('#contact-relationship-modal')).toBeHidden({ timeout: 10_000 });
+      await page.locator('#peer-dm-input').fill(MESSAGE);
+      await page.locator('#peer-dm-send-btn').click();
+      await expect(page.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 60_000 });
+      console.log(`[${NAMES[index]}] marked ${NAMES[indexById.get(peerId)!]} a Friend and sent "${MESSAGE}"`);
+      // Back on Contacts, the person now reads as a Friend.
+      await backToContactsList(page);
+      await expect(page.locator(`.contact-item[data-contact-user-id="${peerId}"] .contact-item-meta`).first())
+        .toContainText('Friend', { timeout: 10_000 });
+    }));
+    // Each message arrives: the receiver's conversation with the sender shows it.
+    await Promise.all(users.map(async ({ index, id }) => {
+      const receiver = users[indexById.get(picks.get(index)!)!]!;
+      await expect.poll(() => receiver.page.evaluate(({ senderId, text }) =>
+        Object.values<any>(JSON.parse(localStorage.getItem('myConversations') || '{}'))
+          .some((conversation) => conversation?.otherUserId === senderId && String(conversation?.lastMessage || '').includes(text)),
+      { senderId: id, text: MESSAGE }), {
+        timeout: 90_000,
+        message: `${NAMES[receiver.index]} receives ${NAMES[index]}'s message`,
+      }).toBe(true);
+    }));
+
+    // ── 7. Me: liked tags only, and each one leads to the people who like it too ─
+    await Promise.all(users.map(async ({ page, index }) => {
+      const knownPeers = new Set(results.find((result) => result.index === index)!.known.map((row) => row.peerId));
+      await page.locator('.nav-btn[data-view="me"]').click();
+      const visibleTags = page.locator('#answers-list .answer-talk-item[data-tag-state]:visible');
+      // Passed tags are hidden by default: the 30 liked ones show, each with ♡.
+      await expect(page.locator('#answers-list .answer-talk-item[data-tag-state="checked"]:visible')).toHaveCount(LIKES_PER_USER, { timeout: 20_000 });
+      await expect(page.locator('#answers-list .answer-talk-item[data-tag-state="unchecked"]:visible')).toHaveCount(0);
+      expect(await visibleTags.locator('[data-testid="answer-tag-mark"]').allTextContents()).toEqual(Array(LIKES_PER_USER).fill('♡'));
+      // The liked tag shared with the most people I know: its row lists exactly them.
+      const best = LIKES[index]!
+        .map((tagIndex) => ({ tagIndex, likers: users.filter((other) => knownPeers.has(other.id) && LIKES[other.index]!.includes(tagIndex)) }))
+        .sort((a, b) => b.likers.length - a.likers.length)[0]!;
+      expect(best.likers.length, `${NAMES[index]} knows someone who likes one of their tags`).toBeGreaterThan(0);
+      const keyword = STARTER_TAGS[best.tagIndex]!.text;
+      const row = page.locator(`#answers-list .answer-talk-item[data-tag-state="checked"][data-topic="${keyword}"]`);
+      await expect(row.locator('[data-testid="answer-people"]')).toContainText(String(best.likers.length));
+      await row.locator('.qa-question').click();
+      await expect(page.locator('[data-testid="contacts-focus-chip"]')).toContainText(keyword, { timeout: 10_000 });
+      const listed = await page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])')
+        .evaluateAll((rows) => rows.map((element) => (element as HTMLElement).dataset.contactUserId || ''));
+      expect(listed.sort()).toEqual(best.likers.map((other) => other.id).sort());
+      console.log(`[${NAMES[index]}] Me → ♡ ${keyword} → ${listed.map((id) => NAMES[indexById.get(id)!]).join(', ')}`);
+      await page.locator('[data-testid="contacts-focus-clear"]').click();
+      // 💬 on the same Me row: Talks, narrowed to that tag, which looks the same there (♡, 👥).
+      await page.locator('.nav-btn[data-view="me"]').click();
+      await row.locator('[data-testid="answer-talks"]').click();
+      await expect(page.locator('[data-testid="talks-focus-chip"]')).toContainText(keyword, { timeout: 10_000 });
+      const talkChips = page.locator('#talks-list .talk-tag-chip');
+      await expect(talkChips).toHaveCount(1);
+      await expect(talkChips.first().locator('[data-testid="answer-tag-mark"]')).toHaveText('♡');
+      await expect(talkChips.first().locator('[data-testid="answer-people"]')).toContainText(String(best.likers.length));
+      await page.locator('[data-testid="talks-focus-clear"]').click();
+      // Back to all contacts for the hold.
+      await page.locator('.nav-btn[data-view="contacts"]').click();
+    }));
 
     if (HOLD_MS > 0) {
       console.log(`[starter-similar] holding ${Math.round(HOLD_MS / 1000)} s on Contacts for inspection`);
