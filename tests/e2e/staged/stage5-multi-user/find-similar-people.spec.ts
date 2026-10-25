@@ -40,7 +40,8 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -179,7 +180,7 @@ test.describe('Find similar people', () => {
         const { context, page } = await bootstrapUser(browser, `Sim${idx}`, `Sim User ${idx}`, 30_000);
         contexts.push(context);
         pages.push(page);
-        await page.locator('.chatroom-item.current-room').first().click();
+        await openCurrentChatroom(page);
         await afterSync();
         return { page, idx };
       }),
@@ -213,7 +214,7 @@ test.describe('Find similar people', () => {
         await waitForTabActive(page, 'talks');
         for (let j = 0; j < TAGS_PER_USER; j++) {
           const keyword = INTEREST_POOL[(idx + j) % INTEREST_POOL.length];
-          await page.click('#create-talk-btn');
+          await openTalkEditor(page);
           await page.waitForSelector('#talk-editor-form', { timeout: 15_000 });
           await page.locator('input[name="talk-type-radio"][value="tag"]').check();
           await afterAction();
@@ -257,7 +258,7 @@ test.describe('Find similar people', () => {
           .poll(() => page.evaluate(() => localStorage.getItem('chatbotEnabled')), { timeout: 15_000 })
           .toBe('true');
         await ensureChatroomList(page);
-        await page.locator('.chatroom-item.current-room').first().click();
+        await openCurrentChatroom(page);
         await afterSync();
       }),
     );

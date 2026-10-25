@@ -247,7 +247,7 @@ test.describe('Stage zero N2N smoke', () => {
     await page.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(page, 'chatrooms');
     // Adam is alone in his automatic Nearby room (TechSupport is contacts-only, not counted).
-    await expect(page.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('0 near you');
+    await expect(page.locator('[data-testid="nearby-headcount"]')).toContainText('0 nearby');
     await expect(page.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     const currentRoom = () => page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || ''));
     const homeRoomId = await currentRoom();

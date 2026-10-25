@@ -6,6 +6,8 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from './talk-demo-ui';
 import { afterAction, afterNav, afterSync } from './timing';
+import { openCurrentChatroom } from './chatroom-nav';
+import { openTalkEditor } from './open-talk-editor';
 
 /** Minimal flow talk + broadcast for stage seeding (TechSupport → room). */
 export async function createSimpleFlowTalkAndBroadcast(
@@ -13,7 +15,7 @@ export async function createSimpleFlowTalkAndBroadcast(
   title: string,
   questionText: string,
 ): Promise<void> {
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await selectTalkEditorType(page, 'flow');
@@ -27,7 +29,7 @@ export async function createSimpleFlowTalkAndBroadcast(
   await afterSync();
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterAction();
-  await page.click('.chatroom-item.current-room');
+  await openCurrentChatroom(page);
   await afterNav();
   await waitForBroadcastableTalkIds(page, 120_000);
   await waitForDistinctGunPeersExcludingSelf(page, 1, 240_000);

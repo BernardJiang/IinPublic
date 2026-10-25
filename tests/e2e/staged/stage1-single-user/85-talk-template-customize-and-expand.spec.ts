@@ -29,6 +29,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { submitTalkEditorAndWaitForOut, readCreatedTalkFromMyTalks } from '../../helpers/talk-demo-ui';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talk template picker — more use cases + customize/expand', () => {
   let browser: Browser;
@@ -44,7 +45,7 @@ test.describe('Talk template picker — more use cases + customize/expand', () =
   });
 
   const openPicker = async (page: import('@playwright/test').Page) => {
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-modal');
     await page.click('#browse-talk-templates-btn');
     await page.waitForSelector('#talk-editor-modal', { state: 'detached' });

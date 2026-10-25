@@ -16,6 +16,7 @@ import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
 import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { gunBaseURL, isDirectTalkDeliveryE2e, isMeshTalkDeliveryE2e } from './ports';
 import { openCurrentChatroom } from './chatroom-nav';
+import { openTalkEditor } from './open-talk-editor';
 
 async function dismissBroadcastPreambleIfOpen(page: Page): Promise<void> {
   const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
@@ -508,7 +509,7 @@ export async function createFlowOrSurveyTalkViaEditor(
   // intercept this click in a busy/heavily-seeded session — Playwright's own retry already
   // handles it once the toast fades; `timeoutMs` just widens the retry budget for a caller
   // that knows its page is unusually noisy.
-  await page.click('#create-talk-btn', { timeout: opts.timeoutMs });
+  await openTalkEditor(page, { timeout: opts.timeoutMs });
   await page.waitForSelector('#talk-editor-form');
 
   await page.fill('#talk-title', opts.title);
@@ -731,7 +732,7 @@ export async function createRouteTalkViaEditor(
   // intercept this click in a busy/heavily-seeded session — Playwright's own retry already
   // handles it once the toast fades; `timeoutMs` just widens the retry budget for a caller
   // that knows its page is unusually noisy.
-  await page.click('#create-talk-btn', { timeout: opts.timeoutMs });
+  await openTalkEditor(page, { timeout: opts.timeoutMs });
   await page.waitForSelector('#talk-editor-form');
 
   await page.fill('#talk-title', opts.title);

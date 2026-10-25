@@ -30,6 +30,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /** Creates (but does not broadcast) a 2-question flow talk: Q1 is a Pair-tag declaration of
  *  `tag` (own word), chaining to Q2, a terminal builtIn `priceRange` question — title+question
@@ -45,7 +46,7 @@ async function createDealTalk(
   const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');

@@ -41,6 +41,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const RUN_ID = 880100;
 const SIMPLE_TITLE = `Selling an iPhone ${RUN_ID}`;
@@ -170,13 +171,13 @@ test.describe('Asymmetric exact match (buyer wants "any iPhone") + IPFS photo au
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve Seller');
     contextEve = eve.context;
     pageEve = eve.page;
-    await pageEve.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageEve);
     await afterSync();
 
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam Buyer');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await pageAdam.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAdam);
     await afterSync();
 
     const [eveId, adamId] = await Promise.all([

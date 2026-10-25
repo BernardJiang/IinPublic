@@ -36,6 +36,7 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { delay, headless } from '../../helpers/timing';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 type Candidate = {
   name: string;
@@ -142,14 +143,14 @@ test.describe('Route talk: HR hiring — sender correctly detects match vs. mism
     const hrBoot = await bootstrapUser(hrBrowser, 'HR', 'HR Agent');
     hrContext = hrBoot.context;
     hrPage = hrBoot.page;
-    await hrPage.click('.chatroom-item.current-room');
+    await openCurrentChatroom(hrPage);
 
     await Promise.all(
       candidates.map(async (c) => {
         const boot = await bootstrapUser(c.browser, c.name, c.stageName);
         c.context = boot.context;
         c.page = boot.page;
-        await c.page.click('.chatroom-item.current-room');
+        await openCurrentChatroom(c.page);
       }),
     );
 

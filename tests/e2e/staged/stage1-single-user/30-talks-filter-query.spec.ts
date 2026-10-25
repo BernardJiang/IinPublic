@@ -14,6 +14,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talks tab: filter by query', () => {
   let browser: Browser;
@@ -59,7 +60,7 @@ test.describe('Talks tab: filter by query', () => {
   // Note: non-tag talk ids are content-hashed from questions (src/shared/cid.ts) — title is
   // NOT part of the identity. Each talk needs distinct question text or the second one dedupes.
   async function createTalk(title: string, questionText: string): Promise<void> {
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
     await page.selectOption('#talk-type', 'flow');

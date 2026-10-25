@@ -9,6 +9,7 @@ import { expect, test, type APIRequestContext, type Browser, type BrowserContext
 import { injectIdbClear } from '../helpers/clear-database';
 import { waitForAppReady } from '../helpers/timing';
 import { PHONE_PATH_PORTS, phonePathURL, type PhonePathOrigin } from './phone-path-ports';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
 
 /** A point in central San Diego; every journey user stands within a few hundred metres of it. */
 export const JOURNEY_COORDS = { latitude: 32.7157, longitude: -117.1611 } as const;
@@ -244,7 +245,7 @@ export function stageName(page: Page): Promise<string> {
 /** Open the room the user is in (its member list) from the room list. */
 export async function openCurrentRoom(page: Page): Promise<void> {
   await openRoomList(page);
-  await page.locator('#chatroom-list .chatroom-item.current-room').first().click();
+  await openCurrentChatroom(page);
   await expect(page.locator('#chatroom-members-list')).toBeVisible();
 }
 

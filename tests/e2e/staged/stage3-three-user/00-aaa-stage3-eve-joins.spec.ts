@@ -5,6 +5,7 @@ import { bootstrapTom, bootstrapAdam, bootstrapEve, saveUserStorageState } from 
 import { afterSync } from '../../helpers/timing';
 import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Stage 3 — Eve joins Tom and Adam', () => {
   test.skip(!isStagePipeline(), 'only for E2E_STAGE_PIPELINE=1');
@@ -19,19 +20,20 @@ test.describe('Stage 3 — Eve joins Tom and Adam', () => {
       const eve = await bootstrapEve(browser, 'Eve');
       contexts.push(tom.context, adam.context, eve.context);
       for (const p of [tom.page, adam.page, eve.page]) {
-        await p.click('.chatroom-item.current-room');
+        await openCurrentChatroom(p);
       }
       await afterSync();
       await expect
         .poll(
           async () => {
-            const text = (await eve.page.locator('.chatroom-item.current-room').first().textContent()) || '';
-            const match = text.match(/👥\s*(\d+)/);
+            // "N nearby · G online": Eve's list without herself (design §3.7).
+            const text = (await eve.page.locator('[data-testid="nearby-headcount"]').textContent()) || '';
+            const match = text.match(/(\d+) nearby/);
             return match ? Number(match[1]) : 0;
           },
           { timeout: 30_000 },
         )
-        .toBeGreaterThanOrEqual(3);
+        .toBeGreaterThanOrEqual(2);
 
       await saveUserStorageState(tom.context, 'stage3', 'tom');
       await saveUserStorageState(adam.context, 'stage3', 'adam');

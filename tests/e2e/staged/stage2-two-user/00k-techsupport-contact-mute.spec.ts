@@ -6,6 +6,7 @@ import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { TECHSUPPORT_SUPPORT_ACK_TEMPLATES } from '../../../../src/shared/techsupport-greeting';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('TechSupport built-in contact controls', () => {
   test.describe.configure({ retries: 0 });
@@ -96,7 +97,7 @@ test.describe('TechSupport built-in contact controls', () => {
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(page);
     await afterSync();
     const supportMember = page.locator(`.chatroom-member-item[data-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await expect(supportMember).toHaveCount(0);

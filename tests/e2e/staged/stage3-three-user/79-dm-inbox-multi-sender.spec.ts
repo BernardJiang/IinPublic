@@ -13,6 +13,7 @@ import { afterLoad, afterSync, afterNav, afterAction } from '../../helpers/timin
 import { sendConversationMessage } from '../../helpers/fast-dm-setup';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 150_000 });
 
@@ -52,7 +53,7 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(page);
     await afterSync();
     return page;
   }

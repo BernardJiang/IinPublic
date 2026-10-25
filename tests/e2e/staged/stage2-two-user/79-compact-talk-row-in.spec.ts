@@ -14,12 +14,13 @@ import { bootstrapUser, waitForTabActive, longPressTalkRow } from '../../helpers
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await selectTalkEditorType(page, 'flow');

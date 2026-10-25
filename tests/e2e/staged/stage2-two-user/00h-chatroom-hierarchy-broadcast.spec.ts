@@ -7,6 +7,7 @@ import { bootstrapUser, incomingClustersIncludeTitleForUser, waitForTabActive } 
 import { waitForBroadcastBulkAck } from '../../helpers/broadcast-ack';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { AREA_PLACES, ensureChatroomList, openAreaRoomAt } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /**
  * Rooms are Global → L1 region tiles (labeled by continent) → GPS grid cells — no country/state rooms.
@@ -42,7 +43,7 @@ async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await selectTalkEditorType(page, 'flow');
@@ -186,8 +187,8 @@ test.describe('GPS grid room navigation and room-scoped broadcast', () => {
     const pageTom = tom.page;
     try {
       await ensureChatroomList(pageTom);
-      // The tile tree is retired: the list is flat (your Nearby room + rooms near you).
-      await expect(pageTom.locator('.chatroom-item.current-room')).toBeVisible();
+      // The tile tree is retired: the list is flat (your Nearby people + rooms near you).
+      await expect(pageTom.locator('[data-testid="nearby-people-section"]')).toBeVisible();
       await expect(pageTom.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
       for (const continentRoom of ['north-america', 'europe', 'asia']) {
         await expect(pageTom.locator(`.chatroom-item[data-chatroom-id="${continentRoom}"]`)).toHaveCount(0);

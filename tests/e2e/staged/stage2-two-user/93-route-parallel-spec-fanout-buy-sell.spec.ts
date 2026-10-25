@@ -20,7 +20,7 @@ import { bootstrapUser, waitForResponseModalClosed, openIncomingTalkModal } from
 import { clickBroadcastUntilBulkAck, createRouteTalkViaEditor, type UiRouteNodeSpec } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import { waitForServerConversationBetween } from '../../helpers/conversation-e2e';
 
 test.describe.configure({ timeout: 120_000 });
@@ -61,12 +61,12 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     const alice = await bootstrapUser(browserAlice, 'Alice', 'AliceBuyStuff');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'BobBuyStuff');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
 
     const [aliceId, bobId] = await Promise.all([
       pageAlice.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || '')),
@@ -85,7 +85,7 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     await openSettingsSection(pageBob, SETTINGS_SECTION.contentFilters);
     await pageBob.locator('#settings-grammar-filter').uncheck();
     await ensureChatroomList(pageBob);
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
 
     // ── Alice builds "buy stuff" through the real route editor ─────────────────────────
     const title = `buy stuff ${Date.now()}`;
@@ -132,7 +132,7 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
 
     // ── Bob receives it and walks every branch to a match ───────────────────────────────
     await ensureChatroomList(pageAlice);
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await clickBroadcastUntilBulkAck(pageAlice);
 
     const chooseAndContinue = async (answerText: string): Promise<void> => {

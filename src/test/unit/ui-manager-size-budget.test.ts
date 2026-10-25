@@ -23,7 +23,10 @@ import path from 'path';
 // Bumped again 2026-09-29 for real feature work (scenario 2 §16: setHandshakeDiagnosticsReader +
 // its field/type, letting the peer-detail view read a live build-trust label), same rationale —
 // not an extraction.
-const UI_MANAGER_LINE_BUDGET = 3_120;
+// Bumped again 2026-10-24 for real feature work (Nearby counts in the app bar: setNearbyOnline,
+// the scope-tagged setNearbyCount for Nearby and Places (OPEN-86), and the shared "N nearby · G
+// online" header in updateStatusBar), same rationale — not an extraction.
+const UI_MANAGER_LINE_BUDGET = 3_160;
 
 describe('UIManager architecture budget', () => {
   it(`keeps ui-manager.ts at or below ${UI_MANAGER_LINE_BUDGET.toLocaleString()} lines`, () => {

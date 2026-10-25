@@ -29,6 +29,7 @@ import {
   makeSurveyTalk,
   makeRouteTalk,
 } from '../../talks-matching/lib/four-types-talks';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 type Session = { label: string; context: BrowserContext; page: Page };
 type TalkKind = 'tag' | 'flow' | 'survey' | 'route';
@@ -74,7 +75,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     // --- Bootstrap Tom, Jerry, Sam ---
     const tom = await bootstrapUser(browsers[0]!, 'Tom', 'Tom');
     sessions.push({ label: 'Tom', context: tom.context, page: tom.page });
-    await tom.page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(tom.page);
     await waitForTabActive(tom.page, 'chatrooms');
     await afterSync();
 
@@ -84,7 +85,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
       String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''),
     );
     expect(jerryId).toBeTruthy();
-    await jerry.page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(jerry.page);
     await waitForTabActive(jerry.page, 'chatrooms');
     await afterSync();
 
@@ -174,7 +175,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     });
     expect(samIdentity.id).toBeTruthy();
     expect(samIdentity.epub).toBeTruthy();
-    await sam.page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(sam.page);
     await waitForTabActive(sam.page, 'chatrooms');
     await afterSync();
 

@@ -27,6 +27,7 @@ import { createTagTalkViaEditor, broadcastFromGlobalChatroom } from '../../helpe
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { makeTagTalk } from '../../talks-matching/lib/four-types-talks';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -66,9 +67,9 @@ test.describe('Presence indicator parity: Contacts tab vs chatroom member list',
 
     const jerryId = await pageJerry.evaluate(() => String((window as any).__iinpublic_app.getApp().currentUser.id));
 
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     // --- Chatroom member list: Jerry's row has a presence dot, default "away" ---

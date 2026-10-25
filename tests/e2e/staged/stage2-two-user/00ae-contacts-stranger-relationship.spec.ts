@@ -27,6 +27,7 @@ import { completeTalkInAppByAnswerIds, createFlowOrSurveyTalkViaEditor } from '.
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -85,13 +86,13 @@ test.describe('Contacts: stranger default label → save relationship → sort (
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     // Tom creates a simple flow talk

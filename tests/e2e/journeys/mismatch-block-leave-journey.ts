@@ -83,7 +83,7 @@ function matchCount(page: Page): Promise<number> {
 /** The headcount on the user's current room in the room list, as the person sees it. */
 async function roomHeadcount(page: Page): Promise<number> {
   await openRoomList(page);
-  const text = await page.locator('.chatroom-item.current-room .chatroom-headcount:visible').first().textContent().catch(() => '');
+  const text = await page.locator('[data-testid="nearby-headcount"]').first().textContent().catch(() => '');
   return Number(text?.match(/\d+/)?.[0] || '0');
 }
 

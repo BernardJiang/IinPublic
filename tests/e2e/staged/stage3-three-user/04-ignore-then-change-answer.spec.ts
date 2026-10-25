@@ -18,6 +18,8 @@ import {
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talks matching — answered incoming remains in IN history', () => {
   let browsers: ThreeBrowsers;
@@ -62,19 +64,19 @@ test.describe('Talks matching — answered incoming remains in IN history', () =
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
     // This scenario covers the read-only answered-IN ledger, not the separate
     // auto-copy-to-OUT feature (which is enabled by default for new users).
     await pageJerry.evaluate(() => localStorage.setItem('copyTalkAutoSave', 'false'));
 
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', 'E2E Ignore Then Match Tennis');
     await pageTom.selectOption('#talk-type', 'flow');

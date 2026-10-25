@@ -12,6 +12,7 @@ import {
   waitForBroadcastBulkAckMinSent,
 } from '../../helpers/broadcast-cancellation-helpers';
 import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Reconnect recovery', () => {
   let browserTom: Browser;
@@ -39,6 +40,8 @@ test.describe('Reconnect recovery', () => {
       await jerry.page.context().setOffline(true);
       await afterSync();
 
+      // Broadcast lives in the Nearby detail (the list has no Broadcast action since d3cecef7).
+      await openCurrentChatroom(tom.page);
       await tom.page.click('#broadcast-talk-btn');
       await confirmBroadcastTagPreambleIfVisible(tom.page);
       await waitForBroadcastBulkAckMinSent(tom.page, { receivers: 1, minSent: 1 }, 120_000);

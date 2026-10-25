@@ -30,6 +30,8 @@ import { makeTagTalk, makeFlowTalk, makeSurveyTalk, makeRouteTalk } from '../tal
 import { NUM_CONTACTS, RELATIONSHIP_LABELS, seedLocalData, seedContactsAsUsers } from '../helpers/heavy-user-seed';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../helpers/settings-nav';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
+import { openTalkEditor } from '../helpers/open-talk-editor';
 
 const SCREENSHOT_DIR = process.env.E2E_SCREENSHOT_DIR
   || '/private/tmp/claude-501/-Users-hongyujiang-IinPublic/a5595cad-1624-446a-8073-3572797821c4/scratchpad/tour-shots-full';
@@ -116,7 +118,7 @@ test.describe('M5 full-layout screenshot tour', () => {
         await shot(page, 'Chatrooms', 'chatrooms-hierarchy-expanded', 'Region node expanded in place — children render inline, no separate screen.');
       }
 
-      await page.locator('.chatroom-item.current-room').first().click();
+      await openCurrentChatroom(page);
       await afterSync();
       // Give the sender's join time to propagate over Gun before the room-detail shot —
       // otherwise the member list can still show just the heavy user + TechSupport.
@@ -151,7 +153,7 @@ test.describe('M5 full-layout screenshot tour', () => {
         .toBeGreaterThanOrEqual(500);
 
       // Talk editor — one screenshot per type, reusing the same open dialog.
-      await page.click('#create-talk-btn');
+      await openTalkEditor(page);
       await expect(page.locator('#talk-editor-modal')).toBeVisible({ timeout: 10_000 });
       for (const type of ['tag', 'flow', 'survey', 'route'] as const) {
         await selectTalkEditorType(page, type);

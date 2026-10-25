@@ -25,6 +25,7 @@ import {
   MESSAGE_CHECKPOINT_INTERVAL,
   MESSAGE_RETENTION_WINDOW,
 } from '../../../../src/web/services/gun-message-store';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /**
  * TODO §S Item 7 (docs/design/section-s-merkle-checkpoint-pruning-design-note.md): proves
@@ -145,7 +146,7 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
     await openCurrentChatroom(pageJerry);
 
     // ── Match Tom and Jerry so a real conversation + ledger MATCH_CREATED event exist ──
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', talkTitle);
     await selectTalkEditorType(pageTom, 'flow');

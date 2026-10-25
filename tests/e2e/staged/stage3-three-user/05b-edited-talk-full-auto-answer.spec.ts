@@ -27,6 +27,8 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 const TITLE_A = 'E2E Edited Auto A';
 const TITLE_B = 'E2E Edited Auto B';
@@ -40,7 +42,7 @@ const QB1 = 'Do you like pickleball?';
 
 async function fillThreeQuestionFlow(page: Page, title: string, q3: string, q1 = Q1): Promise<void> {
   await dismissNotificationOverlays(page);
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -166,7 +168,7 @@ test.describe('Edited talk is answered fully automatically', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
@@ -177,7 +179,7 @@ test.describe('Edited talk is answered fully automatically', () => {
       const text = m.text();
       if (text.includes('Chatbot auto-reply')) autoReplyLogs.push(text);
     });
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     // 1. Talk A (Sunday): Jerry answers all three with Auto.
@@ -243,12 +245,12 @@ test.describe('Edited talk is answered fully automatically', () => {
       const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
       contextTom = tom.context;
       pageTom = tom.page;
-      await pageTom.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
       await afterSync();
       const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
       contextJerry = jerry.context;
       pageJerry = jerry.page;
-      await pageJerry.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageJerry);
       await afterSync();
 
       await create(pageTom, titleA, [Q1, Q2, Q3_OLD]);
@@ -311,12 +313,12 @@ test.describe('Edited talk is answered fully automatically', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     await fillThreeQuestionFlow(pageTom, title, Q3_OLD);

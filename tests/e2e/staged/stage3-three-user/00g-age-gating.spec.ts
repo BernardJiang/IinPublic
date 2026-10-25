@@ -18,12 +18,14 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 const ADULT_TALK_TITLE = 'E2E Adult Content Tennis';
 
 async function createAdultTalk(page: Page, title: string): Promise<void> {
   await dismissNotificationOverlays(page);
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -96,19 +98,19 @@ test.describe('Age-gating — adult talk blocked for unverified user', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
     const jerryUserId = await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');

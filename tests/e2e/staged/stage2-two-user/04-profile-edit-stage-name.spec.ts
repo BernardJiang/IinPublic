@@ -10,6 +10,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { establishContactsTomJerry, getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Profile foundation', () => {
   test.setTimeout(180_000);
@@ -224,12 +225,12 @@ test.describe('Profile foundation', () => {
 
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(page);
     await afterNav();
 
     await peerPage.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await peerPage.click('.chatroom-item.current-room');
+    await openCurrentChatroom(peerPage);
     await afterNav();
 
     const tomMember = peerPage.locator(`.chatroom-member-item[data-user-id="${tomUserId}"]`).filter({ hasText: 'Tom' }).first();

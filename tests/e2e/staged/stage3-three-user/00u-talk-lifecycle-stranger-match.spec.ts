@@ -20,6 +20,7 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { createFlowTalkForLifecycle, flowMatchAnswerIds } from '../../helpers/talk-lifecycle-fixtures';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Talk lifecycle: stranger before match, then contact', () => {
   let browsers: ThreeBrowsers;
@@ -63,13 +64,13 @@ test.describe('Talk lifecycle: stranger before match, then contact', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Lifecycle');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Lifecycle');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const created = await createFlowTalkForLifecycle(pageTom, MATCH_TALK, { matchText: 'Yes, lets meet.', ignoreText: 'No thanks.' });

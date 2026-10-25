@@ -17,6 +17,7 @@ import { webAppURLStableChatroom } from '../helpers/ports';
 import { headless, afterLoad, afterSync, afterNav, E2E_ASSERT_TIMEOUT_MS } from '../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../helpers/settings-nav';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
 
 const TALK_ID = 'talk-x5-cross-platform-thread-e2e';
 const TALK_TITLE = 'X5 Shared Interest Talk';
@@ -62,7 +63,7 @@ test.describe('X5: three-platform network + thread isolation', () => {
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(page);
     await afterSync();
     return page;
   }

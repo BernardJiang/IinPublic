@@ -10,6 +10,7 @@ import { headless } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
 
 const vector = (user: number) => Array.from({ length: 5 }, (_, q) => `surveya${q + 1}${((user * 7 + q) % 4) + 1}`);
 test.describe('M2 real survey mass exchange', () => {
@@ -17,7 +18,7 @@ test.describe('M2 real survey mass exchange', () => {
     test.setTimeout(900_000); await clearGunForStage1Spec();
     const browsers: Browser[] = []; const contexts: BrowserContext[] = []; const pages: Page[] = [];
     try {
-      for (let i = 0; i < 8; i += 1) { const b = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--disable-dev-shm-usage'] }); browsers.push(b); const x = await bootstrapUser(b, `M2-${i}`, `M2 User ${i}`, 60_000); contexts.push(x.context); pages.push(x.page); await x.page.locator('.chatroom-item.current-room').first().click(); await x.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true)); }
+      for (let i = 0; i < 8; i += 1) { const b = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--disable-dev-shm-usage'] }); browsers.push(b); const x = await bootstrapUser(b, `M2-${i}`, `M2 User ${i}`, 60_000); contexts.push(x.context); pages.push(x.page); await openCurrentChatroom(x.page); await x.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true)); }
       const authorId = await pages[0].evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
       const survey = { title: 'survey', authorId, type: 'survey', language: 'en', isAdult: false, tags: [], questions: Array.from({ length: 5 }, (_, q) => ({ id: `surveyq${q + 1}`, text: `surveyq${q + 1}`, answers: [1,2,3,4].map((a) => ({ id: `surveya${q + 1}${a}`, text: `surveya${q + 1}${a}`, isTerminal: q === 4 })) })) };
       const [created] = await createTalksFromCompanyPage(pages[0], [survey]);

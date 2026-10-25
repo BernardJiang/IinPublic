@@ -1218,6 +1218,8 @@ export class IinPublicApp {
       void this.deviceSyncService.enqueuePreferencesChange(user.pub || '', user.talkFilters);
     });
     this.uiManager = new UIManager();
+    // A link change can move my Nearby count key; that audience refresh runs in the background so
+    // the linked-devices dialog never waits on the hub (stage2/73 timed out on "Removed").
     this.uiManager.setIdentityLinkHooks({
       createLinkCode: (now) => this.identityLinkService.createLinkCode(now),
       readIncomingRequest: () => this.identityLinkService.readIncomingLinkRequest(),
@@ -1225,26 +1227,26 @@ export class IinPublicApp {
         const approved = await this.identityLinkService.confirmIncomingLink(pub);
         if (approved) {
           this.deviceSyncService.watchPeerForSync(pub);
-          await this.refreshNearbyCountIdentity();
+          void this.refreshNearbyCountIdentity();
         }
         return approved;
       },
       cancelPendingRequest: (requestId) => this.identityLinkService.cancelPendingLink(requestId),
       refreshRecords: async () => {
         await this.identityLinkService.refreshLocalRecords();
-        await this.refreshNearbyCountIdentity();
+        void this.refreshNearbyCountIdentity();
       },
       completeFromCode: async (code) => {
         const result = await this.identityLinkService.completeLinkFromCode(code);
         if (result.ok) {
           this.deviceSyncService.watchPeerForSync(result.peerPub);
-          await this.refreshNearbyCountIdentity();
+          void this.refreshNearbyCountIdentity();
         }
         return result.ok ? null : result.error;
       },
       unlink: async (pub) => {
         const result = await this.identityLinkService.unlink(pub);
-        await this.refreshNearbyCountIdentity();
+        void this.refreshNearbyCountIdentity();
         return result;
       },
       isLinked: (pub) => this.identityLinkService.isLinked(pub),

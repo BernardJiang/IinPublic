@@ -21,6 +21,8 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 // Language is no longer a manual per-talk field — it's auto-detected from the title
 // (`detectTalkLanguage` in talk-form-processor.ts). Callers must pass a title that detects as
@@ -29,7 +31,7 @@ import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-na
 async function createLanguageTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -113,13 +115,13 @@ test.describe('Incoming talk language intake filtering', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Language Sender');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Language Receiver');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     await pageJerry.click('.nav-btn[data-view="settings"]');

@@ -4,6 +4,7 @@ import { createChatroomShellController, type ChatroomShellControllerDeps } from 
 import { renderChatroomList, showChatroomDetail, updateChatroomMembers } from '../../web/ui/chatrooms-view';
 import type { User } from '../../shared/types';
 import { ROOM_CREATE_MIN_FRIEND_MARKS } from '../../shared/room-creation-credit';
+import { CONFIG } from '../../shared/config';
 
 function userWithCredit(friendsCount: number, blockCount = 0): User {
   return {
@@ -61,6 +62,13 @@ function makeDeps(overrides: Partial<ChatroomShellControllerDeps> = {}): Chatroo
 }
 
 describe('chatroom shell controller', () => {
+  // The product threshold (12), whatever the environment: test:all exports DISABLE_HMR=true,
+  // which lowers CONFIG's default to 0 for the E2E servers.
+  const config = CONFIG as { PLACE_CREATE_MIN_FRIEND_MARKS: number };
+  const savedMinFriendMarks = config.PLACE_CREATE_MIN_FRIEND_MARKS;
+  beforeAll(() => { config.PLACE_CREATE_MIN_FRIEND_MARKS = ROOM_CREATE_MIN_FRIEND_MARKS; });
+  afterAll(() => { config.PLACE_CREATE_MIN_FRIEND_MARKS = savedMinFriendMarks; });
+
   beforeEach(() => {
     document.body.innerHTML = '';
     localStorage.clear();

@@ -4,6 +4,7 @@ import { afterNav, afterSync, E2E_ASSERT_TIMEOUT_MS } from './timing';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from './ports';
 import { submitTalkEditorAndWaitForOut } from './talk-demo-ui';
 import { ensureChatroomList } from './chatroom-nav';
+import { openTalkEditor } from './open-talk-editor';
 
 const noCacheHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } as const;
 
@@ -58,7 +59,7 @@ export async function createSimpleFlowTalk(
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await afterSync();
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');

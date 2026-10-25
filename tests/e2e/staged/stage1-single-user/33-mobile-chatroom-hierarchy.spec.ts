@@ -8,10 +8,11 @@ import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterAction, afterLoad, afterNav, afterSync, delay, headless } from '../../helpers/timing';
+import { afterLoad, afterNav, afterSync, delay, headless } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const VIEWPORT = { width: 390, height: 844 };
 
@@ -65,25 +66,8 @@ test.describe('Mobile chatroom navigation', () => {
     };
 
     const enterRoomAndReturn = async (): Promise<void> => {
-      // Live member counts re-render the list (innerHTML replace) and can detach the row mid-click;
-      // retry against fresh DOM instead of failing on that unrelated race.
-      const item = page.locator('.chatroom-item.current-room');
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        try {
-          await expect(item).toBeVisible({ timeout: 15000 });
-          await item.scrollIntoViewIfNeeded();
-          // A successful click proves the row is not covered by the bottom nav.
-          await item.click();
-          lastError = undefined;
-          break;
-        } catch (err) {
-          lastError = err;
-          if (!/not attached to the DOM/.test(String(err))) throw err;
-          await afterAction();
-        }
-      }
-      if (lastError) throw lastError;
+      // Nearby has no room row (design §3.7); its detail opens the way the app opens it.
+      await openCurrentChatroom(page);
       await afterSync();
       await expect(page.locator('#chatroom-detail-container')).toBeVisible({ timeout: 15000 });
       await expectBottomNavInsideViewport();
@@ -94,8 +78,8 @@ test.describe('Mobile chatroom navigation', () => {
       await expect(page.locator('#chatroom-list-container')).toBeVisible({ timeout: 15000 });
     };
 
-    // Chatrooms tab is the default view: the flat list with the user's own Nearby room.
-    await expect(page.locator('.chatroom-item.current-room')).toBeVisible({ timeout: 20000 });
+    // Chatrooms tab is the default view: the flat list with the user's Nearby people.
+    await expect(page.locator('[data-testid="nearby-people-section"]')).toBeVisible({ timeout: 20000 });
     await expectBottomNavInsideViewport();
 
     await enterRoomAndReturn();
@@ -107,7 +91,7 @@ test.describe('Mobile chatroom navigation', () => {
     await expect(page.locator('#me-view.active')).toBeAttached({ timeout: 15000 });
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await expect(page.locator('.chatroom-item.current-room')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="nearby-people-section"]')).toBeVisible({ timeout: 15000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
   });

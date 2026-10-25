@@ -18,11 +18,13 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 async function createFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -87,13 +89,13 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Cutoff Sender');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Cutoff Receiver');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     await pageJerry.click('.nav-btn[data-view="settings"]');

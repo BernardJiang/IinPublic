@@ -32,12 +32,10 @@ test.describe('Nearby list cleanup after an OS-level browser crash', () => {
   });
 
   test('a SIGKILLed person leaves the Nearby headcount when the next swap gets no answer', async () => {
-    const roomHeadcount = (page: Page) =>
-      page.locator('.chatroom-item.current-room .chatroom-headcount');
-    const readRoomHeadcount = async (page: Page) => {
-      const text = await roomHeadcount(page).textContent();
-      return Number(text?.match(/\d+/)?.[0] || '0');
-    };
+    // My list's rows. The header's "N nearby" is the hub's audience size (OPEN-86), which keeps a
+    // vanished person until their card expires; the list drops them on the next unanswered swap.
+    const listRows = (page: Page) => page.locator('[data-testid="nearby-person-row"]');
+    const readRoomHeadcount = (page: Page) => listRows(page).count();
 
     const alice = await bootstrapUser(browserA, 'CrashRoom-A', 'Crash Room Alice');
     contextA = alice.context;
@@ -70,6 +68,6 @@ test.describe('Nearby list cleanup after an OS-level browser crash', () => {
     // Nearby is Alice's own list (§3.7): there is no hub membership to expire. Her next swap with
     // Bob gets no answer, which drops him at once; run that swap now instead of waiting a period.
     await pageA.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.gossipNow());
-    await expect(roomHeadcount(pageA)).toContainText(String(initialHeadcount - 1), { timeout: 35_000 });
+    await expect(listRows(pageA)).toHaveCount(initialHeadcount - 1, { timeout: 35_000 });
   });
 });

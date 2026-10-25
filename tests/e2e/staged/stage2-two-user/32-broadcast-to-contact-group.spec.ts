@@ -12,6 +12,7 @@ import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { getIncomingClusterTitlesForUser } from '../../helpers/talks-matching-flow';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /**
  * docs/TODO.md §U — Broadcast to a contact group. Verifies the group-picker dialog on the
@@ -106,7 +107,7 @@ test.describe('Broadcast to a contact group', () => {
 
     // ── Tom creates a second talk to broadcast to the group (separate from the match talk) ──
     const groupTalkTitle = `Group Broadcast Talk ${Date.now()}`;
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', groupTalkTitle);
     await selectTalkEditorType(pageTom, 'flow');
@@ -184,7 +185,7 @@ test.describe('Broadcast to a contact group', () => {
       // called a second time from the contacts tab (right after the first group broadcast).
       await pageTom.click('.nav-btn[data-view="talks"]');
       await afterNav();
-      await pageTom.click('#create-talk-btn');
+      await openTalkEditor(pageTom);
       await pageTom.waitForSelector('#talk-editor-form');
       await pageTom.fill('#talk-title', title);
       await selectTalkEditorType(pageTom, 'flow');

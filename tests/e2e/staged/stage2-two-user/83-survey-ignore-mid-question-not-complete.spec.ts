@@ -9,6 +9,8 @@ import {
   bootstrapSuperUser,
 } from '../../helpers/super-user-techsupport-shared';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /**
  * docs/TODO.md §W Gap 2 completeness note — Bernard, 2026-08-01: "if receiver answers 2 out of
@@ -73,17 +75,17 @@ test.describe('Survey: Ignore on a non-last question does not end the response e
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice survey author', ALICE_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTechSupport);
     await afterLoad();
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterLoad();
 
     const surveyTitle = `IgnoreMidSurvey ${Date.now()}`;
-    await pageTechSupport.click('#create-talk-btn');
+    await openTalkEditor(pageTechSupport);
     await pageTechSupport.waitForSelector('#talk-editor-form');
     await pageTechSupport.fill('#talk-title', surveyTitle);
     await pageTechSupport.selectOption('#talk-type', 'survey');

@@ -28,6 +28,7 @@ import {
   type UiTalkQuestionSpec,
 } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const RUN_ID = 900100;
 
@@ -115,14 +116,14 @@ test.describe('Non-root reciprocalTagContext question auto-matches buy/sell stra
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam Reciprocal');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await pageAdam.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAdam);
     await afterSync();
     await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve Reciprocal');
     contextEve = eve.context;
     pageEve = eve.page;
-    await pageEve.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageEve);
     await afterSync();
     await enableChatbot(pageEve);
 

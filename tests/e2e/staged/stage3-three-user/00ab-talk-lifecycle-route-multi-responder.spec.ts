@@ -25,6 +25,7 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { makeRouteTalk } from '../../talks-matching/lib/four-types-talks';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const RUN_ID = 900402;
 const ROUTE_TITLE = `E2E FourTypes Route ${RUN_ID}`;
@@ -80,19 +81,19 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Route Matrix');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Route Matrix');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob Route Matrix');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
     // --- Tom creates and broadcasts the route talk ---

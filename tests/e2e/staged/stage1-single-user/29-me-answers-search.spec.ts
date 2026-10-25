@@ -13,6 +13,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Me tab: answers search filter', () => {
   let browser: Browser;
@@ -56,7 +57,7 @@ test.describe('Me tab: answers search filter', () => {
   }
 
   async function createTalk(title: string): Promise<void> {
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
     await page.selectOption('#talk-type', 'flow');

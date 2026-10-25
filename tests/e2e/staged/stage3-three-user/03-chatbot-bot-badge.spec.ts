@@ -18,6 +18,8 @@ import {
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /** Unique title so .talk-list-item[data-role="created"] is not confused with other rows / stale Gun data. */
 const CHATBOT_TALK_TITLE = 'E2E Chatbot Tennis';
@@ -173,24 +175,24 @@ test.describe('Talks matching — chatbot + bot badge', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
     const jerryUserId = await getCurrentUserId(pageJerry);
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
     const bobUserId = await getCurrentUserId(pageBob);
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', CHATBOT_TALK_TITLE);
     await pageTom.selectOption('#talk-type', 'flow');

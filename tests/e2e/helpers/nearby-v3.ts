@@ -8,7 +8,7 @@ import { expect, type Page } from '@playwright/test';
  * `expected`.
  */
 export async function expectNearbyHeadcount(page: Page, expected: number, message?: string): Promise<void> {
-  const headcount = page.locator('.chatroom-item.current-room .chatroom-headcount');
+  const headcount = page.locator('[data-testid="nearby-headcount"]');
   await expect
     .poll(async () => {
       await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.gossipNow()).catch(() => undefined);

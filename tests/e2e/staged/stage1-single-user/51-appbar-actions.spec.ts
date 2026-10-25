@@ -9,6 +9,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('AppBar actions', () => {
   let context: BrowserContext | undefined;
@@ -43,7 +44,7 @@ test.describe('AppBar actions', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
-    await p.locator('#create-talk-btn').click();
+    await openTalkEditor(p);
     await afterNav();
     await expect(p.locator('#talk-editor-modal')).toBeVisible();
     await p.locator('#cancel-talk-btn').click();

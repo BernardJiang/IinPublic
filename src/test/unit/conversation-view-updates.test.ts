@@ -144,4 +144,21 @@ describe('conversation view and list update extraction', () => {
     expect(conversations.c1.unreadCount).toBe(2);
     expect(deps.refreshOpenPeerThreadList).toHaveBeenCalledTimes(1);
   });
+
+  it('a re-synced conversation record keeps its thread previews (stage2/69)', () => {
+    const conversations: Record<string, any> = {
+      c1: { conversationId: 'c1', otherUserId: 'peer', otherUserName: 'Peer', talkId: 'talk-a' },
+    };
+    const deps = listDeps(conversations);
+    syncConversationMessageSummary('c1', [
+      { id: 'r', senderId: 'me', text: 'thread reply', talkId: 'talk-a', timestamp: '2026-09-12T01:05:00.000Z' },
+      { id: 'd', senderId: 'peer', text: 'direct', timestamp: '2026-09-12T01:06:00.000Z' },
+    ], 'me', deps);
+
+    // The Gun conversation record arrives again (match/thread metadata update).
+    addNewConversation({ conversationId: 'c1', otherUserId: 'peer', otherUserName: 'Peer', talkId: 'talk-a' }, deps);
+
+    expect(conversations.c1.threadSummaries['talk-a']).toEqual(expect.objectContaining({ lastMessage: 'thread reply' }));
+    expect(conversations.c1.unreadCount).toBe(1);
+  });
 });

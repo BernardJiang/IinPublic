@@ -15,6 +15,7 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { gunBaseURL, isMeshTalkDeliveryE2e } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Pair-direct talk delivery over Gun mesh', () => {
   let browserTom: Browser;
@@ -56,13 +57,13 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
         .poll(() => pageJerry.evaluate(() => !!window.__iinpublic_app?.getApp?.()?.isMeshTalkDeliveryEnabled?.()))
         .toBe(true);
 
-      await pageTom.click('.chatroom-item.current-room');
-      await pageJerry.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
+      await openCurrentChatroom(pageJerry);
       await afterSync();
 
       await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { sendToChatroom: false });
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
       await afterSync();
       await clickBroadcastUntilBulkAck(pageTom);
 

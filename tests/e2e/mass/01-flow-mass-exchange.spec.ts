@@ -6,6 +6,7 @@ import { headless } from '../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
 
 const GOLDEN = [
   ['flowa11', 'flowa22', 'flowa33', 'flowa41'], ['flowa11', 'flowa22', 'flowa33', 'flowa42'],
@@ -38,7 +39,7 @@ test.describe('M1 real flow mass exchange', () => {
         browsers.push(browser);
         const boot = await bootstrapUser(browser, `M1-${i}`, `M1 User ${i}`, 60_000);
         contexts.push(boot.context); pages.push(boot.page);
-        await boot.page.locator('.chatroom-item.current-room').first().click();
+        await openCurrentChatroom(boot.page);
         await boot.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));
       }
       const creatorId = await pages[0].evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);

@@ -20,6 +20,8 @@ import {
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
 import { waitForStatusBarMatchCountAtMost } from '../../helpers/durable-ui';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 const TALK_TITLE = 'E2E Mismatch No Match Flow';
 
@@ -66,17 +68,17 @@ test.describe('Talks matching — mismatch path yields no match', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     // Tom creates a talk with a clear match branch and a clear ignore branch
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TALK_TITLE);
     await pageTom.selectOption('#talk-type', 'flow');

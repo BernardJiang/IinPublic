@@ -23,7 +23,8 @@ import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForResponseModalClosed, openIncomingTalkModal } from '../../helpers/talks-matching-flow';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -63,16 +64,16 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
     const alice = await bootstrapUser(browserAlice, 'Alice', 'AliceRoute');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'BobRoute');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
 
     // ── Alice builds the route talk ────────────────────────────────────────────────────
     await pageAlice.click('.nav-btn[data-view="talks"]');
-    await pageAlice.click('#create-talk-btn');
+    await openTalkEditor(pageAlice);
     await pageAlice.waitForSelector('#talk-editor-form');
 
     const title = `Shared Root Route ${Date.now()}`;
@@ -146,7 +147,7 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
 
     // ── Bob receives it, walks the shared root, picks Notebook, and matches ───────────────
     await ensureChatroomList(pageAlice);
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await clickBroadcastUntilBulkAck(pageAlice);
 
     // Route talks show a "this leads to: <next question>" preview + explicit Continue button

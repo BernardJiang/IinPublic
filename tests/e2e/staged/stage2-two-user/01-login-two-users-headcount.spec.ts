@@ -42,7 +42,7 @@ test.describe('Login — two users headcount', () => {
     const screenshotDir = e2eTestScreenshotsDir('01-login');
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
     const activeHeadcount = (targetPage: Page) =>
-      targetPage.locator('.chatroom-item.current-room .chatroom-headcount');
+      targetPage.locator('[data-testid="nearby-headcount"]');
 
     context = await browser.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page = await context.newPage();
@@ -52,7 +52,7 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page, 'User1');
-    await expect(activeHeadcount(page)).toContainText('0 near you', { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('0 nearby', { timeout: 20000 });
 
     context2 = await browser2.newContext({ viewport: { width: 960, height: 1200 }, deviceScaleFactor: 1 });
     page2 = await context2.newPage();
@@ -63,8 +63,8 @@ test.describe('Login — two users headcount', () => {
     await ensureWindowFitsViewport(page2, 960, 1200);
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2');
-    await expect(activeHeadcount(page)).toContainText('1 near you', { timeout: 20000 });
-    await expect(activeHeadcount(page2)).toContainText('1 near you', { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('1 nearby', { timeout: 20000 });
+    await expect(activeHeadcount(page2)).toContainText('1 nearby', { timeout: 20000 });
 
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await wait(1000, 3000);
@@ -80,8 +80,8 @@ test.describe('Login — two users headcount', () => {
     await afterNav();
     await afterLoad();
     attachE2eBrowserTabLabel(page2, 'User2 re-login');
-    await expect(activeHeadcount(page)).toContainText('1 near you', { timeout: 20000 });
-    await expect(activeHeadcount(page2)).toContainText('1 near you', { timeout: 20000 });
+    await expect(activeHeadcount(page)).toContainText('1 nearby', { timeout: 20000 });
+    await expect(activeHeadcount(page2)).toContainText('1 nearby', { timeout: 20000 });
 
     await page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());
     await page2.evaluate(() => (window as any).__iinpublic_app?.getApp()?.manualCleanup());

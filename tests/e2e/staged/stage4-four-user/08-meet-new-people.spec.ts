@@ -51,10 +51,10 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
     }
     const [adam, ...others] = pages;
     const othersByName = new Map(others.map((page, i) => [`${NAMES[i + 1]} G`, page]));
+    // Heartbeat through the service (not the bare hub client) so the answer's count and its
+    // paging flag land together: the Meet action reads the latter (OPEN-86 E4).
     await adam.evaluate(async () => {
-      const runtime = (window as any).__iinpublic_app?.getApp?.()?.nearbyV3;
-      const card = runtime?.service?.card?.();
-      if (card) await runtime.hub.heartbeat(card);
+      await (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.refreshCounts?.();
     });
 
     // Page 1 is already the root screen: no Nearby room or redundant people heading.
@@ -106,7 +106,6 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
     await expect(meetAction).toBeVisible();
     await expect(meetAction).toHaveAttribute('aria-label', 'Meet new people');
     await expect(adam.locator('[data-testid="nearby-group-bar"]')).toHaveCount(0);
-    const firstSeenGroup = await memberNames(adam);
 
     // Online dots come from the hub's card heartbeats (refreshed at start and every minute).
     await expect(adam.locator('[data-testid="nearby-person-row"] .presence-indicator.online')).toHaveCount(3, { timeout: 75_000 });
@@ -114,9 +113,12 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
     // Adam's active Talk reaches his group.
     const adamActor: TestActor = { id: 'Adam', runtime: 'browser', page: adam };
     const talk = await createTagTalk(adamActor, `meet-new-people-${Date.now()}`);
+    // The Talk goes to the group as it is when sent; gossip can have swapped in a better-ranked
+    // card since the snapshot above, so read the group again right before sending.
+    const sendGroup = await memberNames(adam);
     const sent = await adam.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(1));
     expect(sent?.talksSent ?? 0).toBeGreaterThan(0);
-    for (const name of firstSeenGroup) {
+    for (const name of sendGroup) {
       expect(await waitForIncomingTalk(othersByName.get(name)!, name, talk.title)).toBe(talk.talkId);
     }
 

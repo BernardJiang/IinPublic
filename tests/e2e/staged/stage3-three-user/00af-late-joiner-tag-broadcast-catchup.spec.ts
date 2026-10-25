@@ -32,6 +32,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const TAG_TITLE = 'Late Joiner Tag Catchup';
 
@@ -79,13 +80,13 @@ test.describe('Late joiner receives an already-broadcast tag talk (catch-up)', (
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Catchup');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Catchup');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     await createTagTalkForLifecycle(pageTom, TAG_TITLE);
@@ -110,7 +111,7 @@ test.describe('Late joiner receives an already-broadcast tag talk (catch-up)', (
     const kate = await bootstrapUser(browserKate, 'Kate', 'Kate Catchup');
     contextKate = kate.context;
     pageKate = kate.page;
-    await pageKate.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageKate);
     await afterSync();
 
     await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);

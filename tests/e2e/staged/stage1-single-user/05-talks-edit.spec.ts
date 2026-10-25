@@ -10,6 +10,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
 import { longPressTalkRow } from '../../helpers/talks-matching-flow';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talks: create and edit', () => {
   let browser: Browser;
@@ -61,7 +62,7 @@ test.describe('Talks: create and edit', () => {
   test('Create talk, Talks tab shows it with Edit; Edit opens with prefilled data', async () => {
     await bootstrapUser('EditTestUser');
 
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', TALK_TITLE);
     await page.selectOption('#talk-type', 'flow');
@@ -112,7 +113,7 @@ test.describe('Talks: create and edit', () => {
   test('Self-answered own talk: Me-tab entry opens the response view, not the editor', async () => {
     await bootstrapUser('SelfAnswerUser');
 
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', 'Self Answer Test');
     await page.selectOption('#talk-type', 'flow');

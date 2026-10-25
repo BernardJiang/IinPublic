@@ -19,7 +19,7 @@ import {
   waitForTabActive,
 } from '../../helpers/super-user-techsupport-shared';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 function matchingAnswerIds(talkData: any): string[] {
   if (talkData?.type === 'tag') {
@@ -105,11 +105,11 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice', ALICE_NAME, 30_000);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTechSupport);
     await afterLoad();
 
     await ensureChatroomList(pageTechSupport);
-    await pageTechSupport.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTechSupport);
     await afterNav();
 
     console.log('\n📍 STEP 2–3: Alice creates 10 tags + 10 talks');
@@ -160,7 +160,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME, 30_000);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterLoad();
 
     const tomUserId = await pageTom.evaluate(() =>

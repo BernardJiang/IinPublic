@@ -7,7 +7,7 @@
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
-import { afterSync, headless } from '../../helpers/timing';
+import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForIncomingTalkClusterOnLocalGun } from '../../helpers/talks-matching-flow';
 import { createSimpleFlowTalk, goToChatrooms } from '../../helpers/broadcast-cancellation-helpers';
 import { broadcastFromGlobalChatroom } from '../../helpers/talk-demo-ui';
@@ -40,7 +40,8 @@ test.describe('Nearby screens', () => {
     // directly. Nearby is an internal delivery scope, not a room row.
     await expect(pageTom.locator('.chatroom-item[data-chatroom-id="nearby-v3"]')).toHaveCount(0);
     await expect(pageTom.locator('[data-testid="nearby-headcount"]')).toHaveText('1 nearby · 2 online', { timeout: 60_000 });
-    await expect(pageTom.locator('[data-testid="room-list-total"]')).toHaveText('1 nearby · 2 online');
+    // The room-list header no longer repeats the count; the AppBar header is the only one.
+    await expect(pageTom.locator('[data-testid="room-list-total"]')).toHaveCount(0);
     await expect(pageTom.getByText('People near you', { exact: true })).toHaveCount(0);
     await expect(pageTom.getByText('Loading rooms…', { exact: true })).toHaveCount(0);
     await expect(pageTom.locator('[data-testid="room-list-sort"]')).toHaveCount(0);
@@ -49,15 +50,10 @@ test.describe('Nearby screens', () => {
     await expect(pageTom.locator('#status-bar-text')).not.toContainText('Nearby');
     await expect(pageTom.locator('#status-bar-text')).not.toContainText('📍');
 
-    // Paging is a compact AppBar icon; no group card or second screen repeats Jerry.
-    const meetAction = pageTom.locator('[data-testid="nearby-meet-new-people-action"]');
+    // Paging is a compact AppBar icon shown only when there is a next page (OPEN-86 E4); two people
+    // fit on one page, so it is absent (stage4/08 and stage5/15 page). No group card repeats Jerry.
     await expect(pageTom.locator('[data-testid="nearby-group-bar"]')).toHaveCount(0);
-    await expect(meetAction).toBeVisible();
-    await expect(meetAction).toHaveAttribute('aria-label', 'Meet new people');
-    // Cancelling the confirmation changes nothing: Jerry stays.
-    await meetAction.click();
-    await pageTom.locator('[data-testid="nearby-meet-cancel"]').click();
-    await afterSync();
+    await expect(pageTom.locator('[data-testid="nearby-meet-new-people-action"]')).toBeHidden();
     await expect(pageTom.locator('[data-testid="nearby-person-row"]')).toHaveCount(1);
 
     // A broadcast still delivers; its progress is intentionally not another control/status card
@@ -74,6 +70,6 @@ test.describe('Nearby screens', () => {
 
     // Jerry's side matches: Tom is on his list.
     await expect(pageJerry.locator('.chatroom-item[data-chatroom-id="nearby-v3"]')).toHaveCount(0);
-    await expect(pageJerry.locator('[data-testid="nearby-headcount"]')).toContainText('1 near you');
+    await expect(pageJerry.locator('[data-testid="nearby-headcount"]')).toContainText('1 nearby');
   });
 });

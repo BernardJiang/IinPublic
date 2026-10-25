@@ -7,7 +7,7 @@ import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, afterCreateTalkBeforeBroadcast, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { launchThreeBrowsers, shutdownThreeBrowsers, type ThreeBrowsers } from '../../helpers/talks-matching-browsers';
 import { clickBroadcastUntilBulkAck, waitForOutgoingTalkRow } from '../../helpers/talk-demo-ui';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import {
   bootstrapUser,
   waitForTabActive,
@@ -16,6 +16,7 @@ import {
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talks matching — tennis, Jerry match', () => {
   let browsers: ThreeBrowsers;
@@ -60,16 +61,16 @@ test.describe('Talks matching — tennis, Jerry match', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', 'Tennis Partner');
     await pageTom.selectOption('#talk-type', 'flow');
@@ -84,7 +85,7 @@ test.describe('Talks matching — tennis, Jerry match', () => {
     await waitForOutgoingTalkRow(pageTom, 'Tennis Partner', E2E_ASSERT_TIMEOUT_MS);
     await afterCreateTalkBeforeBroadcast();
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
     await clickBroadcastUntilBulkAck(pageTom);
     await waitForTabActive(pageTom, 'chatrooms');

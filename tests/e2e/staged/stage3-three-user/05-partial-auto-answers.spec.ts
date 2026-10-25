@@ -21,6 +21,8 @@ import {
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 const TITLE_SUN = 'E2E Partial Auto Sun';
 const TITLE_SAT = 'E2E Partial Auto Sat';
@@ -37,7 +39,7 @@ async function fillThreeQuestionTalk(
   thirdQuestionText: string,
 ): Promise<void> {
   await dismissBlockingNotifications(page);
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -113,7 +115,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
@@ -121,7 +123,7 @@ test.describe('Talks matching — partial auto-answers (flattened context)', () 
     pageJerry = jerry.page;
     // Same-context auto answers are what this spec covers; the app default is "Whenever offered".
     await pageJerry.evaluate(() => localStorage.setItem('iinpublic_auto_answer_scope', 'same-context'));
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     // --- Talk 1 (Sunday): Jerry answers all three with auto mode; match on last ---

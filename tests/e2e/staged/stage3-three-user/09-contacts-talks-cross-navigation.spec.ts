@@ -42,6 +42,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 // "Userxxxxxxxxx" as its authorName instead of "Jerry", corrupting the matched-contact
 // name and, transitively, this test's own outcome-filter assertions).
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Contacts/Talks cross-navigation: outcome filters + a talk\'s responses list', () => {
   let browserTom: Browser;
@@ -112,19 +113,19 @@ test.describe('Contacts/Talks cross-navigation: outcome filters + a talk\'s resp
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
     const bookQuestions = [{

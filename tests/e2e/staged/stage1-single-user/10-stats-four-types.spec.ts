@@ -29,6 +29,7 @@ import {
   makeSurveyTalk,
   makeRouteTalk,
 } from '../../talks-matching/lib/four-types-talks';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 type Session = { label: string; context: BrowserContext; page: Page };
 type TalkKind = 'tag' | 'flow' | 'survey' | 'route';
@@ -58,7 +59,7 @@ test.describe('Talks matching — local stats aggregation across four talk types
     // --- Bootstrap Tom (creator) ---
     const tom = await bootstrapUser(browsers[0]!, 'Tom', 'Tom');
     sessions.push({ label: 'Tom', context: tom.context, page: tom.page });
-    await tom.page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(tom.page);
     await waitForTabActive(tom.page, 'chatrooms');
 
     // --- Tom creates all 4 talk types ---

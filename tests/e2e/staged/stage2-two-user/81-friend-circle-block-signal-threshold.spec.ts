@@ -21,6 +21,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, headless } from '../../helpers/timing';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Friend-circle block signal — threshold-gated warning', () => {
   let browserAlice: Browser;
@@ -62,9 +63,9 @@ test.describe('Friend-circle block signal — threshold-gated warning', () => {
     pageVictor = victor.page;
 
     // Presence for resolvePeerEpub's primary lookup path (Gun getPublicUser is the fallback).
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await afterSync();
-    await pageVictor.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageVictor);
     await afterSync();
 
     const aliceUserId = await pageAlice.evaluate(

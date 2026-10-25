@@ -17,6 +17,8 @@ import {
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
 import { waitForStatusBarMatchCountAtMost } from '../../helpers/durable-ui';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 const TAG_TITLE = 'E2E Tag Reopen Coffee';
 
@@ -61,13 +63,13 @@ test.describe('Talks matching — change a Tag from Passed to Liked', () => {
     const alice = await bootstrapUser(browserAlice, 'Alice', 'Alice');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await afterSync();
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
     // Keep this assertion focused on answered IN history rather than the
     // independent auto-copy-to-OUT preference.
@@ -76,7 +78,7 @@ test.describe('Talks matching — change a Tag from Passed to Liked', () => {
     // Alice creates and broadcasts a tag
     await pageAlice.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    await pageAlice.click('#create-talk-btn');
+    await openTalkEditor(pageAlice);
     await pageAlice.waitForSelector('#talk-editor-form');
     await pageAlice.locator('input[name="talk-type-radio"][value="tag"]').click();
     await afterAction();

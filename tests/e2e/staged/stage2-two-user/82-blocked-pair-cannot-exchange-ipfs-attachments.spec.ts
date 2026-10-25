@@ -23,6 +23,7 @@ import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterSync, headless } from '../../helpers/timing';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Blocked pair cannot exchange IPFS attachments', () => {
   let browserAlice: Browser;
@@ -63,9 +64,9 @@ test.describe('Blocked pair cannot exchange IPFS attachments', () => {
     contextBob = bob.context;
     pageBob = bob.page;
 
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await afterSync();
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
     const aliceUserId = await pageAlice.evaluate(

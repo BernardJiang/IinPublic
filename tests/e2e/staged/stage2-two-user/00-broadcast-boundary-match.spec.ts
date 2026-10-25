@@ -14,7 +14,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
-import { AREA_PLACES, ensureChatroomList, openAreaRoomAt } from '../../helpers/chatroom-nav';
+import { AREA_PLACES, ensureChatroomList, openAreaRoomAt, openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const MATCH_ANSWER = 'Yes, lets play.';
 const IGNORE_ANSWER = 'No thanks.';
@@ -61,8 +61,8 @@ test.describe('Broadcast — chatroom boundary matching', () => {
     expect(jerryUserId).toBeTruthy();
 
     try {
-      await pageTom.click('.chatroom-item.current-room');
-      await pageJerry.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
+      await openCurrentChatroom(pageJerry);
       await afterSync();
 
       await createSimpleFlowTalk(pageTom, talkTitle, MATCH_ANSWER, IGNORE_ANSWER, {
@@ -70,7 +70,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
       });
 
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
       await afterSync();
       await waitForBroadcastableTalkIds(pageTom, 15_000);
       await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 20_000);

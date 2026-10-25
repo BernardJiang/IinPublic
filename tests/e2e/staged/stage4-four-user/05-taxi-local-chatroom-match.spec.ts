@@ -47,6 +47,7 @@ import {
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { openAreaRoomAt } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /** The local room: the San Diego area room (bottom-layer tile, ~78 km), as a map tap opens it. */
 const SAN_DIEGO = { latitude: 32.7157, longitude: -117.1611 };
@@ -88,7 +89,7 @@ async function createRideTalk(
   tag: 'buy' | 'sell',
 ): Promise<void> {
   const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -786,7 +787,7 @@ test.describe('Taxi: simplest form — a single-question tag talk per side (§GG
    * incoming talk and auto-matches them, exactly like two people both tagged "Tennis".
    */
   async function createSimpleTagTalk(page: Page, title: string): Promise<void> {
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
     await selectTalkEditorType(page, 'tag');

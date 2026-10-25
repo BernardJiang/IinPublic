@@ -67,6 +67,8 @@ import {
   type UiTalkQuestionSpec,
 } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 const RUN_ID = 890100;
 
@@ -157,7 +159,7 @@ type MultiSpecRouteTalkOpts = {
 async function createMultiSpecRouteTalk(page: Page, opts: MultiSpecRouteTalkOpts): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
 
   await page.fill('#talk-title', opts.title);
@@ -265,14 +267,14 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam BuySell');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await pageAdam.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAdam);
     await afterSync();
     await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve BuySell');
     contextEve = eve.context;
     pageEve = eve.page;
-    await pageEve.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageEve);
     await afterSync();
     await enableChatbot(pageEve);
 
@@ -363,14 +365,14 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
     const adam = await bootstrapUser(browserAdam, 'Adam', 'Adam Collision');
     contextAdam = adam.context;
     pageAdam = adam.page;
-    await pageAdam.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAdam);
     await afterSync();
     await enableChatbot(pageAdam);
 
     const eve = await bootstrapUser(browserEve, 'Eve', 'Eve Collision');
     contextEve = eve.context;
     pageEve = eve.page;
-    await pageEve.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageEve);
     await afterSync();
     await enableChatbot(pageEve);
 

@@ -46,6 +46,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talk template picker', () => {
   let browser: Browser;
@@ -68,7 +69,7 @@ test.describe('Talk template picker', () => {
     await waitForTabActive(page, 'talks');
 
     const openPicker = async () => {
-      await page.click('#create-talk-btn');
+      await openTalkEditor(page);
       await page.waitForSelector('#talk-editor-modal');
       await expect(page.locator('#browse-talk-templates-btn')).toBeVisible();
       await page.click('#browse-talk-templates-btn');
@@ -78,7 +79,7 @@ test.describe('Talk template picker', () => {
 
     // Progressive disclosure: a brand-new blank question's advanced fields (answer-selection-
     // mode, Simple/Pair tag, "Compare using") start collapsed — no value set, nothing to show.
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-modal');
     await expect(page.locator('.question-item[data-question-index="0"] .question-advanced')).not.toHaveJSProperty('open', true);
     await page.locator('#cancel-talk-btn').click();

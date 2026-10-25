@@ -26,6 +26,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /** `noticedModels` get "Noticed (match)" (auto-checks that option as this author's own
  *  self-answer too, talk-editor-form-helpers.ts); every other option gets "Ignore". Creates and
@@ -41,7 +42,7 @@ async function createChecklistTalk(
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');

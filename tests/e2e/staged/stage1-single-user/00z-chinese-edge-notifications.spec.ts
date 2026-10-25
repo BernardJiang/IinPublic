@@ -15,6 +15,8 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync, afterCreateTalkBeforeBroadcast } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 async function switchUiLanguage(page: Page, code: 'zh' | 'en'): Promise<void> {
   await page.locator('.nav-btn[data-view="settings"]').click();
@@ -56,30 +58,28 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     // --- Status bar: join a chatroom and verify user count is in Chinese ---
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    const globalRoom = p.locator('.chatroom-item.current-room').first();
-    await globalRoom.waitFor({ state: 'visible', timeout: 30_000 });
-    await globalRoom.click();
+    await openCurrentChatroom(p);
     await afterSync();
 
-    // After joining Global, the status bar should contain Chinese user count (e.g., "N 位用户")
-    // not the English "N user(s)"
+    // In Nearby the status bar reads the Chinese headcount ("附近 N 人 · M 人在线"), not the
+    // English "N nearby · M online"
     await expect
       .poll(
         async () => {
           const txt = await p.locator('#status-bar-text').textContent();
           return txt ?? '';
         },
-        { timeout: 20_000, message: 'Status bar should contain Chinese user count' },
+        { timeout: 20_000, message: 'Status bar should contain the Chinese Nearby headcount' },
       )
-      .toMatch(/位用户/);
+      .toMatch(/附近 \d+ 人 · \d+ 人在线/);
 
     // English "user" / "users" must NOT appear in the status bar
     const statusText = await p.locator('#status-bar-text').textContent();
-    expect(statusText ?? '').not.toMatch(/\buser(s)?\b/i);
+    expect(statusText ?? '').not.toMatch(/\b(user(s)?|nearby|online)\b/i);
 
     // --- Broadcast preamble modal: verify Cancel / Send labels are in Chinese ---
     // First create a talk so there is something to broadcast
-    await p.locator('#create-talk-btn').click();
+    await openTalkEditor(p);
     await p.waitForSelector('#talk-editor-form');
     await p.fill('#talk-title', 'D2 Edge Test Talk');
     await p.click('#talk-submit-btn');
@@ -159,6 +159,8 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     await p.keyboard.press('Escape').catch(() => {});
 
     // --- Chatroom create modal: verify labels are in Chinese ---
+    // "New room" is a list action; leave the Nearby detail opened above.
+    await ensureChatroomList(p);
     await p.locator('#create-custom-chatroom-btn').click();
     const createModal = p.locator('#chatroom-create-modal');
     const createModalVisible = await createModal.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);

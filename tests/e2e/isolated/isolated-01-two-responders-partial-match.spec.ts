@@ -24,6 +24,8 @@ import {
   resetTalksMatchingSession,
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
+import { openTalkEditor } from '../helpers/open-talk-editor';
 
 const TALK_TITLE = 'E2E Partial Match Tennis';
 
@@ -71,25 +73,25 @@ test.describe('Talks matching — one match one mismatch from two responders', (
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await waitForTabActive(pageTom, 'chatrooms');
 
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TALK_TITLE);
     await pageTom.selectOption('#talk-type', 'flow');

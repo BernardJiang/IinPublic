@@ -22,7 +22,9 @@ describe('startup chatroom first paint', () => {
     ui.initialize();
     ui.showStartupInterface();
 
-    expect(document.querySelector('#chatroom-list')?.textContent).toContain('Contacts only');
+    // Nearby has no room row (design §3.7): the first paint is the empty people section.
+    expect(document.querySelector('#chatroom-list [data-testid="nearby-people-section"]')).not.toBeNull();
+    expect(document.querySelector('#chatroom-list .chatroom-item')).toBeNull();
     expect(document.querySelector('#status-bar-text')?.textContent).toBe('Connecting...');
     // Rooms open on the map by default.
     expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('false');
@@ -77,7 +79,7 @@ describe('startup chatroom first paint', () => {
     const ui = new UIManager();
     ui.initialize();
     ui.showStartupInterface();
-    const firstPaintScopeRow = document.querySelector('#chatroom-list .chatroom-item');
+    expect(document.querySelector('#chatroom-list [data-testid="nearby-people-section"]')).not.toBeNull();
 
     ui.showMainInterface({
       id: 'startup-user',
@@ -92,8 +94,8 @@ describe('startup chatroom first paint', () => {
       knownPeople: [],
     } as User);
 
-    expect(document.querySelector('#chatroom-list .chatroom-item')).toBe(firstPaintScopeRow);
-    expect(document.querySelector('#chatroom-list')?.textContent).toContain('Contacts only');
+    expect(document.querySelector('#chatroom-list [data-testid="nearby-people-section"]')).not.toBeNull();
+    expect(document.querySelector('#chatroom-list .chatroom-item')).toBeNull();
   });
 
   it('renders the stable application shell before feature views hydrate', () => {

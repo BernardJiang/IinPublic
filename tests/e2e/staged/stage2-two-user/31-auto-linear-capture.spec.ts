@@ -14,9 +14,10 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import { prepareDirectP2PConversation } from '../../helpers/p2p-transport-e2e';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /**
  * docs/TODO.md §V — Auto Linear Capture (FR-TK-7). Verifies the whole DM-shorthand-to-Talk
@@ -99,7 +100,7 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     const tomUserId = await pageTom.evaluate(
       () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
     );
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
@@ -108,14 +109,14 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     const jerryUserId = await pageJerry.evaluate(
       () => (window as unknown as { __iinpublic_app?: { getApp: () => { currentUser?: { id: string } } } }).__iinpublic_app?.getApp?.()?.currentUser?.id || '',
     );
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     // ── Tom and Jerry must match on a talk before a P2P conversation exists ───────────
     const talkTitle = `Coffee Chat ${Date.now()}`;
     const MATCH_ANSWER = 'Yes, lets chat.';
     const IGNORE_ANSWER = 'No thanks.';
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', talkTitle);
     await selectTalkEditorType(pageTom, 'flow');
@@ -129,7 +130,7 @@ test.describe('Auto Linear Capture from DM shorthand', () => {
     await afterSync();
 
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);

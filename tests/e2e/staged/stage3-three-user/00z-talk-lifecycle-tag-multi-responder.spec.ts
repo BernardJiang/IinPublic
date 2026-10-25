@@ -27,6 +27,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const TAG_TITLE = 'Lifecycle Matrix Tag';
 
@@ -74,19 +75,19 @@ test.describe('Talk lifecycle — tag multi-responder matrix (D4)', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom Tag Matrix');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry Tag Matrix');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob Tag Matrix');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
     const created = await createTagTalkForLifecycle(pageTom, TAG_TITLE);

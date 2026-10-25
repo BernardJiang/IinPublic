@@ -77,16 +77,15 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     await expect(back).toBeVisible();
   });
 
-  test('flat list contains the active Nearby room and no hierarchy or capacity shards', async () => {
+  test('flat list shows Nearby people, no Nearby room, and no hierarchy or capacity shards', async () => {
     await toChatroomList(page!);
     const p = page!;
     const nearbyId = await currentRoomId(p);
     expect(nearbyId).toMatch(/^nearby-v3$/);
 
-    const rows = p.locator('.chatroom-item');
-    expect(await rows.count()).toBeGreaterThan(0);
-    expect(await p.locator('.chatroom-item .chatroom-headcount').count()).toBe(await rows.count());
-    await expect(p.locator(`.chatroom-item[data-chatroom-id="${nearbyId}"]`)).toHaveClass(/current-room/);
+    // Nearby is my people list, not a room row (design §3.7).
+    await expect(p.locator('[data-testid="nearby-people-section"]')).toBeVisible();
+    await expect(p.locator(`.chatroom-item[data-chatroom-id="${nearbyId}"]`)).toHaveCount(0);
     await expect(p.locator('.chatroom-item[data-chatroom-id="global"]')).toHaveCount(0);
     await expect(p.locator('.chatroom-item[data-chatroom-id^="tile_"]')).toHaveCount(0);
     await expect(p.locator('.chatroom-item[data-chatroom-id*="_part_"]')).toHaveCount(0);

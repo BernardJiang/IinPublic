@@ -23,6 +23,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB Phase 6)', () => {
   let browser: Browser;
@@ -43,7 +44,7 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
 
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
 
     const title = `Multi-Item Route ${Date.now()}`;

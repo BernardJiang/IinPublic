@@ -12,6 +12,7 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 import { afterLoad, afterSync, afterNav, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 150_000 });
 
@@ -54,7 +55,7 @@ test.describe('Thread isolation across three users', () => {
     await afterNav();
     await page.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(page);
     await afterSync();
     return page;
   }

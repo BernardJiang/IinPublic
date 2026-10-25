@@ -28,6 +28,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 type UserRun = { name: string; stageName: string; browser: Browser; context?: BrowserContext; page?: Page; id?: string; talks?: any[] };
 const TYPES: Array<{ type: 'tag' | 'flow' | 'survey' | 'route'; questions: number }> = [
@@ -91,7 +92,7 @@ test.describe('Three-user complete talk matrix', () => {
         localStorage.setItem('copyTalkAutoSave', 'false');
         (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true);
       });
-      await user.page.click('.chatroom-item.current-room');
+      await openCurrentChatroom(user.page);
     }
 
     for (const user of users) {

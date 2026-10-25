@@ -13,6 +13,8 @@ import {
 import { dragTalkRow } from '../../helpers/talks-matching-flow';
 import { getCurrentUserId } from '../../helpers/reputation-e2e-helpers';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /**
  * docs/TODO.md §Y1 — a copy is not authorship. Verifies:
@@ -73,19 +75,19 @@ test.describe('Copy then edit transfers authorship', () => {
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice author', ALICE_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTechSupport);
     await afterLoad();
     const originalAuthorId = await getCurrentUserId(pageTechSupport);
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterLoad();
     const tomId = await getCurrentUserId(pageTom);
 
     const talkTitle = `AuthorshipTransferTalk ${Date.now()}`;
-    await pageTechSupport.click('#create-talk-btn');
+    await openTalkEditor(pageTechSupport);
     await pageTechSupport.waitForSelector('#talk-editor-form');
     await pageTechSupport.click('input[name="talk-type-radio"][value="flow"]');
     await afterAction();

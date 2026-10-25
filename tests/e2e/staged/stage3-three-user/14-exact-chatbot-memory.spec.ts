@@ -24,6 +24,7 @@ import {
 import { createFlowOrSurveyTalkViaEditor } from '../../helpers/talk-demo-ui';
 import { gunBaseURL, isDirectTalkDeliveryE2e } from '../../helpers/ports';
 import { dismissNotificationOverlays } from '../../helpers/durable-ui';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const QUESTION = 'Which fruit do you like?';
 const INTRO_QUESTION = 'Do you like fruits?';
@@ -77,7 +78,7 @@ async function chooseRememberedAnswer(page: Page, questionText: string, answerTe
 async function joinGlobal(page: Page): Promise<void> {
   // This spec covers same-context memory; the app default is now "Whenever offered".
   await page.evaluate(() => localStorage.setItem('iinpublic_auto_answer_scope', 'same-context'));
-  await page.click('.chatroom-item.current-room');
+  await openCurrentChatroom(page);
   await waitForTabActive(page, 'chatrooms');
   await afterSync();
 }

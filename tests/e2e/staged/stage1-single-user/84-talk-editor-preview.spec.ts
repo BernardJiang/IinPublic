@@ -12,6 +12,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talk editor: live responder preview', () => {
   let browser: Browser;
@@ -32,7 +33,7 @@ test.describe('Talk editor: live responder preview', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', 'Coffee or Tea');
     await page.selectOption('#talk-type', 'flow');
@@ -89,7 +90,7 @@ test.describe('Talk editor: live responder preview', () => {
 
     await page.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(page, 'talks');
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', 'Buy stuff preview');
     await page.selectOption('#talk-type', 'route');

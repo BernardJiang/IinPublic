@@ -9,13 +9,14 @@ import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless } from '../helpers/timing';
 import { bootstrapUser } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage } from '../helpers/talk-demo-ui';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
 
 test.describe('M4 real mixed saturation', () => {
   test('six isolated browser profiles establish numbered identities for flow/tag/survey/route', async () => {
     test.setTimeout(1_200_000); await clearGunForStage1Spec(); const browser = await chromium.launch({headless,args:['--disable-dev-shm-usage']});
     try {
       const pages: any[] = [];
-      for (let i=0;i<6;i+=1) { const x=await bootstrapUser(browser,`M4-${i}`,`M4 User ${i}`,60_000); pages.push(x.page); await x.page.locator('.chatroom-item.current-room').first().click(); }
+      for (let i=0;i<6;i+=1) { const x=await bootstrapUser(browser,`M4-${i}`,`M4 User ${i}`,60_000); pages.push(x.page); await openCurrentChatroom(x.page); }
       const users = await Promise.all(pages.map((p)=>p.evaluate(()=>{ const u=(window as any).__iinpublic_app.getApp().currentUser; return {userId:u.id,stageName:u.stageName}; })));
       expect(new Set(users.map((u:any)=>u.userId)).size).toBe(6);
       await pages[0].evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));

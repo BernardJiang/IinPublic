@@ -27,6 +27,7 @@ import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-fl
 import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { serverVouchAgeVerified } from '../../helpers/reputation-e2e-helpers';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 async function createDatingTalk(
   page: Page,
@@ -40,7 +41,7 @@ async function createDatingTalk(
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');

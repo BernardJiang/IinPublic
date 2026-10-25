@@ -15,6 +15,7 @@ import {
   talkQuestionsToUiSpec,
 } from '../../helpers/talk-demo-ui';
 import { makeSurveyTalk } from '../../talks-matching/lib/survey-customer-satisfaction';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 type Session = { label: string; context: BrowserContext; page: Page };
 
@@ -47,7 +48,7 @@ test.describe('Talks matching — survey customer satisfaction (multi-browser)',
     const company = await bootstrapUser(companyBrowser, 'Company', 'Survey Co');
     sessions.push({ label: 'Company', context: company.context, page: company.page });
     const { page: co } = company;
-    await co.click('.chatroom-item.current-room');
+    await openCurrentChatroom(co);
     await waitForTabActive(co, 'chatrooms');
 
     const original = makeSurveyTalk('E2ECo');

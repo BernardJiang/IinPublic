@@ -41,7 +41,7 @@ test.describe('X1: cross-platform presence and headcount', () => {
     await afterSync();
 
     const headcountOf = (page: typeof a.page) =>
-      page.locator('.chatroom-item.current-room .chatroom-headcount');
+      page.locator('[data-testid="nearby-headcount"]');
 
     // Each client has the other on its Nearby list (the count leaves out me and TechSupport).
     for (const { page } of [a, b]) {

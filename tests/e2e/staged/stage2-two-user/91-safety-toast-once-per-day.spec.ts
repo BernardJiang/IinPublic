@@ -11,6 +11,7 @@ import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-pr
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 /**
  * Deliberately NOT `clickBroadcastUntilBulkAck` (talk-demo-ui.ts): that helper's
@@ -29,7 +30,7 @@ async function navigateToRoomAndClickBroadcast(page: Page): Promise<void> {
   await afterNav();
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
-    await page.locator('.chatroom-item.current-room').first().click();
+    await openCurrentChatroom(page);
     await afterSync();
   }
   const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
@@ -87,7 +88,7 @@ async function bootstrapUser(browser: Browser, label: string, stageName: string)
 
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
-  await page.click('.chatroom-item.current-room');
+  await openCurrentChatroom(page);
   await afterSync();
   attachE2eBrowserTabLabel(page, label);
   return { context, page };

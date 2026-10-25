@@ -3,7 +3,8 @@ import { afterSync } from './timing';
 import { gunBaseURL } from './ports';
 import { dismissNotificationOverlays } from './durable-ui';
 import { submitTalkEditorAndWaitForOut } from './talk-demo-ui';
-import { ensureChatroomList } from './chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from './chatroom-nav';
+import { openTalkEditor } from './open-talk-editor';
 
 /** Clear server-side block edges so prior specs in the same worker cannot poison delivery. */
 /** Clear server + client blocks from sender to each receiver before broadcast register. */
@@ -138,14 +139,14 @@ export async function enterGlobalChatroom(page: Page): Promise<void> {
       document.querySelector('[data-testid="broadcast-preamble-modal"]')?.remove();
     })
     .catch(() => {});
-  await page.click('.chatroom-item.current-room');
+  await openCurrentChatroom(page);
   await page.waitForSelector('.chatroom-member-item', { timeout: 15000 });
   await afterSync();
 }
 
 export async function createMatchTalk(page: Page, title: string): Promise<void> {
   await dismissNotificationOverlays(page);
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');

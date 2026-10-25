@@ -39,6 +39,7 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 type BuiltInKind = 'quantity' | 'location';
 
@@ -59,7 +60,7 @@ async function createBuiltInTalk(
   const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -123,7 +124,7 @@ async function createLocationTalk(
   const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');

@@ -9,6 +9,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { waitForTabActive } from '../../helpers/talks-matching-flow';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 /**
  * OPEN-40 Contacts-only migration: with one ordinary user logged in and no TechSupport device
@@ -46,9 +47,9 @@ test.describe('TechSupport — Contacts-only and away with no device running', (
     attachE2eBrowserTabLabel(page, 'User1');
 
     // 1. TechSupport is not a synthetic room member or headcount floor.
-    const headcount = page.locator('.chatroom-item.current-room .chatroom-headcount');
+    const headcount = page.locator('[data-testid="nearby-headcount"]');
     await headcount.waitFor({ state: 'visible', timeout: 15000 });
-    await expect(headcount).toContainText('0 near you', { timeout: 20000 });
+    await expect(headcount).toContainText('0 nearby', { timeout: 20000 });
 
     // 2. Contacts tab: the built-in support contact is listed, and its presence indicator
     // reads away — settled, not a transient "checking" state (defaults to away, only flips on
@@ -65,7 +66,7 @@ test.describe('TechSupport — Contacts-only and away with no device running', (
 
     // 3. Room roster: TechSupport is absent because support is a Contact, not a participant.
     await waitForTabActive(page, 'chatrooms');
-    await page.locator('.chatroom-item.current-room').click();
+    await openCurrentChatroom(page);
     await afterNav();
     await expect(page.locator('#chatroom-members-list')).toBeVisible({ timeout: 15000 });
     const rosterSupportRow = page.locator('.chatroom-member-item[data-support-contact="true"][data-user-id="' + TECHSUPPORT_ROOT_USER_ID + '"]');

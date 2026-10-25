@@ -23,11 +23,12 @@ import {
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { getConversationIdBetween } from '../../helpers/conversation-e2e';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import {
   warmDirectP2PSession,
   waitForDirectP2PChannel,
 } from '../../helpers/p2p-transport-e2e';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Unread badge on Me tab after match and new message', () => {
   test.describe.configure({ retries: 0 });
@@ -203,17 +204,17 @@ test.describe('Unread badge on Me tab after match and new message', () => {
             '',
         ),
     );
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     // ── Tom creates and broadcasts ───────────────────────────────────────────
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', talkTitle);
     await selectTalkEditorType(pageTom, 'flow');
@@ -226,7 +227,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await pageTom.click('#talk-submit-btn');
     await afterSync();
     await ensureChatroomList(pageTom);
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterNav();
     await waitForBroadcastableTalkIds(pageTom, 120_000);
     await waitForDistinctGunPeersExcludingSelf(pageTom, 1, 240_000);

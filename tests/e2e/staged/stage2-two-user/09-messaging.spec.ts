@@ -20,6 +20,7 @@ import {
   assertLocalPrivateMessageBodies,
   prepareDirectP2PConversation,
 } from '../../helpers/p2p-transport-e2e';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Direct messaging between matched users', () => {
   test.describe.configure({ retries: 0 });
@@ -121,7 +122,7 @@ test.describe('Direct messaging between matched users', () => {
     await openCurrentChatroom(pageJerry);
 
     // ── Tom creates and broadcasts the talk ──────────────────────────────────
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', talkTitle);
     await selectTalkEditorType(pageTom, 'flow');

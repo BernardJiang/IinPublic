@@ -15,7 +15,8 @@ import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 // Two real browsers, two sequential broadcast+mesh-delivery round trips, plus a P2P
 // match conversation — the global default (120s at higher worker counts,
@@ -121,24 +122,24 @@ test.describe('Tag: create tag, answer with Like/Pass actions', () => {
     const alice = await bootstrapUser(browserAlice, 'Alice', 'Alice');
     contextAlice = alice.context;
     pageAlice = alice.page;
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await afterSync();
 
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     // 2) Alice creates tag "Coffee"
     console.log('\n📍 STEP 2: Alice creates tag "' + TAG_COFFEE + '"');
     await ensureChatroomList(pageAlice);
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await afterNav();
     await pageAlice.click('.nav-btn[data-view="talks"]');
     await afterNav();
 
-    await pageAlice.click('#create-talk-btn');
+    await openTalkEditor(pageAlice);
     await pageAlice.waitForSelector('#talk-editor-form');
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
     await afterAction();
@@ -148,7 +149,7 @@ test.describe('Tag: create tag, answer with Like/Pass actions', () => {
 
     // 3) Alice creates tag "Cat"
     console.log('\n📍 STEP 3: Alice creates tag "' + TAG_CAT + '"');
-    await pageAlice.click('#create-talk-btn');
+    await openTalkEditor(pageAlice);
     await pageAlice.waitForSelector('#talk-editor-form');
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
     await afterAction();

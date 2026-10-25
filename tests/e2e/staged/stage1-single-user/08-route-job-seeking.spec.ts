@@ -14,6 +14,7 @@ import {
   talkRouteQuestionsToUiSpec,
 } from '../../helpers/talk-demo-ui';
 import { getJobRouteScenarios, prepareValidatedJobRouteTalk } from '../../talks-matching/lib/route-job-seeking';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 type Session = { label: string; context: BrowserContext; page: Page };
 
@@ -45,7 +46,7 @@ test.describe('Talks matching — job seeker route (multi-browser)', () => {
     const company = await bootstrapUser(browsers[0]!, 'Company', 'HR Co');
     sessions.push({ label: 'Company', context: company.context, page: company.page });
     const { page: co } = company;
-    await co.click('.chatroom-item.current-room');
+    await openCurrentChatroom(co);
     await waitForTabActive(co, 'chatrooms');
 
     const raw = prepareValidatedJobRouteTalk();

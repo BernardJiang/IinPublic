@@ -9,6 +9,7 @@ import { afterSync } from '../../helpers/timing';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -54,7 +55,7 @@ test.describe('TechSupport stays out of Nearby room rosters', () => {
     contextBob = bob.context;
     pageBob = bob.page;
 
-    await pageTom.locator('.chatroom-item.current-room').click();
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     // Tom is the current viewer, so only the other two ordinary members appear.

@@ -11,6 +11,7 @@ import { afterLoad, afterSync, headless, E2E_ASSERT_TIMEOUT_MS } from '../../hel
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { gunBaseURL } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Blocklist persists after browser restart', () => {
   let browserAlice: Browser;
@@ -53,9 +54,9 @@ test.describe('Blocklist persists after browser restart', () => {
     pageBob = bob.page;
 
     // Both enter Global chatroom to establish some connection context
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await afterSync();
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
     // Get user IDs for verification

@@ -6,7 +6,8 @@ import { clickBroadcastUntilBulkAck, submitTalkEditorAndWaitForOut } from './tal
 import { openIncomingTalkModal, waitForResponseModalClosed, waitForTabActive } from './talks-matching-flow';
 import { dismissNotificationOverlays, waitForPeerHistoryTitle } from './durable-ui';
 import { ensureNoBlockBetween } from './blocking-e2e-helpers';
-import { ensureChatroomList } from './chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from './chatroom-nav';
+import { openTalkEditor } from './open-talk-editor';
 
 export async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -53,14 +54,14 @@ export async function getReputation(page: Page, userId: string, viewerId: string
 
 export async function enterGlobalChatroom(page: Page): Promise<void> {
   await ensureChatroomList(page);
-  await page.click('.chatroom-item.current-room');
+  await openCurrentChatroom(page);
   await page.waitForSelector('.chatroom-member-item', { timeout: 15000 });
   await afterSync();
 }
 
 export async function createMatchTalk(page: Page, title: string): Promise<void> {
   await dismissNotificationOverlays(page);
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -75,7 +76,7 @@ export async function createMatchTalk(page: Page, title: string): Promise<void> 
 
 export async function createAdultTalk(page: Page, title: string): Promise<void> {
   await dismissNotificationOverlays(page);
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');

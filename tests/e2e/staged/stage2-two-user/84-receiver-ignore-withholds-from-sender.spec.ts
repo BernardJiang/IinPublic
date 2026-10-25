@@ -10,6 +10,8 @@ import {
   bootstrapSuperUser,
 } from '../../helpers/super-user-techsupport-shared';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 /**
  * Bernard, 2026-08-02: "outside of all answers to a question provided by asker, the receiver
@@ -76,18 +78,18 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     const techSupport = await bootstrapSuperUser(browserTechSupport, 'Alice sender', ALICE_NAME);
     contextTechSupport = techSupport.context;
     pageTechSupport = techSupport.page;
-    await pageTechSupport.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTechSupport);
     await afterLoad();
 
     const tom = await bootstrapSuperUser(browserTom, 'Tom', TOM_NAME);
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterLoad();
 
     // ── Part 1: flow — dedicated Ignore on the only question ──────────────────────────
     const flowTitle = `DedicatedIgnoreFlow ${Date.now()}`;
-    await pageTechSupport.click('#create-talk-btn');
+    await openTalkEditor(pageTechSupport);
     await pageTechSupport.waitForSelector('#talk-editor-form');
     await pageTechSupport.fill('#talk-title', flowTitle);
     await pageTechSupport.selectOption('#talk-type', 'flow');
@@ -149,7 +151,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
 
     // ── Part 2: survey — dedicated Ignore on the first of three questions ─────────────
     const surveyTitle = `DedicatedIgnoreSurvey ${Date.now()}`;
-    await pageTechSupport.click('#create-talk-btn');
+    await openTalkEditor(pageTechSupport);
     await pageTechSupport.waitForSelector('#talk-editor-form');
     await pageTechSupport.fill('#talk-title', surveyTitle);
     await pageTechSupport.selectOption('#talk-type', 'survey');

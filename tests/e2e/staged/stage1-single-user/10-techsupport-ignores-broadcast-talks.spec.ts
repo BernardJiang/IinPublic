@@ -14,6 +14,7 @@ import { TECHSUPPORT_ROOT_USER_ID } from '../../../../src/shared/techsupport';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { loadRealTechSupportPair } from '../../helpers/techsupport-real-pair';
 import { CONTACTS_ONLY_SCOPE_ID } from '../../../../src/shared/nearby-rooms';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 // Rotated 2026-09-16: the real TechSupport signing key lives only in this machine's own
 // `.env.local` (never committed — see techsupport.ts's TECHSUPPORT_PUB doc comment), loaded at
@@ -80,8 +81,8 @@ test.describe('TechSupport ignores broadcast talks entirely (docs/TODO.md K5, in
     alicePage = alice.page;
 
     // Only Alice occupies this Nearby room. TechSupport has no room presence or headcount floor.
-    const headcountOnAlice = alicePage.locator('.chatroom-item.current-room .chatroom-headcount');
-    await expect(headcountOnAlice).toContainText('0 near you', { timeout: 20_000 });
+    const headcountOnAlice = alicePage.locator('[data-testid="nearby-headcount"]');
+    await expect(headcountOnAlice).toContainText('0 nearby', { timeout: 20_000 });
 
     // `waitForChatroomMemberCountViaApi` (used internally by clickBroadcastUntilBulkAck's default
     // peer-count wait) deliberately excludes TECHSUPPORT_ROOT_USER_ID from its receiver count,
@@ -91,7 +92,7 @@ test.describe('TechSupport ignores broadcast talks entirely (docs/TODO.md K5, in
 
     // --- Tag talk (checkbox type — no branching required) ---
     const tagTitle = `TechSupport-Exclusion Tag ${Date.now()}`;
-    await alicePage.click('#create-talk-btn');
+    await openTalkEditor(alicePage);
     await alicePage.waitForSelector('#talk-editor-form');
     await selectTalkEditorType(alicePage, 'tag');
     await alicePage.fill('#talk-title', tagTitle);
@@ -102,7 +103,7 @@ test.describe('TechSupport ignores broadcast talks entirely (docs/TODO.md K5, in
 
     // --- Flow talk (directed-question type — minimal one-question branch) ---
     const flowTitle = `TechSupport-Exclusion Flow ${Date.now()}`;
-    await alicePage.click('#create-talk-btn');
+    await openTalkEditor(alicePage);
     await alicePage.waitForSelector('#talk-editor-form');
     await selectTalkEditorType(alicePage, 'flow');
     await alicePage.fill('#talk-title', flowTitle);

@@ -18,6 +18,7 @@ import { answerSurveyByAnswerIds, emitCreateTalkFromCompanyPage, waitForOutgoing
 import { makeRestaurantSurvey } from '../../talks-matching/lib/survey-restaurants';
 import { gunBaseURL } from '../../helpers/ports';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Survey analytics dashboard', () => {
   let browsers: ThreeBrowsers;
@@ -62,21 +63,21 @@ test.describe('Survey analytics dashboard', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await waitForTabActive(pageTom, 'chatrooms');
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await waitForTabActive(pageJerry, 'chatrooms');
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await waitForTabActive(pageBob, 'chatrooms');
     await afterSync();
 

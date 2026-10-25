@@ -22,6 +22,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 const TITLE = 'Two Question Deep Link Talk';
 
@@ -58,7 +59,7 @@ test.describe('Me-tab per-question deep link (P)', () => {
     await page.click('.nav-btn[data-view="talks"]');
     await afterNav();
     await afterSync();
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', TITLE);
     await page.selectOption('#talk-type', 'flow');

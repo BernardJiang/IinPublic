@@ -22,6 +22,7 @@ import { headless } from '../../helpers/timing';
 import fs from 'fs';
 import { stageStoragePath } from '../../helpers/e2e-stage-pipeline';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const STAGE2_TALK_TITLE = 'Stage2 Adam Hello';
 
@@ -38,8 +39,8 @@ test.describe('Stage 2 — Adam joins Tom while TechSupport remains Contacts-onl
     const tom = await bootstrapCanonicalUser(browser, 'Tom', TOM);
     // Fresh Adam (do not restore stage2 storage — stale files break match with stage1 graph).
     const adam = await bootstrapCanonicalUser(browser, 'Adam', ADAM);
-    await tom.page.click('.chatroom-item.current-room');
-    await adam.page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(tom.page);
+    await openCurrentChatroom(adam.page);
     await afterSync();
 
     await createSimpleFlowTalkAndBroadcast(tom.page, STAGE2_TALK_TITLE, 'Want to connect?');

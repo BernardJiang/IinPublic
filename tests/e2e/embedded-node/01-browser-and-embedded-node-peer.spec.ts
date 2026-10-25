@@ -71,6 +71,7 @@ import {
 import { clickBroadcastUntilBulkAck, waitForDistinctGunPeersExcludingSelf } from '../helpers/talk-demo-ui';
 import { prepareDirectP2PConversation, waitForDirectP2PChannel } from '../helpers/p2p-transport-e2e';
 import { openSettingsSection, SETTINGS_SECTION } from '../helpers/settings-nav';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
 
 const MATCH_ANSWER = 'Yes match';
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -269,8 +270,8 @@ test.describe('S3 embedded-node: browser peer <-> embedded-node desktop peer', (
     const pageJerry: Page = jerry.page;
 
     try {
-      await pageTom.click('.chatroom-item.current-room');
-      await pageJerry.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
+      await openCurrentChatroom(pageJerry);
       await afterSync();
 
       // Tom creates and broadcasts a simple flow talk from the dev-server origin.
@@ -278,7 +279,7 @@ test.describe('S3 embedded-node: browser peer <-> embedded-node desktop peer', (
         sendToChatroom: false,
       });
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
       await afterSync();
 
       // Wait for the dev-server browser to see at least one other Gun peer —

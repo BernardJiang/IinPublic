@@ -3,6 +3,8 @@ import type { GunService } from '../../server/services/gun-service';
 import { UserService } from '../../server/services/user-service';
 import { createSignedFriendMark } from '../../shared/friend-mark';
 import type { Reputation } from '../../shared/types';
+import { CONFIG } from '../../shared/config';
+import { ROOM_CREATE_MIN_FRIEND_MARKS } from '../../shared/room-creation-credit';
 
 class MemoryUserGun {
   private readonly nested: Record<string, any> = {};
@@ -57,6 +59,13 @@ const reputation = (blockCount = 0): Reputation => ({
 });
 
 describe('UserService incoming Friend statistics', () => {
+  // The product threshold (12), whatever the environment: test:all exports DISABLE_HMR=true,
+  // which lowers CONFIG's default to 0 for the E2E servers.
+  const config = CONFIG as { PLACE_CREATE_MIN_FRIEND_MARKS: number };
+  const savedMinFriendMarks = config.PLACE_CREATE_MIN_FRIEND_MARKS;
+  beforeAll(() => { config.PLACE_CREATE_MIN_FRIEND_MARKS = ROOM_CREATE_MIN_FRIEND_MARKS; });
+  afterAll(() => { config.PLACE_CREATE_MIN_FRIEND_MARKS = savedMinFriendMarks; });
+
   it('counts each signed marker once, removes an unmark, and unlocks at 12', async () => {
     const gun = new MemoryUserGun();
     const service = new UserService(gun as unknown as GunService);

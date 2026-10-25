@@ -514,6 +514,10 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
 
   if (chatroomTitle) chatroomTitle.textContent = roomName;
   if (chatroomStatus) chatroomStatus.textContent = deps.text('chatroomLoadingMembers');
+  // Nearby's name and "N nearby · G online" already sit in the AppBar; a second heading row here
+  // only repeats them. A Place keeps its heading (name, description, visits).
+  const detailHeader = document.querySelector<HTMLElement>('#chatroom-detail-container .chatroom-detail-header');
+  if (detailHeader) detailHeader.style.display = isNearbyRoomId(chatroomId) ? 'none' : '';
   renderCustomRoomMetadata(deps, custom);
 
   deps.setCurrentChatroom(chatroomId);

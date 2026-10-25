@@ -33,10 +33,16 @@ export async function openCurrentChatroom(page: Page): Promise<string> {
     (window as any).__iinpublic_app?.getApp?.()?.currentChatroomId || '',
   );
   if (!roomId) throw new Error('User has no current chatroom');
-  await page.evaluate((id) =>
-    (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showChatroomDetail(id), roomId,
-  );
-  await expect(page.locator('#chatroom-detail-container')).toBeVisible();
+  // Nearby has no room row to tap (design §3.7), so open its detail the way the app does. A tab
+  // switch still settling can put the list back right after; open again until the detail stays.
+  const detail = page.locator('#chatroom-detail-container');
+  await expect(async () => {
+    await page.evaluate((id) =>
+      (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showChatroomDetail(id), roomId,
+    );
+    await afterNav();
+    await expect(detail).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 20_000 });
   return roomId;
 }
 

@@ -25,6 +25,7 @@ import { computeTalkIdFromTalkData } from '../../../../src/shared/talk-content-i
 import { getConversationIdBetween } from '../../helpers/conversation-e2e';
 import { warmDirectP2PSession, waitForDirectP2PChannel } from '../../helpers/p2p-transport-e2e';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 async function getCurrentUserId(page: Page): Promise<string> {
   return page.evaluate(() => (window as any).__iinpublic_app?.getApp()?.currentUser?.id ?? '');
@@ -139,7 +140,7 @@ test.describe('Messaging edge cases', () => {
   }
 
   async function createMatchTalk(page: Page, title: string): Promise<string> {
-    await page.click('#create-talk-btn');
+    await openTalkEditor(page);
     await page.waitForSelector('#talk-editor-form');
     await page.fill('#talk-title', title);
     await selectTalkEditorType(page, 'flow');

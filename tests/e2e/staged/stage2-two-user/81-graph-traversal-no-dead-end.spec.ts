@@ -14,12 +14,14 @@ import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-fl
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 async function createSimpleFlowTalk(page: Page, title: string): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
   await afterSync();
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await selectTalkEditorType(page, 'flow');
@@ -85,7 +87,7 @@ test.describe('Full graph traversal (Chatroom -> Person -> Talk -> Q&A) has no d
       expect(tomId).toBeTruthy();
       await pageJerry.click('.nav-btn[data-view="chatrooms"]');
       await waitForTabActive(pageJerry, 'chatrooms');
-      await pageJerry.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageJerry);
       await afterSync();
       const tomRow = pageJerry.locator(`.chatroom-member-item[data-user-id="${tomId}"]`);
       await expect(tomRow).toBeVisible({ timeout: 20_000 });

@@ -31,7 +31,8 @@ import { getConversationIdBetween, openConversationViaServer } from '../../helpe
 import { waitForMessageVisible } from '../../helpers/fast-dm-setup';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Chatroom peer detail views', () => {
   let browserTom: Browser;
@@ -123,7 +124,7 @@ test.describe('Chatroom peer detail views', () => {
   /** Navigate to chatroom list (unhides list, hides detail) then click Global to enter detail. */
   async function enterGlobalChatroom(page: Page): Promise<void> {
     await ensureChatroomList(page);
-    await page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(page);
     await afterSync();
   }
 
@@ -239,7 +240,7 @@ test.describe('Chatroom peer detail views', () => {
       await enterGlobalChatroom(pageJerry);
 
       // Tom creates a talk (no OUT rows yet — Broadcast would open the editor without completing bulk ack)
-      await pageTom.click('#create-talk-btn');
+      await openTalkEditor(pageTom);
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Tennis Peer Test');
       await selectTalkEditorType(pageTom, 'flow');
@@ -328,7 +329,7 @@ test.describe('Chatroom peer detail views', () => {
     const { ctxTom, pageTom, ctxJerry, pageJerry } = await setup('TomSend', 'JerrySend');
     try {
       // Tom creates a talk (not yet sent to Jerry)
-      await pageTom.click('#create-talk-btn');
+      await openTalkEditor(pageTom);
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Send Test Talk');
       await selectTalkEditorType(pageTom, 'flow');
@@ -343,7 +344,7 @@ test.describe('Chatroom peer detail views', () => {
 
       // Tom creates a second talk that will expire before the peer send action.
       const expiredTitle = 'Expired Direct Send Talk';
-      await pageTom.click('#create-talk-btn');
+      await openTalkEditor(pageTom);
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', expiredTitle);
       await selectTalkEditorType(pageTom, 'flow');
@@ -445,7 +446,7 @@ test.describe('Chatroom peer detail views', () => {
     const { ctxTom, pageTom, ctxJerry, pageJerry } = await setup('TomMan', 'JerryMan');
     try {
       // Tom creates a talk
-      await pageTom.click('#create-talk-btn');
+      await openTalkEditor(pageTom);
       await pageTom.waitForSelector('#talk-editor-form', { timeout: 15_000 });
       await pageTom.fill('#talk-title', 'Manual Mode Talk');
       await selectTalkEditorType(pageTom, 'flow');

@@ -17,6 +17,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('Profile privacy visibility', () => {
   let browser: Browser;
@@ -98,9 +99,7 @@ test.describe('Profile privacy visibility', () => {
       await afterNav();
     }
 
-    const nearbyRoom = page.locator('.chatroom-item.current-room').first();
-    await expect(nearbyRoom).toBeVisible({ timeout: 60_000 });
-    await nearbyRoom.click();
+    await openCurrentChatroom(page);
     await afterNav();
     await expect(page.locator('#chatroom-detail-container')).toBeVisible({ timeout: 20_000 });
     await expect

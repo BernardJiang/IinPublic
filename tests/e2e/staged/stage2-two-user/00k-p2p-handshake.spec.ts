@@ -25,6 +25,7 @@ import {
   waitForHandshakeOk,
 } from '../../helpers/p2p-transport-e2e';
 import { webBaseURL } from '../../helpers/ports';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 const MATCH_ANSWER = 'Yes match';
 
@@ -62,8 +63,8 @@ test.describe('P2P-Q handshake E2E', () => {
 
     try {
       // Join the same chatroom so broadcast can be received
-      await pageTom.click('.chatroom-item.current-room');
-      await pageJerry.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
+      await openCurrentChatroom(pageJerry);
       await afterSync();
 
       // Tom creates and broadcasts a simple flow talk
@@ -71,7 +72,7 @@ test.describe('P2P-Q handshake E2E', () => {
         sendToChatroom: false,
       });
       await goToChatrooms(pageTom);
-      await pageTom.click('.chatroom-item.current-room');
+      await openCurrentChatroom(pageTom);
       await afterSync();
 
       // Wait for both browsers to see each other as Gun peers before broadcasting

@@ -18,6 +18,8 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { broadcastFromGlobalChatroom, fillPairTagQuestion, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 type DealQuestion = { text: string; matchAnswerText: string; otherAnswerText: string };
 
@@ -71,7 +73,7 @@ async function createDealTalk(
   tag: 'buy' | 'sell',
 ): Promise<void> {
   const counterpartTag = tag === 'buy' ? 'sell' : 'buy';
-  await page.click('#create-talk-btn');
+  await openTalkEditor(page);
   await page.waitForSelector('#talk-editor-form');
   await page.fill('#talk-title', title);
   await page.selectOption('#talk-type', 'flow');
@@ -111,7 +113,7 @@ async function prepareGlobalBroadcast(page: Page): Promise<void> {
   await afterSync();
   const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
   if (!inDetail) {
-    await page.locator('.chatroom-item.current-room').first().click();
+    await openCurrentChatroom(page);
     await afterSync();
   }
 

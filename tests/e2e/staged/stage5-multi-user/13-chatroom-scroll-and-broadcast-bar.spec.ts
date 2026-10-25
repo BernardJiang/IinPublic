@@ -9,7 +9,7 @@ import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { ensureChatroomList } from '../../helpers/chatroom-nav';
+import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 async function bootstrapCompactUser(
   browser: Browser,
@@ -51,7 +51,7 @@ async function bootstrapCompactUser(
   }, stageName);
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
-  await page.click('.chatroom-item.current-room');
+  await openCurrentChatroom(page);
   await afterSync();
   attachE2eBrowserTabLabel(page, label);
   return { context, page };
@@ -118,7 +118,7 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
     await afterSync();
     await waitForGunPeerCountInRoom(owner.page, 'global', 7);
     await ensureChatroomList(owner.page);
-    await owner.page.click('.chatroom-item.current-room');
+    await openCurrentChatroom(owner.page);
     await afterSync();
 
     const peers = peerMemberItems(owner.page);

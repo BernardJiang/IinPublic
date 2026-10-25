@@ -9,6 +9,7 @@ import { afterNav, afterSync, reloadAppReady } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { version as APP_VERSION } from '../../../../package.json';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe('UI navigation and settings shell', () => {
   test.describe.configure({ retries: 0 });
@@ -245,8 +246,9 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('.notification').filter({ hasText: '该文件不是本设备可读取的图片。' }).click();
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    await expect(p.locator('.chatroom-item.current-room .current-room-badge')).toHaveText('当前');
-    await p.locator('.chatroom-item.current-room').click();
+    // Nearby has no room row (design §3.7); its people are listed directly.
+    await expect(p.locator('[data-testid="nearby-people-section"]')).toBeVisible();
+    await openCurrentChatroom(p);
     await afterNav();
     // Nearby is my own list (§3.7): "附近 N 人 · M 人在线", not a room's member count.
     await expect(p.locator('#current-chatroom-status')).toContainText('人在线');

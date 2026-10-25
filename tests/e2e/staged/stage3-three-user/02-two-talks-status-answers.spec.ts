@@ -17,6 +17,8 @@ import {
   finalCleanupPages,
 } from '../../helpers/talks-matching-flow';
 import { waitForStatusBarMatchCountAtLeast } from '../../helpers/durable-ui';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('Talks matching — two talks, status bar, answers tab', () => {
   let browsers: ThreeBrowsers;
@@ -65,22 +67,22 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     const tom = await bootstrapUser(browserTom, 'Tom', 'Tom');
     contextTom = tom.context;
     pageTom = tom.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
 
     const jerry = await bootstrapUser(browserJerry, 'Jerry', 'Jerry');
     contextJerry = jerry.context;
     pageJerry = jerry.page;
-    await pageJerry.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageJerry);
     await afterSync();
 
     const bob = await bootstrapUser(browserBob, 'Bob', 'Bob');
     contextBob = bob.context;
     pageBob = bob.page;
-    await pageBob.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageBob);
     await afterSync();
 
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TITLE_TENNIS);
     await pageTom.selectOption('#talk-type', 'flow');
@@ -93,7 +95,7 @@ test.describe('Talks matching — two talks, status bar, answers tab', () => {
     await pageTom.click('#talk-submit-btn');
     await pageTom.waitForSelector('#talk-editor-modal', { state: 'detached', timeout: 10_000 });
     await waitForOutgoingTalkRow(pageTom, TITLE_TENNIS, E2E_ASSERT_TIMEOUT_MS);
-    await pageTom.click('#create-talk-btn');
+    await openTalkEditor(pageTom);
     await pageTom.waitForSelector('#talk-editor-form');
     await pageTom.fill('#talk-title', TITLE_COFFEE);
     await pageTom.selectOption('#talk-type', 'flow');

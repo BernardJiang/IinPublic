@@ -126,6 +126,10 @@ export function addNewConversation(
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     lastMessage: existing?.lastMessage ?? null,
     lastMessageTime: existing?.lastMessageTime ?? null,
+    // Per-thread previews and unread counts are local (syncConversationMessageSummary); a re-sync
+    // of the record must not drop them, or a Thread row falls back to "Start chatting..." (stage2/69).
+    ...(existing?.threadSummaries ? { threadSummaries: existing.threadSummaries } : {}),
+    ...(existing?.unreadCount !== undefined ? { unreadCount: existing.unreadCount } : {}),
     unread: isSupportChannel ? false : isNew ? true : (existing?.unread ?? false),
     respondedByBot,
     dealEligible,

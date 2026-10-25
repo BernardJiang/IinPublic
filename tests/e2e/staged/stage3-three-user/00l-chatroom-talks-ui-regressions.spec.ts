@@ -21,6 +21,7 @@ import {
   shutdownThreeBrowsers,
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   return page.evaluate((needle) => {
@@ -130,22 +131,22 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     contextJerry = jerry.context;
     pageJerry = jerry.page;
 
-    await expect(pageTom.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('1 near you', {
+    await expect(pageTom.locator('[data-testid="nearby-headcount"]')).toContainText('1 nearby', {
       timeout: 30_000,
     });
 
-    await pageTom.click('.chatroom-item.current-room');
-    await expect(pageTom.locator('#current-chatroom-status')).toContainText(/^1 near you/, { timeout: 45_000 });
+    await openCurrentChatroom(pageTom);
+    await expect(pageTom.locator('#current-chatroom-status')).toContainText(/^1 nearby/, { timeout: 45_000 });
 
     await pageJerry.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.());
     // Nearby has no goodbye (§3.7): Tom drops Jerry when his next swap with Jerry gets no answer,
     // up to one gossip period later. Run that swap now so the test does not wait out the period.
     await pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service.gossipNow());
-    await expect(pageTom.locator('#current-chatroom-status')).toContainText(/^0 near you/, { timeout: 45_000 });
+    await expect(pageTom.locator('#current-chatroom-status')).toContainText(/^0 nearby/, { timeout: 45_000 });
 
     await pageTom.click('#back-to-chatrooms');
     await afterSync();
-    await expect(pageTom.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('0 near you', {
+    await expect(pageTom.locator('[data-testid="nearby-headcount"]')).toContainText('0 nearby', {
       timeout: 30_000,
     });
   });
@@ -163,12 +164,12 @@ test.describe('Chatrooms and Talks UI regressions', () => {
 
     await expect(pageBob.locator('#chatroom-list-container')).toBeVisible();
     await expect(pageBob.locator('#chatroom-detail-container')).toBeHidden();
-    await expect(pageBob.locator('.chatroom-item.current-room .chatroom-headcount')).toContainText('2 near you', {
+    await expect(pageBob.locator('[data-testid="nearby-headcount"]')).toContainText('2 nearby', {
       timeout: 45_000,
     });
 
-    await pageBob.click('.chatroom-item.current-room');
-    await expect(pageBob.locator('#current-chatroom-status')).toContainText(/^2 near you/, {
+    await openCurrentChatroom(pageBob);
+    await expect(pageBob.locator('#current-chatroom-status')).toContainText(/^2 nearby/, {
       timeout: 45_000,
     });
   });

@@ -22,6 +22,8 @@ import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 // Two full boots + broadcast + 90s cluster-delivery budget exceed the 120s default
 // under the high-worker light shard. Raised 180s → 240s on 2026-07-17 after the spec
@@ -100,14 +102,14 @@ test.describe('Talk Response: option paths', () => {
     const a = await boot(browserAlice, 'Alice');
     ctxA = a.context;
     pageAlice = a.page;
-    await pageAlice.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageAlice);
     await afterSync();
     mark('bootAlice');
 
     const t = await boot(browserTom, 'Tom');
     ctxT = t.context;
     pageTom = t.page;
-    await pageTom.click('.chatroom-item.current-room');
+    await openCurrentChatroom(pageTom);
     await afterSync();
     mark('bootTom');
 
@@ -116,7 +118,7 @@ test.describe('Talk Response: option paths', () => {
     // to the Talks tab.
     await pageAlice.click('.nav-btn[data-view="talks"]');
     await afterNav();
-    await pageAlice.click('#create-talk-btn');
+    await openTalkEditor(pageAlice);
     await pageAlice.waitForSelector('#talk-editor-form');
     await pageAlice.click('input[name="talk-type-radio"][value="tag"]');
     await afterAction();

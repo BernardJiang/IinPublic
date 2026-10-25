@@ -14,6 +14,7 @@ import {
 } from '../../../src/shared/techsupport';
 import { waitForDirectP2PChannel, warmDirectP2PSession } from '../helpers/p2p-transport-e2e';
 import { openSettingsSection, SETTINGS_SECTION } from '../helpers/settings-nav';
+import { openCurrentChatroom } from '../helpers/chatroom-nav';
 
 const CHROMIUM_TOPOLOGY_FLAGS = [
   '--disable-features=WebRtcHideLocalIpsWithMdns,HttpsUpgrades,OmniboxHttpsUpgrades,HttpsFirstModeV2,HttpsFirstModeV2ForEngagedSites,HttpsFirstBalancedModeAutoEnable',
@@ -93,7 +94,7 @@ async function enterNearbyChatroom(page: Page): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterNav();
   await page.waitForSelector('#chatroom-list-container', { state: 'visible' });
-  await page.click('.chatroom-item.current-room');
+  await openCurrentChatroom(page);
   await afterSync();
 }
 
