@@ -9,6 +9,8 @@
  * 2. Matching: Alice and Bob both like 🥾 Hiking; Carol likes ☕ Coffee, which passes Hiking above it.
  *    Bob broadcasts: Alice's chatbot answers his Hiking copy from her own Like and they match; Carol's
  *    chatbot passes it from her pass, and nothing matches for her.
+ * 3. The graph, from Alice's side: Contacts → 🏷️ Tags → Hiking (in her tags) → Bob → Bob's tags,
+ *    Hiking marked shared → back to the Hiking tag page.
  */
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -136,5 +138,24 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     }, hiking.en), { timeout: 90_000 }).toBe(true);
     await carol.page.waitForTimeout(5_000);
     expect(await matches(carol.page)).toBe(0);
+
+    // Travel the graph from Alice's side: Contacts → 🏷️ Tags → Hiking → Bob → his tags → Hiking.
+    const a = alice.page;
+    await a.locator('.nav-btn[data-view="contacts"]').click();
+    await a.locator('[data-testid="contacts-tag-directory-btn"]').click();
+    await a.locator('[data-testid="tag-directory-search"]').fill('hik');
+    const hikingChip = a.locator('[data-testid="tag-directory-list"] [data-tag-key]').filter({ hasText: hiking.en });
+    await expect(hikingChip).toHaveCount(1);
+    await expect(hikingChip).toHaveAttribute('data-shared', 'true');
+    await hikingChip.click();
+    await expect(a.locator('[data-testid="tag-page-mine"]')).toHaveText('In your tags');
+    const bobRow = a.locator('[data-testid="tag-page-person"]').filter({ hasText: 'Bob Tags' });
+    await expect(bobRow).toHaveCount(1);
+    await bobRow.click();
+    await expect(a.locator('#peer-detail-overlay')).toBeVisible();
+    const bobsHiking = a.locator('[data-testid="peer-tags-section"] [data-tag-key]').filter({ hasText: hiking.en });
+    await expect(bobsHiking).toHaveAttribute('data-shared', 'true');
+    await bobsHiking.click();
+    await expect(a.locator('#tag-page-modal-title')).toContainText(hiking.en);
   });
 });

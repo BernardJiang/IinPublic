@@ -98,6 +98,7 @@ export function renderAppShell(
               <div class="filter-bar contacts-action-bar">
                 <button type="button" class="filter-bar-toggle" data-testid="contacts-filter-toggle" aria-expanded="false">Filters ▾</button>
                 <button type="button" class="btn contacts-broadcast-icon-btn" id="contacts-broadcast-group-btn" data-testid="contacts-broadcast-group-btn" title="${text('contactsBroadcastGroupBtn')}" aria-label="${text('contactsBroadcastGroupBtn')}">📣</button>
+                <button type="button" class="btn contacts-broadcast-icon-btn" id="contacts-tag-directory-btn" data-testid="contacts-tag-directory-btn" title="${text('tagDirectoryTitle')}" aria-label="${text('tagDirectoryTitle')}">🏷️</button>
                 <div class="filter-bar-content">
                 <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
                 <select class="form-input" id="contacts-filter-relation" style="flex:0 0 150px;">
@@ -123,6 +124,7 @@ export function renderAppShell(
                   <option value="talks">Talk count</option>
                   <option value="matches">Matched talks</option>
                   <option value="match-rate">Match rate</option>
+                  <option value="shared-tags">Most tags in common</option>
                   <option value="weighted">Relevance score</option>
                   <option value="name">Name</option>
                   <option value="relationship">Relationship</option>
@@ -566,6 +568,7 @@ export function applyAppShellTranslations(
     ['#contacts-sort-order option[value="talks"]', 'talkCount'],
     ['#contacts-sort-order option[value="matches"]', 'matchedTalks'],
     ['#contacts-sort-order option[value="match-rate"]', 'matchRate'],
+    ['#contacts-sort-order option[value="shared-tags"]', 'contactsSortSharedTags'],
     ['#contacts-sort-order option[value="weighted"]', 'relevanceScore'],
     ['#contacts-sort-order option[value="name"]', 'name'],
     ['#contacts-sort-order option[value="relationship"]', 'relationship'],

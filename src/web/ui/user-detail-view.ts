@@ -13,6 +13,7 @@ import { buildTalkIdentityKey } from '../../shared/cid';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
 import { meetsBlockSignalThreshold, type ReceivedBlockSignals } from '../../shared/block-signal';
+import { publicProfileFromFoundation } from './public-profile-foundation';
 
 type PublicProfileFoundation = {
   headshot?: string | null;
@@ -445,16 +446,6 @@ async function applySendButtonFromBlockStatus(
 // fetchPeerDetailWithTimeout, renderBlockedPeerDetail, isPeerDetailBlocked, and
 // publicUserHasProfileFoundation removed — no longer needed after P0 step 5.
 
-function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T[] {
-  if (!value) return fallback;
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewDeps): Promise<any | null> {
   if (!deps.getPublicProfileFoundation) return null;
   const deadline = Date.now() + 8_500;
@@ -467,13 +458,7 @@ async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewD
     if (!foundation) await new Promise((resolve) => window.setTimeout(resolve, 250));
   }
   if (!foundation) return null;
-  return {
-    headshot: foundation.headshot || '',
-    languages: parsePublicProfileArray<string>(foundation.languagesJson, []),
-    profile: parsePublicProfileArray<any>(foundation.profileJson, []),
-    interests: parsePublicProfileArray<any>(foundation.interestsJson, []),
-    reputation: foundation.reputation,
-  };
+  return { ...publicProfileFromFoundation(foundation), reputation: foundation.reputation };
 }
 
 /**

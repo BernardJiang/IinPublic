@@ -12,6 +12,8 @@ import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
 import type { StarterPracticeContact, StarterPracticeContactId } from './starter-talk-seeds';
 import { bindStarterContactRemoval, renderStarterContactRows } from './starter-contacts-view';
+import { sharedTagCounter, sharedTagsChipHtml } from './tag-graph-view';
+import { publicProfileFromFoundation } from './public-profile-foundation';
 
 /**
  * TODO §R1: how many contact rows render synchronously, immediately — matches
@@ -264,16 +266,6 @@ async function openSupportControlsDialog(deps: ContactsViewDeps): Promise<void> 
 /** Set in showContactDetail after a successful profile fetch; cleared when opening another contact. Avoids a duplicate GET /api/users/:id when opening Relationship & Credit. */
 let contactDetailUserProfileCache: { userId: string; publicUser: any } | null = null;
 
-function parsePublicProfileArray<T>(value: string | undefined, fallback: T[]): T[] {
-  if (!value) return fallback;
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 // publicUserHasProfileFoundation removed — no longer needed after P0 step 5 (no server profile fetch).
 
 async function readPublicProfileFoundation(deps: ContactsViewDeps, userId: string): Promise<any | null> {
@@ -283,13 +275,7 @@ async function readPublicProfileFoundation(deps: ContactsViewDeps, userId: strin
     deps.getPublicProfileFoundation(userId).catch(() => null),
     timeout,
   ]);
-  if (!foundation) return null;
-  return {
-    headshot: foundation.headshot || '',
-    languages: parsePublicProfileArray<string>(foundation.languagesJson, []),
-    profile: parsePublicProfileArray<any>(foundation.profileJson, []),
-    interests: parsePublicProfileArray<any>(foundation.interestsJson, []),
-  };
+  return foundation ? publicProfileFromFoundation(foundation) : null;
 }
 
 function renderPublicProfileSummary(deps: ContactsViewDeps, publicUser: any): string {
@@ -739,6 +725,8 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     });
     const tieBreak = (a: PeerSummary, b: PeerSummary): number =>
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
+    // OPEN-87: one graph snapshot per render for the "Most tags in common" sort.
+    const sharedTags = sortOrder === 'shared-tags' ? sharedTagCounter() : () => 0;
     const visiblePeersByCurrentSort = peers
       .filter((peer) => {
         // Never show the current user as their own contact.
@@ -758,6 +746,10 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         return true;
       })
       .sort((a, b) => {
+        if (sortOrder === 'shared-tags') {
+          const shared = sharedTags(b.peerId) - sharedTags(a.peerId);
+          if (shared !== 0) return shared;
+        }
         const aKnown = knownMap.get(a.peerId);
         const bKnown = knownMap.get(b.peerId);
         const aMetrics = rankingMetrics(a, aKnown, deps);
@@ -847,6 +839,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
                 <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps))}</div>
                 <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks}</div>
                 ${sortOrder === 'match-rate' ? matchRateChip : ''}
+                ${sortOrder === 'shared-tags' ? sharedTagsChipHtml(sharedTags(peer.peerId), deps.text('tagsInCommon')) : ''}
                 ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
               </div>
             </div>

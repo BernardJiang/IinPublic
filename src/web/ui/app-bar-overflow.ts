@@ -1,3 +1,5 @@
+import { openTagDirectory } from './tag-graph-view';
+
 /**
  * Reflows the legacy ID-based app bar (`#top-header`/`#app-bar-actions`/
  * `#app-bar-overflow-menu`/`#app-bar-overflow-panel`) — sorts actions by priority, then moves
@@ -101,5 +103,7 @@ export function setupAppBarChrome(deps: AppBarChromeDeps): void {
   document.getElementById('contacts-broadcast-group-btn')?.addEventListener('click', () => {
     deps.showBroadcastToGroupDialog();
   });
+  // OPEN-87: every known tag and who likes it, from the Contacts tab.
+  document.getElementById('contacts-tag-directory-btn')?.addEventListener('click', () => openTagDirectory());
   syncAppBarOverflow();
 }

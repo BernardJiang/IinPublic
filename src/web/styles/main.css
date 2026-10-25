@@ -5573,3 +5573,36 @@ body.iinpublic-debug .conversation-health-status {
 .answer-chatbot-mark {
   color: var(--chatbot-accent);
 }
+
+/* Person↔tag graph (OPEN-87): tag chips on person and tag pages, the tag directory. */
+.tag-graph-body { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px; }
+.tag-graph-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-graph-chip {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.tag-graph-chip.is-shared { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+.tag-graph-count { color: var(--text-tertiary); font-weight: 400; margin-left: 2px; }
+.tag-graph-peer-tags { margin: 12px 16px 0; }
+.tag-graph-heading { font-size: 0.8em; color: var(--text-tertiary); margin-bottom: 6px; }
+.tag-graph-summary { margin: 0; color: var(--text-secondary); font-size: 0.9em; }
+.tag-graph-people { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.tag-graph-person {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--bg-muted);
+  cursor: pointer;
+}
+.tag-graph-person-name { font-weight: 600; }
+.tag-graph-shared { font-size: 0.8em; color: var(--accent); }
+.tag-graph-empty { color: var(--text-tertiary); text-align: center; margin: 8px 0; }
+.contact-item-shared-tags { font-size: 0.8em; color: var(--accent); font-weight: 700; margin-top: 4px; }

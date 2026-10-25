@@ -21,3 +21,9 @@ starter seeds the harness turns off for ordinary specs.
 2. Bob sends his Talks as Broadcast does.
 3. Alice's chatbot answers Bob's Hiking from her own Like: both have a match.
 4. Bob's Hiking reaches Carol; her chatbot passes it from her pass, and she has no match.
+
+## 3. Travel the person↔tag graph
+
+From Alice's side: Contacts → 🏷️ Tags → search "hik" → 🥾 Hiking (marked as hers) → the tag page
+says "In your tags" and lists Bob → Bob's person view lists his tags with Hiking marked shared →
+tapping it opens the Hiking tag page again.
