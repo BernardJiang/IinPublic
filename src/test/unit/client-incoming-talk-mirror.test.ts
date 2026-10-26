@@ -2,7 +2,7 @@ import type { IncomingTalkClusterWire } from '../../shared/peer-talk-delivery';
 import {
   mirrorIncomingTalkClustersToLocalGun,
   upsertLocalIncomingTalkClusters,
-} from '../../web/services/client-incoming-talk-mirror';
+} from '../../core/client-incoming-talk-mirror';
 
 describe('client incoming talk mirror', () => {
   it('does not rewrite an unchanged owner envelope during a UI refresh', async () => {

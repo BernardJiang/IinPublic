@@ -170,7 +170,7 @@ import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-t
 import { getChatbotTemplates, getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
 import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
-import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
+import { buildTalkWakePayload, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import {
   endMatchCollectionSession,
@@ -216,7 +216,7 @@ import {
   subscribeLocalIncomingTalkClusters,
   upsertLocalIncomingTalkCluster,
   upsertLocalIncomingTalkClusters,
-} from '../services/client-incoming-talk-mirror';
+} from '../../core/client-incoming-talk-mirror';
 import { getSEA, type GunPair } from '../sea-gun';
 import {
   applyTalkLedgerEvent,
@@ -241,6 +241,11 @@ import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
+import { classifyMailboxPayload, mailboxSenderId } from '../../core/mailbox-envelope';
+import { authorLedgerWritesFor, exchangeRecordFor } from '../../core/exchange-recording';
+import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
+import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
+import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
@@ -257,21 +262,6 @@ import { getMyConversations } from '../ui/my-conversations-storage';
 
 /** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
 const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
-
-type AttachmentShareMessagePayload = {
-  kind: 'ipfs-auto-share-v1';
-  conversationId: string;
-  talkId: string;
-  authorId: string;
-  cid: string;
-  link: string;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  enc: 'sea-pair' | 'none';
-  keyCiphertext: string;
-  sharedAt: string;
-};
 
 type MailboxAttachmentSharePayload = {
   kind: 'ipfs-conversation-share-v1';
@@ -731,20 +721,6 @@ export class IinPublicApp {
     });
   }
 
-  private async buildAttachmentShareMessageId(
-    conversationId: string,
-    talkId: string,
-    authorId: string,
-    cid: string,
-  ): Promise<string> {
-    return computeCIDv1({
-      kind: 'ipfs-auto-share-v1',
-      conversationId,
-      talkRef: `${talkId}::${authorId}`,
-      cid,
-    });
-  }
-
   private async buildAttachmentSharePayload(params: {
     conversationId: string;
     talkId: string;
@@ -752,51 +728,16 @@ export class IinPublicApp {
     recipientId: string;
     attachment: IpfsAttachment;
   }): Promise<AttachmentShareMessagePayload> {
-    const keyPayload = {
-      kind: 'ipfs-share-key-v1',
-      talkRef: `${params.talkId}::${params.authorId}`,
-      cid: params.attachment.cid,
-      enc: params.attachment.enc,
-      // L5 key envelope is transport material only. File bytes stay out of Gun/mailbox.
-      keyMaterial: `ipfs-share:${params.talkId}:${params.authorId}:${params.attachment.cid}`,
-    };
+    // The share message is the core's (src/core/attachment-share.ts); the key goes encrypted.
     const keyCiphertext = await this.encryptPairTalkResponsePayload(
       params.recipientId,
-      keyPayload,
+      attachmentShareKeyPayload(params.talkId, params.authorId, params.attachment),
     );
-    return {
-      kind: 'ipfs-auto-share-v1',
-      conversationId: params.conversationId,
-      talkId: params.talkId,
-      authorId: params.authorId,
-      cid: params.attachment.cid,
-      link: `ipfs://${params.attachment.cid}`,
-      name: params.attachment.name,
-      mimeType: params.attachment.mimeType,
-      sizeBytes: params.attachment.sizeBytes,
-      enc: params.attachment.enc,
-      keyCiphertext,
-      sharedAt: new Date().toISOString(),
-    };
+    return attachmentSharePayload(params, keyCiphertext, new Date().toISOString());
   }
 
   private formatAttachmentShareMessageText(payload: AttachmentShareMessagePayload): string {
     return `IPFS_SHARE:${JSON.stringify(payload)}`;
-  }
-
-  private parseAttachmentShareMessageText(text: string): AttachmentShareMessagePayload | null {
-    const raw = String(text || '');
-    if (!raw.startsWith('IPFS_SHARE:')) return null;
-    try {
-      const payload = JSON.parse(raw.slice('IPFS_SHARE:'.length));
-      if (!payload || payload.kind !== 'ipfs-auto-share-v1') return null;
-      const cid = String(payload.cid || '').trim();
-      const keyCiphertext = String(payload.keyCiphertext || '').trim();
-      if (!cid || !keyCiphertext) return null;
-      return payload as AttachmentShareMessagePayload;
-    } catch {
-      return null;
-    }
   }
 
   private async maybeFetchSharedAttachmentBytes(
@@ -911,7 +852,7 @@ export class IinPublicApp {
 
     for (const attachment of attachments) {
       try {
-        const messageId = await this.buildAttachmentShareMessageId(
+        const messageId = await attachmentShareMessageId(
           params.conversationId,
           params.talkId,
           params.authorId,
@@ -981,7 +922,7 @@ export class IinPublicApp {
       },
       { otherUserId: this.currentUser.id },
     );
-    const sharePayload = this.parseAttachmentShareMessageText(payload.text);
+    const sharePayload = parseAttachmentShareMessageText(payload.text);
     if (sharePayload) {
       void this.maybeFetchSharedAttachmentBytes(sharePayload, payload.senderId).catch((err) => {
         console.warn('[L5] mailbox attachment fetch failed:', err);
@@ -3780,39 +3721,35 @@ export class IinPublicApp {
           pair as import('../sea-gun').GunPair,
         );
         if (senderEpubHint) {
-          const senderId = String(
-            (payload as MailboxConversationMessagePayload).senderId
-              || (payload as P2PMeshTalkResponsePayload).responderId
-              || (payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload).authorId
-              || '',
-          ).trim();
+          const senderId = mailboxSenderId(payload);
           if (senderId) this.peerEpubByUserId.set(senderId, senderEpubHint);
         }
-        // Dispatch based on payload kind:
-        //   - kind 'conversation-message-v1' → offline DM (Phase 4)
-        //   - kind 'ipfs-conversation-share-v1' → attachment share link
-        //   - kind 'support-question-v1' → TechSupport inbox delivery (K5)
-        //   - kind 'block-signal-v1' → friend-circle block signal (src/shared/block-signal.ts)
-        //   - has `talkData` → talk-body payload from R-a mailbox fallback
-        //   - has `retractedAt` (number) → step-10 retraction envelope
-        //   - has `responseId` → talk-response payload from step 6
-        if ((payload as any).kind === TALK_WAKE_PAYLOAD_KIND) {
-          // OPEN-38: content-free; its only job (waking this device) is done. The direct
-          // scheduler delivers the queued Talk now that this page is running.
-        } else if ((payload as any).kind === 'conversation-message-v1') {
-          await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
-        } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
-          await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
-        } else if ((payload as any).kind === 'support-question-v1') {
-          await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
-        } else if ((payload as any).kind === BLOCK_SIGNAL_PAYLOAD_KIND) {
-          await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
-        } else if ((payload as any).talkData !== undefined) {
-          await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
-        } else if (typeof (payload as any).retractedAt === 'number') {
-          await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
-        } else {
-          await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
+        // The kind is the core's call (src/core/mailbox-envelope.ts); each goes to its handler.
+        switch (classifyMailboxPayload(payload)) {
+          case 'wake':
+            // OPEN-38: the direct scheduler delivers the queued Talk now that this page runs.
+            break;
+          case 'conversation-message':
+            await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
+            break;
+          case 'attachment-share':
+            await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
+            break;
+          case 'support-question':
+            await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
+            break;
+          case 'block-signal':
+            await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
+            break;
+          case 'talk-body':
+            await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
+            break;
+          case 'talk-retraction':
+            await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
+            break;
+          case 'talk-response':
+            await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
+            break;
         }
         // Delete only after handler completes without throwing.
         await mailbox.deleteEnvelope(this.currentUser.id, envelope.id);
@@ -6203,64 +6140,25 @@ export class IinPublicApp {
     const collectionTag = meta?.direction === 'received'
       ? null
       : recordMatchCollectionExchange(peerId, talkId, outcome);
-    // The exchange log lives in the device core's Gun (OPEN-88 part 2, OPEN-91 P1); the GUI's view
-    // updates at once. One record per direction (OPEN-88): a tag I sent them and the same tag they
-    // sent me are two exchanges, each with its own outcome and place.
-    upsertExchange({
+    // What it records is the core's (src/core/exchange-recording.ts); this writes it. The exchange
+    // log lives in the device core's Gun (OPEN-88, OPEN-91 P1) and the GUI's view updates at once.
+    const input = {
       peerId,
-      peerName: String(peerName || 'Unknown'),
+      peerName,
       talkId,
-      title: String(talkData?.title || 'Talk'),
-      type: String(talkData?.type || 'flow'),
-      language: String(talkData?.language || 'en'),
+      talkData,
       outcome,
-      direction: meta?.direction || 'sent',
-      date: new Date().toISOString(),
-      // Where it happened (OPEN-89): a place leads to what was exchanged there, and back.
-      ...(this.currentChatroomId ? { roomId: this.currentChatroomId, roomName: this.getChatroomDisplayName(this.currentChatroomId) } : {}),
-      answerMode: 'manual',
-      ...(meta?.answers ? { answers: meta.answers } : {}),
-      // R-2: forward-compat fields — inert in step 4, used by steps 8–11
-      ...(meta?.responseId ? { responseId: meta.responseId } : {}),
-      ...(meta?.version !== undefined ? { version: meta.version } : {}),
-      ...(meta?.respondedAt ? { respondedAt: meta.respondedAt } : {}),
-      ...(collectionTag || {}),
-    });
-
-    // A received talk answered by this user is already recorded as a responder-side
-    // exchange by submitTalkResponsePairDirect. Writing the author-side projection here
-    // would reuse the same peer::identity key and erase change-of-mind fanout targets.
-    if (meta?.direction === 'received') return;
-
-    // Step 8: co-write to the talk ledger (author outcome + exchanged entry).
-    // Map outcome vocabulary: 'match' → 'matched', 'mismatch'|'ignore' → 'ignored'.
+      ...(meta ? { meta } : {}),
+      ...(this.currentChatroomId ? { room: { roomId: this.currentChatroomId, roomName: this.getChatroomDisplayName(this.currentChatroomId) } } : {}),
+      collectionTag,
+      nowIso: new Date().toISOString(),
+    };
+    upsertExchange(exchangeRecordFor(input));
+    const ledger = authorLedgerWritesFor(input, this.currentUser.id);
+    if (!ledger) return;
     try {
-      const ledgerOutcome = outcome === 'match' ? 'matched' : 'ignored';
-      const wholeTalkIdentityKey = buildTalkIdentityKey(talkData);
-      const identityKeys = outcome === 'match'
-        ? selectedTalkIdentityKeys(talkData, meta?.answers)
-        : [wholeTalkIdentityKey];
-      const authorId = this.currentUser!.id;
-      const nowIso = new Date().toISOString();
-      applyTalkLedgerEvent({
-        kind: 'TALK_ANSWERED',
-        responderId: peerId,
-        talkId,
-        authorId,
-        identityKey: wholeTalkIdentityKey,
-        outcome: ledgerOutcome,
-        version: meta?.version ?? 1,
-        responseId: meta?.responseId ?? `resp_${talkId}_${peerId}`,
-        respondedAt: meta?.respondedAt ?? nowIso,
-        now: nowIso,
-      });
-      writeAuthorExchangedEntries({
-        responderId: peerId,
-        identityKeys,
-        outcome: ledgerOutcome,
-        version: meta?.version ?? 1,
-        respondedAt: meta?.respondedAt ?? nowIso,
-      });
+      applyTalkLedgerEvent(ledger.event);
+      writeAuthorExchangedEntries(ledger.exchanged);
     } catch {
       // Ledger write failures are non-fatal — suppression misses cost one redundant send.
     }
@@ -6339,15 +6237,6 @@ export class IinPublicApp {
     return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
   }
 
-  private pairTalkPeerEpubHint(...values: unknown[]): string | undefined {
-    for (const value of values) {
-      if (typeof value !== 'string') continue;
-      const trimmed = value.trim();
-      if (trimmed) return trimmed;
-    }
-    return undefined;
-  }
-
   /**
    * Roster records now carry each member's public encryption key (see the membership
    * heartbeat) — harvest them into the epub cache on every roster update so encrypting FOR
@@ -6368,7 +6257,7 @@ export class IinPublicApp {
   }
 
   private async resolvePeerEpub(peerUserId: string, hint?: string): Promise<string> {
-    const hinted = this.pairTalkPeerEpubHint(hint);
+    const hinted = firstKeyHint(hint);
     if (hinted) {
       this.peerEpubByUserId.set(peerUserId, hinted);
       return hinted;
@@ -6429,13 +6318,18 @@ export class IinPublicApp {
   }
 
   private async getPairTalkResponseSecret(peerUserId: string, peerEpubHint?: string): Promise<string> {
-    const pair = this.gunService.getStoredPair();
-    if (!pair) {
-      throw new Error('No SEA keypair is available for pair-private talk response');
-    }
-    const epub = await this.resolvePeerEpub(peerUserId, peerEpubHint);
-    if (!epub) throw new Error(`Peer ${peerUserId} has no public encryption key`);
-    return getSEA().secret(epub, pair as GunPair);
+    // The protocol is the core's (src/core/pair-response-crypto.ts).
+    const pair = this.gunService.getStoredPair() as SeaSigningPair | null;
+    return pairSecret(this.seaPort(), pair, peerUserId, await this.resolvePeerEpub(peerUserId, peerEpubHint));
+  }
+
+  private seaPort(): SeaPort {
+    const sea = getSEA();
+    return {
+      secret: (epub, pair) => sea.secret(epub, pair as GunPair),
+      encrypt: (data, secret) => sea.encrypt(data, secret),
+      decrypt: (data, secret) => sea.decrypt(data, secret),
+    };
   }
 
   private async encryptPairTalkResponsePayload(
@@ -6443,46 +6337,18 @@ export class IinPublicApp {
     payload: Record<string, unknown>,
     peerEpubHint?: string,
   ): Promise<string> {
-    const secret = await this.getPairTalkResponseSecret(peerUserId, peerEpubHint);
-    return getSEA().encrypt(JSON.stringify(payload), secret);
+    const pair = this.gunService.getStoredPair() as SeaSigningPair | null;
+    return encryptPairResponse(this.seaPort(), pair, peerUserId, await this.resolvePeerEpub(peerUserId, peerEpubHint), payload);
   }
 
-  private async decryptPairTalkResponsePayload(responseData: any): Promise<{
-    responderName: string;
-    authorName: string;
-    answers: any[];
-    isChatbotResponse: boolean;
-  }> {
-    if (responseData?.payloadCiphertext) {
-      const peerId = String(responseData.responderId || responseData.authorId || '');
-      // Inline key material first: a response that carries the responder's epub decrypts
-      // with zero lookups (and seeds the cache for everything else about this peer).
-      const inlineEpub = typeof responseData.responderEpub === 'string' ? responseData.responderEpub.trim() : '';
-      if (inlineEpub && peerId === String(responseData.responderId || '')) {
-        this.peerEpubByUserId.set(peerId, inlineEpub);
-      }
-      const secret = await this.getPairTalkResponseSecret(peerId, inlineEpub || undefined);
-      const decrypted = await getSEA().decrypt(String(responseData.payloadCiphertext), secret);
-      if (!decrypted) {
-        throw new Error('Pair talk response payload could not be decrypted');
-      }
-      const payload = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
-      return {
-        responderName: String(payload.responderName || responseData.responderId || 'Unknown'),
-        authorName: String(payload.authorName || responseData.authorId || 'Unknown'),
-        answers: Array.isArray(payload.answers) ? payload.answers : JSON.parse(String(payload.answers || '[]')),
-        isChatbotResponse: !!payload.isChatbotResponse,
-      };
-    }
-
-    return {
-      responderName: String(responseData.responderName || responseData.responderId || 'Unknown'),
-      authorName: String(responseData.authorName || responseData.authorId || 'Unknown'),
-      answers: Array.isArray(responseData.answers)
-        ? responseData.answers
-        : JSON.parse(String(responseData.answers || '[]')),
-      isChatbotResponse: !!responseData.isChatbotResponse,
-    };
+  private async decryptPairTalkResponsePayload(responseData: any): Promise<PairResponseContent> {
+    return decodePairResponse(
+      this.seaPort(),
+      this.gunService.getStoredPair() as SeaSigningPair | null,
+      responseData,
+      (peerId, hint) => this.resolvePeerEpub(peerId, hint),
+      (peerId, epub) => this.peerEpubByUserId.set(peerId, epub),
+    );
   }
 
   /**
@@ -7097,7 +6963,7 @@ export class IinPublicApp {
         this.currentUser?.knownPeople,
         this.roomTravelerIds,
       )) return;
-      const authorEpub = targetEpub ?? this.pairTalkPeerEpubHint(
+      const authorEpub = targetEpub ?? firstKeyHint(
         targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
         targetAuthorId === params.authorId ? params.talkData?.senderEpub : undefined,
       );
@@ -9073,7 +8939,7 @@ export class IinPublicApp {
           const messages = mergeMessagesWithSynced(data.conversationId, liveMessages);
           this.uiManager.displayConversationMessages(data.conversationId, messages);
           for (const message of messages) {
-            const sharePayload = this.parseAttachmentShareMessageText(String(message.text || ''));
+            const sharePayload = parseAttachmentShareMessageText(String(message.text || ''));
             if (!sharePayload) continue;
             if (!message.senderId || message.senderId === this.currentUser?.id) continue;
             void this.maybeFetchSharedAttachmentBytes(sharePayload, String(message.senderId)).catch((err) => {

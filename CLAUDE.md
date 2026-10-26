@@ -62,9 +62,18 @@ other user's side; every bug found on a device gets a unit test plus a journey �
 
 ```
 src/shared/   — domain types, match engine, location, reputation (used by both server and web)
+src/core/     — the device core (OPEN-91): the user's data as Gun collections and the app's rules
+                (delivery, answering, chatbot, matching, conversations, Nearby, the mesh protocol)
 src/server/   — Express + Socket.IO + Gun server; owns talk delivery, user management, stats
 src/web/      — Webpack SPA; vanilla TypeScript + Gun client; no framework
 ```
+
+`src/core/` imports only `src/core/` and `src/shared/` and uses no page globals
+(`src/test/unit/core-boundary.test.ts`); stores, transports and SEA are passed in
+(`src/core/ports.ts`). The GUI reads core collections through in-memory views
+(`src/web/services/core-views.ts`, `exchange-view.ts`); e2e specs read them with
+`window.__iinpublic_collection('<name>')` / `__iinpublic_exchanges()` and edit them with
+`__iinpublic_collection_edit`. Design: `docs/design/device-core-architecture.md`.
 
 ### Data layer: Gun.js (P2P graph DB)
 

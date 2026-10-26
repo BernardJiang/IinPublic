@@ -154,6 +154,23 @@ Each phase ships on its own and keeps every test green.
    become core queries.
 4. **P4 — The domain logic**: Talk delivery, answering, the chatbot, matching, Nearby and
    conversations move from `app.ts` into the core; the GUI sends commands.
+   **Done 2026-10-26**, in two steps per domain: the rules moved into pure `src/core/` modules
+   (stores, transports, SEA and the clock passed in through `src/core/ports.ts` and per-module
+   interfaces) while the page still hosts them, so behaviour is unchanged; P5/P6 host the same
+   modules in the native process and the worker. `src/test/unit/core-boundary.test.ts` keeps
+   every core module free of GUI imports and page globals (`src/core/host/` alone may use its
+   host's APIs). What stays in `app.ts` is the effect side: UI updates, timers, transports,
+   location events and TechSupport operator flows whose rules already live in `src/shared/`.
+   Domains and modules:
+   - Talk delivery: `talk-intake`, `broadcast-selection`, `peer-mesh-service` (the mesh
+     protocol; the GUI supplies only the WebRTC session factory), `direct-talk-delivery-outbox`,
+     `client-incoming-talk-mirror`, `mailbox-envelope`, `retraction`, `delivery`.
+   - Answering and matching: `response-rules`, `response-ingest`, `pair-response-crypto`,
+     `exchange-recording`, `talk-rules`, `deal-finalization`.
+   - The chatbot: `chatbot-reply`, `answer-preference-engine`, `answer-preference-mutations`.
+   - Conversations: `conversation-state`, `attachment-share`.
+   - Nearby and people: `nearby-v3-service`, `peer-derivation`, `tag-graph`.
+   - My lists: `my-talk-rules`; the logs themselves are core collections (P3).
 5. **P5 — The native host**: the same core bundle runs in the embedded Node process; the WebView
    becomes GUI-only over loopback; its Gun instances go away.
 6. **P6 — One Gun on the web**: the page's hub-connected Gun goes away; the worker core is the only

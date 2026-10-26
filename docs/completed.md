@@ -2,6 +2,25 @@
 
 Last updated: 2026-10-25
 
+## 2026-10-26 — OPEN-91 P2–P4 the device core takes the user's data and the app's rules
+
+- **P2 (sharing policy, first slice):** the sender's response copy and delivery journal moved
+  into the core (`local/`); the page's Gun runs an `out` filter that drops writes and reads of
+  private namespaces; spec 09 fails on any private soul on the hub wire (5 per run before, 0 now).
+- **P3 (local logs):** My Talks, My Conversations, the talk ledger, answer history, chatbot
+  templates and memory, answer preferences, the deal maps and the revision-sent log are core
+  collections — one entry per record instead of a localStorage JSON blob rewritten whole on every
+  change; old blobs are imported on first read; unconfirmed writes are replayed after a reload.
+  Checked on two phones upgrading 1.0.193 → 1.0.194 with their data.
+- **P4 (domain logic):** delivery, answering, matching, the chatbot, conversations and Nearby
+  rules are pure `src/core/` modules with their stores and transports passed in; a boundary test
+  keeps the core free of the GUI.
+- **Found on the way:** a quick in-and-out Place visit left the person listed in the Place for
+  ~30 s (J-PLACE-11, a position watch blocked by a stuck search); the Android Place smoke could
+  not create a Place since 2026-10-22 (the hub enforced 12 Friend marks; only the page was told
+  otherwise); a flaky Wi-Fi Direct unit test (event-loop stalls under load); spec 64 still
+  expected Passed tags to show by default.
+
 ## 2026-10-25 — OPEN-88 / OPEN-91 P1 the exchange log moves into the device core
 
 The exchange log left the one localStorage JSON blob (`localTalkExchanges`, parsed and rewritten on

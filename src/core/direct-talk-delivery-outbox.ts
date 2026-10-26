@@ -1,5 +1,5 @@
-import type { P2PMeshTalkBodyPayload } from '../../shared/p2p-mesh-protocol';
-import type { WebGunService } from './web-gun-service';
+import type { P2PMeshTalkBodyPayload } from '../shared/p2p-mesh-protocol';
+import type { PrivateStore } from './ports';
 
 export type DirectTalkDeliveryEntry = {
   version: 1;
@@ -38,7 +38,7 @@ function boundedEntries(entries: DirectTalkDeliveryEntry[], nowMs: number): Dire
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.key.localeCompare(right.key))
     .slice(fresh.length - DIRECT_TALK_OUTBOX_MAX_ENTRIES);
 }
-const writeQueues = new WeakMap<WebGunService, Promise<void>>();
+const writeQueues = new WeakMap<PrivateStore, Promise<void>>();
 
 function deliveryKey(roomId: string, recipientUserId: string, talkId: string, contentHash: string): string {
   return [roomId, recipientUserId, talkId, contentHash].map((part) => encodeURIComponent(part)).join('|');
@@ -67,7 +67,7 @@ function parseEntries(raw: unknown): DirectTalkDeliveryEntry[] {
 
 /** Author-owned encrypted local queue. No Talk body is written to peered Gun. */
 export class DirectTalkDeliveryOutbox {
-  constructor(private readonly gun: WebGunService, private readonly now: () => number = Date.now) {}
+  constructor(private readonly gun: PrivateStore, private readonly now: () => number = Date.now) {}
 
   async list(roomId?: string): Promise<DirectTalkDeliveryEntry[]> {
     const entries = boundedEntries(parseEntries(await this.gun.getPrivate(PRIVATE_KEY).catch(() => null)), this.now());

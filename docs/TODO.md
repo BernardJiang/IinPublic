@@ -47,7 +47,10 @@ its ID.
   `<section>::<key>`), the Me tab's answer history, the deal maps, and the answer preferences
   and chatbot memory (`answer-preferences-storage.ts`, via `mapStore`/`sectionedDocStore`).
   Left in localStorage: settings and UI state (small, per-device), `peerNameCache`, match
-  collection sessions, imported handoff threads. Next: P4 (domain logic out of `app.ts`).
+  collection sessions, imported handoff threads. Next: P4 (domain logic out of `app.ts`). **P4 done 2026-10-26:** the domain rules live in
+  `src/core/` (see the design doc's P4 entry for the module list); `app.ts` keeps the effects
+  (10,272 → 9,863 lines). Next: P5 — the embedded Node process hosts the core and the WebView
+  becomes GUI-only over loopback.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport
