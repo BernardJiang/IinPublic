@@ -6426,6 +6426,8 @@ export class IinPublicApp {
         outcome,
         direction: meta?.direction || 'sent',
         date: new Date().toISOString(),
+        // Where it happened (OPEN-89): a place leads to what was exchanged there, and back.
+        ...(this.currentChatroomId ? { roomId: this.currentChatroomId, roomName: this.getChatroomDisplayName(this.currentChatroomId) } : {}),
         answerMode: meta?.answers ? 'manual' : (exchanges[key]?.answerMode || 'manual'),
         ...(meta?.answers ? { answers: meta.answers } : {}),
         // R-2: forward-compat fields — inert in step 4, used by steps 8–11

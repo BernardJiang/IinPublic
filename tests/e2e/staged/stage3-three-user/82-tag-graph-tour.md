@@ -25,6 +25,9 @@ two, and each chatbot answers from its own Like or Pass.
 | 5 | Answer → people / Talk | 👥 → the same two people; 💬 → the Pizza Talk |
 | 6 | Person → answers | Cy's "♡ 2 in common" → Me shows Coffee and Pizza |
 | 7 | Typed tag → people | Contacts 🏷️, type "coffee" → Cy only (Ben passed it) |
+| 8 | Answer → place → people | Pizza's 📍 → Chatrooms; "👥 met here" → Ben and Cy |
+| 9 | Person → place | Ben's page: "Met in 📍 Nearby" |
+| 10 | Back | the page's ‹ closes it; the AppBar ‹ returns to the place, then to my answer on Me |
 
 ## From Ben's side
 
@@ -32,5 +35,4 @@ His ♡ Pizza shows 👥 2 and lists Ann and Cy; Coffee, which he passed, is hid
 
 ## Not walked yet
 
-Place ↔ Talk and place ↔ answer (where a tag was sent or answered) need the place recorded on
-each exchange; a back step for every link is still to come.
+A multi-question Talk's 💬 and 👥 (only tags are walked); a Talk's own place on the Talks tab.

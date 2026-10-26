@@ -11,7 +11,7 @@ import { renderListProgressively } from './render-list-progressively';
 import { avatarInnerHtml } from './profile-avatar';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { createRowSelection, type RowSelection } from './list-row-selection';
-import { bindGraphLinks, clearMeFocus, getMeFocus, openContactsTopic, peopleForTopic, peopleLinkHtml, syncFocusChip, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
+import { bindGraphLinks, clearMeFocus, getMeFocus, openContactsTopic, peopleForTopic, peopleLinkHtml, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
@@ -611,7 +611,9 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       // Who exchanged this question with me (for a tag, who like it), the most recent first, and the
       // Talks that asked it: the two ways a row leads through the graph (graph-focus.ts).
       const people = peopleForTopic({ talkIds, isTag: tagState !== '' });
-      const linksHtml = peopleLinkHtml(group.prompt, people.length, deps, talkIds, tagState !== '') + talksLinkHtml(group.prompt, talkIds, deps);
+      const linksHtml = peopleLinkHtml(group.prompt, people.length, deps, talkIds, tagState !== '')
+        + talksLinkHtml(group.prompt, talkIds, deps)
+        + placeLinkHtml(placesOf({ talkIds }), deps);
       const bodyHtml = tagState
         ? `<div class="qa-line qa-question" style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;font-weight:600;">
             ${tagFaceHtml({ state: tagState === 'checked' ? 'liked' : 'passed', text: tagText(primary.talkTitle, group.prompt), topic: group.prompt, people: 0 }, deps)}${linksHtml}

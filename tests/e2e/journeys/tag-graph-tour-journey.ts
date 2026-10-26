@@ -6,7 +6,9 @@
  *
  *   place → person → their tags → people who like Pizza → a person → our Talks → Pizza's ♡ → my
  *   answer on Me → 👥 the same people / 💬 the Talk; a person → the answers we share; Pizza typed
- *   into Contacts → the same people. And from Ben's side: his ♡ Pizza leads back to Ann.
+ *   into Contacts → the same people; my answer → 📍 where it was exchanged → the people met there →
+ *   a person → where we met; ‹ back along the links. And from Ben's side: his ♡ Pizza leads back
+ *   to Ann.
  *
  * Ann likes Coffee and Pizza, Ben likes Pizza (which passes Coffee above it), Cy likes both. Ann
  * and Cy send their tags to the other two; each chatbot answers from its own Like or Pass.
@@ -128,6 +130,29 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
   await a.locator('[data-testid="contacts-filter-topic"]').fill(COFFEE.toLowerCase());
   await expect(people(a)).toHaveCount(1);
   await expect.poll(() => peopleIds(a), { timeout: 15_000 }).toEqual([cyId]);
+
+  // ── Answer → place → people met there → a person → where we met; then back ─
+  const active = (view: string) => a.locator(`.nav-btn[data-view="${view}"]`);
+  const back = a.locator('[data-testid="graph-back-btn"]');
+  await a.locator('.nav-btn[data-view="me"]').click();
+  await expect(back).toBeHidden();
+  await pizzaRow.locator('[data-testid="answer-place"]').click();
+  await expect(active('chatrooms')).toHaveClass(/\bactive\b/);
+  await a.locator('[data-testid="place-graph-links"] [data-testid="place-people"]').click();
+  await expect(a.locator('[data-testid="contacts-focus-chip"]')).toContainText('📍');
+  await expect.poll(async () => (await peopleIds(a)).sort(), { timeout: 15_000 }).toEqual([benId, cyId].sort());
+  await openPersonFromList(a, benId);
+  await expect(a.locator('[data-testid="peer-met-in"] [data-testid="answer-place"]')).toContainText('📍');
+  // The person page's own ‹ closes it; then the AppBar's ‹ steps back along the links: to the
+  // place, then to my answer on Me.
+  await a.locator('#back-from-peer-detail').click();
+  await back.click();
+  await expect(active('chatrooms')).toHaveClass(/\bactive\b/);
+  await expect(a.locator('[data-testid="place-graph-links"] [data-testid="place-talks"]')).toBeVisible();
+  await back.click();
+  await expect(active('me')).toHaveClass(/\bactive\b/);
+  await expect(pizzaRow).toBeVisible();
+  await expect(back).toBeHidden();
 
   // ── The other side: Ben's ♡ Pizza leads back to Ann (and Cy) ────────────
   const b = ben;

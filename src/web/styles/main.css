@@ -5642,6 +5642,9 @@ body.iinpublic-debug .conversation-health-status {
 .focus-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--accent-soft); border: 1px solid var(--accent-border); font-size: 0.85em; font-weight: 600; }
 .focus-chip[hidden] { display: none; }
 .focus-chip-clear { background: none; border: none; font-size: 1em; cursor: pointer; color: var(--text-tertiary); }
+.graph-back-btn[hidden] { display: none; }
+.place-graph-links { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 8px; }
+.place-graph-links .graph-link { margin-left: 0; font-size: 0.85em; }
 .graph-link { font-size: 0.8em; color: var(--accent-text); margin-left: 6px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
 .contact-item,
 .answer-talk-item { -webkit-touch-callout: none; user-select: none; }

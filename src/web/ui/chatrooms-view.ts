@@ -11,7 +11,8 @@ import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId, isPersonalListScope } from '../../shared/nearby-rooms';
+import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId, isPersonalListScope, NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
+import { bindGraphLinks, placeLinksHtml } from './graph-focus';
 import { getL1TileInfo, parseTileId, tileBounds, tileCenter, TILE_BOTTOM_LAYER } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
@@ -335,10 +336,12 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       `;
   };
 
+  bindGraphLinks();
   chatroomList.innerHTML = `
     ${renderRoomListHeader(sort, deps.text, showRoomsSection)}
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
+      ${placeLinksHtml(deps.currentChatroom || NEARBY_V3_ROOM_ID, currentNode?.name || '', deps)}
       <div id="nearby-browser-members">
         ${nearbyPeople.length
           ? nearbyPeople.map((member) => renderOrdinaryMemberRow(member, deps, true)).join('')

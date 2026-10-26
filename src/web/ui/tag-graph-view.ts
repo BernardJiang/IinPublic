@@ -6,11 +6,14 @@
  */
 import { sharedTagCount, tagsOfPeer, type TagGraphInput } from '../services/tag-graph';
 import {
+  configureGraphPersonPage,
   configureTagGraphSource,
   currentTagGraph,
   openContactsTopic,
   openMeFocus,
   openTalksFocus,
+  placeLinkHtml,
+  placesOf,
   tagKeyword,
 } from './graph-focus';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
@@ -19,6 +22,8 @@ import type { UiTranslationKey } from './ui-translations';
 
 export type TagGraphViewDeps = {
   graphInput: () => TagGraphInput;
+  /** Reopens a person page — stepping back along the graph to one (graph-focus.ts). */
+  openPerson?: (peerId: string, name: string) => void;
   /** The best known display name (Contacts, conversations, peer cache) over a stored placeholder. */
   peerName?: (peerId: string, fallback: string) => string;
   t: (key: UiTranslationKey) => string;
@@ -29,9 +34,16 @@ let configured: TagGraphViewDeps | null = null;
 export function configureTagGraphView(deps: TagGraphViewDeps): void {
   configured = deps;
   configureTagGraphSource(deps.graphInput);
+  if (deps.openPerson) configureGraphPersonPage(deps.openPerson);
 }
 
 const fill = (text: string, count: number): string => text.replace('{count}', String(count));
+
+/** Whose page this section is on: a link followed from it can step back to that person. */
+function markPerson(element: HTMLElement, peerId: string, name: string): void {
+  element.dataset.peerId = peerId;
+  element.dataset.peerName = name;
+}
 
 /** Shared-tag counts against one graph snapshot (Contacts' "Most tags in common" sort), memoized. */
 export function sharedTagCounter(): (peerId: string) => number {
@@ -73,6 +85,7 @@ export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerN
   const section = document.createElement('div');
   section.className = 'tag-graph-peer-tags';
   section.setAttribute('data-testid', 'peer-tags-section');
+  markPerson(section, peerId, name);
   section.innerHTML = `
     <div class="tag-graph-heading">${escapeHtml(deps.t('peerTagsTitle'))}
       ${shared.length > 0 ? `<span class="graph-link" data-testid="peer-shared-tags-link" role="link" tabindex="0">♡ ${escapeHtml(fill(deps.t('tagsInCommon'), shared.length))}</span>` : ''}
@@ -92,4 +105,18 @@ export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerN
     openMeFocus({ label: `♡ ${name}`, talkIds: shared.map((tag) => tag.key) }));
   section.querySelector('[data-testid="peer-talks-link"]')?.addEventListener('click', () =>
     openTalksFocus({ label: `💬 ${name}`, talkIds: exchangedTalkIds }));
+}
+
+/** "Met in 📍 Nearby": where I exchanged with this person (most recently), a link to that place. */
+export function renderPeerPlacesInto(container: HTMLElement, peerId: string): void {
+  const deps = configured;
+  if (!deps) return;
+  const link = placeLinkHtml(placesOf({ peerId }), { escapeHtml, text: deps.t });
+  if (!link) return;
+  const line = document.createElement('div');
+  line.className = 'tag-graph-heading peer-met-in';
+  line.setAttribute('data-testid', 'peer-met-in');
+  markPerson(line, peerId, deps.peerName?.(peerId, '') || '');
+  line.innerHTML = `${escapeHtml(deps.t('peerMetIn'))} ${link}`;
+  container.appendChild(line);
 }

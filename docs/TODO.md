@@ -34,14 +34,15 @@ its ID.
   and Me, whose ♡ / ✕ opens my answer; person page → people per tag, "♡ N in common" → Me, 💬 →
   Talks; open Me refreshes its 👥; tour `staged/stage3-three-user/82` + `phone-path/09` (shared
   `journeys/tag-graph-tour-journey.ts`).
-  Remaining, in order:
-  1. **Place ↔ tag / Talk / answer.** Record the place (Nearby scope or Place id, plus a blurred
-     point) on each exchange; a place lists the tags and Talks exchanged there, a Talk and an answer
-     show where. `broadcast-room-record.ts` already maps sent Talks to rooms.
-  2. **A back step for every link**: each jump returns to where it came from, with its filter.
-  3. Extend the tour with the place edges and the back steps; walk a multi-question Talk's 💬 too.
-  4. Person counts need OPEN-88: two exchanges of the same tag overwrite each other, so Contacts
-     show "Received 0".
+  Also done: each exchange records its place (room id and name); a place lists "👥 N met here" and
+  "💬 N Talks here", a Me row shows "📍 Nearby" (where it was last exchanged), a person page "Met in
+  📍 …"; the AppBar ‹ steps back along followed links (tab, its narrowing, an open person page) and
+  a tab tapped by hand starts afresh. The tour walks the place edges and the back steps too.
+  Remaining:
+  1. Walk a multi-question Talk's 💬 and 👥 in the tour (only tags are walked so far).
+  2. A Talk's own place on the Talks tab (today a Talk reaches its place through its Me answer).
+  3. Person counts need OPEN-88: two exchanges of the same tag overwrite each other, so Contacts
+     show "Received 0" and an exchange's place is the last one only.
 
 - [ ] **OPEN-90 — A copied incoming Talk will not open (found 2026-10-25).** After a drag-down copy
   of an incoming Flow Talk, tapping its title opens nothing: `showTalkDetail` falls through to

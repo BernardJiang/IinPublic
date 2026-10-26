@@ -47,6 +47,9 @@ export type LocalTalkExchange = {
   collectionSessionId?: string;
   collectionLabel?: string;
   collectionStartedAt?: string;
+  /** Where it happened (OPEN-89): the room I was in — Nearby or a Place — and its name then. */
+  roomId?: string;
+  roomName?: string;
 };
 
 export type LocalTalkHistoryItem = {

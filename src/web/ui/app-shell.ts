@@ -26,6 +26,8 @@ export function renderAppShell(
             <button class="app-bar-back-btn" id="back-to-chatrooms" data-testid="back-to-chatrooms" data-appbar-view="chatrooms" title="Back" style="display:none;">‹</button>
             <button class="app-bar-back-btn" id="back-to-contacts-list" data-testid="back-to-contacts-list" data-appbar-view="contacts" title="Back" style="display:none;">‹</button>
             <button class="app-bar-back-btn" id="back-to-settings-menu" data-testid="back-to-settings-menu" data-appbar-view="settings" title="Back" style="display:none;">‹</button>
+            <!-- Back along the graph (graph-focus.ts): to where the last link was followed from, on any tab. -->
+            <button type="button" class="app-bar-back-btn graph-back-btn" id="graph-back-btn" data-testid="graph-back-btn" title="${text('graphBack')}" aria-label="${text('graphBack')}" hidden>‹</button>
           </div>
           <div class="app-bar-center" id="app-bar-center">
             <div class="header-title" id="header-title"></div>

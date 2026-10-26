@@ -12,7 +12,7 @@ import { getPeerNameCache, rememberPeerName } from './peer-name-cache';
 import { registerTalkForPeer } from './talk-peer-registration';
 import { openPeerDetailView } from './user-detail-view';
 import type { UiTranslationKey } from './ui-translations';
-import { configureTagGraphView, renderPeerTagsInto } from './tag-graph-view';
+import { configureTagGraphView, renderPeerPlacesInto, renderPeerTagsInto } from './tag-graph-view';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 
 export interface PeerControllerDeps {
@@ -118,6 +118,7 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
       controller.isBlockedByMe(peerId),
       false,
     );
+    renderPeerPlacesInto(container, peerId);
     renderPeerTagsInto(container, peerId, peerName);
   };
 
@@ -333,6 +334,7 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
       myTalks: deps.getMyTalks(),
       exchanges: readLocalTalkExchanges(),
     }),
+    openPerson: (peerId, name) => openPeerDetailForUser(peerId, name),
     peerName: (peerId, fallback) => controller.getPeerName(peerId, fallback),
     t: deps.t,
   });
