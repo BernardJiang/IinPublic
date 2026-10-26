@@ -6,6 +6,7 @@
  * every host runs the same rule.
  */
 import { checkIfMatch } from '../shared/talk-engine';
+import { isResponseComplete } from './response-rules';
 import { applyEvent, outcomeKey, retractedKey, type TalkLedgerDoc } from '../shared/talk-ledger';
 
 export type ResponseIngestInput = {
@@ -38,8 +39,7 @@ export function decideResponseIngest(input: ResponseIngestInput): ResponseIngest
 
   // A survey answered only in part is not an answer, whatever the sender claims (TODO §W Gap 2:
   // the receiving half of the guard `submitTalkResponsePairDirect` applies when sending).
-  const totalQuestions = Array.isArray(talkData?.questions) ? talkData.questions.length : 0;
-  if (talkData?.type === 'survey' && answers.length < totalQuestions) return { kind: 'reject', reason: 'incomplete-survey' };
+  if (!isResponseComplete(talkData, answers)) return { kind: 'reject', reason: 'incomplete-survey' };
 
   // Step 10: an answer given before I retracted the Talk is discarded.
   const tombstone = ledger.retracted[retractedKey(input.talkId, input.authorId)];

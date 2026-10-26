@@ -242,6 +242,7 @@ import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
+import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
@@ -7120,13 +7121,10 @@ export class IinPublicApp {
     // via handleTalkCompleted and the chatbot-replay path via tryChatbotReply funnel through
     // here) — talk-response-dialog.ts's per-type flows are the primary fix and should never
     // actually reach this with a short answer set for survey anymore.
-    const totalQuestions = Array.isArray(params.talkData?.questions) ? params.talkData.questions.length : 0;
-    const isComplete = params.talkData?.type !== 'survey' || params.answers.length >= totalQuestions;
-    if (!isComplete) {
+    if (!isResponseComplete(params.talkData, params.answers)) {
       console.log('⏸️ Talk response incomplete (survey, not all questions answered) — not submitting:', {
         talkId: params.talkId,
         answered: params.answers.length,
-        totalQuestions,
       });
       return;
     }
@@ -7139,11 +7137,7 @@ export class IinPublicApp {
       params.answers,
       this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
     );
-    const isIgnore = params.answers.some((answer: any) => {
-      const answerId = String(answer?.answerId || '').toLowerCase();
-      const answerText = String(answer?.answerText || '').toLowerCase();
-      return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
-    });
+    const isIgnore = isIgnoreAnswerSet(params.answers);
     // R-1: CIDv1 response id — REQ-LEDGER-04/12 (replaces resp_<ts>_<rand> non-deterministic id)
     const responseContentJson = canonicalSerialize(params.answers);
     const responseId = await computeResponseId({
@@ -7159,14 +7153,8 @@ export class IinPublicApp {
     const wholeTalkIdentityKey = buildTalkIdentityKey(params.talkData);
     const priorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, params.authorId);
     const priorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, params.authorId);
-    // If responseId is unchanged from prior (same answers re-submitted), keep version.
-    // If responseId changed (content changed), version = prior + 1.
     const isContentChange = priorResponseId !== null && priorResponseId !== responseId;
-    const newVersion = priorResponseId === null
-      ? 1                        // first answer ever
-      : isContentChange
-        ? priorVersion + 1       // change of mind: bump
-        : priorVersion;          // same content re-submitted (idempotent)
+    const newVersion = nextResponseVersion(priorResponseId, priorVersion, responseId);
     const respondedAt = submittedAt; // first answer: respondedAt == submittedAt; supersession: now
 
     const skipE2eLocalOnlyReject =
@@ -7217,11 +7205,7 @@ export class IinPublicApp {
           });
       const targetPriorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, targetAuthorId);
       const targetPriorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, targetAuthorId);
-      const targetVersion = targetPriorResponseId === null
-        ? 1
-        : targetPriorResponseId === targetResponseId
-          ? targetPriorVersion
-          : targetPriorVersion + 1;
+      const targetVersion = nextResponseVersion(targetPriorResponseId, targetPriorVersion, targetResponseId);
       const responderEpub = this.gunService.getStoredPair()?.epub;
       const meshPayload: P2PMeshTalkResponsePayload = {
         responseId: targetResponseId,
