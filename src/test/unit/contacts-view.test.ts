@@ -401,7 +401,6 @@ describe('Contacts ranking and relationship filters', () => {
     const tag = (id: string) => ({ role: 'created', fullTalk: { id, type: 'tag', title: id } });
     configureTagGraphView({
       graphInput: () => ({ currentUserId: 'me', incoming: [], myTalks: { 'tag-coffee': tag('tag-coffee'), 'tag-tea': tag('tag-tea') }, exchanges }),
-      openPerson: () => {},
       t: (key) => uiText('en', key),
     });
     try {
@@ -410,7 +409,7 @@ describe('Contacts ranking and relationship filters', () => {
       expect(meta('strong')).toContain('2 common tags');
       expect(meta('weak')).not.toContain('common tag');
     } finally {
-      configureTagGraphView({ graphInput: () => ({ currentUserId: '', incoming: [], myTalks: {}, exchanges: {} }), openPerson: () => {}, t: (key) => uiText('en', key) });
+      configureTagGraphView({ graphInput: () => ({ currentUserId: '', incoming: [], myTalks: {}, exchanges: {} }), t: (key) => uiText('en', key) });
     }
   });
 

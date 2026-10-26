@@ -8,6 +8,7 @@
  * Leaving the tab, or a chip's ✕, shows everything again.
  */
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
+import { buildTagGraph, type TagGraph, type TagGraphInput } from '../services/tag-graph';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { getFlatAnswerHistory } from './answer-history-storage';
 import type { UiTranslationKey } from './ui-translations';
@@ -18,11 +19,60 @@ export type TalksFocus = { label: string; talkIds: string[] };
 
 const TOPIC_INPUT_ID = 'contacts-filter-topic';
 let talksFocus: TalksFocus | null = null;
+let meFocus: TalksFocus | null = null;
+let tagGraphInput: (() => TagGraphInput) | null = null;
 /** Topics a link opened that my answer history does not hold (a tag I created, say), by text. */
 const linkedTopics = new Map<string, GraphTopic>();
 let navBound = false;
 
 const norm = (text: string): string => text.trim().toLowerCase();
+
+/** The person↔tag graph's data (configured by the peer controller via tag-graph-view.ts). */
+export function configureTagGraphSource(input: () => TagGraphInput): void {
+  tagGraphInput = input;
+}
+
+export function currentTagGraph(): TagGraph | null {
+  return tagGraphInput ? buildTagGraph(tagGraphInput()) : null;
+}
+
+/** A tag's keyword from its title: "🍕 Pizza" → "Pizza". */
+export function tagKeyword(title: string): string {
+  return String(title || '').replace(/^[^\p{L}\p{N}]+/u, '').trim() || String(title || '').trim();
+}
+
+/**
+ * Who likes any of these tags: whoever sent it to me or matched it with me (the tag graph), the
+ * one who most recently exchanged it with me first. The one answer to "who likes Pizza" on every
+ * tab.
+ */
+export function peopleWhoLike(tagKeys: Iterable<string>): string[] {
+  const keys = [...tagKeys];
+  const graph = currentTagGraph();
+  if (!graph) return peopleWhoExchanged(keys, true);
+  const ordered = peopleWhoExchanged(keys, false);
+  const likers = new Set(keys.flatMap((key) => [...(graph.tags.get(key)?.likers.keys() ?? [])]));
+  return [...ordered.filter((peerId) => likers.has(peerId)), ...[...likers].filter((peerId) => !ordered.includes(peerId))];
+}
+
+/** The people a question leads to: for a tag, who like it; otherwise, who exchanged it with me. */
+export function peopleForTopic(topic: Pick<GraphTopic, 'talkIds' | 'isTag'>): string[] {
+  return topic.isTag ? peopleWhoLike(topic.talkIds) : peopleWhoExchanged(topic.talkIds, false);
+}
+
+/** My answered questions plus every tag someone sent me or matched with me, by text. */
+function allTopics(): Map<string, GraphTopic> {
+  const topics = answerTopics();
+  for (const tag of currentTagGraph()?.tags.values() ?? []) {
+    const label = tagKeyword(tag.label);
+    if (!label) continue;
+    const topic = topics.get(norm(label)) ?? { label, talkIds: [], isTag: true };
+    if (!topic.talkIds.includes(tag.key)) topic.talkIds.push(tag.key);
+    topic.isTag = true;
+    topics.set(norm(label), topic);
+  }
+  return topics;
+}
 
 /** Every question I answered, by its text: the Talks that asked it, and whether it is a tag. */
 export function answerTopics(): Map<string, GraphTopic> {
@@ -62,15 +112,40 @@ export function getContactsFocus(): ContactsFocus | null {
   const input = document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null;
   const text = input?.value.trim() || '';
   if (!text) return null;
-  const topic = answerTopics().get(norm(text)) ?? linkedTopics.get(norm(text));
+  const topic = allTopics().get(norm(text)) ?? linkedTopics.get(norm(text));
   return {
     label: topic?.isTag ? `♡ ${topic.label}` : topic?.label ?? text,
-    peerIds: topic ? peopleWhoExchanged(topic.talkIds, topic.isTag) : [],
+    peerIds: topic ? peopleForTopic(topic) : [],
   };
 }
 
 export function getTalksFocus(): TalksFocus | null {
   return talksFocus;
+}
+
+/** The Me rows a person page or a Talks tag leads to: only the answers to these Talks. */
+export function getMeFocus(): TalksFocus | null {
+  return meFocus;
+}
+
+export function openMeFocus(next: TalksFocus): void {
+  meFocus = next;
+  openTab('me');
+}
+
+export function clearMeFocus(): void {
+  meFocus = null;
+}
+
+/** Contacts' 🏷️: the "Tag or question" filter, ready to type into. */
+export function focusContactsTopicFilter(): void {
+  const input = document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null;
+  if (!input) return;
+  const content = input.closest('.filter-bar-content');
+  if (content && !content.classList.contains('open')) {
+    (content.parentElement?.querySelector('.filter-bar-toggle') as HTMLElement | null)?.click();
+  }
+  input.focus();
 }
 
 /** Any other tab ends a narrowing (capture phase, before the tab switch renders). */
@@ -82,11 +157,17 @@ function bindNavReset(): void {
     if (!nav || nav.dataset.focusOpening) return;
     if (nav.dataset.view !== 'contacts') clearContactsFocus();
     if (nav.dataset.view !== 'talks') talksFocus = null;
+    if (nav.dataset.view !== 'me') meFocus = null;
   }, true);
 }
 
-function openTab(view: 'contacts' | 'talks'): void {
+function openTab(view: 'contacts' | 'talks' | 'me'): void {
   bindNavReset();
+  // A person page or a chat thread sits over the tabs: step back out of it first, so the list shows.
+  for (const [overlayId, backId] of [['peer-detail-overlay', 'back-from-peer-detail'], ['conversation-detail-overlay', 'back-from-conversation']]) {
+    const overlay = document.getElementById(overlayId);
+    if (overlay && getComputedStyle(overlay).display !== 'none') document.getElementById(backId)?.click();
+  }
   const tab = document.querySelector<HTMLElement>(`.nav-btn[data-view="${view}"]`);
   if (!tab) return;
   tab.dataset.focusOpening = '1';
@@ -146,7 +227,7 @@ export function syncFocusChip(
 export function syncTopicOptions(): void {
   const list = document.getElementById(`${TOPIC_INPUT_ID}-options`);
   if (!list) return;
-  list.replaceChildren(...[...answerTopics().values()].map((topic) => {
+  list.replaceChildren(...[...allTopics().values()].map((topic) => {
     const option = document.createElement('option');
     option.value = topic.label;
     return option;
@@ -158,12 +239,12 @@ export function syncTopicOptions(): void {
  * text, and — once people exchanged it with me — "👥 N", a link to them.
  */
 export function tagFaceHtml(
-  face: { state: 'liked' | 'passed' | 'open'; text: string; topic: string; people: number; talkIds?: string[]; suffixHtml?: string },
+  face: { state: 'liked' | 'passed' | 'open'; text: string; topic: string; people: number; talkIds?: string[]; suffixHtml?: string; markLinksToAnswer?: boolean },
   deps: { escapeHtml: (text: string) => string; text: (key: UiTranslationKey) => string },
 ): string {
   const mark = face.state === 'open'
     ? ''
-    : `<span class="answer-tag-mark" data-testid="answer-tag-mark" aria-label="${deps.escapeHtml(deps.text(face.state === 'liked' ? 'meFilterLiked' : 'meFilterPassed'))}">${face.state === 'liked' ? '♡' : '✕'}</span>`;
+    : `<span class="answer-tag-mark${face.markLinksToAnswer && face.talkIds?.length ? ' graph-link graph-answer-link' : ''}" data-testid="answer-tag-mark"${face.markLinksToAnswer && face.talkIds?.length ? ` data-topic="${deps.escapeHtml(face.topic)}" data-talk-ids="${deps.escapeHtml(face.talkIds.join(' '))}" role="link" tabindex="0" title="${deps.escapeHtml(deps.text('talksViewInMyAnswers'))}"` : ''} aria-label="${deps.escapeHtml(deps.text(face.state === 'liked' ? 'meFilterLiked' : 'meFilterPassed'))}">${face.state === 'liked' ? '♡' : '✕'}</span>`;
   return `${mark}<span class="talk-tag-text">${deps.escapeHtml(face.text)}${face.suffixHtml ?? ''}</span>${peopleLinkHtml(face.topic, face.people, deps, face.talkIds, true)}`;
 }
 
@@ -200,13 +281,16 @@ export function bindGraphLinks(): void {
   if (linksBound) return;
   linksBound = true;
   document.addEventListener('click', (event) => {
-    const link = (event.target as HTMLElement | null)?.closest?.('.graph-link') as HTMLElement | null;
+    // Links that carry their topic; others (a person page's) handle their own clicks.
+    const link = (event.target as HTMLElement | null)?.closest?.('.graph-link[data-topic]') as HTMLElement | null;
     if (!link) return;
     event.stopPropagation();
     event.preventDefault();
     const topic = link.dataset.topic || '';
     const talkIds = (link.dataset.talkIds || '').split(' ').filter(Boolean);
-    if (link.classList.contains('graph-people-link')) {
+    if (link.classList.contains('graph-answer-link')) {
+      openMeFocus({ label: `${link.textContent || ''} ${topic}`.trim(), talkIds });
+    } else if (link.classList.contains('graph-people-link')) {
       openContactsTopic(topic, talkIds.length ? { label: topic, talkIds, isTag: link.dataset.tag === '1' } : undefined);
     } else {
       openTalksFocus({ label: `💬 ${topic}`, talkIds });

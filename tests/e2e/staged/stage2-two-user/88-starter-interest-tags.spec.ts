@@ -11,8 +11,8 @@
  * 2. Matching: Alice and Bob both like the first starter tag; Carol likes the second, which passes the
  *    first above it. Bob broadcasts: Alice's chatbot answers his copy from her own Like and they
  *    match; Carol's chatbot passes it from her pass, and nothing matches for her.
- * 3. The graph, from Alice's side: Contacts → 🏷️ Tags → the shared tag (in her tags) → Bob → Bob's
- *    tags, that one marked shared → back to its tag page.
+ * 3. The graph, from Alice's side: Contacts 🏷️ → type the shared tag → Bob → Bob's tags, that one
+ *    marked shared → the same people; his 💬 → our Talks; ♡ in common → my answers on Me.
  */
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -156,23 +156,37 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     await carol.page.waitForTimeout(5_000);
     expect(await matches(carol.page)).toBe(0);
 
-    // Travel the graph from Alice's side: Contacts → 🏷️ Tags → the shared tag → Bob → his tags → it.
+    // Travel the graph from Alice's side (graph-focus.ts): Contacts 🏷️ → type the tag → Bob → his
+    // tags → that tag → the same people; his 💬 → our Talks; ♡ in common → my answers on Me.
     const a = alice.page;
     await a.locator('.nav-btn[data-view="contacts"]').click();
     await a.locator('[data-testid="contacts-tag-directory-btn"]').click();
-    await a.locator('[data-testid="tag-directory-search"]').fill(shared.text.slice(0, 3).toLowerCase());
-    const sharedChip = a.locator('[data-testid="tag-directory-list"] [data-tag-key]').filter({ hasText: shared.text });
-    await expect(sharedChip).toHaveCount(1);
-    await expect(sharedChip).toHaveAttribute('data-shared', 'true');
-    await sharedChip.click();
-    await expect(a.locator('[data-testid="tag-page-mine"]')).toHaveText('In your tags');
-    const bobRow = a.locator('[data-testid="tag-page-person"]').filter({ hasText: 'Bob Tags' });
-    await expect(bobRow).toHaveCount(1);
-    await bobRow.click();
+    const topic = a.locator('[data-testid="contacts-filter-topic"]');
+    await expect(topic).toBeFocused();
+    await topic.fill(shared.text.toLowerCase());
+    await expect(a.locator('[data-testid="contacts-focus-chip"]')).toContainText(shared.text);
+    const people = a.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])');
+    await expect(people).toHaveCount(1);
+    await expect(people.first()).toContainText('Bob Tags');
+    await people.first().locator('.contact-item-meta').first().click();
     await expect(a.locator('#peer-detail-overlay')).toBeVisible();
     const bobsShared = a.locator('[data-testid="peer-tags-section"] [data-tag-key]').filter({ hasText: shared.text });
     await expect(bobsShared).toHaveAttribute('data-shared', 'true');
     await bobsShared.click();
-    await expect(a.locator('#tag-page-modal-title')).toContainText(shared.text);
+    await expect(a.locator('[data-testid="contacts-focus-chip"]')).toContainText(shared.text);
+    await expect(people).toHaveCount(1);
+
+    await people.first().locator('.contact-item-meta').first().click();
+    await a.locator('[data-testid="peer-talks-link"]').click();
+    await expect(a.locator('[data-testid="talks-focus-chip"]')).toContainText('Bob Tags');
+    await expect(a.locator('#talks-list .talk-tag-chip')).toHaveCount(1);
+    await expect(a.locator('#talks-list .talk-tag-chip')).toContainText(shared.text);
+
+    await a.locator('.nav-btn[data-view="contacts"]').click();
+    await people.first().locator('.contact-item-meta').first().click();
+    await a.locator('[data-testid="peer-shared-tags-link"]').click();
+    await expect(a.locator('[data-testid="me-focus-chip"]')).toContainText('Bob Tags');
+    await expect(a.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
+    await expect(a.locator('#answers-list .answer-talk-item:visible')).toHaveAttribute('data-topic', shared.text);
   });
 });

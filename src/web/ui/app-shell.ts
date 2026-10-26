@@ -409,6 +409,8 @@ export function renderAppShell(
             <div class="view-content">
               <div class="filter-bar me-action-bar" style="gap:12px;">
                 <button type="button" class="filter-bar-toggle" data-testid="me-filter-toggle" aria-expanded="false">Filters ▾</button>
+                <!-- The answers a person page or a Talks tag leads to (graph-focus.ts): "♡ Ann ✕". -->
+                <span class="focus-chip" id="me-focus-chip" data-testid="me-focus-chip" hidden><span class="focus-chip-label"></span><button type="button" class="focus-chip-clear" data-testid="me-focus-clear">✕</button></span>
                 <div class="filter-bar-content" style="gap:12px;">
                 <span id="me-talk-type-filter-label" style="font-size:0.82em;color:var(--text-tertiary);font-weight:700;">Talk types</span>
                 <label class="me-talk-type-filter" data-me-talk-type="tag" style="display:flex;align-items:center;gap:5px;font-size:0.86em;">

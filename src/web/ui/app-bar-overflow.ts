@@ -1,4 +1,4 @@
-import { openTagDirectory } from './tag-graph-view';
+import { focusContactsTopicFilter } from './graph-focus';
 
 /**
  * Reflows the legacy ID-based app bar (`#top-header`/`#app-bar-actions`/
@@ -103,7 +103,7 @@ export function setupAppBarChrome(deps: AppBarChromeDeps): void {
   document.getElementById('contacts-broadcast-group-btn')?.addEventListener('click', () => {
     deps.showBroadcastToGroupDialog();
   });
-  // OPEN-87: every known tag and who likes it, from the Contacts tab.
-  document.getElementById('contacts-tag-directory-btn')?.addEventListener('click', () => openTagDirectory());
+  // OPEN-87: 🏷️ — find the people who like a tag: Contacts' "Tag or question" filter.
+  document.getElementById('contacts-tag-directory-btn')?.addEventListener('click', () => focusContactsTopicFilter());
   syncAppBarOverflow();
 }

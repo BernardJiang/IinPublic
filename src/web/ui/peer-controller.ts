@@ -118,7 +118,7 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
       controller.isBlockedByMe(peerId),
       false,
     );
-    renderPeerTagsInto(container, peerId);
+    renderPeerTagsInto(container, peerId, peerName);
   };
 
   const openDirectConversationWithPeer = async (
@@ -325,7 +325,7 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
     },
   };
 
-  // OPEN-87: tag pages and the tag directory open people through this controller.
+  // OPEN-87: the person↔tag graph behind person-page tags, Contacts' tag filter and 👥 counts.
   configureTagGraphView({
     graphInput: () => ({
       currentUserId: deps.getCurrentUserId(),
@@ -333,7 +333,6 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
       myTalks: deps.getMyTalks(),
       exchanges: readLocalTalkExchanges(),
     }),
-    openPerson: (peerId, name) => openPeerDetailForUser(peerId, name),
     peerName: (peerId, fallback) => controller.getPeerName(peerId, fallback),
     t: deps.t,
   });

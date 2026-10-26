@@ -4,7 +4,7 @@
 
 import { answerTalkMatchesQuery, applyMeAnswerFilter, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
 import { longPress } from './helpers/long-press';
-import { clearContactsFocus, getContactsFocus } from '../../web/ui/graph-focus';
+import { bindGraphLinks, clearContactsFocus, clearMeFocus, getContactsFocus, getMeFocus, openMeFocus, tagFaceHtml } from '../../web/ui/graph-focus';
 import {
   appendAutoUse,
   createEmptyExactChatbotMemoryState,
@@ -1037,5 +1037,55 @@ describe('Me rows lead through the graph (owner design 2026-10-25)', () => {
     (document.getElementById('passed') as HTMLInputElement).checked = true;
     applyMeAnswerFilter((key) => uiText('en', key));
     expect(shown().sort()).toEqual(['tag-horror', 'tag-pizza']);
+  });
+});
+
+describe('Me focus: a person page or a Talks tag shows only its answers (graph-focus.ts)', () => {
+  it('shows only the focused answers, even a passed tag the filters hide, until ✕', () => {
+    document.body.innerHTML = `
+      <div id="answers-content"></div><button class="nav-btn" data-view="me"></button>
+      <span id="me-focus-chip" hidden><span class="focus-chip-label"></span><button type="button" class="focus-chip-clear">✕</button></span>
+      <label class="me-talk-type-filter"><input type="checkbox" class="me-talk-type-checkbox" value="tag" checked></label>
+      <input type="checkbox" class="me-tag-state-checkbox" value="checked" checked>
+      <input type="checkbox" class="me-tag-state-checkbox" value="unchecked">`;
+    const tag = (keyword: string, talkId: string, liked: boolean) => ({
+      [talkId]: {
+        id: talkId, talkId, title: keyword, type: 'tag', language: 'en', outcome: liked ? 'match' : 'mismatch',
+        answeredAt: new Date(2026, 0, 1).toISOString(), senderIds: [],
+        items: [{ questionId: 'q_0', answerId: 'x', prompt: keyword, choice: liked ? 'Checked' : 'Unchecked', kind: 'tag' as const, booleanTag: true, contextPath: [], contextHash: '' }],
+      },
+    });
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => ({ ...tag('Pizza', 'tag-pizza', true), ...tag('Horror', 'tag-horror', false), ...tag('Jazz', 'tag-jazz', true) }),
+      escapeHtml: (value: string) => value, showTalkDetail: jest.fn(), showPreferencesDialog: jest.fn(), showItemDetailsPopup: jest.fn(),
+      getTalkContentKey: jest.fn(), text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+      formatDate: () => 'date', formatType: () => 'Tag', formatLanguage: () => 'English',
+    } as any);
+    const t = (key: Parameters<typeof uiText>[1]) => uiText('en', key);
+    const shown = () => Array.from(document.querySelectorAll<HTMLElement>('.answer-talk-item')).filter((row) => row.style.display !== 'none').map((row) => row.dataset.talkId).sort();
+    try {
+      openMeFocus({ label: '♡ Ann', talkIds: ['tag-pizza', 'tag-horror'] });
+      applyMeAnswerFilter(t);
+      expect(shown()).toEqual(['tag-horror', 'tag-pizza']);
+      expect(document.getElementById('me-focus-chip')!.hidden).toBe(false);
+      document.querySelector<HTMLElement>('#me-focus-chip .focus-chip-clear')!.click();
+      expect(shown()).toEqual(['tag-jazz', 'tag-pizza']);
+    } finally {
+      clearMeFocus();
+    }
+  });
+
+  it('on Talks, a tag’s ♡ is my answer: it opens that answer on Me', () => {
+    document.body.innerHTML = `<button class="nav-btn" data-view="me"></button><div id="chip">${
+      tagFaceHtml({ state: 'liked', text: '🍕 Pizza', topic: 'Pizza', people: 2, talkIds: ['tag-pizza'], markLinksToAnswer: true }, { escapeHtml: (v: string) => v, text: (key) => uiText('en', key) })
+    }</div>`;
+    bindGraphLinks();
+    try {
+      document.querySelector<HTMLElement>('#chip [data-testid="answer-tag-mark"]')!.click();
+      expect(getMeFocus()).toEqual({ label: '♡ Pizza', talkIds: ['tag-pizza'] });
+    } finally {
+      clearMeFocus();
+    }
   });
 });

@@ -11,7 +11,7 @@ import { renderListProgressively } from './render-list-progressively';
 import { avatarInnerHtml } from './profile-avatar';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { createRowSelection, type RowSelection } from './list-row-selection';
-import { bindGraphLinks, openContactsTopic, peopleLinkHtml, peopleWhoExchanged, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
+import { bindGraphLinks, clearMeFocus, getMeFocus, openContactsTopic, peopleForTopic, peopleLinkHtml, syncFocusChip, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
@@ -610,7 +610,7 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       // A tag is a short question answered publicly: ♡ liked or ✕ passed, no answer text.
       // Who exchanged this question with me (for a tag, who like it), the most recent first, and the
       // Talks that asked it: the two ways a row leads through the graph (graph-focus.ts).
-      const people = peopleWhoExchanged(talkIds, tagState !== '');
+      const people = peopleForTopic({ talkIds, isTag: tagState !== '' });
       const linksHtml = peopleLinkHtml(group.prompt, people.length, deps, talkIds, tagState !== '') + talksLinkHtml(group.prompt, talkIds, deps);
       const bodyHtml = tagState
         ? `<div class="qa-line qa-question" style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;font-weight:600;">
@@ -674,6 +674,9 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
  * text query and is intentionally left as-is; not this function's concern).
  */
 export function applyMeAnswerFilter(t: (key: UiTranslationKey) => string): void {
+  // A person page or a Talks tag (graph-focus.ts) shows only its answers, whatever the filters say.
+  const focus = getMeFocus();
+  syncFocusChip('me-focus-chip', focus?.label ?? null, t, () => { clearMeFocus(); applyMeAnswerFilter(t); });
   const activeTypes = Array.from(document.querySelectorAll<HTMLInputElement>('.me-talk-type-checkbox:checked'))
     .map((checkbox) => checkbox.value.toLowerCase())
     .filter(Boolean);
@@ -706,8 +709,10 @@ export function applyMeAnswerFilter(t: (key: UiTranslationKey) => string): void 
     const answeredAt = Number(item.dataset.answeredAt || 0);
     const matchesAnswer = !answerQuery || String(item.dataset.answerText || '').includes(answerQuery);
     const matchesDate = answeredAt >= fromMs && answeredAt <= toMs;
-    const visible = matchesType && matchesTagState && matchesQuery && matchesAnswer && matchesDate
-      && (outcome === 'all' || item.dataset.outcome === outcome);
+    const visible = focus
+      ? String(item.dataset.talkIds || '').split(' ').some((talkId) => focus.talkIds.includes(talkId))
+      : matchesType && matchesTagState && matchesQuery && matchesAnswer && matchesDate
+        && (outcome === 'all' || item.dataset.outcome === outcome);
     item.style.display = visible ? 'flex' : 'none';
     if (visible) visibleCount += 1;
   });

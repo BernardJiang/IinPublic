@@ -6382,6 +6382,9 @@ export class IinPublicApp {
         console.log(`[contacts-prune] pruned ${drop.length} exchange-only contact(s) beyond the cap`);
         this.uiManager.displayContactsList();
       }
+      // Me counts each answer's 👥 when it renders: once a burst of exchanges settles, show the new
+      // counts if Me is on screen (graph-focus.ts).
+      if (document.querySelector('.nav-btn[data-view="me"]')?.classList.contains('active')) this.uiManager.displayAnswersList();
     }, delayMs);
   }
 

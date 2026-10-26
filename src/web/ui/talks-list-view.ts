@@ -23,7 +23,7 @@ import {
 } from './tag-tap-mode';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
-import { bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoExchanged, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
+import { bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const TALKS_FIRST_CHUNK_SIZE = 25;
@@ -790,13 +790,15 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       const title = String(face.talk?.title || face.talk?.fullTalk?.title || deps.t('talksIncomingFallback'));
       // A Pair tag or a many-keyword tag reads by its title; a one-keyword tag like its Me row.
       const simple = questions.length === 1 && !questions[0]?.reciprocalTagContext;
-      const people = face.state === 'liked' ? peopleWhoExchanged([face.talkId], true).length : 0;
+      const people = face.state === 'open' ? 0 : peopleWhoLike([face.talkId]).length;
       return tagFaceHtml({
         state: face.state,
         text: simple ? tagText(title, keyword) : title,
         topic: keyword || title,
         people,
         talkIds: [face.talkId],
+        // On Talks, the ♡ / ✕ is my answer: it opens that answer on Me.
+        markLinksToAnswer: true,
         ...(face.suffixHtml ? { suffixHtml: face.suffixHtml } : {}),
       }, { escapeHtml, text: deps.t });
     };

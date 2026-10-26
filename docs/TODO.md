@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-24.
+Last reconciled: 2026-10-25.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -22,6 +22,32 @@ move its outcome and verification evidence to `docs/completed.md`, remove it her
 its ID.
 
 ## Active execution queue — website and Android first
+
+- [ ] **OPEN-89 — A GUI over a graph: every tab leads to every other (started 2026-10-25).**
+  The four tabs are four kinds of node — places (Chatrooms), people (Contacts), Talks, and answers
+  (Me, the questionnaire in flattened form) — and each should lead to the others as graph
+  traversal. A tag, the simplest Talk (one question answered ♡ or ✕), touches every kind of node,
+  so tags lead the work and the tour spec. Links live in `src/web/ui/graph-focus.ts`.
+  Done: rows without buttons on Contacts and Me (long-press + AppBar); Me rows → 👥 people (latest
+  first) and 💬 Talks; Contacts "Tag or question" filter (typed = tapped); one "people who like this
+  tag" list from the tag graph (tag page and directory modals removed); tags look the same on Talks
+  and Me, whose ♡ / ✕ opens my answer; person page → people per tag, "♡ N in common" → Me, 💬 →
+  Talks; open Me refreshes its 👥; tour `staged/stage3-three-user/82` + `phone-path/09` (shared
+  `journeys/tag-graph-tour-journey.ts`).
+  Remaining, in order:
+  1. **Place ↔ tag / Talk / answer.** Record the place (Nearby scope or Place id, plus a blurred
+     point) on each exchange; a place lists the tags and Talks exchanged there, a Talk and an answer
+     show where. `broadcast-room-record.ts` already maps sent Talks to rooms.
+  2. **A back step for every link**: each jump returns to where it came from, with its filter.
+  3. Extend the tour with the place edges and the back steps; walk a multi-question Talk's 💬 too.
+  4. Person counts need OPEN-88: two exchanges of the same tag overwrite each other, so Contacts
+     show "Received 0".
+
+- [ ] **OPEN-90 — A copied incoming Talk will not open (found 2026-10-25).** After a drag-down copy
+  of an incoming Flow Talk, tapping its title opens nothing: `showTalkDetail` falls through to
+  `demandFullTalk`, which never answers. `staged/stage2-two-user/82-copy-then-edit-transfers-authorship`
+  fails at 17ca2952 and with that commit's app files reverted to 83a7f4b3, so it predates the
+  2026-10-25 work. Find the commit that broke it, fix it, and keep the spec green.
 
 - [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5).** `localTalkExchanges`
   is still one localStorage JSON map that is parsed and rewritten on every exchange. The OPEN-87

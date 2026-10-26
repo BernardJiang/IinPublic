@@ -1,7 +1,8 @@
 /** @jest-environment jsdom */
 /** OPEN-87 S4: the person↔tag graph from local data, and the tag page / directory / person tags. */
 import { buildTagGraph, likersOfTag, sharedTagCount, tagDirectory, tagsOfPeer } from '../../web/services/tag-graph';
-import { configureTagGraphView, openTagDirectory, openTagPage, renderPeerTagsInto } from '../../web/ui/tag-graph-view';
+import { configureTagGraphView, renderPeerTagsInto } from '../../web/ui/tag-graph-view';
+import { clearContactsFocus, clearMeFocus, clearTalksFocus, getContactsFocus, getMeFocus, getTalksFocus, peopleWhoLike } from '../../web/ui/graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
@@ -57,43 +58,48 @@ describe('tag graph', () => {
 });
 
 describe('tag graph view', () => {
-  const openPerson = jest.fn();
   beforeEach(() => {
-    document.body.innerHTML = '';
-    openPerson.mockReset();
+    document.body.innerHTML = '<button class="nav-btn" data-view="contacts"></button><button class="nav-btn" data-view="me"></button><button class="nav-btn" data-view="talks"></button><input id="contacts-filter-topic">';
+    localStorage.clear();
+    localStorage.setItem('localTalkExchanges', JSON.stringify(input.exchanges));
     configureTagGraphView({
-      graphInput: () => input, openPerson, t: (key) => key,
+      graphInput: () => input, t: (key) => key,
       peerName: (peerId, fallback) => (peerId === 'bob' ? 'Bob Live' : fallback),
     });
   });
 
-  it('opens a tag page, then a person from it', () => {
-    openTagPage('qa_hike');
-    const rows = document.querySelectorAll<HTMLElement>('[data-testid="tag-page-person"]');
-    expect(rows).toHaveLength(2);
-    // The best known name wins over the one stored with the tag.
-    expect(Array.from(rows).map((row) => row.dataset.userName)).toContain('Bob Live');
-    expect(document.querySelector('[data-testid="tag-page-mine"]')?.textContent).toBe('tagPageInMyTags');
-    rows[0]!.click();
-    expect(openPerson).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[data-testid="tag-page-modal"]')).toBeNull();
+  afterEach(() => {
+    clearContactsFocus();
+    clearMeFocus();
+    clearTalksFocus();
   });
 
-  it('goes from the directory to a tag page, and from person tags to a tag page', () => {
-    openTagDirectory();
-    const search = document.querySelector<HTMLInputElement>('[data-testid="tag-directory-search"]')!;
-    search.value = 'book';
-    search.dispatchEvent(new Event('input'));
-    const chips = document.querySelectorAll<HTMLElement>('[data-testid="tag-directory-list"] [data-tag-key]');
-    expect(Array.from(chips).map((chip) => chip.dataset.tagKey)).toEqual(['qa_books']);
-    chips[0]!.click();
-    expect(document.querySelector('#tag-page-modal-title')?.textContent).toBe('📚 Books');
+  it('a tag lists the people who like it, from senders and matches alike: one list everywhere', () => {
+    // Hiking: Bob sent it (no exchange yet), Carol matched it — the most recent exchange first.
+    expect(peopleWhoLike(['qa_hike'])).toEqual(['carol', 'bob']);
+    // Typed into Contacts' filter by keyword (any case), with or without its emoji.
+    const topic = document.getElementById('contacts-filter-topic') as HTMLInputElement;
+    topic.value = 'hiking';
+    expect(getContactsFocus()).toEqual({ label: '♡ Hiking', peerIds: ['carol', 'bob'] });
+    // A tag someone sent me that I never answered is a topic too.
+    topic.value = 'Books';
+    expect(getContactsFocus()?.peerIds.sort()).toEqual(['bob', 'carol']);
+  });
 
+  it('person tags open the people who like each tag, my shared answers on Me, and our Talks', () => {
     const container = document.createElement('div');
-    renderPeerTagsInto(container, 'bob');
-    const peerChips = container.querySelectorAll<HTMLElement>('[data-testid="tag-graph-chip"]');
-    expect(Array.from(peerChips).map((chip) => chip.dataset.shared ?? '')).toEqual(['true', '']);
-    peerChips[0]!.click();
-    expect(document.querySelector('#tag-page-modal-title')?.textContent).toBe('🥾 Hiking');
+    renderPeerTagsInto(container, 'carol', 'Carol');
+    const chips = container.querySelectorAll<HTMLElement>('[data-testid="tag-graph-chip"]');
+    expect(Array.from(chips).map((chip) => `${chip.dataset.topic}:${chip.dataset.shared ?? ''}`)).toEqual(['Hiking:true', 'Books:']);
+
+    chips[0]!.click();
+    expect((document.getElementById('contacts-filter-topic') as HTMLInputElement).value).toBe('Hiking');
+    expect(getContactsFocus()?.peerIds).toEqual(['carol', 'bob']);
+
+    container.querySelector<HTMLElement>('[data-testid="peer-shared-tags-link"]')!.click();
+    expect(getMeFocus()).toEqual({ label: '♡ Carol', talkIds: ['qa_hike'] });
+
+    container.querySelector<HTMLElement>('[data-testid="peer-talks-link"]')!.click();
+    expect(getTalksFocus()).toEqual({ label: '💬 Carol', talkIds: ['qa_hike'] });
   });
 });
