@@ -2,6 +2,7 @@
  * The GUI's views of the device core's collections (OPEN-91 P3), one per log that left
  * localStorage. `connectCoreCollections` loads them all once the core is up.
  */
+import type { FlatAnswerHistoryRecord } from '../ui/answer-history-storage';
 import type { MyTalkEntry } from '../ui/my-talks-storage';
 import type { ChatbotTemplate } from '../ui/ui-settings-storage';
 import { CoreCollectionView, type CollectionCoreLink } from './core-collection-view';
@@ -29,7 +30,10 @@ export const talkLedgerView = new CoreCollectionView<unknown>('talkLedger', 'tal
   return entries;
 });
 
-const VIEWS: Array<CoreCollectionView<unknown>> = [chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView] as Array<CoreCollectionView<unknown>>;
+/** The Me tab's answer history, by record id. Old key: `myAnswerHistory`. */
+export const answerHistoryView = new CoreCollectionView<FlatAnswerHistoryRecord>('myAnswerHistory', 'myAnswerHistory');
+
+const VIEWS: Array<CoreCollectionView<unknown>> = [chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView] as Array<CoreCollectionView<unknown>>;
 
 export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {
   await Promise.all(VIEWS.map((view) => view.connect(link)));

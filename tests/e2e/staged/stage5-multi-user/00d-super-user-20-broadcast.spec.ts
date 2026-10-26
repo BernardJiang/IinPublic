@@ -235,7 +235,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
       .poll(
         async () =>
           pageTom.evaluate((titles) => {
-            const raw = localStorage.getItem('myAnswerHistory');
+            const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {}));
             const history = raw ? JSON.parse(raw) : {};
             const answered = Object.values(history);
             const answeredTitles = new Set(answered.map((record: any) => String(record?.title || '')));

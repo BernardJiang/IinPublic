@@ -294,7 +294,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     });
     expect(await roleOf(copiedTitle)).toBe('copied');
     const historyTitles = await pageJerry.evaluate(() =>
-      (Object.values(JSON.parse(localStorage.getItem('myAnswerHistory') || '{}')) as any[]).map((record) => record?.title || ''));
+      (Object.values(((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {})) as any[]).map((record) => record?.title || ''));
     expect(historyTitles).toEqual(expect.arrayContaining([answeredTitle, copiedTitle]));
   });
 

@@ -102,7 +102,7 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     // entries in the chatbot's typedPreferenceState index. Identical question text on two route
     // branches stays isolated by context and both declarations surface in Me.
     const typedAnswerRecord = await page.evaluate((talkTitle) => {
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
       return Object.values(history).find((record: any) => record.title === talkTitle) as any;
     }, title);
     expect(typedAnswerRecord.items).toEqual(expect.arrayContaining([
@@ -158,7 +158,7 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     await page.locator('.route-builtin-quantity-input[data-qid="q_1"]').fill('7');
     await submitTalkEditorAndWaitForOut(page, title);
     const afterEdit = await page.evaluate((talkTitle) => {
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
       const record = Object.values(history).find((candidate: any) => candidate.title === talkTitle) as any;
       const typedIndex = JSON.parse(localStorage.getItem('typedPreferenceState') || '{"users":{}}');
       const indexedValues = Object.values(Object.values(typedIndex.users || {})[0] || {}) as any[];

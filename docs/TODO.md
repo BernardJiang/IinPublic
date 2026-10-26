@@ -44,8 +44,8 @@ its ID.
   chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
   edit via `__iinpublic_collection_edit`; seeding the old blob still works — it is imported) and
   My Conversations (`my-conversations-storage.ts`) and the talk ledger (one entry per record,
-  `<section>::<key>`). Next: answer history, the smaller logs (`myDealTalkByConversation`,
-  `conversationNeedKeyByConversation`, ...).
+  `<section>::<key>`) and the Me tab's answer history. Next: the smaller logs
+  (`myDealTalkByConversation`, `conversationNeedKeyByConversation`, ...), then P4.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

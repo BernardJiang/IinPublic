@@ -691,7 +691,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#my-talks-modal')).toContainText('广播开启');
     await p.locator('#close-my-talks-modal').click();
     await p.evaluate(() => {
-      localStorage.removeItem('myAnswerHistory');
+      (window as any).__iinpublic_collection_edit?.('myAnswerHistory', { clear: true });
       localStorage.removeItem('answerPreferences');
       localStorage.removeItem('flattenedAnswerPreferences');
       (window as any).__iinpublic_collection_edit?.('myTalks', { clear: true });
@@ -865,7 +865,7 @@ test.describe('UI navigation and settings shell', () => {
       };
       ui.completeTalk(talk, [{ questionId: 'q1', answerId: 'a1', answerText: 'Tacos', mode: 'manual' }], 'match');
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
       const record = Object.values(history)[0] as any;
       return {
         role: myTalks.incoming_flat_history_1?.role,
@@ -912,7 +912,7 @@ test.describe('UI navigation and settings shell', () => {
       };
       ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: talkTitle, mode: 'manual' }], 'match');
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
       return {
         copiedRole: myTalks[talkId]?.role,
         historyTitles: Object.values(history).map((record: any) => record.title),
