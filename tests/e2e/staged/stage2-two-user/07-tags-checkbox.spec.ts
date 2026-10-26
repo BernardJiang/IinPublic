@@ -181,7 +181,7 @@ test.describe('Tag: create tag, answer with Like/Pass actions', () => {
       .poll(
         async () =>
           pageAlice.evaluate(() => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some((conversation: any) => conversation.otherUserName === 'Tom');
           }),
         { timeout: 30_000, message: 'Alice should have a match conversation with Tom' },
@@ -203,7 +203,7 @@ test.describe('Tag: create tag, answer with Like/Pass actions', () => {
       .poll(
         async () =>
           pageAlice.evaluate(() => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).filter((conversation: any) => conversation.otherUserName === 'Tom').length;
           }),
         { timeout: 30_000 },

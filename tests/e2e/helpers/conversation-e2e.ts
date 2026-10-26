@@ -12,7 +12,7 @@ type ConversationSnapshot = {
 async function fetchLocalUserConversations(page: Page, userId: string): Promise<ConversationSnapshot[]> {
   return page.evaluate(async (uid) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
-    const localRaw = localStorage.getItem('myConversations');
+    const localRaw = JSON.stringify(((window as any).__iinpublic_collection?.('myConversations') ?? {}));
     const localMap = localRaw ? JSON.parse(localRaw) : {};
     const localItems = Object.entries(localMap).map(([conversationId, value]) => ({
       ...(value as any),
@@ -96,7 +96,7 @@ export async function openConversationViaServer(
   await page.evaluate(
     ({ cid, name, oid }) => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
-      const raw = localStorage.getItem('myConversations');
+      const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myConversations') ?? {}));
       const conversations = raw ? JSON.parse(raw) : {};
       conversations[cid] = {
         ...(conversations[cid] || {}),

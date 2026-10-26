@@ -178,7 +178,7 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
       .poll(
         () =>
           pageBob.evaluate(() => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.keys(conversations).length;
           }),
         { timeout: 20_000 },
@@ -188,7 +188,7 @@ test.describe('Route: shared builtIn root branching into per-item questions (§B
       .poll(
         () =>
           pageAlice.evaluate(() => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some((c: any) => c.otherUserName === 'BobRoute');
           }),
         { timeout: 20_000 },

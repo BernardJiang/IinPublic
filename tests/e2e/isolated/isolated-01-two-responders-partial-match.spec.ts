@@ -142,7 +142,7 @@ test.describe('Talks matching — one match one mismatch from two responders', (
       .poll(
         async () =>
           pageTom.evaluate(({ jid, bid }) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             const ids = Object.values(conversations)
               .filter((conversation: any) => conversation?.supportChannel !== true)
               .map((conversation: any) => conversation?.otherUserId);
@@ -158,7 +158,7 @@ test.describe('Talks matching — one match one mismatch from two responders', (
       .poll(
         async () =>
           pageJerry.evaluate((tid) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some((conversation: any) => conversation?.otherUserId === tid);
           }, tomId),
         { timeout: 5_000 },

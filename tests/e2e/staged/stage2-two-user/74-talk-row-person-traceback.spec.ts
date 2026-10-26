@@ -83,7 +83,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
     expect(openedConversationId.length).toBeGreaterThan(0);
 
     const openedOtherUserId = await pageA.evaluate((cid: string) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return conversations[cid]?.otherUserId || '';
     }, openedConversationId);
     expect(openedOtherUserId).toBe(userIdB);
@@ -136,7 +136,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
         () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',
       );
       const openedOtherUserId = await pageJerry.evaluate((cid: string) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return conversations[cid]?.otherUserId || '';
       }, openedConversationId);
       expect(openedOtherUserId).toBe(tomId);
@@ -211,7 +211,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
         () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',
       );
       const openedOtherUserId = await pageTom.evaluate((cid: string) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return conversations[cid]?.otherUserId || '';
       }, openedConversationId);
       expect(openedOtherUserId).toBe(jerryId);

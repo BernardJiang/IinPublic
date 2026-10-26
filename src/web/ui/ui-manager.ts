@@ -209,6 +209,7 @@ import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity
 import { type PairingPayload } from '../../shared/identity-linking';
 import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
 import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
+import { getMyConversations, setMyConversations } from './my-conversations-storage';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -1888,8 +1889,7 @@ export class UIManager extends EventEmitter {
   }
 
   public getMyConversations(): Record<string, any> {
-    const conversationsJson = localStorage.getItem('myConversations');
-    return conversationsJson ? JSON.parse(conversationsJson) : {};
+    return getMyConversations();
   }
 
   public formatStageNameUpdated(): string {
@@ -3098,7 +3098,7 @@ export class UIManager extends EventEmitter {
     const c = conversations[conversationId];
     if (!c || (c.dealConfirmedByJson ?? '[]') === JSON.stringify(dealConfirmedBy)) return;
     c.dealConfirmedByJson = JSON.stringify(dealConfirmedBy);
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    setMyConversations(conversations);
     if (this.currentConversationId === conversationId) {
       this.showConversationDetail(conversationId, this.currentThreadTalkId);
     }

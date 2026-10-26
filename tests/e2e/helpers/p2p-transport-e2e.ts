@@ -64,7 +64,7 @@ export async function expectConversationTransportModeForPeerId(
     .poll(
       async () =>
         page.evaluate((peerId) => {
-          const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+          const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           const hit = Object.values(conversations).find(
             (c: any) => c?.otherUserId === peerId && c?.supportChannel !== true,
           ) as { transportMode?: string } | undefined;
@@ -86,7 +86,7 @@ export async function expectConversationTransportModeForPeer(
     .poll(
       async () =>
         page.evaluate((name) => {
-          const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+          const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           const hit = Object.values(conversations).find(
             (c: any) => c?.otherUserName === name && c?.supportChannel !== true,
           ) as { transportMode?: string } | undefined;

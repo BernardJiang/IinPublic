@@ -1,5 +1,6 @@
 import type { UiTranslationKey } from './ui-translations';
 import type { NotificationOptions } from './notification-toast';
+import { setMyConversations } from './my-conversations-storage';
 
 export interface ConversationListUpdatesDeps {
   getMyConversations: () => Record<string, any>;
@@ -149,7 +150,7 @@ export function addNewConversation(
       : {}),
   };
 
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
 
   // Update badge
   deps.updateMatchBadge();
@@ -207,7 +208,7 @@ export function updateConversationMessage(
       conversations[conversationId].unread = true;
     }
 
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    setMyConversations(conversations);
     deps.updateMatchBadge();
     deps.syncStatusBarMatchCount();
 
@@ -302,7 +303,7 @@ export function syncConversationMessageSummary(
   conversation.unread = totalUnread > 0;
 
   localStorage.setItem(cursorKey, JSON.stringify(cursors));
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
   deps.updateMatchBadge();
   deps.refreshOpenPeerThreadList();
 

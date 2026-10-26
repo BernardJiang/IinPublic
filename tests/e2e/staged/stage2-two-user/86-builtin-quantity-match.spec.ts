@@ -86,7 +86,7 @@ async function getCurrentUserId(page: Page): Promise<string> {
 
 async function hasConversationWith(page: Page, otherUserId: string): Promise<boolean> {
   return page.evaluate((otherUserId) => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     return Object.values(conversations).some((c: any) => c && c.supportChannel !== true && String(c.otherUserId || '') === otherUserId);
   }, otherUserId);
 }

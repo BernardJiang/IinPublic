@@ -30,7 +30,7 @@ const BULK_MESSAGE_COUNT = 40;
 async function readConversationClassification(page: Page, conversationId: string) {
   return page.evaluate(
     ({ cid, techSupportId }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const pairConversation = conversations[cid] || null;
       const supportConversations = Object.values(conversations).filter(
         (conversation: any) =>

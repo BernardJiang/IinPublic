@@ -309,7 +309,7 @@ test.describe('Find similar people with starter tags', () => {
     await Promise.all(users.map(async ({ index, id }) => {
       const receiver = users[indexById.get(picks.get(index)!)!]!;
       await expect.poll(() => receiver.page.evaluate(({ senderId, text }) =>
-        Object.values<any>(JSON.parse(localStorage.getItem('myConversations') || '{}'))
+        Object.values<any>(((window as any).__iinpublic_collection?.('myConversations') ?? {}))
           .some((conversation) => conversation?.otherUserId === senderId && String(conversation?.lastMessage || '').includes(text)),
       { senderId: id, text: MESSAGE }), {
         timeout: 90_000,

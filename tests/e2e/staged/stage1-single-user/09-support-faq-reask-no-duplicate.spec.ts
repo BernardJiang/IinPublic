@@ -173,7 +173,7 @@ test.describe('TechSupport FAQ: a re-asked known question is a hit, not a re-ans
     // through the peer-detail overlay this test opened the conversation from (durable state over
     // a UI click chain — this repo's own testing convention).
     const respondedByBot = await userPage.evaluate((convIdPrefix: string) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}') as Record<
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {}) as Record<
         string,
         { respondedByBot?: boolean }
       >;

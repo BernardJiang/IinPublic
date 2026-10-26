@@ -104,7 +104,7 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
     await afterAction();
 
     const convIdFor = (page: Page, peerId: string) => page.evaluate(({ pid }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === pid);
       return entry ? entry[0] : '';
     }, { pid: peerId });

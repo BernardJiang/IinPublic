@@ -182,7 +182,7 @@ async function disableTalkSendRateLimit(page: Page): Promise<void> {
 
 async function conversationPartnerIds(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     return Object.values(conversations)
       .filter((c: any) => c && c.supportChannel !== true)
       .map((c: any) => String(c.otherUserId || ''))

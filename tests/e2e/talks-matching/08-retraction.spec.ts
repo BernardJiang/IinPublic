@@ -269,7 +269,7 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     await expect
       .poll(
         () => pageTom.evaluate(({ jId }: { jId: string }) => {
-          const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+          const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           return Object.values(convs).some((c: any) => c?.otherUserId === jId);
         }, { jId: jerryId }),
         { timeout: MESH_E2E_TIMEOUT_MS, message: 'Tom: conversation with Jerry not created before retraction' },
@@ -306,7 +306,7 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
 
     // ---- 11. Tom's conversation with Jerry is now withdrawn ----------------
     const tomConvStatus = await pageTom.evaluate(({ jId }: { jId: string }) => {
-      const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
       return conv?.status ?? null;
     }, { jId: jerryId });
@@ -329,7 +329,7 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     await expect
       .poll(
         () => pageJerry.evaluate(({ tId }: { tId: string }) => {
-          const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+          const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           const conv = Object.values(convs).find((c: any) => c?.talkId === tId) as any;
           return conv?.status ?? null;
         }, { tId: TOM_TALK_ID }),
@@ -339,7 +339,7 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
 
     // retractedAt must be set on Jerry's conversation
     const jerryConvRetractedAt = await pageJerry.evaluate(({ tId }: { tId: string }) => {
-      const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const conv = Object.values(convs).find((c: any) => c?.talkId === tId) as any;
       return conv?.retractedAt ?? null;
     }, { tId: TOM_TALK_ID });
@@ -365,7 +365,7 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
       .poll(
         () => pageJerry.evaluate(
           ({ tId }: { tId: string }) => {
-            const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+            const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             const conv = Object.values(convs).find((c: any) => c?.talkId === tId) as any;
             return conv?.status ?? null;
           },

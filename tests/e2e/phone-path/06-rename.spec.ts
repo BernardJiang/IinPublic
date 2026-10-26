@@ -21,7 +21,7 @@ import {
 
 function welcomePreview(page: Page): Promise<string> {
   return page.evaluate(() => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     const support = Object.values(conversations).find((c: any) => c?.supportChannel) as any;
     return String(support?.lastMessage || '');
   });

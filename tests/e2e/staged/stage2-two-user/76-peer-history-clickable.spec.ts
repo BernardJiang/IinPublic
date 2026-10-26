@@ -80,7 +80,7 @@ test.describe('Peer-detail exchanged-talk history is clickable (O)', () => {
 
       // No conversation should exist yet.
       const conversationExistsBefore = await pageTom.evaluate((peerId: string) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return Object.values(conversations).some((c: any) => c?.otherUserId === peerId);
       }, jerryId);
       expect(conversationExistsBefore).toBe(false);
@@ -93,7 +93,7 @@ test.describe('Peer-detail exchanged-talk history is clickable (O)', () => {
       await expect(pageTom.locator('#conversation-thread-scope')).toHaveAttribute('data-talk-id', 'qa_mismatch1');
 
       const conversationExistsAfter = await pageTom.evaluate((peerId: string) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return Object.values(conversations).some((c: any) => c?.otherUserId === peerId);
       }, jerryId);
       expect(conversationExistsAfter).toBe(true);
@@ -112,7 +112,7 @@ test.describe('Peer-detail exchanged-talk history is clickable (O)', () => {
     // The fast-DM helper's matched talk id, plus a seeded mismatch exchange for a second talk
     // with the same peer — same conversation, two distinct thread contexts.
     const matchedTalkId = await pageA.evaluate((peerId: string) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.values(conversations).find((c: any) => c?.otherUserId === peerId) as any;
       return String(entry?.talkId || '');
     }, userIdB);

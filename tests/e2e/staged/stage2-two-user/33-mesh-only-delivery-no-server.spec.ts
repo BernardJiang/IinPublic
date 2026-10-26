@@ -199,7 +199,7 @@ test.describe('Mesh-only delivery: talk delivery + match + conversation without 
           pageA!.evaluate(async ({ bId }) => {
             const app = (window as any).__iinpublic_app?.getApp?.();
             await app.drainMailbox?.();
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some((c: any) => c?.otherUserId === bId);
           }, { bId: userIdB }),
         { timeout: FLOW_TIMEOUT_MS, intervals: [300, 600, 1000], message: 'A: no conversation with B after mailbox drain' },
@@ -208,14 +208,14 @@ test.describe('Mesh-only delivery: talk delivery + match + conversation without 
 
     // ── 8. Conversation exists on BOTH sides from LOCAL Gun state ─────────────
     const convIdA = await pageA.evaluate(({ bId }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === bId);
       return entry ? entry[0] : null;
     }, { bId: userIdB });
     expect(convIdA, 'A must have a local conversation with B').toBeTruthy();
 
     const convIdB = await pageB.evaluate(({ aId }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === aId);
       return entry ? entry[0] : null;
     }, { aId: userIdA });

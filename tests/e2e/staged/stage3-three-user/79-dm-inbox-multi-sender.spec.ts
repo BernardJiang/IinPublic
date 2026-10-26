@@ -114,7 +114,7 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
     await sendConversationMessage(tom, tomBobConv, tomId, 'Hello Bob, this is Tom');
     await expect
       .poll(async () => bob.evaluate((cid) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return conversations[cid]?.unread === true;
       }, tomBobConv), { timeout: 20_000 })
       .toBe(true);
@@ -122,7 +122,7 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
     await sendConversationMessage(jerry, jerryBobConv, jerryId, 'Hello Bob, this is Jerry');
     await expect
       .poll(async () => bob.evaluate((cid) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return conversations[cid]?.unread === true;
       }, jerryBobConv), { timeout: 20_000 })
       .toBe(true);
@@ -154,7 +154,7 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
     // Jerry's unread state is now cleared; Tom's is untouched.
     const [jerryUnread, tomUnread] = await bob.evaluate(
       ({ jerryBobConv, tomBobConv }) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return [conversations[jerryBobConv]?.unread === true, conversations[tomBobConv]?.unread === true];
       },
       { jerryBobConv, tomBobConv },

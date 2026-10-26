@@ -115,7 +115,7 @@ test.describe('Shared media bytes travel P2P over the DM DataChannel', () => {
 
     // Bob opens the conversation so the message subscription fires the P2P byte request.
     const bobConv = await pageBob.evaluate(({ pid }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === pid);
       return entry ? entry[0] : '';
     }, { pid: adamId });

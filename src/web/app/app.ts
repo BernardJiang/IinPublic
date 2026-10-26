@@ -251,6 +251,7 @@ import {
   outcomeKey as ledgerOutcomeKey,
   retractedKey as ledgerRetractedKey,
 } from '../../shared/talk-ledger';
+import { getMyConversations } from '../ui/my-conversations-storage';
 
 /** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
 const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
@@ -1466,7 +1467,7 @@ export class IinPublicApp {
         ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
         ['answerPreferences', () => { sources.answerPreferences = read('exactChatbotMemory'); }],
         ['myTalks', () => { sources.myTalks = getMyTalks(); }],
-        ['conversations', () => { sources.conversations = read('myConversations'); }],
+        ['conversations', () => { sources.conversations = getMyConversations(); }],
       ];
       for (const [category, fill] of collect) {
         try {
@@ -8192,7 +8193,7 @@ export class IinPublicApp {
     if (peerId === TECHSUPPORT_ROOT_USER_ID || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) {
       return this.ensureSupportConversationRecord(peerId, peerName);
     }
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}') as Record<string, any>;
+    const conversations = getMyConversations();
     const existing = Object.entries(conversations).find(
       ([, conv]: [string, any]) =>
         conv?.otherUserId === peerId && (conv?.supportChannel === true || conv?.talkId === 'direct'),
@@ -8700,7 +8701,7 @@ export class IinPublicApp {
       console.log('👤 User clicked:', data.userId);
 
       // Check if conversation exists with this user
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = getMyConversations();
       const existingEntry = Object.entries(conversations).find(
         ([, conv]: [string, any]) => conv?.otherUserId === data.userId,
       );

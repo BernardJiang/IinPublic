@@ -44,7 +44,7 @@ async function waitForConversation(
       const snapshot = await app.conversationService.getUserConversationsSnapshot(userId);
       await app.ingestConversationRecords(snapshot);
     }
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     return Object.values(conversations).some(
       (conversation: any) =>
         conversation?.otherUserId === id && conversation.respondedByBot === bot,

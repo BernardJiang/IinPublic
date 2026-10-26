@@ -12,7 +12,10 @@ export const chatbotTemplatesView = new CoreCollectionView<ChatbotTemplate>('cha
 /** My Talks — created, answered, copied, ignored — by Talk id. Old key: `myTalks`. */
 export const myTalksView = new CoreCollectionView<MyTalkEntry>('myTalks', 'myTalks');
 
-const VIEWS: Array<CoreCollectionView<unknown>> = [chatbotTemplatesView, myTalksView] as Array<CoreCollectionView<unknown>>;
+/** My Conversations, by conversation id. Old key: `myConversations`. */
+export const myConversationsView = new CoreCollectionView<Record<string, unknown>>('myConversations', 'myConversations');
+
+const VIEWS: Array<CoreCollectionView<unknown>> = [chatbotTemplatesView, myTalksView, myConversationsView] as Array<CoreCollectionView<unknown>>;
 
 export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {
   await Promise.all(VIEWS.map((view) => view.connect(link)));

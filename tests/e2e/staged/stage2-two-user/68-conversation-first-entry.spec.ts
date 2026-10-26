@@ -103,7 +103,7 @@ test.describe('Conversation-first entry (N2a)', () => {
     await expect(tom.locator('#chatroom-detail-container')).toBeVisible();
 
     const tomConvId = await tom.evaluate(() => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.keys(conversations).find((id) => id.startsWith('conv_pair_')) || '';
     });
     expect(tomConvId).toMatch(/^conv_pair_/);
@@ -125,7 +125,7 @@ test.describe('Conversation-first entry (N2a)', () => {
     // Same thread object: Tom's message is in Jerry's DM conversation.
     await expect(jerry.locator('#conversation-messages')).toContainText(dmText, { timeout: 30_000 });
     const jerryConvId = await jerry.evaluate(() => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.keys(conversations).find((id) => id.startsWith('conv_pair_')) || '';
     });
     expect(jerryConvId).toBe(tomConvId);

@@ -198,7 +198,7 @@ test.describe('Talks matching — four talk types, Jerry chatbot auto-replies Sa
     // Tag + flow + route define match answers; survey has none. So Sam expects at least one
     // bot-attributed Jerry conversation stored locally.
     await sam.page.waitForFunction((expectedJerryId) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.values(conversations).some(
         (conversation: any) => conversation?.otherUserId === expectedJerryId && conversation.respondedByBot === true,
       );

@@ -52,7 +52,7 @@ export async function assertStatusChecks(page: Page, checks: StatusCheck[]): Pro
       case 'conversationCountAtLeast': {
         const n = await page.evaluate(() => {
           try {
-            const raw = localStorage.getItem('myConversations');
+            const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myConversations') ?? {}));
             return raw ? Object.keys(JSON.parse(raw)).length : 0;
           } catch {
             return 0;

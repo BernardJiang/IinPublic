@@ -7,6 +7,7 @@ import type { MessageFilterResult } from '../../shared/message-content-filter';
 import { escapeHtml } from './ui-formatters';
 import { filterVerifiedSupportMessages } from './verified-support-messages';
 import type { UiTranslationKey } from './ui-translations';
+import { setMyConversations } from './my-conversations-storage';
 
 export interface ConversationDetailViewDeps {
   getMyConversations: () => Record<string, any>;
@@ -211,7 +212,7 @@ export function showConversationDetail(
   );
   conversation.unreadCount = remainingUnread;
   conversation.unread = remainingUnread > 0;
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
   deps.updateMatchBadge();
 
   // Load messages

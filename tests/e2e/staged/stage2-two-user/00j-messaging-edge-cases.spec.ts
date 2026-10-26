@@ -194,7 +194,7 @@ test.describe('Messaging edge cases', () => {
             } else {
               app?.uiManager?.emit?.('needConversationSync');
             }
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.entries(conversations).some(([, conversation]: any) => {
               return id ? conversation?.otherUserId === id : conversation?.otherUserName === name;
             });
@@ -204,7 +204,7 @@ test.describe('Messaging edge cases', () => {
       .toBe(true);
     await page.evaluate(({ name, id }: { name: string; id?: string }) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, conversation]: any) => {
         return id ? conversation?.otherUserId === id : conversation?.otherUserName === name;
       });
@@ -227,7 +227,7 @@ test.describe('Messaging edge cases', () => {
         const snapshot = await app.conversationService.getUserConversationsSnapshot(userId);
         await app.ingestConversationRecords(snapshot);
       }
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.values(conversations).some((conversation: any) => conversation?.otherUserId === id);
     }, otherUserId);
   }

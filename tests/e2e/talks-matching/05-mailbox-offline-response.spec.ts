@@ -322,7 +322,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
       .poll(
         () =>
           pageTom!.evaluate(({ jId }: { jId: string }) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some(
               (c: any) => c?.otherUserId === jId,
             );
@@ -358,13 +358,13 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
 
     // ── 14. Conversation id matches on both sides ─────────────────────────────
     const tomConvId = await pageTom.evaluate(({ jId }: { jId: string }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === jId);
       return entry ? ((entry[1] as any)?.conversationId ?? entry[0]) : null;
     }, { jId: jerryId });
 
     const jerryConvId = await pageJerry.evaluate(({ tId }: { tId: string }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === tId);
       return entry ? ((entry[1] as any)?.conversationId ?? entry[0]) : null;
     }, { tId: tomId });

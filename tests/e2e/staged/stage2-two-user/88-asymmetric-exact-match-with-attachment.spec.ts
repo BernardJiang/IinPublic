@@ -108,7 +108,7 @@ function buildDetailedRouteTalkPayload(): Record<string, unknown> {
 
 async function getConversationIdForPeer(page: Page, peerId: string): Promise<string> {
   return page.evaluate((otherUserId) => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     const hit = Object.entries(conversations).find(([, value]: [string, any]) =>
       value?.otherUserId === otherUserId && value?.supportChannel !== true,
     );

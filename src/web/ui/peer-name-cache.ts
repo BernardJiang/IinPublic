@@ -1,3 +1,4 @@
+import { setMyConversations } from './my-conversations-storage';
 const PEER_NAME_CACHE_KEY = 'peerNameCache';
 
 export function getPeerNameCache(): Record<string, string> {
@@ -42,7 +43,7 @@ export function rememberPeerName(
         changed = true;
       }
     }
-    if (changed) localStorage.setItem('myConversations', JSON.stringify(conversations));
+    if (changed) setMyConversations(conversations);
   } catch {
     /* name sync is best-effort — never break the caller's render */
   }

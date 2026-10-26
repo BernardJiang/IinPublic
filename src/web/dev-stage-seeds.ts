@@ -2,6 +2,7 @@ import { computeTalkIdFromTalkData } from '../shared/cid';
 import { setMyTalks, type MyTalkMap } from './ui/my-talks-storage';
 import { deriveBackendApiBaseFromLocation } from './services/web-gun-service';
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
+import { getMyConversations, setMyConversations } from './ui/my-conversations-storage';
 
 type StageUser = {
   id: string;
@@ -138,7 +139,7 @@ function registerIncomingLocal(app: any, talk: StageTalk, sender: StageUser): vo
 }
 
 function saveConversationForCurrentUser(other: StageUser, talk: StageTalk, respondedByBot = false): void {
-  const current = JSON.parse(localStorage.getItem('myConversations') || '{}');
+  const current = getMyConversations();
   const sorted = [other.id, localStorage.getItem('iinpublic_user_id') || ''].sort();
   const conversationId = `conv_${sorted[0]}_${sorted[1]}_${talk.id}`;
   current[conversationId] = {
@@ -149,7 +150,7 @@ function saveConversationForCurrentUser(other: StageUser, talk: StageTalk, respo
     createdAt: new Date().toISOString(),
     respondedByBot,
   };
-  localStorage.setItem('myConversations', JSON.stringify(current));
+  setMyConversations(current);
 }
 
 function setStageMyTalks(talks: MyTalkMap): void {
@@ -158,7 +159,7 @@ function setStageMyTalks(talks: MyTalkMap): void {
 
 function clearStageLocalState(): void {
   setMyTalks({});
-  localStorage.setItem('myConversations', '{}');
+  setMyConversations({});
   localStorage.removeItem('answeredTalkByContent');
 }
 

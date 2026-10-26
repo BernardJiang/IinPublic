@@ -1,3 +1,4 @@
+import { setMyConversations } from './my-conversations-storage';
 export type ConversationRecordUpdateDeps = {
   getMyConversations: () => Record<string, any>;
   updateMatchBadge: () => void;
@@ -40,7 +41,7 @@ export function markConversationWithdrawn(
   conversations[convId].retractedAt = retractedAtStr;
   conversations[convId].lastMessage = `Author removed this talk — the match is gone · ${new Date(retractedAt).toLocaleString()}`;
   conversations[convId].lastMessageTime = retractedAtStr;
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
   refreshAfterConversationRecordChange(deps);
 }
 
@@ -70,7 +71,7 @@ export function markConversationEnded(
   conversations[convId].changedAt = changedAt;
   conversations[convId].lastMessage = `Answer changed · ${new Date(changedAt).toLocaleString()}`;
   conversations[convId].lastMessageTime = changedAt;
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
   refreshAfterConversationRecordChange(deps);
 }
 
@@ -96,7 +97,7 @@ function markConversationsSuperseded(
     changed = true;
   }
   if (!changed) return;
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
   refreshAfterConversationRecordChange(deps);
 }
 

@@ -109,7 +109,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
   /** Deterministic pair conversation id for a peer, read from myConversations. */
   async function convIdFor(page: Page, peerId: string): Promise<string> {
     return page.evaluate(({ pid }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(
         ([, c]: [string, any]) => c?.otherUserId === pid,
       );
@@ -122,7 +122,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
     return expect
       .poll(
         () => page.evaluate(({ pid }) => {
-          const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+          const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           return Object.values(conversations).some((c: any) => c?.otherUserId === pid);
         }, { pid: peerId }),
         { timeout: DM_E2E_TIMEOUT_MS, intervals: [300, 600, 1000] },

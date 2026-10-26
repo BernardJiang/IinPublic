@@ -360,7 +360,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       const conversationId = 'localized_support_conversation';
-      (window as any).__localizedPreviousConversations = localStorage.getItem('myConversations');
+      (window as any).__localizedPreviousConversations = (window as any).__iinpublic_collection?.('myConversations') ?? {};
       ui?.addNewConversation?.({
         conversationId,
         otherUserId: 'iinpublic-root-techsupport',
@@ -415,8 +415,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#back-from-conversation').click();
     await p.evaluate(() => {
       const previous = (window as any).__localizedPreviousConversations;
-      if (previous === null) localStorage.removeItem('myConversations');
-      else localStorage.setItem('myConversations', previous);
+      (window as any).__iinpublic_collection_edit?.('myConversations', { clear: true, set: previous });
       delete (window as any).__localizedPreviousConversations;
     });
     await p.unroute('**/api/users/*/peers/localized-peer/relationship');
