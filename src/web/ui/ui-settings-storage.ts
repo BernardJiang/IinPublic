@@ -1,5 +1,6 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import type { UiLanguage } from './ui-translations';
+import { chatbotTemplatesView } from '../services/core-views';
 
 export type ChatbotTemplate = {
   answers: any[];
@@ -147,29 +148,18 @@ export function setHasSeenActionableGuide(seen: boolean): void {
 }
 
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {
-  try {
-    const raw = localStorage.getItem('chatbotTemplates');
-    if (!raw) return null;
-    const templates = JSON.parse(raw) as Record<string, ChatbotTemplate>;
-    return templates[talkId] || null;
-  } catch {
-    return null;
-  }
+  return chatbotTemplatesView.get(talkId) || null;
+}
+
+/** Every template, by Talk id (the native background sync takes them all). */
+export function getChatbotTemplates(): Record<string, ChatbotTemplate> {
+  return chatbotTemplatesView.all();
 }
 
 export function saveChatbotTemplate(talkId: string, data: ChatbotTemplate): void {
-  try {
-    const raw = localStorage.getItem('chatbotTemplates');
-    const templates: Record<string, ChatbotTemplate> = raw ? JSON.parse(raw) : {};
-    templates[talkId] = data;
-    const contentId = computeTalkIdFromTalkData(data.talkData);
-    if (contentId && contentId !== talkId) {
-      templates[contentId] = data;
-    }
-    localStorage.setItem('chatbotTemplates', JSON.stringify(templates));
-  } catch (error) {
-    console.warn('Failed to save chatbot template:', error);
-  }
+  // Kept in the device core (OPEN-91 P3); also under the Talk's content id, which a re-broadcast keeps.
+  const contentId = computeTalkIdFromTalkData(data.talkData);
+  chatbotTemplatesView.set({ [talkId]: data, ...(contentId && contentId !== talkId ? { [contentId]: data } : {}) });
 }
 
 /**

@@ -18,7 +18,10 @@ export type CoreRequest =
   | { name: 'exchanges.removePeers'; peerIds: string[] }
   | { name: 'delivery.putSentResponse'; payload: P2PMeshTalkResponsePayload }
   | { name: 'delivery.record'; input: DeliveryInput }
-  | { name: 'delivery.get'; objectId: string; recipientId: string };
+  | { name: 'delivery.get'; objectId: string; recipientId: string }
+  | { name: 'collection.snapshot'; collection: string }
+  | { name: 'collection.upsert'; collection: string; entries: Record<string, unknown> }
+  | { name: 'collection.remove'; collection: string; keys: string[] };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends { name: 'exchanges.snapshot' } ? ExchangeRecord[]
@@ -26,4 +29,7 @@ export type CoreResponse<R extends CoreRequest> =
       : R extends { name: 'exchanges.removePeers' } ? { removed: number }
         : R extends { name: 'delivery.get' } ? DeliveryJournalRecord | null
           : R extends { name: 'delivery.putSentResponse' | 'delivery.record' } ? { ok: true }
-            : never;
+            : R extends { name: 'collection.snapshot' } ? Record<string, unknown>
+              : R extends { name: 'collection.upsert' } ? { written: number }
+                : R extends { name: 'collection.remove' } ? { removed: number }
+                  : never;

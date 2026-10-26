@@ -169,7 +169,7 @@ import {
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
-import { getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
+import { getChatbotTemplates, getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
 import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
 import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
@@ -239,6 +239,8 @@ import { sharedTagCounter } from '../ui/tag-graph-view';
 import { deriveLocalPeers } from '../services/local-peer-derivation';
 import { connectExchangeCore, upsertExchange } from '../services/exchange-view';
 import type { CoreRequest } from '../../core/protocol';
+import type { CoreCollection } from '../../core/collections';
+import { connectCoreCollections } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
 import {
@@ -3725,7 +3727,7 @@ export class IinPublicApp {
         activeRoomId: this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || '',
         autoAnswerEnabled: this.uiManager.getChatbotEnabled(),
         answerRules,
-        chatbotTemplates: parseMap('chatbotTemplates'),
+        chatbotTemplates: getChatbotTemplates(),
         authoredTalks,
         matchCollectionStore: localStorage.getItem('iinpublic_match_collection_sessions_v1') || undefined,
         intakeFilters: getTalkIntakeFilters(),
@@ -6420,11 +6422,16 @@ export class IinPublicApp {
       upsert: (records: Parameters<typeof upsertExchange>[0][]) => bridge.core({ name: 'exchanges.upsert', records }),
       removePeers: (peerIds: string[]) => bridge.core({ name: 'exchanges.removePeers', peerIds }),
     };
+    const collections = {
+      snapshot: (collection: CoreCollection) => bridge.core({ name: 'collection.snapshot', collection }),
+      upsert: (collection: CoreCollection, entries: Record<string, unknown>) => bridge.core({ name: 'collection.upsert', collection, entries }),
+      remove: (collection: CoreCollection, keys: string[]) => bridge.core({ name: 'collection.remove', collection, keys }),
+    };
     // Storage busy at start-up (a slow device, a loaded machine) is retried, never taken for "no exchanges".
     const loaded = (async () => {
       for (let attempt = 1; ; attempt++) {
         try {
-          await connectExchangeCore(link);
+          await Promise.all([connectExchangeCore(link), connectCoreCollections(collections)]);
           return;
         } catch (error) {
           if (attempt >= 6) {

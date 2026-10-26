@@ -138,14 +138,17 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
       await expect(cb).toBeChecked();
     }
 
-    // 3 tag-state checkboxes toggle.
+    // 3 tag-state checkboxes toggle. Passed tags (unchecked) are hidden by default (OPEN-89).
     for (const state of TAG_STATES) {
       const cb = p.locator(`.me-tag-state-filter[data-me-tag-state="${state}"] input`);
-      await expect(cb).toBeChecked();
-      await cb.uncheck();
+      const onByDefault = state !== 'unchecked';
+      if (onByDefault) await expect(cb).toBeChecked();
+      else await expect(cb).not.toBeChecked();
+      await cb.setChecked(!onByDefault);
       await afterSync();
-      await expect(cb).not.toBeChecked();
-      await cb.check();
+      if (onByDefault) await expect(cb).not.toBeChecked();
+      else await expect(cb).toBeChecked();
+      await cb.setChecked(onByDefault); // restore
       await afterSync();
     }
 

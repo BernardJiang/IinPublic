@@ -81,4 +81,9 @@ if (typeof window === 'undefined') {
 // the view imports on first read).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { resetExchangeViewForTests } = require('../web/services/exchange-view');
-beforeEach(() => resetExchangeViewForTests());
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { resetCoreViewsForTests } = require('../web/services/core-views');
+beforeEach(() => {
+  resetExchangeViewForTests();
+  resetCoreViewsForTests();
+});
