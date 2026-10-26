@@ -187,6 +187,10 @@ export function resetExchangeViewForTests(): void {
  * the old blob's shape, `{ "<peer>::<talk>::<direction>": record }`.
  */
 if (typeof window !== 'undefined') {
-  (window as unknown as { __iinpublic_exchanges?: () => Record<string, ExchangeRecord> }).__iinpublic_exchanges = () =>
-    Object.fromEntries(readExchanges().map((record) => [exchangeKey(record), record]));
+  Object.assign(window, {
+    __iinpublic_exchanges: (): Record<string, ExchangeRecord> =>
+      Object.fromEntries(readExchanges().map((record) => [exchangeKey(record), record])),
+    /** Forgets every exchange (test teardown). */
+    __iinpublic_exchanges_clear: (): void => removeExchangePeers([...new Set(readExchanges().map((record) => record.peerId))]),
+  });
 }

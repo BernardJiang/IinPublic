@@ -25,7 +25,16 @@ export class CoreCollectionView<T> {
   private loaded = false;
   private readonly unsavedKey: string;
 
-  constructor(readonly collection: CoreCollection, private readonly legacyKey: string) {
+  /**
+   * `fromLegacy` turns the old blob into entries when it was not already a map of them (the talk
+   * ledger was one document of sections).
+   */
+  constructor(
+    readonly collection: CoreCollection,
+    private readonly legacyKey: string,
+    private readonly fromLegacy: (parsed: unknown) => Record<string, T> = (parsed) =>
+      (parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, T> : {}),
+  ) {
     this.unsavedKey = `iinpublic_core_unsaved_${collection}_v1`;
   }
 
@@ -164,8 +173,7 @@ export class CoreCollectionView<T> {
     } catch {
       return;
     }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
-    const imported = parsed as Record<string, T>;
+    const imported = this.fromLegacy(parsed);
     if (Object.keys(imported).length === 0) return;
     for (const [key, value] of Object.entries(imported)) this.entries.set(key, value);
     this.save(imported);

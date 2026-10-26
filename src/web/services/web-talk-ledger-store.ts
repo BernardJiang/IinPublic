@@ -1,13 +1,15 @@
 /**
  * src/web/services/web-talk-ledger-store.ts
  *
- * Thin localStorage wrapper for TalkLedgerDoc.
+ * Thin wrapper for TalkLedgerDoc over the device core (OPEN-91 P3): each record is one entry of the
+ * `talkLedger` collection (`<section>::<key>`), so a save writes only the records that changed; it
+ * was one localStorage JSON document rewritten whole on every event.
  *
  * Design ref: docs/design/p0-steps8-11-ledger.md §1
  *
  * Delegates ALL ordering / eviction logic to src/shared/talk-ledger.ts.
  * This module only handles:
- *   - load / save (JSON to/from localStorage key "talkLedger")
+ *   - load / save (the doc to/from the core collection's view)
  *   - apply (load → applyEvent → save, returned updated doc)
  *   - applyEdgeGateForPeer (load → applyEdgeGate → save, returned gate result)
  *   - read helpers (shouldSuppressForPeer, getDoc)
@@ -23,37 +25,35 @@ import {
   type LedgerEvent,
   type ExchangedEntry,
 } from '../../shared/talk-ledger';
+import { TALK_LEDGER_SECTIONS, talkLedgerView } from './core-views';
 
-const STORAGE_KEY = 'talkLedger';
+type Section = typeof TALK_LEDGER_SECTIONS[number];
 
 // ─── Load / save ───────────────────────────────────────────────────────────────
 
+/** The doc, rebuilt from the view; a copy, since the ledger functions change it in place. */
 export function loadTalkLedger(): TalkLedgerDoc {
-  if (typeof localStorage === 'undefined') return emptyTalkLedgerDoc();
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return emptyTalkLedgerDoc();
-    const parsed = JSON.parse(raw) as Partial<TalkLedgerDoc>;
-    return {
-      version: 1,
-      outcomes: parsed.outcomes && typeof parsed.outcomes === 'object' ? parsed.outcomes : {},
-      exchanged: parsed.exchanged && typeof parsed.exchanged === 'object' ? parsed.exchanged : {},
-      edges: parsed.edges && typeof parsed.edges === 'object' ? parsed.edges : {},
-      retracted: parsed.retracted && typeof parsed.retracted === 'object' ? parsed.retracted : {},
-      sent: parsed.sent && typeof parsed.sent === 'object' ? parsed.sent : {},
-    };
-  } catch {
-    return emptyTalkLedgerDoc();
+  const doc = emptyTalkLedgerDoc() as TalkLedgerDoc & Record<Section, Record<string, unknown>>;
+  for (const [entryKey, value] of Object.entries(talkLedgerView.all())) {
+    const split = entryKey.indexOf('::');
+    const section = entryKey.slice(0, split) as Section;
+    if (split < 0 || !(TALK_LEDGER_SECTIONS as readonly string[]).includes(section)) continue;
+    doc[section] ??= {};
+    doc[section][entryKey.slice(split + 2)] = JSON.parse(JSON.stringify(value));
   }
+  return doc;
 }
 
+/** Writes the records that changed and removes the ones the doc no longer has (evictions). */
 export function saveTalkLedger(doc: TalkLedgerDoc): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(doc));
-  } catch {
-    // Storage quota exceeded — silently ignore (losing an entry costs one redundant send)
+  const current = talkLedgerView.all();
+  const next: Record<string, unknown> = {};
+  for (const section of TALK_LEDGER_SECTIONS) {
+    for (const [key, value] of Object.entries(((doc as Record<string, unknown>)[section] ?? {}) as Record<string, unknown>)) next[`${section}::${key}`] = value;
   }
+  const changed = Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value)));
+  talkLedgerView.set(JSON.parse(JSON.stringify(changed)));
+  talkLedgerView.remove(Object.keys(current).filter((key) => !(key in next)));
 }
 
 // ─── Transaction helpers ───────────────────────────────────────────────────────

@@ -8,7 +8,7 @@
 import type { GraphStore } from './graph-store';
 
 /** Every collection the core keeps. A name not listed is refused, so a typo cannot start a new log. */
-export const CORE_COLLECTIONS = ['chatbotTemplates', 'myTalks', 'myConversations'] as const;
+export const CORE_COLLECTIONS = ['chatbotTemplates', 'myTalks', 'myConversations', 'talkLedger'] as const;
 export type CoreCollection = typeof CORE_COLLECTIONS[number];
 
 export const COLLECTIONS_PATH = 'local/collections';

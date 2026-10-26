@@ -15,7 +15,21 @@ export const myTalksView = new CoreCollectionView<MyTalkEntry>('myTalks', 'myTal
 /** My Conversations, by conversation id. Old key: `myConversations`. */
 export const myConversationsView = new CoreCollectionView<Record<string, unknown>>('myConversations', 'myConversations');
 
-const VIEWS: Array<CoreCollectionView<unknown>> = [chatbotTemplatesView, myTalksView, myConversationsView] as Array<CoreCollectionView<unknown>>;
+/** Sections of the old talk ledger document, each entry kept as `<section>::<key>`. */
+export const TALK_LEDGER_SECTIONS = ['outcomes', 'exchanged', 'edges', 'retracted', 'sent'] as const;
+
+/** The talk ledger (outcomes, exchanged, edge counters, retractions, sent), one entry per record. Old key: `talkLedger`. */
+export const talkLedgerView = new CoreCollectionView<unknown>('talkLedger', 'talkLedger', (parsed) => {
+  const doc = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+  const entries: Record<string, unknown> = {};
+  for (const section of TALK_LEDGER_SECTIONS) {
+    const records = doc[section];
+    if (records && typeof records === 'object') for (const [key, value] of Object.entries(records)) entries[`${section}::${key}`] = value;
+  }
+  return entries;
+});
+
+const VIEWS: Array<CoreCollectionView<unknown>> = [chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView] as Array<CoreCollectionView<unknown>>;
 
 export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {
   await Promise.all(VIEWS.map((view) => view.connect(link)));

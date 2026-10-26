@@ -5,7 +5,8 @@ import { CollectionStore } from '../../core/collections';
 import { memoryGraphStore } from '../../core/graph-store';
 import { CoreCollectionView, type CollectionCoreLink } from '../../web/services/core-collection-view';
 import { getChatbotTemplate, saveChatbotTemplate } from '../../web/ui/ui-settings-storage';
-import { chatbotTemplatesView } from '../../web/services/core-views';
+import { chatbotTemplatesView, talkLedgerView } from '../../web/services/core-views';
+import { loadTalkLedger, saveTalkLedger } from '../../web/services/web-talk-ledger-store';
 
 const linkTo = (handle: ReturnType<typeof createCoreHandler>): CollectionCoreLink => ({
   snapshot: (collection) => handle({ name: 'collection.snapshot', collection }) as Promise<Record<string, unknown>>,
@@ -68,6 +69,21 @@ describe('the GUI’s view of a collection', () => {
     // A fresh view (a reload, or a second module instance) has not connected yet.
     const after = new CoreCollectionView<{ answers: string[] }>('myTalks', 'myTalks');
     expect(after.get('t1')).toEqual({ answers: ['mine'] });
+  });
+
+  it('the talk ledger: the old document is imported as one entry per record; a save writes changes and evictions', () => {
+    localStorage.setItem('talkLedger', JSON.stringify({ version: 1, outcomes: { 'r::t::a': { outcome: 'match' } }, exchanged: { 'p::k': { version: 1 } }, edges: {}, retracted: {} }));
+    expect(loadTalkLedger().outcomes['r::t::a']).toEqual({ outcome: 'match' });
+    expect(Object.keys(talkLedgerView.all()).sort()).toEqual(['exchanged::p::k', 'outcomes::r::t::a']);
+    const doc = loadTalkLedger();
+    doc.exchanged['p::k'] = { version: 2 } as never;
+    delete doc.outcomes['r::t::a'];
+    doc.sent['p::k2'] = { at: 1 } as never;
+    saveTalkLedger(doc);
+    expect(talkLedgerView.all()).toEqual({ 'exchanged::p::k': { version: 2 }, 'sent::p::k2': { at: 1 } });
+    // Loads are copies: changing one never changes the view.
+    loadTalkLedger().exchanged['p::k'].version = 9;
+    expect(loadTalkLedger().exchanged['p::k'].version).toBe(2);
   });
 
   it('chatbot templates are kept by Talk id and content id', async () => {
