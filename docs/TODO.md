@@ -35,7 +35,11 @@ its ID.
   P3 the other local logs; P4 the domain logic out of `app.ts`; P5 the native host runs the core;
   P6 one Gun on the web. **P1 done 2026-10-25** (OPEN-88, see `docs/completed.md`): `src/core/`
   holds the protocol, the graph store, the exchange log and the web worker host
-  (`core-worker.js`, replacing `public/worker.js`). Next: P2.
+  (`core-worker.js`, replacing `public/worker.js`). **P2 first slice done 2026-10-25:** the
+  sender's response copy and delivery journal moved into the core (`local/`), and the page's Gun runs
+  the sharing policy's `out` filter; spec 09 fails on any private soul on the hub wire. Remaining P2:
+  default deny (needs the shared nodes under `pair/`/`room/`/`public/`), the `in` filter, and
+  encryption checks on `pair/`/`room/` writes. Then P3.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

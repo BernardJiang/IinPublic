@@ -57,19 +57,25 @@ Every node the core writes lives in exactly one namespace; its first path segmen
    already received by peers cannot be deleted from them; retraction is a signed tombstone peers
    honour.
 
-## What leaves the device today (to fix in P2)
+## What leaves the device today
 
-Audit of the current code, 2026-10-25 — to be completed by the P2 wire audit:
+Audit of the current code, 2026-10-25:
 
-- **Pair responses and the delivery journal** (`GunDeliveryRepository`) are written through the
-  page's hub-connected Gun. The answer itself is ciphertext, but the soul and fields (Talk id,
-  author id, responder id, response id, timestamps) are readable by the hub: it can see who answered
-  whom and when.
+- **Fixed in P2 (2026-10-25):** the sender's copy of each Talk response and the delivery journal
+  were written through the page's hub-connected Gun (`pairs/…`, `deliveryJournal/…`). The answer was
+  ciphertext, but the souls and fields (Talk id, author id, responder id, response id, timestamps)
+  showed the hub who answered whom and when. They now live in the device core under
+  `local/sentResponses` and `local/deliveryJournal` (`src/core/delivery.ts`), and the page's Gun
+  runs the policy's `out` filter (`src/core/sharing-policy.ts`), which drops any write or read of a
+  private namespace whatever code path issues it. Spec 09 asserts both.
+- **The rule is still a list, not default deny:** `local`, `pairs`, `deliveryJournal` are private;
+  everything else may leave. Default deny needs every shared node moved under `pair/`, `room/` or
+  `public/` first (P3–P6).
 - **User records, rosters, presence** go through the hub-connected Gun by design; they belong in
   `public/` with the user's settings deciding what is included.
 - **Talk content** no longer crosses the hub: owner Talk repositories and incoming clusters live in
   the peerless worker Gun, and `tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`
-  asserts it (CLAUDE.md's note that it does is outdated).
+  asserts it.
 
 ## Tests
 

@@ -92,8 +92,10 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
   `src/shared/peer-talk-delivery.ts`.
   **Wire audit** (`tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`): owner Talk
   repositories and incoming clusters live in the peerless worker Gun, and the spec asserts no Talk
-  plaintext reaches the hub. Still on the hub-connected Gun: pair responses and the delivery journal
-  (ciphertext content, readable ids) — OPEN-91 P2, `docs/design/data-sharing-privacy-rules.md`.
+  plaintext reaches the hub, and no soul in a private namespace (`local/`, `pairs/`,
+  `deliveryJournal/`) is sent to it. The page's Gun runs the sharing policy's `out` filter
+  (`src/core/sharing-policy.ts`); the sender's response copy and delivery journal live in the device
+  core (`src/core/delivery.ts`) — OPEN-91 P2, `docs/design/data-sharing-privacy-rules.md`.
 - Cross-worker disk races in `clearGunDatabases()` are a known flakiness source — servers run `E2E_GUN_MEMORY_ONLY=1` so disk clears are not required.
 
 ### Server: `src/server/`

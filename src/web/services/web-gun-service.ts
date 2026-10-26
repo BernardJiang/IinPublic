@@ -1,4 +1,5 @@
 import Gun from 'gun';
+import { installSharingPolicy } from '../../core/sharing-policy';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
 import { getSEA } from '../sea-gun';
@@ -440,6 +441,8 @@ export class WebGunService extends EventEmitter {
         typeof window !== 'undefined' && window.location ? window.location : undefined,
         typeof localStorage !== 'undefined' ? localStorage : undefined,
       );
+      // Private namespaces never reach the hub, whatever writes them (OPEN-91 P2).
+      installSharingPolicy(Gun);
       this.gun = Gun({
         peers: this.peers,
         localStorage: persistBrowserGraph,

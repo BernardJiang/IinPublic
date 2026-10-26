@@ -45,7 +45,6 @@ import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
-import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
 import { getAnsweredTalkByContent, getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
@@ -239,6 +238,7 @@ import { applyContactsPrune, getContactsCap, planContactsPrune, unprunePeer } fr
 import { sharedTagCounter } from '../ui/tag-graph-view';
 import { deriveLocalPeers } from '../services/local-peer-derivation';
 import { connectExchangeCore, upsertExchange } from '../services/exchange-view';
+import type { CoreRequest } from '../../core/protocol';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
 import {
@@ -6392,6 +6392,22 @@ export class IinPublicApp {
   }
 
   /**
+   * Stores a delivery record in the device core (OPEN-91 P2). Never throws: the record is crash
+   * recovery, and the response still goes out over the mesh or the mailbox without it.
+   */
+  private async coreDelivery(request: Extract<CoreRequest, { name: 'delivery.putSentResponse' | 'delivery.record' }>): Promise<void> {
+    if (!this.gunService.isBridgeReady()) {
+      console.warn(`[delivery] device core unavailable, not stored: ${request.name}`);
+      return;
+    }
+    try {
+      await this.gunService.getBridge().core(request);
+    } catch (error) {
+      console.warn(`[delivery] device core write failed: ${request.name}`, error);
+    }
+  }
+
+  /**
    * Connects the GUI's exchange view to the device core's log (OPEN-88 part 2, OPEN-91 P1) and loads
    * it. Waits at most 5 s; a later snapshot still lands, and the open Contacts or Me tab redraws.
    * Without the worker the view keeps exchanges in memory for this session.
@@ -7435,16 +7451,15 @@ export class IinPublicApp {
         // so the author never has to network-resolve it at ingest (see type comment).
         ...(responderEpub ? { responderEpub } : {}),
       };
-      const deliveryRepository = new GunDeliveryRepository(this.gunService);
-      const localSeaPub = String(this.gunService.getStoredPair()?.pub || this.currentUser!.id);
-      // Pair response and recovery journal are durable before any transport is attempted.
-      await deliveryRepository.putPairResponse(localSeaPub, meshPayload);
-      await deliveryRepository.recordDelivery({
+      // The response and its delivery journal are stored in the device core before any transport
+      // is tried; both are local — the hub never learns who answered whom (OPEN-91 P2).
+      await this.coreDelivery({ name: 'delivery.putSentResponse', payload: meshPayload });
+      await this.coreDelivery({ name: 'delivery.record', input: {
         objectId: targetResponseId,
         recipientId: targetAuthorId,
         objectKind: 'talk-response',
         state: 'committed',
-      });
+      } });
       const mesh = this.ensurePeerMeshService();
       let sent = false;
       if (mesh) {
@@ -7466,12 +7481,12 @@ export class IinPublicApp {
         }
       }
       if (sent || mailboxPosted || queued) {
-        await deliveryRepository.recordDelivery({
+        await this.coreDelivery({ name: 'delivery.record', input: {
           objectId: targetResponseId,
           recipientId: targetAuthorId,
           objectKind: 'talk-response',
           state: 'sent',
-        });
+        } });
       }
       // Delivery-matrix diagnostic: exactly one line per response send with every stage's
       // outcome — the silent-success pipeline made every saturation post-mortem archaeology.
