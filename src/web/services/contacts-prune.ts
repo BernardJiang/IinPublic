@@ -9,13 +9,14 @@
  */
 import type { PeerSummary } from '../../shared/peer-summary-types';
 import { removeExchangePeers } from './exchange-view';
+import { appStorageAsStorage } from './core-storage';
 
 export const CONTACTS_CAP_OPTIONS = [500, 1_000, 2_000] as const;
 export const DEFAULT_CONTACTS_CAP = 1_000;
 const CAP_KEY = 'iinpublic_contacts_cap_v1';
 const PRUNED_KEY = 'iinpublic_contacts_pruned_v1';
 
-export function getContactsCap(storage: Storage = localStorage): number {
+export function getContactsCap(storage: Storage = appStorageAsStorage): number {
   try {
     const value = Number(storage.getItem(CAP_KEY));
     return (CONTACTS_CAP_OPTIONS as readonly number[]).includes(value) ? value : DEFAULT_CONTACTS_CAP;
@@ -24,11 +25,11 @@ export function getContactsCap(storage: Storage = localStorage): number {
   }
 }
 
-export function setContactsCap(cap: number, storage: Storage = localStorage): void {
+export function setContactsCap(cap: number, storage: Storage = appStorageAsStorage): void {
   if ((CONTACTS_CAP_OPTIONS as readonly number[]).includes(cap)) storage.setItem(CAP_KEY, String(cap));
 }
 
-export function getPrunedPeerIds(storage: Storage = localStorage): Set<string> {
+export function getPrunedPeerIds(storage: Storage = appStorageAsStorage): Set<string> {
   try {
     const parsed = JSON.parse(storage.getItem(PRUNED_KEY) || '[]');
     return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
@@ -43,7 +44,7 @@ function savePrunedPeerIds(ids: Set<string>, storage: Storage): void {
 }
 
 /** A new exchange with a pruned person brings them back. */
-export function unprunePeer(peerId: string, storage: Storage = localStorage): void {
+export function unprunePeer(peerId: string, storage: Storage = appStorageAsStorage): void {
   try {
     const ids = getPrunedPeerIds(storage);
     if (ids.delete(peerId)) savePrunedPeerIds(ids, storage);
@@ -90,7 +91,7 @@ export function planContactsPrune(input: ContactsPruneInput): { drop: string[]; 
  * Deletes the dropped people's exchange records (in the device core's log, through the GUI's view)
  * and hides them from Contacts. People who have since gained a relationship are shown again.
  */
-export function applyContactsPrune(drop: string[], keepAlways: Set<string>, storage: Storage = localStorage): void {
+export function applyContactsPrune(drop: string[], keepAlways: Set<string>, storage: Storage = appStorageAsStorage): void {
   const pruned = getPrunedPeerIds(storage);
   for (const peerId of keepAlways) pruned.delete(peerId);
   if (drop.length > 0) {

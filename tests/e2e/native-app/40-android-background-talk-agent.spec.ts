@@ -163,11 +163,11 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
       app?.uiManager?.emit?.('startMatchCollection', { scopeId: 'nearby-v3', label: 'G7 physical background' });
     });
     await expect.poll(() => author!.window.evaluate(() => {
-      const store = JSON.parse(localStorage.getItem('iinpublic_match_collection_sessions_v1') || '{}');
+      const store = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_match_collection_sessions_v1'] ?? null) || '{}');
       return String(store.activeSessionId || '');
     }), { timeout: 30_000 }).not.toBe('');
     const collectionSessionId = await author.window.evaluate(() => {
-      const store = JSON.parse(localStorage.getItem('iinpublic_match_collection_sessions_v1') || '{}');
+      const store = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_match_collection_sessions_v1'] ?? null) || '{}');
       return String(store.activeSessionId || '');
     });
 
@@ -196,7 +196,7 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
       (window as any).__iinpublic_app?.getApp?.()?.uiManager?.emit?.('endMatchCollection');
     });
     await expect.poll(() => author!.window.evaluate((sessionId) => {
-      const store = JSON.parse(localStorage.getItem('iinpublic_match_collection_sessions_v1') || '{}');
+      const store = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_match_collection_sessions_v1'] ?? null) || '{}');
       const endedAt = String((store.sessions || []).find((row: any) => row.id === sessionId)?.endedAt || '');
       return !store.activeSessionId && endedAt.length > 0;
     }, collectionSessionId), { timeout: 30_000 }).toBe(true);
@@ -213,7 +213,7 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
     const responseReceivedAt = Date.now();
 
     const collection = await author.window.evaluate(({ sessionId, talkId, responderId }) => {
-      const store = JSON.parse(localStorage.getItem('iinpublic_match_collection_sessions_v1') || '{}');
+      const store = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_match_collection_sessions_v1'] ?? null) || '{}');
       const session = (store.sessions || []).find((row: any) => row.id === sessionId);
       const matchingResults = (session?.results || []).filter(
         (row: any) => row.talkId === talkId && row.peerId === responderId && row.outcome === 'match',

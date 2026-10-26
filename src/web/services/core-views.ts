@@ -48,12 +48,18 @@ export const tagOppositePairRegistryView = new CoreCollectionView<unknown>('tagO
 /** OPEN-45: the revision of each authored Talk each peer last took, by `<peer>::<talk>`. Old key: `iinpublic_talk_revision_sent_v1`. */
 export const talkRevisionSentView = new CoreCollectionView<{ revision: string; at: number }>('talkRevisionSent', 'iinpublic_talk_revision_sent_v1');
 
+/**
+ * Smaller app data, one entry per former localStorage key, its value the same string
+ * (`core-storage.ts`). No blob of its own to import: each key migrates when first read.
+ */
+export const appDataView = new CoreCollectionView<string>('appData', 'iinpublic_core_app_data_no_legacy_blob');
+
 const VIEWS: Array<CoreCollectionView<unknown>> = [
   chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView,
   dealTalkByConversationView, needKeyByConversationView,
   answeredTalkByContentView, answerPreferencesView, flattenedAnswerPreferencesView, questionDefaultContractsView,
   myQuestionAnswersView, exactChatbotMemoryView, typedPreferenceStateView, tagOppositePairRegistryView,
-  talkRevisionSentView,
+  talkRevisionSentView, appDataView,
 ] as Array<CoreCollectionView<unknown>>;
 
 export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {

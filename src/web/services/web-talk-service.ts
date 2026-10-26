@@ -4,6 +4,7 @@ import { WebGunService } from './web-gun-service';
 import { computeTalkCIDv1, computeCIDv1, normalizeIdentityText } from '../../shared/cid';
 import { GunTalkRepository } from './gun-talk-repository';
 import { getMyTalks, upsertMyTalk } from '../ui/my-talks-storage';
+import { appStorage } from './core-storage';
 
 // ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
 const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
@@ -11,7 +12,7 @@ const RECEIVED_TALKS_KEY = 'myReceivedTalks';
 
 function loadAuthoredTalks(): Record<string, { talkJson: string; createdAt: string }> {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTHORED_TALKS_KEY) : null;
+    const raw = appStorage.getItem(AUTHORED_TALKS_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -26,7 +27,7 @@ function saveAuthoredTalk(talkId: string, talk: Talk): void {
       talkJson: JSON.stringify(talk),
       createdAt: talk.createdAt instanceof Date ? talk.createdAt.toISOString() : String(talk.createdAt),
     };
-    localStorage.setItem(AUTHORED_TALKS_KEY, JSON.stringify(store));
+    appStorage.setItem(AUTHORED_TALKS_KEY, JSON.stringify(store));
   } catch {
     // Non-fatal: localStorage unavailable (e.g. SSR/Jest without jsdom)
   }
@@ -68,7 +69,7 @@ function loadAuthoredTalk(talkId: string): Talk | null {
 
 function loadReceivedTalks(): Record<string, { talkJson: string; receivedAt: string }> {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(RECEIVED_TALKS_KEY) : null;
+    const raw = appStorage.getItem(RECEIVED_TALKS_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -268,7 +269,7 @@ export class WebTalkService {
         talkJson: JSON.stringify(talk),
         receivedAt: new Date().toISOString(),
       };
-      localStorage.setItem(RECEIVED_TALKS_KEY, JSON.stringify(store));
+      appStorage.setItem(RECEIVED_TALKS_KEY, JSON.stringify(store));
     } catch {
       // Non-fatal: the live mesh cache still serves the current session.
     }

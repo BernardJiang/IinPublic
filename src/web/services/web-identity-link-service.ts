@@ -21,6 +21,7 @@ import {
   verifyLinkAttestation,
   verifyRevocation,
 } from '../../shared/identity-linking';
+import { appStorageAsStorage } from './core-storage';
 
 /** A linked-device record as displayed on the Linked devices page. */
 export interface LinkedDeviceRecord {
@@ -85,7 +86,7 @@ export class WebIdentityLinkService {
 
   constructor(
     gunService: WebGunService,
-    storage: Storage | undefined = typeof localStorage === 'undefined' ? undefined : localStorage,
+    storage: Storage | undefined = appStorageAsStorage,
     apiBase?: string,
   ) {
     this.gunService = gunService;

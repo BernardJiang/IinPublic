@@ -11,6 +11,7 @@ import { type KnownPerson } from '../../shared/types';
 import { escapeHtml } from './ui-formatters';
 import type { UiLanguage, UiTranslationKey } from './ui-translations';
 import type { GraphNodeTarget } from './graph-navigation';
+import { appStorage } from '../services/core-storage';
 
 export const CREATOR_REPLY_PAGE_SIZE = 25;
 
@@ -60,7 +61,7 @@ export function readCreatorReplyFilterState(): CreatorReplyFilterState {
 /** Persists the current reply-filter/sort control values across reloads. */
 export function persistCreatorReplyFilterState(): void {
   try {
-    localStorage.setItem(CREATOR_REPLY_FILTERS_KEY, JSON.stringify(readCreatorReplyFilterState()));
+    appStorage.setItem(CREATOR_REPLY_FILTERS_KEY, JSON.stringify(readCreatorReplyFilterState()));
   } catch {
     /* local-only preference persistence is optional */
   }
@@ -70,7 +71,7 @@ export function persistCreatorReplyFilterState(): void {
 export function restoreCreatorReplyFilterState(): void {
   let state: Partial<CreatorReplyFilterState> = {};
   try {
-    const raw = localStorage.getItem(CREATOR_REPLY_FILTERS_KEY);
+    const raw = appStorage.getItem(CREATOR_REPLY_FILTERS_KEY);
     state = raw ? JSON.parse(raw) as Partial<CreatorReplyFilterState> : {};
   } catch {
     state = {};

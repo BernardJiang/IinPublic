@@ -1,9 +1,10 @@
 import { setMyConversations } from './my-conversations-storage';
+import { appStorage } from '../services/core-storage';
 const PEER_NAME_CACHE_KEY = 'peerNameCache';
 
 export function getPeerNameCache(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(PEER_NAME_CACHE_KEY);
+    const raw = appStorage.getItem(PEER_NAME_CACHE_KEY);
     return raw ? JSON.parse(raw) as Record<string, string> : {};
   } catch {
     return {};
@@ -28,7 +29,7 @@ export function rememberPeerName(
   const cache = getPeerNameCache();
   if (cache[trimmedId] === trimmedName) return;
   cache[trimmedId] = trimmedName;
-  localStorage.setItem(PEER_NAME_CACHE_KEY, JSON.stringify(cache));
+  appStorage.setItem(PEER_NAME_CACHE_KEY, JSON.stringify(cache));
   try {
     const conversations = getMyConversations();
     let changed = false;

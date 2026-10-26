@@ -5,6 +5,7 @@
  * latter keeps only the latest peer + Talk outcome, while an outing must remain reviewable after
  * the same Talk is sent to the same person on another day. Nothing in this store is published.
  */
+import { appStorage } from './core-storage';
 
 export const MATCH_COLLECTION_STORE_KEY = 'iinpublic_match_collection_sessions_v1';
 
@@ -193,7 +194,7 @@ function normalizeSession(value: unknown): MatchCollectionSession | null {
 
 function readStore(): MatchCollectionStore {
   try {
-    const parsed = JSON.parse(localStorage.getItem(MATCH_COLLECTION_STORE_KEY) || 'null') as Partial<MatchCollectionStore> | null;
+    const parsed = JSON.parse(appStorage.getItem(MATCH_COLLECTION_STORE_KEY) || 'null') as Partial<MatchCollectionStore> | null;
     if (!parsed || parsed.version !== 1) return emptyStore();
     const sessions = Array.isArray(parsed.sessions)
       ? parsed.sessions.map(normalizeSession).filter((row): row is MatchCollectionSession => row !== null).slice(-MAX_SESSIONS)
@@ -246,7 +247,7 @@ function writeStore(store: MatchCollectionStore): void {
     associations: store.associations.filter((row) => ids.has(row.sessionId)).slice(-MAX_ASSOCIATIONS),
   };
   try {
-    localStorage.setItem(MATCH_COLLECTION_STORE_KEY, JSON.stringify(bounded));
+    appStorage.setItem(MATCH_COLLECTION_STORE_KEY, JSON.stringify(bounded));
   } catch {
     // Collection history is a local UI aid. Delivery and matching must continue if storage is full.
   }

@@ -249,6 +249,7 @@ import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
+import { appStorage } from '../services/core-storage';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
@@ -670,7 +671,7 @@ export class IinPublicApp {
   private loadAttachmentShareSentIds(): void {
     this.attachmentShareSentIds.clear();
     try {
-      const raw = localStorage.getItem(IinPublicApp.ATTACHMENT_SHARE_SENT_KEY);
+      const raw = appStorage.getItem(IinPublicApp.ATTACHMENT_SHARE_SENT_KEY);
       if (!raw) return;
       const values = JSON.parse(raw);
       if (!Array.isArray(values)) return;
@@ -685,7 +686,7 @@ export class IinPublicApp {
 
   private persistAttachmentShareSentIds(): void {
     try {
-      localStorage.setItem(
+      appStorage.setItem(
         IinPublicApp.ATTACHMENT_SHARE_SENT_KEY,
         JSON.stringify([...this.attachmentShareSentIds]),
       );
@@ -1433,7 +1434,7 @@ export class IinPublicApp {
       checkIncoming: async () => {
         let linked: Array<{ pub: string; stageName: string }> = [];
         try {
-          const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
+          const arr = JSON.parse(appStorage.getItem('iinpublic_linked_devices') || '[]');
           linked = Array.isArray(arr) ? arr.filter((r: any) => r?.state === 'linked') : [];
         } catch {
           linked = [];
@@ -1449,14 +1450,14 @@ export class IinPublicApp {
         const { mergeHandoffArchive } = await import('../../shared/device-handoff');
         const read = (key: string): any => {
           try {
-            return JSON.parse(localStorage.getItem(key) || 'null') ?? undefined;
+            return JSON.parse(appStorage.getItem(key) || 'null') ?? undefined;
           } catch {
             return undefined;
           }
         };
         const write = (key: string, value: unknown): void => {
           try {
-            localStorage.setItem(key, JSON.stringify(value));
+            appStorage.setItem(key, JSON.stringify(value));
           } catch {
             /* best effort */
           }
@@ -3636,7 +3637,7 @@ export class IinPublicApp {
         answerRules,
         chatbotTemplates: getChatbotTemplates(),
         authoredTalks,
-        matchCollectionStore: localStorage.getItem('iinpublic_match_collection_sessions_v1') || undefined,
+        matchCollectionStore: appStorage.getItem('iinpublic_match_collection_sessions_v1') || undefined,
         intakeFilters: getTalkIntakeFilters(),
         knownContactIds: (this.currentUser.knownPeople || []).map((person) => person.userId),
         travelerIds: [...this.roomTravelerIds],
@@ -4337,11 +4338,11 @@ export class IinPublicApp {
 
   private enqueueFailedMailboxPost(payload: P2PMeshTalkResponsePayload): void {
     try {
-      const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
+      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
       const queue: Record<string, P2PMeshTalkResponsePayload> = raw ? JSON.parse(raw) : {};
       const queueKey = `${payload.talkId}::${payload.authorId}::${payload.responseId}`;
       queue[queueKey] = payload;
-      localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
+      appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
       console.log('[Mailbox] Queued failed-POST response for author', payload.authorId, 'key:', queueKey);
     } catch (err) {
       console.warn('[Mailbox] Failed to enqueue failed-POST response:', err);
@@ -4352,7 +4353,7 @@ export class IinPublicApp {
   private async retryFailedMailboxPosts(): Promise<void> {
     let queue: Record<string, P2PMeshTalkResponsePayload>;
     try {
-      const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
+      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
       if (!raw) return;
       queue = JSON.parse(raw);
     } catch {
@@ -4366,7 +4367,7 @@ export class IinPublicApp {
     if (succeeded.length > 0) {
       for (const k of succeeded) delete queue[k];
       try {
-        localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
+        appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
       } catch {/* ignore */}
     }
   }

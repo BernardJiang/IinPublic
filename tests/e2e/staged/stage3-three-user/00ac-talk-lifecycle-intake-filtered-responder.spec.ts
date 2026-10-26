@@ -113,7 +113,7 @@ test.describe('Talk lifecycle — intake-filtered responder matrix (D4)', () => 
       .poll(
         () =>
           pageBob!.evaluate(() => {
-            const raw = localStorage.getItem('iinpublic_talk_intake_filters') || '{}';
+            const raw = (((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}';
             const filters = JSON.parse(raw) as { allowedTalkTypes?: string[] };
             return filters.allowedTalkTypes ?? [];
           }),

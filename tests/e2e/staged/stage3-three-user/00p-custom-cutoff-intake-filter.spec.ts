@@ -105,13 +105,13 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await expect
       .poll(() =>
         pageJerry!.evaluate(() =>
-          JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').customBlockedTerms,
+          JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').customBlockedTerms,
         ),
       )
       .toEqual(['eclipse invitation']);
     await pageJerry.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
-      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
       await app.userService.updateTalkFilters(app.currentUser.id, filters);
     });
 
@@ -128,13 +128,13 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await expect
       .poll(() =>
         pageJerry!.evaluate(() =>
-          JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').customBlockedTerms,
+          JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').customBlockedTerms,
         ),
       )
       .toEqual([]);
     await pageJerry.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
-      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
       await app.userService.updateTalkFilters(app.currentUser.id, filters);
     });
     const phraseAllowedTitle = 'Eclipse Invitation Allowed';
@@ -150,13 +150,13 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await expect
       .poll(() =>
         pageJerry!.evaluate(() =>
-          JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter,
+          JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').sentAfter,
         ),
       )
       .toContain('2099-01-01T');
     await pageJerry.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
-      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
       await app.userService.updateTalkFilters(app.currentUser.id, filters);
     });
     await pageJerry.click('.nav-btn[data-view="talks"]');
@@ -181,13 +181,13 @@ test.describe('Incoming talk custom phrase and cutoff filtering', () => {
     await expect
       .poll(() =>
         pageJerry!.evaluate(() =>
-          JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter,
+          JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').sentAfter,
         ),
       )
       .toBeUndefined();
     await pageJerry.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
-      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
       await app.userService.updateTalkFilters(app.currentUser.id, filters);
     });
   });

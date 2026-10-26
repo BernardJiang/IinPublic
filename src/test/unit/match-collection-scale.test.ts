@@ -9,6 +9,7 @@ import {
   summarizeMatchCollectionSession,
 } from '../../web/services/match-collection-session';
 import { simulateMatchCollectionOuting } from '../support/match-collection-outing-model';
+import { appStorage } from '../../web/services/core-storage';
 
 describe('match collection qualification models', () => {
   afterEach(() => localStorage.removeItem(MATCH_COLLECTION_STORE_KEY));
@@ -28,7 +29,7 @@ describe('match collection qualification models', () => {
       pending: 332,
     });
     expect(getMatchCollectionReviewPeople(session.id)).toHaveLength(498);
-    expect(JSON.parse(localStorage.getItem(MATCH_COLLECTION_STORE_KEY) || '{}').associations).toHaveLength(498);
+    expect(JSON.parse(appStorage.getItem(MATCH_COLLECTION_STORE_KEY) || '{}').associations).toHaveLength(498);
   });
 
   it('models a 16-client moving outing with pending, delayed, and repeated encounters', () => {

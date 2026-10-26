@@ -29,6 +29,7 @@ import { WebDeviceSyncCustodyStore } from './web-device-sync-custody-store';
 import { WebDeviceSyncOutboxStore } from './web-device-sync-outbox-store';
 import type { SyncedMessage } from './web-device-sync-message-cache';
 import { getGraphRelay, putGraphRelay } from './graph-relay-client';
+import { appStorageAsStorage } from './core-storage';
 
 /**
  * Wires the WP5 device-sync protocol (shared/device-sync-*.ts, previously built but never called
@@ -292,8 +293,8 @@ export class WebDeviceSyncService {
     const pair = this.gunService.getStoredPair();
     if (!pair?.pub) return;
     this.authorizations.set(peerPub, authorizations);
-    const custodyStore = new WebDeviceSyncCustodyStore(localStorage, pair as GunPair, `${CUSTODY_NAMESPACE_PREFIX}${peerPub}`);
-    const outboxStore = new WebDeviceSyncOutboxStore(localStorage, pair as GunPair, `${OUTBOX_STORAGE_KEY_PREFIX}${peerPub}`);
+    const custodyStore = new WebDeviceSyncCustodyStore(appStorageAsStorage, pair as GunPair, `${CUSTODY_NAMESPACE_PREFIX}${peerPub}`);
+    const outboxStore = new WebDeviceSyncOutboxStore(appStorageAsStorage, pair as GunPair, `${OUTBOX_STORAGE_KEY_PREFIX}${peerPub}`);
     this.custodyStores.set(peerPub, custodyStore);
     this.outboxStores.set(peerPub, outboxStore);
     this.startReceiving(peerPub);

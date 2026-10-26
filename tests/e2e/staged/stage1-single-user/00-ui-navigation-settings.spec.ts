@@ -721,7 +721,7 @@ test.describe('UI navigation and settings shell', () => {
 
     await expect
       .poll(async () => p.evaluate(() => {
-        const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+        const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
         return {
           allowedLanguages: filters.allowedLanguages,
           requireGoodGrammar: filters.requireGoodGrammar,
@@ -767,7 +767,7 @@ test.describe('UI navigation and settings shell', () => {
     await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-sent-after').fill('2026-05-01T09:30');
     await expect
-      .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
+      .poll(async () => p.evaluate(() => JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').sentAfter))
       .toContain('2026-05-01T');
 
   });

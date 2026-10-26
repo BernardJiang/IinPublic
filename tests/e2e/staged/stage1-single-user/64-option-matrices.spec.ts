@@ -303,7 +303,7 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     }
     await afterSync();
     const langs = await p.evaluate(() =>
-      JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').allowedLanguages,
+      JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').allowedLanguages,
     );
     expect(langs).toEqual(['en']);
     await backToSettingsMenu(p);
@@ -321,7 +321,7 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     }
     await afterSync();
     const types = await p.evaluate(() =>
-      JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').allowedTalkTypes,
+      JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').allowedTalkTypes,
     );
     expect([...types].sort()).toEqual(['flow', 'route', 'survey', 'tag']);
   });

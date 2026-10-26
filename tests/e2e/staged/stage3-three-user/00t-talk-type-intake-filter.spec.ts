@@ -101,14 +101,14 @@ test.describe('Incoming talk type intake filtering', () => {
     await expect
       .poll(() =>
         pageJerry!.evaluate(() =>
-          JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').allowedTalkTypes,
+          JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').allowedTalkTypes,
         ),
       )
       .toEqual(['flow']);
     await afterAction();
     await pageJerry.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
-      const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+      const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
       await app.userService.updateTalkFilters(app.currentUser.id, filters);
     });
 

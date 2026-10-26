@@ -30,13 +30,14 @@ import {
 } from './answer-preferences-storage';
 import { getMyTalks } from './my-talks-storage';
 import { resolveAnswerPreferenceForTalkQuestion, saveAnswerPreference } from './answer-preference-resolution';
+import { appStorage } from '../services/core-storage';
 
 const ANSWER_CONTEXT_MIGRATED_VERSION_KEY = 'answerContextMigratedVersion';
 
 /** Exposed for tests and for callers that want to log/skip without touching storage. */
 export function needsAnswerContextMigration(): boolean {
   try {
-    const raw = localStorage.getItem(ANSWER_CONTEXT_MIGRATED_VERSION_KEY);
+    const raw = appStorage.getItem(ANSWER_CONTEXT_MIGRATED_VERSION_KEY);
     const migratedVersion = raw ? Number(raw) : 0;
     return !Number.isFinite(migratedVersion) || migratedVersion < ANSWER_CONTEXT_VERSION;
   } catch {
@@ -203,7 +204,7 @@ export function runAnswerContextMigration(currentUserId: string | undefined): { 
     // the marker back would mean a crash loop keeps re-attempting instead of degrading safely to
     // "ask the user once more."
     try {
-      localStorage.setItem(ANSWER_CONTEXT_MIGRATED_VERSION_KEY, String(ANSWER_CONTEXT_VERSION));
+      appStorage.setItem(ANSWER_CONTEXT_MIGRATED_VERSION_KEY, String(ANSWER_CONTEXT_VERSION));
     } catch {
       // Best-effort — storage may be full or unavailable; migration still ran for this session.
     }
