@@ -97,7 +97,6 @@ import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, compu
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
-  acceptsIncomingTalks,
   isTechSupportUser,
   TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS,
   TECHSUPPORT_ROOT_USER_ID,
@@ -183,7 +182,6 @@ import {
 } from '../services/match-collection-session';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
-import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
@@ -240,6 +238,9 @@ import { deriveLocalPeers } from '../services/local-peer-derivation';
 import { connectExchangeCore, upsertExchange } from '../services/exchange-view';
 import type { CoreRequest } from '../../core/protocol';
 import type { CoreCollection } from '../../core/collections';
+import { decideResponseIngest } from '../../core/response-ingest';
+import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
+import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
@@ -247,8 +248,6 @@ import {
   buildTagIdentityKeys,
   filterTalkForRecipient,
   setTalkLedgerQuotaUnlimited,
-  applyEvent as applyLedgerEvent,
-  outcomeKey as ledgerOutcomeKey,
   retractedKey as ledgerRetractedKey,
 } from '../../shared/talk-ledger';
 import { getMyConversations } from '../ui/my-conversations-storage';
@@ -2746,94 +2745,31 @@ export class IinPublicApp {
     directPeerSend?: boolean;
   }): Promise<boolean> {
     const me = this.currentUser;
-    if (!me?.id || offer.senderId === me.id) return false;
-    // TechSupport ignores all talks (docs/TODO.md K5) — hard rule on the canonical root id,
-    // checked before any filter so it cannot be re-enabled through intake settings.
-    if (!acceptsIncomingTalks(me.id)) return false;
-    if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
-    if (!talkContactPolicyAllowsPeer(offer.senderId, getTalkIntakeFilters(), me.knownPeople, this.roomTravelerIds)) {
-      return false;
-    }
-    const talkData = offer.talkData;
-    // Resolve ageVerified asynchronously before calling the shared synchronous filter function.
-    // Only fetch when the talk is actually adult-flagged to avoid an unnecessary API call.
-    const isAdultTalk = !!talkData?.isAdult;
-    const ageVerified = isAdultTalk ? await this.resolveAgeVerifiedForIntake() : true;
-    const chatroomId = this.currentChatroomId;
-    if (!offer.directPeerSend && chatroomId) {
-      const deliveryRoom = String(offer.deliveryChatroomId || '').trim();
-      if (deliveryRoom && deliveryRoom !== chatroomId) return false;
-      // Broadcast offers carry deliveryChatroomId; skip sender membership poll (Gun member map lags in e2e).
-      if (!deliveryRoom) {
-        const serverIds = await this.chatroomService.fetchMemberIdsFromServer(chatroomId);
-        if (!serverIds.includes(offer.senderId)) {
-          const members = await this.chatroomService.getActiveMembers(chatroomId);
-          if (!members.includes(offer.senderId)) return false;
-        }
-      }
-    }
-    const filters = getTalkIntakeFilters();
-    const td = talkData;
-    const authorLoc =
-      td.authorLocation &&
-      typeof td.authorLocation === 'object' &&
-      typeof (td.authorLocation as { latitude?: unknown }).latitude === 'number' &&
-      typeof (td.authorLocation as { longitude?: unknown }).longitude === 'number'
-        ? (td.authorLocation as { latitude: number; longitude: number })
-        : undefined;
-    // Resolve expiresAt for the shared function (handles nested fullTalk wrapper from dev seeds).
-    const expiresAtMs = this.resolveTalkExpiresAtMs(talkData);
-    const receiverContext: ReceiverIntakeContext = { ageVerified };
-    const reasons = intakeFilterRejectReasons(
-      {
-        title: typeof td.title === 'string' ? td.title : String(td.title ?? ''),
-        type: typeof td.type === 'string' ? td.type : String(td.type ?? ''),
-        language: typeof td.language === 'string' && td.language.trim() ? td.language : 'en',
-        createdAt:
-          td.createdAt instanceof Date
-            ? td.createdAt.toISOString()
-            : typeof td.createdAt === 'string' && td.createdAt
-              ? td.createdAt
-              : new Date().toISOString(),
-        updatedAt:
-          td.updatedAt instanceof Date
-            ? td.updatedAt.toISOString()
-            : typeof td.updatedAt === 'string' && td.updatedAt
-              ? td.updatedAt
-              : typeof td.createdAt === 'string' && td.createdAt
-                ? td.createdAt
-                : new Date().toISOString(),
-        ...(Number.isFinite(expiresAtMs) ? { expiresAt: expiresAtMs } : {}),
-        ...(authorLoc ? { authorLocation: authorLoc } : {}),
-        questions: Array.isArray(td.questions) ? td.questions : [],
-        ...(typeof td.questionsJson === 'string' ? { questionsJson: td.questionsJson } : {}),
-        isAdult: isAdultTalk,
+    if (!me?.id) return false;
+    // The rule is the core's (src/core/talk-intake.ts); this supplies the context and the lookups.
+    const decision = await decideIncomingTalk(offer, {
+      myId: me.id,
+      filters: getTalkIntakeFilters(),
+      knownPeople: me.knownPeople,
+      travelerIds: this.roomTravelerIds,
+      ...(this.currentChatroomId ? { currentChatroomId: this.currentChatroomId } : {}),
+      ...(this.locationConfirmed && this.currentLocation ? { location: this.currentLocation } : {}),
+      now: Date.now(),
+    }, {
+      isBlockedEitherWay: (peerId) => this.resolveBlockStatusEitherWay(peerId),
+      ageVerified: () => this.resolveAgeVerifiedForIntake(),
+      isRoomMember: async (roomId, peerId) => {
+        // Gun's member map lags; the server's list is asked first.
+        const serverIds = await this.chatroomService.fetchMemberIdsFromServer(roomId);
+        if (serverIds.includes(peerId)) return true;
+        return (await this.chatroomService.getActiveMembers(roomId)).includes(peerId);
       },
-      filters,
-      // A placeholder location (no real fix yet) must not drive the distance filter.
-      this.locationConfirmed ? this.currentLocation : undefined,
-      receiverContext,
-    );
-    return reasons.length === 0;
-  }
-
-  private resolveTalkExpiresAtMs(talkData: unknown): number {
-    const record = talkData && typeof talkData === 'object'
-      ? talkData as Record<string, unknown>
-      : {};
-    const nested = record.fullTalk && typeof record.fullTalk === 'object'
-      ? record.fullTalk as Record<string, unknown>
-      : {};
-    const expiresAtValue = record.expiresAt ?? nested.expiresAt;
-    if (typeof expiresAtValue === 'number') return expiresAtValue;
-    if (typeof expiresAtValue === 'string' && expiresAtValue.trim()) {
-      return new Date(expiresAtValue).getTime();
-    }
-    return Number.NaN;
+    });
+    return decision.accept;
   }
 
   private isTalkExpiredForDelivery(talkData: unknown): boolean {
-    const expiresAt = this.resolveTalkExpiresAtMs(talkData);
+    const expiresAt = talkExpiresAtMs(talkData);
     return Number.isFinite(expiresAt) && Date.now() > expiresAt;
   }
 
@@ -4574,68 +4510,30 @@ export class IinPublicApp {
     if (!talkData) return;
     const decrypted = await this.decryptPairTalkResponsePayload(payload);
 
-    // docs/TODO.md §W Gap 2 completeness note: don't trust an incoming mesh response to be
-    // complete just because a peer sent it — a survey response answering fewer questions than
-    // the talk has must not be recorded as exchanged/answered on the author's side either. This
-    // is the receiving-side half of the same guard `submitTalkResponsePairDirect` applies on the
-    // sending side (defense in depth: an older/different client, or a corrupted payload, could
-    // still produce a short answers array even though this client's own UI no longer can).
-    const totalQuestions = Array.isArray(talkData?.questions) ? talkData.questions.length : 0;
-    if (talkData?.type === 'survey' && decrypted.answers.length < totalQuestions) {
-      console.debug(
-        `[Step9] Discarding incomplete survey response from ${payload.responderId} — ${decrypted.answers.length}/${totalQuestions} answered`,
-      );
+    // The decision is the core's (src/core/response-ingest.ts); this method carries it out.
+    const decision = decideResponseIngest({
+      talkData,
+      answers: decrypted.answers,
+      ledger: getTalkLedgerDoc(),
+      identityKey: buildTalkIdentityKey(talkData),
+      responderId: payload.responderId,
+      authorId: this.currentUser.id,
+      talkId: payload.talkId,
+      responseId: payload.responseId,
+      ...(payload.version !== undefined ? { version: payload.version } : {}),
+      ...(payload.respondedAt ? { respondedAt: payload.respondedAt } : {}),
+      submittedAt: payload.submittedAt,
+      now: new Date().toISOString(),
+    });
+    if (decision.kind === 'reject') {
+      console.debug(`[RESP-INGEST] discarded (${decision.reason}) from ${payload.responderId} v=${payload.version ?? 1}`);
       return;
     }
+    const incomingVersion = decision.version;
+    const incomingRespondedAt = decision.respondedAt;
 
-    // Step 10: check dead-inbox tombstone before any processing.
-    // If the author has retracted this talk (talkId::authorId in retracted), discard all answers.
-    const ledgerDoc = getTalkLedgerDoc();
-    const tombstoneKey = ledgerRetractedKey(payload.talkId, this.currentUser.id);
-    if (ledgerDoc.retracted[tombstoneKey]) {
-      const tombstone = ledgerDoc.retracted[tombstoneKey]!;
-      const answerMs = new Date(payload.respondedAt ?? payload.submittedAt).getTime();
-      if (answerMs < tombstone.retractedAt) {
-        console.debug(`[Step10] Discarding answer from ${payload.responderId} — talk retracted`);
-        return;
-      }
-    }
-
-    // Step 9: version-gate ingest via applyEvent.
-    // Read the prior outcome for this (responderId, talkId, authorId) from ledger.
-    const oKey = ledgerOutcomeKey(payload.responderId, payload.talkId, this.currentUser.id);
-    const priorOutcome = ledgerDoc.outcomes[oKey];
-    const incomingVersion = payload.version ?? 1;
-    const incomingRespondedAt = payload.respondedAt ?? payload.submittedAt;
-
-    if (priorOutcome) {
-      const identityKey = buildTalkIdentityKey(talkData);
-      // Use applyEvent to determine if this update should be accepted.
-      // Clone doc to avoid mutating the read copy before we know if it's accepted.
-      const testDoc = JSON.parse(JSON.stringify(ledgerDoc));
-      const isMatch = checkIfMatch(talkData, decrypted.answers);
-      const ledgerOutcome = isMatch ? 'matched' as const : 'ignored' as const;
-      const preApplyVersion = testDoc.outcomes[oKey]?.version ?? 0;
-      applyLedgerEvent(testDoc, {
-        kind: 'TALK_ANSWERED',
-        responderId: payload.responderId,
-        talkId: payload.talkId,
-        authorId: this.currentUser.id,
-        identityKey,
-        outcome: ledgerOutcome,
-        version: incomingVersion,
-        responseId: payload.responseId,
-        respondedAt: incomingRespondedAt,
-        now: new Date().toISOString(),
-      });
-      const postApplyVersion = testDoc.outcomes[oKey]?.version ?? 0;
-
-      // If applyEvent did not update the entry, this is stale/replay — reject.
-      if (postApplyVersion <= preApplyVersion && testDoc.outcomes[oKey]?.responseId === priorOutcome.responseId) {
-        console.debug(`[Step9] Rejecting stale/replay response from ${payload.responderId} version=${incomingVersion} (prior=${priorOutcome.version})`);
-        return;
-      }
-
+    if (decision.kind !== 'first') {
+      const isMatch = decision.isMatch;
       // Accepted: add to dedupeKey set, record exchange, and handle outcome flip.
       this.processedTalkResponseKeys.add(dedupeKey);
       this.recordLocalTalkExchange(
@@ -4652,11 +4550,9 @@ export class IinPublicApp {
         },
       );
 
-      const wasMatch = priorOutcome.outcome === 'matched';
-      const nowMatch = isMatch;
       const changedAt = incomingRespondedAt;
 
-      if (!wasMatch && nowMatch) {
+      if (decision.kind === 'now-match') {
         // ignore → match: create conversation. No auto-disable here — matches aren't
         // exclusive; the talk only disables once a Deal is mutually confirmed (see the
         // deal-confirmation flow).
@@ -4698,7 +4594,7 @@ export class IinPublicApp {
           talkData,
         });
         this.uiManager.setMemberMatched(payload.responderId);
-      } else if (wasMatch && !nowMatch) {
+      } else if (decision.kind === 'no-longer-match') {
         // match → ignore: mark conversation ended with status 'ignored'
         this.uiManager.showNotification(
           `${decrypted.responderName} changed their answer — no longer a match · ${new Date(changedAt).toLocaleTimeString()}`,
@@ -4711,14 +4607,14 @@ export class IinPublicApp {
         );
       } else {
         // Outcome unchanged (both match or both not-match) — version bumped but no flip
-        console.debug(`[Step9] Version bump from ${payload.responderId}: v${priorOutcome.version}→v${incomingVersion}, outcome unchanged (${priorOutcome.outcome})`);
+        console.debug(`[Step9] Version bump from ${payload.responderId}: v${decision.priorVersion}→v${incomingVersion}, outcome unchanged`);
       }
       return;
     }
 
     // No prior entry — first receipt (original flow from step 8)
     this.processedTalkResponseKeys.add(dedupeKey);
-    const isMatch = checkIfMatch(talkData, decrypted.answers);
+    const isMatch = decision.isMatch;
     // R-2: pass responseId/version/respondedAt for forward-compat (steps 8–11)
     this.recordLocalTalkExchange(
       payload.responderId,
@@ -6209,16 +6105,19 @@ export class IinPublicApp {
    * "answered automatically" instead of a "New talk" notice that implies they must act.
    */
   private chatbotWillAnswer(talkId: string, talkData: any, authorId: string): boolean {
-    if (!authorId || authorId === this.currentUser?.id || !this.uiManager.getChatbotEnabled()) return false;
-    if (this.chatbotAutoReplySentForPair.has(this.talkRevisionPairKey(talkId, authorId, talkData))) return false;
-    let contentId = '';
-    try {
-      contentId = computeTalkIdFromTalkData(talkData);
-    } catch {
-      return false;
-    }
-    return !this.alreadyAnsweredForAuthor(contentId, authorId)
-      && (this.chatbotHasAnswersFor(talkId, contentId, talkData) || this.isPassedTag(talkData));
+    return chatbotWillAct(this.chatbotReplyDecision(talkId, talkData, authorId));
+  }
+
+  /** The core's rule (src/core/chatbot-reply.ts) over this app's chatbot state. */
+  private chatbotReplyDecision(talkId: string, talkData: any, authorId: string): ChatbotReplyDecision {
+    return decideChatbotReply(authorId, this.currentUser?.id, {
+      enabled: () => this.uiManager.getChatbotEnabled(),
+      handled: () => this.chatbotAutoReplySentForPair.has(this.talkRevisionPairKey(talkId, authorId, talkData)),
+      contentId: () => computeTalkIdFromTalkData(talkData),
+      answeredBefore: (contentId) => this.alreadyAnsweredForAuthor(contentId, authorId),
+      hasAnswers: (contentId) => this.chatbotHasAnswersFor(talkId, contentId, talkData),
+      passedTag: () => this.isPassedTag(talkData),
+    });
   }
 
   /** A one-keyword tag whose keyword the user passed (a suppressed question in exact memory). */
@@ -6241,23 +6140,14 @@ export class IinPublicApp {
     authorId: string,
     authorName: string,
   ): void {
-    if (!authorId || authorId === this.currentUser?.id) return;
     const pairKey = this.talkRevisionPairKey(talkId, authorId, talkData);
-    if (this.chatbotAutoReplySentForPair.has(pairKey)) {
-      console.log('🤖 Chatbot auto-reply skipped: pair already handled', { pairKey });
+    const decision = this.chatbotReplyDecision(talkId, talkData, authorId);
+    if (decision.act === 'skip') {
+      if (decision.reason !== 'self') console.log(`🤖 Chatbot auto-reply skipped: ${decision.reason}`, { talkId, authorId });
       return;
     }
-    if (!this.uiManager.getChatbotEnabled()) {
-      console.log('🤖 Chatbot auto-reply skipped: chatbot disabled', { talkId, authorId });
-      return;
-    }
-    const contentId = computeTalkIdFromTalkData(talkData);
-    if (this.alreadyAnsweredForAuthor(contentId, authorId)) {
-      console.log('🤖 Chatbot auto-reply skipped: content already answered', { talkId, contentId });
-      return;
-    }
-    const canAuto = this.chatbotHasAnswersFor(talkId, contentId, talkData);
-    if (!canAuto && this.isPassedTag(talkData)) {
+    const contentId = decision.contentId;
+    if (decision.act === 'pass') {
       // A tag the user passed, sent again by someone: pass it again. A pass is a talk-level
       // opt-out, so nothing goes back to the sender — only the user's list records it (🤖).
       this.chatbotAutoReplySentForPair.add(pairKey);
@@ -6271,7 +6161,7 @@ export class IinPublicApp {
       );
       return;
     }
-    if (!canAuto) {
+    if (decision.act === 'wait') {
       const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
       if (retries < 6) {
         this.chatbotAutoReplyRetryCountByPair.set(pairKey, retries + 1);
