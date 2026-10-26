@@ -1129,8 +1129,52 @@ button:focus:not(:focus-visible) {
 }
 
 .chatroom-map-user-dot[data-count]:not([data-count="1"]) {
-  width: 20px;
-  height: 20px;
+  min-width: 32px;
+  width: auto;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+/* Broadcast waves sit under markers and never intercept taps or map gestures. */
+.chatroom-map-broadcast-effects {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.chatroom-map-broadcast-label {
+  font: 600 12px/1.4 system-ui, sans-serif;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.chatroom-map-user-dot-matched {
+  width: auto;
+  min-width: 36px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: 13px;
+  font-size: 11px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #16a34a;
+}
+
+.chatroom-map-member-contact {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: start;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .chatroom-map-user-dot-room {
@@ -1156,6 +1200,12 @@ button:focus:not(:focus-visible) {
 
 .chatroom-map-user-dot {
   position: relative;
+}
+
+/* Keep marker positioning independent of the lazy-loaded MapLibre stylesheet's order. */
+.chatroom-map-user-dot.maplibregl-marker,
+.chatroom-map-marker.maplibregl-marker {
+  position: absolute;
 }
 
 .chatroom-map-user-dot-traveler {
@@ -1316,7 +1366,7 @@ button:focus:not(:focus-visible) {
   cursor: pointer;
 }
 
-/* My own star is not tappable; let taps reach a roommate's dot drawn under it. */
+/* My own star is not tappable; map gestures can pass through it. */
 .chatroom-map-user-dot-self {
   pointer-events: none;
 }

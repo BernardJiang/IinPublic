@@ -900,6 +900,7 @@ export class UIManager extends EventEmitter {
         syncReturnHomeButton: () => this.syncReturnHomeButton(),
         syncAppBarOverflow: () => this.syncAppBarOverflow(),
         openPeerDetail: (userId, stageName) => this.openUserConversationFirst(userId, stageName),
+        openMatchedContact: (userId, stageName) => this.openPeerDetailForUser(userId, stageName),
         openPeerProfile: (userId, stageName) => this.openPeerDetailForUser(userId, stageName),
         getPublicProfileFoundation: (userId) => this.publicProfileFoundationReader?.(userId) ?? Promise.resolve(null),
         rememberPeerName: (userId, stageName) => this.rememberPeerName(userId, stageName),
@@ -1150,6 +1151,9 @@ export class UIManager extends EventEmitter {
   }
   /** "Sent to N of M" for the latest Nearby broadcast; null hides it. */
   setNearbyBroadcastProgress(progress: { sent: number; total: number } | null): void { this.chatroomShell().setNearbyBroadcastProgress(progress); }
+  animateMapBroadcast(direction: 'outgoing' | 'incoming', userId?: string, roomId?: string, recipientIds?: readonly string[]): void { this.chatroomShell().animateMapBroadcast(direction, userId, roomId, recipientIds); }
+  refreshMapMatches(): void { this.chatroomShell().refreshMapMatches(); }
+  setMapMatchCounts(counts: ReadonlyMap<string, number>): void { this.chatroomShell().setMapMatchCounts(counts); }
   setNearbyGroup(group: { group: number; exhausted: boolean; pageable?: boolean; hasMore?: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
 
   displayTalksList(): void {
@@ -2896,9 +2900,13 @@ export class UIManager extends EventEmitter {
 
   setMemberMatched(userId: string): void {
     markChatroomMemberMatched(userId, this.matchedUserIds, this.t('chatroomMatched'));
+    this.refreshMapMatches();
   }
 
-  flashMemberForNewTalk(authorId: string): void { flashChatroomMemberForNewTalk(authorId); }
+  flashMemberForNewTalk(authorId: string): void {
+    flashChatroomMemberForNewTalk(authorId);
+    this.animateMapBroadcast('incoming', authorId);
+  }
 
   /**
    * Rule N2a (redesign §5/§7): clicking a user anywhere pushes two levels in one

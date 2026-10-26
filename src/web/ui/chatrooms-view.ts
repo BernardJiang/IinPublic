@@ -1,3 +1,4 @@
+import type { MapBroadcastEvent } from './map-broadcast-effects';
 import { getEncounterLocation } from '../services/encounter-location';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
 import { emptyPlaceRows, renderRoomListHeader, renderRoomListRow, roomListRows, type RoomListRow } from './room-list-view';
@@ -47,6 +48,7 @@ type ChatroomsViewDeps = {
   customChatrooms: ReadonlyArray<CustomChatroomRow>;
   /** User dots on the map (★ me, green my Nearby list) and the crowd heat layer. */
   mapUserDots?: MapUserDots;
+  mapBroadcastEvents?: readonly MapBroadcastEvent[];
   /** Tap a green dot: brief profile card with Message (DM) and Profile. */
   roomMemberCard?: RoomMemberCardSource;
   /** The room list: every Place with ≥ 1 person, nearest first (shared/active-rooms.ts). */
@@ -459,6 +461,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       ...(deps.mapUserDots ? { userDots: deps.mapUserDots } : {}),
       ...(deps.roomMemberCard ? { roomMemberCard: deps.roomMemberCard } : {}),
       userLegendHintSession: mapHintSession,
+      ...(deps.mapBroadcastEvents ? { broadcastEvents: deps.mapBroadcastEvents } : {}),
       openChatroom: (chatroomId) => enterRoom(deps, chatroomId, roomRows.find((row) => row.roomId === chatroomId)),
       selectNearbyPoint: (location) => deps.emit('travelNearbyAtPoint', location),
       nearbyPointTitle: deps.text('chatroomNearbyPointTitle'),

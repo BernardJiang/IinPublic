@@ -76,6 +76,38 @@ describe('chatroom shell controller', () => {
     jest.clearAllMocks();
   });
 
+  it('coalesces real broadcast bursts, isolates rooms, and expires old map effects', () => {
+    jest.useFakeTimers();
+    try {
+      let room = 'nearby-v3';
+      const controller = createChatroomShellController(makeDeps({ getCurrentChatroom: () => room, getChatroomBrowseMode: () => 'map' }));
+      controller.animateMapBroadcast('outgoing');
+      controller.animateMapBroadcast('outgoing');
+      controller.animateMapBroadcast('incoming', 'eve');
+      jest.advanceTimersByTime(50);
+      expect(renderRooms).toHaveBeenCalledTimes(1);
+      expect(renderRooms.mock.calls.at(-1)![0].mapBroadcastEvents?.map((event) => event.direction)).toEqual(['outgoing', 'incoming']);
+      room = 'place_32.71_-117.17_abcdefabcdef';
+      controller.renderChatroomList();
+      expect(renderRooms.mock.calls.at(-1)![0].mapBroadcastEvents).toEqual([]);
+      room = 'nearby-v3';
+      jest.advanceTimersByTime(3_000);
+      controller.renderChatroomList();
+      expect(renderRooms.mock.calls.at(-1)![0].mapBroadcastEvents).toEqual([]);
+    } finally { jest.useRealTimers(); }
+  });
+
+  it('renders supplied core match counts and routes a matched dot to contact details', () => {
+    const contact = jest.fn();
+    const controller = createChatroomShellController(makeDeps({ getChatroomBrowseMode: () => 'map', openMatchedContact: contact }));
+    controller.setMapMatchCounts(new Map([['eve', 2]]));
+    controller.setMapUserDotSource({ load: async () => ({ dots: [], density: [] }) });
+    const view = renderRooms.mock.calls.at(-1)![0];
+    expect(view.mapUserDots?.matchCounts?.get('eve')).toBe(2);
+    view.roomMemberCard?.contact?.('eve', 'Eve');
+    expect(contact).toHaveBeenCalledWith('eve', 'Eve');
+  });
+
   it('hydrates the main shell, normalizes user settings, and renders an absent startup list', () => {
     document.body.innerHTML = `
       <div id="header-status" style="display:none"></div><div id="header-user-info"></div>

@@ -62,6 +62,8 @@ import { ConnectionManager, type NetworkInterface } from '../../shared/connectio
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
+import { MapMatchView } from '../services/map-match-view';
+import type { MapMatchSource } from '../../shared/map-matches';
 import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
@@ -358,6 +360,7 @@ export class IinPublicApp {
   /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
   private ledgerService: WebLedgerService | null = null;
   private uiManager: UIManager;
+  private readonly mapMatchView = new MapMatchView((counts) => this.uiManager.setMapMatchCounts(counts));
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;
@@ -1324,6 +1327,7 @@ export class IinPublicApp {
 
   async initialize(location: GPSCoordinate, options: { locationConfirmed?: boolean } = {}): Promise<void> {
     this.initialized = false;
+    this.mapMatchView.reset();
     this.currentLocation = location;
     this.locationConfirmed = options.locationConfirmed ?? true;
 
@@ -2132,12 +2136,18 @@ export class IinPublicApp {
     this.nearbyV3?.refresh();
     void this.refreshActiveRooms(); // Place distances follow where I now appear
     const location = this.nearbyPublicPoint();
-    const key = JSON.stringify({ location, traveler: this.appearsAsTraveler() });
+    const traveler = this.appearsAsTraveler();
+    // Only the local map receives this fix. Presence, Talks and other people's dots stay snapped.
+    const selfGpsPoint = location && !traveler && this.locationConfirmed && this.currentLocation
+      ? { latitude: this.currentLocation.latitude, longitude: this.currentLocation.longitude }
+      : undefined;
+    const key = JSON.stringify({ location, traveler, selfGpsPoint });
     if (key === this.nearbyPointShownKey) return;
     this.nearbyPointShownKey = key;
     this.uiManager.setMapUserDotSource({
       ...(location ? { selfPoint: location } : {}),
-      selfTraveler: this.appearsAsTraveler(),
+      ...(selfGpsPoint ? { selfGpsPoint } : {}),
+      selfTraveler: traveler,
       listPoints: () => this.nearbyV3?.service.entries().map((entry) => entry.card.point) ?? [],
       isCandidate: (dot) => isNearbyAudienceCandidate(this.nearbyV3?.service.audienceInfo() ?? null, dot),
       load: (bounds) => this.loadNearbyMapDots(bounds),
@@ -6404,6 +6414,12 @@ export class IinPublicApp {
     },
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
+    // Domain-event bridge for this pre-core branch, independent of the legacy write below.
+    // Once a core view is attached, it owns counts and this session projection is ignored.
+    this.mapMatchView.observeExchange({
+      peerId, talkId, outcome, direction: meta?.direction ?? 'sent',
+      ...(meta?.version !== undefined ? { revision: meta.version } : {}),
+    });
     console.log(`[RESP-RECORD] talk=${talkId.slice(-8)} peer=${peerId.slice(0, 8)} outcome=${outcome} dir=${meta?.direction || 'sent'}`);
     // A new exchange brings a pruned person back; the cap is checked again shortly after.
     unprunePeer(peerId);
@@ -7724,9 +7740,10 @@ export class IinPublicApp {
    * E2E: deliver pending OUT talks using the same register + Gun path as Broadcast, without the audience modal.
    */
   /** "Sent to N of M" (§3.7): count delivery acks from the people on my list as the loop reaches them. */
-  private startNearbyBroadcastProgress(chatroomId: string, talkIds: readonly string[], total: number): void {
+  private startNearbyBroadcastProgress(chatroomId: string, talkIds: readonly string[], total: number, recipientIds: readonly string[]): void {
     // Nearby and Places are both my list (§3.7 "Places in v3"): the same progress applies.
     if (!isPersonalListScope(chatroomId)) return;
+    if (total > 0) this.uiManager.animateMapBroadcast('outgoing', this.currentUser?.id, chatroomId, recipientIds);
     const previous = this.nearbyBroadcast;
     // The same Talks again (a retried send of the same broadcast) keep the deliveries counted so far.
     const same = previous && previous.talkIds.size === talkIds.length && talkIds.every((id) => previous.talkIds.has(id));
@@ -7788,7 +7805,7 @@ export class IinPublicApp {
       ...(peerPoints ? { peerPoints } : {}),
     });
     this.syncNativeBackgroundAgent();
-    this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
+    this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount, receivers.map((receiver) => receiver.userId));
     const releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
     try {
       let sent = 0;
@@ -8972,7 +8989,7 @@ export class IinPublicApp {
           this.syncNativeBackgroundAgent();
           const targetCount = receivers.length;
           console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
-          if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount);
+          if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount, receivers.map((receiver) => receiver.userId));
           if (targetCount === 0) {
             console.warn(
               '⚠️ broadcastTalk: no receivers resolved (no other active members in this chatroom).',
@@ -9990,7 +10007,13 @@ export class IinPublicApp {
     }
   }
 
+  /** OPEN-91 merge seam: connect the authenticated core's match-count view after startup. */
+  public setMapMatchSource(source: MapMatchSource | null): void {
+    this.mapMatchView.setSource(source);
+  }
+
   public async logout(): Promise<void> {
+    this.mapMatchView.reset();
     if (this.currentUser) {
       await this.userService.setUserStatus(this.currentUser.id, 'offline');
       localStorage.removeItem('iinpublic_user_id');

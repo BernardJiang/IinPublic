@@ -12,7 +12,10 @@ import {
   getChatroomMapLocation,
   type ChatroomMapLocation,
 } from '../../shared/chatroom-map-locations';
+import { MapBroadcastEffects, type MapBroadcastEvent, type MapEffectAnchors } from './map-broadcast-effects';
+import { layoutMapUsers, selfMapPosition, type UserDotGroup } from './map-user-layout';
 import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
+export { groupUserDots } from './map-user-layout';
 
 type MapLibre = typeof import('maplibre-gl');
 type MapLibreMap = import('maplibre-gl').Map;
@@ -46,6 +49,7 @@ type ChatroomMapOptions = {
   userLegendHintSession?: number;
   /** Tap a green dot (someone in my room): a brief profile card with Message and Profile. */
   roomMemberCard?: RoomMemberCardSource;
+  broadcastEvents?: readonly MapBroadcastEvent[];
 };
 
 /** Brief profile shown on the map for a member of my room. */
@@ -67,13 +71,17 @@ export type RoomMemberCardSource = {
   describe: (userId: string) => RoomMemberSummary;
   loadProfile?: (userId: string) => Promise<RoomMemberProfile | null>;
   message: (userId: string, stageName: string) => void;
+  contact?: (userId: string, stageName: string) => void;
+  matchText?: (count: number) => string;
   profile: (userId: string, stageName: string) => void;
   text: { message: string; profile: string; online: string; away: string; matched: string; traveler: string };
 };
 
-/** What the app supplies: my published point and a viewport loader. */
+/** Published points and viewport loader, plus an optional device-only fix for my own marker. */
 export type MapUserDotSource = {
   selfPoint?: PublicLocation;
+  /** Local display only. Never supplied to the hub or another user. */
+  selfGpsPoint?: ChatroomMapLocation;
   selfTraveler?: boolean;
   /** Where the people on my Nearby list are: the map fits itself to them (§3.7). */
   listPoints?: () => ReadonlyArray<{ latitude: number; longitude: number }>;
@@ -87,13 +95,14 @@ export type MapUserDotSource = {
 
 type MapUserDotTextKey =
   | 'mapUserSelf' | 'mapUserRoomOne' | 'mapUserRoomMany' | 'mapUserOtherOne' | 'mapUserOtherMany'
-  | 'mapUserLegendSelf' | 'mapUserLegendRoom' | 'mapUserLegendOther';
+  | 'mapUserLegendSelf' | 'mapUserLegendRoom' | 'mapUserLegendOther'
+  | 'mapBroadcastOutgoing' | 'mapBroadcastIncoming';
 
 /** Combine the app's source with my id, my room roster (= green) and the UI text. */
 export function createMapUserDots(
   source: MapUserDotSource,
   selfUserId: string,
-  roomMembers: ReadonlyArray<{ userId: string }>,
+  roomMembers: ReadonlyArray<{ userId: string; isTraveler?: boolean }>,
   t: (key: MapUserDotTextKey) => string,
 ): MapUserDots {
   const count = (one: MapUserDotTextKey, many: MapUserDotTextKey) => (n: number) =>
@@ -101,32 +110,40 @@ export function createMapUserDots(
   return {
     selfUserId,
     ...(source.selfPoint ? { selfPoint: source.selfPoint } : {}),
+    ...(!source.selfTraveler && source.selfGpsPoint ? { selfGpsPoint: source.selfGpsPoint } : {}),
     selfTraveler: source.selfTraveler === true,
     ...(source.listPoints ? { listPoints: source.listPoints } : {}),
     ...(source.isCandidate ? { isCandidate: source.isCandidate } : {}),
     roomMemberIds: new Set(roomMembers.map((member) => member.userId)),
+    roomTravelerIds: new Set(roomMembers.filter((member) => member.isTraveler).map((member) => member.userId)),
     load: source.load,
     selfText: t('mapUserSelf'),
     roomText: count('mapUserRoomOne', 'mapUserRoomMany'),
     otherText: count('mapUserOtherOne', 'mapUserOtherMany'),
+    broadcastText: { outgoing: t('mapBroadcastOutgoing'), incoming: t('mapBroadcastIncoming') },
     legendText: { self: t('mapUserLegendSelf'), room: t('mapUserLegendRoom'), other: t('mapUserLegendOther') },
   };
 }
 
 export type MapUserDots = {
   selfUserId: string;
-  /** My own published (snapped) point, so I see exactly what others see of me. */
+  /** My published snapped point defines the blurred box and what others see of me. */
   selfPoint?: PublicLocation;
+  /** Local display only. Never supplied to the hub or another user. */
+  selfGpsPoint?: ChatroomMapLocation;
   selfTraveler?: boolean;
   listPoints?: () => ReadonlyArray<{ latitude: number; longitude: number }>;
   /** Current room roster: these users can exchange Talks with me. */
   roomMemberIds: ReadonlySet<string>;
+  matchCounts?: ReadonlyMap<string, number>;
+  roomTravelerIds?: ReadonlySet<string>;
   isCandidate?: (dot: MapPresenceDot) => boolean;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
   selfText: string;
   roomText: (count: number) => string;
   otherText: (count: number) => string;
   legendText: { self: string; room: string; other: string };
+  broadcastText?: { outgoing: string; incoming: string };
 };
 
 type MapState = {
@@ -139,6 +156,8 @@ type MapState = {
   options: ChatroomMapOptions;
   ready: Promise<void>;
   userDotMarkers: MapLibreMarker[];
+  userDotGroups?: UserDotGroup[];
+  broadcastEffects?: MapBroadcastEffects;
   userDotTimer?: ReturnType<typeof setTimeout> | undefined;
   userDotRequest: number;
   /** Last dot query, reused for the same view for USER_DOT_REUSE_MS (the list re-renders often). */
@@ -166,6 +185,7 @@ const SOURCE_ID = 'iinpublic-chatrooms';
 const CLUSTER_LAYER_ID = 'iinpublic-chatroom-clusters';
 const ROOM_LAYER_ID = 'iinpublic-chatroom-points';
 const USER_DENSITY_SOURCE_ID = 'iinpublic-user-density';
+const USER_REGION_SOURCE_ID = 'iinpublic-user-region';
 
 const stateByContainer = new WeakMap<HTMLElement, MapState>();
 let mapLibrePromise: Promise<MapLibre> | undefined;
@@ -296,8 +316,14 @@ function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotG
     avatar.textContent = summary.stageName.charAt(0).toUpperCase();
     const info = document.createElement('div');
     info.className = 'chatroom-map-member-info';
-    const name = document.createElement('strong');
-    name.textContent = summary.stageName;
+    const matchCount = state.options.userDots?.matchCounts?.get(userId) ?? 0;
+    const name = document.createElement(matchCount && source.contact ? 'button' : 'strong');
+    name.textContent = matchCount ? `${summary.stageName} · ♥ ${matchCount}` : summary.stageName;
+    if (name instanceof HTMLButtonElement) {
+      name.type = 'button';
+      name.className = 'chatroom-map-member-contact';
+      name.addEventListener('click', () => { clearSelection(state); source.contact?.(userId, summary.stageName); });
+    }
     const status = document.createElement('span');
     status.className = 'chatroom-map-member-status';
     status.textContent = [
@@ -355,7 +381,7 @@ function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotG
     }).catch(() => undefined);
   }
   state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom', offset: [0, -14] })
-    .setLngLat([group.longitude, group.latitude])
+    .setLngLat([group.displayPoint?.longitude ?? group.longitude, group.displayPoint?.latitude ?? group.latitude])
     .addTo(state.map);
 }
 
@@ -474,7 +500,11 @@ function addCurrentHierarchyMarker(maplibre: MapLibre, state: MapState): void {
   if (!currentRoom) return;
   const focus = roomLocation(currentRoom, state.options.rooms);
   if (!focus) return;
-  const marker = new maplibre.Marker({ element: roomMarkerElement(state.options, currentRoom) })
+  const marker = new maplibre.Marker({
+    element: roomMarkerElement(state.options, currentRoom),
+    // Keep the Place's enter button clear of the centered self star.
+    offset: isPlaceRoomId(currentRoom.id) ? [0, -36] : [0, 0],
+  })
     .setLngLat([focus.longitude, focus.latitude])
     .addTo(state.map);
   state.markers.push(marker);
@@ -559,7 +589,8 @@ function fitToList(state: MapState): boolean {
   const dots = state.options.userDots;
   const points = [...(dots?.listPoints?.() ?? [])];
   if (points.length === 0) return false;
-  if (dots?.selfPoint) points.push(dots.selfPoint);
+  const self = dots ? selfMapPosition(dots) : undefined;
+  if (self) points.push(self);
   const lats = points.map((point) => point.latitude);
   const lngs = points.map((point) => point.longitude);
   const [south, north, west, east] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
@@ -573,8 +604,16 @@ function fitToList(state: MapState): boolean {
   return true;
 }
 
+function currentPlaceLocation(state: MapState): (ChatroomMapLocation & { memberCount: number }) | undefined {
+  if (!isPlaceRoomId(state.options.currentChatroom)) return undefined;
+  const room = state.options.rooms.find((item) => item.id === state.options.currentChatroom);
+  const location = room ? directRoomLocation(room) : undefined;
+  return location && room ? { ...location, memberCount: room.memberCount } : undefined;
+}
+
 function selfCenter(state: MapState): [number, number] | undefined {
-  const self = state.options.userDots?.selfPoint;
+  const dots = state.options.userDots;
+  const self = dots ? selfMapPosition(dots, currentPlaceLocation(state)) : currentPlaceLocation(state);
   return self ? [self.longitude, self.latitude] : undefined;
 }
 
@@ -694,6 +733,8 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
   });
   map.once('load', () => {
     state.loaded = true;
+    state.broadcastEffects = new MapBroadcastEffects(options.container, () => mapEffectAnchors(state), () => state.options.userDots?.broadcastText, map.getCanvasContainer());
+    map.on('remove', () => state.broadcastEffects?.destroy());
     map.off('error', failBeforeLoad);
     map.on('error', (event) => {
       state.options.container.dataset.mapError = String(event.error?.message || event.error || 'unknown');
@@ -721,6 +762,16 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     map.on('idle', refreshMarkers);
     map.on('moveend', refreshMarkers);
     map.on('moveend', () => scheduleUserDots(maplibre, state));
+    map.on('resize', () => scheduleUserDots(maplibre, state));
+    map.addSource(USER_REGION_SOURCE_ID, { type: 'geojson', data: regionGeoJson([]) });
+    map.addLayer({
+      id: 'iinpublic-user-region-fill', type: 'fill', source: USER_REGION_SOURCE_ID,
+      paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.05 },
+    });
+    map.addLayer({
+      id: 'iinpublic-user-region-outline', type: 'line', source: USER_REGION_SOURCE_ID,
+      paint: { 'line-color': '#2563eb', 'line-width': 2, 'line-dasharray': [3, 2] },
+    });
     // Where the crowd is: the hub's anonymous headcount per cell, drawn as heat.
     map.addSource(USER_DENSITY_SOURCE_ID, { type: 'geojson', data: densityGeoJson([]) as never });
     map.addLayer({
@@ -784,8 +835,31 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
   return state;
 }
 
-/** Render public room locations. No user coordinates are accepted by this API. */
-type UserDotGroup = { kind: 'self' | 'room' | 'other'; latitude: number; longitude: number; count: number; travelers: number; userIds: string[] };
+function mapEffectAnchors(state: MapState): MapEffectAnchors {
+  const result: MapEffectAnchors = { peers: new Map(), nearby: [] };
+  for (const group of state.userDotGroups ?? []) {
+    const position = group.displayPoint ?? group;
+    const pixel = state.map.project([position.longitude, position.latitude]);
+    const point = { x: pixel.x + (group.offset?.[0] ?? 0), y: pixel.y + (group.offset?.[1] ?? 0) };
+    if (group.kind === 'self') result.self = point;
+    else {
+      for (const userId of group.userIds) result.peers.set(userId, point);
+      if (group.kind === 'room') result.nearby.push(point);
+    }
+  }
+  return result;
+}
+
+function syncBroadcastEffects(state: MapState): void {
+  state.broadcastEffects?.sync((state.options.broadcastEvents ?? []).filter((event) => event.roomId === state.options.currentChatroom));
+}
+
+function regionGeoJson(boundary: [number, number][]): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
+  return {
+    type: 'FeatureCollection',
+    features: boundary.length ? [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [boundary] } }] : [],
+  };
+}
 
 function densityGeoJson(cells: ReadonlyArray<MapDensityCell>) {
   return {
@@ -799,6 +873,10 @@ function densityGeoJson(cells: ReadonlyArray<MapDensityCell>) {
 }
 
 function clearUserDots(state: MapState): void {
+  state.userDotRequest++;
+  state.broadcastEffects?.clear();
+  state.userDotGroups = [];
+  (state.map.getSource(USER_REGION_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)?.setData(regionGeoJson([]));
   if (state.userDotTimer) clearTimeout(state.userDotTimer);
   state.userDotTimer = undefined;
   state.userDotMarkers.forEach((marker) => marker.remove());
@@ -829,56 +907,40 @@ function scheduleUserDots(maplibre: MapLibre, state: MapState, delayMs = 400): v
 /** Below this zoom yellow dots would pile up; the heat layer shows where those people are. */
 const STRANGER_DOT_MIN_ZOOM = 10;
 
-/** Users sharing one snapped point and one colour become a single dot with a count. */
-export function groupUserDots(
-  source: Pick<MapUserDots, 'selfUserId' | 'selfPoint' | 'selfTraveler' | 'roomMemberIds' | 'isCandidate'>,
-  dots: ReadonlyArray<MapPresenceDot>,
-): UserDotGroup[] {
-  const groups = new Map<string, UserDotGroup>();
-  const seen = new Set<string>();
-  for (const dot of dots) {
-    // My list and the hub can both report one person: draw them once.
-    if (dot.userId === source.selfUserId || seen.has(dot.userId)) continue;
-    seen.add(dot.userId);
-    const kind = source.roomMemberIds.has(dot.userId) || source.isCandidate?.(dot) === true ? 'room' : 'other';
-    const key = `${kind}:${dot.latitude}:${dot.longitude}`;
-    const group = groups.get(key);
-    if (group) {
-      group.count += 1;
-      group.userIds.push(dot.userId);
-      if (dot.traveler) group.travelers += 1;
-    } else {
-      groups.set(key, { kind, latitude: dot.latitude, longitude: dot.longitude, count: 1, travelers: dot.traveler ? 1 : 0, userIds: [dot.userId] });
-    }
-  }
-  // Yellow first, so green dots and my star are drawn on top of them.
-  const ordered = [...groups.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'other' ? -1 : 1));
-  if (source.selfPoint) {
-    ordered.push({ kind: 'self', latitude: source.selfPoint.latitude, longitude: source.selfPoint.longitude, count: 1, travelers: source.selfTraveler ? 1 : 0, userIds: [source.selfUserId] });
-  }
-  return ordered;
-}
-
-function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => void): HTMLElement {
+function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => void, card?: RoomMemberCardSource): HTMLElement {
   const element = document.createElement('div');
   element.className = `chatroom-map-user-dot chatroom-map-user-dot-${group.kind}`;
   element.dataset.testid = `map-user-dot-${group.kind}`;
   element.setAttribute('data-testid', `map-user-dot-${group.kind}`);
   element.dataset.count = String(group.count);
-  const label = group.kind === 'self'
+  let label = group.kind === 'self'
     ? source.selfText
     : group.kind === 'room' ? source.roomText(group.count) : source.otherText(group.count);
+  if (group.userIds.length === 1) element.dataset.userId = group.userIds[0]!;
+  if (group.matchCount) {
+    const name = card?.describe(group.userIds[0]!).stageName;
+    label = [name, card?.matchText?.(group.matchCount) ?? `${group.matchCount} ${card?.text.matched ?? ''}`].filter(Boolean).join(' · ');
+    element.dataset.matchCount = String(group.matchCount);
+    element.classList.add('chatroom-map-user-dot-matched');
+  }
   element.title = label;
   element.setAttribute('aria-label', label);
   element.setAttribute('role', onTap ? 'button' : 'img');
   if (onTap) {
     element.tabIndex = 0;
+    element.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        onTap();
+      }
+    });
     element.addEventListener('click', (event) => {
       event.stopPropagation();
       onTap();
     });
   }
-  element.textContent = group.kind === 'self' ? '★' : group.count > 1 ? String(group.count) : '';
+  element.textContent = group.kind === 'self' ? '★' : group.matchCount ? `♥ ${group.matchCount}` : group.count > 1 ? `👥 ${group.count}` : '';
   // ✈ badge: everyone at this dot is a Traveler (a chosen point, not blurred GPS).
   if (group.travelers > 0 && group.travelers === group.count) {
     element.dataset.traveler = 'true';
@@ -936,7 +998,7 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
     east: Math.min(180, view.getEast()),
     north: Math.min(90, view.getNorth()),
   };
-  const key = Object.values(bounds).map((value) => value.toFixed(4)).join(',');
+  const key = JSON.stringify([state.options.currentChatroom, source.selfPoint, Object.values(bounds).map((value) => value.toFixed(4))]);
   const cached = state.userDotCache;
   if (cached && cached.key === key && Date.now() - cached.at < USER_DOT_REUSE_MS) {
     // Same view, recent answer: redraw with the current roster without asking the hub again.
@@ -952,27 +1014,42 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
   }
   if (request !== state.userDotRequest || stateByContainer.get(state.options.container) !== state) return;
   const showStrangers = state.map.getZoom() >= STRANGER_DOT_MIN_ZOOM;
-  const groups = groupUserDots(source, dots).filter((group) => showStrangers || group.kind !== 'other');
-  const signature = JSON.stringify([groups, density]);
+  const { groups: laidOut, boundary } = layoutMapUsers(source, dots, {
+    zoom: state.map.getZoom(),
+    project: (point) => state.map.project(point),
+    unproject: (point) => state.map.unproject(point),
+  }, currentPlaceLocation(state));
+  const groups = laidOut.filter((group) => showStrangers || group.kind !== 'other' || group.displayPoint);
+  state.userDotGroups = groups;
+  const signature = JSON.stringify([groups, density, boundary]);
   if (signature === state.userDotSignature && state.userDotMarkers.length === groups.length) {
     ensureUserDotLegend(state, source);
+    syncBroadcastEffects(state);
     return;
   }
   state.userDotSignature = signature;
   state.userDotMarkers.forEach((marker) => marker.remove());
   // Green dot: who is it (card). Yellow dot: they are outside my room, so it is a tap on that point.
   const onTap = (group: UserDotGroup): (() => void) | undefined => {
-    if (group.kind === 'room' && state.options.roomMemberCard) return () => showRoomMemberCard(maplibre, state, group);
+    const card = state.options.roomMemberCard;
+    if (group.matchCount && group.userIds.length === 1 && card?.contact) return () => {
+      const userId = group.userIds[0]!;
+      clearSelection(state);
+      card.contact!(userId, card.describe(userId).stageName);
+    };
+    if (group.kind === 'room' && group.userIds.length && state.options.roomMemberCard) return () => showRoomMemberCard(maplibre, state, group);
     if (group.kind === 'other') return () => handleMapTap(maplibre, state, group.latitude, group.longitude);
     return undefined;
   };
   state.userDotMarkers = groups.map((group) =>
-    new maplibre.Marker({ element: userDotElement(source, group, onTap(group)) })
-      .setLngLat([group.longitude, group.latitude])
+    new maplibre.Marker({ element: userDotElement(source, group, onTap(group), state.options.roomMemberCard), offset: group.offset ?? [0, 0] })
+      .setLngLat([group.displayPoint?.longitude ?? group.longitude, group.displayPoint?.latitude ?? group.latitude])
       .addTo(state.map));
   (state.map.getSource(USER_DENSITY_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)
     ?.setData(densityGeoJson(density) as never);
+  (state.map.getSource(USER_REGION_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)?.setData(regionGeoJson(boundary));
   ensureUserDotLegend(state, source);
+  syncBroadcastEffects(state);
   state.options.container.dataset.userDotCount = String(dots.length);
   state.options.container.dataset.userDensityCells = String(density.length);
 }
@@ -997,14 +1074,20 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
       options.container.textContent = '';
       state = createMap(maplibre, options);
     } else {
+      if (state.options.currentChatroom !== options.currentChatroom) {
+        clearSelection(state);
+        state.broadcastEffects?.clear();
+        state.userDotGroups = [];
+      }
       state.options = options;
       // Not on screen (another tab, the list view, the page hidden): nothing to draw now. The next
       // render once it is shown uses these options.
-      if (!isMapOnScreen(options.container)) return;
+      if (!isMapOnScreen(options.container)) { state.broadcastEffects?.clear(); return; }
     }
     await state.ready;
     updateSource(state);
     focusCurrentRoom(state);
+    syncBroadcastEffects(state);
     scheduleUserDots(maplibre, state, 0);
     requestAnimationFrame(() => state.map.resize());
   } catch {

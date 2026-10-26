@@ -16,7 +16,8 @@ import type { CustomChatroomDraft } from './custom-chatroom-dialogs';
 import { createMapUserDots, type MapUserDotSource, type RoomMemberCardSource } from './chatroom-map-view';
 import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 import type { QuestionAnswer } from '../../shared/types';
-import { isLocalOnlyRoomScope } from '../../shared/nearby-rooms';
+import { MAP_BROADCAST_DURATION_MS, type MapBroadcastEvent } from './map-broadcast-effects';
+import { isLocalOnlyRoomScope, isPersonalListScope } from '../../shared/nearby-rooms';
 type ChatroomsViewDeps = Parameters<typeof renderChatrooms>[0];
 
 export type ChatroomShellControllerDeps = {
@@ -44,6 +45,8 @@ export type ChatroomShellControllerDeps = {
   syncReturnHomeButton: () => void;
   syncAppBarOverflow: () => void;
   openPeerDetail: (userId: string, stageName: string) => void;
+  /** Matched map dots open the contact detail page directly. */
+  openMatchedContact?: (userId: string, stageName: string) => void;
   /** The peer's profile page (the map card's Profile button); Message uses openPeerDetail. */
   openPeerProfile?: (userId: string, stageName: string) => void;
   /** Public profile foundation (photo, languages, profile rows) for the map member card. */
@@ -105,6 +108,8 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
       };
     },
     message: deps.openPeerDetail,
+    contact: (userId, stageName) => (deps.openMatchedContact ?? deps.openPeerProfile ?? deps.openPeerDetail)(userId, stageName),
+    matchText: (count) => deps.tf('mapMemberMatchCount', { count }),
     profile: (userId, stageName) => (deps.openPeerProfile ?? deps.openPeerDetail)(userId, stageName),
     text: {
       message: deps.t('mapMemberMessage'),
@@ -120,12 +125,19 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   let nearbyCount: number | undefined;
   let nearbyBroadcastProgress: ChatroomsViewDeps['nearbyBroadcastProgress'];
   let nearbyGroup: ChatroomsViewDeps['nearbyGroup'];
+  let broadcastEvents: MapBroadcastEvent[] = [];
+  let broadcastSequence = 0;
+  let mapMatchCounts: ReadonlyMap<string, number> = new Map();
+  let mapRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   const viewDeps = (): ChatroomsViewDeps => {
     const mapUserDots = mapUserDotSource
       ? createMapUserDots(mapUserDotSource, deps.getCurrentUserId(), roomMembers, deps.t)
       : undefined;
+    if (mapUserDots) mapUserDots.matchCounts = mapMatchCounts;
+    broadcastEvents = broadcastEvents.filter((event) => Date.now() - event.at < MAP_BROADCAST_DURATION_MS);
     return {
+      mapBroadcastEvents: broadcastEvents.filter((event) => event.roomId === deps.getCurrentChatroom()),
       currentChatroom: deps.getCurrentChatroom(),
     chatroomMemberCounts: deps.getChatroomMemberCounts(),
     chatroomVisitCounts: deps.getChatroomVisitCounts(),
@@ -359,6 +371,27 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     renderChatroomList();
   };
 
+  const refreshMapMatches = (): void => {
+    if (deps.getChatroomBrowseMode() !== 'map' || mapRefreshTimer) return;
+    mapRefreshTimer = setTimeout(() => { mapRefreshTimer = undefined; renderChatroomList(); }, 50);
+  };
+
+  /** A derived core view; the map never reads exchange records or a storage key. */
+  const setMapMatchCounts = (counts: ReadonlyMap<string, number>): void => {
+    mapMatchCounts = new Map(counts);
+    refreshMapMatches();
+  };
+
+  const animateMapBroadcast = (direction: 'outgoing' | 'incoming', userId = deps.getCurrentUserId(), roomId = deps.getCurrentChatroom(), recipientIds?: readonly string[]): void => {
+    if (!isPersonalListScope(roomId) || roomId !== deps.getCurrentChatroom()) return;
+    const now = Date.now();
+    // Multiple Talks in one packet/burst are one visual broadcast, not a screen full of rings.
+    if (broadcastEvents.some((event) => event.roomId === roomId && event.direction === direction && event.userId === userId && now - event.at < 750)) return;
+    broadcastEvents = [...broadcastEvents.filter((event) => now - event.at < MAP_BROADCAST_DURATION_MS),
+      { id: String(++broadcastSequence), roomId, direction, userId, at: now, ...(recipientIds ? { recipientIds: [...new Set(recipientIds)] } : {}) }].slice(-16);
+    refreshMapMatches();
+  };
+
   /** Kept for the next member render; the roster push that follows a group change re-renders. */
   const setNearbyGroup = (group: ChatroomsViewDeps['nearbyGroup'] | null): void => {
     nearbyGroup = group ?? undefined;
@@ -372,6 +405,9 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   return {
     handleCreateCustomChatroomClick,
     setMapUserDotSource,
+    animateMapBroadcast,
+    refreshMapMatches,
+    setMapMatchCounts,
     setActiveRooms,
     setNearbyOnline,
     setNearbyCount,

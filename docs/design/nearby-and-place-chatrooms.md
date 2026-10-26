@@ -933,6 +933,30 @@ reputation-weighted dense-crowd ranking remain separate deferred defenses.
   including later pages; yellow dots are other Nearby-eligible identities in view; ★ is me; and the
   heat layer represents wider or larger crowds. People inside Places are represented by a Place
   type icon with the room headcount, not individual yellow dots.
+  In my current blurred cell, a dashed box shows the published grid bounds. A Resident sees their
+  own star at their device’s actual GPS fix; a Traveler sees their star at the shared center.
+  The exact fix is local to the viewer’s map; everyone else still receives only the public point. Once the box spans at least 96 screen pixels per side, other people are arranged along
+  its edges, with at most 12 markers and a person/count symbol for overflow. Wider views keep
+  colour-specific summaries beside my star. Inside my current Place, the same arrangement uses
+  a 144 px display box from zoom 14; it describes a shared location, not the Place's footprint.
+  Residents also see their own GPS fix in Places; Travelers stay at the Place center.
+  Place membership supplies the people even with GPS off, and overflow includes members beyond
+  the loaded page using the Place headcount. Offsets are presentation only: public coordinates,
+  audience membership, and map travel actions keep their original locations.
+  Deliberate broadcasts show brief blue radial waves from me toward the selected visible recipients;
+  accepted incoming Talks show purple dashed waves from the sender and pulses arriving at me.
+  Effects expire, coalesce bursts, stop off-screen, and become static under reduced-motion settings.
+  A matched person's individual dot shows `♥ N`, counting distinct matched Talks across either
+  direction, and opens that person's contact details directly. Matched people receive priority
+  for individual edge markers; overflow cards also link their matched names to contact details.
+  The map consumes an in-memory match-count view, with no dependency on a browser-storage schema.
+  For the OPEN-91 merge, attach the authenticated core adapter through `app.setMapMatchSource`:
+  its `subscribe` callback emits a `MapMatchUpdate` initial snapshot, then committed count patches;
+  zero/null removes a badge. Replacing the source or logging out clears the previous view and
+  unsubscribes. The database work owns restoration and persistence; this GUI change adds neither.
+  Until that adapter lands, accepted live exchange outcomes provide session-only counts, so badges
+  from earlier sessions require the future core snapshot. Broadcast animations are transient UI
+  events and must not replay when persisted exchanges hydrate.
 - **List:** one compact browser surface. Nearby is not a room. Its headcount occupies the top
   utility row, and the list begins directly with people—there is no redundant "People near you"
   heading or room-loading message. It shows at most `C` other identities. Room sorting appears only

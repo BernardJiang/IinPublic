@@ -112,6 +112,13 @@ export function isPublicLocation(value: unknown): value is PublicLocation {
   return again.latitude === candidate.latitude && again.longitude === candidate.longitude;
 }
 
+/** Geographic bounds of a published cell; longitude stays unwrapped for map rendering. */
+export function publicLocationBounds(point: PublicLocation): { west: number; south: number; east: number; north: number } {
+  const latHalf = point.precisionMeters / METERS_PER_DEGREE / 2;
+  const lonHalf = Math.min(180, point.precisionMeters / (METERS_PER_DEGREE * Math.cos(point.latitude * Math.PI / 180))) / 2;
+  return { west: point.longitude - lonHalf, south: point.latitude - latHalf, east: point.longitude + lonHalf, north: point.latitude + latHalf };
+}
+
 /**
  * Is another published point inside the viewer's selected blurred cell?
  *
