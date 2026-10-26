@@ -2228,6 +2228,7 @@ export class IinPublicApp {
         localStorage.removeItem('gun/');
         if (this.gunService.isBridgeReady()) {
           void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, null).catch(() => {});
+          void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, null).catch(() => {});
         }
       }
     }
@@ -2260,7 +2261,7 @@ export class IinPublicApp {
     let isNewUser = false;
 
     if (existingUserId) {
-      const cached = this.readCachedUser(existingUserId);
+      const cached = await this.readNewestCachedUser(existingUserId);
       if (cached) {
         // Instant path: render from the last-known copy of this identity's own record — no
         // network wait at all. A decentralized app has no excuse to be slower to open than a
@@ -2348,11 +2349,43 @@ export class IinPublicApp {
   private static readonly CACHED_USER_STORAGE = 'iinpublic_cached_user_v1';
 
   /** Last-known copy of this device's own user record, for an instant cold-boot render. */
-  private readCachedUser(expectedUserId: string): User | null {
+  /** Path of the IndexedDB-backed mirror of the cached user record — see writeCachedUser. */
+  private static readonly DEVICE_LOCAL_CACHED_USER_PATH = 'device-local/cached-user';
+
+  /**
+   * The newer of the two copies of my own record: localStorage and its IndexedDB mirror. A hard
+   * kill can lose the localStorage write of a recent change (a new stage name) while an older
+   * copy survives there, so the cache alone would bring the old name back.
+   */
+  private async readNewestCachedUser(expectedUserId: string): Promise<User | null> {
+    let mirrored: string | null = null;
+    if (this.gunService.isBridgeReady()) {
+      try {
+        const node = await this.gunService.getBridge().get(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH);
+        mirrored = node && typeof node === 'object' && typeof node.json === 'string' ? node.json : null;
+      } catch {
+        // Best-effort: the localStorage copy alone, as before.
+      }
+    }
+    const local = (() => {
+      try { return localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE); } catch { return null; }
+    })();
+    const cachedAt = (raw: string | null): number => {
+      try { return raw ? Number(JSON.parse(raw)?.cachedAt) || 0 : -1; } catch { return -1; }
+    };
+    const newest = cachedAt(mirrored) > cachedAt(local) ? mirrored : local;
+    if (newest && newest !== local) {
+      try { localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, newest); } catch { /* best effort */ }
+    }
+    return this.readCachedUser(expectedUserId, newest);
+  }
+
+  private readCachedUser(expectedUserId: string, rawRecord?: string | null): User | null {
     try {
-      const raw = localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE);
+      const raw = rawRecord !== undefined ? rawRecord : localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
+      delete parsed.cachedAt;
       if (!parsed || parsed.id !== expectedUserId || typeof parsed.stageName !== 'string' || !parsed.stageName) return null;
       if (typeof parsed.createdAt === 'string') parsed.createdAt = new Date(parsed.createdAt);
       if (typeof parsed.lastActive === 'string') parsed.lastActive = new Date(parsed.lastActive);
@@ -2365,10 +2398,16 @@ export class IinPublicApp {
   private writeCachedUser(user: User): void {
     // A partial record cached here crashed the next boot (no stageName — seen on the C10 tablet).
     if (!user?.id || typeof user.stageName !== 'string' || !user.stageName) return;
+    const json = JSON.stringify({ ...user, cachedAt: Date.now() });
     try {
-      localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, JSON.stringify(user));
+      localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, json);
     } catch {
       // Best-effort only — a full cache means the next cold boot waits on the network instead.
+    }
+    // Mirrored where a hard kill does not lose it (as persistUserId does for the id): a stage
+    // name changed seconds before a crash came back as the old one (e2e stage2/37 under load).
+    if (this.gunService.isBridgeReady()) {
+      void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, { json }).catch(() => {});
     }
   }
 
