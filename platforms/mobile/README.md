@@ -51,7 +51,7 @@ removes nearly all of that count, and also removes the per-*launch* (not just fi
 of Node's CommonJS resolver walking many small files on the mobile filesystem. Verify a change
 to that script with `npm run smoke:embedded-node-mobile` — it boots the actual bundled artifact
 in the same layout (`node_modules/gun` staged as a sibling, data dir == install dir) a real
-device would and asserts `/health`, `/`, `/worker.js`, and both `gun.js`/`sea.js` (the two files
+device would and asserts `/health`, `/`, `/core-worker.js`, and both `gun.js`/`sea.js` (the two files
 the browser Worker `importScripts()`) all serve correctly. `gun` stays a real dependency here —
 not bundled away — because those last two are static HTTP file responses to the browser's own
 Worker, not a server-side `require()`; bundling the *server's* code can never eliminate them (see

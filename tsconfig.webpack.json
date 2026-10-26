@@ -5,7 +5,7 @@
     "declarationMap": false,
     "allowJs": false
   },
-  "include": ["src/web/**/*.ts", "src/shared/**/*.ts"],
+  "include": ["src/web/**/*.ts", "src/shared/**/*.ts", "src/core/**/*.ts"],
   "exclude": [
     "node_modules",
     "dist",

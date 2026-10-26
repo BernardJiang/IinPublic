@@ -395,7 +395,7 @@ test.describe('Find similar people', () => {
               page.evaluate((expectedSenderIds) => {
                 const expected = new Set(expectedSenderIds);
                 try {
-                  const raw = localStorage.getItem('localTalkExchanges');
+                  const raw = JSON.stringify(((window as any).__iinpublic_exchanges?.() ?? {}));
                   const parsed = raw ? JSON.parse(raw) : {};
                   const rows = Array.isArray(parsed) ? parsed : Object.values(parsed || {});
                   const seen = new Set(

@@ -8,12 +8,12 @@
  * Contacts; a new exchange or a message brings a person back.
  */
 import type { PeerSummary } from '../../shared/peer-summary-types';
+import { removeExchangePeers } from './exchange-view';
 
 export const CONTACTS_CAP_OPTIONS = [500, 1_000, 2_000] as const;
 export const DEFAULT_CONTACTS_CAP = 1_000;
 const CAP_KEY = 'iinpublic_contacts_cap_v1';
 const PRUNED_KEY = 'iinpublic_contacts_pruned_v1';
-const EXCHANGES_KEY = 'localTalkExchanges';
 
 export function getContactsCap(storage: Storage = localStorage): number {
   try {
@@ -87,26 +87,14 @@ export function planContactsPrune(input: ContactsPruneInput): { drop: string[]; 
 }
 
 /**
- * Deletes the dropped people's exchange records (one rewrite of the store) and hides them from
- * Contacts. People who have since gained a relationship are shown again.
+ * Deletes the dropped people's exchange records (in the device core's log, through the GUI's view)
+ * and hides them from Contacts. People who have since gained a relationship are shown again.
  */
 export function applyContactsPrune(drop: string[], keepAlways: Set<string>, storage: Storage = localStorage): void {
   const pruned = getPrunedPeerIds(storage);
   for (const peerId of keepAlways) pruned.delete(peerId);
   if (drop.length > 0) {
-    const dropped = new Set(drop);
-    try {
-      const raw = storage.getItem(EXCHANGES_KEY);
-      const exchanges = raw ? JSON.parse(raw) : {};
-      if (exchanges && typeof exchanges === 'object' && !Array.isArray(exchanges)) {
-        for (const [key, exchange] of Object.entries<any>(exchanges)) {
-          if (dropped.has(String(exchange?.peerId || ''))) delete exchanges[key];
-        }
-        storage.setItem(EXCHANGES_KEY, JSON.stringify(exchanges));
-      }
-    } catch {
-      // A malformed store is left as it is; hiding still shortens the list.
-    }
+    removeExchangePeers(drop);
     for (const peerId of drop) pruned.add(peerId);
   }
   savePrunedPeerIds(pruned, storage);

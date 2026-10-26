@@ -57,7 +57,7 @@ test.describe('Contacts cap (OPEN-87)', () => {
     await p.locator('[data-testid="settings-contacts-cap"]').selectOption('500');
 
     const state = () => p.evaluate(() => {
-      const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+      const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
       const peers = new Set(Object.values<any>(exchanges).map((exchange) => exchange.peerId));
       const pruned = JSON.parse(localStorage.getItem('iinpublic_contacts_pruned_v1') || '[]');
       return { peers: peers.size, pruned: pruned.length, friend: peers.has('friend-1'), newest: peers.has('peer-000'), oldest: peers.has('peer-599') };

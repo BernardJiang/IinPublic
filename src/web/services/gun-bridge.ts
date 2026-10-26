@@ -2,7 +2,7 @@
  * gun-bridge.ts — Main-thread interface to the Gun.js Web Worker
  *
  * Usage:
- *   const bridge = new GunBridge('/worker.js');
+ *   const bridge = new GunBridge('/core-worker.js');
  *   await bridge.init({ hubUrl: 'https://localhost:8080/gun' });
  *
  *   await bridge.put('some/path', { hello: 'world' });
@@ -17,6 +17,8 @@
  *   await bridge.putPrivate('diary', { note: 'secret' });
  *   const diary = await bridge.getPrivate('diary');
  */
+
+import type { CoreRequest, CoreResponse } from '../../core/protocol';
 
 export type GunPair = { pub: string; priv: string; epub: string; epriv: string };
 
@@ -36,7 +38,7 @@ export class GunBridge {
   private resolveReady!: () => void;
   private rejectReady!: (reason: any) => void;
 
-  constructor(workerUrl: string = '/worker.js') {
+  constructor(workerUrl: string = '/core-worker.js') {
     this.readyPromise = new Promise<void>((res, rej) => {
       this.resolveReady = res;
       this.rejectReady = rej;
@@ -99,6 +101,13 @@ export class GunBridge {
   async init(options?: { hubUrl?: string }): Promise<void> {
     await this.send('init', options);
     await this.whenReady();
+  }
+
+  /* ── The device core (OPEN-91) ────────────────────────────────── */
+
+  /** A request to the device core's app logic (src/core/protocol.ts). */
+  core<R extends CoreRequest>(request: R): Promise<CoreResponse<R>> {
+    return this.send('core', request);
   }
 
   /* ── Core graph operations ────────────────────────────────────── */

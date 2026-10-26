@@ -75,3 +75,10 @@ if (typeof window === 'undefined') {
     }
   };
 }
+
+// OPEN-91 P1: the exchange log's in-memory view is module state, shared between tests in a file.
+// Each test starts from an empty, unconnected view (tests seed the old localStorage blob, which
+// the view imports on first read).
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { resetExchangeViewForTests } = require('../web/services/exchange-view');
+beforeEach(() => resetExchangeViewForTests());

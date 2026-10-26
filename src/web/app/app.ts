@@ -238,6 +238,7 @@ import { buildTalkIdentityKey } from '../../shared/cid';
 import { applyContactsPrune, getContactsCap, planContactsPrune, unprunePeer } from '../services/contacts-prune';
 import { sharedTagCounter } from '../ui/tag-graph-view';
 import { deriveLocalPeers } from '../services/local-peer-derivation';
+import { connectExchangeCore, upsertExchange } from '../services/exchange-view';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
 import {
@@ -1336,6 +1337,8 @@ export class IinPublicApp {
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
+    // The exchange log lives in the device core (OPEN-91 P1): load it before the first screen reads it.
+    await this.connectExchangeLog();
     const passwordStatus = await this.gunService.getIdentityPasswordProtectionStatus();
     if (passwordStatus.state === 'locked') {
       await this.uiManager.showIdentityUnlock(
@@ -6388,6 +6391,42 @@ export class IinPublicApp {
     }, delayMs);
   }
 
+  /**
+   * Connects the GUI's exchange view to the device core's log (OPEN-88 part 2, OPEN-91 P1) and loads
+   * it. Waits at most 5 s; a later snapshot still lands, and the open Contacts or Me tab redraws.
+   * Without the worker the view keeps exchanges in memory for this session.
+   */
+  private async connectExchangeLog(): Promise<void> {
+    if (!this.gunService.isBridgeReady()) return;
+    const bridge = this.gunService.getBridge();
+    const link = {
+      snapshot: () => bridge.core({ name: 'exchanges.snapshot' }),
+      upsert: (records: Parameters<typeof upsertExchange>[0][]) => bridge.core({ name: 'exchanges.upsert', records }),
+      removePeers: (peerIds: string[]) => bridge.core({ name: 'exchanges.removePeers', peerIds }),
+    };
+    // Storage busy at start-up (a slow device, a loaded machine) is retried, never taken for "no exchanges".
+    const loaded = (async () => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await connectExchangeCore(link);
+          return;
+        } catch (error) {
+          if (attempt >= 6) {
+            console.warn('[exchanges] could not load the exchange log:', error);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+        }
+      }
+    })();
+    const inTime = await Promise.race([loaded.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000))]);
+    if (inTime) return;
+    void loaded.then(() => {
+      if (document.querySelector('.nav-btn[data-view="contacts"]')?.classList.contains('active')) this.uiManager.displayContactsList();
+      if (document.querySelector('.nav-btn[data-view="me"]')?.classList.contains('active')) this.uiManager.displayAnswersList();
+    });
+  }
+
   private recordLocalTalkExchange(
     peerId: string,
     peerName: string,
@@ -6411,37 +6450,29 @@ export class IinPublicApp {
     const collectionTag = meta?.direction === 'received'
       ? null
       : recordMatchCollectionExchange(peerId, talkId, outcome);
-    try {
-      const raw = localStorage.getItem('localTalkExchanges');
-      const exchanges = raw ? JSON.parse(raw) : {};
-      // One record per direction (OPEN-88): a tag I sent them and the same tag they sent me are two
-      // exchanges, each with its own outcome and place — not one overwriting the other.
-      const key = `${peerId}::${talkId}::${meta?.direction || 'sent'}`;
-      exchanges[key] = {
-        ...(exchanges[key] || {}),
-        peerId,
-        peerName: String(peerName || 'Unknown'),
-        talkId,
-        title: String(talkData?.title || 'Talk'),
-        type: String(talkData?.type || 'flow'),
-        language: String(talkData?.language || 'en'),
-        outcome,
-        direction: meta?.direction || 'sent',
-        date: new Date().toISOString(),
-        // Where it happened (OPEN-89): a place leads to what was exchanged there, and back.
-        ...(this.currentChatroomId ? { roomId: this.currentChatroomId, roomName: this.getChatroomDisplayName(this.currentChatroomId) } : {}),
-        answerMode: meta?.answers ? 'manual' : (exchanges[key]?.answerMode || 'manual'),
-        ...(meta?.answers ? { answers: meta.answers } : {}),
-        // R-2: forward-compat fields — inert in step 4, used by steps 8–11
-        ...(meta?.responseId ? { responseId: meta.responseId } : {}),
-        ...(meta?.version !== undefined ? { version: meta.version } : {}),
-        ...(meta?.respondedAt ? { respondedAt: meta.respondedAt } : {}),
-        ...(collectionTag || {}),
-      };
-      localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
-    } catch {
-      // Local exchange summaries only support UI fallbacks; ignore storage failures.
-    }
+    // The exchange log lives in the device core's Gun (OPEN-88 part 2, OPEN-91 P1); the GUI's view
+    // updates at once. One record per direction (OPEN-88): a tag I sent them and the same tag they
+    // sent me are two exchanges, each with its own outcome and place.
+    upsertExchange({
+      peerId,
+      peerName: String(peerName || 'Unknown'),
+      talkId,
+      title: String(talkData?.title || 'Talk'),
+      type: String(talkData?.type || 'flow'),
+      language: String(talkData?.language || 'en'),
+      outcome,
+      direction: meta?.direction || 'sent',
+      date: new Date().toISOString(),
+      // Where it happened (OPEN-89): a place leads to what was exchanged there, and back.
+      ...(this.currentChatroomId ? { roomId: this.currentChatroomId, roomName: this.getChatroomDisplayName(this.currentChatroomId) } : {}),
+      answerMode: 'manual',
+      ...(meta?.answers ? { answers: meta.answers } : {}),
+      // R-2: forward-compat fields — inert in step 4, used by steps 8–11
+      ...(meta?.responseId ? { responseId: meta.responseId } : {}),
+      ...(meta?.version !== undefined ? { version: meta.version } : {}),
+      ...(meta?.respondedAt ? { respondedAt: meta.respondedAt } : {}),
+      ...(collectionTag || {}),
+    });
 
     // A received talk answered by this user is already recorded as a responder-side
     // exchange by submitTalkResponsePairDirect. Writing the author-side projection here

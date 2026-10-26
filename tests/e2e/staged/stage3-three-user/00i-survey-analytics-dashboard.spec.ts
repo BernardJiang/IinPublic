@@ -99,7 +99,7 @@ test.describe('Survey analytics dashboard', () => {
         async () => {
           return pageTom.evaluate((tid) => {
             try {
-              const raw = localStorage.getItem('localTalkExchanges');
+              const raw = JSON.stringify(((window as any).__iinpublic_exchanges?.() ?? {}));
               if (!raw) return 0;
               const store = JSON.parse(raw) as Record<string, unknown>;
               return Object.values(store).filter(

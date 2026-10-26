@@ -241,7 +241,7 @@ test.describe('Find similar people with starter tags', () => {
           const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
           const clusters = (ui?.incomingTalkClusters || []).map((cluster: any) =>
             `${cluster.title}:${Object.keys(cluster.senders || {}).filter((id) => id !== 'iinpublic-starter-interests').map((id) => id.slice(0, 6)).join('+')}`);
-          const exchanges = Object.values<any>(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}'));
+          const exchanges = Object.values<any>(((window as any).__iinpublic_exchanges?.() ?? {}));
           return {
             chatbot: localStorage.getItem('chatbotEnabled'),
             clusters: clusters.filter((line: string) => !line.endsWith(':')).slice(0, 8),
@@ -333,12 +333,17 @@ test.describe('Find similar people with starter tags', () => {
       expect(best.likers.length, `${NAMES[index]} knows someone who likes one of their tags`).toBeGreaterThan(0);
       const keyword = STARTER_TAGS[best.tagIndex]!.text;
       const row = page.locator(`#answers-list .answer-talk-item[data-tag-state="checked"][data-topic="${keyword}"]`);
-      await expect(row.locator('[data-testid="answer-people"]')).toContainText(String(best.likers.length));
+      // Exchanges keep arriving after the counts above were taken, so the row may know one more
+      // person than then: what it shows must match what it lists, and all of them like the tag.
+      const shown = Number(((await row.locator('[data-testid="answer-people"]').textContent()) || '').replace(/\D/g, ''));
+      expect(shown).toBeGreaterThanOrEqual(best.likers.length);
       await row.locator('[data-testid="answer-people"]').click();
       await expect(page.locator('[data-testid="contacts-focus-chip"]')).toContainText(keyword, { timeout: 10_000 });
       const listed = await page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])')
         .evaluateAll((rows) => rows.map((element) => (element as HTMLElement).dataset.contactUserId || ''));
-      expect(listed.sort()).toEqual(best.likers.map((other) => other.id).sort());
+      expect(listed).toHaveLength(shown);
+      for (const peerId of listed) expect(LIKES[indexById.get(peerId)!]!.includes(best.tagIndex), `${NAMES[indexById.get(peerId)!]} likes ${keyword}`).toBe(true);
+      for (const known of best.likers) expect(listed).toContain(known.id);
       console.log(`[${NAMES[index]}] Me → ♡ ${keyword} → ${listed.map((id) => NAMES[indexById.get(id)!]).join(', ')}`);
       await page.locator('[data-testid="contacts-focus-clear"]').click();
       // 💬 on the same Me row: Talks, narrowed to that tag, which looks the same there (♡, 👥).
@@ -348,7 +353,7 @@ test.describe('Find similar people with starter tags', () => {
       const talkChips = page.locator('#talks-list .talk-tag-chip');
       await expect(talkChips).toHaveCount(1);
       await expect(talkChips.first().locator('[data-testid="answer-tag-mark"]')).toHaveText('♡');
-      await expect(talkChips.first().locator('[data-testid="answer-people"]')).toContainText(String(best.likers.length));
+      await expect(talkChips.first().locator('[data-testid="answer-people"]')).toContainText(String(shown));
       await page.locator('[data-testid="talks-focus-clear"]').click();
       // Back to all contacts for the hold.
       await page.locator('.nav-btn[data-view="contacts"]').click();

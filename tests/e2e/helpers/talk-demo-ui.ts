@@ -1076,7 +1076,7 @@ export async function seedLocalTalkExchange(
       const responderId = opts.responderId || `seed-responder-${Math.random().toString(36).slice(2, 7)}`;
       const key = `${responderId}::${talkId}`;
       const now = new Date().toISOString();
-      const raw = localStorage.getItem('localTalkExchanges');
+      const raw = JSON.stringify(((window as any).__iinpublic_exchanges?.() ?? {}));
       const store: Record<string, unknown> = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       store[key] = {
         peerId: responderId,

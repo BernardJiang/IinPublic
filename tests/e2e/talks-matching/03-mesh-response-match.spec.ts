@@ -420,7 +420,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
     // Tom's setMemberMatched (roster badge) — check via the localTalkExchanges record
     const tomExchangeOutcome = await pageTom.evaluate(
       ({ jId, talkId }: { jId: string; talkId: string }) => {
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') ?? '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         // Keyed peer::talk::direction (OPEN-88): find the record by its fields.
         return Object.values<any>(exchanges).find((row) => row?.peerId === jId && row?.talkId === talkId)?.outcome ?? null;
       },

@@ -125,7 +125,7 @@ test.describe('Multiple tag talks each record the right outcome', () => {
     // past the modal close), so poll instead of reading once — a fixed wait is racy under load.
     await expect
       .poll(() => pageBob!.evaluate(({ ids }) => {
-        const ex = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const ex = ((window as any).__iinpublic_exchanges?.() ?? {});
         return ids.map((id: string) => {
           // Keyed peer::talk::direction (OPEN-88): find the record by its fields.
           const entry = Object.values<any>(ex).find((row) => row?.talkId === id);
@@ -138,7 +138,7 @@ test.describe('Multiple tag talks each record the right outcome', () => {
     // Adam sees three matched exchanges with Bob (one per talk).
     await expect
       .poll(() => pageAdam!.evaluate(({ pid }) => {
-        const ex = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const ex = ((window as any).__iinpublic_exchanges?.() ?? {});
         return Object.entries(ex).filter(([k, v]: [string, any]) =>
           k.startsWith(`${pid}::`) && v?.outcome === 'match').length;
       }, { pid: bobId }), { timeout: E2E_TIMEOUT_MS, message: 'Adam should see three matched tag exchanges' })

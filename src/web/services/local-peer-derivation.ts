@@ -23,34 +23,13 @@
 
 import type { KnownPerson } from '../../shared/types';
 import type { PeerRelationshipStats, PeerSummary } from '../../shared/peer-summary-types';
+import type { ExchangeRecord } from '../../core/exchanges';
+import { readExchanges } from './exchange-view';
 import type { TalkResponse, TalkType } from '../../shared/talk-stats';
 
-// ── Local exchange record shape (written by app.ts#recordLocalTalkExchange) ──
+// ── Local exchange record shape: the device core's exchange log (src/core/exchanges.ts) ──
 
-export type LocalTalkExchange = {
-  peerId: string;
-  peerName: string;
-  talkId: string;
-  title: string;
-  outcome: 'match' | 'mismatch' | 'ignore';
-  direction: 'sent' | 'received';
-  date: string;
-  // R-2 forward-compat fields (steps 8-11)
-  responseId?: string;
-  version?: number;
-  respondedAt?: string;
-  type?: string;
-  language?: string;
-  answerMode?: 'auto' | 'manual';
-  answers?: Array<{ questionId: string; answerId: string; answerText: string }>;
-  /** The physical-world collection outing that caused this author-side exchange. */
-  collectionSessionId?: string;
-  collectionLabel?: string;
-  collectionStartedAt?: string;
-  /** Where it happened (OPEN-89): the room I was in — Nearby or a Place — and its name then. */
-  roomId?: string;
-  roomName?: string;
-};
+export type LocalTalkExchange = ExchangeRecord;
 
 export type LocalTalkHistoryItem = {
   talkId: string;
@@ -63,20 +42,11 @@ export type LocalTalkHistoryItem = {
 };
 
 /**
- * Read all local talk exchange records from localStorage.
- * Storage is a keyed object `{ "${peerId}::${talkId}": exchange }` (see app.ts).
+ * Every exchange record: the GUI's in-memory view of the device core's exchange log
+ * (`exchange-view.ts`; OPEN-88 part 2, OPEN-91 P1).
  */
 export function readLocalTalkExchanges(): LocalTalkExchange[] {
-  try {
-    const raw = localStorage.getItem('localTalkExchanges');
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed as LocalTalkExchange[];
-    if (parsed && typeof parsed === 'object') return Object.values(parsed) as LocalTalkExchange[];
-    return [];
-  } catch {
-    return [];
-  }
+  return readExchanges();
 }
 
 function emptyStats(): PeerRelationshipStats {

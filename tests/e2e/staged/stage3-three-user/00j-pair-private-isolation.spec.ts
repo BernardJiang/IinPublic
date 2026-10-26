@@ -169,7 +169,7 @@ async function waitForLocalTalkExchange(
       () =>
         page.evaluate(
           ({ pid, tid, expected }) => {
-            const raw = localStorage.getItem('localTalkExchanges');
+            const raw = JSON.stringify(((window as any).__iinpublic_exchanges?.() ?? {}));
             const rows = raw ? JSON.parse(raw) : {};
             // Keyed peer::talk::direction (OPEN-88): find the record by its fields.
             const row = Object.values<any>(rows).find((candidate) => candidate?.peerId === pid && candidate?.talkId === tid && candidate?.outcome === expected);

@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-25
 
+## 2026-10-25 — OPEN-88 / OPEN-91 P1 the exchange log moves into the device core
+
+The exchange log left the one localStorage JSON blob (`localTalkExchanges`, parsed and rewritten on
+every exchange) for the device core's Gun: one node per person, Talk and direction under
+`local/exchanges/…` (`src/core/exchanges.ts`), in the peerless worker Gun persisted to IndexedDB.
+- **The core seam:** `src/core/` — the request protocol, a `GraphStore` (Gun or a plain map), one
+  handler every host answers through, and the web host `src/core/host/worker-host.ts` (webpack entry
+  `core-worker`, a TypeScript port of `public/worker.js`, which is removed).
+- **The view:** screens read `src/web/services/exchange-view.ts` synchronously; writes update it at
+  once and go to the core; start-up loads the core's snapshot (storage that does not answer is
+  retried, never taken for "no exchanges"). An old blob — earlier app versions, test seeds — is
+  imported once and removed. Specs read the log via `window.__iinpublic_exchanges()`.
+- **Found on the way (e2e stage1/94):** a reload right after a write could stop the worker
+  mid-save, losing it; a write now stays in a small list of unsaved writes until the core confirms
+  it, and is sent again at the next start. Reads ask for the node's soul directly — walking the
+  chain on a cold start lost the first callback.
+
 ## 2026-10-25 — OPEN-89 a GUI over a graph: every tab leads to every other
 
 The four tabs are four kinds of node — places (Chatrooms), people (Contacts), Talks, and answers

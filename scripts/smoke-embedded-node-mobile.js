@@ -138,12 +138,12 @@ async function main() {
     else if (!/<html/i.test(root.body)) fail('GET / did not return HTML (SPA index.html not served)');
     else console.log(`[smoke-mobile] GET / -> ${root.statusCode} OK (serves SPA)`);
 
-    const worker = await httpGet('/worker.js');
-    if (!worker.statusCode || worker.statusCode >= 300) fail(`GET /worker.js returned ${worker.statusCode}`);
-    else if (!/Gun\.js Web Worker/.test(worker.body)) fail('GET /worker.js did not return the app worker');
-    else console.log(`[smoke-mobile] GET /worker.js -> ${worker.statusCode} OK`);
+    const worker = await httpGet('/core-worker.js');
+    if (!worker.statusCode || worker.statusCode >= 300) fail(`GET /core-worker.js returned ${worker.statusCode}`);
+    else if (!/node_modules\/gun\/gun\.js/.test(worker.body)) fail('GET /core-worker.js did not return the device core worker');
+    else console.log(`[smoke-mobile] GET /core-worker.js -> ${worker.statusCode} OK`);
 
-    // The two files public/worker.js actually importScripts() at runtime — this is the exact
+    // The two files the core worker (/core-worker.js) actually importScripts() at runtime — this is the exact
     // path a real device's Web Worker depends on to get SEA/IndexedDB working (see this file's
     // header comment for why bundling breaks Gun's own __dirname-based serving fallback).
     const gunJs = await httpGet('/node_modules/gun/gun.js');

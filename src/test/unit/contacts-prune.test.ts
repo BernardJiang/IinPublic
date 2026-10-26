@@ -10,6 +10,7 @@ import {
   unprunePeer,
 } from '../../web/services/contacts-prune';
 import type { PeerSummary } from '../../shared/peer-summary-types';
+import { readExchanges } from '../../web/services/exchange-view';
 
 const peer = (peerId: string, daysAgo: number): PeerSummary => ({
   peerId,
@@ -55,7 +56,8 @@ describe('contacts prune', () => {
       'recent::t1': { peerId: 'recent', talkId: 't1' },
     }));
     applyContactsPrune(['old'], new Set());
-    expect(Object.keys(JSON.parse(localStorage.getItem('localTalkExchanges')!))).toEqual(['recent::t1']);
+    // The log lives in the device core; the GUI's view no longer has 'old' (OPEN-91 P1).
+    expect(readExchanges().map((record) => `${record.peerId}::${record.talkId}`)).toEqual(['recent::t1']);
     expect(getPrunedPeerIds().has('old')).toBe(true);
 
     unprunePeer('old');

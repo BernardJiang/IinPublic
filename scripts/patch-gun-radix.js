@@ -30,7 +30,7 @@
  * the ROOT node_modules/gun straight into dist/embedded-mobile/server/node-app/embedded-node.js
  * (see scripts/build-embedded-mobile.js), so patching the root copy before that bundle step is
  * sufficient. platforms/mobile/nodejs-project's OWN node_modules/gun is a separate, unrelated
- * copy served as static browser assets only (public/worker.js's importScripts) to the
+ * copy served as static browser assets only (the core worker's importScripts) to the
  * WebView's client-side Gun instance, which always runs radisk:false (browser origin) and
  * therefore never exercises the Radisk radix-tree code path this bug lives in — no patch
  * needed there.

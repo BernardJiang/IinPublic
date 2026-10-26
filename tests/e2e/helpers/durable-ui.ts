@@ -56,7 +56,7 @@ export async function waitForPeerHistoryTitle(
     .poll(
       () => page.evaluate((pid) => {
         const titles = new Set<string>();
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         Object.values(exchanges)
           .filter((entry: any) => String(entry?.peerId || '') === pid)
           .map((entry: any) => String(entry?.title || ''))

@@ -113,7 +113,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     await expect
       .poll(
         () => pageTom.evaluate((t) => {
-          const raw = localStorage.getItem('localTalkExchanges') || '[]';
+          const raw = JSON.stringify(((window as any).__iinpublic_exchanges?.() ?? {}));
           const hay = raw.toLowerCase();
           return hay.includes(String(t).toLowerCase()) ? 'recorded' : raw.length;
         }, 'Tom Out Talk'),

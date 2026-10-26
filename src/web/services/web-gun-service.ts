@@ -272,7 +272,7 @@ export class WebGunService extends EventEmitter {
   constructor() {
     super();
     this.peers = [WebGunService.deriveGunHubUrl()];
-    this.bridge = new GunBridge('/worker.js');
+    this.bridge = new GunBridge('/core-worker.js');
   }
 
   private isE2ERelaxedMode(): boolean {

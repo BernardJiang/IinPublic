@@ -237,7 +237,7 @@ test.describe('Stats aggregation across all four talk types (flow, tag, survey, 
               // Count author-side ledger outcomes via localTalkExchanges (author 'sent' projection is
               // recorded on receipt; every received response also writes a ledger outcome). We read the
               // localTalkExchanges records (found by their talkId field) as a robust proxy.
-              const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+              const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
               const have = (tid: string) =>
                 Object.values<any>(exchanges).some((row) => row?.talkId === tid);
               void aId;
