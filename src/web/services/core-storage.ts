@@ -17,6 +17,8 @@ function legacyStorage(): Storage | null {
   }
 }
 
+const warnedEarly = new Set<string>();
+
 export const appStorage = {
   getItem(key: string): string | null {
     const legacy = legacyStorage();
@@ -25,6 +27,12 @@ export const appStorage = {
       appDataView.set({ [key]: found });
       try { legacy!.removeItem(key); } catch { /* the core holds it now either way */ }
       return found;
+    }
+    if (!appDataView.isConnected() && !warnedEarly.has(key)) {
+      // Before the core loads, only values not yet saved to it are here: a value from an earlier
+      // session reads as missing. Boot-time reads belong after connectExchangeLog.
+      warnedEarly.add(key);
+      console.warn(`[appStorage] "${key}" read before the device core loaded`);
     }
     const value = appDataView.get(key);
     return typeof value === 'string' ? value : null;
@@ -43,3 +51,8 @@ export const appStorage = {
 
 /** For code that takes a `Storage` (device sync's custody and outbox stores). */
 export const appStorageAsStorage = appStorage as unknown as Storage;
+
+/** Whether the core has loaded app data: before it, a value from an earlier session reads as missing. */
+export function appDataLoaded(): boolean {
+  return appDataView.isConnected();
+}

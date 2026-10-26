@@ -5,6 +5,7 @@ import {
 } from './creator-replies-view';
 import type { User } from '../../shared/types';
 import type { UiTranslationKey } from './ui-translations';
+import { appDataLoaded } from '../services/core-storage';
 
 const chatroomActionDelegationDocuments = new WeakSet<Document>();
 
@@ -145,7 +146,8 @@ function bindTalkFilters(deps: AppShellControlsDeps): void {
 }
 
 function bindCreatorReplyFilters(deps: AppShellControlsDeps): void {
-  restoreCreatorReplyFilterState();
+  // Saved in the device core: restored here once it has loaded, or by the app when it does.
+  if (appDataLoaded()) restoreCreatorReplyFilterState();
   const filterIds = [
     'reply-filter-query',
     'reply-filter-outcome',

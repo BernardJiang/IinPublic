@@ -250,6 +250,7 @@ import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
 import { appStorage } from '../services/core-storage';
+import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
@@ -1240,7 +1241,6 @@ export class IinPublicApp {
           }
         : {}),
     });
-    this.loadAttachmentShareSentIds();
     // Scenario 1 fix (2026-09-29): a P2P peer's handshake revealed a different app version.
     // Remind the older side to upgrade, and the newer side that this particular contact may not
     // understand brand-new features yet. Subscribed once for the app's lifetime; the session
@@ -1286,6 +1286,9 @@ export class IinPublicApp {
     await this.gunService.initialize();
     // The exchange log lives in the device core (OPEN-91 P1): load it before the first screen reads it.
     await this.connectExchangeLog();
+    // Kept in the device core, readable only once it has loaded.
+    this.loadAttachmentShareSentIds();
+    restoreCreatorReplyFilterState();
     const passwordStatus = await this.gunService.getIdentityPasswordProtectionStatus();
     if (passwordStatus.state === 'locked') {
       await this.uiManager.showIdentityUnlock(
@@ -6152,6 +6155,8 @@ export class IinPublicApp {
     const inTime = await Promise.race([loaded.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000))]);
     if (inTime) return;
     void loaded.then(() => {
+      this.loadAttachmentShareSentIds();
+      restoreCreatorReplyFilterState();
       if (document.querySelector('.nav-btn[data-view="contacts"]')?.classList.contains('active')) this.uiManager.displayContactsList();
       if (document.querySelector('.nav-btn[data-view="me"]')?.classList.contains('active')) this.uiManager.displayAnswersList();
     });

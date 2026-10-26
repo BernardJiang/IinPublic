@@ -38,6 +38,11 @@ export class CoreCollectionView<T> {
     this.unsavedKey = `iinpublic_core_unsaved_${collection}_v1`;
   }
 
+  /** Whether the core's snapshot has loaded (before it, only unsaved and imported values exist). */
+  isConnected(): boolean {
+    return this.core !== null;
+  }
+
   get(key: string): T | undefined {
     this.load();
     return this.entries.get(key);
