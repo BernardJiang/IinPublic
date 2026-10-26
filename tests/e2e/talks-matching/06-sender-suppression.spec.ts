@@ -201,7 +201,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService not available on Tom');
         mesh.cacheTalkBody(talkId, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         await mesh.broadcastTalk(tDef, { recipientUserIds: [authorId], roomBroadcast: true });

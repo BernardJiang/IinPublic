@@ -171,7 +171,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
           ],
         };
         mesh.cacheTalkBody(talkId, talkDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         await mesh.broadcastTalk(talkDef, { roomBroadcast: true });

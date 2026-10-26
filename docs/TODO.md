@@ -41,9 +41,9 @@ its ID.
   default deny (needs the shared nodes under `pair/`/`room/`/`public/`), the `in` filter, and
   encryption checks on `pair/`/`room/` writes. **P3 started 2026-10-26:** keyed collections in the
   core (`src/core/collections.ts`, GUI view `core-collection-view.ts`, views in `core-views.ts`);
-  chatbot templates moved. Next: `myTalks`, `myConversations` (each read by 60+ e2e specs — migrate
-  them to `window.__iinpublic_collection(...)` as with the exchange log), the talk ledger, answer
-  history.
+  chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
+  edit via `__iinpublic_collection_edit`; seeding the old blob still works — it is imported). Next:
+  `myConversations` (60+ e2e specs), the talk ledger, answer history.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

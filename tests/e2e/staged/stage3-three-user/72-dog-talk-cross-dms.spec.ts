@@ -235,7 +235,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
       const mesh = a.peerMeshService;
       if (!mesh) throw new Error('peerMeshService not available on Adam');
       mesh.cacheTalkBody(def.id, def);
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[def.id] = { role: 'created', title: def.title, fullTalk: def };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
       await mesh.broadcastTalk(def, { roomBroadcast: true });
@@ -395,7 +395,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
     await pageAdam.evaluate(async ({ talk, recipients }) => {
       const a = (window as any).__iinpublic_app.getApp();
       a.peerMeshService.cacheTalkBody(talk.id, talk);
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[talk.id] = { role: 'created', title: talk.title, fullTalk: talk };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
       await a.peerMeshService.broadcastTalk(talk, { recipientUserIds: recipients, roomBroadcast: true });

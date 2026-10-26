@@ -200,7 +200,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     // Tom's Ignored entry has exactly one sentinel choice — the Ignore pick on S1 itself —
     // proof it did not advance through S2/S3 the way a real answer would.
     const tomSurveyRecorded = await pageTom.evaluate((title) => {
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const entry = (Object.values(myTalks) as any[]).find((t) => t.title === title);
       return {
         found: !!entry,

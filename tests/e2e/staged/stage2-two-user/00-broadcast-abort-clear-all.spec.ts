@@ -56,7 +56,7 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
       for (const t of talkTitles) {
         await createSimpleFlowTalk(pageTom, t);
         const tid = await pageTom.evaluate((title) => {
-          const raw = localStorage.getItem('myTalks');
+          const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myTalks') ?? {}));
           const myTalks = raw ? (JSON.parse(raw) as Record<string, any>) : {};
           return Object.entries(myTalks).find(([, v]) => v?.title === title)?.[0] ?? '';
         }, t);
@@ -93,7 +93,7 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
       await afterAction();
 
       await pageTom.evaluate(() => {
-        localStorage.removeItem('myTalks');
+        (window as any).__iinpublic_collection_edit?.('myTalks', { clear: true });
         (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.();
       });
       await afterAction();
@@ -114,8 +114,8 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
         await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
       }
 
-      const talksRaw = await pageTom.evaluate(() => localStorage.getItem('myTalks'));
-      expect(talksRaw).toBeNull();
+      const talksLeft = await pageTom.evaluate(() => Object.keys((window as any).__iinpublic_collection?.('myTalks') ?? {}));
+      expect(talksLeft).toEqual([]);
     } finally {
       await pageTom
         .evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.())

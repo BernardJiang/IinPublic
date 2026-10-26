@@ -316,7 +316,7 @@ export async function createTalksFromCompanyPage(
     .poll(
       async () =>
         page.evaluate((expectedTitles) => {
-          const raw = localStorage.getItem('myTalks');
+          const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myTalks') ?? {}));
           const myTalks = raw ? JSON.parse(raw) : {};
           const createdTitles = new Set(
             Object.values(myTalks)
@@ -329,7 +329,7 @@ export async function createTalksFromCompanyPage(
     )
     .toBe('');
   return page.evaluate((expectedTitles) => {
-    const raw = localStorage.getItem('myTalks');
+    const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myTalks') ?? {}));
     const myTalks = raw ? JSON.parse(raw) : {};
     return expectedTitles.map((title) => {
       const entry = Object.entries(myTalks).find(([, talk]: [string, any]) =>
@@ -398,7 +398,7 @@ export async function readCreatedTalkFromMyTalks(
   title: string,
 ): Promise<{ title: string; talkId: string; talkData: any }> {
   return page.evaluate((expectedTitle) => {
-    const raw = localStorage.getItem('myTalks');
+    const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myTalks') ?? {}));
     const myTalks = raw ? JSON.parse(raw) : {};
     const entry = Object.entries(myTalks).find(
       ([, talk]: [string, any]) => talk?.role === 'created' && talk?.title === expectedTitle,

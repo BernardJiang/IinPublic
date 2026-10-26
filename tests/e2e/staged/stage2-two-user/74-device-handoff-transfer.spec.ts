@@ -134,7 +134,7 @@ test.describe('device handoff transfer (§J)', () => {
       await expect(b.page.locator('[data-testid="incoming-handoff-card"]')).toHaveCount(0, { timeout: 10_000 });
 
       const bImportedTalks = await b.page.evaluate(
-        () => JSON.parse(localStorage.getItem('myTalks') || '{}'),
+        () => ((window as any).__iinpublic_collection?.('myTalks') ?? {}),
       );
       expect(bImportedTalks[MARKER_TALK_ID]?.title).toBe('Selling a bike (handoff marker)');
 

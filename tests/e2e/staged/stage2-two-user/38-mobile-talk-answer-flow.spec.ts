@@ -96,7 +96,7 @@ test.describe('Mobile talk answer flow: B on 390x844 answers through the real re
       ({ tid, def }) => {
         const app = (window as any).__iinpublic_app?.getApp?.();
         app?.peerMeshService?.cacheTalkBody?.(tid, def);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tid] = { role: 'created', fullTalk: def };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
       },

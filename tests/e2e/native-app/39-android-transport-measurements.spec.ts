@@ -215,7 +215,7 @@ async function createTagTalk(phone: Phone, title: string): Promise<{ talkId: str
   let created: { talkId: string; talkData: any } | null = null;
   await expect.poll(async () => {
     created = await phone.user.window.evaluate((expectedTitle) => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const entry = Object.entries(talks).find(([, value]: [string, any]) => value?.role === 'created' && value?.title === expectedTitle && value?.fullTalk);
       return entry ? { talkId: entry[0], talkData: (entry[1] as any).fullTalk } : null;
     }, title);

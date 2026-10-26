@@ -132,7 +132,7 @@ test.describe('Peer-detail exchanged-talk history is clickable (O)', () => {
         };
         localStorage.setItem('localTalkExchanges', JSON.stringify([exchange]));
         // showConversationDetail's thread-scope title reads from myTalks, not localTalkExchanges.
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks.qa_mismatch2 = { role: 'created', title: 'Second Exchanged Talk', type: 'flow' };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
       },

@@ -87,7 +87,7 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
     await pageAdam.evaluate(async ({ def }) => {
       const a = (window as any).__iinpublic_app.getApp();
       a.peerMeshService.cacheTalkBody(def.id, def);
-      const mt = JSON.parse(localStorage.getItem('myTalks') || '{}'); mt[def.id] = { role: 'created', fullTalk: def };
+      const mt = ((window as any).__iinpublic_collection?.('myTalks') ?? {}); mt[def.id] = { role: 'created', fullTalk: def };
       localStorage.setItem('myTalks', JSON.stringify(mt));
       await a.peerMeshService.broadcastTalk(def, { roomBroadcast: true });
     }, { def: talkDef });
@@ -168,7 +168,7 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
     // The created talk must carry a real IPFS attachment (published from the file).
     await expect
       .poll(() => pageAdam!.evaluate(() => {
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         const talk = Object.values(myTalks).map((t: any) => t?.fullTalk).find(
           (t: any) => t?.title === 'With Brochure');
         const att = talk?.ipfsAttachments?.[0];

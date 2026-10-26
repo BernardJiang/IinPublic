@@ -64,7 +64,7 @@ export async function waitForPeerHistoryTitle(
           .forEach((entryTitle) => titles.add(entryTitle));
 
         const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         const addTalkTitle = (talkId: unknown) => {
           const id = String(talkId || '').trim();
           if (!id || id === 'direct') return;

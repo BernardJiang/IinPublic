@@ -22,6 +22,7 @@ export class CoreCollectionView<T> {
   private readonly entries = new Map<string, T>();
   private readonly listeners = new Set<() => void>();
   private core: CollectionCoreLink | null = null;
+  private loaded = false;
   private readonly unsavedKey: string;
 
   constructor(readonly collection: CoreCollection, private readonly legacyKey: string) {
@@ -29,17 +30,17 @@ export class CoreCollectionView<T> {
   }
 
   get(key: string): T | undefined {
-    this.importLegacy();
+    this.load();
     return this.entries.get(key);
   }
 
   all(): Record<string, T> {
-    this.importLegacy();
+    this.load();
     return Object.fromEntries(this.entries);
   }
 
   set(changes: Record<string, T>): void {
-    this.importLegacy();
+    this.load();
     if (Object.keys(changes).length === 0) return;
     for (const [key, value] of Object.entries(changes)) this.entries.set(key, value);
     this.save(changes);
@@ -47,7 +48,7 @@ export class CoreCollectionView<T> {
   }
 
   remove(keys: string[]): void {
-    this.importLegacy();
+    this.load();
     if (keys.length === 0) return;
     for (const key of keys) this.entries.delete(key);
     this.save(Object.fromEntries(keys.map((key) => [key, null])));
@@ -62,7 +63,7 @@ export class CoreCollectionView<T> {
   /** Connects to the core and loads its snapshot; listed unsaved changes win and are sent again. */
   async connect(link: CollectionCoreLink): Promise<void> {
     this.core = link;
-    this.importLegacy();
+    this.load();
     const unsaved = this.readUnsaved();
     const snapshot = await link.snapshot(this.collection);
     for (const [key, value] of Object.entries(snapshot)) {
@@ -80,6 +81,22 @@ export class CoreCollectionView<T> {
     this.entries.clear();
     this.listeners.clear();
     this.core = null;
+    this.loaded = false;
+  }
+
+  /**
+   * What this device has before the core answers: changes the core has not confirmed (from this
+   * page or one closed before saving) on the first read, then any old blob written since.
+   */
+  private load(): void {
+    if (!this.loaded) {
+      this.loaded = true;
+      for (const [key, value] of Object.entries(this.readUnsaved())) {
+        if (value === null) this.entries.delete(key);
+        else this.entries.set(key, value);
+      }
+    }
+    this.importLegacy();
   }
 
   private notify(): void {

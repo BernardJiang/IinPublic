@@ -165,7 +165,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
       expect(delivery).toMatchObject({ talksSent: 1, receivers: 2 });
 
       const talkId = await pageTom.evaluate(() => {
-        const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         return Object.keys(talks)[0] || '';
       });
       expect(talkId).toBeTruthy();

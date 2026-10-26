@@ -50,7 +50,7 @@ import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repos
 import { getAnsweredTalkByContent, getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { findAutoAnswer, LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
-import { getMyTalks } from '../ui/my-talks-storage';
+import { getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
@@ -1465,7 +1465,7 @@ export class IinPublicApp {
         }],
         ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
         ['answerPreferences', () => { sources.answerPreferences = read('exactChatbotMemory'); }],
-        ['myTalks', () => { sources.myTalks = read('myTalks'); }],
+        ['myTalks', () => { sources.myTalks = getMyTalks(); }],
         ['conversations', () => { sources.conversations = read('myConversations'); }],
       ];
       for (const [category, fill] of collect) {
@@ -1528,7 +1528,7 @@ export class IinPublicApp {
           contacts: (this.currentUser.knownPeople as any) || [],
           talkFilters: this.currentUser.talkFilters as any,
           answerPreferences: read('exactChatbotMemory') || {},
-          myTalks: read('myTalks') || {},
+          myTalks: getMyTalks(),
         });
         this.currentUser.knownPeople = merged.contacts as any;
         this.currentUser.talkFilters = merged.talkFilters as any;
@@ -1538,7 +1538,7 @@ export class IinPublicApp {
           talkFilters: merged.talkFilters as any,
         });
         write('exactChatbotMemory', merged.answerPreferences);
-        write('myTalks', merged.myTalks);
+        setMyTalks(merged.myTalks as any);
         // Imported thread history is read-only (spec §11.2) — never merged into the
         // live conversation store, kept under its own key, additive across imports
         // rather than clobbering a prior import from a different linked device.
@@ -4472,9 +4472,7 @@ export class IinPublicApp {
     const cached = this.peerMeshService?.getCachedTalkBody(talkId);
     if (cached) return cached;
     try {
-      const raw = localStorage.getItem('myTalks');
-      const myTalks = raw ? JSON.parse(raw) : {};
-      const entry = myTalks?.[talkId];
+      const entry: any = getMyTalks()[talkId];
       if (entry?.fullTalk) return entry.fullTalk;
       if (entry) return entry;
     } catch {
@@ -6564,12 +6562,7 @@ export class IinPublicApp {
 
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
     if (!usesMeshTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
-    let myTalks: Record<string, any> = {};
-    try {
-      myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-    } catch {
-      myTalks = {};
-    }
+    const myTalks: Record<string, any> = getMyTalks();
     const createdTalks = Object.entries(myTalks)
       .filter(([, entry]: [string, any]) => entry?.role === 'created')
       .map(([talkId, entry]: [string, any]) => ({

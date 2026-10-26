@@ -197,7 +197,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
         };
         mesh.cacheTalkBody(talkId, talkDef);
         // Store in myTalks so localUserAuthoredTalkContent returns true
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         // Broadcast via mesh

@@ -3,6 +3,7 @@ import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { computeTalkCIDv1, computeCIDv1, normalizeIdentityText } from '../../shared/cid';
 import { GunTalkRepository } from './gun-talk-repository';
+import { getMyTalks, upsertMyTalk } from '../ui/my-talks-storage';
 
 // ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
 const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
@@ -38,9 +39,7 @@ function saveAuthoredTalk(talkId: string, talk: Talk): void {
  */
 function projectAuthoredTalkToMyTalks(talkId: string, talk: Talk): void {
   try {
-    if (typeof localStorage === 'undefined') return;
-    const raw = localStorage.getItem('myTalks');
-    const myTalks = raw ? JSON.parse(raw) : {};
+    const myTalks: Record<string, any> = getMyTalks();
     const now = new Date().toISOString();
     myTalks[talkId] = {
       ...myTalks[talkId], talkId, title: talk.title, type: talk.type,
@@ -50,7 +49,7 @@ function projectAuthoredTalkToMyTalks(talkId: string, talk: Talk): void {
       locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
       lastInteraction: now,
     };
-    localStorage.setItem('myTalks', JSON.stringify(myTalks));
+    upsertMyTalk(talkId, myTalks[talkId]);
   } catch {
     // Compatibility projection only; Gun remains authoritative.
   }

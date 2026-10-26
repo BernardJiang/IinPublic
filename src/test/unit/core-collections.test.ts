@@ -62,6 +62,14 @@ describe('the GUI’s view of a collection', () => {
     expect(localStorage.getItem('iinpublic_core_unsaved_chatbotTemplates_v1')).toBeNull();
   });
 
+  it('shows unconfirmed changes from the first read, before the core answers', () => {
+    const before = new CoreCollectionView<{ answers: string[] }>('myTalks', 'myTalks');
+    before.set({ t1: { answers: ['mine'] } });
+    // A fresh view (a reload, or a second module instance) has not connected yet.
+    const after = new CoreCollectionView<{ answers: string[] }>('myTalks', 'myTalks');
+    expect(after.get('t1')).toEqual({ answers: ['mine'] });
+  });
+
   it('chatbot templates are kept by Talk id and content id', async () => {
     await chatbotTemplatesView.connect(linkTo(createCoreHandler(memoryGraphStore())));
     const talkData = { title: 'Pizza', type: 'tag', questions: [{ id: 'q1', text: 'Pizza?', answers: [{ id: 'a', text: 'Yes' }] }] };

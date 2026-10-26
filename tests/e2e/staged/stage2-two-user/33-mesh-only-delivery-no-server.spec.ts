@@ -136,7 +136,7 @@ test.describe('Mesh-only delivery: talk delivery + match + conversation without 
       ({ tid, def }) => {
         const app = (window as any).__iinpublic_app?.getApp?.();
         app?.peerMeshService?.cacheTalkBody?.(tid, def);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tid] = { role: 'created', fullTalk: def };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
       },

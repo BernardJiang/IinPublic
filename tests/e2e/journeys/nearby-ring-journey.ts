@@ -80,7 +80,7 @@ export async function createTagTalk(actor: TestActor, title: string): Promise<Cr
   let created: CreatedTalk | null = null;
   await expect.poll(async () => {
     created = await actor.page.evaluate((expectedTitle) => {
-      const raw = localStorage.getItem('myTalks');
+      const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myTalks') ?? {}));
       const talks = raw ? JSON.parse(raw) : {};
       const entry = Object.entries(talks).find(([, value]: [string, any]) =>
         value?.role === 'created' && value?.title === expectedTitle && value?.fullTalk);

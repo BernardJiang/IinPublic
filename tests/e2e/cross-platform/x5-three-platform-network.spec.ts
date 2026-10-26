@@ -80,7 +80,7 @@ test.describe('X5: three-platform network + thread isolation', () => {
         talkId,
       });
       app.uiManager.addNewConversation({ conversationId, otherUserId: otherId, otherUserName: otherName, talkId });
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[talkId] = { role: 'created', title: talkTitle, fullTalk: { id: talkId, title: talkTitle } };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
       return conversationId as string;

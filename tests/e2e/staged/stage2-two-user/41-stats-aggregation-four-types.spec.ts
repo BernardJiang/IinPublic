@@ -192,7 +192,7 @@ test.describe('Stats aggregation across all four talk types (flow, tag, survey, 
     // ── 3. A authors all four talks (cache body + record in myTalks) ─────────
     await pageA.evaluate((defs) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       for (const def of defs) {
         app?.peerMeshService?.cacheTalkBody?.(def.id, def);
         myTalks[def.id] = { role: 'created', fullTalk: def };

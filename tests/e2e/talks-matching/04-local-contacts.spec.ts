@@ -280,7 +280,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
     // ── 7. Jerry answers MATCH, Bob answers IGNORE ────────────────────────────
     const TEST_TALK_DATA = await pageTom.evaluate((talkId: string) => {
       const _app = (window as any).__iinpublic_app?.getApp?.() as any;
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return talks[talkId]?.fullTalk || null;
     }, TEST_TALK_ID);
 

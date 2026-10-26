@@ -134,7 +134,7 @@ test.describe('Incoming talk gesture actions', () => {
       const retain = deliveries.find((delivery) => delivery.talk.title === `${type} retain`)!;
       await dragTalkRow(page, incomingRow(page, retain.talk.title), 'down');
       await expect.poll(() => page.evaluate((talkId) => {
-        const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         return talks[talkId]?.role || '';
       }, retain.talk.id)).toBe('copied');
       await expect(incomingRow(page, retain.talk.title)).toBeVisible();
@@ -147,7 +147,7 @@ test.describe('Incoming talk gesture actions', () => {
       await dragTalkRow(page, incomingRow(page, ignoreLeft.talk.title), 'left');
       await expect(incomingRow(page, ignoreLeft.talk.title)).toHaveCount(0);
       await expect.poll(() => page.evaluate((talkId) => {
-        const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         return talks[talkId]?.role || '';
       }, ignoreLeft.talk.id)).toBe('ignored');
     }

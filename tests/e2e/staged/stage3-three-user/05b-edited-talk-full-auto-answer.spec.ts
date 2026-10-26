@@ -227,7 +227,7 @@ test.describe('Edited talk is answered fully automatically', () => {
     await expect(botRow).toHaveCount(1, { timeout: 15_000 });
     await expect(botRow.locator('[data-testid="talk-answered-by-chatbot"]')).toBeVisible();
     const stored = await pageJerry.evaluate((title) => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const entry = Object.values(talks).find((t: any) => t?.title === title) as any;
       return { answeredBy: entry?.answeredBy, answers: (entry?.completedAnswers || []).length };
     }, TITLE_A);
@@ -300,7 +300,7 @@ test.describe('Edited talk is answered fully automatically', () => {
       }
       await waitForResponseModalClosed(pageJerry);
       await expect.poll(() => pageJerry!.evaluate((title) => {
-        const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         const entry = Object.values(talks).find((t: any) => t?.title === title) as any;
         return entry?.answeredBy ?? 'none';
       }, titleA)).toBe('none');
@@ -330,7 +330,7 @@ test.describe('Edited talk is answered fully automatically', () => {
     await openIncomingTalkModal(pageJerry, title);
     await answerYesAuto(pageJerry, [Q1, Q2, Q3_OLD]);
     const readJerryEntry = () => pageJerry!.evaluate(() => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return Object.values(talks).filter((t: any) => String(t?.title || '').startsWith('E2E Routing Edit'))
         .map((t: any) => ({ title: t.title, answers: (t.completedAnswers || []).length, by: t.answeredBy ?? null }));
     });

@@ -44,7 +44,7 @@ async function like(page: Page, keyword: string): Promise<void> {
 }
 
 const myTalkRole = (page: Page, en: string) => page.evaluate((keyword) => {
-  const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+  const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
   const entry = Object.values(talks).find((talk: any) => talk?.fullTalk?.questions?.[0]?.text === keyword) as any;
   return entry?.role || '';
 }, en);
@@ -83,7 +83,7 @@ test.describe('Starter interest tags (OPEN-87)', () => {
 
     const adopted = await page.evaluate((keyword) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const [id, entry] = Object.entries(talks).find(([, talk]: [string, any]) => talk?.fullTalk?.questions?.[0]?.text === keyword) as [string, any];
       return {
         id,

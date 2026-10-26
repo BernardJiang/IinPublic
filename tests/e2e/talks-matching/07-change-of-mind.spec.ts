@@ -202,7 +202,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('Tom: peerMeshService unavailable');
         mesh.cacheTalkBody(tDef.id, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
@@ -217,7 +217,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('Bob: peerMeshService unavailable');
         mesh.cacheTalkBody(tDef.id, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });

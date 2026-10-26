@@ -83,7 +83,7 @@ test.describe('Multiple tag talks each record the right outcome', () => {
     // Adam caches + broadcasts all three distinct tag talks.
     await pageAdam.evaluate(async ({ defs }) => {
       const a = (window as any).__iinpublic_app.getApp();
-      const mt = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const mt = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       for (const def of defs) {
         a.peerMeshService.cacheTalkBody(def.id, def);
         mt[def.id] = { role: 'created', fullTalk: def };

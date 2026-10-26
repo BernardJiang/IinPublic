@@ -233,7 +233,7 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
     await pageTom.evaluate(async ({ talk, recipients }) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       app.peerMeshService.cacheTalkBody(talk.id, talk);
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[talk.id] = { role: 'created', fullTalk: talk };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
       await app.peerMeshService.broadcastTalk(talk, {

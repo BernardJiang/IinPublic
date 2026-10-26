@@ -1,4 +1,5 @@
 import { quickIgnoreIncomingTalk, quickCopyIncomingTalk, uncopyIncomingTalk } from '../../web/ui/quick-incoming-talk-actions';
+import { getMyTalks } from '../../web/ui/my-talks-storage';
 
 const t = (key: string): string => key;
 
@@ -163,7 +164,8 @@ describe('quickCopyIncomingTalk', () => {
 
 describe('uncopyIncomingTalk', () => {
   const deps = () => ({ showNotification: jest.fn(), t, refreshTalksList: jest.fn() });
-  const stored = () => JSON.parse(localStorage.getItem('myTalks') || '{}');
+  // My Talks live in the device core's view (OPEN-91 P3); seeds still go in as the old blob.
+  const stored = () => getMyTalks();
   beforeEach(() => localStorage.clear());
 
   it('turns an answered copy back into answered history, keeping its answers', () => {

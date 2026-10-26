@@ -210,7 +210,7 @@ async function expectMessageVisible(page: Page, message: string): Promise<void> 
  *  stand-in for "Alice makes sure Adam is a licensed, experienced driver" (see file header). */
 async function hasLicensedExperiencedSelfAnswer(page: Page): Promise<boolean> {
   return page.evaluate(() => {
-    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
     return Object.values(talks).some((t: any) => {
       const questions = t?.fullTalk?.questions || t?.questions || [];
       return questions.some(
@@ -353,7 +353,7 @@ test.describe('Taxi driver ↔ passenger matching in a local chatroom (§GG)', (
  *  driven by mutual deal confirmation (spec §30.2), not by first-match auto-reject. */
 async function isOwnTalkDisabled(page: Page, title: string): Promise<boolean> {
   return page.evaluate((needle: string) => {
-    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
     return Object.values(talks).some((t: any) => t?.title === needle && t?.disabled === true);
   }, title);
 }

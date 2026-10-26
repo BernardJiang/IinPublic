@@ -79,7 +79,7 @@ const unansweredStarterChips = (page: Page) =>
 
 /** Each starter keyword's myTalks role: 'copied' (liked), 'ignored' (passed) or '' (undecided). */
 const starterRoles = (page: Page) => page.evaluate((keywords) => {
-  const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+  const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
   const byKeyword = new Map<string, string>();
   for (const entry of Object.values<any>(talks)) {
     const keyword = entry?.fullTalk?.questions?.[0]?.text;

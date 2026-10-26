@@ -126,7 +126,7 @@ export async function setupFastMatchedMobileDm(
         ],
       };
       mesh?.cacheTalkBody?.(tid, talkDef);
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[tid] = { role: 'created', fullTalk: talkDef };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
     },
