@@ -28,6 +28,27 @@ describe('collections in the device core', () => {
   });
 });
 
+describe('a fresh device', () => {
+  it('answers snapshots as empty without asking storage, until the first write', async () => {
+    const store = memoryGraphStore();
+    const childKeys = jest.spyOn(store, 'childKeys');
+    const handle = createCoreHandler(store, { freshDevice: true });
+    expect(await handle({ name: 'collection.snapshot', collection: 'myTalks' })).toEqual({});
+    expect(await handle({ name: 'exchanges.snapshot' })).toEqual([]);
+    expect(childKeys).not.toHaveBeenCalled();
+    await handle({ name: 'collection.upsert', collection: 'myTalks', entries: { t1: { role: 'created' } } });
+    expect(await handle({ name: 'collection.snapshot', collection: 'myTalks' })).toEqual({ t1: { role: 'created' } });
+  });
+
+  it('a collection never written reads as empty from its parent listing alone', async () => {
+    const store = memoryGraphStore();
+    await new CollectionStore(store).upsert('myTalks', { t1: {} });
+    const childKeys = jest.spyOn(store, 'childKeys');
+    expect(await new CollectionStore(store).all('chatbotTemplates')).toEqual({});
+    expect(childKeys).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('the GUI’s view of a collection', () => {
   beforeEach(() => localStorage.clear());
 

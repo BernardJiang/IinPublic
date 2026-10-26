@@ -32,6 +32,11 @@ export class CollectionStore {
 
   async all(name: string): Promise<Record<string, unknown>> {
     assertCollection(name);
+    // A collection never written has no node, and reading a missing node waits out storage's
+    // not-found grace period — with ~16 mostly empty collections that held every boot by 1.5 s or
+    // more under load (e2e stage2/95, stage2/37). Their parent lists every collection ever written
+    // (and exists once one was), so one read of it answers for all the empty ones.
+    if (!(await this.store.childKeys(COLLECTIONS_PATH)).includes(name)) return {};
     const keys = await this.store.childKeys(collectionPath(name));
     const entries = await Promise.all(keys.map(async (encoded) => {
       const node = await this.store.get(`${collectionPath(name)}/${encoded}`);

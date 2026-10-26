@@ -54,6 +54,9 @@ export class ExchangeStore {
   constructor(private readonly store: GraphStore) {}
 
   async all(): Promise<ExchangeRecord[]> {
+    // No exchange yet means no node, and a missing node waits out storage's not-found grace
+    // period; `local` lists `exchanges` once there is one (see CollectionStore.all).
+    if (!(await this.store.childKeys('local')).includes('exchanges')) return [];
     const keys = await this.store.childKeys(EXCHANGES_PATH);
     const records = await Promise.all(keys.map(async (key) => decode(await this.store.get(`${EXCHANGES_PATH}/${key}`))));
     return records.filter((record): record is ExchangeRecord => !!record);

@@ -71,10 +71,19 @@ let handleCore: ((request: CoreRequest) => Promise<unknown>) | null = null;
 function initGun(): void {
   if (gun) return;
   gun = Gun({ peers: [], localStorage: false, store: idbAdapter });
-  handleCore = createCoreHandler(gunGraphStore(gun));
   // Ready once storage is open: the GUI's first read (the exchange log at start-up) must find the
-  // device's data, not an empty graph that has not loaded yet.
-  openDatabase().catch(() => null).then(() => scope.postMessage({ type: 'ready' }));
+  // device's data, not an empty graph that has not loaded yet. An empty store means a new device.
+  openDatabase()
+    .then((db) => new Promise<boolean>((resolve) => {
+      const request = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).count();
+      request.onsuccess = () => resolve(request.result === 0);
+      request.onerror = () => resolve(false);
+    }))
+    .catch(() => false)
+    .then((freshDevice) => {
+      handleCore = createCoreHandler(gunGraphStore(gun), { freshDevice });
+      scope.postMessage({ type: 'ready' });
+    });
 }
 
 /* ── 4. Session and subscriptions ─────────────────────────────────────────── */
@@ -128,7 +137,8 @@ scope.onmessage = async (event: MessageEvent) => {
         reply(id, null, { ok: true });
         break;
       case 'core':
-        reply(id, null, await handleCore!(payload as CoreRequest));
+        if (!handleCore) throw new Error('device core not ready');
+        reply(id, null, await handleCore(payload as CoreRequest));
         break;
       case 'put':
         await gunPut(payload.path, payload.data);

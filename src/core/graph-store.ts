@@ -70,8 +70,9 @@ export function memoryGraphStore(): GraphStore {
   return {
     put: async (path, value) => { nodes.set(path, value === null ? null : { ...(nodes.get(path) ?? {}), ...value }); },
     get: async (path) => { const value = nodes.get(path); return value ? { ...value } : null; },
-    childKeys: async (path) => [...nodes.entries()]
-      .filter(([key, value]) => value !== null && parentOf(key) === path)
-      .map(([key]) => key.slice(path.length + 1)),
+    // As in Gun, a written node links every ancestor to it: `a/b/c` makes `b` a child of `a`.
+    childKeys: async (path) => [...new Set([...nodes.entries()]
+      .filter(([key, value]) => key.startsWith(`${path}/`) && (value !== null || parentOf(key) !== path))
+      .map(([key]) => key.slice(path.length + 1).split('/')[0]!))],
   };
 }

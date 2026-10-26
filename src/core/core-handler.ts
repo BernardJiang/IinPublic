@@ -8,11 +8,23 @@ import { DeliveryStore } from './delivery';
 import { ExchangeStore } from './exchanges';
 import type { CoreRequest } from './protocol';
 
-export function createCoreHandler(store: GraphStore): (request: CoreRequest) => Promise<unknown> {
+/**
+ * `freshDevice`: the host found its storage empty at start (a new device, or one just wiped).
+ * Until the first write, snapshots are then empty without asking storage — a read of a node that
+ * was never written waits out the not-found grace period, which held every new device's first
+ * boot by 1.5 s or more under load (e2e stage2/95, stage2/37).
+ */
+export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean } = {}): (request: CoreRequest) => Promise<unknown> {
+  let fresh = options.freshDevice === true;
   const exchanges = new ExchangeStore(store);
   const delivery = new DeliveryStore(store);
   const collections = new CollectionStore(store);
   return async (request) => {
+    if (fresh) {
+      if (request.name === 'exchanges.snapshot') return [];
+      if (request.name === 'collection.snapshot') return {};
+      if (request.name !== 'delivery.get') fresh = false; // any write: storage holds something now
+    }
     switch (request.name) {
       case 'exchanges.snapshot':
         return exchanges.all();
