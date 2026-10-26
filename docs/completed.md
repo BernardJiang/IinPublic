@@ -1,6 +1,18 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-24
+Last updated: 2026-10-25
+
+## 2026-10-25 — OPEN-90 a copied incoming Talk opens again
+
+- **Cause:** after a drag gesture, `talks-row-gestures.ts` ignored every click for 60 ms to swallow
+  the click its own release fires. A drag-down copy shows the copied row at once, so a quick tap on
+  the incoming Talk's title — the next thing a person (or a test) does — landed inside the window
+  and was dropped: nothing opened, nothing was logged.
+- **Fix:** a drag now swallows exactly the one click its release fires (a capture listener removed
+  on the next tick), the rule the long-press already followed (83a7f4b3); no time window.
+- **Verification:** unit `talks-row-gestures` (a drag swallows its release click; the next tap goes
+  through); e2e stage2/82-copy-then-edit (failing since before 2026-10-25) passes, with the other 16
+  drag / long-press spec files (23 tests).
 
 ## 2026-10-24 — OPEN-87 starter interest tags, one-tap answering, the tag graph, bounded Contacts
 

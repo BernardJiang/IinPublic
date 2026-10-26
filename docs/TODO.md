@@ -44,12 +44,6 @@ its ID.
   3. Person counts need OPEN-88: two exchanges of the same tag overwrite each other, so Contacts
      show "Received 0" and an exchange's place is the last one only.
 
-- [ ] **OPEN-90 — A copied incoming Talk will not open (found 2026-10-25).** After a drag-down copy
-  of an incoming Flow Talk, tapping its title opens nothing: `showTalkDetail` falls through to
-  `demandFullTalk`, which never answers. `staged/stage2-two-user/82-copy-then-edit-transfers-authorship`
-  fails at 17ca2952 and with that commit's app files reverted to 83a7f4b3, so it predates the
-  2026-10-25 work. Find the commit that broke it, fix it, and keep the spec green.
-
 - [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5).** `localTalkExchanges`
   is still one localStorage JSON map that is parsed and rewritten on every exchange. The OPEN-87
   Contacts cap bounds its size (exchange-only people beyond 500/1,000/2,000 are pruned), but each

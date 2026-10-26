@@ -64,7 +64,28 @@ describe('bindTalksRowGestures (UIManager decomposition cluster #12)', () => {
 
     expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
     expect(deps.quickAnswerIncomingTag).not.toHaveBeenCalled();
-    expect(deps.setSuppressClickUntil).toHaveBeenCalled();
+  });
+
+  it('a drag swallows exactly the click its release fires; a quick next tap goes through (OPEN-90)', async () => {
+    const row = makeRow({ talkId: 'talk-q', role: 'incoming' });
+    const deps = makeDeps();
+    bindFresh(deps);
+    const clicks = jest.fn();
+    document.body.addEventListener('click', clicks);
+
+    pointer('pointerdown', row, 100, 100);
+    pointer('pointermove', document.body, 100, 180);
+    pointer('pointerup', document.body, 100, 180);
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(clicks).not.toHaveBeenCalled();
+    expect(deps.quickCopyIncomingTalk).toHaveBeenCalledWith('talk-q', undefined);
+
+    // The next tap — e.g. opening the Talk just copied — is not swallowed, however soon it comes.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(clicks).toHaveBeenCalledTimes(1);
+    expect(deps.setSuppressClickUntil).not.toHaveBeenCalled();
+    document.body.removeEventListener('click', clicks);
   });
 
   it('left-swiping any incoming row ignores its content', () => {

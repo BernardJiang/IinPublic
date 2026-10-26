@@ -152,10 +152,14 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
     if (!state) return;
     if (!state.dragging) return; // plain tap or a long-press already handled by its own timer
     clearHints(state.row);
-    // Same reasoning as the long-press timer: just long enough to swallow the click
-    // that naturally follows this same release, not a blanket window that could also
-    // eat an unrelated later click.
-    deps.setSuppressClickUntil(Date.now() + 60);
+    // Swallow exactly the one click this release fires — not a time window, which also ate a
+    // quick next tap, e.g. on the Talk a drag-down had just copied (OPEN-90).
+    const swallow = (clickEvent: MouseEvent): void => {
+      clickEvent.stopPropagation();
+      clickEvent.preventDefault();
+    };
+    window.addEventListener('click', swallow, { once: true, capture: true });
+    window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
     const dx = e.clientX - state.startX;
     const dy = e.clientY - state.startY;
     const absDx = Math.abs(dx);
