@@ -45,11 +45,15 @@ export const typedPreferenceStateView = new CoreCollectionView<unknown>('typedPr
 export const tagOppositePairRegistryView = new CoreCollectionView<unknown>('tagOppositePairRegistry', 'tagOppositePairRegistry',
   (parsed) => sectionEntries(['pairs'], parsed));
 
+/** OPEN-45: the revision of each authored Talk each peer last took, by `<peer>::<talk>`. Old key: `iinpublic_talk_revision_sent_v1`. */
+export const talkRevisionSentView = new CoreCollectionView<{ revision: string; at: number }>('talkRevisionSent', 'iinpublic_talk_revision_sent_v1');
+
 const VIEWS: Array<CoreCollectionView<unknown>> = [
   chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView,
   dealTalkByConversationView, needKeyByConversationView,
   answeredTalkByContentView, answerPreferencesView, flattenedAnswerPreferencesView, questionDefaultContractsView,
   myQuestionAnswersView, exactChatbotMemoryView, typedPreferenceStateView, tagOppositePairRegistryView,
+  talkRevisionSentView,
 ] as Array<CoreCollectionView<unknown>>;
 
 export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {

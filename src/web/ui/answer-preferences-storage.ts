@@ -1,25 +1,5 @@
-export type AnswerPreferenceEntry = {
-  answerId: string;
-  answerText: string;
-  /** Atomic checked set for a context-matched multi-select question. */
-  answerIds?: string[];
-  answerTexts?: string[];
-  mode: string;
-  language?: string;
-  talkId?: string;
-  questionText?: string;
-  allAnswers?: any[];
-  timestamp?: string;
-  flatKey?: string;
-  /** Version-2 rolling context that includes this question and its complete choice set. */
-  contextHash?: string;
-  contextVersion?: number;
-  /** Explicit broad contract metadata; separate from the exact rolling-context hash. */
-  questionDefaultKey?: string;
-  answerIdentityHash?: string;
-  /** Used to keep single-answer contracts out of multi-select question management. */
-  answerSelectionMode?: string;
-};
+export type { AnswerPreferenceEntry } from '../../core/answer-preference-engine';
+import type { AnswerPreferenceEntry } from '../../core/answer-preference-engine';
 
 import {
   createEmptyExactChatbotMemoryState,

@@ -1,5 +1,6 @@
 import type { UiTranslationKey } from './ui-translations';
 import type { NotificationOptions } from './notification-toast';
+import { mergeConversationRecord } from '../../core/conversation-state';
 import { setMyConversations } from './my-conversations-storage';
 
 export interface ConversationListUpdatesDeps {
@@ -52,103 +53,8 @@ export function addNewConversation(
   const conversations = deps.getMyConversations();
   const existing = conversations[conversationData.conversationId];
   const isNew = !existing;
-
-  // Keep bot provenance sticky once true; some sync paths can emit records without this field.
-  const respondedByBot = !!existing?.respondedByBot || conversationData.respondedByBot === true;
-  // Sticky like respondedByBot — the ingest/sync path may re-emit without this field.
-  const dealEligible = !!existing?.dealEligible || conversationData.dealEligible === true;
-  const matchScore = conversationData.matchScore ?? existing?.matchScore;
-  const matchTotal = conversationData.matchTotal ?? existing?.matchTotal;
-  const incomingName = conversationData.otherUserName?.trim() || '';
-  const existingName = existing?.otherUserName?.trim() || '';
-  const preferredOtherUserName =
-    incomingName && incomingName !== 'Unknown' && incomingName !== 'Someone'
-      ? incomingName
-      : existingName && existingName !== 'Unknown' && existingName !== 'Someone'
-        ? existingName
-        : incomingName || existingName || 'Unknown';
-  const resolvedOtherUserName = deps.getPeerName(
-    conversationData.otherUserId,
-    preferredOtherUserName,
-  );
-
-  const isSupportChannel = !!existing?.supportChannel || conversationData.supportChannel === true;
-  const relatedTalkIds = new Set<string>();
-  const addRelatedTalkId = (talkId: unknown) => {
-    const value = String(talkId ?? '').trim();
-    if (!value || value === 'direct') return;
-    relatedTalkIds.add(value);
-  };
-  if (Array.isArray(existing?.relatedTalkIds)) {
-    for (const talkId of existing.relatedTalkIds) addRelatedTalkId(talkId);
-  }
-  if (typeof existing?.relatedTalkIdsJson === 'string') {
-    try {
-      const parsed = JSON.parse(existing.relatedTalkIdsJson);
-      if (Array.isArray(parsed)) {
-        for (const talkId of parsed) addRelatedTalkId(talkId);
-      }
-    } catch {
-      /* keep existing valid metadata only */
-    }
-  }
-  if (Array.isArray(conversationData.relatedTalkIds)) {
-    for (const talkId of conversationData.relatedTalkIds) addRelatedTalkId(talkId);
-  }
-  if (typeof conversationData.relatedTalkIdsJson === 'string') {
-    try {
-      const parsed = JSON.parse(conversationData.relatedTalkIdsJson);
-      if (Array.isArray(parsed)) {
-        for (const talkId of parsed) addRelatedTalkId(talkId);
-      }
-    } catch {
-      /* ignore malformed incoming metadata */
-    }
-  }
-  addRelatedTalkId(existing?.talkId);
-  addRelatedTalkId(conversationData.talkId);
-  const relatedTalkIdList = Array.from(relatedTalkIds);
-  const displayTalkId =
-    conversationData.talkId && conversationData.talkId !== 'direct'
-      ? conversationData.talkId
-      : existing?.talkId || conversationData.talkId;
-
-  conversations[conversationData.conversationId] = {
-    conversationId: conversationData.conversationId,
-    otherUserId: conversationData.otherUserId,
-    otherUserName: resolvedOtherUserName,
-    ...(isSupportChannel ? {} : { talkId: displayTalkId }),
-    ...(isSupportChannel || relatedTalkIdList.length === 0
-      ? {}
-      : {
-          relatedTalkIds: relatedTalkIdList,
-          relatedTalkIdsJson: JSON.stringify(relatedTalkIdList),
-        }),
-    createdAt: existing?.createdAt ?? new Date().toISOString(),
-    lastMessage: existing?.lastMessage ?? null,
-    lastMessageTime: existing?.lastMessageTime ?? null,
-    // Per-thread previews and unread counts are local (syncConversationMessageSummary); a re-sync
-    // of the record must not drop them, or a Thread row falls back to "Start chatting..." (stage2/69).
-    ...(existing?.threadSummaries ? { threadSummaries: existing.threadSummaries } : {}),
-    ...(existing?.unreadCount !== undefined ? { unreadCount: existing.unreadCount } : {}),
-    unread: isSupportChannel ? false : isNew ? true : (existing?.unread ?? false),
-    respondedByBot,
-    dealEligible,
-    ...(matchScore !== undefined ? { matchScore } : {}),
-    ...(matchTotal !== undefined ? { matchTotal } : {}),
-    supportChannel: isSupportChannel,
-    transportMode: conversationData.transportMode ?? existing?.transportMode ?? 'star-gun',
-    transportFallbackReason:
-      existing?.transportFallbackReason ?? conversationData.transportFallbackReason ?? null,
-    ...(existing?.status ? { status: existing.status } : {}),
-    ...(existing?.changedAt ? { changedAt: existing.changedAt } : {}),
-    // Step 10: a re-sync after the author retracted keeps the retraction time with the status.
-    ...(existing?.retractedAt ? { retractedAt: existing.retractedAt } : {}),
-    // Step 9: record change-of-mind timestamp for durable UI assertion
-    ...(conversationData.changeOfMindAt || existing?.changeOfMindAt
-      ? { changeOfMindAt: conversationData.changeOfMindAt ?? existing?.changeOfMindAt }
-      : {}),
-  };
+  // The merge is the device core's (src/core/conversation-state.ts).
+  conversations[conversationData.conversationId] = mergeConversationRecord(existing, conversationData, deps.getPeerName, new Date().toISOString());
 
   setMyConversations(conversations);
 

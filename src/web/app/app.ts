@@ -48,7 +48,6 @@ import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
 import { getAnsweredTalkByContent, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
-import { findAutoAnswer, LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
@@ -92,7 +91,7 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch, computeRouteMatchScore } from '../../shared/talk-engine';
+import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
@@ -242,6 +241,7 @@ import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
+import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
@@ -4440,7 +4440,7 @@ export class IinPublicApp {
     // between flood attempts.
     // The content identity is part of the key: an author's in-place edit keeps the talkId, and
     // that revised body must be ingested (and offered to the chatbot) as a new talk.
-    const pairKey = this.talkRevisionPairKey(payload.talkId, payload.authorId, payload.talkData);
+    const pairKey = talkRevisionPairKey(payload.talkId, payload.authorId, payload.talkData);
     const bodyDedupeKey = `mesh-talk-body::${pairKey}`;
     if (this.processedTalkResponseKeys.has(bodyDedupeKey)) return true;
     if (payload.authorEpub) this.peerEpubByUserId.set(payload.authorId, payload.authorEpub);
@@ -4571,8 +4571,8 @@ export class IinPublicApp {
           talkId: payload.talkId,
           respondedByBotForUser1: !!decrypted.isChatbotResponse,
           respondedByBotForUser2: false,
-          dealEligible: this.isDealEligibleTalk(talkData),
-          ...this.matchScoreParamsFor(talkData, decrypted.answers),
+          dealEligible: isDealEligibleTalk(talkData),
+          ...matchScoreParamsFor(talkData, decrypted.answers),
         });
         this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
         this.recordConversationNeedKey(conversationId, talkData);
@@ -4585,8 +4585,8 @@ export class IinPublicApp {
           respondedByBot: !!decrypted.isChatbotResponse,
           transportMode: this.conversationService.getTransportMode(),
           changeOfMindAt: changedAt,
-          dealEligible: this.isDealEligibleTalk(talkData),
-          ...this.matchScoreParamsFor(talkData, decrypted.answers),
+          dealEligible: isDealEligibleTalk(talkData),
+          ...matchScoreParamsFor(talkData, decrypted.answers),
         });
         await this.autoShareMatchedTalkAttachments({
           conversationId,
@@ -4644,8 +4644,8 @@ export class IinPublicApp {
       talkId: payload.talkId,
       respondedByBotForUser1: !!decrypted.isChatbotResponse,
       respondedByBotForUser2: false,
-      dealEligible: this.isDealEligibleTalk(talkData),
-      ...this.matchScoreParamsFor(talkData, decrypted.answers),
+      dealEligible: isDealEligibleTalk(talkData),
+      ...matchScoreParamsFor(talkData, decrypted.answers),
     });
     this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
     this.recordConversationNeedKey(conversationId, talkData);
@@ -4657,8 +4657,8 @@ export class IinPublicApp {
       talkId: payload.talkId,
       respondedByBot: !!decrypted.isChatbotResponse,
       transportMode: this.conversationService.getTransportMode(),
-      dealEligible: this.isDealEligibleTalk(talkData),
-      ...this.matchScoreParamsFor(talkData, decrypted.answers),
+      dealEligible: isDealEligibleTalk(talkData),
+      ...matchScoreParamsFor(talkData, decrypted.answers),
     });
     // Match! toast after the conversation exists so clicking it navigates there (rule N6).
     this.uiManager.showNotification(
@@ -4675,28 +4675,6 @@ export class IinPublicApp {
       talkData,
     });
     this.uiManager.setMemberMatched(payload.responderId);
-  }
-
-  /** A talk that declares a Pair-tag question anywhere in its questions (spec §30.2 — taxi/
-   *  dealmaker/buy-sell style deals, `Question.reciprocalTagContext`) is deal-eligible: matches
-   *  against it aren't unique on their own (several compatible responders can each form a
-   *  conversation), so the conversation view offers an explicit "Confirm Deal" step, and
-   *  confirming on both sides is what finally closes the listing. Plain talks with no Pair-tag
-   *  question (surveys, generic flows) never show deal UI and can match repeatedly with no
-   *  finalization step, same as before this existed. */
-  private isDealEligibleTalk(talkData: any): boolean {
-    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
-    return questions.some((q: any) => q?.reciprocalTagContext === true);
-  }
-
-  /** Route `matchThreshold` scoring result (spec §30.2) for a confirmed match, if applicable —
-   *  threaded into `createConversation`/`addNewConversation` so the talk owner's "Matched
-   *  items" list (`renderCreatorReplies`, ui-manager.ts) can sort/display it. Empty object for
-   *  anything other than a matchThreshold route (ordinary flow/tag talks, or routes without
-   *  `matchThreshold` set) — the conversation record simply carries no score fields. */
-  private matchScoreParamsFor(talkData: any, answers: any[]): { matchScore?: number; matchTotal?: number } {
-    const result = computeRouteMatchScore(talkData, answers);
-    return result ? { matchScore: result.score, matchTotal: result.total } : {};
   }
 
   /**
@@ -4719,7 +4697,7 @@ export class IinPublicApp {
    * the author-side call sites above know it.
    */
   private recordMyDealTalkForConversation(conversationId: string, talkId: string, talkData: any): void {
-    if (!conversationId || !talkId || !this.isDealEligibleTalk(talkData)) return;
+    if (!conversationId || !talkId || !isDealEligibleTalk(talkData)) return;
     // Kept in the device core (OPEN-91 P3). When it is missing, maybeFinalizeConfirmedDeal falls
     // back to disabling every outstanding deal-eligible talk.
     dealTalkByConversationView.set({ [conversationId]: talkId });
@@ -4744,7 +4722,7 @@ export class IinPublicApp {
    * describes is the matched CONTENT, not who authored it.
    */
   private recordConversationNeedKey(conversationId: string, talkData: any): void {
-    if (!conversationId || !this.isDealEligibleTalk(talkData)) return;
+    if (!conversationId || !isDealEligibleTalk(talkData)) return;
     // Kept in the device core (OPEN-91 P3); when missing, maybeFinalizeConfirmedDeal has nothing
     // to group by, the same fallback as the sibling deal-talk map.
     needKeyByConversationView.set({ [conversationId]: buildTalkIdentityKey(talkData) });
@@ -4803,7 +4781,7 @@ export class IinPublicApp {
       myTalks: getMyTalks(),
       ...(conversationId && this.myDealTalkForConversation(conversationId) ? { recordedTalkId: this.myDealTalkForConversation(conversationId)! } : {}),
       needKeys: this.allConversationNeedKeys(),
-      isDealEligible: (talk) => this.isDealEligibleTalk(talk),
+      isDealEligible: (talk) => isDealEligibleTalk(talk),
     });
     if (!plan) return;
     const talkIdsToDisable = plan.talkIdsToDisable;
@@ -6004,30 +5982,6 @@ export class IinPublicApp {
     );
   }
 
-  /** `talkId::authorId::contentIdentity` — one key per revision of a talk from one author. */
-  private talkRevisionPairKey(talkId: string, authorId: string, talkData: unknown): string {
-    let content = '';
-    try {
-      // OPEN-45: the full revision (content + title + routing), so an in-place routing or title
-      // update is ingested too, not dropped as already delivered.
-      content = talkData ? computeTalkRevisionHash(talkData) : '';
-    } catch {
-      /* unidentifiable body: fall back to the per-talk key */
-    }
-    return `${talkId}::${authorId}::${content}`;
-  }
-
-  /**
-   * Already answered for THIS author on this device (manually, or by an earlier chatbot pass) —
-   * the response was sent then; never re-answer it or relabel a manual answer as 🤖. The same
-   * content announced by a different person is still auto-answered for them.
-   */
-  private alreadyAnsweredForAuthor(contentId: string, authorId: string): boolean {
-    const answeredTalkId = contentId ? getAnsweredTalkByContent()[contentId] : undefined;
-    const answeredSenders = answeredTalkId ? getMyTalks()[answeredTalkId]?.senders || [] : [];
-    return answeredSenders.includes(authorId);
-  }
-
   private chatbotHasAnswersFor(talkId: string, contentId: string, talkData: any): boolean {
     return !!this.uiManager.getChatbotTemplate(talkId)
       || (!!contentId && contentId !== talkId && !!this.uiManager.getChatbotTemplate(contentId))
@@ -6046,22 +6000,12 @@ export class IinPublicApp {
   private chatbotReplyDecision(talkId: string, talkData: any, authorId: string): ChatbotReplyDecision {
     return decideChatbotReply(authorId, this.currentUser?.id, {
       enabled: () => this.uiManager.getChatbotEnabled(),
-      handled: () => this.chatbotAutoReplySentForPair.has(this.talkRevisionPairKey(talkId, authorId, talkData)),
+      handled: () => this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData)),
       contentId: () => computeTalkIdFromTalkData(talkData),
-      answeredBefore: (contentId) => this.alreadyAnsweredForAuthor(contentId, authorId),
+      answeredBefore: (contentId) => answeredBeforeFor(contentId, authorId, getAnsweredTalkByContent(), getMyTalks()),
       hasAnswers: (contentId) => this.chatbotHasAnswersFor(talkId, contentId, talkData),
-      passedTag: () => this.isPassedTag(talkData),
+      passedTag: () => isPassedTag(talkData, getExactChatbotMemory(), Date.now()),
     });
-  }
-
-  /** A one-keyword tag whose keyword the user passed (a suppressed question in exact memory). */
-  private isPassedTag(talkData: any): boolean {
-    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
-    if (String(talkData?.type || '').toLowerCase() !== 'tag' || questions.length !== 1 || !questions[0]?.text) return false;
-    const options = (questions[0].answers || []).map((answer: any) => String(answer?.text || ''));
-    return findAutoAnswer(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, String(questions[0].text), options, Date.now(), {
-      language: String(talkData?.language || 'en').toLowerCase(),
-    }).reason === 'QUESTION_SUPPRESSED';
   }
 
   /**
@@ -6074,7 +6018,7 @@ export class IinPublicApp {
     authorId: string,
     authorName: string,
   ): void {
-    const pairKey = this.talkRevisionPairKey(talkId, authorId, talkData);
+    const pairKey = talkRevisionPairKey(talkId, authorId, talkData);
     const decision = this.chatbotReplyDecision(talkId, talkData, authorId);
     if (decision.act === 'skip') {
       if (decision.reason !== 'self') console.log(`🤖 Chatbot auto-reply skipped: ${decision.reason}`, { talkId, authorId });
@@ -6294,7 +6238,7 @@ export class IinPublicApp {
       const ledgerOutcome = outcome === 'match' ? 'matched' : 'ignored';
       const wholeTalkIdentityKey = buildTalkIdentityKey(talkData);
       const identityKeys = outcome === 'match'
-        ? this.selectedTalkIdentityKeys(talkData, meta?.answers)
+        ? selectedTalkIdentityKeys(talkData, meta?.answers)
         : [wholeTalkIdentityKey];
       const authorId = this.currentUser!.id;
       const nowIso = new Date().toISOString();
@@ -6320,32 +6264,6 @@ export class IinPublicApp {
     } catch {
       // Ledger write failures are non-fatal — suppression misses cost one redundant send.
     }
-  }
-
-  private selectedTalkIdentityKeys(talkData: any, answers?: any[]): string[] {
-    const wholeTalkIdentityKey = buildTalkIdentityKey(talkData);
-    if (talkData?.type !== 'tag' || !Array.isArray(answers)) return [wholeTalkIdentityKey];
-    const selectedAnswerIds = new Set(
-      answers.map((answer: any) => String(answer?.answerId || '')).filter(Boolean),
-    );
-    const selectedAnswerTexts = new Set(
-      answers.map((answer: any) => String(answer?.answerText || '').trim().toLowerCase()).filter(Boolean),
-    );
-    const selectedTalk = {
-      ...talkData,
-      questions: Array.isArray(talkData?.questions)
-        ? talkData.questions.map((question: any, index: number) => index === 0
-          ? {
-              ...question,
-              answers: (Array.isArray(question?.answers) ? question.answers : []).filter((answer: any) =>
-                selectedAnswerIds.has(String(answer?.id || '')) ||
-                selectedAnswerTexts.has(String(answer?.text || '').trim().toLowerCase()),
-              ),
-            }
-          : question)
-        : [],
-    };
-    return buildTagIdentityKeys(selectedTalk, wholeTalkIdentityKey);
   }
 
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
@@ -7009,7 +6927,7 @@ export class IinPublicApp {
           respondedAt: new Date().toISOString(),
         },
       );
-      const pairKey = this.talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
+      const pairKey = talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
       this.chatbotAutoReplySentForPair.add(pairKey);
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
       return;
@@ -7048,7 +6966,7 @@ export class IinPublicApp {
     // A manual response already handled this sender/talk pair. Do not let later Gun replays
     // or duplicate room announcements trigger a chatbot follow-up to the same announcer.
     if (!isChatbot && this.currentUser?.id && data.talkData?.authorId) {
-      const pairKey = this.talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
+      const pairKey = talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
       this.chatbotAutoReplySentForPair.add(pairKey);
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
     }
@@ -7326,7 +7244,7 @@ export class IinPublicApp {
         responseId,
         respondedAt,
       });
-      for (const identityKey of this.selectedTalkIdentityKeys(params.talkData, params.answers)) {
+      for (const identityKey of selectedTalkIdentityKeys(params.talkData, params.answers)) {
         if (identityKey === wholeTalkIdentityKey) continue;
         writeResponderExchangedEntry({
           authorId: params.authorId,
@@ -7403,8 +7321,8 @@ export class IinPublicApp {
       talkId: params.talkId,
       respondedByBotForUser1: false,
       respondedByBotForUser2: params.isChatbotResponse,
-      dealEligible: this.isDealEligibleTalk(params.talkData),
-      ...this.matchScoreParamsFor(params.talkData, params.answers),
+      dealEligible: isDealEligibleTalk(params.talkData),
+      ...matchScoreParamsFor(params.talkData, params.answers),
     });
     this.recordConversationNeedKey(conversationId, params.talkData);
     // docs/TODO.md §JJ residual gap: on THIS (responder) side of the match, params.talkData is
@@ -7423,8 +7341,8 @@ export class IinPublicApp {
       talkId: params.talkId,
       respondedByBot: false,
       transportMode: this.conversationService.getTransportMode(),
-      dealEligible: this.isDealEligibleTalk(params.talkData),
-      ...this.matchScoreParamsFor(params.talkData, params.answers),
+      dealEligible: isDealEligibleTalk(params.talkData),
+      ...matchScoreParamsFor(params.talkData, params.answers),
     });
     this.uiManager.setMemberMatched(params.authorId);
     this.ledgerEmit(InteractionKind.MATCH_CREATED, {
