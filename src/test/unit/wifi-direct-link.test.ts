@@ -204,7 +204,9 @@ class FakeSession implements LinkableSession {
   }
   private async connectFresh(): Promise<void> {
     // A fresh connection needs the peer's fresh connection too (offer/answer between new pcs).
-    const deadline = Date.now() + 400;
+    // Generous: under a full parallel Jest run the event loop stalls for hundreds of ms, and a
+    // 400 ms budget turned a slow peer into a spurious failure. No test relies on it running out.
+    const deadline = Date.now() + 3_000;
     while (this.peer.reconnects < this.reconnects) {
       if (Date.now() > deadline) { this.emit('failed'); throw new Error('WebRTC connection timeout'); }
       await new Promise((resolve) => setTimeout(resolve, 2));
@@ -289,7 +291,7 @@ function setup(options: { path?: PathRef['kind']; capsB?: { wifiDirect: boolean;
 }
 
 let debugState: (() => string) | null = null;
-async function waitFor(predicate: () => boolean, timeoutMs = 1_500): Promise<void> {
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error('condition not met' + (debugState ? ' ' + debugState() : ''));
@@ -298,6 +300,9 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_500): Promise<voi
 }
 
 describe('WifiDirectLinkService', () => {
+  // Condition waits decide pass or fail; the per-test limit only has to outlast them under load.
+  jest.setTimeout(30_000);
+
   test('internet path → elected host forms a group, peer joins, both switch to their group relays', async () => {
     const t = setup();
     try {
@@ -442,8 +447,8 @@ describe('WifiDirectLinkService', () => {
       t.radioB.emit({ state: 'idle' });
       t.sessionA.emit('failed');
       t.sessionB.emit('failed');
-      await waitFor(() => t.radioA.calls.filter((call) => call === 'create').length === 2, 3_000);
-      await waitFor(() => t.serviceA.getPhase('bob') === 'active' && t.serviceB.getPhase('alice') === 'active', 3_000);
+      await waitFor(() => t.radioA.calls.filter((call) => call === 'create').length === 2, 8_000);
+      await waitFor(() => t.serviceA.getPhase('bob') === 'active' && t.serviceB.getPhase('alice') === 'active', 8_000);
       expect(t.radioB.calls.filter((call) => call.startsWith('join'))).toHaveLength(2);
       expect(t.path.kind).toBe('wifi-direct');
     } finally {
