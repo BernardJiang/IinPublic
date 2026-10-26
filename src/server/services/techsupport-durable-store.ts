@@ -31,7 +31,7 @@ const MAX_MAILBOX_ENVELOPES = 1000;
  * hardcoded `starServerPersistence: 'ephemeral'`, `radisk: false` always — dev, CI, and
  * production via render.yaml's RELAY_ONLY_HUB=1). That's a deliberate choice for ordinary
  * traffic: the relay is a stateless rendezvous point, and durability lives on each user's own
- * device (the browser's IndexedDB-backed Gun worker, `public/worker.js`; the mobile embedded
+ * device (the browser's IndexedDB-backed Gun worker, `src/core/host/worker-host.ts`; the mobile embedded
  * node's own `radisk:true` Gun instance, `attachGun()`'s embedded branch).
  *
  * TechSupport is documented as the one exception — "the only server-durable chat channel"

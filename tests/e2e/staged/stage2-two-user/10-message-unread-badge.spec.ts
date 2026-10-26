@@ -128,7 +128,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
                 // The live subscription may still deliver the conversation; keep polling.
               }
             }
-            const raw = localStorage.getItem('myConversations');
+            const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myConversations') ?? {}));
             const conversations = raw ? JSON.parse(raw) : {};
             return Object.values(conversations).some((v: any) => v?.otherUserId === id);
           }, otherUserId);
@@ -154,7 +154,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
           }
 
           return page.evaluate((id: string) => {
-            const raw = localStorage.getItem('myConversations');
+            const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myConversations') ?? {}));
             const localConversations = raw ? JSON.parse(raw) : {};
             return Object.values(localConversations).some((v: any) => v?.otherUserId === id);
           }, otherUserId);
@@ -168,7 +168,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
     await waitForConversationEntry(page, otherUserId);
     await page.evaluate((id: string) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, conversation]: any) => conversation?.otherUserId === id);
       if (!entry) throw new Error(`Conversation entry missing for ${id}`);
       app?.uiManager?.showConversationDetail?.(entry[0]);
@@ -182,7 +182,7 @@ test.describe('Unread badge on Me tab after match and new message', () => {
       .poll(
         async () =>
           page.evaluate((id: string) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             const entry = Object.values(conversations).find((conversation: any) => conversation?.otherUserId === id);
             return !!(entry as any)?.unread;
           }, otherUserId),

@@ -6,6 +6,7 @@
  * to later (LAN, Wi-Fi Direct or relay) is owed the same Talks automatically. This record is what
  * lets catch-up send exactly the Talks broadcast in the current room, and nothing else.
  */
+import { settingsStorageAsStorage } from '../services/core-storage';
 
 const STORAGE_KEY = 'iinpublic_talk_broadcast_rooms_v1';
 const MAX_ROOMS_PER_TALK = 16;
@@ -26,7 +27,7 @@ export function recordTalksBroadcastInRoom(
   roomId: string,
   talkIds: string[],
   liveTalkIds: Iterable<string>,
-  storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage,
+  storage: Pick<Storage, 'getItem' | 'setItem'> = settingsStorageAsStorage,
 ): void {
   if (!roomId || talkIds.length === 0) return;
   const live = new Set(liveTalkIds);
@@ -49,7 +50,7 @@ export function recordTalksBroadcastInRoom(
 /** Talk ids that were deliberately broadcast in `roomId`. */
 export function talksBroadcastInRoom(
   roomId: string,
-  storage: Pick<Storage, 'getItem'> = localStorage,
+  storage: Pick<Storage, 'getItem'> = settingsStorageAsStorage,
 ): Set<string> {
   const record = read(storage);
   return new Set(Object.entries(record)

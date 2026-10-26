@@ -1,7 +1,8 @@
 /** A dismissible banner above the chatroom list; dismissal is remembered per-announcement-id via localStorage. */
+import { settingsStorage } from '../services/core-storage';
 export function showSystemAnnouncement(announcement: { id: string; text: string }): void {
   const dismissedKey = `iinpublic_dismissed_announcement:${announcement.id}`;
-  if (localStorage.getItem(dismissedKey) || document.getElementById(`system-announcement-${announcement.id}`)) return;
+  if (settingsStorage.getItem(dismissedKey) || document.getElementById(`system-announcement-${announcement.id}`)) return;
   const host = document.getElementById('chatroom-list-container');
   if (!host) return;
   let list = document.getElementById('system-announcements');
@@ -21,7 +22,7 @@ export function showSystemAnnouncement(announcement: { id: string; text: string 
   dismiss.setAttribute('aria-label', 'Dismiss announcement');
   dismiss.textContent = '×';
   dismiss.addEventListener('click', () => {
-    localStorage.setItem(dismissedKey, '1');
+    settingsStorage.setItem(dismissedKey, '1');
     banner.remove();
     if (!list?.children.length) list.remove();
   });

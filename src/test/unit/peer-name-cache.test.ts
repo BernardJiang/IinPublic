@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { getPeerNameCache, rememberPeerName } from '../../web/ui/peer-name-cache';
+import { getMyConversations } from '../../web/ui/my-conversations-storage';
 
 beforeEach(() => {
   localStorage.clear();
@@ -50,7 +51,7 @@ describe('rememberPeerName', () => {
     localStorage.setItem('myConversations', JSON.stringify(conversations));
     rememberPeerName('u1', 'NewName', () => conversations);
 
-    const stored = JSON.parse(localStorage.getItem('myConversations')!);
+    const stored = getMyConversations();
     expect(stored.c1.otherUserName).toBe('NewName');
     expect(stored.c2.otherUserName).toBe('Someone Else');
   });
@@ -66,7 +67,7 @@ describe('rememberPeerName', () => {
   it('does not write myConversations back when nothing actually changed', () => {
     const conversations = { c1: { otherUserId: 'u2', otherUserName: 'Unrelated' } };
     rememberPeerName('u1', 'NewName', () => conversations);
-    expect(localStorage.getItem('myConversations')).toBeNull();
+    expect(localStorage.getItem('iinpublic_core_unsaved_myConversations_v1')).toBeNull();
   });
 
   it('swallows a getMyConversations failure — the cache write above still succeeds', () => {

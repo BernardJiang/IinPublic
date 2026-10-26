@@ -1,4 +1,5 @@
 import type { UiTranslationKey } from './ui-translations';
+import { setMyConversations } from './my-conversations-storage';
 
 export type UpdateConversationTransportModeDeps = {
   getMyConversations: () => Record<string, any>;
@@ -22,7 +23,7 @@ export function updateConversationTransportMode(
   if (transportFallbackReason !== undefined) {
     conversation.transportFallbackReason = transportFallbackReason;
   }
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
   if (deps.getCurrentConversationId() === conversationId) {
     const transportStatus = document.getElementById('conversation-transport-status');
     if (transportStatus) {
@@ -64,7 +65,7 @@ export function setConversationOnlineStatus(otherUserIds: Set<string>, deps: Set
     }
   }
   if (changed) {
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    setMyConversations(conversations);
     const meTab = document.querySelector('.nav-btn[data-view="me"]');
     if (meTab?.classList.contains('active')) deps.refreshConversationsListIfActive();
   }

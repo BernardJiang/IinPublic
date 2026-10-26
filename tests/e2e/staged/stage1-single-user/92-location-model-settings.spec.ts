@@ -98,7 +98,7 @@ test.describe('Location model settings', () => {
     await openSettingsSection(page, SETTINGS_SECTION.talkBehavior);
     await expect(page.locator('[data-testid="settings-talk-audience-everyone"]')).toBeChecked();
     await page.locator('[data-testid="settings-talk-audience-residents"]').check();
-    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').residentsOnlyTalks))
+    await expect.poll(() => page.evaluate(() => JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').residentsOnlyTalks))
       .toBe(true);
     await backToSettingsMenu(page);
 

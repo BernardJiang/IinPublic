@@ -197,7 +197,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
         };
         mesh.cacheTalkBody(talkId, talkDef);
         // Store in myTalks so localUserAuthoredTalkContent returns true
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         // Broadcast via mesh
@@ -357,7 +357,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
         () =>
           pageTom.evaluate(({ jId }: { jId: string }) => {
             const conversations = JSON.parse(
-              localStorage.getItem('myConversations') ?? '{}',
+              JSON.stringify(((window as any).__iinpublic_collection?.('myConversations') ?? {})) ?? '{}',
             );
             return Object.values(conversations).some(
               (c: any) =>
@@ -379,7 +379,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
         () =>
           pageJerry.evaluate(({ tId }: { tId: string }) => {
             const conversations = JSON.parse(
-              localStorage.getItem('myConversations') ?? '{}',
+              JSON.stringify(((window as any).__iinpublic_collection?.('myConversations') ?? {})) ?? '{}',
             );
             return Object.values(conversations).some(
               (c: any) => c?.otherUserId === tId,
@@ -395,20 +395,20 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
 
     // Bob must NOT have any conversation (ignore → no match)
     const bobConversationCount = await pageBob.evaluate(() => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.keys(conversations).filter((k) => !k.startsWith('conv_support_')).length;
     });
     expect(bobConversationCount, 'Bob (ignore) must have no match conversation').toBe(0);
 
     // Conversation ids must match on both sides (deterministic id)
     const tomConvId = await pageTom.evaluate(({ jId }: { jId: string }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === jId);
       return entry ? entry[0] : null;
     }, { jId: jerryId });
 
     const jerryConvId = await pageJerry.evaluate(({ tId }: { tId: string }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === tId);
       return entry ? entry[0] : null;
     }, { tId: tomId });
@@ -420,7 +420,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
     // Tom's setMemberMatched (roster badge) — check via the localTalkExchanges record
     const tomExchangeOutcome = await pageTom.evaluate(
       ({ jId, talkId }: { jId: string; talkId: string }) => {
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') ?? '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         // Keyed peer::talk::direction (OPEN-88): find the record by its fields.
         return Object.values<any>(exchanges).find((row) => row?.peerId === jId && row?.talkId === talkId)?.outcome ?? null;
       },
@@ -516,7 +516,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
     // (The dedup gate is on processedTalkResponseKeys keyed by mesh-response::<talkId>::<responseId>.)
     const tomConvCountAfterRedundant = await pageTom.evaluate(
       ({ jId }: { jId: string }) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return Object.values(conversations).filter((c: any) => c?.otherUserId === jId).length;
       },
       { jId: jerryId },
@@ -528,7 +528,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
 
     // Verify the conversation id did not change
     const tomConvIdNow = await pageTom.evaluate(({ jId }: { jId: string }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const entry = Object.entries(conversations).find(([, c]: [string, any]) => c?.otherUserId === jId);
       return entry ? entry[0] : null;
     }, { jId: jerryId });

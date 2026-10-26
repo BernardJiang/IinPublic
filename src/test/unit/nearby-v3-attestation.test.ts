@@ -22,7 +22,7 @@ import { nearbyRankTie } from '../../shared/nearby-v3-ranking';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { snapPublicLocation } from '../../shared/public-location';
 import { NearbyAttestor } from '../../server/services/nearby-attestor';
-import { NEARBY_V3_ATTESTATION_STORAGE_KEY, NearbyV3Service, type NearbyV3Link } from '../../web/services/nearby-v3-service';
+import { NEARBY_V3_ATTESTATION_STORAGE_KEY, NearbyV3Service, type NearbyV3Link } from '../../core/nearby-v3-service';
 
 const DAY1 = Date.parse('2026-10-19T12:00:00Z');
 const DAY2 = Date.parse('2026-10-20T12:00:00Z');

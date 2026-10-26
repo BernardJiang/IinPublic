@@ -202,7 +202,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('Tom: peerMeshService unavailable');
         mesh.cacheTalkBody(tDef.id, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
@@ -217,7 +217,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('Bob: peerMeshService unavailable');
         mesh.cacheTalkBody(tDef.id, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
@@ -330,7 +330,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     await expect
       .poll(
         () => pageTom.evaluate(({ jId }: { jId: string }) => {
-          const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+          const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           return Object.values(convs).some((c: any) => c?.otherUserId === jId);
         }, { jId: jerryId }),
         { timeout: MESH_E2E_TIMEOUT_MS, message: 'Tom: conversation with Jerry not created' },
@@ -341,7 +341,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     await expect
       .poll(
         () => pageBob.evaluate(({ jId }: { jId: string }) => {
-          const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+          const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           return Object.values(convs).some((c: any) => c?.otherUserId === jId);
         }, { jId: jerryId }),
         { timeout: MESH_E2E_TIMEOUT_MS, message: 'Bob: conversation with Jerry not created (fanout failed)' },
@@ -366,7 +366,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     // ---- 12. Verify changeOfMindAt is surfaced on Tom's conversation item ---
     await waitForTabActive(pageTom, 'me');
     const tomConvChangeAt = await pageTom.evaluate(({ jId }: { jId: string }) => {
-      const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
       return conv?.changeOfMindAt ?? null;
     }, { jId: jerryId });
@@ -403,7 +403,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     await expect
       .poll(
         () => pageTom.evaluate(({ jId }: { jId: string }) => {
-          const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+          const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
           const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
           return conv?.status ?? null;
         }, { jId: jerryId }),
@@ -413,7 +413,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
 
     // changedAt must be set on Tom's ended conversation
     const tomConvChangedAt = await pageTom.evaluate(({ jId }: { jId: string }) => {
-      const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
       return conv?.changedAt ?? null;
     }, { jId: jerryId });
@@ -421,7 +421,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
 
     // ---- 15. Shared-identity revert also reaches Bob ------------------------
     const bobConvStatus = await pageBob.evaluate(({ jId }: { jId: string }) => {
-      const convs = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
       return conv?.status ?? 'active';
     }, { jId: jerryId });

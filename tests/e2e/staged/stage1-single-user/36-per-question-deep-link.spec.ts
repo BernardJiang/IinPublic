@@ -83,14 +83,14 @@ test.describe('Me-tab per-question deep link (P)', () => {
     await submitTalkEditorAndWaitForOut(page, TITLE);
 
     const talkId = await page.evaluate((title: string) => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const entry = Object.entries(talks).find(([, t]: [string, any]) => t?.title === title || t?.fullTalk?.title === title);
       return entry ? entry[0] : '';
     }, TITLE);
     expect(talkId).toBeTruthy();
 
     const talkData = await page.evaluate((id: string) => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return talks[id]?.fullTalk;
     }, talkId);
     const q0Id = String(talkData.questions[0].id);

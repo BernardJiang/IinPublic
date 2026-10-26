@@ -15,7 +15,7 @@ import {
   NearbyV3Service,
   type NearbyV3Link,
   type NearbyV3Position,
-} from '../../web/services/nearby-v3-service';
+} from '../../core/nearby-v3-service';
 import { seededRandom } from '../support/seeded-random';
 
 const START = Date.parse('2026-10-19T12:00:00Z');

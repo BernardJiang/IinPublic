@@ -135,7 +135,7 @@ test.describe('TechSupport DM survives maximally restrictive intake filters (doc
     // The filters are still exactly as restrictive as they started — this wasn't a
     // side-effect of the test relaxing them at any point.
     const stillMaxed = await userPage.evaluate(() => {
-      const raw = window.localStorage.getItem('iinpublic_talk_intake_filters');
+      const raw = (((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null);
       const filters = raw ? JSON.parse(raw) : null;
       return filters?.residentsOnlyTalks === true && filters?.allowedLanguages?.[0] === 'xx';
     });

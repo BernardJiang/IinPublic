@@ -1,3 +1,4 @@
+import { settingsStorage } from '../services/core-storage';
 export type PinnableList = 'contacts' | 'talks' | 'answers';
 
 const LIST_PINS_STORAGE_KEY = 'iinpublic_list_pins_v1';
@@ -19,7 +20,7 @@ function normalizeIds(value: unknown): string[] {
 
 function readStoredPins(): StoredListPins {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LIST_PINS_STORAGE_KEY) || '{}') as Partial<StoredListPins>;
+    const parsed = JSON.parse(settingsStorage.getItem(LIST_PINS_STORAGE_KEY) || '{}') as Partial<StoredListPins>;
     return {
       contacts: normalizeIds(parsed.contacts),
       talks: normalizeIds(parsed.talks),
@@ -32,7 +33,7 @@ function readStoredPins(): StoredListPins {
 
 function writeStoredPins(pins: StoredListPins): void {
   try {
-    localStorage.setItem(LIST_PINS_STORAGE_KEY, JSON.stringify(pins));
+    settingsStorage.setItem(LIST_PINS_STORAGE_KEY, JSON.stringify(pins));
   } catch {
     // Pinning is a local convenience. A disabled/full storage backend must not break a list.
   }

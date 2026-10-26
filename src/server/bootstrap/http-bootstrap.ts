@@ -166,7 +166,7 @@ export function configureHttpMiddleware(app: express.Application): void {
   registerDownloadRoutes(app, process.env.IINPUBLIC_DOWNLOADS_DIR || undefined);
   app.use(express.static('public'));
 
-  // worker.js imports Gun directly. Mount only that dependency instead of the
+  // The core worker (/core-worker.js) imports Gun directly. Mount only that dependency instead of the
   // repository root: express.static('.') would otherwise publish source files,
   // package metadata, logs, and other deployment internals.
   const gunRoot = process.env.IINPUBLIC_NODE_MODULES_ROOT
@@ -175,7 +175,7 @@ export function configureHttpMiddleware(app: express.Application): void {
   if (fs.existsSync(gunRoot)) {
     app.use('/node_modules/gun', express.static(gunRoot));
   } else {
-    logger.warn({ gunRoot }, 'Gun browser assets are missing; /worker.js cannot initialize');
+    logger.warn({ gunRoot }, 'Gun browser assets are missing; /core-worker.js cannot initialize');
   }
   app.use((Gun as any).serve);
 
@@ -187,7 +187,7 @@ export function configureHttpMiddleware(app: express.Application): void {
       app.use(express.static(publicRoot));
       logger.info({ publicRoot }, 'S3 embedded-node: serving public assets from local node');
     } else {
-      logger.warn({ publicRoot }, 'S3 embedded-node: public asset root missing; /worker.js may not load');
+      logger.warn({ publicRoot }, 'S3 embedded-node: public asset root missing');
     }
   }
 }

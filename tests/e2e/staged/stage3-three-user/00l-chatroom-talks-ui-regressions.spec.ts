@@ -25,7 +25,7 @@ import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   return page.evaluate((needle) => {
-    const raw = localStorage.getItem('myTalks');
+    const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myTalks') ?? {}));
     const myTalks = raw ? (JSON.parse(raw) as Record<string, any>) : {};
     return Object.entries(myTalks).find(([, talk]) => talk?.title === needle)?.[0] ?? '';
   }, title);
@@ -256,7 +256,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await broadcastFromChatroom(pageTom, 2);
 
     const roleOf = (title: string) => pageJerry!.evaluate((t) => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return (Object.values(talks).find((talk: any) => talk?.title === t) as any)?.role || '';
     }, title);
 
@@ -294,7 +294,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     });
     expect(await roleOf(copiedTitle)).toBe('copied');
     const historyTitles = await pageJerry.evaluate(() =>
-      (Object.values(JSON.parse(localStorage.getItem('myAnswerHistory') || '{}')) as any[]).map((record) => record?.title || ''));
+      (Object.values(((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {})) as any[]).map((record) => record?.title || ''));
     expect(historyTitles).toEqual(expect.arrayContaining([answeredTitle, copiedTitle]));
   });
 
@@ -323,7 +323,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     await afterSync();
 
     const jerryRole = await pageJerry.evaluate((title) => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const entry = Object.values(talks).find((t: any) => t?.title === title) as any;
       return entry?.role || '';
     }, ignoredTitle);

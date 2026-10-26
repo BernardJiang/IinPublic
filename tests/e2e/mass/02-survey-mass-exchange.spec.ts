@@ -31,12 +31,12 @@ test.describe('M2 real survey mass exchange', () => {
       // solo-measured deliveries complete in seconds; per policy no poll exceeds one minute.
       await expect.poll(async () => {
         await pages[0].evaluate(() => (window as any).__iinpublic_app.getApp().drainMailbox?.()).catch(() => {});
-        return pages[0].evaluate((id) => Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')).filter((r:any)=>r.talkId===id).length, created.talkId);
+        return pages[0].evaluate((id) => Object.values(((window as any).__iinpublic_exchanges?.() ?? {})).filter((r:any)=>r.talkId===id).length, created.talkId);
       }, { timeout:60_000, intervals:[1000,2000,4000] }).toBe(7);
 
       // B. byQuestion aggregate: total + skipCount === 7; completionRate matches formula.
       const byQuestion = await pages[0].evaluate((talkId) => {
-        const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+        const raw = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
         const rsp = raw.filter((r: any) => r.talkId === talkId && r.direction !== 'received');
         const n = rsp.length;
         const byQ: Record<string, Record<string, number>> = {};
@@ -62,7 +62,7 @@ test.describe('M2 real survey mass exchange', () => {
 
       // C. co-occurrence symmetric: cross(qA,qB)[a→b] === cross(qB,qA)[b→a].
       const coSymmetric = await pages[0].evaluate((talkId) => {
-        const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+        const raw = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
         const rsp = raw.filter((r: any) => r.talkId === talkId && r.direction !== 'received');
         function crossCounts(qA: string, qB: string): Record<string, number> {
           const m: Record<string, number> = {};
@@ -88,7 +88,7 @@ test.describe('M2 real survey mass exchange', () => {
       // D. Time-range filter (7d): all 7 responses fall within the last 7 days.
       const within7d = await pages[0].evaluate((talkId) => {
         const cutoff = Date.now() - 7 * 86_400_000;
-        const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+        const raw = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
         return raw.filter((r: any) => {
           if (r.talkId !== talkId || r.direction === 'received') return false;
           const ts = r.respondedAt ? new Date(r.respondedAt).getTime() : new Date(r.date).getTime();

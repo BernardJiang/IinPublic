@@ -108,7 +108,7 @@ function buildDetailedRouteTalkPayload(): Record<string, unknown> {
 
 async function getConversationIdForPeer(page: Page, peerId: string): Promise<string> {
   return page.evaluate((otherUserId) => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     const hit = Object.entries(conversations).find(([, value]: [string, any]) =>
       value?.otherUserId === otherUserId && value?.supportChannel !== true,
     );
@@ -118,7 +118,7 @@ async function getConversationIdForPeer(page: Page, peerId: string): Promise<str
 
 async function isTalkDisabled(page: Page, title: string): Promise<boolean> {
   return page.evaluate((needle: string) => {
-    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
     return Object.values(talks).some((t: any) => t?.title === needle && t?.disabled === true);
   }, title);
 }

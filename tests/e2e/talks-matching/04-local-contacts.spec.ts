@@ -219,7 +219,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
         };
         await app.webTalkService?.registerTalkInLocalStore?.(talkId, talk, authorId);
         // Save local exchange for self-answer (Tom matches his own tag)
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         exchanges[`${authorId}::${talkId}`] = {
           peerId: authorId,
           peerName: 'Tom Local',
@@ -280,7 +280,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
     // ── 7. Jerry answers MATCH, Bob answers IGNORE ────────────────────────────
     const TEST_TALK_DATA = await pageTom.evaluate((talkId: string) => {
       const _app = (window as any).__iinpublic_app?.getApp?.() as any;
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return talks[talkId]?.fullTalk || null;
     }, TEST_TALK_ID);
 
@@ -295,7 +295,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
           });
         }
         // Fallback: record locally so contacts view can derive
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         exchanges[`${authorId}::${talkId}`] = {
           peerId: authorId,
           peerName: 'Tom Local',
@@ -321,7 +321,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
           });
         }
         // Fallback: record locally
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         exchanges[`${authorId}::${talkId}`] = {
           peerId: authorId,
           peerName: 'Tom Local',
@@ -339,7 +339,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
     // Inject exchange records on Tom's side (responses arrive via mesh)
     await pageTom.evaluate(
       async ({ jerryId: jId, bobId: bId, talkId, title, jerryName, bobName }: any) => {
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         exchanges[`${jId}::${talkId}`] = {
           peerId: jId,
           peerName: jerryName,

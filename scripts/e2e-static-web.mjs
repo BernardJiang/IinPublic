@@ -14,10 +14,10 @@
  *
  * IMPORTANT — it must mirror webpack devServer.static (see webpack.config.js):
  *   - dist/web/              served at /            (webpack output / SPA shell)
- *   - public/                served at /            (provides /worker.js)
+ *   - public/                served at /            (static assets; /core-worker.js is in dist/web)
  *   - node_modules/gun/      served at /node_modules/gun  (worker importScripts gun.js/sea.js)
  *   - historyApiFallback     → unknown extensionless routes fall back to index.html
- * Missing the public/ and gun mounts is what makes `new Worker('/worker.js')` fail to load.
+ * Missing the gun mount is what makes `new Worker('/core-worker.js')` fail to initialize.
  *
  * Usage: node scripts/e2e-static-web.mjs <port>
  *        PORT env is honoured if <port> arg is omitted.

@@ -45,13 +45,11 @@ import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
-import { GunDeliveryRepository } from '../services/gun-delivery-repository';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
-import { getAnsweredTalkByContent, getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
-import { findAutoAnswer, LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
+import { getAnsweredTalkByContent, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
-import { getMyTalks } from '../ui/my-talks-storage';
+import { getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
@@ -63,6 +61,7 @@ import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
 import { WebLedgerService } from '../services/web-ledger-service';
 import { MapMatchView } from '../services/map-match-view';
+import { exchangeMapMatchSource } from '../services/map-match-source';
 import type { MapMatchSource } from '../../shared/map-matches';
 import { UIManager } from '../ui/ui-manager';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
@@ -95,12 +94,11 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch, computeRouteMatchScore } from '../../shared/talk-engine';
+import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
-  acceptsIncomingTalks,
   isTechSupportUser,
   TECHSUPPORT_ANNOUNCEMENT_TRUST_ANCHORS,
   TECHSUPPORT_ROOT_USER_ID,
@@ -172,10 +170,10 @@ import {
   type TechSupportDelegateRequest,
 } from '../../shared/techsupport-delegate-invite';
 import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-translations';
-import { getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
+import { getChatbotTemplates, getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
 import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
-import { buildTalkWakePayload, TALK_WAKE_PAYLOAD_KIND, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
+import { buildTalkWakePayload, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import {
   endMatchCollectionSession,
@@ -186,7 +184,6 @@ import {
 } from '../services/match-collection-session';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
 import { resolveP2PRuntimeFlags, usesMeshTalkDelivery, type P2PRuntimeFlags, type ConversationTransportMode } from '../../shared/p2p-runtime';
-import { intakeFilterRejectReasons, type ReceiverIntakeContext } from '../../shared/talk-intake-filters';
 import { filterTalkPeersByContactPolicy, talkContactPolicyAllowsPeer } from '../../shared/talk-contact-policy';
 import { getTalkIntakeFilters, setTalkIntakeFilters, setTalkIntakeFiltersOwner } from '../ui/talk-intake-filters';
 import { P2PPresenceClient } from '../services/p2p-presence-client';
@@ -222,7 +219,7 @@ import {
   subscribeLocalIncomingTalkClusters,
   upsertLocalIncomingTalkCluster,
   upsertLocalIncomingTalkClusters,
-} from '../services/client-incoming-talk-mirror';
+} from '../../core/client-incoming-talk-mirror';
 import { getSEA, type GunPair } from '../sea-gun';
 import {
   applyTalkLedgerEvent,
@@ -240,34 +237,36 @@ import { buildTalkIdentityKey } from '../../shared/cid';
 import { applyContactsPrune, getContactsCap, planContactsPrune, unprunePeer } from '../services/contacts-prune';
 import { sharedTagCounter } from '../ui/tag-graph-view';
 import { deriveLocalPeers } from '../services/local-peer-derivation';
+import { connectExchangeCore, upsertExchange } from '../services/exchange-view';
+import type { CoreRequest } from '../../core/protocol';
+import type { CoreCollection } from '../../core/collections';
+import { decideResponseIngest } from '../../core/response-ingest';
+import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
+import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
+import { planDealFinalization } from '../../core/deal-finalization';
+import { classifyMailboxPayload, mailboxSenderId } from '../../core/mailbox-envelope';
+import { authorLedgerWritesFor, exchangeRecordFor } from '../../core/exchange-recording';
+import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
+import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
+import type { SeaSigningPair } from '../../shared/p2p-runtime';
+import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
+import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
+import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
+import { appStorage, settingsStorage } from '../services/core-storage';
+import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
+import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
 import {
   buildTagIdentityKeys,
   filterTalkForRecipient,
   setTalkLedgerQuotaUnlimited,
-  applyEvent as applyLedgerEvent,
-  outcomeKey as ledgerOutcomeKey,
   retractedKey as ledgerRetractedKey,
 } from '../../shared/talk-ledger';
+import { getMyConversations } from '../ui/my-conversations-storage';
 
 /** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
 const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
-
-type AttachmentShareMessagePayload = {
-  kind: 'ipfs-auto-share-v1';
-  conversationId: string;
-  talkId: string;
-  authorId: string;
-  cid: string;
-  link: string;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  enc: 'sea-pair' | 'none';
-  keyCiphertext: string;
-  sharedAt: string;
-};
 
 type MailboxAttachmentSharePayload = {
   kind: 'ipfs-conversation-share-v1';
@@ -677,7 +676,7 @@ export class IinPublicApp {
   private loadAttachmentShareSentIds(): void {
     this.attachmentShareSentIds.clear();
     try {
-      const raw = localStorage.getItem(IinPublicApp.ATTACHMENT_SHARE_SENT_KEY);
+      const raw = appStorage.getItem(IinPublicApp.ATTACHMENT_SHARE_SENT_KEY);
       if (!raw) return;
       const values = JSON.parse(raw);
       if (!Array.isArray(values)) return;
@@ -692,7 +691,7 @@ export class IinPublicApp {
 
   private persistAttachmentShareSentIds(): void {
     try {
-      localStorage.setItem(
+      appStorage.setItem(
         IinPublicApp.ATTACHMENT_SHARE_SENT_KEY,
         JSON.stringify([...this.attachmentShareSentIds]),
       );
@@ -728,20 +727,6 @@ export class IinPublicApp {
     });
   }
 
-  private async buildAttachmentShareMessageId(
-    conversationId: string,
-    talkId: string,
-    authorId: string,
-    cid: string,
-  ): Promise<string> {
-    return computeCIDv1({
-      kind: 'ipfs-auto-share-v1',
-      conversationId,
-      talkRef: `${talkId}::${authorId}`,
-      cid,
-    });
-  }
-
   private async buildAttachmentSharePayload(params: {
     conversationId: string;
     talkId: string;
@@ -749,51 +734,16 @@ export class IinPublicApp {
     recipientId: string;
     attachment: IpfsAttachment;
   }): Promise<AttachmentShareMessagePayload> {
-    const keyPayload = {
-      kind: 'ipfs-share-key-v1',
-      talkRef: `${params.talkId}::${params.authorId}`,
-      cid: params.attachment.cid,
-      enc: params.attachment.enc,
-      // L5 key envelope is transport material only. File bytes stay out of Gun/mailbox.
-      keyMaterial: `ipfs-share:${params.talkId}:${params.authorId}:${params.attachment.cid}`,
-    };
+    // The share message is the core's (src/core/attachment-share.ts); the key goes encrypted.
     const keyCiphertext = await this.encryptPairTalkResponsePayload(
       params.recipientId,
-      keyPayload,
+      attachmentShareKeyPayload(params.talkId, params.authorId, params.attachment),
     );
-    return {
-      kind: 'ipfs-auto-share-v1',
-      conversationId: params.conversationId,
-      talkId: params.talkId,
-      authorId: params.authorId,
-      cid: params.attachment.cid,
-      link: `ipfs://${params.attachment.cid}`,
-      name: params.attachment.name,
-      mimeType: params.attachment.mimeType,
-      sizeBytes: params.attachment.sizeBytes,
-      enc: params.attachment.enc,
-      keyCiphertext,
-      sharedAt: new Date().toISOString(),
-    };
+    return attachmentSharePayload(params, keyCiphertext, new Date().toISOString());
   }
 
   private formatAttachmentShareMessageText(payload: AttachmentShareMessagePayload): string {
     return `IPFS_SHARE:${JSON.stringify(payload)}`;
-  }
-
-  private parseAttachmentShareMessageText(text: string): AttachmentShareMessagePayload | null {
-    const raw = String(text || '');
-    if (!raw.startsWith('IPFS_SHARE:')) return null;
-    try {
-      const payload = JSON.parse(raw.slice('IPFS_SHARE:'.length));
-      if (!payload || payload.kind !== 'ipfs-auto-share-v1') return null;
-      const cid = String(payload.cid || '').trim();
-      const keyCiphertext = String(payload.keyCiphertext || '').trim();
-      if (!cid || !keyCiphertext) return null;
-      return payload as AttachmentShareMessagePayload;
-    } catch {
-      return null;
-    }
   }
 
   private async maybeFetchSharedAttachmentBytes(
@@ -908,7 +858,7 @@ export class IinPublicApp {
 
     for (const attachment of attachments) {
       try {
-        const messageId = await this.buildAttachmentShareMessageId(
+        const messageId = await attachmentShareMessageId(
           params.conversationId,
           params.talkId,
           params.authorId,
@@ -978,7 +928,7 @@ export class IinPublicApp {
       },
       { otherUserId: this.currentUser.id },
     );
-    const sharePayload = this.parseAttachmentShareMessageText(payload.text);
+    const sharePayload = parseAttachmentShareMessageText(payload.text);
     if (sharePayload) {
       void this.maybeFetchSharedAttachmentBytes(sharePayload, payload.senderId).catch((err) => {
         console.warn('[L5] mailbox attachment fetch failed:', err);
@@ -1295,7 +1245,6 @@ export class IinPublicApp {
           }
         : {}),
     });
-    this.loadAttachmentShareSentIds();
     // Scenario 1 fix (2026-09-29): a P2P peer's handshake revealed a different app version.
     // Remind the older side to upgrade, and the newer side that this particular contact may not
     // understand brand-new features yet. Subscribed once for the app's lifetime; the session
@@ -1340,6 +1289,13 @@ export class IinPublicApp {
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
     await this.gunService.initialize();
+    // The exchange log lives in the device core (OPEN-91 P1): load it before the first screen reads it.
+    await this.connectExchangeLog();
+    // Use the same core-backed view as Contacts, including late hydration and removals.
+    this.setMapMatchSource(exchangeMapMatchSource);
+    // Kept in the device core, readable only once it has loaded.
+    this.loadAttachmentShareSentIds();
+    restoreCreatorReplyFilterState();
     const passwordStatus = await this.gunService.getIdentityPasswordProtectionStatus();
     if (passwordStatus.state === 'locked') {
       await this.uiManager.showIdentityUnlock(
@@ -1436,13 +1392,6 @@ export class IinPublicApp {
     // silently enable Done."
     this.uiManager.setDeviceHandoffSync(async (toPub, progress) => {
       const { buildHandoffArchive } = await import('../../shared/device-handoff');
-      const read = (key: string): any => {
-        try {
-          return JSON.parse(localStorage.getItem(key) || 'null') ?? undefined;
-        } catch {
-          return undefined;
-        }
-      };
       const pair = this.gunService.getStoredPair?.();
       const sources: Parameters<typeof buildHandoffArchive>[0] = { fromPub: String(pair?.pub || '') };
       const collect: Array<[import('../../shared/device-handoff').HandoffCategory, () => void]> = [
@@ -1463,9 +1412,9 @@ export class IinPublicApp {
           }
         }],
         ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
-        ['answerPreferences', () => { sources.answerPreferences = read('exactChatbotMemory'); }],
-        ['myTalks', () => { sources.myTalks = read('myTalks'); }],
-        ['conversations', () => { sources.conversations = read('myConversations'); }],
+        ['answerPreferences', () => { sources.answerPreferences = getExactChatbotMemory() as any; }],
+        ['myTalks', () => { sources.myTalks = getMyTalks(); }],
+        ['conversations', () => { sources.conversations = getMyConversations(); }],
       ];
       for (const [category, fill] of collect) {
         try {
@@ -1495,7 +1444,7 @@ export class IinPublicApp {
       checkIncoming: async () => {
         let linked: Array<{ pub: string; stageName: string }> = [];
         try {
-          const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
+          const arr = JSON.parse(appStorage.getItem('iinpublic_linked_devices') || '[]');
           linked = Array.isArray(arr) ? arr.filter((r: any) => r?.state === 'linked') : [];
         } catch {
           linked = [];
@@ -1511,14 +1460,14 @@ export class IinPublicApp {
         const { mergeHandoffArchive } = await import('../../shared/device-handoff');
         const read = (key: string): any => {
           try {
-            return JSON.parse(localStorage.getItem(key) || 'null') ?? undefined;
+            return JSON.parse(appStorage.getItem(key) || 'null') ?? undefined;
           } catch {
             return undefined;
           }
         };
         const write = (key: string, value: unknown): void => {
           try {
-            localStorage.setItem(key, JSON.stringify(value));
+            appStorage.setItem(key, JSON.stringify(value));
           } catch {
             /* best effort */
           }
@@ -1526,8 +1475,8 @@ export class IinPublicApp {
         const merged = mergeHandoffArchive(archive as any, {
           contacts: (this.currentUser.knownPeople as any) || [],
           talkFilters: this.currentUser.talkFilters as any,
-          answerPreferences: read('exactChatbotMemory') || {},
-          myTalks: read('myTalks') || {},
+          answerPreferences: getExactChatbotMemory() as any,
+          myTalks: getMyTalks(),
         });
         this.currentUser.knownPeople = merged.contacts as any;
         this.currentUser.talkFilters = merged.talkFilters as any;
@@ -1536,8 +1485,8 @@ export class IinPublicApp {
           knownPeople: merged.contacts as any,
           talkFilters: merged.talkFilters as any,
         });
-        write('exactChatbotMemory', merged.answerPreferences);
-        write('myTalks', merged.myTalks);
+        setExactChatbotMemory(merged.answerPreferences as any);
+        setMyTalks(merged.myTalks as any);
         // Imported thread history is read-only (spec §11.2) — never merged into the
         // live conversation store, kept under its own key, additive across imports
         // rather than clobbering a prior import from a different linked device.
@@ -2296,6 +2245,7 @@ export class IinPublicApp {
         localStorage.removeItem('gun/');
         if (this.gunService.isBridgeReady()) {
           void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, null).catch(() => {});
+          void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, null).catch(() => {});
         }
       }
     }
@@ -2328,7 +2278,7 @@ export class IinPublicApp {
     let isNewUser = false;
 
     if (existingUserId) {
-      const cached = this.readCachedUser(existingUserId);
+      const cached = await this.readNewestCachedUser(existingUserId);
       if (cached) {
         // Instant path: render from the last-known copy of this identity's own record — no
         // network wait at all. A decentralized app has no excuse to be slower to open than a
@@ -2416,11 +2366,43 @@ export class IinPublicApp {
   private static readonly CACHED_USER_STORAGE = 'iinpublic_cached_user_v1';
 
   /** Last-known copy of this device's own user record, for an instant cold-boot render. */
-  private readCachedUser(expectedUserId: string): User | null {
+  /** Path of the IndexedDB-backed mirror of the cached user record — see writeCachedUser. */
+  private static readonly DEVICE_LOCAL_CACHED_USER_PATH = 'device-local/cached-user';
+
+  /**
+   * The newer of the two copies of my own record: localStorage and its IndexedDB mirror. A hard
+   * kill can lose the localStorage write of a recent change (a new stage name) while an older
+   * copy survives there, so the cache alone would bring the old name back.
+   */
+  private async readNewestCachedUser(expectedUserId: string): Promise<User | null> {
+    let mirrored: string | null = null;
+    if (this.gunService.isBridgeReady()) {
+      try {
+        const node = await this.gunService.getBridge().get(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH);
+        mirrored = node && typeof node === 'object' && typeof node.json === 'string' ? node.json : null;
+      } catch {
+        // Best-effort: the localStorage copy alone, as before.
+      }
+    }
+    const local = (() => {
+      try { return localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE); } catch { return null; }
+    })();
+    const cachedAt = (raw: string | null): number => {
+      try { return raw ? Number(JSON.parse(raw)?.cachedAt) || 0 : -1; } catch { return -1; }
+    };
+    const newest = cachedAt(mirrored) > cachedAt(local) ? mirrored : local;
+    if (newest && newest !== local) {
+      try { localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, newest); } catch { /* best effort */ }
+    }
+    return this.readCachedUser(expectedUserId, newest);
+  }
+
+  private readCachedUser(expectedUserId: string, rawRecord?: string | null): User | null {
     try {
-      const raw = localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE);
+      const raw = rawRecord !== undefined ? rawRecord : localStorage.getItem(IinPublicApp.CACHED_USER_STORAGE);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
+      delete parsed.cachedAt;
       if (!parsed || parsed.id !== expectedUserId || typeof parsed.stageName !== 'string' || !parsed.stageName) return null;
       if (typeof parsed.createdAt === 'string') parsed.createdAt = new Date(parsed.createdAt);
       if (typeof parsed.lastActive === 'string') parsed.lastActive = new Date(parsed.lastActive);
@@ -2433,10 +2415,16 @@ export class IinPublicApp {
   private writeCachedUser(user: User): void {
     // A partial record cached here crashed the next boot (no stageName — seen on the C10 tablet).
     if (!user?.id || typeof user.stageName !== 'string' || !user.stageName) return;
+    const json = JSON.stringify({ ...user, cachedAt: Date.now() });
     try {
-      localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, JSON.stringify(user));
+      localStorage.setItem(IinPublicApp.CACHED_USER_STORAGE, json);
     } catch {
       // Best-effort only — a full cache means the next cold boot waits on the network instead.
+    }
+    // Mirrored where a hard kill does not lose it (as persistUserId does for the id): a stage
+    // name changed seconds before a crash came back as the old one (e2e stage2/37 under load).
+    if (this.gunService.isBridgeReady()) {
+      void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, { json }).catch(() => {});
     }
   }
 
@@ -2513,7 +2501,7 @@ export class IinPublicApp {
     if (!this.currentUser || !this.currentLocation) return;
 
     // Get last chatroom from localStorage (for re-entry logic)
-    const lastChatroomId = localStorage.getItem('iinpublic_last_chatroom') || undefined;
+    const lastChatroomId = settingsStorage.getItem('iinpublic_last_chatroom') || undefined;
     this.loadTravelModeStateFromStorage();
 
     // Find optimal chatroom using hierarchical assignment
@@ -2570,7 +2558,7 @@ export class IinPublicApp {
     }
 
     // Store current chatroom in localStorage for next time
-    localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+    settingsStorage.setItem('iinpublic_last_chatroom', chatroomId);
 
     console.log('🏠 Joined chatroom:', chatroomId);
 
@@ -2630,7 +2618,7 @@ export class IinPublicApp {
       this.refreshNearbyPoint();
       await this.chatroomService.switchChatroom(this.currentUser.id, this.travelChatroomId, this.currentUser.stageName);
       this.currentChatroomId = this.travelChatroomId;
-      localStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
+      settingsStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
       this.subscribeToMessages(this.currentChatroomId);
       this.uiManager.setCurrentChatroomId(this.currentChatroomId);
       this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
@@ -2757,94 +2745,31 @@ export class IinPublicApp {
     directPeerSend?: boolean;
   }): Promise<boolean> {
     const me = this.currentUser;
-    if (!me?.id || offer.senderId === me.id) return false;
-    // TechSupport ignores all talks (docs/TODO.md K5) — hard rule on the canonical root id,
-    // checked before any filter so it cannot be re-enabled through intake settings.
-    if (!acceptsIncomingTalks(me.id)) return false;
-    if (await this.resolveBlockStatusEitherWay(offer.senderId)) return false;
-    if (!talkContactPolicyAllowsPeer(offer.senderId, getTalkIntakeFilters(), me.knownPeople, this.roomTravelerIds)) {
-      return false;
-    }
-    const talkData = offer.talkData;
-    // Resolve ageVerified asynchronously before calling the shared synchronous filter function.
-    // Only fetch when the talk is actually adult-flagged to avoid an unnecessary API call.
-    const isAdultTalk = !!talkData?.isAdult;
-    const ageVerified = isAdultTalk ? await this.resolveAgeVerifiedForIntake() : true;
-    const chatroomId = this.currentChatroomId;
-    if (!offer.directPeerSend && chatroomId) {
-      const deliveryRoom = String(offer.deliveryChatroomId || '').trim();
-      if (deliveryRoom && deliveryRoom !== chatroomId) return false;
-      // Broadcast offers carry deliveryChatroomId; skip sender membership poll (Gun member map lags in e2e).
-      if (!deliveryRoom) {
-        const serverIds = await this.chatroomService.fetchMemberIdsFromServer(chatroomId);
-        if (!serverIds.includes(offer.senderId)) {
-          const members = await this.chatroomService.getActiveMembers(chatroomId);
-          if (!members.includes(offer.senderId)) return false;
-        }
-      }
-    }
-    const filters = getTalkIntakeFilters();
-    const td = talkData;
-    const authorLoc =
-      td.authorLocation &&
-      typeof td.authorLocation === 'object' &&
-      typeof (td.authorLocation as { latitude?: unknown }).latitude === 'number' &&
-      typeof (td.authorLocation as { longitude?: unknown }).longitude === 'number'
-        ? (td.authorLocation as { latitude: number; longitude: number })
-        : undefined;
-    // Resolve expiresAt for the shared function (handles nested fullTalk wrapper from dev seeds).
-    const expiresAtMs = this.resolveTalkExpiresAtMs(talkData);
-    const receiverContext: ReceiverIntakeContext = { ageVerified };
-    const reasons = intakeFilterRejectReasons(
-      {
-        title: typeof td.title === 'string' ? td.title : String(td.title ?? ''),
-        type: typeof td.type === 'string' ? td.type : String(td.type ?? ''),
-        language: typeof td.language === 'string' && td.language.trim() ? td.language : 'en',
-        createdAt:
-          td.createdAt instanceof Date
-            ? td.createdAt.toISOString()
-            : typeof td.createdAt === 'string' && td.createdAt
-              ? td.createdAt
-              : new Date().toISOString(),
-        updatedAt:
-          td.updatedAt instanceof Date
-            ? td.updatedAt.toISOString()
-            : typeof td.updatedAt === 'string' && td.updatedAt
-              ? td.updatedAt
-              : typeof td.createdAt === 'string' && td.createdAt
-                ? td.createdAt
-                : new Date().toISOString(),
-        ...(Number.isFinite(expiresAtMs) ? { expiresAt: expiresAtMs } : {}),
-        ...(authorLoc ? { authorLocation: authorLoc } : {}),
-        questions: Array.isArray(td.questions) ? td.questions : [],
-        ...(typeof td.questionsJson === 'string' ? { questionsJson: td.questionsJson } : {}),
-        isAdult: isAdultTalk,
+    if (!me?.id) return false;
+    // The rule is the core's (src/core/talk-intake.ts); this supplies the context and the lookups.
+    const decision = await decideIncomingTalk(offer, {
+      myId: me.id,
+      filters: getTalkIntakeFilters(),
+      knownPeople: me.knownPeople,
+      travelerIds: this.roomTravelerIds,
+      ...(this.currentChatroomId ? { currentChatroomId: this.currentChatroomId } : {}),
+      ...(this.locationConfirmed && this.currentLocation ? { location: this.currentLocation } : {}),
+      now: Date.now(),
+    }, {
+      isBlockedEitherWay: (peerId) => this.resolveBlockStatusEitherWay(peerId),
+      ageVerified: () => this.resolveAgeVerifiedForIntake(),
+      isRoomMember: async (roomId, peerId) => {
+        // Gun's member map lags; the server's list is asked first.
+        const serverIds = await this.chatroomService.fetchMemberIdsFromServer(roomId);
+        if (serverIds.includes(peerId)) return true;
+        return (await this.chatroomService.getActiveMembers(roomId)).includes(peerId);
       },
-      filters,
-      // A placeholder location (no real fix yet) must not drive the distance filter.
-      this.locationConfirmed ? this.currentLocation : undefined,
-      receiverContext,
-    );
-    return reasons.length === 0;
-  }
-
-  private resolveTalkExpiresAtMs(talkData: unknown): number {
-    const record = talkData && typeof talkData === 'object'
-      ? talkData as Record<string, unknown>
-      : {};
-    const nested = record.fullTalk && typeof record.fullTalk === 'object'
-      ? record.fullTalk as Record<string, unknown>
-      : {};
-    const expiresAtValue = record.expiresAt ?? nested.expiresAt;
-    if (typeof expiresAtValue === 'number') return expiresAtValue;
-    if (typeof expiresAtValue === 'string' && expiresAtValue.trim()) {
-      return new Date(expiresAtValue).getTime();
-    }
-    return Number.NaN;
+    });
+    return decision.accept;
   }
 
   private isTalkExpiredForDelivery(talkData: unknown): boolean {
-    const expiresAt = this.resolveTalkExpiresAtMs(talkData);
+    const expiresAt = talkExpiresAtMs(talkData);
     return Number.isFinite(expiresAt) && Date.now() > expiresAt;
   }
 
@@ -3091,7 +3016,7 @@ export class IinPublicApp {
       this.currentUser.stageName,
     );
     this.currentChatroomId = nextRoomId;
-    localStorage.setItem('iinpublic_last_chatroom', nextRoomId);
+    settingsStorage.setItem('iinpublic_last_chatroom', nextRoomId);
     this.uiManager.setCurrentChatroomId(nextRoomId);
     this.chatroomService.subscribeToMembers(nextRoomId, (members) => {
       this.harvestRosterEpubs(members);
@@ -3711,13 +3636,7 @@ export class IinPublicApp {
     }).IinPublicBackground;
     if (typeof bridge?.configure !== 'function') return;
     this.nativeBackgroundSyncRunning = true;
-    const parseMap = (key: string): Record<string, any> => {
-      try {
-        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-      } catch { return {}; }
-    };
-    const flattened = parseMap('flattenedAnswerPreferences');
+    const flattened = getFlattenedAnswerPreferences();
     const answerRules = backgroundAnswerRulesFromPreferences(flattened);
     const settings = loadConnectivitySettings();
     const myTalks = getMyTalks();
@@ -3732,9 +3651,9 @@ export class IinPublicApp {
         activeRoomId: this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || '',
         autoAnswerEnabled: this.uiManager.getChatbotEnabled(),
         answerRules,
-        chatbotTemplates: parseMap('chatbotTemplates'),
+        chatbotTemplates: getChatbotTemplates(),
         authoredTalks,
-        matchCollectionStore: localStorage.getItem('iinpublic_match_collection_sessions_v1') || undefined,
+        matchCollectionStore: appStorage.getItem('iinpublic_match_collection_sessions_v1') || undefined,
         intakeFilters: getTalkIntakeFilters(),
         knownContactIds: (this.currentUser.knownPeople || []).map((person) => person.userId),
         travelerIds: [...this.roomTravelerIds],
@@ -3858,39 +3777,35 @@ export class IinPublicApp {
           pair as import('../sea-gun').GunPair,
         );
         if (senderEpubHint) {
-          const senderId = String(
-            (payload as MailboxConversationMessagePayload).senderId
-              || (payload as P2PMeshTalkResponsePayload).responderId
-              || (payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload).authorId
-              || '',
-          ).trim();
+          const senderId = mailboxSenderId(payload);
           if (senderId) this.peerEpubByUserId.set(senderId, senderEpubHint);
         }
-        // Dispatch based on payload kind:
-        //   - kind 'conversation-message-v1' → offline DM (Phase 4)
-        //   - kind 'ipfs-conversation-share-v1' → attachment share link
-        //   - kind 'support-question-v1' → TechSupport inbox delivery (K5)
-        //   - kind 'block-signal-v1' → friend-circle block signal (src/shared/block-signal.ts)
-        //   - has `talkData` → talk-body payload from R-a mailbox fallback
-        //   - has `retractedAt` (number) → step-10 retraction envelope
-        //   - has `responseId` → talk-response payload from step 6
-        if ((payload as any).kind === TALK_WAKE_PAYLOAD_KIND) {
-          // OPEN-38: content-free; its only job (waking this device) is done. The direct
-          // scheduler delivers the queued Talk now that this page is running.
-        } else if ((payload as any).kind === 'conversation-message-v1') {
-          await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
-        } else if ((payload as any).kind === 'ipfs-conversation-share-v1') {
-          await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
-        } else if ((payload as any).kind === 'support-question-v1') {
-          await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
-        } else if ((payload as any).kind === BLOCK_SIGNAL_PAYLOAD_KIND) {
-          await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
-        } else if ((payload as any).talkData !== undefined) {
-          await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
-        } else if (typeof (payload as any).retractedAt === 'number') {
-          await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
-        } else {
-          await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
+        // The kind is the core's call (src/core/mailbox-envelope.ts); each goes to its handler.
+        switch (classifyMailboxPayload(payload)) {
+          case 'wake':
+            // OPEN-38: the direct scheduler delivers the queued Talk now that this page runs.
+            break;
+          case 'conversation-message':
+            await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
+            break;
+          case 'attachment-share':
+            await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
+            break;
+          case 'support-question':
+            await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
+            break;
+          case 'block-signal':
+            await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
+            break;
+          case 'talk-body':
+            await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
+            break;
+          case 'talk-retraction':
+            await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
+            break;
+          case 'talk-response':
+            await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
+            break;
         }
         // Delete only after handler completes without throwing.
         await mailbox.deleteEnvelope(this.currentUser.id, envelope.id);
@@ -4439,11 +4354,11 @@ export class IinPublicApp {
 
   private enqueueFailedMailboxPost(payload: P2PMeshTalkResponsePayload): void {
     try {
-      const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
+      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
       const queue: Record<string, P2PMeshTalkResponsePayload> = raw ? JSON.parse(raw) : {};
       const queueKey = `${payload.talkId}::${payload.authorId}::${payload.responseId}`;
       queue[queueKey] = payload;
-      localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
+      appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
       console.log('[Mailbox] Queued failed-POST response for author', payload.authorId, 'key:', queueKey);
     } catch (err) {
       console.warn('[Mailbox] Failed to enqueue failed-POST response:', err);
@@ -4454,7 +4369,7 @@ export class IinPublicApp {
   private async retryFailedMailboxPosts(): Promise<void> {
     let queue: Record<string, P2PMeshTalkResponsePayload>;
     try {
-      const raw = localStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
+      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
       if (!raw) return;
       queue = JSON.parse(raw);
     } catch {
@@ -4468,7 +4383,7 @@ export class IinPublicApp {
     if (succeeded.length > 0) {
       for (const k of succeeded) delete queue[k];
       try {
-        localStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
+        appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
       } catch {/* ignore */}
     }
   }
@@ -4477,9 +4392,7 @@ export class IinPublicApp {
     const cached = this.peerMeshService?.getCachedTalkBody(talkId);
     if (cached) return cached;
     try {
-      const raw = localStorage.getItem('myTalks');
-      const myTalks = raw ? JSON.parse(raw) : {};
-      const entry = myTalks?.[talkId];
+      const entry: any = getMyTalks()[talkId];
       if (entry?.fullTalk) return entry.fullTalk;
       if (entry) return entry;
     } catch {
@@ -4520,7 +4433,7 @@ export class IinPublicApp {
     // between flood attempts.
     // The content identity is part of the key: an author's in-place edit keeps the talkId, and
     // that revised body must be ingested (and offered to the chatbot) as a new talk.
-    const pairKey = this.talkRevisionPairKey(payload.talkId, payload.authorId, payload.talkData);
+    const pairKey = talkRevisionPairKey(payload.talkId, payload.authorId, payload.talkData);
     const bodyDedupeKey = `mesh-talk-body::${pairKey}`;
     if (this.processedTalkResponseKeys.has(bodyDedupeKey)) return true;
     if (payload.authorEpub) this.peerEpubByUserId.set(payload.authorId, payload.authorEpub);
@@ -4593,68 +4506,30 @@ export class IinPublicApp {
     if (!talkData) return;
     const decrypted = await this.decryptPairTalkResponsePayload(payload);
 
-    // docs/TODO.md §W Gap 2 completeness note: don't trust an incoming mesh response to be
-    // complete just because a peer sent it — a survey response answering fewer questions than
-    // the talk has must not be recorded as exchanged/answered on the author's side either. This
-    // is the receiving-side half of the same guard `submitTalkResponsePairDirect` applies on the
-    // sending side (defense in depth: an older/different client, or a corrupted payload, could
-    // still produce a short answers array even though this client's own UI no longer can).
-    const totalQuestions = Array.isArray(talkData?.questions) ? talkData.questions.length : 0;
-    if (talkData?.type === 'survey' && decrypted.answers.length < totalQuestions) {
-      console.debug(
-        `[Step9] Discarding incomplete survey response from ${payload.responderId} — ${decrypted.answers.length}/${totalQuestions} answered`,
-      );
+    // The decision is the core's (src/core/response-ingest.ts); this method carries it out.
+    const decision = decideResponseIngest({
+      talkData,
+      answers: decrypted.answers,
+      ledger: getTalkLedgerDoc(),
+      identityKey: buildTalkIdentityKey(talkData),
+      responderId: payload.responderId,
+      authorId: this.currentUser.id,
+      talkId: payload.talkId,
+      responseId: payload.responseId,
+      ...(payload.version !== undefined ? { version: payload.version } : {}),
+      ...(payload.respondedAt ? { respondedAt: payload.respondedAt } : {}),
+      submittedAt: payload.submittedAt,
+      now: new Date().toISOString(),
+    });
+    if (decision.kind === 'reject') {
+      console.debug(`[RESP-INGEST] discarded (${decision.reason}) from ${payload.responderId} v=${payload.version ?? 1}`);
       return;
     }
+    const incomingVersion = decision.version;
+    const incomingRespondedAt = decision.respondedAt;
 
-    // Step 10: check dead-inbox tombstone before any processing.
-    // If the author has retracted this talk (talkId::authorId in retracted), discard all answers.
-    const ledgerDoc = getTalkLedgerDoc();
-    const tombstoneKey = ledgerRetractedKey(payload.talkId, this.currentUser.id);
-    if (ledgerDoc.retracted[tombstoneKey]) {
-      const tombstone = ledgerDoc.retracted[tombstoneKey]!;
-      const answerMs = new Date(payload.respondedAt ?? payload.submittedAt).getTime();
-      if (answerMs < tombstone.retractedAt) {
-        console.debug(`[Step10] Discarding answer from ${payload.responderId} — talk retracted`);
-        return;
-      }
-    }
-
-    // Step 9: version-gate ingest via applyEvent.
-    // Read the prior outcome for this (responderId, talkId, authorId) from ledger.
-    const oKey = ledgerOutcomeKey(payload.responderId, payload.talkId, this.currentUser.id);
-    const priorOutcome = ledgerDoc.outcomes[oKey];
-    const incomingVersion = payload.version ?? 1;
-    const incomingRespondedAt = payload.respondedAt ?? payload.submittedAt;
-
-    if (priorOutcome) {
-      const identityKey = buildTalkIdentityKey(talkData);
-      // Use applyEvent to determine if this update should be accepted.
-      // Clone doc to avoid mutating the read copy before we know if it's accepted.
-      const testDoc = JSON.parse(JSON.stringify(ledgerDoc));
-      const isMatch = checkIfMatch(talkData, decrypted.answers);
-      const ledgerOutcome = isMatch ? 'matched' as const : 'ignored' as const;
-      const preApplyVersion = testDoc.outcomes[oKey]?.version ?? 0;
-      applyLedgerEvent(testDoc, {
-        kind: 'TALK_ANSWERED',
-        responderId: payload.responderId,
-        talkId: payload.talkId,
-        authorId: this.currentUser.id,
-        identityKey,
-        outcome: ledgerOutcome,
-        version: incomingVersion,
-        responseId: payload.responseId,
-        respondedAt: incomingRespondedAt,
-        now: new Date().toISOString(),
-      });
-      const postApplyVersion = testDoc.outcomes[oKey]?.version ?? 0;
-
-      // If applyEvent did not update the entry, this is stale/replay — reject.
-      if (postApplyVersion <= preApplyVersion && testDoc.outcomes[oKey]?.responseId === priorOutcome.responseId) {
-        console.debug(`[Step9] Rejecting stale/replay response from ${payload.responderId} version=${incomingVersion} (prior=${priorOutcome.version})`);
-        return;
-      }
-
+    if (decision.kind !== 'first') {
+      const isMatch = decision.isMatch;
       // Accepted: add to dedupeKey set, record exchange, and handle outcome flip.
       this.processedTalkResponseKeys.add(dedupeKey);
       this.recordLocalTalkExchange(
@@ -4671,11 +4546,9 @@ export class IinPublicApp {
         },
       );
 
-      const wasMatch = priorOutcome.outcome === 'matched';
-      const nowMatch = isMatch;
       const changedAt = incomingRespondedAt;
 
-      if (!wasMatch && nowMatch) {
+      if (decision.kind === 'now-match') {
         // ignore → match: create conversation. No auto-disable here — matches aren't
         // exclusive; the talk only disables once a Deal is mutually confirmed (see the
         // deal-confirmation flow).
@@ -4691,8 +4564,8 @@ export class IinPublicApp {
           talkId: payload.talkId,
           respondedByBotForUser1: !!decrypted.isChatbotResponse,
           respondedByBotForUser2: false,
-          dealEligible: this.isDealEligibleTalk(talkData),
-          ...this.matchScoreParamsFor(talkData, decrypted.answers),
+          dealEligible: isDealEligibleTalk(talkData),
+          ...matchScoreParamsFor(talkData, decrypted.answers),
         });
         this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
         this.recordConversationNeedKey(conversationId, talkData);
@@ -4705,8 +4578,8 @@ export class IinPublicApp {
           respondedByBot: !!decrypted.isChatbotResponse,
           transportMode: this.conversationService.getTransportMode(),
           changeOfMindAt: changedAt,
-          dealEligible: this.isDealEligibleTalk(talkData),
-          ...this.matchScoreParamsFor(talkData, decrypted.answers),
+          dealEligible: isDealEligibleTalk(talkData),
+          ...matchScoreParamsFor(talkData, decrypted.answers),
         });
         await this.autoShareMatchedTalkAttachments({
           conversationId,
@@ -4717,7 +4590,7 @@ export class IinPublicApp {
           talkData,
         });
         this.uiManager.setMemberMatched(payload.responderId);
-      } else if (wasMatch && !nowMatch) {
+      } else if (decision.kind === 'no-longer-match') {
         // match → ignore: mark conversation ended with status 'ignored'
         this.uiManager.showNotification(
           `${decrypted.responderName} changed their answer — no longer a match · ${new Date(changedAt).toLocaleTimeString()}`,
@@ -4730,14 +4603,14 @@ export class IinPublicApp {
         );
       } else {
         // Outcome unchanged (both match or both not-match) — version bumped but no flip
-        console.debug(`[Step9] Version bump from ${payload.responderId}: v${priorOutcome.version}→v${incomingVersion}, outcome unchanged (${priorOutcome.outcome})`);
+        console.debug(`[Step9] Version bump from ${payload.responderId}: v${decision.priorVersion}→v${incomingVersion}, outcome unchanged`);
       }
       return;
     }
 
     // No prior entry — first receipt (original flow from step 8)
     this.processedTalkResponseKeys.add(dedupeKey);
-    const isMatch = checkIfMatch(talkData, decrypted.answers);
+    const isMatch = decision.isMatch;
     // R-2: pass responseId/version/respondedAt for forward-compat (steps 8–11)
     this.recordLocalTalkExchange(
       payload.responderId,
@@ -4764,8 +4637,8 @@ export class IinPublicApp {
       talkId: payload.talkId,
       respondedByBotForUser1: !!decrypted.isChatbotResponse,
       respondedByBotForUser2: false,
-      dealEligible: this.isDealEligibleTalk(talkData),
-      ...this.matchScoreParamsFor(talkData, decrypted.answers),
+      dealEligible: isDealEligibleTalk(talkData),
+      ...matchScoreParamsFor(talkData, decrypted.answers),
     });
     this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
     this.recordConversationNeedKey(conversationId, talkData);
@@ -4777,8 +4650,8 @@ export class IinPublicApp {
       talkId: payload.talkId,
       respondedByBot: !!decrypted.isChatbotResponse,
       transportMode: this.conversationService.getTransportMode(),
-      dealEligible: this.isDealEligibleTalk(talkData),
-      ...this.matchScoreParamsFor(talkData, decrypted.answers),
+      dealEligible: isDealEligibleTalk(talkData),
+      ...matchScoreParamsFor(talkData, decrypted.answers),
     });
     // Match! toast after the conversation exists so clicking it navigates there (rule N6).
     this.uiManager.showNotification(
@@ -4795,28 +4668,6 @@ export class IinPublicApp {
       talkData,
     });
     this.uiManager.setMemberMatched(payload.responderId);
-  }
-
-  /** A talk that declares a Pair-tag question anywhere in its questions (spec §30.2 — taxi/
-   *  dealmaker/buy-sell style deals, `Question.reciprocalTagContext`) is deal-eligible: matches
-   *  against it aren't unique on their own (several compatible responders can each form a
-   *  conversation), so the conversation view offers an explicit "Confirm Deal" step, and
-   *  confirming on both sides is what finally closes the listing. Plain talks with no Pair-tag
-   *  question (surveys, generic flows) never show deal UI and can match repeatedly with no
-   *  finalization step, same as before this existed. */
-  private isDealEligibleTalk(talkData: any): boolean {
-    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
-    return questions.some((q: any) => q?.reciprocalTagContext === true);
-  }
-
-  /** Route `matchThreshold` scoring result (spec §30.2) for a confirmed match, if applicable —
-   *  threaded into `createConversation`/`addNewConversation` so the talk owner's "Matched
-   *  items" list (`renderCreatorReplies`, ui-manager.ts) can sort/display it. Empty object for
-   *  anything other than a matchThreshold route (ordinary flow/tag talks, or routes without
-   *  `matchThreshold` set) — the conversation record simply carries no score fields. */
-  private matchScoreParamsFor(talkData: any, answers: any[]): { matchScore?: number; matchTotal?: number } {
-    const result = computeRouteMatchScore(talkData, answers);
-    return result ? { matchScore: result.score, matchTotal: result.total } : {};
   }
 
   /**
@@ -4839,42 +4690,15 @@ export class IinPublicApp {
    * the author-side call sites above know it.
    */
   private recordMyDealTalkForConversation(conversationId: string, talkId: string, talkData: any): void {
-    if (!conversationId || !talkId || !this.isDealEligibleTalk(talkData)) return;
-    try {
-      const raw = localStorage.getItem('myDealTalkByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      map[conversationId] = talkId;
-      localStorage.setItem('myDealTalkByConversation', JSON.stringify(map));
-    } catch {
-      // Best-effort only; maybeFinalizeConfirmedDeal falls back to disabling every outstanding
-      // deal-eligible talk when this lookup comes up empty.
-    }
+    if (!conversationId || !talkId || !isDealEligibleTalk(talkData)) return;
+    // Kept in the device core (OPEN-91 P3). When it is missing, maybeFinalizeConfirmedDeal falls
+    // back to disabling every outstanding deal-eligible talk.
+    dealTalkByConversationView.set({ [conversationId]: talkId });
   }
 
   private myDealTalkForConversation(conversationId: string): string | undefined {
-    try {
-      const raw = localStorage.getItem('myDealTalkByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      const talkId = map?.[conversationId];
-      return typeof talkId === 'string' && talkId ? talkId : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /** True once BOTH participants have confirmed the deal on this conversation record. */
-  private isDealMutuallyConfirmed(conv: any, userIdA: string, userIdB: string): boolean {
-    if (typeof conv?.dealConfirmedByJson !== 'string') return false;
-    try {
-      const dealConfirmedBy = JSON.parse(conv.dealConfirmedByJson);
-      return (
-        Array.isArray(dealConfirmedBy) &&
-        dealConfirmedBy.includes(userIdA) &&
-        dealConfirmedBy.includes(userIdB)
-      );
-    } catch {
-      return false;
-    }
+    const talkId = dealTalkByConversationView.get(conversationId);
+    return typeof talkId === 'string' && talkId ? talkId : undefined;
   }
 
   /**
@@ -4891,32 +4715,15 @@ export class IinPublicApp {
    * describes is the matched CONTENT, not who authored it.
    */
   private recordConversationNeedKey(conversationId: string, talkData: any): void {
-    if (!conversationId || !this.isDealEligibleTalk(talkData)) return;
-    try {
-      const raw = localStorage.getItem('conversationNeedKeyByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      map[conversationId] = buildTalkIdentityKey(talkData);
-      localStorage.setItem('conversationNeedKeyByConversation', JSON.stringify(map));
-    } catch {
-      // Best-effort only; maybeFinalizeConfirmedDeal simply has nothing to group by when this
-      // lookup comes up empty, same fallback shape as the sibling deal-talk map.
-    }
+    if (!conversationId || !isDealEligibleTalk(talkData)) return;
+    // Kept in the device core (OPEN-91 P3); when missing, maybeFinalizeConfirmedDeal has nothing
+    // to group by, the same fallback as the sibling deal-talk map.
+    needKeyByConversationView.set({ [conversationId]: buildTalkIdentityKey(talkData) });
   }
 
   /** Every conversationId → needKey pair recorded so far (see recordConversationNeedKey). */
   private allConversationNeedKeys(): Record<string, string> {
-    try {
-      const raw = localStorage.getItem('conversationNeedKeyByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      return map && typeof map === 'object' ? map : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private needKeyForConversation(conversationId: string): string | undefined {
-    const needKey = this.allConversationNeedKeys()[conversationId];
-    return typeof needKey === 'string' && needKey ? needKey : undefined;
+    return needKeyByConversationView.all();
   }
 
   /**
@@ -4957,31 +4764,20 @@ export class IinPublicApp {
 
   private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string, conversationId?: string): void {
     if (!this.currentUser?.id || !otherUserId) return;
-    const bothConfirmed =
-      dealConfirmedBy.includes(this.currentUser.id) && dealConfirmedBy.includes(otherUserId);
-    if (!bothConfirmed) return;
-
-    const myTalks = getMyTalks();
-    const myDealEligibleTalkIds = new Set<string>();
-    const myActiveDealEligibleTalkIds = new Set<string>();
-    for (const [talkId, entry] of Object.entries(myTalks) as Array<[string, any]>) {
-      if (!entry || entry.role !== 'created') continue;
-      const fullTalk = entry.fullTalk || entry;
-      if (!this.isDealEligibleTalk(fullTalk)) continue;
-      myDealEligibleTalkIds.add(talkId);
-      if (!entry.disabled) myActiveDealEligibleTalkIds.add(talkId);
-    }
-
-    // Re-invocation is expected and idempotent (both the local confirmDeal click handler and
-    // the Gun-sync echo of that same write can each call this once "both confirmed" becomes
-    // true) — recognizing the recorded talk even after IT has already been disabled keeps a
-    // repeat call a no-op instead of misreading "nothing left to narrow to" and falling back to
-    // disabling every other still-active listing.
-    const recordedTalkId = conversationId ? this.myDealTalkForConversation(conversationId) : undefined;
-    const talkIdsToDisable =
-      recordedTalkId && myDealEligibleTalkIds.has(recordedTalkId)
-        ? [recordedTalkId]
-        : Array.from(myActiveDealEligibleTalkIds);
+    // The plan is the core's (src/core/deal-finalization.ts); this carries it out. A repeat call
+    // (the click, then its sync echo) plans the same recorded Talk again and changes nothing more.
+    const plan = planDealFinalization({
+      myId: this.currentUser.id,
+      otherUserId,
+      dealConfirmedBy,
+      ...(conversationId ? { conversationId } : {}),
+      myTalks: getMyTalks(),
+      ...(conversationId && this.myDealTalkForConversation(conversationId) ? { recordedTalkId: this.myDealTalkForConversation(conversationId)! } : {}),
+      needKeys: this.allConversationNeedKeys(),
+      isDealEligible: (talk) => isDealEligibleTalk(talk),
+    });
+    if (!plan) return;
+    const talkIdsToDisable = plan.talkIdsToDisable;
 
     // `setTalkDisabled(talkId, true)` floods a hard-retraction event
     // (talk-broadcast-toggle.ts emits 'retractTalk'), which `handleRetractTalk` handles by
@@ -5009,17 +4805,8 @@ export class IinPublicApp {
     }
     // Rule 2: other of my conversations matched on the SAME content-hash "need", regardless of
     // which different author's talkId produced them.
-    if (conversationId) {
-      const needKey = this.needKeyForConversation(conversationId);
-      if (needKey) {
-        const allNeedKeys = this.allConversationNeedKeys();
-        const otherConversationIds = Object.keys(allNeedKeys).filter(
-          (id) => id !== conversationId && allNeedKeys[id] === needKey,
-        );
-        if (otherConversationIds.length > 0) {
-          this.uiManager.markConversationsSupersededByIds(otherConversationIds, changedAt);
-        }
-      }
+    if (plan.supersededConversationIds.length > 0) {
+      this.uiManager.markConversationsSupersededByIds(plan.supersededConversationIds, changedAt);
     }
   }
 
@@ -5080,10 +4867,10 @@ export class IinPublicApp {
     // broadcast that produced it must never retroactively invalidate it.
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
     for (const [conversationId, conv] of Object.entries(allConversations)) {
-      if (this.conversationReferencesTalk(conv, talkId)) {
+      if (conversationReferencesTalk(conv, talkId)) {
         const otherUserId = String((conv as any).otherUserId || '');
         if (this.mutuallyConfirmedConversationIds.has(conversationId)) continue;
-        if (this.isDealMutuallyConfirmed(conv, authorId, otherUserId)) continue;
+        if (isDealMutuallyConfirmed(conv, authorId, otherUserId)) continue;
         this.uiManager.markConversationWithdrawn(
           otherUserId,
           talkId,
@@ -5114,10 +4901,16 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return;
     // authorId check is already done in PeerMeshService.handleLocalFrame before firing this callback.
 
-    const existingRetraction = getTalkLedgerDoc().retracted[
-      ledgerRetractedKey(payload.talkId, payload.authorId)
-    ];
-    const isNewRetraction = !existingRetraction || payload.retractedAt > existingRetraction.retractedAt;
+    // What it changes is the core's (src/core/retraction.ts); read before the tombstone is written.
+    const receipt = planRetractionReceipt({
+      ledger: getTalkLedgerDoc(),
+      talkId: payload.talkId,
+      authorId: payload.authorId,
+      retractedAt: payload.retractedAt,
+      myId: this.currentUser.id,
+      conversations: this.uiManager.getMyConversations() as Record<string, any>,
+      confirmedThisSession: this.mutuallyConfirmedConversationIds,
+    });
 
     // 1. Write tombstone to local ledger.
     applyTalkLedgerEvent({
@@ -5129,7 +4922,7 @@ export class IinPublicApp {
 
     // 2. Surface each semantic retraction once. Mesh and mailbox delivery can replay the same
     // frame; the durable ledger timestamp is the idempotency boundary across reloads too.
-    if (isNewRetraction) {
+    if (receipt.isNew) {
       this.uiManager.showNotification(
         `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
         'info',
@@ -5141,18 +4934,8 @@ export class IinPublicApp {
     // is already mutually confirmed (see handleRetractTalk's matching guard/comment: a
     // finalized match is a successful outcome, never retroactively invalidated by the
     // retraction that produced it).
-    const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
-    for (const [conversationId, conv] of Object.entries(allConversations)) {
-      if (this.conversationReferencesTalk(conv, payload.talkId) && (conv as any).otherUserId === payload.authorId) {
-        if (this.mutuallyConfirmedConversationIds.has(conversationId)) break;
-        if (this.isDealMutuallyConfirmed(conv, this.currentUser.id, payload.authorId)) break;
-        this.uiManager.markConversationWithdrawn(
-          payload.authorId,
-          payload.talkId,
-          payload.retractedAt,
-        );
-        break;
-      }
+    if (receipt.withdraw) {
+      this.uiManager.markConversationWithdrawn(payload.authorId, payload.talkId, payload.retractedAt);
     }
   }
 
@@ -5171,16 +4954,8 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return;
 
-    // Collect distinct responders from the conversations store for this talkId.
-    const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
-    const responderIds = new Set<string>();
-    for (const [, conv] of Object.entries(allConversations)) {
-      const otherId = String((conv as any).otherUserId || '');
-      if (this.conversationReferencesTalk(conv, talkId) && otherId && otherId !== authorId) {
-        responderIds.add(otherId);
-      }
-    }
-    if (responderIds.size === 0) return;
+    const responderIds = retractionRecipients(this.uiManager.getMyConversations() as Record<string, any>, talkId, authorId);
+    if (responderIds.length === 0) return;
 
     const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
     for (const responderId of responderIds) {
@@ -5199,23 +4974,6 @@ export class IinPublicApp {
         console.warn('[Retraction] Failed to post mailbox envelope for', responderId, ':', err);
       }
     }
-  }
-
-  private conversationReferencesTalk(conversation: any, talkId: string): boolean {
-    if (!conversation || !talkId) return false;
-    if (String(conversation.talkId || '') === talkId) return true;
-    if (Array.isArray(conversation.relatedTalkIds)) {
-      if (conversation.relatedTalkIds.some((id: unknown) => String(id || '') === talkId)) return true;
-    }
-    if (typeof conversation.relatedTalkIdsJson === 'string') {
-      try {
-        const parsed = JSON.parse(conversation.relatedTalkIdsJson);
-        return Array.isArray(parsed) && parsed.some((id) => String(id || '') === talkId);
-      } catch {
-        return false;
-      }
-    }
-    return false;
   }
 
   /**
@@ -5525,7 +5283,7 @@ export class IinPublicApp {
 
   private loadDelegateOptInFromStorage(): boolean {
     try {
-      return localStorage.getItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY) === '1';
+      return settingsStorage.getItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY) === '1';
     } catch {
       return false;
     }
@@ -5533,8 +5291,8 @@ export class IinPublicApp {
 
   private persistDelegateOptIn(optedIn: boolean): void {
     try {
-      if (optedIn) localStorage.setItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY, '1');
-      else localStorage.removeItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY);
+      if (optedIn) settingsStorage.setItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY, '1');
+      else settingsStorage.removeItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY);
     } catch {
       /* best-effort persistence only */
     }
@@ -5734,7 +5492,7 @@ export class IinPublicApp {
 
   private loadTargetedDelegateInvites(): Map<string, TargetedDelegateInvite> {
     try {
-      const raw = JSON.parse(localStorage.getItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
+      const raw = JSON.parse(settingsStorage.getItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
       const live = (Array.isArray(raw) ? raw : []).filter(
         (i: TargetedDelegateInvite) => i && typeof i.requestId === 'string' && !isDelegateInviteExpired(i),
       );
@@ -5747,7 +5505,7 @@ export class IinPublicApp {
   private persistTargetedDelegateInvites(): void {
     try {
       const live = [...this.targetedDelegateInvites.values()].filter((i) => !isDelegateInviteExpired(i));
-      localStorage.setItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(live));
+      settingsStorage.setItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(live));
     } catch {
       /* best-effort persistence only */
     }
@@ -5770,7 +5528,7 @@ export class IinPublicApp {
 
   private readHandledDelegateInvites(): string[] {
     try {
-      const raw = JSON.parse(localStorage.getItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
+      const raw = JSON.parse(settingsStorage.getItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
       return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
     } catch {
       return [];
@@ -5780,7 +5538,7 @@ export class IinPublicApp {
   private markDelegateInviteHandled(requestId: string): void {
     try {
       const next = [...this.readHandledDelegateInvites().filter((id) => id !== requestId), requestId].slice(-20);
-      localStorage.setItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(next));
+      settingsStorage.setItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(next));
     } catch {
       /* best-effort persistence only */
     }
@@ -6125,10 +5883,10 @@ export class IinPublicApp {
   }
 
   private loadTravelModeStateFromStorage(): void {
-    const travel = localStorage.getItem('iinpublic_travel_room') || undefined;
+    const travel = settingsStorage.getItem('iinpublic_travel_room') || undefined;
     let nearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
     try {
-      const raw = JSON.parse(localStorage.getItem('iinpublic_travel_nearby_point') || 'null') as any;
+      const raw = JSON.parse(settingsStorage.getItem('iinpublic_travel_nearby_point') || 'null') as any;
       const latitude = Number(raw?.latitude);
       const longitude = Number(raw?.longitude);
       if (Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
@@ -6165,20 +5923,20 @@ export class IinPublicApp {
   }
 
   private persistTravelModeStateToStorage(): void {
-    localStorage.setItem('iinpublic_travel_mode', this.travelModeActive ? '1' : '0');
-    if (this.travelHomeChatroomId) localStorage.setItem('iinpublic_travel_home', this.travelHomeChatroomId);
-    else localStorage.removeItem('iinpublic_travel_home');
-    if (this.travelChatroomId) localStorage.setItem('iinpublic_travel_room', this.travelChatroomId);
-    else localStorage.removeItem('iinpublic_travel_room');
+    settingsStorage.setItem('iinpublic_travel_mode', this.travelModeActive ? '1' : '0');
+    if (this.travelHomeChatroomId) settingsStorage.setItem('iinpublic_travel_home', this.travelHomeChatroomId);
+    else settingsStorage.removeItem('iinpublic_travel_home');
+    if (this.travelChatroomId) settingsStorage.setItem('iinpublic_travel_room', this.travelChatroomId);
+    else settingsStorage.removeItem('iinpublic_travel_room');
     if (this.travelNearbyPoint) {
-      localStorage.setItem('iinpublic_travel_nearby_point', JSON.stringify({
+      settingsStorage.setItem('iinpublic_travel_nearby_point', JSON.stringify({
         latitude: this.travelNearbyPoint.latitude,
         longitude: this.travelNearbyPoint.longitude,
         placeId: this.travelNearbyPoint.placeId,
         placeName: this.travelNearbyPoint.placeName,
       }));
     } else {
-      localStorage.removeItem('iinpublic_travel_nearby_point');
+      settingsStorage.removeItem('iinpublic_travel_nearby_point');
     }
   }
 
@@ -6217,30 +5975,6 @@ export class IinPublicApp {
     );
   }
 
-  /** `talkId::authorId::contentIdentity` — one key per revision of a talk from one author. */
-  private talkRevisionPairKey(talkId: string, authorId: string, talkData: unknown): string {
-    let content = '';
-    try {
-      // OPEN-45: the full revision (content + title + routing), so an in-place routing or title
-      // update is ingested too, not dropped as already delivered.
-      content = talkData ? computeTalkRevisionHash(talkData) : '';
-    } catch {
-      /* unidentifiable body: fall back to the per-talk key */
-    }
-    return `${talkId}::${authorId}::${content}`;
-  }
-
-  /**
-   * Already answered for THIS author on this device (manually, or by an earlier chatbot pass) —
-   * the response was sent then; never re-answer it or relabel a manual answer as 🤖. The same
-   * content announced by a different person is still auto-answered for them.
-   */
-  private alreadyAnsweredForAuthor(contentId: string, authorId: string): boolean {
-    const answeredTalkId = contentId ? getAnsweredTalkByContent()[contentId] : undefined;
-    const answeredSenders = answeredTalkId ? getMyTalks()[answeredTalkId]?.senders || [] : [];
-    return answeredSenders.includes(authorId);
-  }
-
   private chatbotHasAnswersFor(talkId: string, contentId: string, talkData: any): boolean {
     return !!this.uiManager.getChatbotTemplate(talkId)
       || (!!contentId && contentId !== talkId && !!this.uiManager.getChatbotTemplate(contentId))
@@ -6252,26 +5986,19 @@ export class IinPublicApp {
    * "answered automatically" instead of a "New talk" notice that implies they must act.
    */
   private chatbotWillAnswer(talkId: string, talkData: any, authorId: string): boolean {
-    if (!authorId || authorId === this.currentUser?.id || !this.uiManager.getChatbotEnabled()) return false;
-    if (this.chatbotAutoReplySentForPair.has(this.talkRevisionPairKey(talkId, authorId, talkData))) return false;
-    let contentId = '';
-    try {
-      contentId = computeTalkIdFromTalkData(talkData);
-    } catch {
-      return false;
-    }
-    return !this.alreadyAnsweredForAuthor(contentId, authorId)
-      && (this.chatbotHasAnswersFor(talkId, contentId, talkData) || this.isPassedTag(talkData));
+    return chatbotWillAct(this.chatbotReplyDecision(talkId, talkData, authorId));
   }
 
-  /** A one-keyword tag whose keyword the user passed (a suppressed question in exact memory). */
-  private isPassedTag(talkData: any): boolean {
-    const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
-    if (String(talkData?.type || '').toLowerCase() !== 'tag' || questions.length !== 1 || !questions[0]?.text) return false;
-    const options = (questions[0].answers || []).map((answer: any) => String(answer?.text || ''));
-    return findAutoAnswer(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, String(questions[0].text), options, Date.now(), {
-      language: String(talkData?.language || 'en').toLowerCase(),
-    }).reason === 'QUESTION_SUPPRESSED';
+  /** The core's rule (src/core/chatbot-reply.ts) over this app's chatbot state. */
+  private chatbotReplyDecision(talkId: string, talkData: any, authorId: string): ChatbotReplyDecision {
+    return decideChatbotReply(authorId, this.currentUser?.id, {
+      enabled: () => this.uiManager.getChatbotEnabled(),
+      handled: () => this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData)),
+      contentId: () => computeTalkIdFromTalkData(talkData),
+      answeredBefore: (contentId) => answeredBeforeFor(contentId, authorId, getAnsweredTalkByContent(), getMyTalks()),
+      hasAnswers: (contentId) => this.chatbotHasAnswersFor(talkId, contentId, talkData),
+      passedTag: () => isPassedTag(talkData, getExactChatbotMemory(), Date.now()),
+    });
   }
 
   /**
@@ -6284,23 +6011,14 @@ export class IinPublicApp {
     authorId: string,
     authorName: string,
   ): void {
-    if (!authorId || authorId === this.currentUser?.id) return;
-    const pairKey = this.talkRevisionPairKey(talkId, authorId, talkData);
-    if (this.chatbotAutoReplySentForPair.has(pairKey)) {
-      console.log('🤖 Chatbot auto-reply skipped: pair already handled', { pairKey });
+    const pairKey = talkRevisionPairKey(talkId, authorId, talkData);
+    const decision = this.chatbotReplyDecision(talkId, talkData, authorId);
+    if (decision.act === 'skip') {
+      if (decision.reason !== 'self') console.log(`🤖 Chatbot auto-reply skipped: ${decision.reason}`, { talkId, authorId });
       return;
     }
-    if (!this.uiManager.getChatbotEnabled()) {
-      console.log('🤖 Chatbot auto-reply skipped: chatbot disabled', { talkId, authorId });
-      return;
-    }
-    const contentId = computeTalkIdFromTalkData(talkData);
-    if (this.alreadyAnsweredForAuthor(contentId, authorId)) {
-      console.log('🤖 Chatbot auto-reply skipped: content already answered', { talkId, contentId });
-      return;
-    }
-    const canAuto = this.chatbotHasAnswersFor(talkId, contentId, talkData);
-    if (!canAuto && this.isPassedTag(talkData)) {
+    const contentId = decision.contentId;
+    if (decision.act === 'pass') {
       // A tag the user passed, sent again by someone: pass it again. A pass is a talk-level
       // opt-out, so nothing goes back to the sender — only the user's list records it (🤖).
       this.chatbotAutoReplySentForPair.add(pairKey);
@@ -6314,7 +6032,7 @@ export class IinPublicApp {
       );
       return;
     }
-    if (!canAuto) {
+    if (decision.act === 'wait') {
       const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
       if (retries < 6) {
         this.chatbotAutoReplyRetryCountByPair.set(pairKey, retries + 1);
@@ -6398,6 +6116,65 @@ export class IinPublicApp {
     }, delayMs);
   }
 
+  /**
+   * Stores a delivery record in the device core (OPEN-91 P2). Never throws: the record is crash
+   * recovery, and the response still goes out over the mesh or the mailbox without it.
+   */
+  private async coreDelivery(request: Extract<CoreRequest, { name: 'delivery.putSentResponse' | 'delivery.record' }>): Promise<void> {
+    if (!this.gunService.isBridgeReady()) {
+      console.warn(`[delivery] device core unavailable, not stored: ${request.name}`);
+      return;
+    }
+    try {
+      await this.gunService.getBridge().core(request);
+    } catch (error) {
+      console.warn(`[delivery] device core write failed: ${request.name}`, error);
+    }
+  }
+
+  /**
+   * Connects the GUI's exchange view to the device core's log (OPEN-88 part 2, OPEN-91 P1) and loads
+   * it. Waits at most 5 s; a later snapshot still lands, and the open Contacts or Me tab redraws.
+   * Without the worker the view keeps exchanges in memory for this session.
+   */
+  private async connectExchangeLog(): Promise<void> {
+    if (!this.gunService.isBridgeReady()) return;
+    const bridge = this.gunService.getBridge();
+    const link = {
+      snapshot: () => bridge.core({ name: 'exchanges.snapshot' }),
+      upsert: (records: Parameters<typeof upsertExchange>[0][]) => bridge.core({ name: 'exchanges.upsert', records }),
+      removePeers: (peerIds: string[]) => bridge.core({ name: 'exchanges.removePeers', peerIds }),
+    };
+    const collections = {
+      snapshot: (collection: CoreCollection) => bridge.core({ name: 'collection.snapshot', collection }),
+      upsert: (collection: CoreCollection, entries: Record<string, unknown>) => bridge.core({ name: 'collection.upsert', collection, entries }),
+      remove: (collection: CoreCollection, keys: string[]) => bridge.core({ name: 'collection.remove', collection, keys }),
+    };
+    // Storage busy at start-up (a slow device, a loaded machine) is retried, never taken for "no exchanges".
+    const loaded = (async () => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await Promise.all([connectExchangeCore(link), connectCoreCollections(collections)]);
+          return;
+        } catch (error) {
+          if (attempt >= 6) {
+            console.warn('[exchanges] could not load the exchange log:', error);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+        }
+      }
+    })();
+    const inTime = await Promise.race([loaded.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000))]);
+    if (inTime) return;
+    void loaded.then(() => {
+      this.loadAttachmentShareSentIds();
+      restoreCreatorReplyFilterState();
+      if (document.querySelector('.nav-btn[data-view="contacts"]')?.classList.contains('active')) this.uiManager.displayContactsList();
+      if (document.querySelector('.nav-btn[data-view="me"]')?.classList.contains('active')) this.uiManager.displayAnswersList();
+    });
+  }
+
   private recordLocalTalkExchange(
     peerId: string,
     peerName: string,
@@ -6414,12 +6191,6 @@ export class IinPublicApp {
     },
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
-    // Domain-event bridge for this pre-core branch, independent of the legacy write below.
-    // Once a core view is attached, it owns counts and this session projection is ignored.
-    this.mapMatchView.observeExchange({
-      peerId, talkId, outcome, direction: meta?.direction ?? 'sent',
-      ...(meta?.version !== undefined ? { revision: meta.version } : {}),
-    });
     console.log(`[RESP-RECORD] talk=${talkId.slice(-8)} peer=${peerId.slice(0, 8)} outcome=${outcome} dir=${meta?.direction || 'sent'}`);
     // A new exchange brings a pruned person back; the cap is checked again shortly after.
     unprunePeer(peerId);
@@ -6427,111 +6198,33 @@ export class IinPublicApp {
     const collectionTag = meta?.direction === 'received'
       ? null
       : recordMatchCollectionExchange(peerId, talkId, outcome);
+    // What it records is the core's (src/core/exchange-recording.ts); this writes it. The exchange
+    // log lives in the device core's Gun (OPEN-88, OPEN-91 P1) and the GUI's view updates at once.
+    const input = {
+      peerId,
+      peerName,
+      talkId,
+      talkData,
+      outcome,
+      ...(meta ? { meta } : {}),
+      ...(this.currentChatroomId ? { room: { roomId: this.currentChatroomId, roomName: this.getChatroomDisplayName(this.currentChatroomId) } } : {}),
+      collectionTag,
+      nowIso: new Date().toISOString(),
+    };
+    upsertExchange(exchangeRecordFor(input));
+    const ledger = authorLedgerWritesFor(input, this.currentUser.id);
+    if (!ledger) return;
     try {
-      const raw = localStorage.getItem('localTalkExchanges');
-      const exchanges = raw ? JSON.parse(raw) : {};
-      // One record per direction (OPEN-88): a tag I sent them and the same tag they sent me are two
-      // exchanges, each with its own outcome and place — not one overwriting the other.
-      const key = `${peerId}::${talkId}::${meta?.direction || 'sent'}`;
-      exchanges[key] = {
-        ...(exchanges[key] || {}),
-        peerId,
-        peerName: String(peerName || 'Unknown'),
-        talkId,
-        title: String(talkData?.title || 'Talk'),
-        type: String(talkData?.type || 'flow'),
-        language: String(talkData?.language || 'en'),
-        outcome,
-        direction: meta?.direction || 'sent',
-        date: new Date().toISOString(),
-        // Where it happened (OPEN-89): a place leads to what was exchanged there, and back.
-        ...(this.currentChatroomId ? { roomId: this.currentChatroomId, roomName: this.getChatroomDisplayName(this.currentChatroomId) } : {}),
-        answerMode: meta?.answers ? 'manual' : (exchanges[key]?.answerMode || 'manual'),
-        ...(meta?.answers ? { answers: meta.answers } : {}),
-        // R-2: forward-compat fields — inert in step 4, used by steps 8–11
-        ...(meta?.responseId ? { responseId: meta.responseId } : {}),
-        ...(meta?.version !== undefined ? { version: meta.version } : {}),
-        ...(meta?.respondedAt ? { respondedAt: meta.respondedAt } : {}),
-        ...(collectionTag || {}),
-      };
-      localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
-    } catch {
-      // Local exchange summaries only support UI fallbacks; ignore storage failures.
-    }
-
-    // A received talk answered by this user is already recorded as a responder-side
-    // exchange by submitTalkResponsePairDirect. Writing the author-side projection here
-    // would reuse the same peer::identity key and erase change-of-mind fanout targets.
-    if (meta?.direction === 'received') return;
-
-    // Step 8: co-write to the talk ledger (author outcome + exchanged entry).
-    // Map outcome vocabulary: 'match' → 'matched', 'mismatch'|'ignore' → 'ignored'.
-    try {
-      const ledgerOutcome = outcome === 'match' ? 'matched' : 'ignored';
-      const wholeTalkIdentityKey = buildTalkIdentityKey(talkData);
-      const identityKeys = outcome === 'match'
-        ? this.selectedTalkIdentityKeys(talkData, meta?.answers)
-        : [wholeTalkIdentityKey];
-      const authorId = this.currentUser!.id;
-      const nowIso = new Date().toISOString();
-      applyTalkLedgerEvent({
-        kind: 'TALK_ANSWERED',
-        responderId: peerId,
-        talkId,
-        authorId,
-        identityKey: wholeTalkIdentityKey,
-        outcome: ledgerOutcome,
-        version: meta?.version ?? 1,
-        responseId: meta?.responseId ?? `resp_${talkId}_${peerId}`,
-        respondedAt: meta?.respondedAt ?? nowIso,
-        now: nowIso,
-      });
-      writeAuthorExchangedEntries({
-        responderId: peerId,
-        identityKeys,
-        outcome: ledgerOutcome,
-        version: meta?.version ?? 1,
-        respondedAt: meta?.respondedAt ?? nowIso,
-      });
+      applyTalkLedgerEvent(ledger.event);
+      writeAuthorExchangedEntries(ledger.exchanged);
     } catch {
       // Ledger write failures are non-fatal — suppression misses cost one redundant send.
     }
   }
 
-  private selectedTalkIdentityKeys(talkData: any, answers?: any[]): string[] {
-    const wholeTalkIdentityKey = buildTalkIdentityKey(talkData);
-    if (talkData?.type !== 'tag' || !Array.isArray(answers)) return [wholeTalkIdentityKey];
-    const selectedAnswerIds = new Set(
-      answers.map((answer: any) => String(answer?.answerId || '')).filter(Boolean),
-    );
-    const selectedAnswerTexts = new Set(
-      answers.map((answer: any) => String(answer?.answerText || '').trim().toLowerCase()).filter(Boolean),
-    );
-    const selectedTalk = {
-      ...talkData,
-      questions: Array.isArray(talkData?.questions)
-        ? talkData.questions.map((question: any, index: number) => index === 0
-          ? {
-              ...question,
-              answers: (Array.isArray(question?.answers) ? question.answers : []).filter((answer: any) =>
-                selectedAnswerIds.has(String(answer?.id || '')) ||
-                selectedAnswerTexts.has(String(answer?.text || '').trim().toLowerCase()),
-              ),
-            }
-          : question)
-        : [],
-    };
-    return buildTagIdentityKeys(selectedTalk, wholeTalkIdentityKey);
-  }
-
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
     if (!usesMeshTalkDelivery(this.p2pRuntimeFlags) || !this.currentUser?.id) return;
-    let myTalks: Record<string, any> = {};
-    try {
-      myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-    } catch {
-      myTalks = {};
-    }
+    const myTalks: Record<string, any> = getMyTalks();
     const createdTalks = Object.entries(myTalks)
       .filter(([, entry]: [string, any]) => entry?.role === 'created')
       .map(([talkId, entry]: [string, any]) => ({
@@ -6602,15 +6295,6 @@ export class IinPublicApp {
     return [String(userA || '').trim(), String(userB || '').trim()].sort().join('__');
   }
 
-  private pairTalkPeerEpubHint(...values: unknown[]): string | undefined {
-    for (const value of values) {
-      if (typeof value !== 'string') continue;
-      const trimmed = value.trim();
-      if (trimmed) return trimmed;
-    }
-    return undefined;
-  }
-
   /**
    * Roster records now carry each member's public encryption key (see the membership
    * heartbeat) — harvest them into the epub cache on every roster update so encrypting FOR
@@ -6631,7 +6315,7 @@ export class IinPublicApp {
   }
 
   private async resolvePeerEpub(peerUserId: string, hint?: string): Promise<string> {
-    const hinted = this.pairTalkPeerEpubHint(hint);
+    const hinted = firstKeyHint(hint);
     if (hinted) {
       this.peerEpubByUserId.set(peerUserId, hinted);
       return hinted;
@@ -6692,13 +6376,18 @@ export class IinPublicApp {
   }
 
   private async getPairTalkResponseSecret(peerUserId: string, peerEpubHint?: string): Promise<string> {
-    const pair = this.gunService.getStoredPair();
-    if (!pair) {
-      throw new Error('No SEA keypair is available for pair-private talk response');
-    }
-    const epub = await this.resolvePeerEpub(peerUserId, peerEpubHint);
-    if (!epub) throw new Error(`Peer ${peerUserId} has no public encryption key`);
-    return getSEA().secret(epub, pair as GunPair);
+    // The protocol is the core's (src/core/pair-response-crypto.ts).
+    const pair = this.gunService.getStoredPair() as SeaSigningPair | null;
+    return pairSecret(this.seaPort(), pair, peerUserId, await this.resolvePeerEpub(peerUserId, peerEpubHint));
+  }
+
+  private seaPort(): SeaPort {
+    const sea = getSEA();
+    return {
+      secret: (epub, pair) => sea.secret(epub, pair as GunPair),
+      encrypt: (data, secret) => sea.encrypt(data, secret),
+      decrypt: (data, secret) => sea.decrypt(data, secret),
+    };
   }
 
   private async encryptPairTalkResponsePayload(
@@ -6706,46 +6395,18 @@ export class IinPublicApp {
     payload: Record<string, unknown>,
     peerEpubHint?: string,
   ): Promise<string> {
-    const secret = await this.getPairTalkResponseSecret(peerUserId, peerEpubHint);
-    return getSEA().encrypt(JSON.stringify(payload), secret);
+    const pair = this.gunService.getStoredPair() as SeaSigningPair | null;
+    return encryptPairResponse(this.seaPort(), pair, peerUserId, await this.resolvePeerEpub(peerUserId, peerEpubHint), payload);
   }
 
-  private async decryptPairTalkResponsePayload(responseData: any): Promise<{
-    responderName: string;
-    authorName: string;
-    answers: any[];
-    isChatbotResponse: boolean;
-  }> {
-    if (responseData?.payloadCiphertext) {
-      const peerId = String(responseData.responderId || responseData.authorId || '');
-      // Inline key material first: a response that carries the responder's epub decrypts
-      // with zero lookups (and seeds the cache for everything else about this peer).
-      const inlineEpub = typeof responseData.responderEpub === 'string' ? responseData.responderEpub.trim() : '';
-      if (inlineEpub && peerId === String(responseData.responderId || '')) {
-        this.peerEpubByUserId.set(peerId, inlineEpub);
-      }
-      const secret = await this.getPairTalkResponseSecret(peerId, inlineEpub || undefined);
-      const decrypted = await getSEA().decrypt(String(responseData.payloadCiphertext), secret);
-      if (!decrypted) {
-        throw new Error('Pair talk response payload could not be decrypted');
-      }
-      const payload = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
-      return {
-        responderName: String(payload.responderName || responseData.responderId || 'Unknown'),
-        authorName: String(payload.authorName || responseData.authorId || 'Unknown'),
-        answers: Array.isArray(payload.answers) ? payload.answers : JSON.parse(String(payload.answers || '[]')),
-        isChatbotResponse: !!payload.isChatbotResponse,
-      };
-    }
-
-    return {
-      responderName: String(responseData.responderName || responseData.responderId || 'Unknown'),
-      authorName: String(responseData.authorName || responseData.authorId || 'Unknown'),
-      answers: Array.isArray(responseData.answers)
-        ? responseData.answers
-        : JSON.parse(String(responseData.answers || '[]')),
-      isChatbotResponse: !!responseData.isChatbotResponse,
-    };
+  private async decryptPairTalkResponsePayload(responseData: any): Promise<PairResponseContent> {
+    return decodePairResponse(
+      this.seaPort(),
+      this.gunService.getStoredPair() as SeaSigningPair | null,
+      responseData,
+      (peerId, hint) => this.resolvePeerEpub(peerId, hint),
+      (peerId, epub) => this.peerEpubByUserId.set(peerId, epub),
+    );
   }
 
   /**
@@ -7190,7 +6851,7 @@ export class IinPublicApp {
           respondedAt: new Date().toISOString(),
         },
       );
-      const pairKey = this.talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
+      const pairKey = talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
       this.chatbotAutoReplySentForPair.add(pairKey);
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
       return;
@@ -7229,7 +6890,7 @@ export class IinPublicApp {
     // A manual response already handled this sender/talk pair. Do not let later Gun replays
     // or duplicate room announcements trigger a chatbot follow-up to the same announcer.
     if (!isChatbot && this.currentUser?.id && data.talkData?.authorId) {
-      const pairKey = this.talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
+      const pairKey = talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
       this.chatbotAutoReplySentForPair.add(pairKey);
       this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
     }
@@ -7302,13 +6963,10 @@ export class IinPublicApp {
     // via handleTalkCompleted and the chatbot-replay path via tryChatbotReply funnel through
     // here) — talk-response-dialog.ts's per-type flows are the primary fix and should never
     // actually reach this with a short answer set for survey anymore.
-    const totalQuestions = Array.isArray(params.talkData?.questions) ? params.talkData.questions.length : 0;
-    const isComplete = params.talkData?.type !== 'survey' || params.answers.length >= totalQuestions;
-    if (!isComplete) {
+    if (!isResponseComplete(params.talkData, params.answers)) {
       console.log('⏸️ Talk response incomplete (survey, not all questions answered) — not submitting:', {
         talkId: params.talkId,
         answered: params.answers.length,
-        totalQuestions,
       });
       return;
     }
@@ -7321,11 +6979,7 @@ export class IinPublicApp {
       params.answers,
       this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
     );
-    const isIgnore = params.answers.some((answer: any) => {
-      const answerId = String(answer?.answerId || '').toLowerCase();
-      const answerText = String(answer?.answerText || '').toLowerCase();
-      return answerId === 'ignore' || answerId.includes('ignore') || answerText === 'ignore';
-    });
+    const isIgnore = isIgnoreAnswerSet(params.answers);
     // R-1: CIDv1 response id — REQ-LEDGER-04/12 (replaces resp_<ts>_<rand> non-deterministic id)
     const responseContentJson = canonicalSerialize(params.answers);
     const responseId = await computeResponseId({
@@ -7341,14 +6995,8 @@ export class IinPublicApp {
     const wholeTalkIdentityKey = buildTalkIdentityKey(params.talkData);
     const priorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, params.authorId);
     const priorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, params.authorId);
-    // If responseId is unchanged from prior (same answers re-submitted), keep version.
-    // If responseId changed (content changed), version = prior + 1.
     const isContentChange = priorResponseId !== null && priorResponseId !== responseId;
-    const newVersion = priorResponseId === null
-      ? 1                        // first answer ever
-      : isContentChange
-        ? priorVersion + 1       // change of mind: bump
-        : priorVersion;          // same content re-submitted (idempotent)
+    const newVersion = nextResponseVersion(priorResponseId, priorVersion, responseId);
     const respondedAt = submittedAt; // first answer: respondedAt == submittedAt; supersession: now
 
     const skipE2eLocalOnlyReject =
@@ -7373,7 +7021,7 @@ export class IinPublicApp {
         this.currentUser?.knownPeople,
         this.roomTravelerIds,
       )) return;
-      const authorEpub = targetEpub ?? this.pairTalkPeerEpubHint(
+      const authorEpub = targetEpub ?? firstKeyHint(
         targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
         targetAuthorId === params.authorId ? params.talkData?.senderEpub : undefined,
       );
@@ -7399,11 +7047,7 @@ export class IinPublicApp {
           });
       const targetPriorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, targetAuthorId);
       const targetPriorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, targetAuthorId);
-      const targetVersion = targetPriorResponseId === null
-        ? 1
-        : targetPriorResponseId === targetResponseId
-          ? targetPriorVersion
-          : targetPriorVersion + 1;
+      const targetVersion = nextResponseVersion(targetPriorResponseId, targetPriorVersion, targetResponseId);
       const responderEpub = this.gunService.getStoredPair()?.epub;
       const meshPayload: P2PMeshTalkResponsePayload = {
         responseId: targetResponseId,
@@ -7420,16 +7064,15 @@ export class IinPublicApp {
         // so the author never has to network-resolve it at ingest (see type comment).
         ...(responderEpub ? { responderEpub } : {}),
       };
-      const deliveryRepository = new GunDeliveryRepository(this.gunService);
-      const localSeaPub = String(this.gunService.getStoredPair()?.pub || this.currentUser!.id);
-      // Pair response and recovery journal are durable before any transport is attempted.
-      await deliveryRepository.putPairResponse(localSeaPub, meshPayload);
-      await deliveryRepository.recordDelivery({
+      // The response and its delivery journal are stored in the device core before any transport
+      // is tried; both are local — the hub never learns who answered whom (OPEN-91 P2).
+      await this.coreDelivery({ name: 'delivery.putSentResponse', payload: meshPayload });
+      await this.coreDelivery({ name: 'delivery.record', input: {
         objectId: targetResponseId,
         recipientId: targetAuthorId,
         objectKind: 'talk-response',
         state: 'committed',
-      });
+      } });
       const mesh = this.ensurePeerMeshService();
       let sent = false;
       if (mesh) {
@@ -7451,12 +7094,12 @@ export class IinPublicApp {
         }
       }
       if (sent || mailboxPosted || queued) {
-        await deliveryRepository.recordDelivery({
+        await this.coreDelivery({ name: 'delivery.record', input: {
           objectId: targetResponseId,
           recipientId: targetAuthorId,
           objectKind: 'talk-response',
           state: 'sent',
-        });
+        } });
       }
       // Delivery-matrix diagnostic: exactly one line per response send with every stage's
       // outcome — the silent-success pipeline made every saturation post-mortem archaeology.
@@ -7525,7 +7168,7 @@ export class IinPublicApp {
         responseId,
         respondedAt,
       });
-      for (const identityKey of this.selectedTalkIdentityKeys(params.talkData, params.answers)) {
+      for (const identityKey of selectedTalkIdentityKeys(params.talkData, params.answers)) {
         if (identityKey === wholeTalkIdentityKey) continue;
         writeResponderExchangedEntry({
           authorId: params.authorId,
@@ -7602,8 +7245,8 @@ export class IinPublicApp {
       talkId: params.talkId,
       respondedByBotForUser1: false,
       respondedByBotForUser2: params.isChatbotResponse,
-      dealEligible: this.isDealEligibleTalk(params.talkData),
-      ...this.matchScoreParamsFor(params.talkData, params.answers),
+      dealEligible: isDealEligibleTalk(params.talkData),
+      ...matchScoreParamsFor(params.talkData, params.answers),
     });
     this.recordConversationNeedKey(conversationId, params.talkData);
     // docs/TODO.md §JJ residual gap: on THIS (responder) side of the match, params.talkData is
@@ -7622,8 +7265,8 @@ export class IinPublicApp {
       talkId: params.talkId,
       respondedByBot: false,
       transportMode: this.conversationService.getTransportMode(),
-      dealEligible: this.isDealEligibleTalk(params.talkData),
-      ...this.matchScoreParamsFor(params.talkData, params.answers),
+      dealEligible: isDealEligibleTalk(params.talkData),
+      ...matchScoreParamsFor(params.talkData, params.answers),
     });
     this.uiManager.setMemberMatched(params.authorId);
     this.ledgerEmit(InteractionKind.MATCH_CREATED, {
@@ -8163,7 +7806,7 @@ export class IinPublicApp {
     if (peerId === TECHSUPPORT_ROOT_USER_ID || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) {
       return this.ensureSupportConversationRecord(peerId, peerName);
     }
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}') as Record<string, any>;
+    const conversations = getMyConversations();
     const existing = Object.entries(conversations).find(
       ([, conv]: [string, any]) =>
         conv?.otherUserId === peerId && (conv?.supportChannel === true || conv?.talkId === 'direct'),
@@ -8671,7 +8314,7 @@ export class IinPublicApp {
       console.log('👤 User clicked:', data.userId);
 
       // Check if conversation exists with this user
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = getMyConversations();
       const existingEntry = Object.entries(conversations).find(
         ([, conv]: [string, any]) => conv?.otherUserId === data.userId,
       );
@@ -9355,7 +8998,7 @@ export class IinPublicApp {
           const messages = mergeMessagesWithSynced(data.conversationId, liveMessages);
           this.uiManager.displayConversationMessages(data.conversationId, messages);
           for (const message of messages) {
-            const sharePayload = this.parseAttachmentShareMessageText(String(message.text || ''));
+            const sharePayload = parseAttachmentShareMessageText(String(message.text || ''));
             if (!sharePayload) continue;
             if (!message.senderId || message.senderId === this.currentUser?.id) continue;
             void this.maybeFetchSharedAttachmentBytes(sharePayload, String(message.senderId)).catch((err) => {
@@ -9621,7 +9264,7 @@ export class IinPublicApp {
       if (this.currentChatroomId !== home) {
         await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
         this.currentChatroomId = home;
-        localStorage.setItem('iinpublic_last_chatroom', home);
+        settingsStorage.setItem('iinpublic_last_chatroom', home);
         this.subscribeToMessages(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
@@ -9801,7 +9444,7 @@ export class IinPublicApp {
         }
 
         this.currentChatroomId = chatroomId;
-        localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+        settingsStorage.setItem('iinpublic_last_chatroom', chatroomId);
 
         this.subscribeToMessages(chatroomId);
             console.log(`✅ Switched to ${chatroomId}`);
@@ -10082,7 +9725,7 @@ export class IinPublicApp {
             this.currentUser.stageName,
           );
           this.currentChatroomId = newChatroomId;
-          localStorage.setItem('iinpublic_last_chatroom', newChatroomId);
+          settingsStorage.setItem('iinpublic_last_chatroom', newChatroomId);
           this.uiManager.setCurrentChatroomId(newChatroomId);
           this.subscribeToMessages(newChatroomId);
           this.chatroomService.subscribeToMembers(newChatroomId, (members) => {

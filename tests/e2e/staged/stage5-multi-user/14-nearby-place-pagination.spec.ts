@@ -254,7 +254,7 @@ class TalkExchanges {
     await page.evaluate((id) => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.setTalkDisabled?.(id, true), talkId);
     await expect.poll(() => page.evaluate((id) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return talks[id]?.disabled === true && !app?.uiManager?.getBroadcastableTalkIds?.().includes(id);
     }, talkId), { timeout: 30_000, message: `${title} should be disabled` }).toBe(true);
   }

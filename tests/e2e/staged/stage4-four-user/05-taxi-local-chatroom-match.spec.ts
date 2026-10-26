@@ -154,7 +154,7 @@ async function getCurrentUserId(page: Page): Promise<string> {
 
 async function conversationPartnerIds(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     return Object.values(conversations)
       .filter((c: any) => c && c.supportChannel !== true)
       .map((c: any) => String(c.otherUserId || ''))
@@ -168,7 +168,7 @@ async function hasConversationWith(page: Page, otherUserId: string): Promise<boo
 
 async function getConversationIdWith(page: Page, otherUserId: string): Promise<string | null> {
   return page.evaluate((id: string) => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     const entry = Object.entries(conversations).find(([, c]: any) => c?.otherUserId === id);
     return entry ? entry[0] : null;
   }, otherUserId);
@@ -178,7 +178,7 @@ async function getConversationIdWith(page: Page, otherUserId: string): Promise<s
  *  markConversationsSupersededByIds/markOtherDealConversationsEnded marks it 'ignored'. */
 async function conversationStatusWith(page: Page, otherUserId: string): Promise<string | undefined> {
   return page.evaluate((id: string) => {
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     const entry = Object.values(conversations).find((c: any) => c?.otherUserId === id) as any;
     return entry?.status;
   }, otherUserId);
@@ -210,7 +210,7 @@ async function expectMessageVisible(page: Page, message: string): Promise<void> 
  *  stand-in for "Alice makes sure Adam is a licensed, experienced driver" (see file header). */
 async function hasLicensedExperiencedSelfAnswer(page: Page): Promise<boolean> {
   return page.evaluate(() => {
-    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
     return Object.values(talks).some((t: any) => {
       const questions = t?.fullTalk?.questions || t?.questions || [];
       return questions.some(
@@ -353,7 +353,7 @@ test.describe('Taxi driver ↔ passenger matching in a local chatroom (§GG)', (
  *  driven by mutual deal confirmation (spec §30.2), not by first-match auto-reject. */
 async function isOwnTalkDisabled(page: Page, title: string): Promise<boolean> {
   return page.evaluate((needle: string) => {
-    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
     return Object.values(talks).some((t: any) => t?.title === needle && t?.disabled === true);
   }, title);
 }

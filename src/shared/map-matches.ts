@@ -5,7 +5,7 @@ export type MapMatchUpdate = {
   counts: Readonly<Record<string, number | null>>;
 };
 
-/** The device core supplies the initial Gun-backed snapshot, then committed view patches. */
+/** The core-backed GUI view supplies the initial snapshot, then updated snapshots or patches. */
 export type MapMatchSource = {
   subscribe: (onUpdate: (update: MapMatchUpdate) => void) => () => void;
 };

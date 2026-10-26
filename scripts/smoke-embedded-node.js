@@ -78,8 +78,9 @@ async function main() {
     fail(`missing build artifact: ${webRoot} — run "npm run build:web" first`);
     return;
   }
-  if (!fs.existsSync(path.join(publicRoot, 'worker.js'))) {
-    fail(`missing public asset: ${path.join(publicRoot, 'worker.js')}`);
+  // The device core's web host (OPEN-91): webpack output, served from the web root.
+  if (!fs.existsSync(path.join(webRoot, 'core-worker.js'))) {
+    fail(`missing build artifact: ${path.join(webRoot, 'core-worker.js')} — run "npm run build:web" first`);
     return;
   }
 
@@ -143,13 +144,13 @@ async function main() {
       console.log(`[smoke] GET / -> ${root.statusCode} OK (serves SPA)`);
     }
 
-    const worker = await httpGet('/worker.js');
+    const worker = await httpGet('/core-worker.js');
     if (!worker.statusCode || worker.statusCode >= 300) {
-      fail(`GET /worker.js returned ${worker.statusCode}`);
-    } else if (!/Gun\.js Web Worker/.test(worker.body)) {
-      fail('GET /worker.js did not return the app worker');
+      fail(`GET /core-worker.js returned ${worker.statusCode}`);
+    } else if (!/node_modules\/gun\/gun\.js/.test(worker.body)) {
+      fail('GET /core-worker.js did not return the device core worker');
     } else {
-      console.log(`[smoke] GET /worker.js -> ${worker.statusCode} OK`);
+      console.log(`[smoke] GET /core-worker.js -> ${worker.statusCode} OK`);
     }
 
     const gun = await httpGet('/node_modules/gun/gun.js');

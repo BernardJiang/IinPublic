@@ -1,4 +1,4 @@
-import { DIRECT_TALK_OUTBOX_MAX_ENTRIES, DIRECT_TALK_OUTBOX_TTL_MS, DirectTalkDeliveryOutbox } from '../../web/services/direct-talk-delivery-outbox';
+import { DIRECT_TALK_OUTBOX_MAX_ENTRIES, DIRECT_TALK_OUTBOX_TTL_MS, DirectTalkDeliveryOutbox } from '../../core/direct-talk-delivery-outbox';
 import type { P2PMeshTalkBodyPayload } from '../../shared/p2p-mesh-protocol';
 import type { WebGunService } from '../../web/services/web-gun-service';
 

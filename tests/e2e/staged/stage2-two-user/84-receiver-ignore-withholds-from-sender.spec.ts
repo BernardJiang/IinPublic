@@ -138,7 +138,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     // held for a few seconds to make sure a delayed mesh delivery isn't just slow to land.
     await pageTechSupport.waitForTimeout(4000);
     const techSupportFlowReceived = await pageTechSupport.evaluate((title) => {
-      const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+      const raw = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
       return raw.some((r: any) => r.title === title && r.direction !== 'received');
     }, flowTitle);
     expect(techSupportFlowReceived).toBe(false);
@@ -200,7 +200,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
     // Tom's Ignored entry has exactly one sentinel choice — the Ignore pick on S1 itself —
     // proof it did not advance through S2/S3 the way a real answer would.
     const tomSurveyRecorded = await pageTom.evaluate((title) => {
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const entry = (Object.values(myTalks) as any[]).find((t) => t.title === title);
       return {
         found: !!entry,
@@ -214,7 +214,7 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
 
     await pageTechSupport.waitForTimeout(4000);
     const techSupportSurveyReceived = await pageTechSupport.evaluate((title) => {
-      const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+      const raw = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
       return raw.some((r: any) => r.title === title && r.direction !== 'received');
     }, surveyTitle);
     expect(techSupportSurveyReceived).toBe(false);

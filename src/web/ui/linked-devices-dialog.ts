@@ -35,6 +35,8 @@ import {
   showSetIdentityPasswordDialog,
 } from './identity-password-dialog';
 import type { HandoffArchive } from '../../shared/device-handoff';
+import { appStorageAsStorage } from '../services/core-storage';
+import { appStorage } from '../services/core-storage';
 
 export interface LinkedDeviceRow {
   pub: string;
@@ -117,7 +119,7 @@ const LINKED_DEVICES_LOCAL_KEY = 'iinpublic_linked_devices';
 /** Read locally-persisted candidate device rows. See `openLinkedDevicesDialog`'s doc comment. */
 export function readLinkedDeviceRecords(graphStateResolved: boolean): LinkedDeviceRow[] {
   try {
-    const arr = JSON.parse(localStorage.getItem(LINKED_DEVICES_LOCAL_KEY) || '[]');
+    const arr = JSON.parse(appStorage.getItem(LINKED_DEVICES_LOCAL_KEY) || '[]');
     if (!Array.isArray(arr)) return [];
     // localStorage supplies candidate identities and display labels only. A persisted row
     // cannot claim a verified link until this page has resolved the signed graph state.
@@ -128,7 +130,7 @@ export function readLinkedDeviceRecords(graphStateResolved: boolean): LinkedDevi
 }
 
 function saveLinkedDeviceRecords(rows: LinkedDeviceRow[]): void {
-  localStorage.setItem(LINKED_DEVICES_LOCAL_KEY, JSON.stringify(rows));
+  appStorage.setItem(LINKED_DEVICES_LOCAL_KEY, JSON.stringify(rows));
 }
 
 /** Optional hooks a caller wires to publish real signed attestations/revocations (spec §10)
@@ -186,7 +188,7 @@ export async function openLinkedDevicesDialog(
       : platform === 'desktop'
         ? deps.t('defaultDesktopDeviceName')
         : deps.t('defaultBrowserDeviceName');
-  let deviceMetadata = getOrCreateLocalDeviceMetadata(localStorage, {
+  let deviceMetadata = getOrCreateLocalDeviceMetadata(appStorageAsStorage, {
     name: defaultDeviceName,
     platform,
     createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
@@ -233,7 +235,7 @@ export async function openLinkedDevicesDialog(
       ? { lockIdentityNow: deps.identityPasswordLocker }
       : {}),
     renameDevice: (name: string) => {
-      deviceMetadata = renameLocalDevice(localStorage, deviceMetadata, name);
+      deviceMetadata = renameLocalDevice(appStorageAsStorage, deviceMetadata, name);
       return deviceMetadata;
     },
     selfPub: () => identityPub,

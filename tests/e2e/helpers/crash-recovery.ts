@@ -94,7 +94,7 @@ export async function waitForGreeting(page: Page, stageName?: string): Promise<v
       () =>
         page.evaluate(
           ({ techSupportId, name }) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some((c: any) => {
               const message = String(c?.lastMessage || '');
               return (

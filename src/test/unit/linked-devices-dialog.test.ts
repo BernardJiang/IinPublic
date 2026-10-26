@@ -17,6 +17,7 @@ import {
 } from '../../web/ui/linked-devices-dialog';
 import { probeLoopbackNode } from '../../web/services/loopback-probe';
 import { createPairingPayload, encodePairingCode, type LinkCrypto } from '../../shared/identity-linking';
+import { appStorage } from '../../web/services/core-storage';
 
 const mockedProbeLoopbackNode = probeLoopbackNode as jest.MockedFunction<typeof probeLoopbackNode>;
 
@@ -332,7 +333,7 @@ describe('openLinkedDevicesDialog (UIManager decomposition cluster #10)', () => 
     await Promise.resolve();
 
     expect(identityLinkCompleter).toHaveBeenCalledWith(code);
-    const stored = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
+    const stored = JSON.parse(appStorage.getItem('iinpublic_linked_devices') || '[]');
     expect(stored).toHaveLength(1);
     expect(stored[0]).toMatchObject({ pub: 'pub-peer', stageName: 'Linked device', state: 'waiting' });
   });
@@ -351,7 +352,7 @@ describe('openLinkedDevicesDialog (UIManager decomposition cluster #10)', () => 
     await Promise.resolve();
     await Promise.resolve();
 
-    const stored = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
+    const stored = JSON.parse(appStorage.getItem('iinpublic_linked_devices') || '[]');
     expect(stored[0].state).toBe('revocation-pending');
   });
 });

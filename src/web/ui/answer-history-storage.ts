@@ -1,4 +1,5 @@
 import type { TypedAnswerValue } from '../../shared/typed-preference-store';
+import { answerHistoryView } from '../services/core-views';
 
 export type FlatAnswerHistoryItem = {
   /** Talk-scoped id (e.g. `q_0`) — positional, used only to deep-link back into
@@ -48,19 +49,20 @@ export type FlatAnswerHistoryRecord = {
 
 export type FlatAnswerHistoryMap = Record<string, FlatAnswerHistoryRecord>;
 
-const ANSWER_HISTORY_KEY = 'myAnswerHistory';
-
+/**
+ * The answer history lives in the device core (OPEN-91 P3, `core-views.ts`). Callers edit the
+ * returned map and hand it back, so reads are copies and only what changed is written.
+ */
 export function getFlatAnswerHistory(): FlatAnswerHistoryMap {
-  try {
-    const stored = localStorage.getItem(ANSWER_HISTORY_KEY);
-    return stored ? (JSON.parse(stored) as FlatAnswerHistoryMap) : {};
-  } catch {
-    return {};
-  }
+  return JSON.parse(JSON.stringify(answerHistoryView.all())) as FlatAnswerHistoryMap;
 }
 
 export function setFlatAnswerHistory(history: FlatAnswerHistoryMap): void {
-  localStorage.setItem(ANSWER_HISTORY_KEY, JSON.stringify(history));
+  const current = answerHistoryView.all();
+  const changed = Object.fromEntries(Object.entries(history)
+    .filter(([id, record]) => JSON.stringify(current[id]) !== JSON.stringify(record)));
+  answerHistoryView.set(JSON.parse(JSON.stringify(changed)) as FlatAnswerHistoryMap);
+  answerHistoryView.remove(Object.keys(current).filter((id) => !(id in history)));
 }
 
 export function upsertFlatAnswerHistory(record: FlatAnswerHistoryRecord): FlatAnswerHistoryMap {

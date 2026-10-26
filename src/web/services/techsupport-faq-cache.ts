@@ -4,6 +4,7 @@ import { verifyFaqEntry, isFaqEntryRollback, type SignedFaqEntry } from '../../s
 import { fetchGrantFromCache, fetchGrantLive } from './techsupport-delegate-cache';
 import { readCachedRecoveryAnchor } from './techsupport-recovery-cache';
 import techsupportFaqSeedBundle from '../../shared/techsupport-faq-seed.signed.json';
+import { settingsStorage } from './core-storage';
 
 /**
  * Local cache of the verified TechSupport FAQ bundle (docs/TODO.md K5, design note §Item 1a/2).
@@ -57,7 +58,7 @@ export function faqBundleFromGunWire(raw: unknown): unknown {
 
 export function readCachedFaqBundle(): SignedFaqBundle | null {
   try {
-    const raw = localStorage.getItem(FAQ_BUNDLE_STORAGE_KEY);
+    const raw = settingsStorage.getItem(FAQ_BUNDLE_STORAGE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as SignedFaqBundle;
   } catch {
@@ -71,7 +72,7 @@ export function readCachedFaqEntries(): SupportFaqEntry[] {
 
 function writeCachedFaqBundle(bundle: SignedFaqBundle): void {
   try {
-    localStorage.setItem(FAQ_BUNDLE_STORAGE_KEY, JSON.stringify(bundle));
+    settingsStorage.setItem(FAQ_BUNDLE_STORAGE_KEY, JSON.stringify(bundle));
   } catch {
     /* localStorage unavailable/full — the in-memory subscription value still works this session */
   }
@@ -188,7 +189,7 @@ type CachedFaqEntryRecord = { entry: SignedFaqEntry; cachedAt: number };
 
 function readFaqEntryCacheMap(): Record<string, CachedFaqEntryRecord> {
   try {
-    const raw = localStorage.getItem(FAQ_ENTRIES_STORAGE_KEY);
+    const raw = settingsStorage.getItem(FAQ_ENTRIES_STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
@@ -206,7 +207,7 @@ function writeFaqEntryCacheMap(map: Record<string, CachedFaqEntryRecord>): void 
       .forEach((key) => delete map[key]);
   }
   try {
-    localStorage.setItem(FAQ_ENTRIES_STORAGE_KEY, JSON.stringify(map));
+    settingsStorage.setItem(FAQ_ENTRIES_STORAGE_KEY, JSON.stringify(map));
   } catch {
     /* localStorage unavailable/full — the verified entry is still returned to the caller this session */
   }

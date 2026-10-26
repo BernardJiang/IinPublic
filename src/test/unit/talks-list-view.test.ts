@@ -470,7 +470,8 @@ describe('displayTalksList', () => {
     expect(toggle?.classList.contains('is-copied')).toBe(true);
     expect(toggle?.getAttribute('aria-pressed')).toBe('true');
     toggle?.click();
-    expect(JSON.parse(localStorage.getItem('myTalks') || '{}').copied.role).toBe('answered');
+    // The latest render's module instance holds My Talks; its unconfirmed changes are in the unsaved list.
+    expect(JSON.parse(localStorage.getItem('iinpublic_core_unsaved_myTalks_v1') || '{}').copied.role).toBe('answered');
     expect(showNotification).toHaveBeenCalledWith('talksRemovedFromList', 'success');
     expect(document.querySelector(toggleSelector)?.getAttribute('aria-pressed')).toBe('false');
   });

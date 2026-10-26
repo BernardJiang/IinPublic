@@ -33,20 +33,27 @@ its ID.
   seam + the exchange log (OPEN-88); P2 the sharing policy (default-deny `out`/`in` filter; pair
   responses and the delivery journal move under it — today the hub can read who answered whom);
   P3 the other local logs; P4 the domain logic out of `app.ts`; P5 the native host runs the core;
-  P6 one Gun on the web.
-
-- [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5; OPEN-91 P1).** Part 2
-  moves the log into the device core's Gun (`local/exchanges/…`) behind a view model — see
-  `docs/design/device-core-architecture.md`. Part 1 done
-  2026-10-25: one record per direction (`peer::talk::direction`) and `exchangeStatsFor` counts sent
-  and received separately, each Talk once (it was "Received 0" for everyone: every record counted as
-  sent). Remaining: `localTalkExchanges`
-  is still one localStorage JSON map that is parsed and rewritten on every exchange. The OPEN-87
-  Contacts cap bounds its size (exchange-only people beyond 500/1,000/2,000 are pruned), but each
-  write still costs O(size). Move the records to per-person entries (IndexedDB or local Gun) behind
-  `readLocalTalkExchanges`/`recordLocalTalkExchange`, and migrate the ~25 e2e specs and seed helpers
-  that read or write the blob directly (`tests/e2e/helpers/heavy-user-seed.ts`, `durable-ui.ts`,
-  `talk-demo-ui.ts`, mass specs). Keep the prune and the tag graph on the same reader.
+  P6 one Gun on the web. **P1 done 2026-10-25** (OPEN-88, see `docs/completed.md`): `src/core/`
+  holds the protocol, the graph store, the exchange log and the web worker host
+  (`core-worker.js`, replacing `public/worker.js`). **P2 first slice done 2026-10-25:** the
+  sender's response copy and delivery journal moved into the core (`local/`), and the page's Gun runs
+  the sharing policy's `out` filter; spec 09 fails on any private soul on the hub wire. Remaining P2:
+  default deny (needs the shared nodes under `pair/`/`room/`/`public/`), the `in` filter, and
+  encryption checks on `pair/`/`room/` writes. **P3 started 2026-10-26:** keyed collections in the
+  core (`src/core/collections.ts`, GUI view `core-collection-view.ts`, views in `core-views.ts`);
+  chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
+  edit via `__iinpublic_collection_edit`; seeding the old blob still works — it is imported) and
+  My Conversations (`my-conversations-storage.ts`) and the talk ledger (one entry per record,
+  `<section>::<key>`), the Me tab's answer history, the deal maps, and the answer preferences
+  and chatbot memory (`answer-preferences-storage.ts`, via `mapStore`/`sectionedDocStore`).
+  Left in localStorage: settings and UI state (small, per-device), `peerNameCache`, match
+  collection sessions, imported handoff threads. Next: P4 (domain logic out of `app.ts`). **P4 done 2026-10-26:** the domain rules live in
+  `src/core/` (see the design doc's P4 entry for the module list); `app.ts` keeps the effects
+  (10,272 → 9,863 lines). **The move off localStorage done 2026-10-26:** the remaining app data is
+  the core's `appData` collection (`appStorage`), settings and UI state its `settings` collection
+  (`settingsStorage`, localStorage kept as a start-up copy); only identity custody, Gun's page
+  storage and the user id / cached user (mirrored to IndexedDB) stay in localStorage. Next: P5 — the
+  embedded Node process hosts the core and the WebView becomes GUI-only over loopback.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

@@ -5,6 +5,8 @@ import {
 } from './creator-replies-view';
 import type { User } from '../../shared/types';
 import type { UiTranslationKey } from './ui-translations';
+import { appDataLoaded } from '../services/core-storage';
+import { settingsStorage } from '../services/core-storage';
 
 const chatroomActionDelegationDocuments = new WeakSet<Document>();
 
@@ -145,7 +147,8 @@ function bindTalkFilters(deps: AppShellControlsDeps): void {
 }
 
 function bindCreatorReplyFilters(deps: AppShellControlsDeps): void {
-  restoreCreatorReplyFilterState();
+  // Saved in the device core: restored here once it has loaded, or by the app when it does.
+  if (appDataLoaded()) restoreCreatorReplyFilterState();
   const filterIds = [
     'reply-filter-query',
     'reply-filter-outcome',
@@ -246,7 +249,7 @@ export const LAST_TAB_KEY = 'iinpublic_last_tab';
 /** Re-opens the bottom-nav tab the user was on when the app last closed (chatrooms is the default). */
 export function restoreLastTab(): void {
   try {
-    const tab = localStorage.getItem(LAST_TAB_KEY);
+    const tab = settingsStorage.getItem(LAST_TAB_KEY);
     if (!tab || tab === 'chatrooms') return;
     document.querySelector<HTMLElement>(`.nav-btn[data-view="${tab}"]`)?.click();
   } catch {
@@ -267,7 +270,7 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
       const targetView = (button as HTMLElement).dataset.view;
       if (!targetView) return;
       document.getElementById('broadcast-preamble-modal')?.remove();
-      try { localStorage.setItem(LAST_TAB_KEY, targetView); } catch { /* optional */ }
+      try { settingsStorage.setItem(LAST_TAB_KEY, targetView); } catch { /* optional */ }
       navButtons.forEach((candidate) => candidate.classList.remove('active'));
       button.classList.add('active');
       viewPanels.forEach((panel) => panel.classList.remove('active'));

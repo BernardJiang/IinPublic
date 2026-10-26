@@ -56,13 +56,13 @@ test.describe('Direct link rebuilt: phone A reconnects to phone B, then sends a 
     const title = `After reconnect ${Date.now()}`;
     await createSimpleFlowTalk(alice.page, title, 'Yes match', 'No mismatch', { sendToChatroom: false });
     const talkId = await alice.page.evaluate((expectedTitle) => {
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return Object.entries(talks).find(([, value]: [string, any]) => value?.role === 'created' && value?.title === expectedTitle)?.[0] ?? '';
     }, title);
     expect(talkId).not.toBe('');
     const sent = await alice.page.evaluate(async ({ id, other, otherName }) => {
       const app = (window as any).__iinpublic_app.getApp();
-      const talk = JSON.parse(localStorage.getItem('myTalks') || '{}')[id]?.fullTalk;
+      const talk = ((window as any).__iinpublic_collection?.('myTalks') ?? {})[id]?.fullTalk;
       return app.deliverTalkToReceiversOverMesh(id, talk, [{ userId: other, stageName: otherName }], [other]);
     }, { id: talkId, other: bobId, otherName: 'Bob' });
     expect(sent).toBe(true);

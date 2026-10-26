@@ -137,7 +137,7 @@ async function establishRealMatchAndOpenConversation(
     const app = (window as any).__iinpublic_app?.getApp?.();
     const talkDef = { id: tid, authorId, title, type: 'flow', questions };
     app?.peerMeshService?.cacheTalkBody?.(tid, talkDef);
-    const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
     myTalks[tid] = { role: 'created', fullTalk: talkDef };
     localStorage.setItem('myTalks', JSON.stringify(myTalks));
   }, { tid: talkId, authorId, title: talkTitle, questions: baseQuestions });

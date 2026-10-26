@@ -1,5 +1,6 @@
 import { isValidTalkId } from '../../shared/incoming-talk-ids';
 import type { UiTranslationKey } from './ui-translations';
+import { copiedTalkEntry, ignoreAnswersFor, uncopiedTalkEntry } from '../../core/my-talk-rules';
 import { getMyTalks, setMyTalks, type MyTalkEntry } from './my-talks-storage';
 
 /**
@@ -52,7 +53,7 @@ export function quickIgnoreIncomingTalk(talkId: string, identityKeyFallback: str
       return;
     }
     const question = Array.isArray(fullTalk.questions) ? fullTalk.questions[0] : null;
-    const answers = question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
+    const answers = ignoreAnswersFor(fullTalk);
     if (question) {
       deps.saveAnswerPreference(
         fullTalk, fullTalk.id, question, 'ignore', 'ignore',
@@ -99,18 +100,7 @@ export function quickCopyIncomingTalk(
       deps.showNotification(deps.t('talksCouldNotLoad'), 'error');
       return;
     }
-    const senders = cluster?.senders && typeof cluster.senders === 'object'
-      ? Array.from(new Set(Object.values(cluster.senders).map((s: any) => String(s?.senderId || '')).filter(Boolean)))
-      : undefined;
-    deps.saveMyTalk({
-      talkId: fullTalk.id || talkId,
-      title: fullTalk.title,
-      type: fullTalk.type,
-      timestamp: new Date().toISOString(),
-      role: 'copied',
-      fullTalk,
-      ...(senders && senders.length > 0 ? { senders } : {}),
-    } as MyTalkEntry);
+    deps.saveMyTalk(copiedTalkEntry(fullTalk, talkId, cluster, new Date().toISOString()) as MyTalkEntry);
     deps.showNotification(deps.t('talksCopiedToList'), 'success');
     deps.refreshTalksList();
   };
@@ -141,13 +131,10 @@ export type UncopyIncomingTalkDeps = {
  */
 export function uncopyIncomingTalk(talkId: string, deps: UncopyIncomingTalkDeps): void {
   const myTalks = getMyTalks();
-  const existing = myTalks[talkId];
-  if (existing?.role !== 'copied') return;
-  if (Array.isArray(existing.completedAnswers) && existing.completedAnswers.length > 0) {
-    myTalks[talkId] = { ...existing, role: 'answered', lastInteraction: new Date().toISOString() };
-  } else {
-    delete myTalks[talkId];
-  }
+  const next = uncopiedTalkEntry(myTalks[talkId], new Date().toISOString());
+  if (next === undefined) return;
+  if (next) myTalks[talkId] = next as MyTalkEntry;
+  else delete myTalks[talkId];
   setMyTalks(myTalks);
   deps.showNotification(deps.t('talksRemovedFromList'), 'success');
   deps.refreshTalksList();

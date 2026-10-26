@@ -131,7 +131,7 @@ export async function seedContactsAsUsers(page: Page, userId: string): Promise<v
   // Step 2: Seed localTalkExchanges so contacts derive through the PRIMARY source in
   // deriveLocalPeers(). Each peer gets one 'match' exchange — enough to appear with stats.
   await page.evaluate(({ contactsCount }) => {
-    const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+    const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
     const createdAt = new Date().toISOString();
     for (let i = 1; i <= contactsCount; i++) {
       const peerId = `sc-${i}`;

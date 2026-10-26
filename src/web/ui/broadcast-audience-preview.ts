@@ -1,10 +1,7 @@
+import { broadcastableTalkIds, resolveExpiresAtMs } from '../../core/broadcast-selection';
 import { getMyTalks } from './my-talks-storage';
 
-export function resolveExpiresAtMs(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string' && value.trim()) return new Date(value).getTime();
-  return Number.NaN;
-}
+export { resolveExpiresAtMs };
 
 export type BroadcastAudiencePreview = {
   talkId: string;
@@ -24,17 +21,7 @@ export type BroadcastAudiencePreview = {
 
 /** Talks eligible for broadcast or direct peer send from the local OUT-talk store. */
 export function getBroadcastableTalkIds(): string[] {
-  const myTalks = getMyTalks();
-  const now = Date.now();
-  return Object.entries(myTalks)
-    .filter(([, talk]) => {
-      if (talk?.disabled) return false;
-      if (talk?.role !== 'created' && talk?.role !== 'copied') return false;
-      const expiresAt = resolveExpiresAtMs(talk?.expiresAt ?? talk?.fullTalk?.expiresAt);
-      if (Number.isFinite(expiresAt) && now > expiresAt) return false;
-      return true;
-    })
-    .map(([id]) => id);
+  return broadcastableTalkIds(getMyTalks(), Date.now());
 }
 
 /** Full local payload used when the network lookup is slow during a broadcast. */

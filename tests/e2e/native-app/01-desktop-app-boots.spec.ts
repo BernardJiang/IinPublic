@@ -73,7 +73,7 @@ test.describe('Native app: Electron desktop boot', () => {
     expect(startup.queryNodeReady).toBe(startup.nativeMetrics.nodeHealthReadyEpochMs);
 
     await expect.poll(() => httpGetStatus(LOCAL_PORT, '/health'), { timeout: 15_000 }).toBe(200);
-    await expect.poll(() => httpGetStatus(LOCAL_PORT, '/worker.js'), { timeout: 15_000 }).toBe(200);
+    await expect.poll(() => httpGetStatus(LOCAL_PORT, '/core-worker.js'), { timeout: 15_000 }).toBe(200);
     await expect.poll(() => httpGetStatus(LOCAL_PORT, '/node_modules/gun/gun.js'), { timeout: 15_000 }).toBe(200);
 
     const electronUserData = await native.app.evaluate(({ app }) => app.getPath('userData'));

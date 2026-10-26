@@ -58,7 +58,7 @@ test.describe('DM-arrival toast navigation (N1)', () => {
       .poll(
         () =>
           pageB.evaluate((cid: string) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return conversations[cid]?.lastMessage || '';
           }, conversationId),
         { timeout: 15_000 },

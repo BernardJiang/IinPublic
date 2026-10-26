@@ -103,7 +103,7 @@ export async function expectTechSupportGreetingReceived(page: Page, stageName?: 
       () =>
         page.evaluate(
           ({ techSupportId, name, tips }) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some((conversation: any) => {
               const message = String(conversation?.lastMessage || '');
               // OPEN-32 stopped creating new tab-tip messages, but a restored legacy profile can

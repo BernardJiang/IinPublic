@@ -2,6 +2,42 @@
 
 Last updated: 2026-10-25
 
+## 2026-10-26 — OPEN-91 P2–P4 the device core takes the user's data and the app's rules
+
+- **P2 (sharing policy, first slice):** the sender's response copy and delivery journal moved
+  into the core (`local/`); the page's Gun runs an `out` filter that drops writes and reads of
+  private namespaces; spec 09 fails on any private soul on the hub wire (5 per run before, 0 now).
+- **P3 (local logs):** My Talks, My Conversations, the talk ledger, answer history, chatbot
+  templates and memory, answer preferences, the deal maps and the revision-sent log are core
+  collections — one entry per record instead of a localStorage JSON blob rewritten whole on every
+  change; old blobs are imported on first read; unconfirmed writes are replayed after a reload.
+  Checked on two phones upgrading 1.0.193 → 1.0.194 with their data.
+- **P4 (domain logic):** delivery, answering, matching, the chatbot, conversations and Nearby
+  rules are pure `src/core/` modules with their stores and transports passed in; a boundary test
+  keeps the core free of the GUI.
+- **Found on the way:** a quick in-and-out Place visit left the person listed in the Place for
+  ~30 s (J-PLACE-11, a position watch blocked by a stuck search); the Android Place smoke could
+  not create a Place since 2026-10-22 (the hub enforced 12 Friend marks; only the page was told
+  otherwise); a flaky Wi-Fi Direct unit test (event-loop stalls under load); spec 64 still
+  expected Passed tags to show by default.
+
+## 2026-10-25 — OPEN-88 / OPEN-91 P1 the exchange log moves into the device core
+
+The exchange log left the one localStorage JSON blob (`localTalkExchanges`, parsed and rewritten on
+every exchange) for the device core's Gun: one node per person, Talk and direction under
+`local/exchanges/…` (`src/core/exchanges.ts`), in the peerless worker Gun persisted to IndexedDB.
+- **The core seam:** `src/core/` — the request protocol, a `GraphStore` (Gun or a plain map), one
+  handler every host answers through, and the web host `src/core/host/worker-host.ts` (webpack entry
+  `core-worker`, a TypeScript port of `public/worker.js`, which is removed).
+- **The view:** screens read `src/web/services/exchange-view.ts` synchronously; writes update it at
+  once and go to the core; start-up loads the core's snapshot (storage that does not answer is
+  retried, never taken for "no exchanges"). An old blob — earlier app versions, test seeds — is
+  imported once and removed. Specs read the log via `window.__iinpublic_exchanges()`.
+- **Found on the way (e2e stage1/94):** a reload right after a write could stop the worker
+  mid-save, losing it; a write now stays in a small list of unsaved writes until the core confirms
+  it, and is sent again at the next start. Reads ask for the node's soul directly — walking the
+  chain on a cold start lost the first callback.
+
 ## 2026-10-25 — OPEN-89 a GUI over a graph: every tab leads to every other
 
 The four tabs are four kinds of node — places (Chatrooms), people (Contacts), Talks, and answers

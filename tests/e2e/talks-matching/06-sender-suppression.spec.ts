@@ -201,7 +201,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService not available on Tom');
         mesh.cacheTalkBody(talkId, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         await mesh.broadcastTalk(tDef, { recipientUserIds: [authorId], roomBroadcast: true });
@@ -440,7 +440,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
     // ── 15. Bob conversation must exist (matched in first broadcast) ──────────
     await waitForTabActive(pageTom, 'me');
     const tomHasBobConversation = await pageTom.evaluate(({ bId }: { bId: string }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.values(conversations).some((c: any) => c?.otherUserId === bId);
     }, { bId: bobId });
     expect(tomHasBobConversation, 'Tom must have a conversation with Bob (match)').toBe(true);
@@ -448,7 +448,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
     // Bob's conversation list must have Tom
     await waitForTabActive(pageBob, 'me');
     const bobHasTomConversation = await pageBob.evaluate(({ tId }: { tId: string }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.values(conversations).some((c: any) => c?.otherUserId === tId);
     }, { tId: tomId });
     expect(bobHasTomConversation, 'Bob must have a conversation with Tom (match)').toBe(true);

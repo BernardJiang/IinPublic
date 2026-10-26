@@ -158,7 +158,7 @@ test.describe('Survey: Ignore on a non-last question does not end the response e
     await expect
       .poll(
         async () => pageTom.evaluate((title) => {
-          const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+          const raw = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
           const rsp = raw.find((r: any) => r.title === title && r.direction === 'received');
           return Array.isArray(rsp?.answers) ? rsp.answers.length : -1;
         }, surveyTitle),
@@ -171,7 +171,7 @@ test.describe('Survey: Ignore on a non-last question does not end the response e
     await expect
       .poll(
         async () => pageTechSupport.evaluate((title) => {
-          const raw = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+          const raw = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
           const rsp = raw.find((r: any) => r.title === title && r.direction !== 'received');
           return Array.isArray(rsp?.answers) ? rsp.answers.length : -1;
         }, surveyTitle),

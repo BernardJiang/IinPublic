@@ -229,7 +229,7 @@ test.describe('Mailbox: an envelope announced while the recipient is offline pas
 
     // ── 7. B's app is healthy: the matched conversation is still present ───────
     const hasConversation = await pageBReconnect.evaluate(({ aId }) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') ?? '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return Object.values(conversations).some((c: any) => c?.otherUserId === aId);
     }, { aId: userIdA });
     expect(hasConversation, 'B still has the matched conversation with A after recovery').toBe(true);

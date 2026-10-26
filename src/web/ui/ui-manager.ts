@@ -209,6 +209,8 @@ import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity
 import { type PairingPayload } from '../../shared/identity-linking';
 import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
 import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
+import { getMyConversations, setMyConversations } from './my-conversations-storage';
+import { settingsStorage } from '../services/core-storage';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -217,9 +219,9 @@ const SAFETY_TOAST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const SAFETY_TOAST_T1_KEY = 'iinpublic_safety_toast_t1_last_shown';
 const SAFETY_TOAST_T2_KEY = 'iinpublic_safety_toast_t2_last_shown';
 function shouldShowCooldownToast(storageKey: string): boolean {
-  const last = Number(localStorage.getItem(storageKey) || '0');
+  const last = Number(settingsStorage.getItem(storageKey) || '0');
   if (Date.now() - last < SAFETY_TOAST_COOLDOWN_MS) return false;
-  localStorage.setItem(storageKey, String(Date.now()));
+  settingsStorage.setItem(storageKey, String(Date.now()));
   return true;
 }
 type PublicProfileFoundationReader = (userId: string) => Promise<{
@@ -595,7 +597,7 @@ export class UIManager extends EventEmitter {
   showStartupInterface(): void {
     const headerStatus = document.getElementById('header-status');
     if (headerStatus) headerStatus.style.display = 'flex';
-    const saved = localStorage.getItem('iinpublic_last_chatroom');
+    const saved = settingsStorage.getItem('iinpublic_last_chatroom');
     this.currentChatroom = saved && (isNearbyRoomId(saved) || isPlaceRoomId(saved) || isLocalOnlyRoomScope(saved))
       ? saved
       : CONTACTS_ONLY_SCOPE_ID;
@@ -606,7 +608,7 @@ export class UIManager extends EventEmitter {
   private isDebugModeEnabled(): boolean {
     try {
       if (new URLSearchParams(window.location.search).get('debug') === '1') return true;
-      return localStorage.getItem('iinpublic_debug') === '1';
+      return settingsStorage.getItem('iinpublic_debug') === '1';
     } catch {
       return false;
     }
@@ -1253,7 +1255,7 @@ export class UIManager extends EventEmitter {
   private persistTalksTabState(): void {
     try {
       const talksScrollContainer = document.getElementById('talks-view-content');
-      localStorage.setItem(TALKS_TAB_STATE_KEY, JSON.stringify({
+      settingsStorage.setItem(TALKS_TAB_STATE_KEY, JSON.stringify({
         showIncoming: this.talksShowIncoming,
         showOutgoing: this.talksShowOutgoing,
         enabledTypes: Array.from(this.talksEnabledTypes),
@@ -1272,7 +1274,7 @@ export class UIManager extends EventEmitter {
 
   private restoreTalksTabState(): void {
     try {
-      const raw = localStorage.getItem(TALKS_TAB_STATE_KEY);
+      const raw = settingsStorage.getItem(TALKS_TAB_STATE_KEY);
       if (!raw) return;
       const state = JSON.parse(raw) as {
         showIncoming?: boolean;
@@ -1892,8 +1894,7 @@ export class UIManager extends EventEmitter {
   }
 
   public getMyConversations(): Record<string, any> {
-    const conversationsJson = localStorage.getItem('myConversations');
-    return conversationsJson ? JSON.parse(conversationsJson) : {};
+    return getMyConversations();
   }
 
   public formatStageNameUpdated(): string {
@@ -3106,7 +3107,7 @@ export class UIManager extends EventEmitter {
     const c = conversations[conversationId];
     if (!c || (c.dealConfirmedByJson ?? '[]') === JSON.stringify(dealConfirmedBy)) return;
     c.dealConfirmedByJson = JSON.stringify(dealConfirmedBy);
-    localStorage.setItem('myConversations', JSON.stringify(conversations));
+    setMyConversations(conversations);
     if (this.currentConversationId === conversationId) {
       this.showConversationDetail(conversationId, this.currentThreadTalkId);
     }

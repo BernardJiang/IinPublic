@@ -23,7 +23,7 @@
  *                               executed by Node; already a webpack bundle.
  *   - node_modules/gun/*.js  — needed twice over, not just once:
  *                               (1) express.static('/node_modules/gun') serves these directly to
- *                               the browser/WebView's own Web Worker (public/worker.js does
+ *                               the browser/WebView's own Web Worker (the core worker, src/core/host/worker-host.ts, does
  *                               importScripts('/node_modules/gun/gun.js') and .../sea.js) — a
  *                               static-file HTTP response, not a Node require(), so bundling the
  *                               *server's* code could never eliminate it on its own; and

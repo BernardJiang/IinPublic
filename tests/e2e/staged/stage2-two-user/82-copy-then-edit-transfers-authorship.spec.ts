@@ -141,7 +141,7 @@ test.describe('Copy then edit transfers authorship', () => {
 
     // ── §Y1 assertion 1: the copy itself did not transfer authorship ───────────
     const copiedFullTalk = await pageTom.evaluate((tid) => {
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return myTalks[tid as string]?.fullTalk;
     }, copiedTalkId);
     expect(copiedFullTalk.authorId).toBe(originalAuthorId);
@@ -168,7 +168,7 @@ test.describe('Copy then edit transfers authorship', () => {
     await expect(newRow).toBeVisible({ timeout: 15000 });
     const newTalkId = await newRow.getAttribute('data-talk-id');
     const newFullTalk = await pageTom.evaluate((tid) => {
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return myTalks[tid as string]?.fullTalk;
     }, newTalkId);
     expect(newFullTalk.authorId).toBe(tomId);

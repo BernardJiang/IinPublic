@@ -23,7 +23,7 @@ test.describe('M3 real route mass exchange', () => {
       for(let i=0;i<7;i+=1){await waitForTabActive(pages[i+1],'talks');await completeTalksInAppByAnswerIds(pages[i+1],[{talkId:created.talkId,talkData:created.talkData,answerIds:GOLDEN[i],outcome:GOLDEN[i].at(-1)==='routea31'?'match':'mismatch'}]);}
       expect(new Set(GOLDEN.map(x=>x.join(','))).size).toBe(7); expect(await computeTalkCIDv1(talk)).toBe(cid);
       // M3-A: verify 7 responses landed in the author's local ledger (depth-3 paths encoded in GOLDEN)
-      await expect.poll(() => pages[0].evaluate((talkId) => Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')).filter((row: any) => row.talkId === talkId).length, created.talkId), { timeout: 120_000 }).toBe(7);
+      await expect.poll(() => pages[0].evaluate((talkId) => Object.values(((window as any).__iinpublic_exchanges?.() ?? {})).filter((row: any) => row.talkId === talkId).length, created.talkId), { timeout: 120_000 }).toBe(7);
     } finally {await Promise.all(pages.map(p=>p.evaluate(()=> (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(()=>{})));await Promise.all(contexts.map(c=>c.close().catch(()=>{})));await browser.close().catch(()=>{});await clearGunForStage1Spec();}
   });
 });

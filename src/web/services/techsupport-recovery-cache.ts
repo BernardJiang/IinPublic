@@ -5,6 +5,7 @@ import {
   recoveryAnchorPath,
   type RecoveryAnchorRecord,
 } from '../../shared/techsupport-recovery';
+import { settingsStorage } from './core-storage';
 
 /**
  * Local cache of the verified TechSupport recovery anchor record (docs/TODO.md OPEN-29).
@@ -21,7 +22,7 @@ const RECOVERY_ANCHOR_STORAGE_KEY = 'iinpublic_techsupport_recovery_anchor_v1';
 
 export function readCachedRecoveryAnchor(): RecoveryAnchorRecord | null {
   try {
-    const raw = localStorage.getItem(RECOVERY_ANCHOR_STORAGE_KEY);
+    const raw = settingsStorage.getItem(RECOVERY_ANCHOR_STORAGE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as RecoveryAnchorRecord;
   } catch {
@@ -31,7 +32,7 @@ export function readCachedRecoveryAnchor(): RecoveryAnchorRecord | null {
 
 function writeCachedRecoveryAnchor(record: RecoveryAnchorRecord): void {
   try {
-    localStorage.setItem(RECOVERY_ANCHOR_STORAGE_KEY, JSON.stringify(record));
+    settingsStorage.setItem(RECOVERY_ANCHOR_STORAGE_KEY, JSON.stringify(record));
   } catch {
     /* localStorage unavailable/full — the in-memory subscription value still works this session */
   }

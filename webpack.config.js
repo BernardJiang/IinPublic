@@ -68,7 +68,12 @@ const BUNDLED_ENV_KEYS = [
 ];
 
 module.exports = {
-  entry: './src/web/index.ts',
+  // `bundle`: the page (GUI). `core-worker`: the device core's web host (OPEN-91,
+  // docs/design/device-core-architecture.md) — the device's Gun and the app logic in src/core.
+  entry: {
+    bundle: './src/web/index.ts',
+    'core-worker': './src/core/host/worker-host.ts',
+  },
   // Persistent build cache: `test:all` rebuilds the dev bundle on every run; with the
   // filesystem cache an unchanged (or lightly changed) tree rebuilds in seconds instead
   // of a full ts-loader pass. Safe because `version` covers every env var whose value is
@@ -80,7 +85,7 @@ module.exports = {
   },
   output: {
     path: path.resolve(__dirname, 'dist/web'),
-    filename: 'bundle.js',
+    filename: '[name].js',
     clean: true,
   },
   resolve: {
@@ -149,6 +154,8 @@ module.exports = {
     }),
     new HtmlWebpackPlugin({
       template: './src/web/index.html',
+      // The core worker is loaded by `new Worker('/core-worker.js')`, never as a page script.
+      chunks: ['bundle'],
       title: 'IinPublic',
       favicon: './public/favicon.ico',
       templateParameters: {
@@ -305,7 +312,7 @@ module.exports = {
       // trigger live-reloads whenever webpack writes there, causing an
       // infinite refresh loop.
 
-      // Serve public/ so worker.js is available at /worker.js
+      // Serve public/ (favicon, static assets); the core worker is webpack output (/core-worker.js)
       { directory: path.resolve(__dirname, 'public'), publicPath: '/' },
       // Serve gun files so the Web Worker can importScripts('/node_modules/gun/…')
       // watch: false — this is a large static dependency; no need to watch it.

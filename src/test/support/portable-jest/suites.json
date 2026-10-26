@@ -382,10 +382,6 @@
       "reason": "needs a DOM test environment"
     },
     {
-      "file": "gun-delivery-repository.test.ts",
-      "reason": "fails under the portable runtime in headless Chromium: GunDeliveryRepository › bounds pair-response souls below filesystem filename limits: Buffer is not defined"
-    },
-    {
       "file": "gun-pubsub-signaler.test.ts",
       "reason": "fails under the portable runtime in host Node as embedded Node 18: deriveSignalingSharedKey › is a 64-hex SHA-256 digest: Cannot read properties of undefined (reading 'subtle')"
     },

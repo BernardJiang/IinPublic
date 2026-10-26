@@ -133,7 +133,7 @@ test.describe('Talk lifecycle — flow multi-responder matrix (D4)', () => {
       .poll(
         async () =>
           pageTom.evaluate(() => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             const names = Object.values(conversations)
               .filter((c: any) => c?.supportChannel !== true)
               .map((c: any) => c?.otherUserName);

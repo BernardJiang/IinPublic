@@ -13,8 +13,9 @@ import {
   type NearbyHubHeartbeat,
   type NearbyIntroductionsAnswer,
   type NearbyV3Hub,
-} from './nearby-v3-service';
+} from '../../core/nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
+import { settingsStorageAsStorage } from './core-storage';
 
 /**
  * Nearby on one device (§3.7): the personal list, knocks in and out, and the hub client. The app's
@@ -206,6 +207,27 @@ export type NearbyV3RuntimeDeps = {
   onCounts?: (counts: { nearby: number; online: number; scope: NearbyCardScope }) => void;
 };
 
+/**
+ * One check of the position watch: when my card no longer says where I am, send the new one, then
+ * search again. The card goes first, on its own guard: a search still running for the previous move
+ * can wait on slow swaps for 30 s, and a second move during it (in and out of a Place) must still
+ * reach the hub at once — it used to wait behind that search (phone-path J-PLACE-11).
+ */
+export function createPositionWatch(service: Pick<NearbyV3Service, 'cardIsOutOfPlace' | 'reissueIfOutOfPlace' | 'refresh'>): () => void {
+  let reissuing = false;
+  let refreshing = false;
+  return () => {
+    if (reissuing || !service.cardIsOutOfPlace()) return;
+    reissuing = true;
+    void service.reissueIfOutOfPlace().catch(() => undefined).finally(() => {
+      reissuing = false;
+      if (refreshing) return;
+      refreshing = true;
+      void service.refresh().catch(() => undefined).finally(() => { refreshing = false; });
+    });
+  };
+}
+
 export class NearbyV3Runtime {
   readonly service: NearbyV3Service;
   readonly hub: FetchNearbyV3Hub;
@@ -217,7 +239,6 @@ export class NearbyV3Runtime {
   private stopKnocks: (() => void) | null = null;
   private stopHubKnocks: (() => void) | null = null;
   private positionWatch: ReturnType<typeof setInterval> | null = null;
-  private refreshing = false;
 
   constructor(private readonly deps: NearbyV3RuntimeDeps) {
     this.hub = new FetchNearbyV3Hub(deps.apiBase, deps.onCounts, () => deps.config().capacity);
@@ -245,7 +266,7 @@ export class NearbyV3Runtime {
       hub: this.hub,
       link: new NearbyV3MeshLink(deps.mesh),
       localBoard: this.board,
-      storage: typeof localStorage !== 'undefined' ? localStorage : null,
+      storage: settingsStorageAsStorage,
       ...(deps.isPaused ? { isPaused: deps.isPaused } : {}),
       onChange: (entries) => {
         deps.onRoster(entries.map((entry) => ({
@@ -277,11 +298,7 @@ export class NearbyV3Runtime {
     // My card must say where I am now: entering or leaving a Place, or moving, reissues it at once,
     // whichever path changed it. Compared with the card itself, not with the last position seen: a
     // visit shorter than one check still left a Place card at the hub (phone-path J-PLACE-11).
-    this.positionWatch ??= setInterval(() => {
-      if (this.refreshing || !this.service.cardIsOutOfPlace()) return;
-      this.refreshing = true;
-      void this.service.refresh().catch(() => undefined).finally(() => { this.refreshing = false; });
-    }, POSITION_WATCH_MS);
+    this.positionWatch ??= setInterval(createPositionWatch(this.service), POSITION_WATCH_MS);
   }
 
   stop(): void {

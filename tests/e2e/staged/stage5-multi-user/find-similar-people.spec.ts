@@ -395,7 +395,7 @@ test.describe('Find similar people', () => {
               page.evaluate((expectedSenderIds) => {
                 const expected = new Set(expectedSenderIds);
                 try {
-                  const raw = localStorage.getItem('localTalkExchanges');
+                  const raw = JSON.stringify(((window as any).__iinpublic_exchanges?.() ?? {}));
                   const parsed = raw ? JSON.parse(raw) : {};
                   const rows = Array.isArray(parsed) ? parsed : Object.values(parsed || {});
                   const seen = new Set(
@@ -424,7 +424,7 @@ test.describe('Find similar people', () => {
         await waitForTabActive(page, 'contacts');
         await openCollapsedFilters(page, 'contacts-filter-toggle');
         await page.waitForSelector('#contacts-sort-order', { timeout: 20_000 });
-        await page.evaluate(() => localStorage.removeItem('iinpublic_contacts_tab_state'));
+        await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_contacts_tab_state'] }), localStorage.removeItem('iinpublic_contacts_tab_state')));
         await page.fill('#contacts-filter-name', '');
         await page.selectOption('#contacts-filter-relation', 'all');
         await page.selectOption('#contacts-sort-order', 'match-rate');

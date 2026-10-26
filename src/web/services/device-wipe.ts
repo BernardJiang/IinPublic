@@ -60,6 +60,7 @@ export async function eraseDeviceStorage(): Promise<void> {
       for (const n of [
         'radata',
         'gun',
+        'gun-idb', // the device core's Gun (src/core/host/worker-host.ts)
         'iinpublic',
         IDENTITY_CUSTODY_DATABASE_NAME,
         PASSWORD_FREE_CUSTODY_DATABASE_NAME,

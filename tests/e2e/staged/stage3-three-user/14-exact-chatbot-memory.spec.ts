@@ -218,7 +218,7 @@ async function waitForContextualMemoryAnswer(page: Page, answerText: string): Pr
     .poll(
       () => page.evaluate((expected) => {
         try {
-          const parsed = JSON.parse(localStorage.getItem('flattenedAnswerPreferences') || '{}');
+          const parsed = ((window as any).__iinpublic_collection?.('flattenedAnswerPreferences') ?? {});
           return Object.entries(parsed).some(([key, value]: [string, any]) =>
             key.startsWith('flat_v2_')
             && value?.contextVersion === 2
@@ -235,7 +235,7 @@ async function waitForContextualMemoryAnswer(page: Page, answerText: string): Pr
 
 async function completedAnswerTexts(page: Page, talkId: string): Promise<string[]> {
   return page.evaluate((id) => {
-    const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+    const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
     const direct = talks[id];
     const entry = direct || Object.values(talks).find((candidate: any) =>
       candidate?.talkId === id || candidate?.fullTalk?.id === id,

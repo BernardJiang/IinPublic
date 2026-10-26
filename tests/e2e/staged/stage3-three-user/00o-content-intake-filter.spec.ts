@@ -127,7 +127,7 @@ test.describe('Incoming talk content intake filtering', () => {
     await expect
       .poll(() =>
         pageJerry!.evaluate(() => {
-          const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+          const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
           return [filters.requireGoodGrammar, filters.blockDirtyWords];
         }),
       )
@@ -143,7 +143,7 @@ test.describe('Incoming talk content intake filtering', () => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       if (!app?.currentUser?.id) return;
       const filters = {
-        ...JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}'),
+        ...JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}'),
         requireGoodGrammar: false,
         blockDirtyWords: false,
       };

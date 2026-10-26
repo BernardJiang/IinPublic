@@ -32,7 +32,7 @@ const chipFor = (page: Page, en: string) => starterChips(page).filter({ hasText:
 
 /** The harness turns starter seeds off for ordinary specs; a fresh identity opts back in here. */
 async function showStarterTags(page: Page): Promise<void> {
-  await page.evaluate(() => localStorage.removeItem('iinpublic_starter_contacts_disabled'));
+  await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_starter_contacts_disabled'] }), localStorage.removeItem('iinpublic_starter_contacts_disabled')));
   await page.locator('.nav-btn[data-view="talks"]').click();
   await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
   await expect(starterChips(page)).toHaveCount(STARTER_TAGS.length, { timeout: 20_000 });
@@ -44,7 +44,7 @@ async function like(page: Page, keyword: string): Promise<void> {
 }
 
 const myTalkRole = (page: Page, en: string) => page.evaluate((keyword) => {
-  const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+  const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
   const entry = Object.values(talks).find((talk: any) => talk?.fullTalk?.questions?.[0]?.text === keyword) as any;
   return entry?.role || '';
 }, en);
@@ -83,7 +83,7 @@ test.describe('Starter interest tags (OPEN-87)', () => {
 
     const adopted = await page.evaluate((keyword) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       const [id, entry] = Object.entries(talks).find(([, talk]: [string, any]) => talk?.fullTalk?.questions?.[0]?.text === keyword) as [string, any];
       return {
         id,

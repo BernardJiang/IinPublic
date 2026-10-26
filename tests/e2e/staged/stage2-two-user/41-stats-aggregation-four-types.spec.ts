@@ -192,7 +192,7 @@ test.describe('Stats aggregation across all four talk types (flow, tag, survey, 
     // ── 3. A authors all four talks (cache body + record in myTalks) ─────────
     await pageA.evaluate((defs) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       for (const def of defs) {
         app?.peerMeshService?.cacheTalkBody?.(def.id, def);
         myTalks[def.id] = { role: 'created', fullTalk: def };
@@ -237,7 +237,7 @@ test.describe('Stats aggregation across all four talk types (flow, tag, survey, 
               // Count author-side ledger outcomes via localTalkExchanges (author 'sent' projection is
               // recorded on receipt; every received response also writes a ledger outcome). We read the
               // localTalkExchanges records (found by their talkId field) as a robust proxy.
-              const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+              const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
               const have = (tid: string) =>
                 Object.values<any>(exchanges).some((row) => row?.talkId === tid);
               void aId;

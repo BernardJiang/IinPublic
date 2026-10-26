@@ -7,6 +7,8 @@ import type { MessageFilterResult } from '../../shared/message-content-filter';
 import { escapeHtml } from './ui-formatters';
 import { filterVerifiedSupportMessages } from './verified-support-messages';
 import type { UiTranslationKey } from './ui-translations';
+import { setMyConversations } from './my-conversations-storage';
+import { settingsStorage } from '../services/core-storage';
 
 export interface ConversationDetailViewDeps {
   getMyConversations: () => Record<string, any>;
@@ -196,14 +198,14 @@ export function showConversationDetail(
     const cursorKey = 'iinpublic:conversation-read-cursors';
     let cursors: Record<string, { timestamp: string; id?: string }> = {};
     try {
-      cursors = JSON.parse(localStorage.getItem(cursorKey) || '{}');
+      cursors = JSON.parse(settingsStorage.getItem(cursorKey) || '{}');
     } catch {
       /* ignore malformed local data */
     }
     cursors[openKey === 'direct' ? conversationId : `${conversationId}#${openKey}`] = {
       timestamp: summaries[openKey].lastMessageTime || new Date().toISOString(),
     };
-    localStorage.setItem(cursorKey, JSON.stringify(cursors));
+    settingsStorage.setItem(cursorKey, JSON.stringify(cursors));
   }
   const remainingUnread = Object.values(summaries).reduce(
     (total, summary) => total + (Number(summary?.unreadCount) || 0),
@@ -211,7 +213,7 @@ export function showConversationDetail(
   );
   conversation.unreadCount = remainingUnread;
   conversation.unread = remainingUnread > 0;
-  localStorage.setItem('myConversations', JSON.stringify(conversations));
+  setMyConversations(conversations);
   deps.updateMatchBadge();
 
   // Load messages

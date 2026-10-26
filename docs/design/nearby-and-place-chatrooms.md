@@ -950,13 +950,13 @@ reputation-weighted dense-crowd ranking remain separate deferred defenses.
   direction, and opens that person's contact details directly. Matched people receive priority
   for individual edge markers; overflow cards also link their matched names to contact details.
   The map consumes an in-memory match-count view, with no dependency on a browser-storage schema.
-  For the OPEN-91 merge, attach the authenticated core adapter through `app.setMapMatchSource`:
-  its `subscribe` callback emits a `MapMatchUpdate` initial snapshot, then committed count patches;
+  `app.setMapMatchSource` connects the OPEN-91 core-backed exchange view through a GUI adapter:
+  its `subscribe` callback emits an initial `MapMatchUpdate` snapshot and refreshed counts on
+  hydration, writes, changed outcomes, and peer removal. It also accepts count patches;
   zero/null removes a badge. Replacing the source or logging out clears the previous view and
-  unsubscribes. The database work owns restoration and persistence; this GUI change adds neither.
-  Until that adapter lands, accepted live exchange outcomes provide session-only counts, so badges
-  from earlier sessions require the future core snapshot. Broadcast animations are transient UI
-  events and must not replay when persisted exchanges hydrate.
+  unsubscribes. The existing exchange view owns restoration and persistence; this GUI change
+  adds neither. Broadcast animations are transient UI events and never replay when persisted
+  exchanges hydrate.
 - **List:** one compact browser surface. Nearby is not a room. Its headcount occupies the top
   utility row, and the list begins directly with people—there is no redundant "People near you"
   heading or room-loading message. It shows at most `C` other identities. Room sorting appears only

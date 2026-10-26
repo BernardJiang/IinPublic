@@ -94,7 +94,7 @@ async function createLocalDirectConversation(
       () =>
         page.evaluate(
           ({ cid, id }) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return conversations[cid]?.otherUserId === id;
           },
           { cid: conversationId, id: otherUserId },
@@ -179,7 +179,7 @@ async function readDirectP2PPrereqs(
   return page.evaluate(
     async ({ cid, otherId }) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const publicUser = await Promise.race([
         app?.gunService?.getPublicUser?.(otherId).catch((err: Error) => ({ error: err.message })),
         new Promise((resolve) => setTimeout(() => resolve({ error: 'public user lookup timed out' }), 5_000)),

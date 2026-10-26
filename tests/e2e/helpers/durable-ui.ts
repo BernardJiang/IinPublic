@@ -56,15 +56,15 @@ export async function waitForPeerHistoryTitle(
     .poll(
       () => page.evaluate((pid) => {
         const titles = new Set<string>();
-        const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+        const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
         Object.values(exchanges)
           .filter((entry: any) => String(entry?.peerId || '') === pid)
           .map((entry: any) => String(entry?.title || ''))
           .filter(Boolean)
           .forEach((entryTitle) => titles.add(entryTitle));
 
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         const addTalkTitle = (talkId: unknown) => {
           const id = String(talkId || '').trim();
           if (!id || id === 'direct') return;

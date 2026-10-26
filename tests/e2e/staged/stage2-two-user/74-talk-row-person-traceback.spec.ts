@@ -83,7 +83,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
     expect(openedConversationId.length).toBeGreaterThan(0);
 
     const openedOtherUserId = await pageA.evaluate((cid: string) => {
-      const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+      const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       return conversations[cid]?.otherUserId || '';
     }, openedConversationId);
     expect(openedOtherUserId).toBe(userIdB);
@@ -136,7 +136,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
         () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',
       );
       const openedOtherUserId = await pageJerry.evaluate((cid: string) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return conversations[cid]?.otherUserId || '';
       }, openedConversationId);
       expect(openedOtherUserId).toBe(tomId);
@@ -165,7 +165,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
       expect(delivery).toMatchObject({ talksSent: 1, receivers: 2 });
 
       const talkId = await pageTom.evaluate(() => {
-        const talks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         return Object.keys(talks)[0] || '';
       });
       expect(talkId).toBeTruthy();
@@ -211,7 +211,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
         () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',
       );
       const openedOtherUserId = await pageTom.evaluate((cid: string) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         return conversations[cid]?.otherUserId || '';
       }, openedConversationId);
       expect(openedOtherUserId).toBe(jerryId);

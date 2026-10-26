@@ -33,7 +33,7 @@ export async function expectTechSupportGreetingReceived(page: Page, stageName?: 
       () =>
         page.evaluate(
           ({ techSupportId, name, tips }) => {
-            const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+            const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
             return Object.values(conversations).some((conversation: any) => {
               const message = String(conversation?.lastMessage || '');
               const hasWelcome = message.includes('Welcome to IinPublic') && (!name || message.includes(name));

@@ -19,7 +19,7 @@ async function readFirstUserSupportState(page: Page): Promise<{
 }> {
   return page.evaluate((techSupportId) => {
     const currentUser = (window as any).__iinpublic_app?.getApp?.()?.currentUser || {};
-    const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+    const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
     const supportConversations = Object.values(conversations).filter(
       (conversation: any) =>
         conversation?.supportChannel === true &&

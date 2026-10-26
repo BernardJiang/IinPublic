@@ -21,3 +21,9 @@ No plaintext marker may cross the hub boundary. Since 2026-10-09, authored/recei
 the receiver's incoming-cluster envelope are SEA-encrypted inside the peerless worker Gun. Direct
 mesh delivery carries the body endpoint-to-endpoint; server fallbacks may carry ciphertext only.
 This is now a passing release gate rather than an expected-failure defect record.
+
+Since 2026-10-25 (OPEN-91 P2) the spec also fails if any frame the browsers send to the hub writes or
+asks for a soul in a private namespace (`local/`, and the old `pairs/` and `deliveryJournal/` homes of
+the sender's response copy and delivery journal). Before P2 there were five on every run: Jerry's
+pair response, its payload and its journal entry, and the same souls asked for by Tom — the hub could
+see who answered whom and when.

@@ -39,7 +39,27 @@ type WireEvent = {
   excerpt?: string;
   /** Gun records (souls) in the frame that carry a marker — which data type leaked. */
   souls?: string[];
+  /** Souls in private namespaces this frame wrote or asked for (OPEN-91 P2: must be none). */
+  privateSouls?: string[];
 };
+
+/** Namespaces that never leave the device (src/core/sharing-policy.ts). */
+const PRIVATE_NAMESPACES = ['local', 'pairs', 'deliveryJournal'];
+
+/** Every soul a Gun frame writes (`put`) or asks for (`get`) in a private namespace. */
+function privateSoulsIn(payload: string): string[] {
+  const out = new Set<string>();
+  try {
+    const parsed = JSON.parse(payload);
+    for (const msg of Array.isArray(parsed) ? parsed : [parsed]) {
+      const souls = [...Object.keys((msg?.put ?? {}) as Record<string, unknown>), ...(typeof msg?.get?.['#'] === 'string' ? [msg.get['#']] : [])];
+      for (const soul of souls) if (PRIVATE_NAMESPACES.includes(decodeURIComponent(soul).split('/')[0])) out.add(soul);
+    }
+  } catch {
+    /* not JSON */
+  }
+  return [...out];
+}
 
 /** Gun frames are JSON (or arrays of JSON): return the soul of every put-node containing a marker. */
 function soulsCarryingMarkers(payload: string): string[] {
@@ -61,7 +81,9 @@ function soulsCarryingMarkers(payload: string): string[] {
 function scan(who: string, channel: WireEvent['channel'], where: string, payload: string): WireEvent {
   const markers = Object.values(MARKERS).filter((marker) => payload.includes(marker));
   const first = markers[0] ? payload.indexOf(markers[0]) : -1;
+  const privateSouls = channel === 'gun-ws-out' ? privateSoulsIn(payload) : [];
   return {
+    ...(privateSouls.length > 0 ? { privateSouls } : {}),
     who,
     channel,
     where,
@@ -258,5 +280,10 @@ test.describe('Wire audit — talk content vs the hub', () => {
     // fallback. Owner Talk repositories and the incoming cluster envelope live in the peerless
     // private worker Gun, so none of the unique plaintext may appear on the hub boundary.
     expect(leaks, 'plaintext talk content reached the hub').toEqual([]);
+    // Nothing from a private namespace — the sender's response copy and delivery journal included —
+    // is sent to the hub or asked of it, during the whole session (OPEN-91 P2).
+    const privateOnWire = [...new Set(events.flatMap((event) => (event.privateSouls ?? []).map((soul) => `${event.who}: ${soul}`)))];
+    console.log(`private souls sent to the hub: ${privateOnWire.length}`);
+    expect(privateOnWire, 'a private soul reached the hub').toEqual([]);
   });
 });

@@ -6,16 +6,16 @@ import {
   type NearbyCard,
   type NearbyCountIdentity,
   type NearbyCardScope,
-} from '../../shared/nearby-v3-card';
-import type { NearbyV3Config } from '../../shared/nearby-v3-config';
-import { parseNearbyAudienceSummary, type NearbyAudienceSummary } from '../../shared/nearby-v3-audience';
+} from '../shared/nearby-v3-card';
+import type { NearbyV3Config } from '../shared/nearby-v3-config';
+import { parseNearbyAudienceSummary, type NearbyAudienceSummary } from '../shared/nearby-v3-audience';
 import {
   parseNearbyGossipMessage,
   type NearbyGossipMessage,
   type NearbyGossipReply,
-} from '../../shared/nearby-v3-gossip';
-import { NearbyList, type NearbyListEntry, type NearbyListOwner } from '../../shared/nearby-v3-list';
-import { parseNearbyRankKey, type NearbyRankKey } from '../../shared/nearby-v3-ranking';
+} from '../shared/nearby-v3-gossip';
+import { NearbyList, type NearbyListEntry, type NearbyListOwner } from '../shared/nearby-v3-list';
+import { parseNearbyRankKey, type NearbyRankKey } from '../shared/nearby-v3-ranking';
 import {
   isEstablishedBefore,
   isNearbyAttestorKey,
@@ -26,9 +26,9 @@ import {
   type NearbyAgeProof,
   type NearbyAttestorKey,
   type NearbyBeacon,
-} from '../../shared/nearby-v3-attestation';
-import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import type { PublicLocation } from '../../shared/public-location';
+} from '../shared/nearby-v3-attestation';
+import type { SeaSigningPair } from '../shared/p2p-runtime';
+import type { PublicLocation } from '../shared/public-location';
 
 /**
  * One phone's Nearby v3 list (docs/design/nearby-and-place-chatrooms.md §3.7): it signs the user's
@@ -269,16 +269,21 @@ export class NearbyV3Service {
       || card.point.latitude !== position.point.latitude || card.point.longitude !== position.point.longitude;
   }
 
+  /**
+   * Sends my card for where I am now, at once, if the one the hub has is out of place. Never waits
+   * for a running tick: one can be stuck on slow swaps (two 15 s timeouts to someone who left), and
+   * meanwhile the hub would keep introducing me in the Place I left (phone-path J-PLACE-11).
+   */
+  async reissueIfOutOfPlace(): Promise<void> {
+    const position = this.deps.position();
+    const identity = this.deps.identity();
+    if (position && identity && this.cardIsOutOfPlace()) await this.reissueCard(position, identity, this.now(), this.deps.config());
+  }
+
   /** The public point or scope changed: reissue the card and search again now. */
   async refresh(): Promise<void> {
-    // A tick can be waiting on slow swaps (two 15 s timeouts to someone who left). My new scope or
-    // point reaches the hub now, not after them: otherwise the hub keeps introducing me in the
-    // Place I left (phone-path J-PLACE-11).
     if (this.ticking) {
-      const position = this.deps.position();
-      const identity = this.deps.identity();
-      const config = this.deps.config();
-      if (position && identity && this.cardIsOutOfPlace()) await this.reissueCard(position, identity, this.now(), config);
+      await this.reissueIfOutOfPlace();
       // Then a fresh tick for the new position, not the one already running for the old.
       await this.ticking?.catch(() => undefined);
     }

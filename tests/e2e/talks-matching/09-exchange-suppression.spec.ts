@@ -220,7 +220,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService not available on Tom');
         mesh.cacheTalkBody(talkId, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
       },
@@ -368,7 +368,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService not available on Jerry');
         mesh.cacheTalkBody(tDef.id, tDef);
-        const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
+        const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         // Use deliverTalkToReceiversOverMesh (internal) via the broadcast handler.

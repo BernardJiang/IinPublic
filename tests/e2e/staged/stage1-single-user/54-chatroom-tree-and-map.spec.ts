@@ -79,4 +79,56 @@ test.describe('Nearby and Places list/map views', () => {
     await expect(map).not.toHaveAttribute('data-selected-tile', /.+/);
     await expect(map.locator('[data-testid="map-tile-card"]')).toHaveCount(0);
   });
+
+  test('broadcast event handlers animate the map and core exchange updates change match badges', async () => {
+    await openList();
+    await page!.locator('[data-testid="chatroom-map-view-btn"]').click();
+    const map = page!.locator('[data-testid="chatroom-map"]');
+    await expect(map).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
+    // Deterministic public points; exercise the real app/UI handlers without a second device.
+    await page!.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const point = { latitude: 32.715, longitude: -117.16, precisionMeters: 400 };
+      app.uiManager.setMapUserDotSource({
+        selfPoint: point, selfTraveler: true,
+        isCandidate: () => true,
+        load: async () => ({ dots: [{ ...point, userId: 'map-eve', traveler: false }], density: [] }),
+      });
+    });
+    await expect(map.locator('[data-testid="map-user-dot-self"]')).toHaveCount(1);
+    await expect(map.locator('[data-testid="map-user-dot-room"]')).toHaveCount(1);
+
+    await page!.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      app.startNearbyBroadcastProgress(app.getCurrentChatroomId(), ['map-qa-talk'], 1, ['map-eve']);
+    });
+    await expect(map.locator('[data-direction="outgoing"]')).toHaveCount(1);
+    await page!.evaluate(() => {
+      (window as any).__iinpublic_app.getApp().uiManager.displayIncomingTalk({
+        id: 'map-incoming', title: 'Map test', authorName: 'Eve', type: 'tag',
+        questionCount: 0, timestamp: new Date().toISOString(), isOwnTalk: false,
+        fullTalk: { authorId: 'map-eve' },
+      });
+    });
+    await expect(map.locator('[data-direction="incoming"]')).toHaveCount(1);
+    await expect(map.locator('[data-event-id]')).toHaveCount(0, { timeout: 5_000 });
+
+    await page!.evaluate(() => {
+      const app = (window as any).__iinpublic_app.getApp();
+      app.recordLocalTalkExchange('map-eve', 'Eve', 'map-qa-talk', { title: 'Map test', type: 'tag' }, 'match');
+    });
+    await expect(map.locator('[data-user-id="map-eve"][data-match-count="1"]')).toHaveCount(1);
+    await expect.poll(() => page!.evaluate(async () => {
+      const records = await (window as any).__iinpublic_app.getApp().gunService.getBridge().core({ name: 'exchanges.snapshot' });
+      return records.some((record: any) => record.peerId === 'map-eve' && record.outcome === 'match');
+    })).toBe(true);
+    // Loading/recording matches is data hydration, not another incoming broadcast animation.
+    await expect(map.locator('[data-event-id]')).toHaveCount(0);
+    await page!.evaluate(() => {
+      (window as any).__iinpublic_app.getApp().recordLocalTalkExchange(
+        'map-eve', 'Eve', 'map-qa-talk', { title: 'Map test', type: 'tag' }, 'mismatch',
+      );
+    });
+    await expect(map.locator('[data-match-count]')).toHaveCount(0);
+  });
 });

@@ -36,7 +36,7 @@ test.describe('TechSupport built-in contact controls', () => {
     const currentUserId = await page.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''));
     const readSupportConversationId = () =>
       page!.evaluate((techSupportId) => {
-        const conversations = JSON.parse(localStorage.getItem('myConversations') || '{}');
+        const conversations = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
         const support = Object.entries(conversations).find(
           ([, conversation]: [string, any]) =>
             conversation?.supportChannel === true &&

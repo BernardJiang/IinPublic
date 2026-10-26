@@ -2,9 +2,9 @@ import {
   mergeIncomingTalkCluster,
   planIncomingTalkClusterPrune,
   type IncomingTalkClusterWire,
-} from '../../shared/peer-talk-delivery';
-import type { P2PRuntimeFlags } from '../../shared/p2p-runtime';
-import type { WebGunService } from './web-gun-service';
+} from '../shared/peer-talk-delivery';
+import type { P2PRuntimeFlags } from '../shared/p2p-runtime';
+import type { SubscribablePrivateStore } from './ports';
 
 type StoredIncomingTalkCluster = Omit<IncomingTalkClusterWire, 'senders' | 'talkIds' | 'identityAliases'> & {
   senders?: IncomingTalkClusterWire['senders'];
@@ -21,10 +21,10 @@ type OwnerIncomingTalkEnvelope = {
   updatedAt: string;
 };
 
-const ownerEnvelopeWriteQueues = new WeakMap<WebGunService, Promise<void>>();
+const ownerEnvelopeWriteQueues = new WeakMap<SubscribablePrivateStore, Promise<void>>();
 const OWNER_INCOMING_TALK_PRIVATE_KEY = 'incomingTalkClusters';
 
-async function readOwnerEnvelopeClusters(gunService: WebGunService): Promise<IncomingTalkClusterWire[]> {
+async function readOwnerEnvelopeClusters(gunService: SubscribablePrivateStore): Promise<IncomingTalkClusterWire[]> {
   let raw: OwnerIncomingTalkEnvelope | null;
   try {
     raw = await gunService.getPrivate(OWNER_INCOMING_TALK_PRIVATE_KEY) as OwnerIncomingTalkEnvelope | null;
@@ -71,7 +71,7 @@ function hydrateCluster(raw: unknown): IncomingTalkClusterWire | null {
 }
 
 export function mirrorIncomingTalkClustersToLocalGun(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   userId: string,
   clusters: unknown[],
   flags: P2PRuntimeFlags,
@@ -87,7 +87,7 @@ export function mirrorIncomingTalkClustersToLocalGun(
 }
 
 function persistIncomingTalkClusterToLocalGun(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   cluster: IncomingTalkClusterWire,
 ): Promise<void> {
   return persistIncomingTalkClustersToLocalGun(gunService, [cluster]);
@@ -110,7 +110,7 @@ function clusterFingerprint(cluster: IncomingTalkClusterWire): string {
 }
 
 type EnvelopeBatch = { clusters: Map<string, IncomingTalkClusterWire>; done: Promise<void> };
-const ownerEnvelopeNextBatch = new WeakMap<WebGunService, EnvelopeBatch>();
+const ownerEnvelopeNextBatch = new WeakMap<SubscribablePrivateStore, EnvelopeBatch>();
 
 /**
  * Every incoming Talk (and every UI refresh) asks for its cluster to be saved, and each save is a
@@ -120,7 +120,7 @@ const ownerEnvelopeNextBatch = new WeakMap<WebGunService, EnvelopeBatch>();
  * Requests that arrive while a rewrite is running now join the next one, which writes them all.
  */
 function persistIncomingTalkClustersToLocalGun(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   clusters: IncomingTalkClusterWire[],
 ): Promise<void> {
   let batch = ownerEnvelopeNextBatch.get(gunService);
@@ -142,7 +142,7 @@ function persistIncomingTalkClustersToLocalGun(
 }
 
 async function writeOwnerEnvelope(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   clusters: IncomingTalkClusterWire[],
 ): Promise<void> {
   const current = await readOwnerEnvelopeClusters(gunService);
@@ -182,7 +182,7 @@ async function writeOwnerEnvelope(
 }
 
 export async function upsertLocalIncomingTalkClusters(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   receiverUserId: string,
   items: Array<{
     talkId: string;
@@ -213,7 +213,7 @@ export async function upsertLocalIncomingTalkClusters(
 }
 
 export async function upsertLocalIncomingTalkCluster(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   receiverUserId: string,
   params: {
     talkId: string;
@@ -252,7 +252,7 @@ export async function upsertLocalIncomingTalkCluster(
  * pruned cluster's own Q&A record already survives independently in the Me tab.
  */
 export async function pruneIncomingTalkClustersIfNeeded(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   receiverUserId: string,
   flags: P2PRuntimeFlags,
 ): Promise<void> {
@@ -270,7 +270,7 @@ export async function pruneIncomingTalkClustersIfNeeded(
 }
 
 export async function collectLocalIncomingTalkClusters(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   _receiverUserId: string,
   _flags: P2PRuntimeFlags,
 ): Promise<IncomingTalkClusterWire[]> {
@@ -278,7 +278,7 @@ export async function collectLocalIncomingTalkClusters(
 }
 
 export function subscribeLocalIncomingTalkClusters(
-  gunService: WebGunService,
+  gunService: SubscribablePrivateStore,
   _receiverUserId: string,
   _flags: P2PRuntimeFlags,
   handler: (cluster: IncomingTalkClusterWire, id: string) => void,

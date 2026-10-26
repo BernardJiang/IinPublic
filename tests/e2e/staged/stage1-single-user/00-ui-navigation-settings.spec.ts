@@ -360,7 +360,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => {
       const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
       const conversationId = 'localized_support_conversation';
-      (window as any).__localizedPreviousConversations = localStorage.getItem('myConversations');
+      (window as any).__localizedPreviousConversations = (window as any).__iinpublic_collection?.('myConversations') ?? {};
       ui?.addNewConversation?.({
         conversationId,
         otherUserId: 'iinpublic-root-techsupport',
@@ -415,8 +415,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#back-from-conversation').click();
     await p.evaluate(() => {
       const previous = (window as any).__localizedPreviousConversations;
-      if (previous === null) localStorage.removeItem('myConversations');
-      else localStorage.setItem('myConversations', previous);
+      (window as any).__iinpublic_collection_edit?.('myConversations', { clear: true, set: previous });
       delete (window as any).__localizedPreviousConversations;
     });
     await p.unroute('**/api/users/*/peers/localized-peer/relationship');
@@ -528,7 +527,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(modeGroup).toContainText('自动');
     await expect(modeGroup).toContainText('手动');
     await p.evaluate(() => document.getElementById('talk-response-modal')?.remove());
-    await p.evaluate(() => localStorage.removeItem('myTalks'));
+    await p.evaluate(() => (window as any).__iinpublic_collection_edit?.('myTalks', { clear: true }));
     await p.locator('.nav-btn[data-view="me"]').click();
     await afterNav();
     await expect(p.locator('.me-talk-type-filter')).toHaveText(['标签', '流程', '问卷', '路线']);
@@ -679,7 +678,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.notification').filter({ hasText: '仅在上下文和选项相同时重复此选择' })).toBeVisible();
     await expect
       .poll(() => p.evaluate(() => {
-        const state = JSON.parse(localStorage.getItem('flattenedAnswerPreferences') || '{}');
+        const state = ((window as any).__iinpublic_collection?.('flattenedAnswerPreferences') ?? {});
         return state.flat_localized_preference?.mode || '';
       }))
       .toBe('temporary');
@@ -692,10 +691,10 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#my-talks-modal')).toContainText('广播开启');
     await p.locator('#close-my-talks-modal').click();
     await p.evaluate(() => {
-      localStorage.removeItem('myAnswerHistory');
-      localStorage.removeItem('answerPreferences');
-      localStorage.removeItem('flattenedAnswerPreferences');
-      localStorage.removeItem('myTalks');
+      (window as any).__iinpublic_collection_edit?.('myAnswerHistory', { clear: true });
+      (window as any).__iinpublic_collection_edit?.('answerPreferences', { clear: true });
+      (window as any).__iinpublic_collection_edit?.('flattenedAnswerPreferences', { clear: true });
+      (window as any).__iinpublic_collection_edit?.('myTalks', { clear: true });
     });
     await p.locator('.nav-btn[data-view="settings"]').click();
     await afterNav();
@@ -722,7 +721,7 @@ test.describe('UI navigation and settings shell', () => {
 
     await expect
       .poll(async () => p.evaluate(() => {
-        const filters = JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}');
+        const filters = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}');
         return {
           allowedLanguages: filters.allowedLanguages,
           requireGoodGrammar: filters.requireGoodGrammar,
@@ -768,7 +767,7 @@ test.describe('UI navigation and settings shell', () => {
     await openSettingsSection(p, SETTINGS_SECTION.talkBehavior);
     await p.locator('#settings-sent-after').fill('2026-05-01T09:30');
     await expect
-      .poll(async () => p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_talk_intake_filters') || '{}').sentAfter))
+      .poll(async () => p.evaluate(() => JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_talk_intake_filters'] ?? null) || '{}').sentAfter))
       .toContain('2026-05-01T');
 
   });
@@ -865,8 +864,8 @@ test.describe('UI navigation and settings shell', () => {
         ],
       };
       ui.completeTalk(talk, [{ questionId: 'q1', answerId: 'a1', answerText: 'Tacos', mode: 'manual' }], 'match');
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
+      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
       const record = Object.values(history)[0] as any;
       return {
         role: myTalks.incoming_flat_history_1?.role,
@@ -912,8 +911,8 @@ test.describe('UI navigation and settings shell', () => {
         questions: [{ id: 'q2', text: talkTitle, answers: [{ id: 'a2', text: talkTitle, isMatch: true }] }],
       };
       ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: talkTitle, mode: 'manual' }], 'match');
-      const myTalks = JSON.parse(localStorage.getItem('myTalks') || '{}');
-      const history = JSON.parse(localStorage.getItem('myAnswerHistory') || '{}');
+      const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
+      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
       return {
         copiedRole: myTalks[talkId]?.role,
         historyTitles: Object.values(history).map((record: any) => record.title),
@@ -1045,14 +1044,14 @@ test.describe('UI navigation and settings shell', () => {
       const emittedCountAfterNoReplay = emitted.length;
       // A metadata-only touch (no content change) must NOT un-suppress — ledger suppression
       // is content-hash keyed, unlike the old revision-key scheme it replaced.
-      const talksMetaTouch = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talksMetaTouch = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       talksMetaTouch.autoOut.lastInteraction = '2026-06-21T00:00:00.000Z';
       localStorage.setItem('myTalks', JSON.stringify(talksMetaTouch));
       ui.broadcastPendingTalksOnRoomEntry();
       const emittedCountAfterMetaTouch = emitted.length;
       // A genuine content change (different question text → different identityKey) must
       // un-suppress.
-      const talksContentChange = JSON.parse(localStorage.getItem('myTalks') || '{}');
+      const talksContentChange = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       talksContentChange.autoOut.fullTalk.questions[0].text = 'Ready now?';
       localStorage.setItem('myTalks', JSON.stringify(talksContentChange));
       ui.broadcastPendingTalksOnRoomEntry();

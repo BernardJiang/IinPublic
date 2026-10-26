@@ -11,7 +11,7 @@ import { PeerMeshService } from '../../web/services/peer-mesh-service';
 import type { WebGunService } from '../../web/services/web-gun-service';
 import { createNearbyKnock, verifyNearbyKnock } from '../../shared/nearby-v3-knock';
 import { NearbyKnockGate, NearbyV3MeshLink } from '../../web/services/nearby-v3-link';
-import { NearbyV3Service } from '../../web/services/nearby-v3-service';
+import { NearbyV3Service } from '../../core/nearby-v3-service';
 import { NEARBY_V3_DEFAULTS, type NearbyV3Config } from '../../shared/nearby-v3-config';
 import type { NearbyCard } from '../../shared/nearby-v3-card';
 import { snapPublicLocation, type PublicLocation } from '../../shared/public-location';

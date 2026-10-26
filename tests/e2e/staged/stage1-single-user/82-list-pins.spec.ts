@@ -37,9 +37,9 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
       const newest = '2026-09-20T12:00:00.000Z';
       const oldest = '2026-09-19T12:00:00.000Z';
 
-      localStorage.removeItem('iinpublic_list_pins_v1');
-      localStorage.removeItem('iinpublic_contacts_tab_state');
-      localStorage.removeItem('iinpublic_talks_tab_state');
+      ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_list_pins_v1'] }), localStorage.removeItem('iinpublic_list_pins_v1'));
+      ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_contacts_tab_state'] }), localStorage.removeItem('iinpublic_contacts_tab_state'));
+      ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_talks_tab_state'] }), localStorage.removeItem('iinpublic_talks_tab_state'));
       localStorage.setItem('localTalkExchanges', JSON.stringify({
         'pin-contact-new::pin-contact-talk-new': {
           peerId: 'pin-contact-new', peerName: 'Newer Contact', talkId: 'pin-contact-talk-new',

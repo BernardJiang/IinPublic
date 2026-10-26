@@ -6,6 +6,7 @@ import {
   markOtherDealConversationsEnded,
   markConversationsSupersededByIds,
 } from '../../web/ui/conversation-record-updates';
+import { getMyConversations } from '../../web/ui/my-conversations-storage';
 
 function deps(overrides: Partial<Parameters<typeof markConversationWithdrawn>[3]> = {}) {
   return {
@@ -52,7 +53,7 @@ describe('markConversationWithdrawn', () => {
     const conversations: any = { c1: { otherUserId: 'u1', talkId: 't1' } };
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     markConversationWithdrawn('u1', 't1', Date.now(), d);
-    expect(JSON.parse(localStorage.getItem('myConversations')!).c1.status).toBe('withdrawn');
+    expect(getMyConversations().c1.status).toBe('withdrawn');
     expect(d.updateMatchBadge).toHaveBeenCalledTimes(1);
     expect(d.syncStatusBarMatchCount).toHaveBeenCalledTimes(1);
     expect(d.refreshConversationsListIfActive).not.toHaveBeenCalled();
@@ -138,7 +139,7 @@ describe('markOtherDealConversationsEnded', () => {
     const conversations: any = { c1: { otherUserId: 'winner', talkId: 't1', status: 'matched' } };
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
-    expect(localStorage.getItem('myConversations')).toBeNull();
+    expect(localStorage.getItem('iinpublic_core_unsaved_myConversations_v1')).toBeNull();
     expect(d.updateMatchBadge).not.toHaveBeenCalled();
   });
 
@@ -149,7 +150,7 @@ describe('markOtherDealConversationsEnded', () => {
     };
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     markOtherDealConversationsEnded('t1', 'winner', new Date().toISOString(), d);
-    expect(JSON.parse(localStorage.getItem('myConversations')!).other.status).toBe('ignored');
+    expect(getMyConversations().other.status).toBe('ignored');
     expect(d.updateMatchBadge).toHaveBeenCalledTimes(1);
     expect(d.syncStatusBarMatchCount).toHaveBeenCalledTimes(1);
     expect(d.refreshConversationsListIfActive).not.toHaveBeenCalled();
@@ -208,8 +209,8 @@ describe('markConversationsSupersededByIds', () => {
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     const changedAt = new Date('2026-03-01T00:00:00Z').toISOString();
     markConversationsSupersededByIds(['c1'], changedAt, d);
-    expect(JSON.parse(localStorage.getItem('myConversations')!).c1.status).toBe('ignored');
-    expect(JSON.parse(localStorage.getItem('myConversations')!).c1.changedAt).toBe(changedAt);
+    expect(getMyConversations().c1.status).toBe('ignored');
+    expect(getMyConversations().c1.changedAt).toBe(changedAt);
     expect(d.updateMatchBadge).toHaveBeenCalledTimes(1);
     expect(d.syncStatusBarMatchCount).toHaveBeenCalledTimes(1);
   });

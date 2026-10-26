@@ -4,6 +4,7 @@ import {
   updateConversationTransportMode,
   setConversationOnlineStatus,
 } from '../../web/ui/conversation-status-updates';
+import { getMyConversations } from '../../web/ui/my-conversations-storage';
 
 const t = (key: string): string => key;
 
@@ -33,7 +34,7 @@ describe('updateConversationTransportMode', () => {
     const conversations = { c1: { otherUserId: 'u1' } };
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     updateConversationTransportMode('c1', 'relay', undefined, d);
-    const stored = JSON.parse(localStorage.getItem('myConversations')!);
+    const stored = getMyConversations();
     expect(stored.c1.transportMode).toBe('relay');
   });
 
@@ -100,7 +101,7 @@ describe('setConversationOnlineStatus', () => {
     const conversations: any = { c1: { otherUserId: 'u1', online: false } };
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     setConversationOnlineStatus(new Set(['u1']), d);
-    expect(localStorage.getItem('myConversations')).not.toBeNull();
+    expect(localStorage.getItem('iinpublic_core_unsaved_myConversations_v1')).not.toBeNull();
     expect(d.refreshConversationsListIfActive).toHaveBeenCalledTimes(1);
   });
 
@@ -108,7 +109,7 @@ describe('setConversationOnlineStatus', () => {
     const conversations: any = { c1: { otherUserId: 'u1', online: true } };
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
     setConversationOnlineStatus(new Set(['u1']), d);
-    expect(localStorage.getItem('myConversations')).toBeNull();
+    expect(localStorage.getItem('iinpublic_core_unsaved_myConversations_v1')).toBeNull();
     expect(d.refreshConversationsListIfActive).not.toHaveBeenCalled();
   });
 

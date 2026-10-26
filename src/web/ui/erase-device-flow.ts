@@ -2,6 +2,7 @@ import { showEraseDeviceDialog } from './erase-device-dialog';
 import type { LinkedDeviceRow } from './linked-devices-dialog';
 import { eraseDevice } from '../services/device-wipe';
 import type { HandoffCategory } from '../../shared/device-handoff';
+import { appStorage } from '../services/core-storage';
 
 export type EraseDeviceFlowDeps = {
   t: (key: string) => string;
@@ -12,7 +13,7 @@ export type EraseDeviceFlowDeps = {
 export function openEraseDeviceDialog(deps: EraseDeviceFlowDeps): void {
   let linked: LinkedDeviceRow[] = [];
   try {
-    const arr = JSON.parse(localStorage.getItem('iinpublic_linked_devices') || '[]');
+    const arr = JSON.parse(appStorage.getItem('iinpublic_linked_devices') || '[]');
     // Only graph-verified active links are eligible sync/revocation targets.
     // Historical Removed/Invalid rows must not imply a receiver is available.
     linked = Array.isArray(arr)

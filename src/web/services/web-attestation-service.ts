@@ -18,6 +18,7 @@ import {
 } from '../../shared/native-attestation-bridge';
 import type { OfficialBuildCredential } from '../../shared/official-build-credential';
 import { readNativeHostInfo } from '../ui/native-host-info';
+import { settingsStorage } from './core-storage';
 
 const CACHE_STORAGE_KEY = 'iinpublic_attestation_credential_v1';
 /** Refresh proactively once less than this much validity remains, rather than waiting for a
@@ -28,7 +29,7 @@ type CachedEntry = { devicePublicKey: string; credential: OfficialBuildCredentia
 
 function readCache(): CachedEntry | null {
   try {
-    const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+    const raw = settingsStorage.getItem(CACHE_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedEntry;
     if (!parsed?.credential?.expiresAt || !parsed.devicePublicKey) return null;
@@ -40,7 +41,7 @@ function readCache(): CachedEntry | null {
 
 function writeCache(entry: CachedEntry): void {
   try {
-    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(entry));
+    settingsStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(entry));
   } catch {
     /* best effort — a failed cache write just means re-fetching next time, harmless */
   }

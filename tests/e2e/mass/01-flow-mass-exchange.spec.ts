@@ -56,13 +56,13 @@ test.describe('M1 real flow mass exchange', () => {
         await waitForTabActive(pages[i + 1], 'talks');
         await completeTalksInAppByAnswerIds(pages[i + 1], [{ talkId: created.talkId, talkData: created.talkData, answerIds: [...GOLDEN[i]], outcome: GOLDEN[i].at(-1) === 'flowa41' ? 'match' : 'mismatch' }]);
       }
-      await expect.poll(() => pages[0].evaluate((talkId) => Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')).filter((row: any) => row.talkId === talkId).length, created.talkId), { timeout: 120_000 }).toBe(9);
+      await expect.poll(() => pages[0].evaluate((talkId) => Object.values(((window as any).__iinpublic_exchanges?.() ?? {})).filter((row: any) => row.talkId === talkId).length, created.talkId), { timeout: 120_000 }).toBe(9);
 
       // A. Match / ignore split: only the golden path ending 'flowa41' (isMatch:true) is a match.
       const expectedMatchCount = GOLDEN.filter((v) => v.at(-1) === 'flowa41').length;
       await expect.poll(
         () => pages[0].evaluate((tid) => {
-          const rows = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+          const rows = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
           const forTalk = rows.filter((r: any) => r.talkId === tid);
           return {
             matched: forTalk.filter((r: any) => r.outcome === 'match').length,
@@ -74,7 +74,7 @@ test.describe('M1 real flow mass exchange', () => {
 
       // C. Stats: matchRate in local ledger equals matchedCount / totalResponses.
       const matchRateActual = await pages[0].evaluate((tid) => {
-        const rows = Object.values(JSON.parse(localStorage.getItem('localTalkExchanges') || '{}')) as any[];
+        const rows = Object.values(((window as any).__iinpublic_exchanges?.() ?? {})) as any[];
         const forTalk = rows.filter((r: any) => r.talkId === tid);
         const matchedCount = forTalk.filter((r: any) => r.outcome === 'match').length;
         return matchedCount / Math.max(forTalk.length, 1);

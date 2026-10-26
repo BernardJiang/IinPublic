@@ -62,9 +62,22 @@ other user's side; every bug found on a device gets a unit test plus a journey �
 
 ```
 src/shared/   — domain types, match engine, location, reputation (used by both server and web)
+src/core/     — the device core (OPEN-91): the user's data as Gun collections and the app's rules
+                (delivery, answering, chatbot, matching, conversations, Nearby, the mesh protocol)
 src/server/   — Express + Socket.IO + Gun server; owns talk delivery, user management, stats
 src/web/      — Webpack SPA; vanilla TypeScript + Gun client; no framework
 ```
+
+`src/core/` imports only `src/core/` and `src/shared/` and uses no page globals
+(`src/test/unit/core-boundary.test.ts`); stores, transports and SEA are passed in
+(`src/core/ports.ts`). The GUI reads core collections through in-memory views
+(`src/web/services/core-views.ts`, `exchange-view.ts`); e2e specs read them with
+`window.__iinpublic_collection('<name>')` / `__iinpublic_exchanges()` and edit them with
+`__iinpublic_collection_edit`. Smaller app data goes through `appStorage` (core collection
+`appData`) and settings through `settingsStorage` (`settings`, with a localStorage start-up copy) —
+both in `src/web/services/core-storage.ts`; do not add new `localStorage` keys. A spec that turns a
+setting off by deleting it must remove it through `__iinpublic_collection_edit('settings', …)` too.
+Design: `docs/design/device-core-architecture.md`.
 
 ### Data layer: Gun.js (P2P graph DB)
 
@@ -92,8 +105,10 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
   `src/shared/peer-talk-delivery.ts`.
   **Wire audit** (`tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`): owner Talk
   repositories and incoming clusters live in the peerless worker Gun, and the spec asserts no Talk
-  plaintext reaches the hub. Still on the hub-connected Gun: pair responses and the delivery journal
-  (ciphertext content, readable ids) — OPEN-91 P2, `docs/design/data-sharing-privacy-rules.md`.
+  plaintext reaches the hub, and no soul in a private namespace (`local/`, `pairs/`,
+  `deliveryJournal/`) is sent to it. The page's Gun runs the sharing policy's `out` filter
+  (`src/core/sharing-policy.ts`); the sender's response copy and delivery journal live in the device
+  core (`src/core/delivery.ts`) — OPEN-91 P2, `docs/design/data-sharing-privacy-rules.md`.
 - Cross-worker disk races in `clearGunDatabases()` are a known flakiness source — servers run `E2E_GUN_MEMORY_ONLY=1` so disk clears are not required.
 
 ### Server: `src/server/`

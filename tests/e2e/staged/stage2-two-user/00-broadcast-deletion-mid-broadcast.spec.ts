@@ -55,7 +55,7 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
       for (const t of talkTitles) {
         await createSimpleFlowTalk(pageTom, t);
         const tid = await pageTom.evaluate((title) => {
-          const raw = localStorage.getItem('myTalks');
+          const raw = JSON.stringify(((window as any).__iinpublic_collection?.('myTalks') ?? {}));
           const myTalks = raw ? (JSON.parse(raw) as Record<string, any>) : {};
           return Object.entries(myTalks).find(([, v]) => v?.title === title)?.[0] ?? '';
         }, t);
@@ -94,10 +94,7 @@ test.describe('Broadcast cancellation — talk deletion mid-flight', () => {
       await afterAction();
 
       await pageTom.evaluate((talkId) => {
-        const raw = localStorage.getItem('myTalks');
-        const myTalks = raw ? JSON.parse(raw) : {};
-        delete myTalks[talkId];
-        localStorage.setItem('myTalks', JSON.stringify(myTalks));
+        (window as any).__iinpublic_collection_edit?.('myTalks', { remove: [talkId] });
         (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.();
       }, talkIdToDelete);
       await afterAction();

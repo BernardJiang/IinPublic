@@ -75,7 +75,7 @@ test.describe('TechSupport — tampered greeting suppressed, never rendered (doc
     await page.evaluate(
       ({ cid, uid, tamperedText }) => {
         const app = (window as any).__iinpublic_app?.getApp?.();
-        const existing = JSON.parse(localStorage.getItem('myConversations') || '{}')[cid];
+        const existing = ((window as any).__iinpublic_collection?.('myConversations') ?? {})[cid];
         app?.conversationService?.upsertMessageRecord?.(
           cid,
           {

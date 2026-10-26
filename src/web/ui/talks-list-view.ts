@@ -24,6 +24,7 @@ import {
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
 import { bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
+import { settingsStorage } from '../services/core-storage';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const TALKS_FIRST_CHUNK_SIZE = 25;
@@ -1019,7 +1020,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     if (talksScrollContainer.dataset.talksScrollRestored !== '1') {
       talksScrollContainer.dataset.talksScrollRestored = '1';
       try {
-        const raw = localStorage.getItem(TALKS_TAB_STATE_KEY);
+        const raw = settingsStorage.getItem(TALKS_TAB_STATE_KEY);
         const savedScrollTop = raw ? (JSON.parse(raw) as { scrollTop?: number }).scrollTop : undefined;
         if (typeof savedScrollTop === 'number') {
           window.setTimeout(() => { talksScrollContainer.scrollTop = savedScrollTop; }, 0);

@@ -1,3 +1,5 @@
+import { myTalksView } from '../services/core-views';
+
 export type MyTalkRole = 'created' | 'answered' | 'copied' | 'ignored';
 
 export type MyTalkEntry = {
@@ -29,21 +31,25 @@ export type MyTalkEntry = {
 
 export type MyTalkMap = Record<string, MyTalkEntry>;
 
+/**
+ * My Talks live in the device core (OPEN-91 P3, `core-views.ts`). Callers edit the returned map
+ * and hand it back to `setMyTalks`, so this is a copy: the view keeps its own entries.
+ */
 export function getMyTalks(): MyTalkMap {
-  try {
-    const stored = localStorage.getItem('myTalks');
-    return stored ? (JSON.parse(stored) as MyTalkMap) : {};
-  } catch {
-    return {};
-  }
+  return JSON.parse(JSON.stringify(myTalksView.all())) as MyTalkMap;
 }
 
+/** Replaces My Talks with this map; only what changed is written. */
 export function setMyTalks(myTalks: MyTalkMap): void {
-  localStorage.setItem('myTalks', JSON.stringify(myTalks));
+  const current = myTalksView.all();
+  const changed = Object.fromEntries(Object.entries(myTalks)
+    .filter(([talkId, entry]) => JSON.stringify(current[talkId]) !== JSON.stringify(entry)));
+  myTalksView.set(JSON.parse(JSON.stringify(changed)) as MyTalkMap);
+  myTalksView.remove(Object.keys(current).filter((talkId) => !(talkId in myTalks)));
 }
 
 export function clearMyTalks(): void {
-  localStorage.removeItem('myTalks');
+  myTalksView.remove(Object.keys(myTalksView.all()));
 }
 
 export function upsertMyTalk(talkId: string, value: MyTalkEntry): MyTalkMap {

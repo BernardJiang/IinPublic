@@ -1,9 +1,9 @@
 import { mapMatchCounts, type MapMatchExchange, type MapMatchSource, type MapMatchUpdate } from '../../shared/map-matches';
 
 /**
- * Rebuildable GUI view, never a database. With a core source attached, only its committed
- * snapshots/patches are authoritative. Until OPEN-91 lands, accepted live outcomes can supply a
- * session-only projection; it deliberately does not restore anything from legacy browser storage.
+ * Rebuildable GUI view, never a database. With a core source attached, only its supplied
+ * snapshots/patches are authoritative. Hosts without a source may supply accepted live outcomes
+ * as a session-only projection; this view never restores anything from browser storage.
  */
 export class MapMatchView {
   private counts = new Map<string, number>();

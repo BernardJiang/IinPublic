@@ -34,7 +34,7 @@ const peopleIds = (page: Page) => people(page).evaluateAll((rows) => rows.map((r
 
 /** Shows the starter tags (the harness turns them off) and likes these, top-down. */
 async function likeStarterTags(page: Page, keywords: string[]): Promise<void> {
-  await page.evaluate(() => localStorage.removeItem('iinpublic_starter_contacts_disabled'));
+  await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_starter_contacts_disabled'] }), localStorage.removeItem('iinpublic_starter_contacts_disabled')));
   await page.locator('.nav-btn[data-view="talks"]').click();
   await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
   for (const keyword of keywords) {

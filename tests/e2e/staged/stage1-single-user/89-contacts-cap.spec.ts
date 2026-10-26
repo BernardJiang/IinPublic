@@ -57,9 +57,9 @@ test.describe('Contacts cap (OPEN-87)', () => {
     await p.locator('[data-testid="settings-contacts-cap"]').selectOption('500');
 
     const state = () => p.evaluate(() => {
-      const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
+      const exchanges = ((window as any).__iinpublic_exchanges?.() ?? {});
       const peers = new Set(Object.values<any>(exchanges).map((exchange) => exchange.peerId));
-      const pruned = JSON.parse(localStorage.getItem('iinpublic_contacts_pruned_v1') || '[]');
+      const pruned = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_contacts_pruned_v1'] ?? null) || '[]');
       return { peers: peers.size, pruned: pruned.length, friend: peers.has('friend-1'), newest: peers.has('peer-000'), oldest: peers.has('peer-599') };
     });
     await expect.poll(state, { timeout: 15_000 }).toEqual({ peers: 501, pruned: 100, friend: true, newest: true, oldest: false });
@@ -75,6 +75,6 @@ test.describe('Contacts cap (OPEN-87)', () => {
     // A new exchange with a pruned person brings them back.
     await p.evaluate(() => (window as any).__iinpublic_app.getApp().recordLocalTalkExchange(
       'peer-599', 'Peer 599', 't2', { title: 'Tag 2', type: 'tag' }, 'match', { direction: 'sent' }));
-    expect(await p.evaluate(() => JSON.parse(localStorage.getItem('iinpublic_contacts_pruned_v1') || '[]').includes('peer-599'))).toBe(false);
+    expect(await p.evaluate(() => JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_contacts_pruned_v1'] ?? null) || '[]').includes('peer-599'))).toBe(false);
   });
 });

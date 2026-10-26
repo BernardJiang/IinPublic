@@ -1,4 +1,5 @@
 import { normalizeQuietSettings, defaultQuietSettings, type QuietSettings } from '../../shared/quiet-places';
+import { settingsStorage } from './core-storage';
 
 /**
  * Quiet places stay on this device only: never written to Gun, the hub, or device sync. (They are
@@ -10,7 +11,7 @@ export const QUIET_SETTINGS_EVENT = 'iinpublic-quiet-settings-changed';
 
 export function loadQuietSettings(): QuietSettings {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = settingsStorage.getItem(KEY);
     return raw ? normalizeQuietSettings(JSON.parse(raw)) : defaultQuietSettings();
   } catch {
     return defaultQuietSettings();
@@ -20,7 +21,7 @@ export function loadQuietSettings(): QuietSettings {
 export function saveQuietSettings(value: QuietSettings): QuietSettings {
   const normalized = normalizeQuietSettings(value);
   try {
-    localStorage.setItem(KEY, JSON.stringify(normalized));
+    settingsStorage.setItem(KEY, JSON.stringify(normalized));
   } catch { /* storage blocked: applies to this session only */ }
   window.dispatchEvent(new CustomEvent(QUIET_SETTINGS_EVENT, { detail: normalized }));
   return normalized;

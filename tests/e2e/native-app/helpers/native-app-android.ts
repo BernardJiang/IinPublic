@@ -452,15 +452,14 @@ export async function clearAndroidE2ETestProjections(user: AndroidUser): Promise
   await settleWithin(user.window.evaluate(() => {
     const volatileKeys = [
       'peerNameCache',
-      'myTalks',
       'myAuthoredTalks',
       'myReceivedTalks',
-      'localTalkExchanges',
-      'myConversations',
-      'myAnswerHistory',
-      'talkLedger',
     ];
     for (const key of volatileKeys) localStorage.removeItem(key);
+    // These live in the device core now (OPEN-91): cleared through the app, as it would.
+    const page = window as any;
+    for (const collection of ['myTalks', 'myConversations', 'talkLedger', 'myAnswerHistory']) page.__iinpublic_collection_edit?.(collection, { clear: true });
+    page.__iinpublic_exchanges_clear?.();
   }), 3_000);
 }
 

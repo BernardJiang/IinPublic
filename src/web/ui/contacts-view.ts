@@ -17,6 +17,7 @@ import { clearContactsFocus, getContactsFocus, syncFocusChip, syncTopicOptions }
 import { sharedTagCounter, sharedTagsChipHtml } from './tag-graph-view';
 import { publicProfileFromFoundation } from './public-profile-foundation';
 import { getPrunedPeerIds } from '../services/contacts-prune';
+import { settingsStorage } from '../services/core-storage';
 
 /**
  * TODO §R1: how many contact rows render synchronously, immediately — matches
@@ -679,7 +680,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     };
     const savedState = (() => {
       try {
-        return JSON.parse(localStorage.getItem('iinpublic_contacts_tab_state') || '{}') as Partial<
+        return JSON.parse(settingsStorage.getItem('iinpublic_contacts_tab_state') || '{}') as Partial<
           Record<'name' | 'relation' | 'outcome' | 'presence' | 'sort', string> & { scrollTop: number }>;
       } catch {
         return {};
@@ -694,7 +695,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     if (controls.presence && controls.presence.value === 'all' && savedState.presence) controls.presence.value = savedState.presence;
     if (controls.sort && controls.sort.value === 'recent' && savedState.sort) controls.sort.value = savedState.sort;
     const persistControls = () => {
-      localStorage.setItem('iinpublic_contacts_tab_state', JSON.stringify({
+      settingsStorage.setItem('iinpublic_contacts_tab_state', JSON.stringify({
         name: controls.name?.value || '',
         relation: controls.relation?.value || 'all',
         outcome: controls.outcome?.value || 'all',

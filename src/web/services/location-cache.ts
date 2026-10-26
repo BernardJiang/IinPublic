@@ -1,4 +1,5 @@
 import type { GPSCoordinate } from '../../shared/types';
+import { settingsStorage } from './core-storage';
 
 /**
  * Cache-first UI: the last real GPS fix, so a returning user's boot never waits on geolocation
@@ -10,7 +11,7 @@ const CACHED_LOCATION_KEY = 'iinpublic_cached_location';
 
 export function getCachedLocation(): GPSCoordinate | null {
   try {
-    const raw = localStorage.getItem(CACHED_LOCATION_KEY);
+    const raw = settingsStorage.getItem(CACHED_LOCATION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed?.latitude !== 'number' || typeof parsed?.longitude !== 'number') return null;
@@ -27,7 +28,7 @@ export function getCachedLocation(): GPSCoordinate | null {
 
 export function setCachedLocation(location: GPSCoordinate): void {
   try {
-    localStorage.setItem(
+    settingsStorage.setItem(
       CACHED_LOCATION_KEY,
       JSON.stringify({ latitude: location.latitude, longitude: location.longitude, accuracy: location.accuracy }),
     );
