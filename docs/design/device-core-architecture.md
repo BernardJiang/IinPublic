@@ -171,6 +171,12 @@ Each phase ships on its own and keeps every test green.
    - Conversations: `conversation-state`, `attachment-share`.
    - Nearby and people: `nearby-v3-service`, `peer-derivation`, `tag-graph`.
    - My lists: `my-talk-rules`; the logs themselves are core collections (P3).
+   Data, after P3 and the follow-up move off localStorage (2026-10-26): every log is a core
+   collection; smaller app data is `appData` (`src/web/services/core-storage.ts` `appStorage`,
+   one entry per former key); settings and UI state are `settings` (`settingsStorage`), with a
+   localStorage copy only for reads made while the app starts. localStorage still holds identity
+   custody (needed before the worker exists), Gun's page storage, and the user id and cached user
+   record, both mirrored to the worker's IndexedDB so a hard kill cannot lose them.
 5. **P5 — The native host**: the same core bundle runs in the embedded Node process; the WebView
    becomes GUI-only over loopback; its Gun instances go away.
 6. **P6 — One Gun on the web**: the page's hub-connected Gun goes away; the worker core is the only

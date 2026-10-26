@@ -73,7 +73,11 @@ src/web/      — Webpack SPA; vanilla TypeScript + Gun client; no framework
 (`src/core/ports.ts`). The GUI reads core collections through in-memory views
 (`src/web/services/core-views.ts`, `exchange-view.ts`); e2e specs read them with
 `window.__iinpublic_collection('<name>')` / `__iinpublic_exchanges()` and edit them with
-`__iinpublic_collection_edit`. Design: `docs/design/device-core-architecture.md`.
+`__iinpublic_collection_edit`. Smaller app data goes through `appStorage` (core collection
+`appData`) and settings through `settingsStorage` (`settings`, with a localStorage start-up copy) —
+both in `src/web/services/core-storage.ts`; do not add new `localStorage` keys. A spec that turns a
+setting off by deleting it must remove it through `__iinpublic_collection_edit('settings', …)` too.
+Design: `docs/design/device-core-architecture.md`.
 
 ### Data layer: Gun.js (P2P graph DB)
 
