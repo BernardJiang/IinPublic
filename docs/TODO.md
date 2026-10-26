@@ -23,28 +23,10 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-- [ ] **OPEN-89 — A GUI over a graph: every tab leads to every other (started 2026-10-25).**
-  The four tabs are four kinds of node — places (Chatrooms), people (Contacts), Talks, and answers
-  (Me, the questionnaire in flattened form) — and each should lead to the others as graph
-  traversal. A tag, the simplest Talk (one question answered ♡ or ✕), touches every kind of node,
-  so tags lead the work and the tour spec. Links live in `src/web/ui/graph-focus.ts`.
-  Done: rows without buttons on Contacts and Me (long-press + AppBar); Me rows → 👥 people (latest
-  first) and 💬 Talks; Contacts "Tag or question" filter (typed = tapped); one "people who like this
-  tag" list from the tag graph (tag page and directory modals removed); tags look the same on Talks
-  and Me, whose ♡ / ✕ opens my answer; person page → people per tag, "♡ N in common" → Me, 💬 →
-  Talks; open Me refreshes its 👥; tour `staged/stage3-three-user/82` + `phone-path/09` (shared
-  `journeys/tag-graph-tour-journey.ts`).
-  Also done: each exchange records its place (room id and name); a place lists "👥 N met here" and
-  "💬 N Talks here", a Me row shows "📍 Nearby" (where it was last exchanged), a person page "Met in
-  📍 …"; the AppBar ‹ steps back along followed links (tab, its narrowing, an open person page) and
-  a tab tapped by hand starts afresh. The tour walks the place edges and the back steps too.
-  Remaining:
-  1. Walk a multi-question Talk's 💬 and 👥 in the tour (only tags are walked so far).
-  2. A Talk's own place on the Talks tab (today a Talk reaches its place through its Me answer).
-  3. Person counts need OPEN-88: two exchanges of the same tag overwrite each other, so Contacts
-     show "Received 0" and an exchange's place is the last one only.
-
-- [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5).** `localTalkExchanges`
+- [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5).** Part 1 done
+  2026-10-25: one record per direction (`peer::talk::direction`) and `exchangeStatsFor` counts sent
+  and received separately, each Talk once (it was "Received 0" for everyone: every record counted as
+  sent). Remaining: `localTalkExchanges`
   is still one localStorage JSON map that is parsed and rewritten on every exchange. The OPEN-87
   Contacts cap bounds its size (exchange-only people beyond 500/1,000/2,000 are pruned), but each
   write still costs O(size). Move the records to per-person entries (IndexedDB or local Gun) behind

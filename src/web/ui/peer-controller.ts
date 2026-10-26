@@ -10,7 +10,7 @@ import {
 import type { BlockNotifyResult } from './block-notify-modal';
 import { getPeerNameCache, rememberPeerName } from './peer-name-cache';
 import { registerTalkForPeer } from './talk-peer-registration';
-import { openPeerDetailView } from './user-detail-view';
+import { openPeerDetailView, shownPeerDetailId } from './user-detail-view';
 import type { UiTranslationKey } from './ui-translations';
 import { configureTagGraphView, renderPeerPlacesInto, renderPeerTagsInto } from './tag-graph-view';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
@@ -127,11 +127,18 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
     peerName: string,
     talkId?: string,
   ) => {
+    // The channel can take a while (the phone route): open the chat only if the screen is still the
+    // one it was asked from, not over wherever the user has gone since.
+    const screen = (): string => [
+      (document.querySelector('.nav-btn.active') as HTMLElement | null)?.dataset.view ?? '',
+      shownPeerDetailId() ?? '',
+    ].join('|');
+    const askedFrom = screen();
     try {
       const conversationId = await new Promise<string>((resolve, reject) => {
         deps.emit('openDirectConversation', { peerId, peerName, resolve, reject });
       });
-      if (conversationId) deps.showConversationDetail(conversationId, talkId);
+      if (conversationId && screen() === askedFrom) deps.showConversationDetail(conversationId, talkId);
     } catch {
       // The peer layout stays open when its DM channel cannot be opened.
     }

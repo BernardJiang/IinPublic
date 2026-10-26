@@ -236,10 +236,10 @@ test.describe('Stats aggregation across all four talk types (flow, tag, survey, 
               await app.drainMailbox?.();
               // Count author-side ledger outcomes via localTalkExchanges (author 'sent' projection is
               // recorded on receipt; every received response also writes a ledger outcome). We read the
-              // localTalkExchanges map keyed by `${responderId}::${talkId}` as a robust proxy.
+              // localTalkExchanges records (found by their talkId field) as a robust proxy.
               const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
               const have = (tid: string) =>
-                Object.keys(exchanges).some((k) => k.endsWith(`::${tid}`));
+                Object.values<any>(exchanges).some((row) => row?.talkId === tid);
               void aId;
               return ids.every((id: string) => have(id));
             },

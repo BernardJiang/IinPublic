@@ -7,8 +7,9 @@
  *   place → person → their tags → people who like Pizza → a person → our Talks → Pizza's ♡ → my
  *   answer on Me → 👥 the same people / 💬 the Talk; a person → the answers we share; Pizza typed
  *   into Contacts → the same people; my answer → 📍 where it was exchanged → the people met there →
- *   a person → where we met; ‹ back along the links. And from Ben's side: his ♡ Pizza leads back
- *   to Ann.
+ *   a person → where we met; ‹ back along the links. A multi-question Talk too: Cy's answer to
+ *   Ann's Flow Talk → 👥 Ann, 💬 the Talk → 📍 its place. And from Ben's side: his ♡ Pizza leads
+ *   back to Ann.
  *
  * Ann likes Coffee and Pizza, Ben likes Pizza (which passes Coffee above it), Cy likes both. Ann
  * and Cy send their tags to the other two; each chatbot answers from its own Like or Pass.
@@ -16,6 +17,8 @@
 import { expect, type Page } from '@playwright/test';
 import { starterTagsFor } from '../../../src/shared/starter-tags';
 import { openCurrentChatroom } from '../helpers/chatroom-nav';
+import { createSimpleFlowTalk } from '../helpers/broadcast-cancellation-helpers';
+import { openIncomingTalkModal, waitForResponseModalClosed } from '../helpers/talks-matching-flow';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,6 +41,15 @@ async function likeStarterTags(page: Page, keywords: string[]): Promise<void> {
     await starterChip(page, keyword).first().click();
     await expect(page.locator('#talks-list .talk-tag-chip[data-role="copied"]').filter({ hasText: keyword })).toHaveCount(1, { timeout: 10_000 });
   }
+}
+
+/** A tab, after stepping out of a chat or a person page (a match can open a chat by itself). */
+async function goTo(page: Page, view: string): Promise<void> {
+  for (const back of ['#back-from-conversation', '#back-from-peer-detail']) {
+    const button = page.locator(back);
+    if (await button.isVisible().catch(() => false)) await button.click();
+  }
+  await page.locator(`.nav-btn[data-view="${view}"]`).click();
 }
 
 async function openPersonFromList(page: Page, peerId: string): Promise<void> {
@@ -153,6 +165,33 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
   await expect(active('me')).toHaveClass(/\bactive\b/);
   await expect(pizzaRow).toBeVisible();
   await expect(back).toBeHidden();
+
+  // ── A multi-question Talk: Ann asks, Cy answers; Cy's answer leads to Ann, the Talk, the place ─
+  const flowTitle = `Tour flow ${Date.now()}`;
+  const yes = 'Yes, count me in';
+  await goTo(a, 'talks');
+  await createSimpleFlowTalk(a, flowTitle, yes, 'Not this time', { sendToChatroom: false });
+  await send(ann, [{ userId: cyId, stageName: cyName }]);
+  const c = cy;
+  await openIncomingTalkModal(c, flowTitle);
+  await c.locator(`input.choice-radio[data-answer-text="${yes}"][data-mode="manual"]`).first().click();
+  await waitForResponseModalClosed(c);
+  await c.locator('.nav-btn[data-view="me"]').click();
+  const cyAnswer = c.locator('#answers-list .answer-talk-item').filter({ hasText: yes });
+  await expect.poll(() => cyAnswer.locator('[data-testid="answer-people"]').textContent().catch(() => ''), { timeout: 60_000 }).toContain('1');
+  await cyAnswer.locator('[data-testid="answer-people"]').click();
+  await expect.poll(() => peopleIds(c), { timeout: 15_000 }).toEqual([annId]);
+  await c.locator('.nav-btn[data-view="me"]').click();
+  await cyAnswer.locator('[data-testid="answer-talks"]').click();
+  await expect(c.locator('[data-testid="talks-focus-chip"]')).toBeVisible();
+  const flowCard = c.locator('#talks-list .talk-list-item').filter({ hasText: flowTitle });
+  await expect(flowCard).toHaveCount(1);
+  await flowCard.locator('[data-testid="answer-place"]').click();
+  await expect(c.locator('.nav-btn[data-view="chatrooms"]')).toHaveClass(/\bactive\b/);
+  // Ann's side: her Talk counts Cy's answer.
+  await goTo(a, 'talks');
+  await expect(a.locator('#talks-list .talk-list-item').filter({ hasText: flowTitle }).locator('[data-testid="talk-view-responses-button"]'))
+    .toContainText('1', { timeout: 60_000 });
 
   // ── The other side: Ben's ♡ Pizza leads back to Ann (and Cy) ────────────
   const b = ben;

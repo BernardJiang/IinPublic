@@ -4,8 +4,8 @@ import type { KnownPerson } from '../../shared/types';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
 import {
+  exchangeStatsFor,
   localTalkHistoryForPeer,
-  readLocalTalkExchanges,
 } from '../services/local-peer-derivation';
 import { matchScore } from '../../shared/talk-engine';
 import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
@@ -397,6 +397,13 @@ export function openPeerDetailView(
   fetchAndRenderHistory(peerId, deps);
 }
 
+/** Whose person page is on screen, if any. */
+export function shownPeerDetailId(): string | null {
+  const overlay = document.getElementById('peer-detail-overlay');
+  if (!currentState || !overlay || getComputedStyle(overlay).display === 'none') return null;
+  return currentState.peerId;
+}
+
 export function closePeerDetailView(): void {
   const overlay = document.getElementById('peer-detail-overlay');
   if (overlay) overlay.style.display = 'none';
@@ -461,40 +468,9 @@ async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewD
   return { ...publicProfileFromFoundation(foundation), reputation: foundation.reputation };
 }
 
-/**
- * Compute local PeerRelationshipStats for peerId from localTalkExchanges and
- * myConversations. This mirrors the formula in peer-routes.ts#computeRelationshipStats:
- *   sent.talks  = exchanges where direction='sent'
- *   sent.matches = sent exchanges where outcome='match'
- *   received.talks = conversations (each match conversation = 1 received talk)
- *   received.matches = conversations count
- *   totalTalks = sent.talks + received.talks
- *   matchRate = (sent.matches + received.matches) / max(totalTalks, 1)
- */
-function computeLocalStats(peerId: string, deps: UserDetailViewDeps): PeerRelationshipStats {
-  const stats: PeerRelationshipStats = {
-    sent: { talks: 0, matches: 0 },
-    received: { talks: 0, matches: 0 },
-    mutualMatchedTalks: 0,
-    mutualTagCount: 0,
-    totalTalks: 0,
-  };
-  for (const exchange of readLocalTalkExchanges()) {
-    if (String(exchange?.peerId || '').trim() !== peerId) continue;
-    stats.sent.talks += 1;
-    if (String(exchange?.outcome || '').toLowerCase() === 'match') {
-      stats.sent.matches += 1;
-      stats.mutualMatchedTalks += 1;
-    }
-  }
-  const conversations = deps.getMyConversations();
-  for (const conv of Object.values(conversations || {}) as any[]) {
-    if (String(conv?.otherUserId || '').trim() !== peerId || conv?.supportChannel === true) continue;
-    stats.received.talks += 1;
-    stats.received.matches += 1;
-  }
-  stats.totalTalks = stats.sent.talks + stats.received.talks;
-  return stats;
+/** This person's exchange counts, by direction, each Talk once (OPEN-88; `exchangeStatsFor`). */
+function computeLocalStats(peerId: string): PeerRelationshipStats {
+  return exchangeStatsFor(peerId);
 }
 
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
@@ -511,7 +487,7 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
       return;
     }
     // P0 step 5: relationship stats derived locally — no server call.
-    const stats = computeLocalStats(peerId, deps);
+    const stats = computeLocalStats(peerId);
 
     // Public profile still fetched from Gun (local Gun cache, not a REST endpoint).
     const publicUser = await readPublicProfileFoundation(peerId, deps);

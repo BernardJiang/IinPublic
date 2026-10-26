@@ -29,6 +29,7 @@ import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 import { openCollapsedFilters } from '../../helpers/filter-bar';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
+import { rowToolbarAction } from '../../helpers/list-row-actions';
 
 const TITLE_A = 'E2E Edited Auto A';
 const TITLE_B = 'E2E Edited Auto B';
@@ -288,7 +289,8 @@ test.describe('Edited talk is answered fully automatically', () => {
       await waitForTabActive(pageJerry, 'me');
       const mark = pageJerry.locator('[data-testid="answer-answered-by-chatbot"]').first();
       await expect(mark).toBeVisible({ timeout: 15_000 });
-      await mark.locator('xpath=ancestor::span[contains(@class,"answer-context-jump")]').click();
+      // Me rows carry no buttons: long-press the row, then 💬 Talk opens it (owner design 2026-10-25).
+      await rowToolbarAction(pageJerry, mark.locator('xpath=ancestor::div[contains(@class,"answer-talk-item")]'), 'me-talk-btn');
       const modal = pageJerry.locator('#talk-response-modal');
       await expect(modal).toBeVisible({ timeout: 20_000 });
       for (let i = 0; i < 3 && (await modal.count()) > 0; i++) {

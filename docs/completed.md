@@ -2,6 +2,34 @@
 
 Last updated: 2026-10-25
 
+## 2026-10-25 — OPEN-89 a GUI over a graph: every tab leads to every other
+
+The four tabs are four kinds of node — places (Chatrooms), people (Contacts), Talks, and answers
+(Me, the questionnaire in flattened form). A tag, the simplest Talk, touches every kind, so tags led.
+Links live in `src/web/ui/graph-focus.ts`.
+- **Rows without buttons:** Contacts and Me rows select by long-press; the AppBar acts (📌, ✕
+  Remove, ✕ / ♡ for tags, 💬 Talk; 📣 and 🏷️ moved up) (`list-row-selection.ts`).
+- **Answers:** a tag is ♡ or ✕ and its keyword; passed tags hidden until the Passed filter. Every
+  row leads to 👥 the people who exchanged it (for a tag, who like it; latest first), 💬 the Talks
+  that asked it, and 📍 where it was exchanged.
+- **People:** Contacts' "Tag or question" filter — typed or tapped, the same list; one "who likes
+  this tag" answer from the tag graph (senders and matches; tag page and directory modals removed).
+  A person page lists their tags (each → its people), "♡ N in common" → the answers we share,
+  💬 → our Talks, "Met in 📍 …".
+- **Talks:** tags look as on Me, their ♡ / ✕ opens my answer; a card shows 📍; a narrowing shows
+  exactly its Talks whatever the other filters say.
+- **Places:** each exchange records its room; a place lists "👥 N met here" and "💬 N Talks here".
+- **Back:** the AppBar ‹ steps back along followed links (tab, narrowing, an open person page); a tab
+  tapped by hand starts afresh.
+- **Found on the way:** a tag tapped on a person page left the page over the list; the person
+  page's links were caught by the global link handler; an open Me tab kept stale 👥; a chat that
+  opened late (the phone route) covered wherever the user had gone; "Received 0" for everyone —
+  every exchange counted as sent and a tag exchanged both ways kept one record (OPEN-88 part 1).
+- **Verification:** the tag graph tour walks one tag (and a Flow Talk) across every edge from both
+  sides — `journeys/tag-graph-tour-journey.ts` in browsers (stage3/82) and on the phone path (09);
+  stage5 starter-tags-similar-people (six users, Me → people / Talks); unit `graph-focus-places`,
+  `tag-graph`, `answers-view`, `contacts-view`, `local-peer-derivation`, `peer-controller`.
+
 ## 2026-10-25 — OPEN-90 a copied incoming Talk opens again
 
 - **Cause:** after a drag gesture, `talks-row-gestures.ts` ignored every click for 60 ms to swallow

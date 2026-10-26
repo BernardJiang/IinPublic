@@ -421,7 +421,8 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
     const tomExchangeOutcome = await pageTom.evaluate(
       ({ jId, talkId }: { jId: string; talkId: string }) => {
         const exchanges = JSON.parse(localStorage.getItem('localTalkExchanges') ?? '{}');
-        return exchanges[`${jId}::${talkId}`]?.outcome ?? null;
+        // Keyed peer::talk::direction (OPEN-88): find the record by its fields.
+        return Object.values<any>(exchanges).find((row) => row?.peerId === jId && row?.talkId === talkId)?.outcome ?? null;
       },
       { jId: jerryId, talkId: TEST_TALK_ID },
     );

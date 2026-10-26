@@ -381,7 +381,7 @@ export class UIManager extends EventEmitter {
     if (!talkId) return 0;
     const stats = this.talkStatsMap[talkId];
     if (stats?.responses) return stats.responses;
-    return readLocalTalkExchanges().filter((exchange) => exchange.talkId === talkId).length;
+    return readLocalTalkExchanges().filter((exchange) => exchange.talkId === talkId && exchange.direction !== 'received').length;
   }
 
   private formatUiDate(date: Date): string {

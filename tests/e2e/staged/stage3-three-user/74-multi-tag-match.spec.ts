@@ -127,8 +127,9 @@ test.describe('Multiple tag talks each record the right outcome', () => {
       .poll(() => pageBob!.evaluate(({ ids }) => {
         const ex = JSON.parse(localStorage.getItem('localTalkExchanges') || '{}');
         return ids.map((id: string) => {
-          const entry = Object.entries(ex).find(([k]) => k.endsWith(`::${id}`));
-          return (entry?.[1] as any)?.outcome ?? 'none';
+          // Keyed peer::talk::direction (OPEN-88): find the record by its fields.
+          const entry = Object.values<any>(ex).find((row) => row?.talkId === id);
+          return entry?.outcome ?? 'none';
         });
       }, { ids: talks.map((t) => t.id) }),
       { timeout: E2E_TIMEOUT_MS, message: 'all three tag talks must record as match' })

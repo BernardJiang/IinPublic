@@ -76,6 +76,9 @@ test.describe('X4: mobile ↔ desktop matching + threads', () => {
     const overflowPx = await pageMobile.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflowPx, 'mobile client horizontal overflow').toBeLessThanOrEqual(2);
 
+    // Create talk lives on the Talks tab only (d3cecef7).
+    await pageMobile.locator('.nav-btn[data-view="talks"]').click();
+    await afterNav();
     const createInline = await pageMobile.locator('[data-testid="create-talk-btn"]:visible').count();
     if (createInline === 0) {
       const overflowBtn = pageMobile.locator('[data-testid="app-bar-overflow-btn"]:visible');

@@ -334,7 +334,7 @@ test.describe('Find similar people with starter tags', () => {
       const keyword = STARTER_TAGS[best.tagIndex]!.text;
       const row = page.locator(`#answers-list .answer-talk-item[data-tag-state="checked"][data-topic="${keyword}"]`);
       await expect(row.locator('[data-testid="answer-people"]')).toContainText(String(best.likers.length));
-      await row.locator('.qa-question').click();
+      await row.locator('[data-testid="answer-people"]').click();
       await expect(page.locator('[data-testid="contacts-focus-chip"]')).toContainText(keyword, { timeout: 10_000 });
       const listed = await page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])')
         .evaluateAll((rows) => rows.map((element) => (element as HTMLElement).dataset.contactUserId || ''));

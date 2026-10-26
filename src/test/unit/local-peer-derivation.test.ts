@@ -24,6 +24,7 @@ import {
   computeMatchPercent,
   localTalkHistoryForPeer,
   deriveLocalCreatorReplies,
+  exchangeStatsFor,
 } from '../../web/services/local-peer-derivation';
 import type { KnownPerson } from '../../shared/types';
 
@@ -393,5 +394,25 @@ describe('deriveLocalCreatorReplies', () => {
     ]);
     // SELF_ID equals currentUserId so it should be excluded
     expect(deriveLocalCreatorReplies(SELF_ID)).toEqual([]);
+  });
+});
+
+describe('exchangeStatsFor (OPEN-88): counts by direction, each Talk once', () => {
+  it('a tag exchanged both ways is one sent, one received and one matched Talk — not "Received 0"', () => {
+    const exchanges = [
+      { peerId: 'ann', peerName: 'Ann', talkId: 'tag-pizza', title: 'Pizza', outcome: 'match', direction: 'sent', date: '2026-10-25T10:00:00.000Z' },
+      { peerId: 'ann', peerName: 'Ann', talkId: 'tag-pizza', title: 'Pizza', outcome: 'match', direction: 'received', date: '2026-10-25T10:01:00.000Z' },
+      { peerId: 'ann', peerName: 'Ann', talkId: 'tag-jazz', title: 'Jazz', outcome: 'mismatch', direction: 'received', date: '2026-10-25T10:02:00.000Z' },
+      { peerId: 'ben', peerName: 'Ben', talkId: 'tag-pizza', title: 'Pizza', outcome: 'match', direction: 'sent', date: '2026-10-25T10:03:00.000Z' },
+    ] as any[];
+    expect(exchangeStatsFor('ann', exchanges)).toEqual({
+      sent: { talks: 1, matches: 1 },
+      received: { talks: 2, matches: 1 },
+      mutualMatchedTalks: 1,
+      mutualTagCount: 0,
+      totalTalks: 2,
+    });
+    // A Talk matched both ways is 100%, not 200%.
+    expect(computeMatchPercent(exchangeStatsFor('ann', exchanges.slice(0, 2)))).toBe(100);
   });
 });

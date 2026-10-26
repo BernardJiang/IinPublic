@@ -7,7 +7,7 @@ import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { avatarInnerHtml } from './profile-avatar';
 import type { UiTranslationKey } from './ui-translations';
-import { readLocalTalkExchanges } from '../services/local-peer-derivation';
+import { exchangeStatsFor } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId } from '../../shared/place-rooms';
@@ -694,29 +694,9 @@ function buildMemberStatusText(isMatched: boolean, stats: PeerRelationshipStats 
   return parts.join(' · ') || deps.text('chatroomOnlineNow');
 }
 
-/**
- * Derive PeerRelationshipStats for a chatroom member from localTalkExchanges.
- * P0 step 5: no server call to /relationship.
- * Formula mirrors peer-routes.ts#computeRelationshipStats.
- */
+/** A chatroom member's exchange counts, by direction, each Talk once (OPEN-88; `exchangeStatsFor`). */
 function localMemberStats(memberId: string): PeerRelationshipStats {
-  const stats: PeerRelationshipStats = {
-    sent: { talks: 0, matches: 0 },
-    received: { talks: 0, matches: 0 },
-    mutualMatchedTalks: 0,
-    mutualTagCount: 0,
-    totalTalks: 0,
-  };
-  for (const exchange of readLocalTalkExchanges()) {
-    if (String(exchange?.peerId || '').trim() !== memberId) continue;
-    stats.sent.talks += 1;
-    if (String(exchange?.outcome || '').toLowerCase() === 'match') {
-      stats.sent.matches += 1;
-      stats.mutualMatchedTalks += 1;
-    }
-  }
-  stats.totalTalks = stats.sent.talks + stats.received.talks;
-  return stats;
+  return exchangeStatsFor(memberId);
 }
 
 async function loadMemberStats(

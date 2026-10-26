@@ -111,7 +111,7 @@ test.describe('Me tab: an answer links to its talk and to the sender\'s contact'
       await pageJerry.evaluate(() => document.getElementById('talk-response-modal')?.remove());
 
       // Tap the row: Contacts, narrowed to the one person who exchanged it — Tom.
-      await answerRow.locator('.qa-question').click();
+      await answerRow.locator('[data-testid="answer-people"]').click();
       await expect(pageJerry.locator('[data-testid="contacts-focus-chip"]')).toContainText('Coming to trivia night?', { timeout: 10_000 });
       const people = pageJerry.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])');
       await expect(people).toHaveCount(1);

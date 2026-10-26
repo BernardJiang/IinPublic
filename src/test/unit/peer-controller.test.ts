@@ -1,8 +1,10 @@
 /** @jest-environment jsdom */
 
 const openPeerDetailView = jest.fn();
+let shownPeerDetail: string | null = null;
 jest.mock('../../web/ui/user-detail-view', () => ({
   openPeerDetailView: (...args: unknown[]) => openPeerDetailView(...args),
+  shownPeerDetailId: () => shownPeerDetail,
 }));
 
 import { createPeerController, type PeerControllerDeps } from '../../web/ui/peer-controller';
@@ -105,6 +107,20 @@ describe('peer controller', () => {
       peerName: 'Peer',
     }));
     expect(showConversationDetail).toHaveBeenCalledWith('conversation-1', 'talk-1');
+  });
+
+  it('a chat that opens late stays shut once the user has moved on (the phone route)', async () => {
+    let resolveChannel: (id: string) => void = () => {};
+    const emit = jest.fn((_event, payload: any) => { resolveChannel = payload.resolve; });
+    const showConversationDetail = jest.fn();
+    const controller = createPeerController(deps({ emit, showConversationDetail }));
+    shownPeerDetail = 'peer';
+    const opening = controller.openDirectConversationWithPeer('peer', 'Peer');
+    // Before the channel answers, the user leaves the person page.
+    shownPeerDetail = null;
+    resolveChannel('conversation-1');
+    await opening;
+    expect(showConversationDetail).not.toHaveBeenCalled();
   });
 
   describe('openPeerDetailForUser — scenario 2 build-trust wiring (§16)', () => {

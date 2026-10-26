@@ -104,48 +104,54 @@ function pickName(current: string | undefined, candidate: string | undefined): s
 }
 
 /**
- * Derive PeerSummary entries from the localTalkExchanges localStorage store.
- *
- * Each exchange record keyed by `${peerId}::${talkId}` contributes one sent talk
- * to the sender's stats. Outcomes: 'match' increments sent.matches.
- *
- * Match % formula (mirrors server computeRelationshipStats):
- *   matchRate = sent.matches / max(sent.talks, 1)
+ * One person's exchange counts (OPEN-88): Talks I sent them and Talks they sent me, each counted
+ * once per Talk — a tag exchanged both ways is one sent, one received, and one Talk in all.
+ * `mutualMatchedTalks` counts each matched Talk once, whichever way it went.
+ */
+export function exchangeStatsFor(peerId: string, exchanges: LocalTalkExchange[] = readLocalTalkExchanges()): PeerRelationshipStats {
+  const sent = new Map<string, boolean>();
+  const received = new Map<string, boolean>();
+  for (const exchange of exchanges) {
+    if (String(exchange?.peerId || '').trim() !== peerId) continue;
+    const talkId = String(exchange?.talkId || '').trim();
+    if (!talkId) continue;
+    const isMatch = String(exchange?.outcome || '').toLowerCase() === 'match';
+    const side = exchange?.direction === 'received' ? received : sent;
+    side.set(talkId, (side.get(talkId) ?? false) || isMatch);
+  }
+  const all = new Map<string, boolean>();
+  for (const [talkId, isMatch] of [...sent, ...received]) all.set(talkId, (all.get(talkId) ?? false) || isMatch);
+  const matches = (talks: Map<string, boolean>): number => [...talks.values()].filter(Boolean).length;
+  return {
+    sent: { talks: sent.size, matches: matches(sent) },
+    received: { talks: received.size, matches: matches(received) },
+    mutualMatchedTalks: matches(all),
+    mutualTagCount: 0,
+    totalTalks: all.size,
+  };
+}
+
+/**
+ * Derive PeerSummary entries from the localTalkExchanges localStorage store: one per person, with
+ * their name, latest exchange, and counts by direction (`exchangeStatsFor`).
  */
 export function peersFromLocalTalkExchanges(currentUserId: string): PeerSummary[] {
+  const exchanges = readLocalTalkExchanges();
   const byPeer = new Map<string, PeerSummary>();
-  for (const exchange of readLocalTalkExchanges()) {
+  for (const exchange of exchanges) {
     const peerId = String(exchange?.peerId || '').trim();
     if (!peerId || peerId === currentUserId) continue;
-    const isMatch = String(exchange?.outcome || '').toLowerCase() === 'match';
     const date = String(exchange?.date || new Date(0).toISOString());
     const peerName = String(exchange?.peerName || 'Unknown');
-
     const existing = byPeer.get(peerId);
     if (!existing) {
-      byPeer.set(peerId, {
-        peerId,
-        stageName: peerName,
-        lastInteractionAt: date,
-        stats: {
-          sent: { talks: 1, matches: isMatch ? 1 : 0 },
-          received: { talks: 0, matches: 0 },
-          mutualMatchedTalks: isMatch ? 1 : 0,
-          mutualTagCount: 0,
-          totalTalks: 1,
-        },
-      });
+      byPeer.set(peerId, { peerId, stageName: peerName, lastInteractionAt: date, stats: emptyStats() });
     } else {
       existing.stageName = pickName(existing.stageName, peerName);
       existing.lastInteractionAt = newerDate(existing.lastInteractionAt, date);
-      existing.stats.sent.talks += 1;
-      existing.stats.totalTalks += 1;
-      if (isMatch) {
-        existing.stats.sent.matches += 1;
-        existing.stats.mutualMatchedTalks += 1;
-      }
     }
   }
+  for (const peer of byPeer.values()) peer.stats = exchangeStatsFor(peer.peerId, exchanges);
   return Array.from(byPeer.values());
 }
 
@@ -275,7 +281,8 @@ export function deriveLocalPeers(opts: {
  * in the contacts view is consistent whether data came from the server or locally.
  */
 export function computeMatchPercent(stats: PeerRelationshipStats): number {
-  const matchedTalks = stats.sent.matches + stats.received.matches;
+  // Each matched Talk once, whichever way it went (OPEN-88).
+  const matchedTalks = stats.mutualMatchedTalks;
   const rate = stats.totalTalks > 0 ? matchedTalks / stats.totalTalks : 0;
   return Math.round(rate * 100);
 }

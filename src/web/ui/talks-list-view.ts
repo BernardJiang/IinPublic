@@ -23,7 +23,7 @@ import {
 } from './tag-tap-mode';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
-import { bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
+import { bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const TALKS_FIRST_CHUNK_SIZE = 25;
@@ -392,6 +392,8 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     ? [entry?.latestTalkId, entry?.latestTalk?.id, String(entry?.identityKey || '').replace(/^ignored:/, ''), ...Object.keys(entry?.talkIds || {})]
     : [entry[0], entry[1]?.fullTalk?.id]).filter(Boolean).map(String);
   const matchesTalkFilter = (entry: any, isIncoming: boolean): boolean => {
+    // Narrowed to a question's Talks: exactly those, whatever the other filters say (as Me does).
+    if (focus) return focusIds(entry, isIncoming).some((id) => focus.talkIds.includes(id));
     const talk = isIncoming ? entry : entry[1];
     const type = String(talk?.type || talk?.fullTalk?.type || talk?.latestTalk?.type || 'flow').toLowerCase();
     const title = String(talk?.title || talk?.fullTalk?.title || talk?.latestTalk?.title || '').toLowerCase();
@@ -403,7 +405,6 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     const from = deps.talksDateFrom ? new Date(`${deps.talksDateFrom}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
     const to = deps.talksDateTo ? new Date(`${deps.talksDateTo}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
     return (!query || title.includes(query))
-      && (!focus || focusIds(entry, isIncoming).some((id) => focus.talkIds.includes(id)))
       && deps.talksEnabledTypes.has(type)
       && (!isIncoming || deps.talksOutcomeFilter === 'all' || outcome === deps.talksOutcomeFilter)
       && timestamp >= from && timestamp <= to
@@ -413,10 +414,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           || (deps.talksCompletionFilter === 'answered' && answered)
           || (deps.talksCompletionFilter === 'unanswered' && !answered))));
   };
-  const filteredOutEntries = deps.talksShowOutgoing
+  const filteredOutEntries = deps.talksShowOutgoing || focus
     ? outEntries.filter((entry) => matchesTalkFilter(entry, false))
     : [];
-  const inEntries = deps.talksShowIncoming
+  const inEntries = deps.talksShowIncoming || focus
     ? allIncomingEntries
         .filter((entry) => matchesTalkFilter(entry, true))
         .sort((a: any, b: any) => {
@@ -578,6 +579,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="font-size:0.85em;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(statsLine)} · ${escapeHtml(deps.formatTalkRelativeTime(new Date(talk.lastInteraction || 0)))}</span>
+          ${placeLinkHtml(placesOf({ talkIds: [talkId] }), { escapeHtml, text: deps.t })}
         </div>
         ${matchedLine}
         <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
@@ -757,6 +759,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="${metaStyle}font-size:0.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(row2Parts.join(' · '))}</span>
+          ${placeLinkHtml(placesOf({ talkIds: [String(talkId), identityKey] }), { escapeHtml, text: deps.t })}
         </div>
         <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
           ${statusBadge}

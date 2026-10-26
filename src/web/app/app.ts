@@ -6414,7 +6414,9 @@ export class IinPublicApp {
     try {
       const raw = localStorage.getItem('localTalkExchanges');
       const exchanges = raw ? JSON.parse(raw) : {};
-      const key = `${peerId}::${talkId}`;
+      // One record per direction (OPEN-88): a tag I sent them and the same tag they sent me are two
+      // exchanges, each with its own outcome and place — not one overwriting the other.
+      const key = `${peerId}::${talkId}::${meta?.direction || 'sent'}`;
       exchanges[key] = {
         ...(exchanges[key] || {}),
         peerId,

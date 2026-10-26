@@ -388,7 +388,9 @@ export function placesOf(filter: { talkIds?: Iterable<string>; peerId?: string }
     if (filter.peerId && String(exchange?.peerId || '') !== filter.peerId) continue;
     const at = Date.parse(String(exchange?.date || '')) || 0;
     const known = places.get(roomId);
-    if (!known || at >= known.at) places.set(roomId, { roomId, roomName: String(exchange?.roomName || roomId), at });
+    // A room's display name can carry its own 📍 ("📍 Nearby"); the links add one.
+    const roomName = String(exchange?.roomName || roomId).replace(/^📍\s*/u, '');
+    if (!known || at >= known.at) places.set(roomId, { roomId, roomName, at });
   }
   return [...places.values()].sort((a, b) => b.at - a.at);
 }

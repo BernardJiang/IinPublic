@@ -180,7 +180,7 @@ function buildDisplayName(stageName: string, known?: KnownPerson): string {
 
 /** `commonTags`: the tag-graph count (OPEN-87); 0 leaves it out, as does the tags sort, whose chip shows it. */
 function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps, commonTags: number): string {
-  const matchedTalks = summary.stats.sent.matches + summary.stats.received.matches;
+  const matchedTalks = summary.stats.mutualMatchedTalks;
   const parts = [
     formatCountText(deps, summary.stats.totalTalks, 'contactsTalkCountOne', 'contactsTalkCount'),
     formatCountText(deps, matchedTalks, 'contactsMatchCountOne', 'contactsMatchCount'),
@@ -199,7 +199,7 @@ function rankingMetrics(peer: PeerSummary, known: KnownPerson | undefined, deps:
   relevance: number;
   explanation: string;
 } {
-  const matchedTalks = peer.stats.sent.matches + peer.stats.received.matches;
+  const matchedTalks = peer.stats.mutualMatchedTalks;
   const matchRate = peer.stats.totalTalks > 0 ? matchedTalks / peer.stats.totalTalks : 0;
   const relationshipBoost = known?.labels?.length ? 10 : 0;
   const lastAt = new Date(peer.lastInteractionAt || 0).getTime();
@@ -744,7 +744,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         if (relationFilter !== 'all' && !(known?.labels || []).includes(relationFilter as KnownPerson['labels'][number])) return false;
         if (onlineOnly && !deps.isUserOnline(peer.peerId)) return false;
         if (outcomeFilter !== 'all') {
-          const matchedTalks = peer.stats.sent.matches + peer.stats.received.matches;
+          const matchedTalks = peer.stats.mutualMatchedTalks;
           if (outcomeFilter === 'matched' && matchedTalks === 0) return false;
           if (outcomeFilter === 'unmatched' && matchedTalks > 0) return false;
         }
