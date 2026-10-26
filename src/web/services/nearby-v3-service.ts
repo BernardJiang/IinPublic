@@ -269,16 +269,21 @@ export class NearbyV3Service {
       || card.point.latitude !== position.point.latitude || card.point.longitude !== position.point.longitude;
   }
 
+  /**
+   * Sends my card for where I am now, at once, if the one the hub has is out of place. Never waits
+   * for a running tick: one can be stuck on slow swaps (two 15 s timeouts to someone who left), and
+   * meanwhile the hub would keep introducing me in the Place I left (phone-path J-PLACE-11).
+   */
+  async reissueIfOutOfPlace(): Promise<void> {
+    const position = this.deps.position();
+    const identity = this.deps.identity();
+    if (position && identity && this.cardIsOutOfPlace()) await this.reissueCard(position, identity, this.now(), this.deps.config());
+  }
+
   /** The public point or scope changed: reissue the card and search again now. */
   async refresh(): Promise<void> {
-    // A tick can be waiting on slow swaps (two 15 s timeouts to someone who left). My new scope or
-    // point reaches the hub now, not after them: otherwise the hub keeps introducing me in the
-    // Place I left (phone-path J-PLACE-11).
     if (this.ticking) {
-      const position = this.deps.position();
-      const identity = this.deps.identity();
-      const config = this.deps.config();
-      if (position && identity && this.cardIsOutOfPlace()) await this.reissueCard(position, identity, this.now(), config);
+      await this.reissueIfOutOfPlace();
       // Then a fresh tick for the new position, not the one already running for the old.
       await this.ticking?.catch(() => undefined);
     }
