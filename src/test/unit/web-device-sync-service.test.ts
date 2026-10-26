@@ -249,4 +249,31 @@ describe('WebDeviceSyncService (K7-adjacent WP5 wiring)', () => {
     expect(bobApplied).toContainEqual({ maxDistanceKm: 99 });
     expect(bobApplied).not.toContainEqual({ maxDistanceKm: 50 });
   }, 90_000);
+
+  /**
+   * e2e stage2/95 (about 1 run in 3 under load): until a peer's outbox is bootstrapped, every tick
+   * re-wrote this device's own preferences record into custody — over a newer one the peer had
+   * just sent, so the device re-applied and re-sent its old value. Its own record is written only
+   * when convergence would choose it.
+   */
+  it('never writes its own older preferences over a newer one already in custody', async () => {
+    const record = (updatedAt: string, maxDistanceKm: number) => ({
+      category: 'preferences', recordId: 'talkFilters', originPub: 'x', authorPub: 'x', createdAt: updatedAt,
+      updatedAt, version: 1, tombstone: false, payload: { maxDistanceKm },
+    });
+    const sync = alice as any;
+    const run = async (existing: unknown) => {
+      const written: unknown[] = [];
+      sync.custodyStores = new Map([[bobPair.pub, { readRecord: async () => existing, writeRecord: async (r: unknown) => { written.push(r); } }]]);
+      sync.outboxStores = new Map(); // not bootstrapped yet: the case that kept re-writing every tick
+      sync.lastSyncedPreferencesJsonByPeer = new Map();
+      sync.lastLocalPreferences = { record: record('2026-10-26T10:00:00.000Z', 50) };
+      await sync.syncPreferencesToAllPeers();
+      return written;
+    };
+    expect(await run(record('2026-10-26T10:05:00.000Z', 99))).toHaveLength(0);
+    expect(await run(record('2026-10-26T09:00:00.000Z', 10))).toHaveLength(1);
+    expect(await run(null)).toHaveLength(1);
+  });
 });
+

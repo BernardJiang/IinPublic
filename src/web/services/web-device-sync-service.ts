@@ -17,6 +17,7 @@ import {
   resolveDeviceSyncImportConflicts,
   type DeviceSyncConflictDecision,
   type DeviceSyncImportConflict,
+  chooseConvergedRecord,
 } from '../../shared/device-sync-importer';
 import { enqueueDeviceSyncChange, flushDeviceSyncOutbox, initializeDeviceSyncOutbox } from '../../shared/device-sync-outbox';
 import {
@@ -578,7 +579,14 @@ export class WebDeviceSyncService {
     const json = JSON.stringify(record.payload);
     for (const [peerPub, custodyStore] of this.custodyStores) {
       if (this.lastSyncedPreferencesJsonByPeer.get(peerPub) === json) continue; // already handled for this peer+value
-      await custodyStore.writeRecord(record).catch(() => {});
+      // Only if convergence would choose it: this runs every tick until the peer's outbox is
+      // bootstrapped, and an unconditional write put this device's older value back over a newer
+      // one the peer had just sent — the device then re-applied and re-sent the old value (e2e
+      // stage2/95, about 1 run in 3 under load).
+      const existing = await custodyStore.readRecord('preferences', 'talkFilters').catch(() => null);
+      if (!existing || chooseConvergedRecord(existing, record).kind === 'apply') {
+        await custodyStore.writeRecord(record).catch(() => {});
+      }
       const outboxStore = this.outboxStores.get(peerPub);
       if (!outboxStore || !(await outboxStore.load().catch(() => null))) continue; // not bootstrapped yet — retry next tick; the custody write above already landed and is idempotent (same fixed record) in the meantime
       await enqueueDeviceSyncChange({ store: outboxStore, record }).catch(() => {});

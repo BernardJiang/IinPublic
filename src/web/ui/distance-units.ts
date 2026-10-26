@@ -3,6 +3,7 @@
  * follows the browser locale: miles for the US, the UK, Liberia and Myanmar, km everywhere else.
  * Stored values keep their own units (e.g. a Talk's `locationRadiusMiles`); only display converts.
  */
+import { settingsStorage } from '../services/core-storage';
 export type DistanceUnit = 'km' | 'mi';
 
 const KEY = 'iinpublic_distance_unit';
@@ -16,7 +17,7 @@ export function defaultDistanceUnit(locale: string = typeof navigator !== 'undef
 
 export function getDistanceUnit(): DistanceUnit {
   try {
-    const saved = localStorage.getItem(KEY);
+    const saved = settingsStorage.getItem(KEY);
     if (saved === 'km' || saved === 'mi') return saved;
   } catch { /* storage blocked */ }
   return defaultDistanceUnit();
@@ -24,7 +25,7 @@ export function getDistanceUnit(): DistanceUnit {
 
 export function setDistanceUnit(unit: DistanceUnit): void {
   try {
-    localStorage.setItem(KEY, unit);
+    settingsStorage.setItem(KEY, unit);
   } catch { /* storage blocked: applies to this session only */ }
 }
 

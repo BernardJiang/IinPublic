@@ -1,6 +1,7 @@
 import { immediateParentQAPairs, type QAPair } from '../../shared/flattened-answer-keys';
 import { checkIfMatch, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
 import type { UiTranslationKey } from './ui-translations';
+import { settingsStorage } from '../services/core-storage';
 
 type AnswerSelectionMode = 'auto' | 'manual' | 'whenever' | 'permanent';
 
@@ -34,7 +35,7 @@ function responseDraftKey(talkId: string): string {
 
 function loadResponseDraft(talk: any): ResponseDraft | null {
   try {
-    const raw = localStorage.getItem(responseDraftKey(talk.id));
+    const raw = settingsStorage.getItem(responseDraftKey(talk.id));
     if (!raw) return null;
     const draft = JSON.parse(raw) as ResponseDraft;
     if (
@@ -43,7 +44,7 @@ function loadResponseDraft(talk: any): ResponseDraft | null {
       !talk.questions?.some((question: any) => question.id === draft.currentQuestionId) ||
       !draft.answers.every((answer) => talk.questions?.some((question: any) => question.id === answer.questionId))
     ) {
-      localStorage.removeItem(responseDraftKey(talk.id));
+      settingsStorage.removeItem(responseDraftKey(talk.id));
       return null;
     }
     return draft;
@@ -54,7 +55,7 @@ function loadResponseDraft(talk: any): ResponseDraft | null {
 
 function saveResponseDraft(talk: any, currentQuestionId: string, answers: ResponseDraft['answers']): void {
   try {
-    localStorage.setItem(responseDraftKey(talk.id), JSON.stringify({ version: 1, currentQuestionId, answers } satisfies ResponseDraft));
+    settingsStorage.setItem(responseDraftKey(talk.id), JSON.stringify({ version: 1, currentQuestionId, answers } satisfies ResponseDraft));
   } catch {
     // A blocked or full local storage should not prevent answering a talk.
   }
@@ -62,7 +63,7 @@ function saveResponseDraft(talk: any, currentQuestionId: string, answers: Respon
 
 function clearResponseDraft(talk: any): void {
   try {
-    localStorage.removeItem(responseDraftKey(talk.id));
+    settingsStorage.removeItem(responseDraftKey(talk.id));
   } catch {
     // Keep completion resilient when local storage is unavailable.
   }

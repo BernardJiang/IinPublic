@@ -14,6 +14,7 @@ import { openPeerDetailView, shownPeerDetailId } from './user-detail-view';
 import type { UiTranslationKey } from './ui-translations';
 import { configureTagGraphView, renderPeerPlacesInto, renderPeerTagsInto } from './tag-graph-view';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
+import { settingsStorage } from '../services/core-storage';
 
 export interface PeerControllerDeps {
   getCurrentUser: () => User | undefined;
@@ -246,12 +247,12 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
     isSupportNotificationsMuted() {
       const userId = deps.getCurrentUserId();
       return !!userId
-        && localStorage.getItem(`iinpublic_support_notifications_muted:${userId}`) === '1';
+        && settingsStorage.getItem(`iinpublic_support_notifications_muted:${userId}`) === '1';
     },
     async setSupportNotificationsMuted(muted) {
       const userId = deps.getCurrentUserId();
       if (!userId) return;
-      localStorage.setItem(`iinpublic_support_notifications_muted:${userId}`, muted ? '1' : '0');
+      settingsStorage.setItem(`iinpublic_support_notifications_muted:${userId}`, muted ? '1' : '0');
       deps.showNotification(
         deps.t(muted ? 'contactSupportMutedNotice' : 'contactSupportUnmutedNotice'),
         'info',

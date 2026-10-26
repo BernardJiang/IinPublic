@@ -16,6 +16,7 @@
  * conversation this device also sends into simply gets the union, live copies winning any
  * id collision.
  */
+import { settingsStorage } from './core-storage';
 
 export interface SyncedMessage {
   id: string;
@@ -33,7 +34,7 @@ const STORAGE_KEY = 'iinpublic_device_sync_synced_messages_v1';
 
 function readStore(): SyncedMessageStore {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = settingsStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : {};
@@ -43,7 +44,7 @@ function readStore(): SyncedMessageStore {
 }
 
 function writeStore(store: SyncedMessageStore): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  settingsStorage.setItem(STORAGE_KEY, JSON.stringify(store));
 }
 
 /** Idempotent — safe to call repeatedly for the same message id. */

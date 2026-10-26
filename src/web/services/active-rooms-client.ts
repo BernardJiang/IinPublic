@@ -1,4 +1,5 @@
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
+import { settingsStorage } from './core-storage';
 
 /** Reads the hub's room list (shared/active-rooms.ts). */
 export async function fetchActiveRooms(
@@ -27,7 +28,7 @@ const SORT_KEY = 'iinpublic_room_list_sort';
 
 export function getRoomListSort(): ActiveRoomSort {
   try {
-    const saved = localStorage.getItem(SORT_KEY);
+    const saved = settingsStorage.getItem(SORT_KEY);
     if (saved === 'busiest' || saved === 'most-room' || saved === 'nearest') return saved;
   } catch { /* storage blocked */ }
   return 'nearest';
@@ -35,6 +36,6 @@ export function getRoomListSort(): ActiveRoomSort {
 
 export function setRoomListSort(sort: ActiveRoomSort): void {
   try {
-    localStorage.setItem(SORT_KEY, sort);
+    settingsStorage.setItem(SORT_KEY, sort);
   } catch { /* storage blocked: this session only */ }
 }

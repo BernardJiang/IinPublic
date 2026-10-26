@@ -15,6 +15,7 @@ import {
   type NearbyV3Hub,
 } from '../../core/nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
+import { settingsStorageAsStorage } from './core-storage';
 
 /**
  * Nearby on one device (§3.7): the personal list, knocks in and out, and the hub client. The app's
@@ -265,7 +266,7 @@ export class NearbyV3Runtime {
       hub: this.hub,
       link: new NearbyV3MeshLink(deps.mesh),
       localBoard: this.board,
-      storage: typeof localStorage !== 'undefined' ? localStorage : null,
+      storage: settingsStorageAsStorage,
       ...(deps.isPaused ? { isPaused: deps.isPaused } : {}),
       onChange: (entries) => {
         deps.onRoster(entries.map((entry) => ({

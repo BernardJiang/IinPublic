@@ -6,6 +6,7 @@ import {
   type TechSupportDelegateGrant,
 } from '../../shared/techsupport-delegate';
 import { readCachedRecoveryAnchor } from './techsupport-recovery-cache';
+import { settingsStorage } from './core-storage';
 
 /**
  * Local cache of signature-verified TechSupport delegate grants (docs/TODO.md K7).
@@ -22,7 +23,7 @@ const DELEGATE_GRANTS_STORAGE_KEY = 'iinpublic_techsupport_delegate_grants_v1';
 
 function readAll(): Record<string, TechSupportDelegateGrant> {
   try {
-    const raw = localStorage.getItem(DELEGATE_GRANTS_STORAGE_KEY);
+    const raw = settingsStorage.getItem(DELEGATE_GRANTS_STORAGE_KEY);
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, TechSupportDelegateGrant>;
   } catch {
@@ -32,7 +33,7 @@ function readAll(): Record<string, TechSupportDelegateGrant> {
 
 function writeAll(grants: Record<string, TechSupportDelegateGrant>): void {
   try {
-    localStorage.setItem(DELEGATE_GRANTS_STORAGE_KEY, JSON.stringify(grants));
+    settingsStorage.setItem(DELEGATE_GRANTS_STORAGE_KEY, JSON.stringify(grants));
   } catch {
     /* localStorage unavailable/full — the in-memory subscription value still works this session */
   }

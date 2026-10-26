@@ -3,6 +3,7 @@ import { readNativeHostInfo } from '../ui/native-host-info';
 import { loadConnectivitySettings, saveConnectivitySettings, type LocationSource } from '../ui/connectivity-settings';
 import { CHATROOM_MAP_LOCATIONS } from '../../shared/chatroom-map-locations';
 import { LocationPrivacy } from '../../shared/location';
+import { settingsStorage } from './core-storage';
 
 /**
  * Encounter location (TODO OPEN-40 P1): the point a Traveler ✈ appears at — chosen on the map (it
@@ -114,7 +115,7 @@ function validCoordinate(latitude: unknown, longitude: unknown): boolean {
 
 export function getEncounterLocation(): EncounterLocation | null {
   try {
-    const raw = localStorage.getItem(ENCOUNTER_LOCATION_KEY);
+    const raw = settingsStorage.getItem(ENCOUNTER_LOCATION_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<EncounterLocation>;
     if (value.version !== 1 || !validCoordinate(value.latitude, value.longitude)) return null;
@@ -145,7 +146,7 @@ export function setEncounterLocation(
     ...(options.auto ? { auto: true as const } : {}),
   };
   try {
-    localStorage.setItem(ENCOUNTER_LOCATION_KEY, JSON.stringify(value));
+    settingsStorage.setItem(ENCOUNTER_LOCATION_KEY, JSON.stringify(value));
   } catch { /* storage blocked: the choice applies to this session only */ }
   window.dispatchEvent(new CustomEvent(ENCOUNTER_LOCATION_EVENT, { detail: value }));
   return value;
@@ -174,8 +175,8 @@ const BROWSER_LOCATION_ASK_MIGRATION_KEY = 'iinpublic_browser_location_ask_v1';
  */
 export function keepEarlierBrowserEncounterChoice(platform: string = readNativeHostInfo().platform): void {
   try {
-    if (localStorage.getItem(BROWSER_LOCATION_ASK_MIGRATION_KEY)) return;
-    localStorage.setItem(BROWSER_LOCATION_ASK_MIGRATION_KEY, '1');
+    if (settingsStorage.getItem(BROWSER_LOCATION_ASK_MIGRATION_KEY)) return;
+    settingsStorage.setItem(BROWSER_LOCATION_ASK_MIGRATION_KEY, '1');
     if (platform === 'android' || platform === 'ios') return;
     const chosen = getEncounterLocation();
     if (!chosen || chosen.auto) return;
@@ -186,7 +187,7 @@ export function keepEarlierBrowserEncounterChoice(platform: string = readNativeH
 
 export function clearEncounterLocation(): void {
   try {
-    localStorage.removeItem(ENCOUNTER_LOCATION_KEY);
+    settingsStorage.removeItem(ENCOUNTER_LOCATION_KEY);
   } catch { /* storage blocked */ }
   window.dispatchEvent(new CustomEvent(ENCOUNTER_LOCATION_EVENT, { detail: null }));
 }

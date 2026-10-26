@@ -1,3 +1,4 @@
+import { settingsStorage } from '../services/core-storage';
 export type ChatroomBrowseMode = 'list' | 'map';
 
 const CHATROOM_BROWSE_MODE_KEY = 'iinpublic_chatroom_browse_mode';
@@ -8,12 +9,12 @@ const CHATROOM_BROWSE_MODE_KEY = 'iinpublic_chatroom_browse_mode';
  */
 export function initialChatroomBrowseMode(): ChatroomBrowseMode {
   try {
-    const saved = localStorage.getItem(CHATROOM_BROWSE_MODE_KEY);
+    const saved = settingsStorage.getItem(CHATROOM_BROWSE_MODE_KEY);
     if (saved === 'list' || saved === 'map') return saved;
   } catch { /* storage unavailable */ }
   return process.env.DISABLE_HMR === 'true' ? 'list' : 'map';
 }
 
 export function saveChatroomBrowseMode(mode: ChatroomBrowseMode): void {
-  try { localStorage.setItem(CHATROOM_BROWSE_MODE_KEY, mode); } catch { /* storage unavailable */ }
+  try { settingsStorage.setItem(CHATROOM_BROWSE_MODE_KEY, mode); } catch { /* storage unavailable */ }
 }

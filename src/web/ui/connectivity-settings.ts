@@ -4,6 +4,7 @@ import type { RoutePreferences } from '../../shared/connection-manager';
 import type { PathInfo } from '../../shared/connection-manager';
 import type { PeerDiscoveryProviderStatus } from '../../shared/peer-discovery-provider';
 import { isNearbyPublicMode, type NearbyPublicMode } from '../../shared/nearby-rooms';
+import { settingsStorage } from '../services/core-storage';
 
 export type ConnectivityPreset = 'automatic' | 'data-saver' | 'fastest' | 'local-event' | 'private' | 'advanced';
 export type NearbyExchangeMode = 'off' | 'while-open' | 'always';
@@ -123,7 +124,7 @@ export function applyConnectivityPreset(
 
 export function loadConnectivitySettings(): ConnectivitySettings {
   try {
-    const raw = localStorage.getItem(KEY); if (!raw) return defaultConnectivitySettings();
+    const raw = settingsStorage.getItem(KEY); if (!raw) return defaultConnectivitySettings();
     const value = JSON.parse(raw) as Partial<ConnectivitySettings>;
     const valid = ['automatic', 'data-saver', 'fastest', 'local-event', 'private', 'advanced'].includes(String(value.preset));
     // `radio-nearby` used to be an audience mode; Bluetooth is now an independent provider.
@@ -151,7 +152,7 @@ export function loadConnectivitySettings(): ConnectivitySettings {
 }
 
 export function saveConnectivitySettings(value: ConnectivitySettings): void {
-  localStorage.setItem(KEY, JSON.stringify({ ...value, version: 2 }));
+  settingsStorage.setItem(KEY, JSON.stringify({ ...value, version: 2 }));
 }
 
 export function connectivityStatusText(input: { directness: 'direct' | 'relay' | 'store-forward'; interface: string; metered: boolean }): string {

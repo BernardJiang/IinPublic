@@ -32,7 +32,7 @@ const chipFor = (page: Page, en: string) => starterChips(page).filter({ hasText:
 
 /** The harness turns starter seeds off for ordinary specs; a fresh identity opts back in here. */
 async function showStarterTags(page: Page): Promise<void> {
-  await page.evaluate(() => localStorage.removeItem('iinpublic_starter_contacts_disabled'));
+  await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_starter_contacts_disabled'] }), localStorage.removeItem('iinpublic_starter_contacts_disabled')));
   await page.locator('.nav-btn[data-view="talks"]').click();
   await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
   await expect(starterChips(page)).toHaveCount(STARTER_TAGS.length, { timeout: 20_000 });

@@ -13,7 +13,7 @@ export const CORE_COLLECTIONS = [
   'dealTalkByConversation', 'needKeyByConversation',
   'answeredTalkByContent', 'answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts',
   'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'tagOppositePairRegistry',
-  'talkRevisionSent', 'appData',
+  'talkRevisionSent', 'appData', 'settings',
 ] as const;
 export type CoreCollection = typeof CORE_COLLECTIONS[number];
 

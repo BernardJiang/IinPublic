@@ -7,7 +7,7 @@
  * the core's: left by an earlier version of the app, or seeded by a test. A read takes it into the
  * core and removes it from localStorage.
  */
-import { appDataView } from './core-views';
+import { appDataView, settingsView } from './core-views';
 
 function legacyStorage(): Storage | null {
   try {
@@ -56,3 +56,41 @@ export const appStorageAsStorage = appStorage as unknown as Storage;
 export function appDataLoaded(): boolean {
   return appDataView.isConnected();
 }
+
+/**
+ * Settings and UI state (language, colour scheme, tabs, sorts, travel mode, last room …) live in
+ * the device core's `settings` collection; localStorage keeps a copy for the reads made while the
+ * app starts, before the core has loaded. Before it loads a read uses that copy; after, the
+ * core's value — and a copy that differs is newer (an earlier app version, a test seed) and is
+ * taken in. Writes go to both.
+ */
+export const settingsStorage = {
+  getItem(key: string): string | null {
+    const legacy = legacyStorage();
+    const copy = legacy?.getItem(key) ?? null;
+    if (!settingsView.isConnected()) return copy ?? (settingsView.get(key) ?? null);
+    const value = settingsView.get(key);
+    if (copy !== null && copy !== value) {
+      settingsView.set({ [key]: copy });
+      return copy;
+    }
+    if (typeof value === 'string' && copy === null) {
+      try { legacy?.setItem(key, value); } catch { /* the core holds it either way */ }
+    }
+    return typeof value === 'string' ? value : null;
+  },
+
+  setItem(key: string, value: string): void {
+    settingsView.set({ [key]: String(value) });
+    try { legacyStorage()?.setItem(key, String(value)); } catch { /* the core holds it either way */ }
+  },
+
+  removeItem(key: string): void {
+    settingsView.remove([key]);
+    try { legacyStorage()?.removeItem(key); } catch { /* nothing to clear */ }
+  },
+};
+
+/** For code that takes a `Storage` (distance units, list pins, …). */
+export const settingsStorageAsStorage = settingsStorage as unknown as Storage;
+

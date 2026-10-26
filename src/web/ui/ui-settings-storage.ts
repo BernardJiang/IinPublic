@@ -1,6 +1,7 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import type { UiLanguage } from './ui-translations';
 import { chatbotTemplatesView } from '../services/core-views';
+import { settingsStorage } from '../services/core-storage';
 
 export type ChatbotTemplate = {
   answers: any[];
@@ -8,12 +9,12 @@ export type ChatbotTemplate = {
 };
 
 export function getCopyTalkAutoSave(): boolean {
-  const value = localStorage.getItem('copyTalkAutoSave');
+  const value = settingsStorage.getItem('copyTalkAutoSave');
   return value === null || value === 'true';
 }
 
 export function setCopyTalkAutoSave(enabled: boolean): void {
-  localStorage.setItem('copyTalkAutoSave', String(enabled));
+  settingsStorage.setItem('copyTalkAutoSave', String(enabled));
 }
 
 const MATCH_COLLECTION_ENABLED_KEY = 'iinpublic_match_collection_enabled_v1';
@@ -23,33 +24,33 @@ const MATCH_COLLECTION_ENABLED_KEY = 'iinpublic_match_collection_enabled_v1';
  * Chatrooms page. It is on for new devices; Settings holds the one explicit opt-out.
  */
 export function getMatchCollectionEnabled(): boolean {
-  return localStorage.getItem(MATCH_COLLECTION_ENABLED_KEY) !== 'false';
+  return settingsStorage.getItem(MATCH_COLLECTION_ENABLED_KEY) !== 'false';
 }
 
 export function setMatchCollectionEnabled(enabled: boolean): void {
-  localStorage.setItem(MATCH_COLLECTION_ENABLED_KEY, String(enabled));
+  settingsStorage.setItem(MATCH_COLLECTION_ENABLED_KEY, String(enabled));
 }
 
 export function getChatbotEnabled(): boolean {
-  const value = localStorage.getItem('chatbotEnabled');
+  const value = settingsStorage.getItem('chatbotEnabled');
   return value === null || value === 'true';
 }
 
 export function setChatbotEnabled(enabled: boolean): void {
-  localStorage.setItem('chatbotEnabled', String(enabled));
+  settingsStorage.setItem('chatbotEnabled', String(enabled));
 }
 
 export type AutoAnswerScope = 'same-context' | 'whenever';
 
 /** One device-wide rule for every answer marked Auto. Defaults to "Whenever offered". */
 export function getAutoAnswerScope(): AutoAnswerScope {
-  return localStorage.getItem('iinpublic_auto_answer_scope') === 'same-context'
+  return settingsStorage.getItem('iinpublic_auto_answer_scope') === 'same-context'
     ? 'same-context'
     : 'whenever';
 }
 
 export function setAutoAnswerScope(scope: AutoAnswerScope): void {
-  localStorage.setItem('iinpublic_auto_answer_scope', scope);
+  settingsStorage.setItem('iinpublic_auto_answer_scope', scope);
 }
 
 export function getAutoAnswerPreferenceMode(): 'auto' | 'whenever' {
@@ -64,31 +65,31 @@ export function getAutoAnswerPreferenceMode(): 'auto' | 'whenever' {
  * feature untouched by this flag.
  */
 export function getLocationAutoMatchConsent(): boolean {
-  return localStorage.getItem('locationAutoMatchConsent') === 'true';
+  return settingsStorage.getItem('locationAutoMatchConsent') === 'true';
 }
 
 export function setLocationAutoMatchConsent(consent: boolean): void {
-  localStorage.setItem('locationAutoMatchConsent', String(consent));
+  settingsStorage.setItem('locationAutoMatchConsent', String(consent));
 }
 
 export function getUiLanguagePreference(defaultLanguage: UiLanguage = 'en'): UiLanguage {
-  const stored = String(localStorage.getItem('iinpublic_ui_language') || '').toLowerCase();
+  const stored = String(settingsStorage.getItem('iinpublic_ui_language') || '').toLowerCase();
   if (stored === 'en' || stored === 'zh') return stored;
-  localStorage.setItem('iinpublic_ui_language', defaultLanguage);
+  settingsStorage.setItem('iinpublic_ui_language', defaultLanguage);
   return defaultLanguage;
 }
 
 export function setUiLanguagePreference(language: UiLanguage): void {
-  localStorage.setItem('iinpublic_ui_language', language);
+  settingsStorage.setItem('iinpublic_ui_language', language);
 }
 
 export function getDefaultTalkLanguagePreference(defaultLanguage: UiLanguage = 'en'): UiLanguage {
-  const stored = String(localStorage.getItem('iinpublic_default_talk_language') || '').toLowerCase();
+  const stored = String(settingsStorage.getItem('iinpublic_default_talk_language') || '').toLowerCase();
   return stored === 'en' || stored === 'zh' ? stored : defaultLanguage;
 }
 
 export function setDefaultTalkLanguagePreference(language: UiLanguage): void {
-  localStorage.setItem('iinpublic_default_talk_language', language);
+  settingsStorage.setItem('iinpublic_default_talk_language', language);
 }
 
 export type ColorScheme = 'goldenHour' | 'tropicalForest' | 'snowMountain' | 'beachSunset';
@@ -96,7 +97,7 @@ export const COLOR_SCHEMES: ColorScheme[] = ['goldenHour', 'tropicalForest', 'sn
 const DEFAULT_COLOR_SCHEME: ColorScheme = 'goldenHour';
 
 export function getColorSchemePreference(): ColorScheme {
-  const stored = localStorage.getItem('iinpublic_color_scheme');
+  const stored = settingsStorage.getItem('iinpublic_color_scheme');
   return (COLOR_SCHEMES as string[]).includes(stored || '')
     ? (stored as ColorScheme)
     : DEFAULT_COLOR_SCHEME;
@@ -108,7 +109,7 @@ export function getColorSchemePreference(): ColorScheme {
  * this call handles the *current* session, the boot script handles the next reload).
  */
 export function setColorSchemePreference(scheme: ColorScheme): void {
-  localStorage.setItem('iinpublic_color_scheme', scheme);
+  settingsStorage.setItem('iinpublic_color_scheme', scheme);
   document.documentElement.setAttribute('data-color-scheme', scheme);
 }
 
@@ -118,20 +119,20 @@ export function setColorSchemePreference(scheme: ColorScheme): void {
  * (delete) matches Bernard's 2026-08-01 decision.
  */
 export function getKeepOldTalkOnEdit(): boolean {
-  return localStorage.getItem('keepOldTalkOnEdit') === 'true';
+  return settingsStorage.getItem('keepOldTalkOnEdit') === 'true';
 }
 
 export function setKeepOldTalkOnEdit(enabled: boolean): void {
-  localStorage.setItem('keepOldTalkOnEdit', String(enabled));
+  settingsStorage.setItem('keepOldTalkOnEdit', String(enabled));
 }
 
 /** Device-local flag: has this browser/device ever finished (or skipped) the first-run walkthrough? */
 export function getHasSeenWalkthrough(): boolean {
-  return localStorage.getItem('iinpublic_walkthrough_seen') === 'true';
+  return settingsStorage.getItem('iinpublic_walkthrough_seen') === 'true';
 }
 
 export function setHasSeenWalkthrough(seen: boolean): void {
-  localStorage.setItem('iinpublic_walkthrough_seen', String(seen));
+  settingsStorage.setItem('iinpublic_walkthrough_seen', String(seen));
 }
 
 /**
@@ -139,12 +140,12 @@ export function setHasSeenWalkthrough(seen: boolean): void {
  * flag counts as seen so an existing installation is never surprised by a new automatic modal.
  */
 export function getHasSeenActionableGuide(): boolean {
-  return localStorage.getItem('iinpublic_actionable_guide_seen_v1') === 'true'
+  return settingsStorage.getItem('iinpublic_actionable_guide_seen_v1') === 'true'
     || getHasSeenWalkthrough();
 }
 
 export function setHasSeenActionableGuide(seen: boolean): void {
-  localStorage.setItem('iinpublic_actionable_guide_seen_v1', String(seen));
+  settingsStorage.setItem('iinpublic_actionable_guide_seen_v1', String(seen));
 }
 
 export function getChatbotTemplate(talkId: string): ChatbotTemplate | null {
@@ -179,7 +180,7 @@ const NEARBY_PROVIDER_KEYS: Record<NearbyProviderSetting, string> = {
 };
 
 export function getNearbyProviderEnabled(kind: NearbyProviderSetting): boolean {
-  try { return localStorage.getItem(NEARBY_PROVIDER_KEYS[kind]) !== '0'; } catch { return true; }
+  try { return settingsStorage.getItem(NEARBY_PROVIDER_KEYS[kind]) !== '0'; } catch { return true; }
 }
 
 export function getNearbyWifiDirectEnabled(): boolean {
@@ -192,7 +193,7 @@ export function getNearbyBluetoothEnabled(): boolean {
 
 export function setNearbySetting(kind: NearbyProviderSetting, enabled: boolean): void {
   try {
-    localStorage.setItem(NEARBY_PROVIDER_KEYS[kind], enabled ? '1' : '0');
+    settingsStorage.setItem(NEARBY_PROVIDER_KEYS[kind], enabled ? '1' : '0');
   } catch { /* storage blocked: the switch applies to this session only */ }
   window.dispatchEvent(new CustomEvent(NEARBY_SETTINGS_EVENT));
 }

@@ -3,6 +3,7 @@ import type { UiTranslationKey } from './ui-translations';
 import { isNewerVersion } from '../../shared/semver-compare';
 import { readNativeHostInfo } from './native-host-info';
 import { renderUpdateAvailableBadge } from './notification-badges';
+import { settingsStorage } from '../services/core-storage';
 
 /**
  * docs/TODO.md OPEN-33: a sideloaded Android APK (not Play Store) has no update channel at all —
@@ -40,7 +41,7 @@ export function shouldShowUpdateReminder(
 
 function readDismissedVersion(): string | null {
   try {
-    return localStorage.getItem(DISMISSED_VERSION_STORAGE_KEY);
+    return settingsStorage.getItem(DISMISSED_VERSION_STORAGE_KEY);
   } catch {
     return null;
   }
@@ -48,7 +49,7 @@ function readDismissedVersion(): string | null {
 
 function writeDismissedVersion(version: string): void {
   try {
-    localStorage.setItem(DISMISSED_VERSION_STORAGE_KEY, version);
+    settingsStorage.setItem(DISMISSED_VERSION_STORAGE_KEY, version);
   } catch {
     /* localStorage unavailable/full — the banner just reappears next launch, harmless */
   }

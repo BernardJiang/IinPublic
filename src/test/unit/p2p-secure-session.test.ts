@@ -50,7 +50,12 @@ describe('P2P encrypted stranger session', () => {
     });
     const encrypted = await encryptSecureSessionJson(alice.key, alice.sessionId, { answer: 'yes' });
     await expect(decryptSecureSessionJson(attacker.key, alice.sessionId, encrypted)).rejects.toThrow();
-    const changed = `${encrypted.ciphertext.slice(0, -1)}${encrypted.ciphertext.endsWith('A') ? 'B' : 'A'}`;
+    // Flip a bit in a real ciphertext byte. Changing the last base64 character only changed the
+    // padding bits on some runs (the random IV varies the length), so the bytes stayed intact and
+    // decryption rightly succeeded — the test failed about once in a few full-suite runs.
+    const bytes = Buffer.from(encrypted.ciphertext, 'base64url');
+    bytes[Math.floor(bytes.length / 2)] ^= 0x01;
+    const changed = bytes.toString('base64url');
     await expect(decryptSecureSessionJson(bob.key, bob.sessionId, { ...encrypted, ciphertext: changed })).rejects.toThrow();
   });
 

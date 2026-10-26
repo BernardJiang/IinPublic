@@ -2,6 +2,7 @@ import type { UiTranslationKey } from './ui-translations';
 import type { NotificationOptions } from './notification-toast';
 import { mergeConversationRecord } from '../../core/conversation-state';
 import { setMyConversations } from './my-conversations-storage';
+import { settingsStorage } from '../services/core-storage';
 
 export interface ConversationListUpdatesDeps {
   getMyConversations: () => Record<string, any>;
@@ -149,7 +150,7 @@ export function syncConversationMessageSummary(
   const cursorKey = 'iinpublic:conversation-read-cursors';
   let cursors: Record<string, { timestamp: string; id?: string }> = {};
   try {
-    cursors = JSON.parse(localStorage.getItem(cursorKey) || '{}');
+    cursors = JSON.parse(settingsStorage.getItem(cursorKey) || '{}');
   } catch {
     /* ignore malformed local data */
   }
@@ -208,7 +209,7 @@ export function syncConversationMessageSummary(
   conversation.unreadCount = totalUnread;
   conversation.unread = totalUnread > 0;
 
-  localStorage.setItem(cursorKey, JSON.stringify(cursors));
+  settingsStorage.setItem(cursorKey, JSON.stringify(cursors));
   setMyConversations(conversations);
   deps.updateMatchBadge();
   deps.refreshOpenPeerThreadList();

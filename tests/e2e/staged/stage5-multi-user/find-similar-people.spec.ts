@@ -424,7 +424,7 @@ test.describe('Find similar people', () => {
         await waitForTabActive(page, 'contacts');
         await openCollapsedFilters(page, 'contacts-filter-toggle');
         await page.waitForSelector('#contacts-sort-order', { timeout: 20_000 });
-        await page.evaluate(() => localStorage.removeItem('iinpublic_contacts_tab_state'));
+        await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_contacts_tab_state'] }), localStorage.removeItem('iinpublic_contacts_tab_state')));
         await page.fill('#contacts-filter-name', '');
         await page.selectOption('#contacts-filter-relation', 'all');
         await page.selectOption('#contacts-sort-order', 'match-rate');

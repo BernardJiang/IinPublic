@@ -54,12 +54,15 @@ export const talkRevisionSentView = new CoreCollectionView<{ revision: string; a
  */
 export const appDataView = new CoreCollectionView<string>('appData', 'iinpublic_core_app_data_no_legacy_blob');
 
+/** Settings and UI state, one entry per key; localStorage keeps a start-up copy (`core-storage.ts`). */
+export const settingsView = new CoreCollectionView<string>('settings', 'iinpublic_core_settings_no_legacy_blob');
+
 const VIEWS: Array<CoreCollectionView<unknown>> = [
   chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView,
   dealTalkByConversationView, needKeyByConversationView,
   answeredTalkByContentView, answerPreferencesView, flattenedAnswerPreferencesView, questionDefaultContractsView,
   myQuestionAnswersView, exactChatbotMemoryView, typedPreferenceStateView, tagOppositePairRegistryView,
-  talkRevisionSentView, appDataView,
+  talkRevisionSentView, appDataView, settingsView,
 ] as Array<CoreCollectionView<unknown>>;
 
 export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {

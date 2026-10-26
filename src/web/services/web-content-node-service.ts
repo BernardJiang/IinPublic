@@ -12,6 +12,7 @@ export type WebContentNode = {
 import { getSEA, type GunPair } from '../sea-gun';
 import type { IpfsAttachment } from '../../shared/types';
 import { parseBootstrapPeerMultiaddrs } from './p2p-room-discovery';
+import { settingsStorage } from './core-storage';
 
 type NodeFactory = (discoveryConfig: WebContentNodeDiscoveryConfig) => Promise<WebContentNode>;
 type CidFactory = (bytes: Uint8Array) => Promise<unknown>;
@@ -438,10 +439,10 @@ export class WebContentNodeService {
     this.pinnedAttachments.set(talkId, record);
     try {
       if (typeof localStorage !== 'undefined') {
-        const raw = localStorage.getItem(PINNED_ATTACHMENTS_STORAGE);
+        const raw = settingsStorage.getItem(PINNED_ATTACHMENTS_STORAGE);
         const store = raw ? JSON.parse(raw) as Record<string, PinnedAttachmentRecord> : {};
         store[talkId] = record;
-        localStorage.setItem(PINNED_ATTACHMENTS_STORAGE, JSON.stringify(store));
+        settingsStorage.setItem(PINNED_ATTACHMENTS_STORAGE, JSON.stringify(store));
       }
     } catch {
       /* best-effort local pin registry */
@@ -454,7 +455,7 @@ export class WebContentNodeService {
     if (inMemory) return [...inMemory.attachments];
     try {
       if (typeof localStorage === 'undefined') return [];
-      const raw = localStorage.getItem(PINNED_ATTACHMENTS_STORAGE);
+      const raw = settingsStorage.getItem(PINNED_ATTACHMENTS_STORAGE);
       if (!raw) return [];
       const store = JSON.parse(raw) as Record<string, PinnedAttachmentRecord>;
       return this.normalizeIpfsAttachments(store[talkId]?.attachments);
@@ -468,12 +469,12 @@ export class WebContentNodeService {
     this.pinnedAttachments.delete(talkId);
     try {
       if (typeof localStorage === 'undefined') return;
-      const raw = localStorage.getItem(PINNED_ATTACHMENTS_STORAGE);
+      const raw = settingsStorage.getItem(PINNED_ATTACHMENTS_STORAGE);
       if (!raw) return;
       const store = JSON.parse(raw) as Record<string, PinnedAttachmentRecord>;
       if (store[talkId] === undefined) return;
       delete store[talkId];
-      localStorage.setItem(PINNED_ATTACHMENTS_STORAGE, JSON.stringify(store));
+      settingsStorage.setItem(PINNED_ATTACHMENTS_STORAGE, JSON.stringify(store));
     } catch {
       /* best-effort local unpin registry */
     }

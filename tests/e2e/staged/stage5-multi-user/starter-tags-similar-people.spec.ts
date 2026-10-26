@@ -177,7 +177,7 @@ test.describe('Find similar people with starter tags', () => {
     // ── 2. Each sees all 60 starter tags and decides every one ───────────────
     await Promise.all(users.map(async ({ page, index }) => {
       // The harness turns starter seeds off for ordinary specs; these new users opt back in.
-      await page.evaluate(() => localStorage.removeItem('iinpublic_starter_contacts_disabled'));
+      await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_starter_contacts_disabled'] }), localStorage.removeItem('iinpublic_starter_contacts_disabled')));
       await page.locator('.nav-btn[data-view="talks"]').click();
       await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
       await expect(unansweredStarterChips(page)).toHaveCount(STARTER_TAGS.length, { timeout: 30_000 });

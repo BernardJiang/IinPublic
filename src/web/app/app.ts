@@ -249,7 +249,7 @@ import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
-import { appStorage } from '../services/core-storage';
+import { appStorage, settingsStorage } from '../services/core-storage';
 import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
@@ -2488,7 +2488,7 @@ export class IinPublicApp {
     if (!this.currentUser || !this.currentLocation) return;
 
     // Get last chatroom from localStorage (for re-entry logic)
-    const lastChatroomId = localStorage.getItem('iinpublic_last_chatroom') || undefined;
+    const lastChatroomId = settingsStorage.getItem('iinpublic_last_chatroom') || undefined;
     this.loadTravelModeStateFromStorage();
 
     // Find optimal chatroom using hierarchical assignment
@@ -2545,7 +2545,7 @@ export class IinPublicApp {
     }
 
     // Store current chatroom in localStorage for next time
-    localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+    settingsStorage.setItem('iinpublic_last_chatroom', chatroomId);
 
     console.log('🏠 Joined chatroom:', chatroomId);
 
@@ -2605,7 +2605,7 @@ export class IinPublicApp {
       this.refreshNearbyPoint();
       await this.chatroomService.switchChatroom(this.currentUser.id, this.travelChatroomId, this.currentUser.stageName);
       this.currentChatroomId = this.travelChatroomId;
-      localStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
+      settingsStorage.setItem('iinpublic_last_chatroom', this.currentChatroomId);
       this.subscribeToMessages(this.currentChatroomId);
       this.uiManager.setCurrentChatroomId(this.currentChatroomId);
       this.chatroomService.subscribeToMembers(this.currentChatroomId, (members) => {
@@ -3003,7 +3003,7 @@ export class IinPublicApp {
       this.currentUser.stageName,
     );
     this.currentChatroomId = nextRoomId;
-    localStorage.setItem('iinpublic_last_chatroom', nextRoomId);
+    settingsStorage.setItem('iinpublic_last_chatroom', nextRoomId);
     this.uiManager.setCurrentChatroomId(nextRoomId);
     this.chatroomService.subscribeToMembers(nextRoomId, (members) => {
       this.harvestRosterEpubs(members);
@@ -5270,7 +5270,7 @@ export class IinPublicApp {
 
   private loadDelegateOptInFromStorage(): boolean {
     try {
-      return localStorage.getItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY) === '1';
+      return settingsStorage.getItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY) === '1';
     } catch {
       return false;
     }
@@ -5278,8 +5278,8 @@ export class IinPublicApp {
 
   private persistDelegateOptIn(optedIn: boolean): void {
     try {
-      if (optedIn) localStorage.setItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY, '1');
-      else localStorage.removeItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY);
+      if (optedIn) settingsStorage.setItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY, '1');
+      else settingsStorage.removeItem(IinPublicApp.DELEGATE_OPT_IN_STORAGE_KEY);
     } catch {
       /* best-effort persistence only */
     }
@@ -5479,7 +5479,7 @@ export class IinPublicApp {
 
   private loadTargetedDelegateInvites(): Map<string, TargetedDelegateInvite> {
     try {
-      const raw = JSON.parse(localStorage.getItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
+      const raw = JSON.parse(settingsStorage.getItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
       const live = (Array.isArray(raw) ? raw : []).filter(
         (i: TargetedDelegateInvite) => i && typeof i.requestId === 'string' && !isDelegateInviteExpired(i),
       );
@@ -5492,7 +5492,7 @@ export class IinPublicApp {
   private persistTargetedDelegateInvites(): void {
     try {
       const live = [...this.targetedDelegateInvites.values()].filter((i) => !isDelegateInviteExpired(i));
-      localStorage.setItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(live));
+      settingsStorage.setItem(IinPublicApp.TARGETED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(live));
     } catch {
       /* best-effort persistence only */
     }
@@ -5515,7 +5515,7 @@ export class IinPublicApp {
 
   private readHandledDelegateInvites(): string[] {
     try {
-      const raw = JSON.parse(localStorage.getItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
+      const raw = JSON.parse(settingsStorage.getItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY) || '[]');
       return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
     } catch {
       return [];
@@ -5525,7 +5525,7 @@ export class IinPublicApp {
   private markDelegateInviteHandled(requestId: string): void {
     try {
       const next = [...this.readHandledDelegateInvites().filter((id) => id !== requestId), requestId].slice(-20);
-      localStorage.setItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(next));
+      settingsStorage.setItem(IinPublicApp.HANDLED_DELEGATE_INVITES_STORAGE_KEY, JSON.stringify(next));
     } catch {
       /* best-effort persistence only */
     }
@@ -5870,10 +5870,10 @@ export class IinPublicApp {
   }
 
   private loadTravelModeStateFromStorage(): void {
-    const travel = localStorage.getItem('iinpublic_travel_room') || undefined;
+    const travel = settingsStorage.getItem('iinpublic_travel_room') || undefined;
     let nearbyPoint: (GPSCoordinate & { placeId: string; placeName: string }) | undefined;
     try {
-      const raw = JSON.parse(localStorage.getItem('iinpublic_travel_nearby_point') || 'null') as any;
+      const raw = JSON.parse(settingsStorage.getItem('iinpublic_travel_nearby_point') || 'null') as any;
       const latitude = Number(raw?.latitude);
       const longitude = Number(raw?.longitude);
       if (Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
@@ -5910,20 +5910,20 @@ export class IinPublicApp {
   }
 
   private persistTravelModeStateToStorage(): void {
-    localStorage.setItem('iinpublic_travel_mode', this.travelModeActive ? '1' : '0');
-    if (this.travelHomeChatroomId) localStorage.setItem('iinpublic_travel_home', this.travelHomeChatroomId);
-    else localStorage.removeItem('iinpublic_travel_home');
-    if (this.travelChatroomId) localStorage.setItem('iinpublic_travel_room', this.travelChatroomId);
-    else localStorage.removeItem('iinpublic_travel_room');
+    settingsStorage.setItem('iinpublic_travel_mode', this.travelModeActive ? '1' : '0');
+    if (this.travelHomeChatroomId) settingsStorage.setItem('iinpublic_travel_home', this.travelHomeChatroomId);
+    else settingsStorage.removeItem('iinpublic_travel_home');
+    if (this.travelChatroomId) settingsStorage.setItem('iinpublic_travel_room', this.travelChatroomId);
+    else settingsStorage.removeItem('iinpublic_travel_room');
     if (this.travelNearbyPoint) {
-      localStorage.setItem('iinpublic_travel_nearby_point', JSON.stringify({
+      settingsStorage.setItem('iinpublic_travel_nearby_point', JSON.stringify({
         latitude: this.travelNearbyPoint.latitude,
         longitude: this.travelNearbyPoint.longitude,
         placeId: this.travelNearbyPoint.placeId,
         placeName: this.travelNearbyPoint.placeName,
       }));
     } else {
-      localStorage.removeItem('iinpublic_travel_nearby_point');
+      settingsStorage.removeItem('iinpublic_travel_nearby_point');
     }
   }
 
@@ -9250,7 +9250,7 @@ export class IinPublicApp {
       if (this.currentChatroomId !== home) {
         await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
         this.currentChatroomId = home;
-        localStorage.setItem('iinpublic_last_chatroom', home);
+        settingsStorage.setItem('iinpublic_last_chatroom', home);
         this.subscribeToMessages(home);
         this.uiManager.setCurrentChatroomId(home);
         this.chatroomService.subscribeToMembers(home, (members) => {
@@ -9430,7 +9430,7 @@ export class IinPublicApp {
         }
 
         this.currentChatroomId = chatroomId;
-        localStorage.setItem('iinpublic_last_chatroom', chatroomId);
+        settingsStorage.setItem('iinpublic_last_chatroom', chatroomId);
 
         this.subscribeToMessages(chatroomId);
             console.log(`✅ Switched to ${chatroomId}`);
@@ -9705,7 +9705,7 @@ export class IinPublicApp {
             this.currentUser.stageName,
           );
           this.currentChatroomId = newChatroomId;
-          localStorage.setItem('iinpublic_last_chatroom', newChatroomId);
+          settingsStorage.setItem('iinpublic_last_chatroom', newChatroomId);
           this.uiManager.setCurrentChatroomId(newChatroomId);
           this.subscribeToMessages(newChatroomId);
           this.chatroomService.subscribeToMembers(newChatroomId, (members) => {

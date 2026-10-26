@@ -12,6 +12,7 @@ import { getMyTalks, patchMyTalk } from './my-talks-storage';
 import type { KnownPerson } from '../../shared/types';
 import type { MyTalkMap } from './my-talks-storage';
 import type { UiLanguage } from './ui-translations';
+import { settingsStorageAsStorage } from '../services/core-storage';
 
 export const STARTER_CONTACTS_VERSION = 1;
 
@@ -182,7 +183,7 @@ export function getStarterPracticeContacts(
   userId: string,
   locale: UiLanguage,
   eligible: boolean,
-  storage: Storage = localStorage,
+  storage: Storage = settingsStorageAsStorage,
 ): StarterPracticeContact[] {
   const normalizedLocale = lang(locale);
   const activeIds = new Set(readActiveIds(userId, eligible, storage));
@@ -199,7 +200,7 @@ export function getStarterPracticeContacts(
 export function removeStarterPracticeContact(
   userId: string,
   id: StarterPracticeContactId,
-  storage: Storage = localStorage,
+  storage: Storage = settingsStorageAsStorage,
 ): void {
   const activeIds = readActiveIds(userId, false, storage).filter((candidate) => candidate !== id);
   storage.setItem(stateKey(userId), JSON.stringify({ activeIds }));
@@ -251,7 +252,7 @@ export function starterInterestClusters(
   userId: string,
   locale: UiLanguage,
   eligible: boolean,
-  storage: Storage = localStorage,
+  storage: Storage = settingsStorageAsStorage,
 ): any[] {
   if (!userId) return [];
   try {
