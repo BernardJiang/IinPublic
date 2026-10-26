@@ -15,7 +15,9 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
 export const RELEASE_HUB_LOCATION = { latitude: 32.7157, longitude: -117.1611, accuracy: 10 };
 
 export async function startReleaseCapacityHub(port: number): Promise<ChildProcess> {
-  const env = { ...process.env, E2E_GUN_MEMORY_ONLY: '1', PORT: String(port) };
+  // Fresh identities have no Friend marks. The hub enforces the Place rule (a phone's node publishes
+  // there first), so lower it here; `preparePlacePhone` lowers the page's copy to match.
+  const env = { ...process.env, E2E_GUN_MEMORY_ONLY: '1', PORT: String(port), PLACE_CREATE_MIN_FRIEND_MARKS: '0' };
   delete env.CHATROOM_MAX_CAPACITY;
   delete env.CHATROOM_ENABLE_FIFO;
   const hub = spawn(process.execPath, [path.join(repoRoot, 'dist', 'server', 'server', 'index.js')], { cwd: repoRoot, env, stdio: 'ignore' });
