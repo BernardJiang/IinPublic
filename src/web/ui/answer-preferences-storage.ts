@@ -38,6 +38,18 @@ import {
   type QuestionDefaultContract,
   type QuestionDefaultContractMap,
 } from '../../shared/question-default-contracts';
+import { mapStore, sectionedDocStore, type CoreCollectionView } from '../services/core-collection-view';
+import {
+  answeredTalkByContentView,
+  answerPreferencesView,
+  EXACT_CHATBOT_MEMORY_SECTIONS,
+  exactChatbotMemoryView,
+  flattenedAnswerPreferencesView,
+  myQuestionAnswersView,
+  questionDefaultContractsView,
+  tagOppositePairRegistryView,
+  typedPreferenceStateView,
+} from '../services/core-views';
 
 export type AnswerPreferenceMap = Record<string, AnswerPreferenceEntry>;
 
@@ -50,94 +62,74 @@ export type MyQuestionAnswerEntry = {
   location?: string;
 };
 
-function readJsonMap<T>(key: string): Record<string, T> {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Record<string, T>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeJsonMap<T>(key: string, value: Record<string, T>): void {
-  localStorage.setItem(key, JSON.stringify(value));
-}
+// These live in the device core (OPEN-91 P3, `core-views.ts`), one entry per record; each was one
+// localStorage JSON value rewritten whole on every answer. Reads are copies; writes send changes.
+const stores = {
+  answeredTalkByContent: mapStore(answeredTalkByContentView),
+  answerPreferences: mapStore(answerPreferencesView as CoreCollectionView<AnswerPreferenceEntry>),
+  flattenedAnswerPreferences: mapStore(flattenedAnswerPreferencesView as CoreCollectionView<AnswerPreferenceEntry>),
+  questionDefaultContracts: mapStore(questionDefaultContractsView as CoreCollectionView<QuestionDefaultContract>),
+  myQuestionAnswers: mapStore(myQuestionAnswersView as CoreCollectionView<MyQuestionAnswerEntry>),
+  exactChatbotMemory: sectionedDocStore(exactChatbotMemoryView, EXACT_CHATBOT_MEMORY_SECTIONS, createEmptyExactChatbotMemoryState),
+  typedPreferenceState: sectionedDocStore(typedPreferenceStateView, ['users'], createEmptyTypedPreferenceState),
+  tagOppositePairRegistry: sectionedDocStore(tagOppositePairRegistryView, ['pairs'], createEmptyTagOppositePairRegistryState),
+};
 
 export function getAnsweredTalkByContent(): Record<string, string> {
-  return readJsonMap<string>('answeredTalkByContent');
+  return stores.answeredTalkByContent.get();
 }
 
 export function setAnsweredTalkByContent(map: Record<string, string>): void {
-  writeJsonMap('answeredTalkByContent', map);
+  stores.answeredTalkByContent.set(map);
 }
 
 export function getAnswerPreferences(): AnswerPreferenceMap {
-  return readJsonMap<AnswerPreferenceEntry>('answerPreferences');
+  return stores.answerPreferences.get();
 }
 
 export function setAnswerPreferences(map: AnswerPreferenceMap): void {
-  writeJsonMap('answerPreferences', map);
+  stores.answerPreferences.set(map);
 }
 
 export function getFlattenedAnswerPreferences(): AnswerPreferenceMap {
-  return readJsonMap<AnswerPreferenceEntry>('flattenedAnswerPreferences');
+  return stores.flattenedAnswerPreferences.get();
 }
 
 export function setFlattenedAnswerPreferences(map: AnswerPreferenceMap): void {
-  writeJsonMap('flattenedAnswerPreferences', map);
+  stores.flattenedAnswerPreferences.set(map);
 }
 
 export function getQuestionDefaultContracts(): QuestionDefaultContractMap {
-  return readJsonMap<QuestionDefaultContract>('questionDefaultContracts');
+  return stores.questionDefaultContracts.get();
 }
 
 export function setQuestionDefaultContracts(map: QuestionDefaultContractMap): void {
-  localStorage.setItem('questionDefaultContracts', JSON.stringify(map));
+  stores.questionDefaultContracts.set(map);
 }
 
 export function clearAnswerPreferences(): void {
-  localStorage.removeItem('answerPreferences');
-  localStorage.removeItem('flattenedAnswerPreferences');
-  localStorage.removeItem('exactChatbotMemory');
-  localStorage.removeItem('typedPreferenceState');
-  localStorage.removeItem('tagOppositePairRegistry');
-  localStorage.removeItem('questionDefaultContracts');
-}
-
-export function getExactChatbotMemory(): ExactChatbotMemoryState {
-  try {
-    const raw = localStorage.getItem('exactChatbotMemory');
-    if (!raw) return createEmptyExactChatbotMemoryState();
-    const parsed = JSON.parse(raw) as Partial<ExactChatbotMemoryState>;
-    return {
-      users: parsed.users && typeof parsed.users === 'object' ? parsed.users : {},
-      questions: parsed.questions && typeof parsed.questions === 'object' ? parsed.questions : {},
-      answers: parsed.answers && typeof parsed.answers === 'object' ? parsed.answers : {},
-    };
-  } catch {
-    return createEmptyExactChatbotMemoryState();
+  for (const view of [answerPreferencesView, flattenedAnswerPreferencesView, exactChatbotMemoryView, typedPreferenceStateView,
+    tagOppositePairRegistryView, questionDefaultContractsView]) {
+    view.remove(Object.keys(view.all()));
   }
 }
 
+export function getExactChatbotMemory(): ExactChatbotMemoryState {
+  return stores.exactChatbotMemory.get();
+}
+
 export function setExactChatbotMemory(value: ExactChatbotMemoryState): void {
-  localStorage.setItem('exactChatbotMemory', JSON.stringify(value));
+  stores.exactChatbotMemory.set(value);
 }
 
 /** §BB / spec §30.2: local persistence for `typed-preference-store.ts`'s pure state, mirroring
  *  `getExactChatbotMemory`/`setExactChatbotMemory` above. */
 export function getTypedPreferenceState(): TypedPreferenceState {
-  try {
-    const raw = localStorage.getItem('typedPreferenceState');
-    if (!raw) return createEmptyTypedPreferenceState();
-    const parsed = JSON.parse(raw) as Partial<TypedPreferenceState>;
-    return { users: parsed.users && typeof parsed.users === 'object' ? parsed.users : {} };
-  } catch {
-    return createEmptyTypedPreferenceState();
-  }
+  return stores.typedPreferenceState.get();
 }
 
 export function setTypedPreferenceState(value: TypedPreferenceState): void {
-  localStorage.setItem('typedPreferenceState', JSON.stringify(value));
+  stores.typedPreferenceState.set(value);
 }
 
 /** docs/TODO.md §BB — local persistence for user-created opposite-tag pairs, mirroring
@@ -146,28 +138,21 @@ export function setTypedPreferenceState(value: TypedPreferenceState): void {
  *  `tag-opposite-pairs.ts`), never the seed pairs themselves — callers merge the two at
  *  read time, keeping storage limited to genuinely user-created deltas. */
 export function getTagOppositePairRegistryState(): TagOppositePairRegistryState {
-  try {
-    const raw = localStorage.getItem('tagOppositePairRegistry');
-    if (!raw) return createEmptyTagOppositePairRegistryState();
-    const parsed = JSON.parse(raw) as Partial<TagOppositePairRegistryState>;
-    return { pairs: parsed.pairs && typeof parsed.pairs === 'object' ? parsed.pairs : {} };
-  } catch {
-    return createEmptyTagOppositePairRegistryState();
-  }
+  return stores.tagOppositePairRegistry.get();
 }
 
 export function setTagOppositePairRegistryState(value: TagOppositePairRegistryState): void {
-  localStorage.setItem('tagOppositePairRegistry', JSON.stringify(value));
+  stores.tagOppositePairRegistry.set(value);
 }
 
 export function getMyQuestionAnswers(): Record<string, MyQuestionAnswerEntry> {
-  return readJsonMap<MyQuestionAnswerEntry>('myQuestionAnswers');
+  return stores.myQuestionAnswers.get();
 }
 
 export function setMyQuestionAnswer(key: string, value: MyQuestionAnswerEntry): void {
   const all = getMyQuestionAnswers();
   all[key] = value;
-  writeJsonMap('myQuestionAnswers', all);
+  stores.myQuestionAnswers.set(all);
 }
 
 /**

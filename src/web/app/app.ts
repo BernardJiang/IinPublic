@@ -47,7 +47,7 @@ import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, pu
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
-import { getAnsweredTalkByContent, getExactChatbotMemory, setExactChatbotMemory } from '../ui/answer-preferences-storage';
+import { getAnsweredTalkByContent, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { findAutoAnswer, LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
 import { getMyTalks, setMyTalks } from '../ui/my-talks-storage';
@@ -240,7 +240,7 @@ import { deriveLocalPeers } from '../services/local-peer-derivation';
 import { connectExchangeCore, upsertExchange } from '../services/exchange-view';
 import type { CoreRequest } from '../../core/protocol';
 import type { CoreCollection } from '../../core/collections';
-import { connectCoreCollections } from '../services/core-views';
+import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
 import {
@@ -1438,13 +1438,6 @@ export class IinPublicApp {
     // silently enable Done."
     this.uiManager.setDeviceHandoffSync(async (toPub, progress) => {
       const { buildHandoffArchive } = await import('../../shared/device-handoff');
-      const read = (key: string): any => {
-        try {
-          return JSON.parse(localStorage.getItem(key) || 'null') ?? undefined;
-        } catch {
-          return undefined;
-        }
-      };
       const pair = this.gunService.getStoredPair?.();
       const sources: Parameters<typeof buildHandoffArchive>[0] = { fromPub: String(pair?.pub || '') };
       const collect: Array<[import('../../shared/device-handoff').HandoffCategory, () => void]> = [
@@ -1465,7 +1458,7 @@ export class IinPublicApp {
           }
         }],
         ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
-        ['answerPreferences', () => { sources.answerPreferences = read('exactChatbotMemory'); }],
+        ['answerPreferences', () => { sources.answerPreferences = getExactChatbotMemory() as any; }],
         ['myTalks', () => { sources.myTalks = getMyTalks(); }],
         ['conversations', () => { sources.conversations = getMyConversations(); }],
       ];
@@ -1528,7 +1521,7 @@ export class IinPublicApp {
         const merged = mergeHandoffArchive(archive as any, {
           contacts: (this.currentUser.knownPeople as any) || [],
           talkFilters: this.currentUser.talkFilters as any,
-          answerPreferences: read('exactChatbotMemory') || {},
+          answerPreferences: getExactChatbotMemory() as any,
           myTalks: getMyTalks(),
         });
         this.currentUser.knownPeople = merged.contacts as any;
@@ -1538,7 +1531,7 @@ export class IinPublicApp {
           knownPeople: merged.contacts as any,
           talkFilters: merged.talkFilters as any,
         });
-        write('exactChatbotMemory', merged.answerPreferences);
+        setExactChatbotMemory(merged.answerPreferences as any);
         setMyTalks(merged.myTalks as any);
         // Imported thread history is read-only (spec §11.2) — never merged into the
         // live conversation store, kept under its own key, additive across imports
@@ -3707,13 +3700,7 @@ export class IinPublicApp {
     }).IinPublicBackground;
     if (typeof bridge?.configure !== 'function') return;
     this.nativeBackgroundSyncRunning = true;
-    const parseMap = (key: string): Record<string, any> => {
-      try {
-        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-      } catch { return {}; }
-    };
-    const flattened = parseMap('flattenedAnswerPreferences');
+    const flattened = getFlattenedAnswerPreferences();
     const answerRules = backgroundAnswerRulesFromPreferences(flattened);
     const settings = loadConnectivitySettings();
     const myTalks = getMyTalks();
@@ -4834,26 +4821,14 @@ export class IinPublicApp {
    */
   private recordMyDealTalkForConversation(conversationId: string, talkId: string, talkData: any): void {
     if (!conversationId || !talkId || !this.isDealEligibleTalk(talkData)) return;
-    try {
-      const raw = localStorage.getItem('myDealTalkByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      map[conversationId] = talkId;
-      localStorage.setItem('myDealTalkByConversation', JSON.stringify(map));
-    } catch {
-      // Best-effort only; maybeFinalizeConfirmedDeal falls back to disabling every outstanding
-      // deal-eligible talk when this lookup comes up empty.
-    }
+    // Kept in the device core (OPEN-91 P3). When it is missing, maybeFinalizeConfirmedDeal falls
+    // back to disabling every outstanding deal-eligible talk.
+    dealTalkByConversationView.set({ [conversationId]: talkId });
   }
 
   private myDealTalkForConversation(conversationId: string): string | undefined {
-    try {
-      const raw = localStorage.getItem('myDealTalkByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      const talkId = map?.[conversationId];
-      return typeof talkId === 'string' && talkId ? talkId : undefined;
-    } catch {
-      return undefined;
-    }
+    const talkId = dealTalkByConversationView.get(conversationId);
+    return typeof talkId === 'string' && talkId ? talkId : undefined;
   }
 
   /** True once BOTH participants have confirmed the deal on this conversation record. */
@@ -4886,26 +4861,14 @@ export class IinPublicApp {
    */
   private recordConversationNeedKey(conversationId: string, talkData: any): void {
     if (!conversationId || !this.isDealEligibleTalk(talkData)) return;
-    try {
-      const raw = localStorage.getItem('conversationNeedKeyByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      map[conversationId] = buildTalkIdentityKey(talkData);
-      localStorage.setItem('conversationNeedKeyByConversation', JSON.stringify(map));
-    } catch {
-      // Best-effort only; maybeFinalizeConfirmedDeal simply has nothing to group by when this
-      // lookup comes up empty, same fallback shape as the sibling deal-talk map.
-    }
+    // Kept in the device core (OPEN-91 P3); when missing, maybeFinalizeConfirmedDeal has nothing
+    // to group by, the same fallback as the sibling deal-talk map.
+    needKeyByConversationView.set({ [conversationId]: buildTalkIdentityKey(talkData) });
   }
 
   /** Every conversationId → needKey pair recorded so far (see recordConversationNeedKey). */
   private allConversationNeedKeys(): Record<string, string> {
-    try {
-      const raw = localStorage.getItem('conversationNeedKeyByConversation');
-      const map = raw ? JSON.parse(raw) : {};
-      return map && typeof map === 'object' ? map : {};
-    } catch {
-      return {};
-    }
+    return needKeyByConversationView.all();
   }
 
   private needKeyForConversation(conversationId: string): string | undefined {

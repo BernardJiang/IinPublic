@@ -180,3 +180,52 @@ export class CoreCollectionView<T> {
     this.notify();
   }
 }
+
+/**
+ * A map kept in a collection, for code that reads a whole map, edits it and hands it back: reads
+ * are copies, and a write sends only the entries that changed and removes the ones left out.
+ */
+export function mapStore<T>(view: CoreCollectionView<T>): { get(): Record<string, T>; set(map: Record<string, T>): void } {
+  return {
+    get: () => JSON.parse(JSON.stringify(view.all())) as Record<string, T>,
+    set: (map) => {
+      const current = view.all();
+      const changed = Object.fromEntries(Object.entries(map).filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value)));
+      view.set(JSON.parse(JSON.stringify(changed)) as Record<string, T>);
+      view.remove(Object.keys(current).filter((key) => !(key in map)));
+    },
+  };
+}
+
+/** Entries of a document made of sections of maps (`{ outcomes: {...}, sent: {...} }`), one per record. */
+export function sectionEntries(sections: readonly string[], doc: unknown): Record<string, unknown> {
+  const source = (doc && typeof doc === 'object' ? doc : {}) as Record<string, unknown>;
+  const entries: Record<string, unknown> = {};
+  for (const section of sections) {
+    const records = source[section];
+    if (records && typeof records === 'object') for (const [key, value] of Object.entries(records)) entries[`${section}::${key}`] = value;
+  }
+  return entries;
+}
+
+/**
+ * A document of sections of maps kept in a collection, one entry per record (`<section>::<key>`):
+ * `get` rebuilds it (a copy; callers change it in place), `set` writes only what changed.
+ */
+export function sectionedDocStore<D extends object>(view: CoreCollectionView<unknown>, sections: readonly string[], empty: () => D): { get(): D; set(doc: D): void } {
+  const map = mapStore(view);
+  return {
+    get: () => {
+      const doc = empty() as Record<string, Record<string, unknown>>;
+      for (const [entryKey, value] of Object.entries(map.get())) {
+        const split = entryKey.indexOf('::');
+        const section = entryKey.slice(0, split);
+        if (split < 0 || !sections.includes(section)) continue;
+        doc[section] ??= {};
+        doc[section][entryKey.slice(split + 2)] = value;
+      }
+      return doc as D;
+    },
+    set: (doc) => map.set(sectionEntries(sections, doc)),
+  };
+}

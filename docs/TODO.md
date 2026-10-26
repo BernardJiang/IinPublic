@@ -44,8 +44,10 @@ its ID.
   chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
   edit via `__iinpublic_collection_edit`; seeding the old blob still works — it is imported) and
   My Conversations (`my-conversations-storage.ts`) and the talk ledger (one entry per record,
-  `<section>::<key>`) and the Me tab's answer history. Next: the smaller logs
-  (`myDealTalkByConversation`, `conversationNeedKeyByConversation`, ...), then P4.
+  `<section>::<key>`), the Me tab's answer history, the deal maps, and the answer preferences
+  and chatbot memory (`answer-preferences-storage.ts`, via `mapStore`/`sectionedDocStore`).
+  Left in localStorage: settings and UI state (small, per-device), `peerNameCache`, match
+  collection sessions, imported handoff threads. Next: P4 (domain logic out of `app.ts`).
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

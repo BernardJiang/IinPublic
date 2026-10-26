@@ -79,7 +79,11 @@ async function openResponseDialog(page: Page, talk: unknown): Promise<void> {
 }
 
 async function readExactMemory(page: Page): Promise<string> {
-  return page.evaluate(() => localStorage.getItem('exactChatbotMemory') || '');
+  // Kept in the device core (OPEN-91 P3): one entry per section record; empty means no memory.
+  return page.evaluate(() => {
+    const entries = (window as any).__iinpublic_collection?.('exactChatbotMemory') ?? {};
+    return Object.keys(entries).length ? JSON.stringify(entries) : '';
+  });
 }
 
 test.describe('Conversation modes — manual answers are never auto-reused (spec §7.6)', () => {
@@ -181,7 +185,7 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await modal.locator('input.choice-radio[data-answer-text="Apple"][data-mode="whenever"]').click();
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
 
-    const firstDefaults = await p.evaluate(() => JSON.parse(localStorage.getItem('questionDefaultContracts') || '{}'));
+    const firstDefaults = await p.evaluate(() => ((window as any).__iinpublic_collection?.('questionDefaultContracts') ?? {}));
     expect(Object.values(firstDefaults)[0]).toMatchObject({
       version: 1,
       answers: [{ answerText: 'Apple' }],
@@ -204,7 +208,7 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await modal.locator('#review-submit-btn').click();
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
 
-    const reorderedDefaults = await p.evaluate(() => JSON.parse(localStorage.getItem('questionDefaultContracts') || '{}'));
+    const reorderedDefaults = await p.evaluate(() => ((window as any).__iinpublic_collection?.('questionDefaultContracts') ?? {}));
     expect((Object.values(reorderedDefaults)[0] as any).answers.map((answer: any) => answer.answerText))
       .toEqual(['Kiwi', 'Apple']);
 

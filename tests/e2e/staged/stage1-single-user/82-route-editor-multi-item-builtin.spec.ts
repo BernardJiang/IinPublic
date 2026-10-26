@@ -160,7 +160,9 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     const afterEdit = await page.evaluate((talkTitle) => {
       const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
       const record = Object.values(history).find((candidate: any) => candidate.title === talkTitle) as any;
-      const typedIndex = JSON.parse(localStorage.getItem('typedPreferenceState') || '{"users":{}}');
+      // Kept in the device core as `users::<userId>` entries (OPEN-91 P3).
+      const typedEntries = (window as any).__iinpublic_collection?.('typedPreferenceState') ?? {};
+      const typedIndex = { users: Object.fromEntries(Object.entries(typedEntries).map(([key, value]) => [key.replace(/^users::/, ''), value])) };
       const indexedValues = Object.values(Object.values(typedIndex.users || {})[0] || {}) as any[];
       return {
         items: record?.items,

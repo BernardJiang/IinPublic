@@ -678,7 +678,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('.notification').filter({ hasText: '仅在上下文和选项相同时重复此选择' })).toBeVisible();
     await expect
       .poll(() => p.evaluate(() => {
-        const state = JSON.parse(localStorage.getItem('flattenedAnswerPreferences') || '{}');
+        const state = ((window as any).__iinpublic_collection?.('flattenedAnswerPreferences') ?? {});
         return state.flat_localized_preference?.mode || '';
       }))
       .toBe('temporary');
@@ -692,8 +692,8 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#close-my-talks-modal').click();
     await p.evaluate(() => {
       (window as any).__iinpublic_collection_edit?.('myAnswerHistory', { clear: true });
-      localStorage.removeItem('answerPreferences');
-      localStorage.removeItem('flattenedAnswerPreferences');
+      (window as any).__iinpublic_collection_edit?.('answerPreferences', { clear: true });
+      (window as any).__iinpublic_collection_edit?.('flattenedAnswerPreferences', { clear: true });
       (window as any).__iinpublic_collection_edit?.('myTalks', { clear: true });
     });
     await p.locator('.nav-btn[data-view="settings"]').click();

@@ -218,7 +218,7 @@ async function waitForContextualMemoryAnswer(page: Page, answerText: string): Pr
     .poll(
       () => page.evaluate((expected) => {
         try {
-          const parsed = JSON.parse(localStorage.getItem('flattenedAnswerPreferences') || '{}');
+          const parsed = ((window as any).__iinpublic_collection?.('flattenedAnswerPreferences') ?? {});
           return Object.entries(parsed).some(([key, value]: [string, any]) =>
             key.startsWith('flat_v2_')
             && value?.contextVersion === 2

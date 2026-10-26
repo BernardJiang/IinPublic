@@ -5,7 +5,7 @@
 import type { FlatAnswerHistoryRecord } from '../ui/answer-history-storage';
 import type { MyTalkEntry } from '../ui/my-talks-storage';
 import type { ChatbotTemplate } from '../ui/ui-settings-storage';
-import { CoreCollectionView, type CollectionCoreLink } from './core-collection-view';
+import { CoreCollectionView, sectionEntries, type CollectionCoreLink } from './core-collection-view';
 
 /** Answer templates the chatbot reuses, by Talk id (and content id). Old key: `chatbotTemplates`. */
 export const chatbotTemplatesView = new CoreCollectionView<ChatbotTemplate>('chatbotTemplates', 'chatbotTemplates');
@@ -20,20 +20,37 @@ export const myConversationsView = new CoreCollectionView<Record<string, unknown
 export const TALK_LEDGER_SECTIONS = ['outcomes', 'exchanged', 'edges', 'retracted', 'sent'] as const;
 
 /** The talk ledger (outcomes, exchanged, edge counters, retractions, sent), one entry per record. Old key: `talkLedger`. */
-export const talkLedgerView = new CoreCollectionView<unknown>('talkLedger', 'talkLedger', (parsed) => {
-  const doc = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
-  const entries: Record<string, unknown> = {};
-  for (const section of TALK_LEDGER_SECTIONS) {
-    const records = doc[section];
-    if (records && typeof records === 'object') for (const [key, value] of Object.entries(records)) entries[`${section}::${key}`] = value;
-  }
-  return entries;
-});
+export const talkLedgerView = new CoreCollectionView<unknown>('talkLedger', 'talkLedger', (parsed) => sectionEntries(TALK_LEDGER_SECTIONS, parsed));
 
 /** The Me tab's answer history, by record id. Old key: `myAnswerHistory`. */
 export const answerHistoryView = new CoreCollectionView<FlatAnswerHistoryRecord>('myAnswerHistory', 'myAnswerHistory');
 
-const VIEWS: Array<CoreCollectionView<unknown>> = [chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView] as Array<CoreCollectionView<unknown>>;
+/** The deal-eligible Talk of mine each conversation formed through. Old key: `myDealTalkByConversation`. */
+export const dealTalkByConversationView = new CoreCollectionView<string>('dealTalkByConversation', 'myDealTalkByConversation');
+
+/** The content-hash "need" each deal-eligible conversation formed through. Old key: `conversationNeedKeyByConversation`. */
+export const needKeyByConversationView = new CoreCollectionView<string>('needKeyByConversation', 'conversationNeedKeyByConversation');
+
+// Answer preferences and chatbot memory (answer-preferences-storage.ts), same names as the old keys.
+export const answeredTalkByContentView = new CoreCollectionView<string>('answeredTalkByContent', 'answeredTalkByContent');
+export const answerPreferencesView = new CoreCollectionView<unknown>('answerPreferences', 'answerPreferences');
+export const flattenedAnswerPreferencesView = new CoreCollectionView<unknown>('flattenedAnswerPreferences', 'flattenedAnswerPreferences');
+export const questionDefaultContractsView = new CoreCollectionView<unknown>('questionDefaultContracts', 'questionDefaultContracts');
+export const myQuestionAnswersView = new CoreCollectionView<unknown>('myQuestionAnswers', 'myQuestionAnswers');
+export const EXACT_CHATBOT_MEMORY_SECTIONS = ['users', 'questions', 'answers'] as const;
+export const exactChatbotMemoryView = new CoreCollectionView<unknown>('exactChatbotMemory', 'exactChatbotMemory',
+  (parsed) => sectionEntries(EXACT_CHATBOT_MEMORY_SECTIONS, parsed));
+export const typedPreferenceStateView = new CoreCollectionView<unknown>('typedPreferenceState', 'typedPreferenceState',
+  (parsed) => sectionEntries(['users'], parsed));
+export const tagOppositePairRegistryView = new CoreCollectionView<unknown>('tagOppositePairRegistry', 'tagOppositePairRegistry',
+  (parsed) => sectionEntries(['pairs'], parsed));
+
+const VIEWS: Array<CoreCollectionView<unknown>> = [
+  chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView,
+  dealTalkByConversationView, needKeyByConversationView,
+  answeredTalkByContentView, answerPreferencesView, flattenedAnswerPreferencesView, questionDefaultContractsView,
+  myQuestionAnswersView, exactChatbotMemoryView, typedPreferenceStateView, tagOppositePairRegistryView,
+] as Array<CoreCollectionView<unknown>>;
 
 export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {
   await Promise.all(VIEWS.map((view) => view.connect(link)));

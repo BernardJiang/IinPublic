@@ -3,6 +3,7 @@ import { setMyTalks, type MyTalkMap } from './ui/my-talks-storage';
 import { deriveBackendApiBaseFromLocation } from './services/web-gun-service';
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import { getMyConversations, setMyConversations } from './ui/my-conversations-storage';
+import { setAnsweredTalkByContent } from './ui/answer-preferences-storage';
 
 type StageUser = {
   id: string;
@@ -160,7 +161,7 @@ function setStageMyTalks(talks: MyTalkMap): void {
 function clearStageLocalState(): void {
   setMyTalks({});
   setMyConversations({});
-  localStorage.removeItem('answeredTalkByContent');
+  setAnsweredTalkByContent({});
 }
 
 function refreshUi(app: any): void {
