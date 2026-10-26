@@ -23,7 +23,21 @@ its ID.
 
 ## Active execution queue — website and Android first
 
-- [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5).** Part 1 done
+- [ ] **OPEN-91 — Device core: one Gun, one copy of the app logic, a thin GUI (adopted
+  2026-10-25).** Design: `docs/design/device-core-architecture.md`; privacy rules:
+  `docs/design/data-sharing-privacy-rules.md`. On every native app (Android, Windows, Ubuntu, macOS,
+  iOS) one Gun instance and all app logic live in the embedded Node.js process; on the web they live
+  in a background worker; the GUI only draws from an in-memory view model and sends intents. The
+  same `src/core/` TypeScript runs in both hosts. Today the logic runs in the page with two Gun
+  instances and ~25 localStorage logs (the S3 design drifted). Phases, each shippable: P1 the core
+  seam + the exchange log (OPEN-88); P2 the sharing policy (default-deny `out`/`in` filter; pair
+  responses and the delivery journal move under it — today the hub can read who answered whom);
+  P3 the other local logs; P4 the domain logic out of `app.ts`; P5 the native host runs the core;
+  P6 one Gun on the web.
+
+- [ ] **OPEN-88 — Store Talk exchanges per person (follow-up to OPEN-87 S5; OPEN-91 P1).** Part 2
+  moves the log into the device core's Gun (`local/exchanges/…`) behind a view model — see
+  `docs/design/device-core-architecture.md`. Part 1 done
   2026-10-25: one record per direction (`peer::talk::direction`) and `exchangeStatsFor` counts sent
   and received separately, each Talk once (it was "Received 0" for everyone: every record counted as
   sent). Remaining: `localTalkExchanges`
