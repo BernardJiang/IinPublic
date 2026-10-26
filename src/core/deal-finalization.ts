@@ -16,7 +16,7 @@ export type DealFinalizationInput = {
   dealConfirmedBy: readonly string[];
   conversationId?: string;
   /** My Talks: role, disabled flag and full Talk, by id. */
-  myTalks: Record<string, { role?: string; disabled?: boolean; fullTalk?: unknown } | undefined>;
+  myTalks: Record<string, { role?: string | undefined; disabled?: boolean | undefined; fullTalk?: unknown } | undefined>;
   /** The Talk of mine the conversation formed through, if recorded. */
   recordedTalkId?: string;
   /** Every conversation's content-hash need, by conversation id. */

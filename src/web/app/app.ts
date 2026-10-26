@@ -241,6 +241,8 @@ import type { CoreCollection } from '../../core/collections';
 import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
+import { planDealFinalization } from '../../core/deal-finalization';
+import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
@@ -4727,21 +4729,6 @@ export class IinPublicApp {
     return typeof talkId === 'string' && talkId ? talkId : undefined;
   }
 
-  /** True once BOTH participants have confirmed the deal on this conversation record. */
-  private isDealMutuallyConfirmed(conv: any, userIdA: string, userIdB: string): boolean {
-    if (typeof conv?.dealConfirmedByJson !== 'string') return false;
-    try {
-      const dealConfirmedBy = JSON.parse(conv.dealConfirmedByJson);
-      return (
-        Array.isArray(dealConfirmedBy) &&
-        dealConfirmedBy.includes(userIdA) &&
-        dealConfirmedBy.includes(userIdB)
-      );
-    } catch {
-      return false;
-    }
-  }
-
   /**
    * Records the content-hash "need" a deal-eligible conversation formed through
    * (`buildTalkIdentityKey`, the same content-hash already used elsewhere for talk dedup) —
@@ -4765,11 +4752,6 @@ export class IinPublicApp {
   /** Every conversationId → needKey pair recorded so far (see recordConversationNeedKey). */
   private allConversationNeedKeys(): Record<string, string> {
     return needKeyByConversationView.all();
-  }
-
-  private needKeyForConversation(conversationId: string): string | undefined {
-    const needKey = this.allConversationNeedKeys()[conversationId];
-    return typeof needKey === 'string' && needKey ? needKey : undefined;
   }
 
   /**
@@ -4810,31 +4792,20 @@ export class IinPublicApp {
 
   private maybeFinalizeConfirmedDeal(dealConfirmedBy: string[], otherUserId?: string, conversationId?: string): void {
     if (!this.currentUser?.id || !otherUserId) return;
-    const bothConfirmed =
-      dealConfirmedBy.includes(this.currentUser.id) && dealConfirmedBy.includes(otherUserId);
-    if (!bothConfirmed) return;
-
-    const myTalks = getMyTalks();
-    const myDealEligibleTalkIds = new Set<string>();
-    const myActiveDealEligibleTalkIds = new Set<string>();
-    for (const [talkId, entry] of Object.entries(myTalks) as Array<[string, any]>) {
-      if (!entry || entry.role !== 'created') continue;
-      const fullTalk = entry.fullTalk || entry;
-      if (!this.isDealEligibleTalk(fullTalk)) continue;
-      myDealEligibleTalkIds.add(talkId);
-      if (!entry.disabled) myActiveDealEligibleTalkIds.add(talkId);
-    }
-
-    // Re-invocation is expected and idempotent (both the local confirmDeal click handler and
-    // the Gun-sync echo of that same write can each call this once "both confirmed" becomes
-    // true) — recognizing the recorded talk even after IT has already been disabled keeps a
-    // repeat call a no-op instead of misreading "nothing left to narrow to" and falling back to
-    // disabling every other still-active listing.
-    const recordedTalkId = conversationId ? this.myDealTalkForConversation(conversationId) : undefined;
-    const talkIdsToDisable =
-      recordedTalkId && myDealEligibleTalkIds.has(recordedTalkId)
-        ? [recordedTalkId]
-        : Array.from(myActiveDealEligibleTalkIds);
+    // The plan is the core's (src/core/deal-finalization.ts); this carries it out. A repeat call
+    // (the click, then its sync echo) plans the same recorded Talk again and changes nothing more.
+    const plan = planDealFinalization({
+      myId: this.currentUser.id,
+      otherUserId,
+      dealConfirmedBy,
+      ...(conversationId ? { conversationId } : {}),
+      myTalks: getMyTalks(),
+      ...(conversationId && this.myDealTalkForConversation(conversationId) ? { recordedTalkId: this.myDealTalkForConversation(conversationId)! } : {}),
+      needKeys: this.allConversationNeedKeys(),
+      isDealEligible: (talk) => this.isDealEligibleTalk(talk),
+    });
+    if (!plan) return;
+    const talkIdsToDisable = plan.talkIdsToDisable;
 
     // `setTalkDisabled(talkId, true)` floods a hard-retraction event
     // (talk-broadcast-toggle.ts emits 'retractTalk'), which `handleRetractTalk` handles by
@@ -4862,17 +4833,8 @@ export class IinPublicApp {
     }
     // Rule 2: other of my conversations matched on the SAME content-hash "need", regardless of
     // which different author's talkId produced them.
-    if (conversationId) {
-      const needKey = this.needKeyForConversation(conversationId);
-      if (needKey) {
-        const allNeedKeys = this.allConversationNeedKeys();
-        const otherConversationIds = Object.keys(allNeedKeys).filter(
-          (id) => id !== conversationId && allNeedKeys[id] === needKey,
-        );
-        if (otherConversationIds.length > 0) {
-          this.uiManager.markConversationsSupersededByIds(otherConversationIds, changedAt);
-        }
-      }
+    if (plan.supersededConversationIds.length > 0) {
+      this.uiManager.markConversationsSupersededByIds(plan.supersededConversationIds, changedAt);
     }
   }
 
@@ -4933,10 +4895,10 @@ export class IinPublicApp {
     // broadcast that produced it must never retroactively invalidate it.
     const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
     for (const [conversationId, conv] of Object.entries(allConversations)) {
-      if (this.conversationReferencesTalk(conv, talkId)) {
+      if (conversationReferencesTalk(conv, talkId)) {
         const otherUserId = String((conv as any).otherUserId || '');
         if (this.mutuallyConfirmedConversationIds.has(conversationId)) continue;
-        if (this.isDealMutuallyConfirmed(conv, authorId, otherUserId)) continue;
+        if (isDealMutuallyConfirmed(conv, authorId, otherUserId)) continue;
         this.uiManager.markConversationWithdrawn(
           otherUserId,
           talkId,
@@ -4967,10 +4929,16 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return;
     // authorId check is already done in PeerMeshService.handleLocalFrame before firing this callback.
 
-    const existingRetraction = getTalkLedgerDoc().retracted[
-      ledgerRetractedKey(payload.talkId, payload.authorId)
-    ];
-    const isNewRetraction = !existingRetraction || payload.retractedAt > existingRetraction.retractedAt;
+    // What it changes is the core's (src/core/retraction.ts); read before the tombstone is written.
+    const receipt = planRetractionReceipt({
+      ledger: getTalkLedgerDoc(),
+      talkId: payload.talkId,
+      authorId: payload.authorId,
+      retractedAt: payload.retractedAt,
+      myId: this.currentUser.id,
+      conversations: this.uiManager.getMyConversations() as Record<string, any>,
+      confirmedThisSession: this.mutuallyConfirmedConversationIds,
+    });
 
     // 1. Write tombstone to local ledger.
     applyTalkLedgerEvent({
@@ -4982,7 +4950,7 @@ export class IinPublicApp {
 
     // 2. Surface each semantic retraction once. Mesh and mailbox delivery can replay the same
     // frame; the durable ledger timestamp is the idempotency boundary across reloads too.
-    if (isNewRetraction) {
+    if (receipt.isNew) {
       this.uiManager.showNotification(
         `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
         'info',
@@ -4994,18 +4962,8 @@ export class IinPublicApp {
     // is already mutually confirmed (see handleRetractTalk's matching guard/comment: a
     // finalized match is a successful outcome, never retroactively invalidated by the
     // retraction that produced it).
-    const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
-    for (const [conversationId, conv] of Object.entries(allConversations)) {
-      if (this.conversationReferencesTalk(conv, payload.talkId) && (conv as any).otherUserId === payload.authorId) {
-        if (this.mutuallyConfirmedConversationIds.has(conversationId)) break;
-        if (this.isDealMutuallyConfirmed(conv, this.currentUser.id, payload.authorId)) break;
-        this.uiManager.markConversationWithdrawn(
-          payload.authorId,
-          payload.talkId,
-          payload.retractedAt,
-        );
-        break;
-      }
+    if (receipt.withdraw) {
+      this.uiManager.markConversationWithdrawn(payload.authorId, payload.talkId, payload.retractedAt);
     }
   }
 
@@ -5024,16 +4982,8 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return;
 
-    // Collect distinct responders from the conversations store for this talkId.
-    const allConversations = this.uiManager.getMyConversations() as Record<string, any>;
-    const responderIds = new Set<string>();
-    for (const [, conv] of Object.entries(allConversations)) {
-      const otherId = String((conv as any).otherUserId || '');
-      if (this.conversationReferencesTalk(conv, talkId) && otherId && otherId !== authorId) {
-        responderIds.add(otherId);
-      }
-    }
-    if (responderIds.size === 0) return;
+    const responderIds = retractionRecipients(this.uiManager.getMyConversations() as Record<string, any>, talkId, authorId);
+    if (responderIds.length === 0) return;
 
     const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
     for (const responderId of responderIds) {
@@ -5052,23 +5002,6 @@ export class IinPublicApp {
         console.warn('[Retraction] Failed to post mailbox envelope for', responderId, ':', err);
       }
     }
-  }
-
-  private conversationReferencesTalk(conversation: any, talkId: string): boolean {
-    if (!conversation || !talkId) return false;
-    if (String(conversation.talkId || '') === talkId) return true;
-    if (Array.isArray(conversation.relatedTalkIds)) {
-      if (conversation.relatedTalkIds.some((id: unknown) => String(id || '') === talkId)) return true;
-    }
-    if (typeof conversation.relatedTalkIdsJson === 'string') {
-      try {
-        const parsed = JSON.parse(conversation.relatedTalkIdsJson);
-        return Array.isArray(parsed) && parsed.some((id) => String(id || '') === talkId);
-      } catch {
-        return false;
-      }
-    }
-    return false;
   }
 
   /**
