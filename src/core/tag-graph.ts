@@ -6,8 +6,8 @@
  * - I like a tag when it is one of my own active tag Talks (created or copied, not disabled).
  * A tag is its content identity key, so identical tags from different people are one node.
  */
-import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
-import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
+import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
+import { STARTER_TAGS_SOURCE_ID } from '../shared/starter-tags';
 
 export type TagGraphInput = {
   currentUserId: string;

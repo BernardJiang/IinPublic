@@ -8,7 +8,7 @@ import {
 import type { NearbyCard } from '../../shared/nearby-v3-card';
 import { nearbyLocalPostChannel, nearbyLocalReadChannels } from '../../shared/nearby-v3-local';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import type { NearbyV3Link } from './nearby-v3-service';
+import type { NearbyV3Link } from '../../core/nearby-v3-service';
 
 /**
  * The Nearby v3 peer link (§3.7 "Implementation plan", phase 2): gossip rides the mesh DataChannel,

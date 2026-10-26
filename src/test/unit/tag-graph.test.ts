@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 /** OPEN-87 S4: the person↔tag graph from local data, and the tag page / directory / person tags. */
-import { buildTagGraph, likersOfTag, sharedTagCount, tagDirectory, tagsOfPeer } from '../../web/services/tag-graph';
+import { buildTagGraph, likersOfTag, sharedTagCount, tagDirectory, tagsOfPeer } from '../../core/tag-graph';
 import { configureTagGraphView, renderPeerTagsInto } from '../../web/ui/tag-graph-view';
 import { clearContactsFocus, clearMeFocus, clearTalksFocus, getContactsFocus, getMeFocus, getTalksFocus, peopleWhoLike } from '../../web/ui/graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';

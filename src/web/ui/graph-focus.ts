@@ -8,7 +8,7 @@
  * Leaving the tab, or a chip's ✕, shows everything again.
  */
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
-import { buildTagGraph, type TagGraph, type TagGraphInput } from '../services/tag-graph';
+import { buildTagGraph, type TagGraph, type TagGraphInput } from '../../core/tag-graph';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
 import { getFlatAnswerHistory } from './answer-history-storage';

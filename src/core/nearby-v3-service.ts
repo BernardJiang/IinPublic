@@ -6,16 +6,16 @@ import {
   type NearbyCard,
   type NearbyCountIdentity,
   type NearbyCardScope,
-} from '../../shared/nearby-v3-card';
-import type { NearbyV3Config } from '../../shared/nearby-v3-config';
-import { parseNearbyAudienceSummary, type NearbyAudienceSummary } from '../../shared/nearby-v3-audience';
+} from '../shared/nearby-v3-card';
+import type { NearbyV3Config } from '../shared/nearby-v3-config';
+import { parseNearbyAudienceSummary, type NearbyAudienceSummary } from '../shared/nearby-v3-audience';
 import {
   parseNearbyGossipMessage,
   type NearbyGossipMessage,
   type NearbyGossipReply,
-} from '../../shared/nearby-v3-gossip';
-import { NearbyList, type NearbyListEntry, type NearbyListOwner } from '../../shared/nearby-v3-list';
-import { parseNearbyRankKey, type NearbyRankKey } from '../../shared/nearby-v3-ranking';
+} from '../shared/nearby-v3-gossip';
+import { NearbyList, type NearbyListEntry, type NearbyListOwner } from '../shared/nearby-v3-list';
+import { parseNearbyRankKey, type NearbyRankKey } from '../shared/nearby-v3-ranking';
 import {
   isEstablishedBefore,
   isNearbyAttestorKey,
@@ -26,9 +26,9 @@ import {
   type NearbyAgeProof,
   type NearbyAttestorKey,
   type NearbyBeacon,
-} from '../../shared/nearby-v3-attestation';
-import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import type { PublicLocation } from '../../shared/public-location';
+} from '../shared/nearby-v3-attestation';
+import type { SeaSigningPair } from '../shared/p2p-runtime';
+import type { PublicLocation } from '../shared/public-location';
 
 /**
  * One phone's Nearby v3 list (docs/design/nearby-and-place-chatrooms.md §3.7): it signs the user's

@@ -4,7 +4,7 @@
  * list a Me row's 👥 and a Talks tag's 👥 open. A person page lists their tags, the ones I like too
  * first, and leads to the Me rows and Talks we share. Configured once by the peer controller.
  */
-import { sharedTagCount, tagsOfPeer, type TagGraphInput } from '../services/tag-graph';
+import { sharedTagCount, tagsOfPeer, type TagGraphInput } from '../../core/tag-graph';
 import {
   configureGraphPersonPage,
   configureTagGraphSource,

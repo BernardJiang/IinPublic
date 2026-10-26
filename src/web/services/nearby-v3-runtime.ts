@@ -13,7 +13,7 @@ import {
   type NearbyHubHeartbeat,
   type NearbyIntroductionsAnswer,
   type NearbyV3Hub,
-} from './nearby-v3-service';
+} from '../../core/nearby-v3-service';
 import type { WebGunService } from './web-gun-service';
 
 /**
