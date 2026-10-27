@@ -19,6 +19,7 @@
  */
 
 import type { CoreRequest, CoreResponse } from '../../core/protocol';
+import type { GunRpcTransport } from './remote-gun';
 
 export type GunPair = { pub: string; priv: string; epub: string; epriv: string };
 
@@ -31,6 +32,10 @@ export class GunBridge {
   private worker: Worker;
   private pending = new Map<number, PendingRequest>();
   private subscriptions = new Map<string, (data: any, key?: string) => void>();
+  private gunEventListener: ((event: { sub: string; data: unknown; key: string }) => void) | null = null;
+  private readonly peerListeners: Array<() => void> = [];
+  private readonly closeListeners: Array<() => void> = [];
+  private hubPeerSeen = false;
   private nextId = 1;
   private nextSubId = 1;
   private ready = false;
@@ -53,6 +58,7 @@ export class GunBridge {
       this.pending.forEach((req) => req.reject(new Error(`Worker error: ${msg}`)));
       this.pending.clear();
       if (!this.ready) this.rejectReady(new Error(`Worker error: ${msg}`));
+      for (const cb of this.closeListeners.splice(0)) cb();
     };
   }
 
@@ -63,6 +69,17 @@ export class GunBridge {
     if (msg.type === 'subscription') {
       const cb = this.subscriptions.get(msg.subId);
       if (cb) cb(msg.data, msg.key);
+      return;
+    }
+
+    // The worker's Gun, serving the page (OPEN-91 P6): a subscription event, or a peer answered.
+    if (msg.type === 'gun-event') {
+      this.gunEventListener?.(msg);
+      return;
+    }
+    if (msg.type === 'gun-hi') {
+      this.hubPeerSeen = true;
+      for (const cb of this.peerListeners.splice(0)) cb();
       return;
     }
 
@@ -97,8 +114,11 @@ export class GunBridge {
     return this.readyPromise;
   }
 
-  /** Initialize the Gun instance inside the worker. Must be called first. */
-  async init(options?: { hubUrl?: string }): Promise<void> {
+  /**
+   * Initialize the Gun instance inside the worker. Must be called first. With `peer`, the worker's
+   * Gun joins the hub and becomes the page's only Gun (OPEN-91 P6, see `gunTransport()`).
+   */
+  async init(options?: { hubUrl?: string; peer?: boolean }): Promise<void> {
     await this.send('init', options);
     await this.whenReady();
   }
@@ -108,6 +128,24 @@ export class GunBridge {
   /** A request to the device core's app logic (src/core/protocol.ts). */
   core<R extends CoreRequest>(request: R): Promise<CoreResponse<R>> {
     return this.send('core', request);
+  }
+
+  /* ── The worker's Gun as the page's (OPEN-91 P6) ─────────────── */
+
+  /** The page's Gun operations, run on the worker's (src/core/gun-rpc.ts). One session: the worker. */
+  gunTransport(): GunRpcTransport {
+    return {
+      call: (body) => this.send('gunRpc', body),
+      open: (onEvent, onClose) => {
+        this.gunEventListener = onEvent;
+        this.closeListeners.push(onClose);
+        return Promise.resolve('worker');
+      },
+      onPeer: (cb) => {
+        if (this.hubPeerSeen) cb();
+        else this.peerListeners.push(cb);
+      },
+    };
   }
 
   /* ── Core graph operations ────────────────────────────────────── */
@@ -164,6 +202,11 @@ export class GunBridge {
   }
 
   /** Read and decrypt from the current user's private namespace. */
+  /** Every private record key the worker holds (for copying them to the app's node). */
+  privateKeys(): Promise<string[]> {
+    return this.send('privateKeys', {});
+  }
+
   getPrivate(key: string): Promise<any> {
     return this.send('getPrivate', { key });
   }

@@ -179,8 +179,50 @@ Each phase ships on its own and keeps every test green.
    record, both mirrored to the worker's IndexedDB so a hard kill cannot lose them.
 5. **P5 — The native host**: the same core bundle runs in the embedded Node process; the WebView
    becomes GUI-only over loopback; its Gun instances go away.
-6. **P6 — One Gun on the web**: the page's hub-connected Gun goes away; the worker core is the only
-   one.
+   Slices:
+   - **P5.1 (2026-10-26): the node hosts the core.** `POST /api/core` on the embedded node
+     (`src/server/routes/core-routes.ts`) runs the same handler over the node's Gun (radisk on
+     disk); the node's Gun runs the sharing policy too, so `local/` never reaches the hub or the
+     WebView's Gun. Loopback ports are reachable by any program on the device, so the route exists
+     only with the shell's per-process secret (`Authorization: Bearer …`): Android's
+     `NodeForegroundService` secret (also the background agent's), handed to its own WebView by
+     `IinPublicBackground.localNodeToken()`; desktop's `IINPUBLIC_CORE_TOKEN`, handed out by the
+     preload (`iinpublicNative.localNodeToken()`) to the app's own origin only. The GUI picks the
+     node when it has the secret and the node answers (`src/web/services/node-core-link.ts`),
+     otherwise the web worker (browsers; iOS until its shell passes a secret), and copies the
+     worker's core into the node once (`migrateWorkerCoreToNode`, marked in `appData`).
+   - **P5.2 (2026-10-26): the WebView's private Gun goes.** Owner-private records are encrypted in
+     the WebView with the owner's keypair and stored on the node as ciphertext (`private.get/put`,
+     `local/private/…`); the device-local mirrors go to `local/device/…` (`device.get/put`). An
+     earlier version's worker data is copied over once (`copyPrivateFromWorker`, marked in
+     `appData`), then the worker is shut down for good.
+   - **P5.3 (2026-10-26): the page's hub Gun goes on native.** The WebView runs no Gun: its
+     services keep Gun's chain API through `RemoteGun` (`src/web/services/remote-gun.ts`), which
+     sends each operation to the node's Gun (`POST /api/gun-rpc`, events on one streamed response;
+     the operations are `src/core/gun-rpc.ts`). The WebView hands the node the owner's keypair
+     (`op: 'auth'`) so `~user` writes are signed there: the node is the same app on the same
+     device, behind the same per-process secret, and needs the key to sign as the GUI did.
+   - **P5.4: the core's logic runs in the node.** Core commands (deliver a Talk, answer, chatbot)
+     execute where the data is; the GUI sends commands and renders views, with the WebRTC adapter
+     still in the WebView until the node has its own.
+6. **P6 (2026-10-26) — One Gun on the web**: the page's hub-connected Gun goes away; the worker
+   core's Gun is the only one. It peers with the hub, and the page reaches it through the same
+   `RemoteGun`, over `postMessage` instead of HTTP (`GunBridge.gunTransport()`, worker message
+   `gunRpc`, events as `gun-event`, the hub's 'hi' as `gun-hi`). A worker that does not start
+   leaves the page its own Gun as before; `?pageGun=1` asks for that layout on purpose.
+   Joining the hub put everything the worker had kept privately next to a peer, so the sharing
+   policy grew with it:
+   - namespaces `device-local/`, `nodes/`, `edges/` and souls `users/<pub>/private/…` stay on the
+     device, and a shared node's links to private nodes are removed before it is sent;
+   - an ack carries only its status — the worker's IndexedDB adapter answered writes with the
+     whole radisk file, which Gun put into the ack it sent back to the hub;
+   - the policy also sits on the mesh's `say`: on reconnect Gun re-asks a peer for every soul it
+     is subscribed to, outside the `out` chain (`guardMeshSay`).
+   The wire audit (e2e `09-talk-content-not-on-hub-wire`) reads batched Gun frames too.
+   Still open: one core per origin (a `SharedWorker`, or a leader among tabs). Each tab still runs
+   its own worker over the same IndexedDB, and radisk writes whole files, so with two tabs open the
+   last tab to write a file wins it — a risk that grew now that all graph data, not only the
+   private records, is stored there.
 
 ## Testing
 

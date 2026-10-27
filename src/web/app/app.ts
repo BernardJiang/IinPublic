@@ -253,6 +253,7 @@ import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
+import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
 import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
@@ -1291,8 +1292,16 @@ export class IinPublicApp {
 
     // Initialize services (stage-zero server wipe happens in index.ts before init; do not purge
     // here — clearing the graph before SEA auth breaks gun.user().auth()).
+    // Native (OPEN-91 P5): the app's node holds the device's one Gun and its core; the WebView runs
+    // no Gun, and keeps its worker only until what an earlier version stored there is copied over.
+    const nativeNode = await resolveNativeNode().catch(() => null);
+    if (nativeNode) {
+      const marks = await nativeNode.core({ name: 'collection.snapshot', collection: 'appData' }).catch(() => ({})) as Record<string, unknown>;
+      this.gunService.useNativeNode({ ...nativeNode, keepWorker: !marks[MIGRATION_MARKS.collections] || !marks[MIGRATION_MARKS.privates] });
+    }
     await this.gunService.initialize();
     // The exchange log lives in the device core (OPEN-91 P1): load it before the first screen reads it.
+    await this.resolveCoreHost(nativeNode);
     await this.connectExchangeLog();
     // Use the same core-backed view as Contacts, including late hydration and removals.
     this.setMapMatchSource(exchangeMapMatchSource);
@@ -1314,6 +1323,7 @@ export class IinPublicApp {
     } else {
       await this.gunService.ensureKeypairAndAuth();
     }
+    await this.finishMoveToNativeNode();
     this.gunService.getGun().get('public').get('chatroom-hierarchy').on((raw: unknown) => {
       applyPublicChatroomHierarchy(raw);
     });
@@ -2246,9 +2256,9 @@ export class IinPublicApp {
         localStorage.removeItem(KEY_CUSTODY_STORAGE);
         localStorage.removeItem(KEY_CUSTODY_DEVICE_SECRET_STORAGE);
         localStorage.removeItem('gun/');
-        if (this.gunService.isBridgeReady()) {
-          void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, null).catch(() => {});
-          void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, null).catch(() => {});
+        if ((this.gunService.isBridgeReady() || this.gunService.isNativeNode())) {
+          void this.gunService.putDeviceLocal(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, null).catch(() => {});
+          void this.gunService.putDeviceLocal(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, null).catch(() => {});
         }
       }
     }
@@ -2264,9 +2274,9 @@ export class IinPublicApp {
       // Checking the IndexedDB-backed mirror unconditionally is the only robust option — a
       // genuinely new device's read comes back empty near-instantly (a local-only Gun `.once()`
       // never waits on a network peer), so this adds no meaningful latency to normal cold boot.
-      if (this.gunService.isBridgeReady()) {
+      if ((this.gunService.isBridgeReady() || this.gunService.isNativeNode())) {
         try {
-          const recovered = await this.gunService.getBridge().get(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH);
+          const recovered = await this.gunService.getDeviceLocal(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH);
           const recoveredId = recovered && typeof recovered === 'object' ? recovered.id : undefined;
           if (typeof recoveredId === 'string' && recoveredId) {
             existingUserId = recoveredId;
@@ -2379,9 +2389,9 @@ export class IinPublicApp {
    */
   private async readNewestCachedUser(expectedUserId: string): Promise<User | null> {
     let mirrored: string | null = null;
-    if (this.gunService.isBridgeReady()) {
+    if ((this.gunService.isBridgeReady() || this.gunService.isNativeNode())) {
       try {
-        const node = await this.gunService.getBridge().get(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH);
+        const node = await this.gunService.getDeviceLocal(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH);
         mirrored = node && typeof node === 'object' && typeof node.json === 'string' ? node.json : null;
       } catch {
         // Best-effort: the localStorage copy alone, as before.
@@ -2426,8 +2436,8 @@ export class IinPublicApp {
     }
     // Mirrored where a hard kill does not lose it (as persistUserId does for the id): a stage
     // name changed seconds before a crash came back as the old one (e2e stage2/37 under load).
-    if (this.gunService.isBridgeReady()) {
-      void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, { json }).catch(() => {});
+    if ((this.gunService.isBridgeReady() || this.gunService.isNativeNode())) {
+      void this.gunService.putDeviceLocal(IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH, { json }).catch(() => {});
     }
   }
 
@@ -2452,8 +2462,8 @@ export class IinPublicApp {
    */
   private persistUserId(id: string): void {
     localStorage.setItem('iinpublic_user_id', id);
-    if (this.gunService.isBridgeReady()) {
-      void this.gunService.getBridge().put(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, { id }).catch(() => {});
+    if ((this.gunService.isBridgeReady() || this.gunService.isNativeNode())) {
+      void this.gunService.putDeviceLocal(IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, { id }).catch(() => {});
     }
   }
 
@@ -6124,12 +6134,12 @@ export class IinPublicApp {
    * recovery, and the response still goes out over the mesh or the mailbox without it.
    */
   private async coreDelivery(request: Extract<CoreRequest, { name: 'delivery.putSentResponse' | 'delivery.record' }>): Promise<void> {
-    if (!this.gunService.isBridgeReady()) {
+    if (!this.coreRequest) {
       console.warn(`[delivery] device core unavailable, not stored: ${request.name}`);
       return;
     }
     try {
-      await this.gunService.getBridge().core(request);
+      await this.coreRequest(request);
     } catch (error) {
       console.warn(`[delivery] device core write failed: ${request.name}`, error);
     }
@@ -6140,18 +6150,72 @@ export class IinPublicApp {
    * it. Waits at most 5 s; a later snapshot still lands, and the open Contacts or Me tab redraws.
    * Without the worker the view keeps exchanges in memory for this session.
    */
+  /**
+   * Where this device's core runs (OPEN-91 P5): the app's embedded node when the shell provides its
+   * secret and the node answers — copying the WebView worker's core over the first time — otherwise
+   * the web worker. Resolved once at start-up, before any log loads.
+   */
+  private coreRequest: CoreRequester | null = null;
+
+  private async resolveCoreHost(nativeNode: NativeNode | null): Promise<void> {
+    const worker: CoreRequester | null = this.gunService.isBridgeReady()
+      ? (request) => this.gunService.getBridge().core(request)
+      : null;
+    const node = nativeNode?.core ?? null;
+    if (node && worker) {
+      try {
+        const result = await migrateWorkerCoreToNode(worker, node);
+        if (result.migrated) console.log(`[core] moved to the app's node: ${result.records} record(s) copied from the WebView`);
+      } catch (error) {
+        // Not marked done: it runs again at the next start. The node still serves meanwhile.
+        console.warn('[core] copying the WebView core to the node failed (retried next start):', error);
+      }
+    }
+    this.coreRequest = node ?? worker;
+    console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
+  }
+
+  /**
+   * The rest of the move to the app's node (OPEN-91 P5), once the owner's keypair is known: the
+   * WebView worker's private records (re-encrypted here, stored on the node) and its device-local
+   * mirrors. When everything is across, the worker is shut down for good — the WebView then runs no
+   * Gun at all. A failure leaves the marks unset, so the next start tries again.
+   */
+  private async finishMoveToNativeNode(): Promise<void> {
+    if (!this.gunService.isNativeNode() || !this.gunService.isBridgeReady() || !this.coreRequest) return;
+    const core = this.coreRequest;
+    try {
+      const copied = await this.gunService.copyPrivateFromWorker();
+      const bridge = this.gunService.getBridge();
+      for (const path of [IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH]) {
+        const value = await bridge.get(path).catch(() => null);
+        if (!value || typeof value !== 'object' || await this.gunService.getDeviceLocal(path)) continue;
+        const { _: _meta, ...rest } = value as Record<string, unknown>;
+        await this.gunService.putDeviceLocal(path, rest);
+      }
+      await core({ name: 'collection.upsert', collection: 'appData', entries: { [MIGRATION_MARKS.privates]: new Date().toISOString() } });
+      const marks = await core({ name: 'collection.snapshot', collection: 'appData' }) as Record<string, unknown>;
+      if (marks[MIGRATION_MARKS.collections]) {
+        this.gunService.retireWorker();
+        console.log(`[core] the WebView keeps no Gun now (${copied} private record(s) moved to the app's node)`);
+      }
+    } catch (error) {
+      console.warn('[core] moving private records to the app node failed (retried next start):', error);
+    }
+  }
+
   private async connectExchangeLog(): Promise<void> {
-    if (!this.gunService.isBridgeReady()) return;
-    const bridge = this.gunService.getBridge();
+    const core = this.coreRequest;
+    if (!core) return;
     const link = {
-      snapshot: () => bridge.core({ name: 'exchanges.snapshot' }),
-      upsert: (records: Parameters<typeof upsertExchange>[0][]) => bridge.core({ name: 'exchanges.upsert', records }),
-      removePeers: (peerIds: string[]) => bridge.core({ name: 'exchanges.removePeers', peerIds }),
+      snapshot: () => core({ name: 'exchanges.snapshot' }),
+      upsert: (records: Parameters<typeof upsertExchange>[0][]) => core({ name: 'exchanges.upsert', records }),
+      removePeers: (peerIds: string[]) => core({ name: 'exchanges.removePeers', peerIds }),
     };
     const collections = {
-      snapshot: (collection: CoreCollection) => bridge.core({ name: 'collection.snapshot', collection }),
-      upsert: (collection: CoreCollection, entries: Record<string, unknown>) => bridge.core({ name: 'collection.upsert', collection, entries }),
-      remove: (collection: CoreCollection, keys: string[]) => bridge.core({ name: 'collection.remove', collection, keys }),
+      snapshot: (collection: CoreCollection) => core({ name: 'collection.snapshot', collection }),
+      upsert: (collection: CoreCollection, entries: Record<string, unknown>) => core({ name: 'collection.upsert', collection, entries }),
+      remove: (collection: CoreCollection, keys: string[]) => core({ name: 'collection.remove', collection, keys }),
     };
     // Storage busy at start-up (a slow device, a loaded machine) is retried, never taken for "no exchanges".
     const loaded = (async () => {

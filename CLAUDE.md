@@ -104,11 +104,14 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
   prune below) keeps this path bounded — see `planIncomingTalkClusterPrune` in
   `src/shared/peer-talk-delivery.ts`.
   **Wire audit** (`tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`): owner Talk
-  repositories and incoming clusters live in the peerless worker Gun, and the spec asserts no Talk
-  plaintext reaches the hub, and no soul in a private namespace (`local/`, `pairs/`,
-  `deliveryJournal/`) is sent to it. The page's Gun runs the sharing policy's `out` filter
-  (`src/core/sharing-policy.ts`); the sender's response copy and delivery journal live in the device
-  core (`src/core/delivery.ts`) — OPEN-91 P2, `docs/design/data-sharing-privacy-rules.md`.
+  repositories and incoming clusters are owner-private records in the core worker's Gun, and the
+  spec asserts no Talk plaintext reaches the hub, and no private soul (`local/`, `pairs/`,
+  `deliveryJournal/`, `device-local/`, `users/<pub>/private/…`) is sent to it. Since OPEN-91 P6 the
+  worker's Gun is the page's only Gun (the page uses `RemoteGun` over `postMessage`; `?pageGun=1`
+  restores a page Gun) and peers with the hub behind the sharing policy
+  (`src/core/sharing-policy.ts`: the `out` chain and the mesh's `say`, acks stripped to a status);
+  the sender's response copy and delivery journal live in the device core (`src/core/delivery.ts`)
+  — `docs/design/data-sharing-privacy-rules.md`.
 - Cross-worker disk races in `clearGunDatabases()` are a known flakiness source — servers run `E2E_GUN_MEMORY_ONLY=1` so disk clears are not required.
 
 ### Server: `src/server/`

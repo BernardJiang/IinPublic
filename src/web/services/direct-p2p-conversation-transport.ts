@@ -335,12 +335,17 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     conversationId: string,
     localUserId: string,
     otherUserId?: string,
+    onStage?: (stage: string) => void,
   ) {
+    onStage?.('other user');
     const otherId = await this.resolveOtherUserId(conversationId, localUserId, otherUserId);
     const pair = this.gunService.getStoredPair();
     if (!pair?.pub || !pair.priv) throw new Error('No SEA signing keypair');
+    onStage?.('own key');
     const localPub = await this.getLocalPub();
+    onStage?.('their key');
     const otherPub = await this.getUserPub(otherId);
+    onStage?.('connect');
     const isInitiator = localUserId.localeCompare(otherId) < 0;
     const session = getOrCreateP2PSession({
       apiBase: this.apiBase,
@@ -461,9 +466,16 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
     console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
     void (async () => {
+      // Where a delivery is, if it is slow: the WebView cannot otherwise tell a stalled key
+      // lookup from a link that never connects (native-app/37 on real phones, 2026-10-26).
+      const startedAt = Date.now();
+      let stage = 'session';
+      const slow = setTimeout(() => console.warn(`[dm-notify] ${wire.id} still at "${stage}" after 15 s`), 15_000);
       try {
-        const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId);
+        const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId, (next) => { stage = next; });
+        stage = 'send';
         await session.sendDm(senderId, text, channel, wire);
+        console.info(`[dm-notify] ${wire.id} delivered over WebRTC in ${Date.now() - startedAt} ms`);
       } catch (err) {
         console.warn(
           `Direct P2P WebRTC notify failed for ${conversationId}; Gun record is authoritative, queueing to mailbox:`,
@@ -479,6 +491,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
             console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
           }
         }
+      } finally {
+        clearTimeout(slow);
       }
     })();
   }

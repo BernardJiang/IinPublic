@@ -21,7 +21,12 @@ export type CoreRequest =
   | { name: 'delivery.get'; objectId: string; recipientId: string }
   | { name: 'collection.snapshot'; collection: string }
   | { name: 'collection.upsert'; collection: string; entries: Record<string, unknown> }
-  | { name: 'collection.remove'; collection: string; keys: string[] };
+  | { name: 'collection.remove'; collection: string; keys: string[] }
+  | { name: 'private.get'; key: string }
+  | { name: 'private.put'; key: string; value: string | null }
+  | { name: 'private.keys' }
+  | { name: 'device.get'; path: string }
+  | { name: 'device.put'; path: string; value: unknown };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends { name: 'exchanges.snapshot' } ? ExchangeRecord[]
@@ -32,4 +37,8 @@ export type CoreResponse<R extends CoreRequest> =
             : R extends { name: 'collection.snapshot' } ? Record<string, unknown>
               : R extends { name: 'collection.upsert' } ? { written: number }
                 : R extends { name: 'collection.remove' } ? { removed: number }
-                  : never;
+                  : R extends { name: 'private.get' } ? string | null
+                    : R extends { name: 'private.keys' } ? string[]
+                      : R extends { name: 'device.get' } ? unknown
+                        : R extends { name: 'private.put' | 'device.put' } ? { ok: true }
+                          : never;

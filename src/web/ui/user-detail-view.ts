@@ -420,9 +420,14 @@ async function readPeerBlockStatus(
   if (deps.isSupportContact(peerId)) {
     return { eitherBlocked: false, blocked: false, blockedBy: false };
   }
+  // Bounded: on a phone the node asks the hub too, and an unanswered call left the whole view
+  // on "Loading…" (stats, profile and matched threads all wait on this).
+  const ac = new AbortController();
+  const timeoutId = window.setTimeout(() => ac.abort(), 5_000);
   try {
     const r = await fetch(
       `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/block-status/${encodeURIComponent(peerId)}`,
+      { signal: ac.signal },
     );
     if (r.ok) {
       const s = (await r.json()) as { eitherBlocked?: boolean; blocked?: boolean; blockedBy?: boolean };
@@ -434,6 +439,8 @@ async function readPeerBlockStatus(
     }
   } catch {
     /* fall through */
+  } finally {
+    window.clearTimeout(timeoutId);
   }
   const blocked = deps.isBlockedByMe(peerId);
   return { eitherBlocked: blocked, blocked, blockedBy: false };

@@ -1,6 +1,8 @@
 /**
- * The device core's web host (OPEN-91): a Web Worker that runs the device's Gun instance — peerless,
- * persisted to IndexedDB — and the core logic in `src/core/`, serving the page over `postMessage`.
+ * The device core's web host (OPEN-91): a Web Worker that runs the device's Gun instance — persisted
+ * to IndexedDB — and the core logic in `src/core/`, serving the page over `postMessage`. Since P6 it
+ * is the page's only Gun: it peers with the hub (behind the sharing policy) and runs the page's Gun
+ * operations (`type: 'gunRpc'`, src/core/gun-rpc.ts), answering subscriptions as `type: 'gun-event'`.
  * Replaces the hand-written `public/worker.js`, keeping its message types for `GunBridge`
  * (`{ id, type, payload }` in, `{ id, err, data }` and `{ type: 'subscription', … }` out) and adding
  * `type: 'core'` for core requests. The native host will run the same core in Node.js.
@@ -10,6 +12,8 @@
 import { gunGraphStore } from '../graph-store';
 import { createCoreHandler } from '../core-handler';
 import type { CoreRequest } from '../protocol';
+import { createGunRpcSession, runGunRpc } from '../gun-rpc';
+import { installSharingPolicy } from '../sharing-policy';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare function importScripts(...urls: string[]): void;
@@ -49,7 +53,8 @@ const idbAdapter = {
     openDatabase().then((db) => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
       tx.objectStore(IDB_STORE).put(data, key);
-      tx.oncomplete = () => cb(null, data);
+      // `ok` is a flag: radisk passes it up into Gun's ack, which goes to the peer that wrote.
+      tx.oncomplete = () => cb(null, 1);
       tx.onerror = () => cb(tx.error);
     }).catch((err) => cb(err));
   },
@@ -63,14 +68,20 @@ const idbAdapter = {
 };
 
 /* ── 3. The device's Gun ──────────────────────────────────────────────────────
- * Peerless: everything here stays on the device (docs/design/data-sharing-privacy-rules.md).
- * `radisk: false` must NOT be set — store.js's create hook no-ops on it. */
+ * Peered with the hub when the page asks (`init` with `peer`), peerless otherwise (on native, where
+ * this worker only hands its old data to the app's node). Either way the sharing policy keeps the
+ * private namespaces on the device (docs/design/data-sharing-privacy-rules.md); it must be on Gun's
+ * create hook before the instance exists. `radisk: false` must NOT be set — store.js's create hook
+ * no-ops on it. */
 let gun: any = null;
 let handleCore: ((request: CoreRequest) => Promise<unknown>) | null = null;
+installSharingPolicy(Gun);
 
-function initGun(): void {
+function initGun(options: { hubUrl?: string; peer?: boolean } = {}): void {
   if (gun) return;
-  gun = Gun({ peers: [], localStorage: false, store: idbAdapter });
+  const peers = options.peer && options.hubUrl ? [options.hubUrl] : [];
+  gun = Gun({ peers, localStorage: false, store: idbAdapter, axe: false, multicast: false });
+  if (peers.length) gun.on('hi', () => scope.postMessage({ type: 'gun-hi' }));
   // Ready once storage is open: the GUI's first read (the exchange log at start-up) must find the
   // device's data, not an empty graph that has not loaded yet. An empty store means a new device.
   openDatabase()
@@ -89,6 +100,8 @@ function initGun(): void {
 /* ── 4. Session and subscriptions ─────────────────────────────────────────── */
 let currentUser: { pair: any } | null = null;
 const subscriptions = new Map<string, any>();
+/** The page's Gun subscriptions (OPEN-91 P6): one session, this worker's page. */
+const pageGun = createGunRpcSession((event) => scope.postMessage({ type: 'gun-event', ...event }));
 
 function pathRef(path: string): any {
   const parts = path.split('/').filter(Boolean);
@@ -133,8 +146,11 @@ scope.onmessage = async (event: MessageEvent) => {
     if (type !== 'init' && !gun) initGun();
     switch (type) {
       case 'init':
-        initGun();
+        initGun(payload || {});
         reply(id, null, { ok: true });
+        break;
+      case 'gunRpc':
+        reply(id, null, await runGunRpc(gun, payload, pageGun));
         break;
       case 'core':
         if (!handleCore) throw new Error('device core not ready');
@@ -195,6 +211,27 @@ scope.onmessage = async (event: MessageEvent) => {
         const decrypted = await SEA.decrypt(raw, currentUser.pair);
         if (!decrypted) { reply(id, null, null); break; }
         reply(id, null, typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted);
+        break;
+      }
+      case 'privateKeys': {
+        // Every private record key this worker holds (to copy them to the app's node, OPEN-91 P5).
+        // A key with '/' is stored as nested nodes: walk them; a string field is an encrypted record.
+        if (!currentUser) { reply(id, 'Not logged in', null); break; }
+        const root = `users/${currentUser.pair.pub}/private`;
+        const keys: string[] = [];
+        const walk = async (prefix: string, depth: number): Promise<void> => {
+          if (depth > 8) return;
+          const node = await gunGet(prefix ? `${root}/${prefix}` : root) as Record<string, unknown> | null;
+          if (!node || typeof node !== 'object') return;
+          for (const [key, value] of Object.entries(node)) {
+            if (key === '_' || value === null || value === undefined) continue;
+            const path = prefix ? `${prefix}/${key}` : key;
+            if (typeof value === 'string') keys.push(path);
+            else if (typeof value === 'object' && (value as Record<string, unknown>)['#']) await walk(path, depth + 1);
+          }
+        };
+        await walk('', 0);
+        reply(id, null, keys);
         break;
       }
       case 'subscribePrivate': {

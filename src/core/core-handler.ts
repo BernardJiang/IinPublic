@@ -5,6 +5,7 @@
 import type { GraphStore } from './graph-store';
 import { CollectionStore } from './collections';
 import { DeliveryStore } from './delivery';
+import { PrivateStore } from './private-store';
 import { ExchangeStore } from './exchanges';
 import type { CoreRequest } from './protocol';
 
@@ -19,10 +20,13 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
   const exchanges = new ExchangeStore(store);
   const delivery = new DeliveryStore(store);
   const collections = new CollectionStore(store);
+  const privates = new PrivateStore(store);
   return async (request) => {
     if (fresh) {
       if (request.name === 'exchanges.snapshot') return [];
       if (request.name === 'collection.snapshot') return {};
+      if (request.name === 'private.get' || request.name === 'device.get') return null;
+      if (request.name === 'private.keys') return [];
       if (request.name !== 'delivery.get') fresh = false; // any write: storage holds something now
     }
     switch (request.name) {
@@ -46,6 +50,18 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         return { written: await collections.upsert(request.collection, request.entries) };
       case 'collection.remove':
         return { removed: await collections.remove(request.collection, request.keys) };
+      case 'private.get':
+        return privates.getPrivate(request.key);
+      case 'private.put':
+        await privates.putPrivate(request.key, request.value);
+        return { ok: true };
+      case 'private.keys':
+        return privates.privateKeys();
+      case 'device.get':
+        return privates.getDevice(request.path);
+      case 'device.put':
+        await privates.putDevice(request.path, request.value);
+        return { ok: true };
       default:
         throw new Error(`Unknown core request: ${(request as { name?: string }).name}`);
     }

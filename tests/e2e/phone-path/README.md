@@ -22,6 +22,11 @@ npm run test:e2e:phone-path:slow-hub   # same, with 400 ms added to every hub AP
 Specs 03 and 05 start extra phone nodes of their own (`startPhoneNode`, ports 18190–18199): one
 whose hub is down, and one restarted on the same data dir.
 
+One person, one phone: since OPEN-91 P5 a node is the device's one Gun and core, signed in as one
+owner, so `openUser` never puts two people on the same node. The first person opened on
+"phoneA"/"phoneB" gets that node; anyone opened while it is taken gets a phone node of their own
+(ports 18300–18339), stopped by `closeUsers`. `user.nodeUrl` is the node a phone user runs on.
+
 Debugging: `PHONE_PATH_CONSOLE=1` prints browser errors and failing requests,
 `PHONE_PATH_CONSOLE=all` every console line, `PHONE_PATH_TRACE_API=1` every room API response,
 `PHONE_PATH_SERVER_LOGS=1` the hub's and phone nodes' logs. Each room move prints a `[timing]` line.

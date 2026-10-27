@@ -15,6 +15,7 @@ const { registerCustody } = require('./custody');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const crypto = require('crypto');
 const { autoUpdater } = require('electron-updater');
 
 const PROCESS_LAUNCH_EPOCH_MS = Date.now();
@@ -48,8 +49,14 @@ function platformId() {
   }
 }
 
+// The embedded node's per-process secret for the device core on loopback (OPEN-91 P5): any program
+// on this computer can reach the port, so the core answers only requests carrying this, and only
+// this app's own window is told it (iinpublic:local-node-token).
+const LOCAL_NODE_TOKEN = crypto.randomBytes(32).toString('hex');
+
 async function startEmbeddedNode() {
   fs.mkdirSync(dataDir, { recursive: true });
+  process.env.IINPUBLIC_CORE_TOKEN = LOCAL_NODE_TOKEN;
 
   // Inject host-specific config via env before requiring the compiled entry.
   process.env.IINPUBLIC_EMBEDDED_NODE = '1';
@@ -176,6 +183,11 @@ async function createWindow() {
   if (!custodyRegistered) {
     custodyRegistered = true;
     registerCustody({ ipcMain, safeStorage, userDataDir: app.getPath('userData') });
+    ipcMain.handle('iinpublic:local-node-token', (event) => {
+      // Only the app's own page, served by its node on loopback.
+      const origin = (() => { try { return new URL(event.senderFrame.url).origin; } catch { return ''; } })();
+      return origin === `http://127.0.0.1:${LOCAL_PORT}` || origin === `http://localhost:${LOCAL_PORT}` ? LOCAL_NODE_TOKEN : null;
+    });
   }
   const win = new BrowserWindow({
     width: 1100,

@@ -39,6 +39,8 @@ import { isLoopbackEmbeddedNode, resolveTlsMode } from './tls-mode';
 import { registerLocalLinkRoutes } from './routes/local-link-routes';
 import { BackgroundTalkAgent } from './services/background-talk-agent';
 import { registerBackgroundAgentRoutes } from './routes/background-agent-routes';
+import { localNodeToken, registerCoreRoutes } from './routes/core-routes';
+import { registerGunRpcRoutes } from './routes/gun-rpc-routes';
 
 /**
  * Create the HTTP(S) server the app listens on.
@@ -226,6 +228,9 @@ class IinPublicServer {
     return fromBody;
   }
 
+  /** The device core on an embedded node (OPEN-91 P5); absent on the hub. */
+  private deviceCore: { resetForTesting: () => void } | null = null;
+
   private clearForTesting(): void {
     this.broadcastTagPopularityStore.resetForTesting();
     this.mailboxStore.resetForTesting();
@@ -248,6 +253,8 @@ class IinPublicServer {
         // Same reasoning for the durable presence store (presence-durable-store.ts) — isolated
         // from the ephemeral graph on purpose, so it needs its own explicit reset too.
         await this.presenceStore.resetForTesting();
+        // An embedded node is a device: a wipe must also forget its owner (OPEN-91 P5 core).
+        this.deviceCore?.resetForTesting();
         await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,
@@ -304,6 +311,12 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
+
+    const coreToken = localNodeToken(process.env);
+    if (isLoopbackEmbeddedNode(process.env) && coreToken) {
+      this.deviceCore = registerCoreRoutes(this.app, this.gun, coreToken, process.env.IINPUBLIC_DATA_DIR || process.cwd());
+      registerGunRpcRoutes(this.app, this.gun, coreToken);
+    }
 
     const backgroundAgentToken = String(process.env.IINPUBLIC_BACKGROUND_AGENT_TOKEN || '');
     if (isLoopbackEmbeddedNode(process.env) && backgroundAgentToken.length >= 32) {

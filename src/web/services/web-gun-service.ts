@@ -2,6 +2,8 @@ import Gun from 'gun';
 import { installSharingPolicy } from '../../core/sharing-policy';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
+import { RemoteGun, httpGunTransport } from './remote-gun';
+import type { CoreRequest } from '../../core/protocol';
 import { getSEA } from '../sea-gun';
 import { isDevStageZero } from '../dev-stage-env';
 import type { User } from '../../shared/types';
@@ -426,7 +428,70 @@ export class WebGunService extends EventEmitter {
     return deriveGunHubUrlFromLocation(protocol, hostname, port);
   }
 
+  /**
+   * Native (OPEN-91 P5): the app's embedded node holds the device's one Gun and its core. The
+   * WebView then runs no Gun — `getGun()` is a thin client of the node's (`remote-gun.ts`) — and no
+   * worker, unless its old data still has to be copied to the node (`keepWorker`).
+   */
+  private nativeNode: { token: string; baseUrl: string; core: (request: CoreRequest) => Promise<any>; keepWorker: boolean } | null = null;
+  private readonly privateSubscribers = new Map<string, Set<(data: any) => void>>();
+
+  useNativeNode(node: { token: string; baseUrl: string; core: (request: CoreRequest) => Promise<any>; keepWorker: boolean }): void {
+    this.nativeNode = node;
+  }
+
+  isNativeNode(): boolean {
+    return this.nativeNode !== null;
+  }
+
   async initialize(): Promise<void> {
+    if (this.nativeNode) {
+      this.gun = new RemoteGun(httpGunTransport(this.nativeNode.baseUrl, this.nativeNode.token));
+      this.connected = true;
+      console.log('🔗 Gun: the app node’s (no Gun in the WebView)');
+      if (this.nativeNode.keepWorker) {
+        // Only to copy what an earlier version kept in the WebView over to the node.
+        try {
+          await this.bridge.init({ hubUrl: this.peers[0] });
+          this.bridgeReady = true;
+        } catch (bridgeErr) {
+          this.bridgeReady = false;
+          console.warn('⚠️ WebView worker unavailable — nothing to copy from it:', bridgeErr);
+        }
+      }
+      return;
+    }
+    // The page's Gun is the core worker's (OPEN-91 P6): one Gun on the device, persisted to
+    // IndexedDB and peered with the hub behind the sharing policy. The page keeps Gun's chain API
+    // through a thin client. A worker that will not start leaves the page its own Gun, as before P6.
+    if (this.workerGunAllowed()) {
+      try {
+        await this.bridge.init({ hubUrl: this.peers[0], peer: true });
+        this.bridgeReady = true;
+        this.gun = new RemoteGun(this.bridge.gunTransport());
+        this.gun.on('hi', () => console.log('🤝 Gun peer connected (core worker)'));
+        this.connected = true;
+        console.log('🔗 Gun: the core worker’s (no Gun on the page) — hub:', this.peers[0]);
+        return;
+      } catch (bridgeErr) {
+        console.warn('⚠️ Core worker unavailable — the page runs its own Gun:', bridgeErr);
+        this.bridge.terminate();
+        this.bridge = new GunBridge('/core-worker.js');
+      }
+    }
+    await this.initializePageGun();
+  }
+
+  /** `?pageGun=1` keeps the pre-P6 layout (Gun on the page, a peerless worker beside it), for comparison. */
+  private workerGunAllowed(): boolean {
+    try {
+      return typeof Worker !== 'undefined' && new URLSearchParams(window.location.search).get('pageGun') !== '1';
+    } catch {
+      return typeof Worker !== 'undefined';
+    }
+  }
+
+  private async initializePageGun(): Promise<void> {
     try {
       // ── Direct Gun instance (backward compat for existing services) ──
       // Gun AXE (axe.js) auto-adds localhost peers and can mesh multiple parallel e2e
@@ -905,6 +970,10 @@ export class WebGunService extends EventEmitter {
 
   /** Write to the current user's public namespace (readable by all). */
   putPublic(key: string, data: any): Promise<void> {
+    if (this.nativeNode) {
+      const pub = this.seaPair?.pub || 'anonymous';
+      return this.nativeNode.core({ name: 'device.put', path: `public/${pub}/${key}`, value: this.serializeDates(data) }).then(() => undefined);
+    }
     return this.bridge.putPublic(key, this.serializeDates(data));
   }
 
@@ -935,6 +1004,17 @@ export class WebGunService extends EventEmitter {
     if (!this.seaPair) {
       throw new Error('SEA keypair not authenticated');
     }
+    if (this.nativeNode) {
+      // Encrypted here with the owner's keypair, as the worker did; the node stores only ciphertext.
+      const serialized = this.serializeDates(data);
+      const ciphertext = await getSEA().encrypt(JSON.stringify(serialized), this.seaPair);
+      await this.nativeNode.core({ name: 'private.put', key, value: ciphertext });
+      const decoded = this.deserializeDates(JSON.parse(JSON.stringify(serialized)));
+      for (const listener of this.privateSubscribers.get(key) ?? []) {
+        try { listener(decoded); } catch { /* one subscriber must not stop the others */ }
+      }
+      return;
+    }
     if (!this.bridgeReady) {
       throw new Error('Local private Gun store is unavailable');
     }
@@ -955,6 +1035,13 @@ export class WebGunService extends EventEmitter {
     if (!this.seaPair) {
       throw new Error('SEA keypair not authenticated');
     }
+    if (this.nativeNode) {
+      const ciphertext = await this.nativeNode.core({ name: 'private.get', key });
+      if (!ciphertext) return null;
+      const decrypted = await getSEA().decrypt(ciphertext, this.seaPair);
+      if (decrypted === undefined || decrypted === null) return null;
+      return this.deserializeDates(typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted);
+    }
     if (!this.bridgeReady) {
       throw new Error('Local private Gun store is unavailable');
     }
@@ -966,6 +1053,14 @@ export class WebGunService extends EventEmitter {
   /** Subscribe to decrypted owner-private data in the local-only worker Gun. */
   subscribePrivate(key: string, callback: (data: any) => void): () => void {
     if (!this.seaPair) throw new Error('SEA keypair not authenticated');
+    if (this.nativeNode) {
+      // The WebView is the only writer of its owner's private records: its own writes notify.
+      let listeners = this.privateSubscribers.get(key);
+      if (!listeners) this.privateSubscribers.set(key, (listeners = new Set()));
+      listeners.add(callback);
+      void this.getPrivate(key).then((value) => { if (value !== null && listeners!.has(callback)) callback(value); }).catch(() => undefined);
+      return () => { listeners!.delete(callback); };
+    }
     if (!this.bridgeReady) throw new Error('Local private Gun store is unavailable');
     return this.bridge.subscribePrivate(key, (data) => callback(this.deserializeDates(data)));
   }
@@ -1252,6 +1347,46 @@ export class WebGunService extends EventEmitter {
   }
 
   /** Active session pair after `ensureKeypairAndAuth()`. */
+  /**
+   * Copies the WebView worker's private records to the app's node (OPEN-91 P5): each decrypted by
+   * the worker, re-encrypted here, stored on the node unless it already has that record.
+   */
+  async copyPrivateFromWorker(): Promise<number> {
+    if (!this.nativeNode || !this.bridgeReady || !this.seaPair) return 0;
+    let copied = 0;
+    for (const key of await this.bridge.privateKeys()) {
+      if (await this.nativeNode.core({ name: 'private.get', key })) continue;
+      const value = await this.bridge.getPrivate(key);
+      if (value === null || value === undefined) continue;
+      await this.putPrivate(key, value);
+      copied += 1;
+    }
+    return copied;
+  }
+
+  /** Shuts the WebView's worker down for good: the app's node holds everything (OPEN-91 P5). */
+  retireWorker(): void {
+    if (!this.bridgeReady) return;
+    this.bridge.terminate();
+    this.bridgeReady = false;
+  }
+
+  /** A device-local value (the user id and cached-user mirrors): the node's core, else the worker. */
+  async getDeviceLocal(path: string): Promise<any> {
+    if (this.nativeNode) return this.nativeNode.core({ name: 'device.get', path });
+    if (!this.bridgeReady) return null;
+    const value = await this.bridge.get(path);
+    return value ?? null;
+  }
+
+  async putDeviceLocal(path: string, value: unknown): Promise<void> {
+    if (this.nativeNode) {
+      await this.nativeNode.core({ name: 'device.put', path, value });
+      return;
+    }
+    if (this.bridgeReady) await this.bridge.put(path, value);
+  }
+
   getStoredPair(): GunPair | null {
     return this.seaPair;
   }

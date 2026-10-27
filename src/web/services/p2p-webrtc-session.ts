@@ -769,22 +769,26 @@ export class P2PConversationSession {
 
   private async handleLedgerState(feeds: LedgerState): Promise<void> {
     this.ledgerRemoteReceived = true;
-    if (this.config.getLedgerDelta) {
-      const events = await this.config.getLedgerDelta(feeds);
-      // Keep frames comfortably below common DataChannel message limits. The channel is
-      // ordered, so the peer persists these batches before any later DM frame is handled.
-      for (let offset = 0; offset < events.length; offset += 32) {
-        await this.sendChannelFrame({
-          type: 'ledger-events',
-          events: events.slice(offset, offset + 32),
-        } satisfies LedgerEventsWirePayload);
+    try {
+      if (this.config.getLedgerDelta) {
+        const events = await this.config.getLedgerDelta(feeds);
+        // Keep frames comfortably below common DataChannel message limits. The channel is
+        // ordered, so the peer persists these batches before any later DM frame is handled.
+        for (let offset = 0; offset < events.length; offset += 32) {
+          await this.sendChannelFrame({
+            type: 'ledger-events',
+            events: events.slice(offset, offset + 32),
+          } satisfies LedgerEventsWirePayload);
+        }
       }
-    }
-    if (this.config.onRemoteLedgerState) {
-      await this.config.onRemoteLedgerState(this.config.otherUserId, feeds);
-    }
-    if (this.ledgerLocalSent || !this.config.getLedgerState) {
-      this.markLedgerReady();
+      if (this.config.onRemoteLedgerState) {
+        await this.config.onRemoteLedgerState(this.config.otherUserId, feeds);
+      }
+    } finally {
+      // A failed delta must not leave the link waiting on a handshake that cannot finish.
+      if (this.ledgerLocalSent || !this.config.getLedgerState) {
+        this.markLedgerReady();
+      }
     }
   }
 
@@ -1475,8 +1479,18 @@ export class P2PConversationSession {
       return;
     }
     if (frame.type !== 'dm' || !('message' in frame) || !frame.message) return;
-    if (!this.ledgerReady && this.config.getLedgerState) return;
-    await this.ingestWireMessage(frame.message);
+    await this.receiveDm(frame.message);
+  }
+
+  /**
+   * A peer's DM. The ledger handshake runs first, so its events are stored before the DM; but a
+   * DM is never dropped for it — a phone builds its ledger delta from the device core one record
+   * at a time, and a DM that arrived meanwhile was lost for good (native-app/37, 2026-10-27).
+   * Waits as long as the sender does (`waitForLedgerReady`), then takes the DM.
+   */
+  private async receiveDm(message: DmWirePayload['message']): Promise<void> {
+    if (!this.ledgerReady && this.config.getLedgerState) await this.waitForLedgerReady();
+    await this.ingestWireMessage(message);
   }
 
   private async ingestWireMessage(
