@@ -118,4 +118,16 @@ describe('the Gun-backed store', () => {
     await expect(gunGraphStore(silent, { getTimeoutMs: 20 }).childKeys('local/exchanges')).rejects.toThrow('storage did not answer');
     await expect(gunGraphStore(empty).childKeys('local/exchanges')).resolves.toEqual([]);
   });
+
+  it('a found node answers after a short wait; only a miss waits for slow storage, and not on the node', async () => {
+    const { gunGraphStore } = await import('../../core/graph-store');
+    const waits: number[] = [];
+    const gunWith = (data: unknown) => ({ get: () => ({ once: (cb: (d: unknown) => void, opt: { wait: number }) => { waits.push(opt.wait); cb(data); } }) });
+    await expect(gunGraphStore(gunWith({ a: 1 })).get('local/x')).resolves.toEqual({ a: 1 });
+    expect(waits.splice(0)).toEqual([30]);
+    await expect(gunGraphStore(gunWith(undefined)).get('local/x')).resolves.toBeNull();
+    expect(waits.splice(0)).toEqual([30, 1500]);
+    await expect(gunGraphStore(gunWith(undefined), { missWaitMs: 0 }).get('local/x')).resolves.toBeNull();
+    expect(waits.splice(0)).toEqual([30]);
+  });
 });
