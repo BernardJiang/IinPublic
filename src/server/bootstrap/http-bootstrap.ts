@@ -7,6 +7,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import Gun from 'gun';
+import { installSharingPolicy } from '../../core/sharing-policy';
 import { logger } from '../logger';
 import { requestLogger } from '../middleware/request-logger';
 import { createE2eLatencyMiddleware, resolveE2eLatencyConfig } from '../middleware/e2e-latency';
@@ -305,6 +306,9 @@ export function attachGun(server: HttpServer): any {
   // Embedded nodes persist on-device: keep WebRTC signaling frames out of Radisk and bounded in RAM
   // (they re-hydrated into V8 until phones crashed out of memory — transient-signal-store-filter.ts).
   if (embedded.enabled) installTransientSignalStoreFilter(Gun as unknown as Parameters<typeof installTransientSignalStoreFilter>[0]);
+  // The node hosts the device core (OPEN-91 P5): its private namespaces never reach the hub it
+  // dials, nor the WebView's Gun — the same filter the page's Gun runs (src/core/sharing-policy.ts).
+  if (embedded.enabled) installSharingPolicy(Gun);
 
   // OPEN-73: count Gun wire traffic by record shape for /api/debug/runtime-window (debug builds).
   if (process.env.NODE_ENV !== 'production') installGunWireCounter(Gun as unknown as Parameters<typeof installGunWireCounter>[0]);

@@ -55,6 +55,9 @@ const child = spawn(
       // desktop shell does (platforms/desktop/main.js).
       IINPUBLIC_NODE_MODULES_ROOT: path.join(repoRoot, 'node_modules'),
       IINPUBLIC_LOOPBACK_ONLY: '1',
+      // The device core on loopback (OPEN-91 P5): the shell's secret, here a fixed test one the
+      // phone-path pages are given (tests/e2e/phone-path/phone-path-helpers.ts PHONE_NODE_CORE_TOKEN).
+      IINPUBLIC_CORE_TOKEN: process.env.PHONE_NODE_CORE_TOKEN || 'e2e-phone-path-core-token-0123456789abcdef',
       // No mDNS LAN discovery: otherwise phone A and phone B sync with each other directly (not
       // only through the hub, which is the route under test), and any real phone running the app
       // on this Wi-Fi feeds its Gun data in — a test Place from a release smoke showed up on a

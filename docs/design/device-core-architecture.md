@@ -179,6 +179,26 @@ Each phase ships on its own and keeps every test green.
    record, both mirrored to the worker's IndexedDB so a hard kill cannot lose them.
 5. **P5 — The native host**: the same core bundle runs in the embedded Node process; the WebView
    becomes GUI-only over loopback; its Gun instances go away.
+   Slices:
+   - **P5.1 (2026-10-26): the node hosts the core.** `POST /api/core` on the embedded node
+     (`src/server/routes/core-routes.ts`) runs the same handler over the node's Gun (radisk on
+     disk); the node's Gun runs the sharing policy too, so `local/` never reaches the hub or the
+     WebView's Gun. Loopback ports are reachable by any program on the device, so the route exists
+     only with the shell's per-process secret (`Authorization: Bearer …`): Android's
+     `NodeForegroundService` secret (also the background agent's), handed to its own WebView by
+     `IinPublicBackground.localNodeToken()`; desktop's `IINPUBLIC_CORE_TOKEN`, handed out by the
+     preload (`iinpublicNative.localNodeToken()`) to the app's own origin only. The GUI picks the
+     node when it has the secret and the node answers (`src/web/services/node-core-link.ts`),
+     otherwise the web worker (browsers; iOS until its shell passes a secret), and copies the
+     worker's core into the node once (`migrateWorkerCoreToNode`, marked in `appData`).
+   - **P5.2: the WebView's private Gun goes.** What the worker Gun still holds (SEA-private user
+     data, the incoming-Talk mirror, the Talk repositories, chatbot memory backups) moves to the
+     node's core behind core requests; the worker remains only for browsers.
+   - **P5.3: the page's hub Gun goes on native.** Public records, rosters and signalling reach the
+     hub through the node (it already peers with the hub); the WebView talks only to its node.
+   - **P5.4: the core's logic runs in the node.** Core commands (deliver a Talk, answer, chatbot)
+     execute where the data is; the GUI sends commands and renders views, with the WebRTC adapter
+     still in the WebView until the node has its own.
 6. **P6 — One Gun on the web**: the page's hub-connected Gun goes away; the worker core is the only
    one.
 

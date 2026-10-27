@@ -197,6 +197,27 @@ scope.onmessage = async (event: MessageEvent) => {
         reply(id, null, typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted);
         break;
       }
+      case 'privateKeys': {
+        // Every private record key this worker holds (to copy them to the app's node, OPEN-91 P5).
+        // A key with '/' is stored as nested nodes: walk them; a string field is an encrypted record.
+        if (!currentUser) { reply(id, 'Not logged in', null); break; }
+        const root = `users/${currentUser.pair.pub}/private`;
+        const keys: string[] = [];
+        const walk = async (prefix: string, depth: number): Promise<void> => {
+          if (depth > 8) return;
+          const node = await gunGet(prefix ? `${root}/${prefix}` : root) as Record<string, unknown> | null;
+          if (!node || typeof node !== 'object') return;
+          for (const [key, value] of Object.entries(node)) {
+            if (key === '_' || value === null || value === undefined) continue;
+            const path = prefix ? `${prefix}/${key}` : key;
+            if (typeof value === 'string') keys.push(path);
+            else if (typeof value === 'object' && (value as Record<string, unknown>)['#']) await walk(path, depth + 1);
+          }
+        };
+        await walk('', 0);
+        reply(id, null, keys);
+        break;
+      }
       case 'subscribePrivate': {
         if (!currentUser) { reply(id, 'Not logged in', null); break; }
         const user = currentUser;

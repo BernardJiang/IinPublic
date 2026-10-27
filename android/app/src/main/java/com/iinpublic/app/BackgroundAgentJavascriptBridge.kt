@@ -13,4 +13,7 @@ class BackgroundAgentJavascriptBridge {
         NodeForegroundService.acknowledgeBackgroundAgentEvents(idsJson)
 
     @JavascriptInterface fun status(): String = NodeForegroundService.backgroundAgentStatus()
+
+    /** The secret this app's embedded node requires on loopback (the device core, OPEN-91 P5). */
+    @JavascriptInterface fun localNodeToken(): String = NodeForegroundService.localNodeToken()
 }

@@ -64,6 +64,14 @@ class NodeForegroundService : Service() {
         private const val NEARBY_CHECKPOINT_MAX_AGE_MS = 20 * 60 * 1000L
 
         @Volatile var nodeStarted = false
+
+        /** The embedded node's per-process secret: the background agent's and the device core's
+         *  (`/api/core`); handed to this app's own WebView only (`IinPublicBackground`). */
+        private val processLocalNodeToken: String by lazy {
+            ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        }
+
+        internal fun localNodeToken(): String = processLocalNodeToken
         @Volatile private var serviceInstance: NodeForegroundService? = null
         @Volatile var nearbyListener: NearbyConnectivityManager.Listener? = null
 
@@ -215,9 +223,9 @@ class NodeForegroundService : Service() {
     private lateinit var nearbyManager: NearbyConnectivityManager
     private var mailboxWatcher: MailboxWatcher? = null
     private lateinit var backgroundAgent: BackgroundAgentCoordinator
-    private val backgroundAgentToken: String by lazy {
-        ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
-    }
+    // One secret per process, like the node it is given to (nodeStarted latches per process): a
+    // recreated service must not mint a new one the running node never saw.
+    private val backgroundAgentToken: String get() = processLocalNodeToken
 
     override fun onCreate() {
         super.onCreate()

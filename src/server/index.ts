@@ -39,6 +39,8 @@ import { isLoopbackEmbeddedNode, resolveTlsMode } from './tls-mode';
 import { registerLocalLinkRoutes } from './routes/local-link-routes';
 import { BackgroundTalkAgent } from './services/background-talk-agent';
 import { registerBackgroundAgentRoutes } from './routes/background-agent-routes';
+import { localNodeToken, registerCoreRoutes } from './routes/core-routes';
+import { registerGunRpcRoutes } from './routes/gun-rpc-routes';
 
 /**
  * Create the HTTP(S) server the app listens on.
@@ -304,6 +306,12 @@ class IinPublicServer {
       nodeEnv: process.env.NODE_ENV,
       ...(this.hubRelayClient ? { hubRelayClient: this.hubRelayClient } : {}),
     });
+
+    const coreToken = localNodeToken(process.env);
+    if (isLoopbackEmbeddedNode(process.env) && coreToken) {
+      registerCoreRoutes(this.app, this.gun, coreToken, process.env.IINPUBLIC_DATA_DIR || process.cwd());
+      registerGunRpcRoutes(this.app, this.gun, coreToken);
+    }
 
     const backgroundAgentToken = String(process.env.IINPUBLIC_BACKGROUND_AGENT_TOKEN || '');
     if (isLoopbackEmbeddedNode(process.env) && backgroundAgentToken.length >= 32) {

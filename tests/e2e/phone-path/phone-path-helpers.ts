@@ -35,6 +35,9 @@ export type OpenUserOptions = {
   context?: BrowserContext;
 };
 
+/** The phone nodes' device-core secret (scripts/e2e-phone-node.mjs). */
+export const PHONE_NODE_CORE_TOKEN = process.env.PHONE_NODE_CORE_TOKEN || 'e2e-phone-path-core-token-0123456789abcdef';
+
 export async function openUser(
   browser: Browser,
   label: string,
@@ -63,6 +66,11 @@ export async function openUser(
     });
   }
   if (!options.context) await injectIdbClear(page);
+  // A phone's page reaches its node's device core with the shell's secret (OPEN-91 P5); the hub
+  // page (a browser) keeps the web worker's core.
+  if (origin !== 'hub') {
+    await page.addInitScript((token) => { (window as any).__IINPUBLIC_LOCAL_NODE_TOKEN__ = token; }, PHONE_NODE_CORE_TOKEN);
+  }
   const query = new URLSearchParams({
     e2e_place_min_friends: String(options.placeMinFriendMarks ?? 0),
     ...options.extraQuery,

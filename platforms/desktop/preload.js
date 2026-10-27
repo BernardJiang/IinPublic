@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('iinpublicNative', {
     remove: (expected) => ipcRenderer.invoke('iinpublic:custody:remove', expected),
   },
   embeddedNode: true,
+  /** The secret the app's node requires for the device core on loopback (OPEN-91 P5). */
+  localNodeToken: () => ipcRenderer.invoke('iinpublic:local-node-token'),
   version: argumentValue('iinpublic-app-version'),
   startup: {
     processLaunchEpochMs: finiteEpoch(

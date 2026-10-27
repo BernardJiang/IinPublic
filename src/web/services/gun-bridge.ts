@@ -164,6 +164,11 @@ export class GunBridge {
   }
 
   /** Read and decrypt from the current user's private namespace. */
+  /** Every private record key the worker holds (for copying them to the app's node). */
+  privateKeys(): Promise<string[]> {
+    return this.send('privateKeys', {});
+  }
+
   getPrivate(key: string): Promise<any> {
     return this.send('getPrivate', { key });
   }
