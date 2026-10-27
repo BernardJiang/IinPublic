@@ -41,7 +41,9 @@ function forgetDeviceSouls(gun: any): void {
 
 /** The node's device core. `resetForTesting` is a wiped device (e2e clear-database). */
 export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): { resetForTesting: () => void } {
-  let handle = createCoreHandler(gunGraphStore(gun), { freshDevice: freshDataDir(dataDir) });
+  // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
+  const store = () => gunGraphStore(gun, { missWaitMs: 0 });
+  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir) });
   const authorized = (req: express.Request): boolean => token.length >= 32 && req.get('authorization') === `Bearer ${token}`;
 
   app.post('/api/core', async (req, res) => {
@@ -59,7 +61,7 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   return {
     resetForTesting: () => {
       forgetDeviceSouls(gun);
-      handle = createCoreHandler(gunGraphStore(gun), { freshDevice: true });
+      handle = createCoreHandler(store(), { freshDevice: true });
     },
   };
 }

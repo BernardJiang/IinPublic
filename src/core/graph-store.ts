@@ -16,7 +16,7 @@ export interface GraphStore {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** A Gun-backed store. `gun` is a Gun instance (worker or Node). */
-export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTimeoutMs?: number; readWaitMs?: number } = {}): GraphStore {
+export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTimeoutMs?: number; readWaitMs?: number; missWaitMs?: number } = {}): GraphStore {
   // Writes go through the chain, so each parent links its children (`childKeys` lists them).
   const ref = (path: string): any => path.split('/').filter(Boolean).reduce((node: any, part, i) => (i === 0 ? gun.get(part) : node.get(part)), null);
   // Reads ask for the node's soul directly: a chained node's soul is its path (`local/exchanges`).
@@ -25,20 +25,28 @@ export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTim
   const soul = (path: string): string => path.split('/').filter(Boolean).join('/');
   // A node that does not exist answers at once (undefined); no answer at all means storage is slow
   // or busy — an error, so the caller can retry rather than mistake it for "nothing here".
-  const once = (path: string): Promise<any> => new Promise((resolve, reject) => {
+  // Gun's `once(cb, { wait })` always waits the whole `wait` before calling back, found or not.
+  const onceWithin = (path: string, wait: number): Promise<any> => new Promise((resolve, reject) => {
     let done = false;
     const timer = setTimeout(() => { if (!done) { done = true; reject(new Error(`storage did not answer for ${path}`)); } }, options.getTimeoutMs ?? 6000);
-    // Gun's `once` reports "not found" after ~99 ms by default; a cold worker reading IndexedDB
-    // through radisk can take longer, which made the log look empty after a reload under load
-    // (e2e stage1/94). A node that exists still answers as soon as it is loaded; only a missing one
-    // waits the whole time (a new device's first start).
     gun.get(soul(path)).once((data: any) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       resolve(data ?? null);
-    }, { wait: options.readWaitMs ?? 1500 });
+    }, { wait });
   });
+  // So a read waits briefly, which is enough for a node in storage. Only a miss waits longer: a
+  // cold worker reading IndexedDB through radisk can report "not found" before the node loads,
+  // which made the log look empty after a reload under load (e2e stage1/94). A host whose storage
+  // answers a miss for certain (the native node's disk) passes `missWaitMs: 0`; every read there
+  // used to cost the whole wait, 1.5 s, and a phone's start-up made dozens of them (OPEN-91 P5).
+  const once = async (path: string): Promise<any> => {
+    const found = await onceWithin(path, options.readWaitMs ?? 30);
+    const missWait = options.missWaitMs ?? 1500;
+    if (found !== null || missWait <= 0) return found;
+    return onceWithin(path, missWait);
+  };
   return {
     put: (path, value) => new Promise((resolve, reject) => {
       // A peerless instance acks from its own storage; a missing ack is not a failed write.
