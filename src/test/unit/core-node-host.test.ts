@@ -29,6 +29,17 @@ describe('the node core route', () => {
     expect(bad.body.ok).toBe(false);
   });
 
+  it('forgets the device on a test wipe: its own cached souls go, shared ones stay (phone-path reset)', async () => {
+    const server = express();
+    server.use(express.json());
+    const gun = { get: () => ({ once: () => undefined }), _: { next: { local: {}, 'local/device/x': {}, 'users/u1/private': {}, 'users/u1': {}, talks: {} } } };
+    const core = registerCoreRoutes(server, gun, TOKEN, '/nonexistent-data-dir');
+    core.resetForTesting();
+    expect(Object.keys(gun._.next).sort()).toEqual(['talks', 'users/u1']);
+    const response = await request(server).post('/api/core').set('authorization', `Bearer ${TOKEN}`).send({ request: { name: 'exchanges.snapshot' } }).expect(200);
+    expect(response.body.value).toEqual([]);
+  });
+
   it('takes the secret from the shell only when it is long enough', () => {
     expect(localNodeToken({ IINPUBLIC_CORE_TOKEN: 'short' })).toBe('');
     expect(localNodeToken({ IINPUBLIC_BACKGROUND_AGENT_TOKEN: TOKEN })).toBe(TOKEN);

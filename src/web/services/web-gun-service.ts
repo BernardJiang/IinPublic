@@ -2,7 +2,7 @@ import Gun from 'gun';
 import { installSharingPolicy } from '../../core/sharing-policy';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
-import { RemoteGun } from './remote-gun';
+import { RemoteGun, httpGunTransport } from './remote-gun';
 import type { CoreRequest } from '../../core/protocol';
 import { getSEA } from '../sea-gun';
 import { isDevStageZero } from '../dev-stage-env';
@@ -446,8 +446,7 @@ export class WebGunService extends EventEmitter {
 
   async initialize(): Promise<void> {
     if (this.nativeNode) {
-      const remote = new RemoteGun(this.nativeNode.baseUrl, this.nativeNode.token);
-      this.gun = remote;
+      this.gun = new RemoteGun(httpGunTransport(this.nativeNode.baseUrl, this.nativeNode.token));
       this.connected = true;
       console.log('🔗 Gun: the app node’s (no Gun in the WebView)');
       if (this.nativeNode.keepWorker) {
@@ -462,6 +461,37 @@ export class WebGunService extends EventEmitter {
       }
       return;
     }
+    // The page's Gun is the core worker's (OPEN-91 P6): one Gun on the device, persisted to
+    // IndexedDB and peered with the hub behind the sharing policy. The page keeps Gun's chain API
+    // through a thin client. A worker that will not start leaves the page its own Gun, as before P6.
+    if (this.workerGunAllowed()) {
+      try {
+        await this.bridge.init({ hubUrl: this.peers[0], peer: true });
+        this.bridgeReady = true;
+        this.gun = new RemoteGun(this.bridge.gunTransport());
+        this.gun.on('hi', () => console.log('🤝 Gun peer connected (core worker)'));
+        this.connected = true;
+        console.log('🔗 Gun: the core worker’s (no Gun on the page) — hub:', this.peers[0]);
+        return;
+      } catch (bridgeErr) {
+        console.warn('⚠️ Core worker unavailable — the page runs its own Gun:', bridgeErr);
+        this.bridge.terminate();
+        this.bridge = new GunBridge('/core-worker.js');
+      }
+    }
+    await this.initializePageGun();
+  }
+
+  /** `?pageGun=1` keeps the pre-P6 layout (Gun on the page, a peerless worker beside it), for comparison. */
+  private workerGunAllowed(): boolean {
+    try {
+      return typeof Worker !== 'undefined' && new URLSearchParams(window.location.search).get('pageGun') !== '1';
+    } catch {
+      return typeof Worker !== 'undefined';
+    }
+  }
+
+  private async initializePageGun(): Promise<void> {
     try {
       // ── Direct Gun instance (backward compat for existing services) ──
       // Gun AXE (axe.js) auto-adds localhost peers and can mesh multiple parallel e2e

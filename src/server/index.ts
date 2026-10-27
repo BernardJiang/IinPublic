@@ -228,6 +228,9 @@ class IinPublicServer {
     return fromBody;
   }
 
+  /** The device core on an embedded node (OPEN-91 P5); absent on the hub. */
+  private deviceCore: { resetForTesting: () => void } | null = null;
+
   private clearForTesting(): void {
     this.broadcastTagPopularityStore.resetForTesting();
     this.mailboxStore.resetForTesting();
@@ -250,6 +253,8 @@ class IinPublicServer {
         // Same reasoning for the durable presence store (presence-durable-store.ts) — isolated
         // from the ephemeral graph on purpose, so it needs its own explicit reset too.
         await this.presenceStore.resetForTesting();
+        // An embedded node is a device: a wipe must also forget its owner (OPEN-91 P5 core).
+        this.deviceCore?.resetForTesting();
         await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,
@@ -309,7 +314,7 @@ class IinPublicServer {
 
     const coreToken = localNodeToken(process.env);
     if (isLoopbackEmbeddedNode(process.env) && coreToken) {
-      registerCoreRoutes(this.app, this.gun, coreToken, process.env.IINPUBLIC_DATA_DIR || process.cwd());
+      this.deviceCore = registerCoreRoutes(this.app, this.gun, coreToken, process.env.IINPUBLIC_DATA_DIR || process.cwd());
       registerGunRpcRoutes(this.app, this.gun, coreToken);
     }
 

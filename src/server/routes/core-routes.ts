@@ -8,9 +8,12 @@
 import fs from 'fs';
 import path from 'path';
 import type express from 'express';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createCoreHandler } from '../../core/core-handler';
 import { gunGraphStore } from '../../core/graph-store';
 import type { CoreRequest } from '../../core/protocol';
+import { soulLeavesDevice } from '../../core/sharing-policy';
 
 export function localNodeToken(env: NodeJS.ProcessEnv): string {
   const token = String(env.IINPUBLIC_CORE_TOKEN || env.IINPUBLIC_BACKGROUND_AGENT_TOKEN || '');
@@ -26,8 +29,19 @@ function freshDataDir(dataDir: string): boolean {
   }
 }
 
-export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): void {
-  const handle = createCoreHandler(gunGraphStore(gun), { freshDevice: freshDataDir(dataDir) });
+/**
+ * Forgets the device's own records in this Gun's memory. Emptying `gun._.graph` is not enough: each
+ * soul's chain keeps its last value (`gun._.next[soul]`) and answers reads from it.
+ */
+function forgetDeviceSouls(gun: any): void {
+  const next = gun?._?.next;
+  if (!next || typeof next !== 'object') return;
+  for (const soul of Object.keys(next)) if (!soulLeavesDevice(soul)) delete next[soul];
+}
+
+/** The node's device core. `resetForTesting` is a wiped device (e2e clear-database). */
+export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): { resetForTesting: () => void } {
+  let handle = createCoreHandler(gunGraphStore(gun), { freshDevice: freshDataDir(dataDir) });
   const authorized = (req: express.Request): boolean => token.length >= 32 && req.get('authorization') === `Bearer ${token}`;
 
   app.post('/api/core', async (req, res) => {
@@ -41,4 +55,11 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
       res.status(400).json({ ok: false, error: (error as Error).message });
     }
   });
+
+  return {
+    resetForTesting: () => {
+      forgetDeviceSouls(gun);
+      handle = createCoreHandler(gunGraphStore(gun), { freshDevice: true });
+    },
+  };
 }

@@ -14,7 +14,43 @@ import { openCurrentChatroom } from '../helpers/chatroom-nav';
 /** A point in central San Diego; every journey user stands within a few hundred metres of it. */
 export const JOURNEY_COORDS = { latitude: 32.7157, longitude: -117.1611 } as const;
 
-export type JourneyUser = { label: string; origin: PhonePathOrigin; context: BrowserContext; page: Page };
+export type JourneyUser = {
+  label: string;
+  origin: PhonePathOrigin;
+  context: BrowserContext;
+  page: Page;
+  /** The phone node this user's app runs on (a phone user's, not the hub's). */
+  nodeUrl?: string;
+  /** Gives the user's phone back: stops a node started for them, or frees the shared one. */
+  releasePhone?: () => Promise<void>;
+};
+
+/**
+ * One person, one phone (OPEN-91 P5): a phone node is a device's one Gun and core, signed in as one
+ * owner, so two people must never share one. The first person on `phoneA`/`phoneB` gets that node;
+ * anyone opened while it is taken gets a phone node of their own, stopped when they close.
+ */
+const phoneInUse = new Set<string>();
+const OWN_PHONE_PORTS = Array.from({ length: 40 }, (_, i) => 18300 + i);
+const freeOwnPhonePorts = [...OWN_PHONE_PORTS];
+
+async function takePhone(origin: PhonePathOrigin): Promise<{ url: string; release: () => Promise<void> }> {
+  const shared = phonePathURL(origin);
+  if (!phoneInUse.has(shared)) {
+    phoneInUse.add(shared);
+    return { url: shared, release: async () => { phoneInUse.delete(shared); } };
+  }
+  const port = freeOwnPhonePorts.shift();
+  if (port === undefined) throw new Error('no free port for another phone node');
+  const node = await startPhoneNode(port, PHONE_PATH_PORTS.hub);
+  return {
+    url: node.url,
+    release: async () => {
+      await node.stop();
+      freeOwnPhonePorts.push(port);
+    },
+  };
+}
 
 /** Clear the hub and both phone nodes (in-memory graphs and per-run stores). */
 export async function resetPhonePath(request: APIRequestContext): Promise<void> {
@@ -75,11 +111,13 @@ export async function openUser(
     e2e_place_min_friends: String(options.placeMinFriendMarks ?? 0),
     ...options.extraQuery,
   });
-  await page.goto(`${options.baseUrl ?? phonePathURL(origin)}/?${query.toString()}`);
+  const phone = origin !== 'hub' && !options.baseUrl ? await takePhone(origin) : null;
+  const baseUrl = options.baseUrl ?? phone?.url ?? phonePathURL(origin);
+  await page.goto(`${baseUrl}/?${query.toString()}`);
   await page.waitForLoadState('load');
   await waitForAppReady(page, 60_000);
   await pinLocation(page, coords);
-  return { label, origin, context, page };
+  return { label, origin, context, page, ...(origin !== 'hub' ? { nodeUrl: baseUrl } : {}), ...(phone ? { releasePhone: phone.release } : {}) };
 }
 
 /** Put the user's GPS fix in place directly, the same as `pinStableE2eLocation` does. */
@@ -99,6 +137,7 @@ export async function closeUsers(...users: Array<JourneyUser | undefined>): Prom
     if (!user) continue;
     await user.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
     await user.context.close().catch(() => {});
+    await user.releasePhone?.().catch(() => {});
   }
 }
 

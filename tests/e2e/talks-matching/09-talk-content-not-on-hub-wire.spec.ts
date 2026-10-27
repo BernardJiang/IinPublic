@@ -44,14 +44,26 @@ type WireEvent = {
 };
 
 /** Namespaces that never leave the device (src/core/sharing-policy.ts). */
-const PRIVATE_NAMESPACES = ['local', 'pairs', 'deliveryJournal'];
+const PRIVATE_NAMESPACES = ['local', 'pairs', 'deliveryJournal', 'device-local', 'nodes', 'edges'];
+
+/** The Gun messages in a frame: one message, or a batch — an array of messages or of their JSON. */
+function gunMessages(payload: string): any[] {
+  const parsed = JSON.parse(payload);
+  return (Array.isArray(parsed) ? parsed : [parsed]).flatMap((msg) => {
+    if (typeof msg !== 'string') return [msg];
+    try {
+      return gunMessages(msg);
+    } catch {
+      return [];
+    }
+  });
+}
 
 /** Every soul a Gun frame writes (`put`) or asks for (`get`) in a private namespace. */
 function privateSoulsIn(payload: string): string[] {
   const out = new Set<string>();
   try {
-    const parsed = JSON.parse(payload);
-    for (const msg of Array.isArray(parsed) ? parsed : [parsed]) {
+    for (const msg of gunMessages(payload)) {
       const souls = [...Object.keys((msg?.put ?? {}) as Record<string, unknown>), ...(typeof msg?.get?.['#'] === 'string' ? [msg.get['#']] : [])];
       for (const soul of souls) if (PRIVATE_NAMESPACES.includes(decodeURIComponent(soul).split('/')[0])) out.add(soul);
     }
@@ -65,8 +77,7 @@ function privateSoulsIn(payload: string): string[] {
 function soulsCarryingMarkers(payload: string): string[] {
   const out = new Set<string>();
   try {
-    const parsed = JSON.parse(payload);
-    for (const msg of Array.isArray(parsed) ? parsed : [parsed]) {
+    for (const msg of gunMessages(payload)) {
       for (const [soul, node] of Object.entries((msg?.put ?? {}) as Record<string, unknown>)) {
         const text = JSON.stringify(node);
         if (Object.values(MARKERS).some((marker) => text.includes(marker))) out.add(soul);

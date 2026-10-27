@@ -1,15 +1,75 @@
 /**
- * On native the WebView runs no Gun (OPEN-91 P5): the device's one Gun is the app's embedded node.
- * This is a thin client with the part of Gun's chain API the app uses — `get`, `put`, `once`, `on`,
- * `off`, `map`, `user().auth` — that keeps no graph and no storage and sends each operation to the
- * node (src/server/routes/gun-rpc-routes.ts) over loopback with the shell's secret. Subscriptions
- * arrive on one streamed response and are restored if it drops.
+ * The GUI's Gun when it runs none (OPEN-91 P5/P6): the device's one Gun is the app's embedded node
+ * on native, and the core worker on the web. This is a thin client with the part of Gun's chain API
+ * the app uses — `get`, `put`, `once`, `on`, `off`, `map`, `user().auth` — that keeps no graph and
+ * no storage and sends each operation (src/core/gun-rpc.ts) to that Gun through a transport:
+ * loopback HTTP with the shell's secret, or the worker's `postMessage`.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 type Callback = (data: any, key: string, msg?: unknown, ev?: { off: () => void }) => void;
 type Sub = { path: string[]; map: boolean; cb: Callback };
+type GunEvent = { sub: string; data: unknown; key: string };
+
+/** How operations reach the device's Gun, and how subscription events come back. */
+export interface GunRpcTransport {
+  call(body: Record<string, unknown>): Promise<any>;
+  /**
+   * Starts a session whose subscription events go to `onEvent`; resolves to its id. `onClose` is
+   * called if the session ends (every subscription in it is then gone).
+   */
+  open(onEvent: (event: GunEvent) => void, onClose: () => void): Promise<string>;
+  /** The device's Gun reached a peer ('hi'); a transport that cannot tell leaves this out. */
+  onPeer?(cb: () => void): void;
+}
+
+/** The app's node over loopback (native): POST /api/gun-rpc, events on one streamed response. */
+export function httpGunTransport(baseUrl: string, token: string): GunRpcTransport {
+  return {
+    async call(body) {
+      const response = await fetch(`${baseUrl}/api/gun-rpc`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const answer = await response.json().catch(() => null);
+      if (!response.ok || !answer) throw new Error(answer?.err || `node Gun answered ${response.status}`);
+      return answer;
+    },
+    open(onEvent, onClose) {
+      return new Promise<string>((resolveSession, rejectSession) => {
+        void (async () => {
+          try {
+            const response = await fetch(`${baseUrl}/api/gun-rpc/stream`, { headers: { authorization: `Bearer ${token}` } });
+            if (!response.ok || !response.body) throw new Error(`node Gun stream answered ${response.status}`);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            for (;;) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              let newline = buffer.indexOf('\n');
+              while (newline >= 0) {
+                const line = buffer.slice(0, newline).trim();
+                buffer = buffer.slice(newline + 1);
+                newline = buffer.indexOf('\n');
+                if (!line) continue;
+                const message = JSON.parse(line);
+                if (message.session) resolveSession(message.session);
+                else onEvent(message);
+              }
+            }
+          } catch (error) {
+            rejectSession(error);
+          }
+          onClose();
+        })();
+      });
+    },
+  };
+}
 
 export class RemoteGun {
   private session: Promise<string> | null = null;
@@ -18,7 +78,10 @@ export class RemoteGun {
   private readonly hiListeners: Array<() => void> = [];
   private connected = false;
 
-  constructor(private readonly baseUrl: string, private readonly token: string) {}
+  constructor(private readonly transport: GunRpcTransport) {
+    // A transport that sees the device's peers says when one answers; otherwise the first answer.
+    transport.onPeer?.(() => this.markConnected());
+  }
 
   get(key: string): RemoteChain {
     return new RemoteChain(this, [String(key)], false);
@@ -28,78 +91,50 @@ export class RemoteGun {
     return new RemoteChain(this, ['~user'], false);
   }
 
-  /** Peers are the node's business; 'hi' fires once the node answers. */
+  /** Peers are the device Gun's business; 'hi' fires once it answers (or reaches a peer). */
   on(event: string, cb: () => void): void {
     if (event !== 'hi') return;
     if (this.connected) cb();
     else this.hiListeners.push(cb);
   }
 
-  /** Peers belong to the node's Gun: another phone's node found here is handed to it. */
+  /** Peers belong to the device's Gun: another phone's node found here is handed to it. */
   opt(options?: { peers?: string[] }): void {
     if (options?.peers?.length) void this.rpc({ op: 'peer', urls: options.peers }).catch(() => undefined);
   }
 
+  private markConnected(): void {
+    if (this.connected) return;
+    this.connected = true;
+    for (const cb of this.hiListeners.splice(0)) cb();
+  }
+
   async rpc(body: Record<string, unknown>): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/api/gun-rpc`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
-      body: JSON.stringify(body),
-    });
-    const answer = await response.json().catch(() => null);
-    if (!response.ok || !answer) throw new Error(answer?.err || `node Gun answered ${response.status}`);
-    if (!this.connected) {
-      this.connected = true;
-      for (const cb of this.hiListeners.splice(0)) cb();
-    }
+    const answer = await this.transport.call(body);
+    if (!answer) throw new Error('device Gun gave no answer');
+    if (!this.transport.onPeer) this.markConnected();
     return answer;
   }
 
-  /** One streamed response carries every subscription; reopened (and re-subscribed) if it ends. */
-  private openStream(): Promise<string> {
-    this.session ??= new Promise<string>((resolveSession, rejectSession) => {
-      void (async () => {
-        try {
-          const response = await fetch(`${this.baseUrl}/api/gun-rpc/stream`, { headers: { authorization: `Bearer ${this.token}` } });
-          if (!response.ok || !response.body) throw new Error(`node Gun stream answered ${response.status}`);
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let sessionId = '';
-          for (;;) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            let newline = buffer.indexOf('\n');
-            while (newline >= 0) {
-              const line = buffer.slice(0, newline).trim();
-              buffer = buffer.slice(newline + 1);
-              newline = buffer.indexOf('\n');
-              if (!line) continue;
-              const message = JSON.parse(line);
-              if (message.session) {
-                sessionId = message.session;
-                resolveSession(sessionId);
-                continue;
-              }
-              const sub = this.subs.get(message.sub);
-              if (sub) sub.cb(message.data ?? undefined, message.key, undefined, { off: () => this.unsubscribe(message.sub) });
-            }
-          }
-        } catch (error) {
-          rejectSession(error);
-        }
-        // Ended: the next subscription (and every live one, now) uses a new stream.
+  /** One session carries every subscription; reopened (and re-subscribed) if it ends. */
+  private openSession(): Promise<string> {
+    this.session ??= this.transport.open(
+      (event) => {
+        const sub = this.subs.get(event.sub);
+        if (sub) sub.cb(event.data ?? undefined, event.key, undefined, { off: () => this.unsubscribe(event.sub) });
+      },
+      () => {
+        // Ended: the next subscription (and every live one, now) uses a new session.
         this.session = null;
-        if (this.subs.size > 0) setTimeout(() => this.resubscribeAll(), 1_000);
-      })();
-    });
+        if (this.subs.size > 0) setTimeout(() => void this.resubscribeAll(), 1_000);
+      },
+    );
     return this.session;
   }
 
   private async resubscribeAll(): Promise<void> {
     try {
-      const session = await this.openStream();
+      const session = await this.openSession();
       for (const [id, sub] of this.subs) await this.rpc({ op: 'on', session, sub: id, path: sub.path, map: sub.map });
     } catch {
       setTimeout(() => void this.resubscribeAll(), 2_000);
@@ -109,7 +144,7 @@ export class RemoteGun {
   subscribe(path: string[], map: boolean, cb: Callback): string {
     const id = `s${++this.nextSub}`;
     this.subs.set(id, { path, map, cb });
-    void this.openStream()
+    void this.openSession()
       .then((session) => this.rpc({ op: 'on', session, sub: id, path, map }))
       .catch(() => setTimeout(() => void this.resubscribeAll(), 2_000));
     return id;

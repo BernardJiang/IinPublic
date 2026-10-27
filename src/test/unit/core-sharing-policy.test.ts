@@ -3,7 +3,7 @@ import Gun from 'gun';
 import { createCoreHandler } from '../../core/core-handler';
 import { DeliveryStore, DELIVERY_JOURNAL_PATH, SENT_RESPONSES_PATH } from '../../core/delivery';
 import { memoryGraphStore } from '../../core/graph-store';
-import { filterOutgoingGunMessage, installSharingPolicy, soulLeavesDevice } from '../../core/sharing-policy';
+import { filterOutgoingGunMessage, guardMeshSay, installSharingPolicy, soulLeavesDevice } from '../../core/sharing-policy';
 import type { P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
 
 const response: P2PMeshTalkResponsePayload = {
@@ -47,6 +47,47 @@ describe('the sharing policy', () => {
     expect(Object.keys(mixed.put)).toEqual(['users/u1']);
     const shared = { '#': '4', put: { 'users/u1': { a: 1 } } };
     expect(filterOutgoingGunMessage(shared)).toBe(shared);
+  });
+
+  it('keeps what the web worker held privately on the device, now that it peers with the hub (P6)', () => {
+    for (const soul of ['users/pub1/private', 'users/pub1/private/talks/t1', 'device-local/cached-user', 'nodes/n1', 'edges/a/link/b']) {
+      expect(soulLeavesDevice(soul)).toBe(false);
+    }
+    for (const soul of ['users/pub1', 'users/pub1/publicProfile', 'users/private']) expect(soulLeavesDevice(soul)).toBe(true);
+  });
+
+  it('removes links to private nodes from a shared node, with their state', () => {
+    const out = filterOutgoingGunMessage({ '#': '5', put: { 'users/pub1': {
+      _: { '#': 'users/pub1', '>': { name: 1, private: 1 } },
+      name: 'Ann',
+      private: { '#': 'users/pub1/private' },
+    } } });
+    expect(out.put['users/pub1']).toEqual({ _: { '#': 'users/pub1', '>': { name: 1 } }, name: 'Ann' });
+  });
+
+  it("sends an ack's status, never data a storage adapter put in it", () => {
+    expect(filterOutgoingGunMessage({ '@': 'a', ok: '{"local":{"x":"secret"}}' })).toEqual({ '@': 'a', ok: 1 });
+    expect(filterOutgoingGunMessage({ '@': 'a', ok: { local: { x: 'secret' } } }).ok).toBe(1);
+    for (const ok of [1, 0, true, { '': 1 }]) {
+      const ack = { '@': 'a', ok };
+      expect(filterOutgoingGunMessage(ack)).toBe(ack);
+    }
+  });
+
+  it("guards the mesh's say, where Gun re-asks for its subscriptions on reconnect", () => {
+    const said: any[] = [];
+    const mesh: any = { say(msg: any) { said.push(msg); return true; } };
+    guardMeshSay(mesh);
+    guardMeshSay(mesh); // once only
+    expect(mesh.say({ get: { '#': 'local', '.': 'collections' } })).toBe(false);
+    const shared = { get: { '#': 'users/u1' } };
+    mesh.say(shared);
+    const raw = function () { /* Gun's message meta */ } as any;
+    raw.raw = '{"put":{"local/x":{"secret":1}}}';
+    mesh.say({ '#': 'm', put: { 'users/u1': { a: 1 }, 'local/x': { secret: 1 } }, _: raw });
+    expect(said[0]).toBe(shared);
+    expect(said[1]).toEqual({ '#': 'm', put: { 'users/u1': { a: 1 } } });
+    expect(said).toHaveLength(2);
   });
 
   it('sits ahead of the wire on a real Gun instance; local writes still land', async () => {
