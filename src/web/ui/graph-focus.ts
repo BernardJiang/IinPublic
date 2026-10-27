@@ -11,14 +11,22 @@ import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { buildTagGraph, type TagGraph, type TagGraphInput } from '../../core/tag-graph';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
+import { readExchanges } from '../services/exchange-view';
 import { getFlatAnswerHistory } from './answer-history-storage';
-import type { UiTranslationKey } from './ui-translations';
+import { uiText, type UiTranslationKey } from './ui-translations';
+import { escapeHtml } from './ui-formatters';
 
 /** `peerIds`, when set, are the people themselves (a place's), not derived from the Talks. */
-export type GraphTopic = { label: string; talkIds: string[]; isTag: boolean; peerIds?: string[] };
+export type GraphTopic = { label: string; talkIds: string[]; isTag: boolean; peerIds?: string[]; roomId?: string };
 export type GraphPlace = { roomId: string; roomName: string; at: number };
 export type ContactsFocus = { label: string; peerIds: string[] };
-export type TalksFocus = { label: string; talkIds: string[] };
+export type TalksFocus = { label: string; talkIds: string[]; peerId?: string; roomId?: string };
+
+type PlaceFocus = { roomId: string; roomName: string };
+let placeFocus: PlaceFocus | null = null;
+let navigating = false;
+let graphText: (key: UiTranslationKey) => string = (key) => uiText('en', key);
+export function configureGraphText(text: (key: UiTranslationKey) => string): void { graphText = text; }
 
 const TOPIC_INPUT_ID = 'contacts-filter-topic';
 let talksFocus: TalksFocus | null = null;
@@ -29,7 +37,7 @@ let tagGraphInput: (() => TagGraphInput) | null = null;
  * Back along the graph: where each followed link was followed from — the tab, its narrowing, and
  * the person page if one was open. The AppBar's ‹ steps back; a tab tapped by hand starts afresh.
  */
-type TrailStep = { view: string; topic: string; talks: TalksFocus | null; me: TalksFocus | null; person: { id: string; name: string } | null };
+type TrailStep = { view: string; topic: string; contactTopic: GraphTopic | undefined; talks: TalksFocus | null; me: TalksFocus | null; person: { id: string; name: string } | null; place: PlaceFocus | null; chatrooms: { list: string; detail: string } };
 const trail: TrailStep[] = [];
 let openPersonPage: ((peerId: string, name: string) => void) | null = null;
 
@@ -51,7 +59,10 @@ function currentStep(): TrailStep {
     : null;
   return {
     view,
+    place: placeFocus,
+    chatrooms: { list: document.getElementById('chatroom-list-container')?.style.display || '', detail: document.getElementById('chatroom-detail-container')?.style.display || '' },
     topic: (document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null)?.value || '',
+    contactTopic: linkedTopics.get(norm((document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null)?.value || '')),
     talks: talksFocus,
     me: meFocus,
     person: personEl ? { id: personEl.dataset.peerId || '', name: personEl.dataset.peerName || '' } : null,
@@ -63,15 +74,27 @@ export function goBackAlongGraph(): void {
   const step = trail.pop();
   syncBackButton();
   if (!step) return;
+  if (step.contactTopic) linkedTopics.set(norm(step.topic), step.contactTopic);
+  else linkedTopics.delete(norm(step.topic));
+  placeFocus = step.place;
   talksFocus = step.talks;
   meFocus = step.me;
-  openTab(step.view as 'contacts' | 'talks' | 'me' | 'chatrooms', { record: false });
   const input = document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null;
   if (input && input.value !== step.topic) {
     input.value = step.topic;
     input.dispatchEvent(new Event('input'));
   }
-  if (step.person && openPersonPage) openPersonPage(step.person.id, step.person.name);
+  openTab(step.view as 'contacts' | 'talks' | 'me' | 'chatrooms', { record: false });
+  if (step.view === 'chatrooms') {
+    const list = document.getElementById('chatroom-list-container');
+    const detail = document.getElementById('chatroom-detail-container');
+    if (list) list.style.display = step.chatrooms.list;
+    if (detail) detail.style.display = step.chatrooms.detail;
+  }
+  if (step.person && openPersonPage) {
+    openPersonPage(step.person.id, step.person.name);
+    bindPersonBack(trail.at(-1));
+  }
 }
 /** Topics a link opened that my answer history does not hold (a tag I created, say), by text. */
 const linkedTopics = new Map<string, GraphTopic>();
@@ -165,25 +188,63 @@ export function getContactsFocus(): ContactsFocus | null {
   const input = document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null;
   const text = input?.value.trim() || '';
   if (!text) return null;
-  const topic = allTopics().get(norm(text)) ?? linkedTopics.get(norm(text));
+  const linked = linkedTopics.get(norm(text));
+  const topic = linked?.isTag ? allTopics().get(norm(text)) ?? linked : linked ?? allTopics().get(norm(text));
   return {
     label: topic?.isTag ? `♡ ${topic.label}` : topic?.label ?? text,
-    peerIds: topic ? peopleForTopic(topic) : [],
+    peerIds: topic?.roomId ? placeSummary(topic.roomId).peerIds : topic ? peopleForTopic(topic) : [],
   };
 }
 
-export function getTalksFocus(): TalksFocus | null {
-  return talksFocus;
+function resolveFocus(focus: TalksFocus | null): TalksFocus | null {
+  if (focus?.peerId || focus?.roomId) return { ...focus, talkIds: [...new Set(readExchanges()
+    .filter((exchange) => (!focus.peerId || exchange.peerId === focus.peerId) && (!focus.roomId || exchange.roomId === focus.roomId))
+    .map((exchange) => exchange.talkId))] };
+  return focus;
+}
+
+export function getTalksFocus(): TalksFocus | null { return resolveFocus(talksFocus); }
+
+function rememberStep(): void {
+  trail.push(currentStep());
+  syncBackButton();
+}
+
+function bindPersonBack(returnStep: TrailStep | undefined): void {
+  document.getElementById('back-from-peer-detail')?.addEventListener('click', () => {
+    if (!navigating && returnStep && trail.at(-1) === returnStep) goBackAlongGraph();
+  });
+}
+
+/** Map nodes lead to identity; edges lead to exchanged content. No Contact is created. */
+export function openMapPerson(peerId: string, name: string, open = openPersonPage): void {
+  openTab('contacts');
+  const returnStep = trail.at(-1);
+  open?.(peerId, name);
+  bindPersonBack(returnStep);
+}
+
+export function openMapMe(): void {
+  rememberStep();
+  meFocus = null;
+  openTab('me', { record: false });
+}
+
+export function openPeerTalks(peerId: string, label: string): void {
+  rememberStep();
+  talksFocus = { peerId, label, talkIds: [] };
+  openTab('talks', { record: false });
 }
 
 /** The Me rows a person page or a Talks tag leads to: only the answers to these Talks. */
 export function getMeFocus(): TalksFocus | null {
-  return meFocus;
+  return resolveFocus(meFocus);
 }
 
 export function openMeFocus(next: TalksFocus): void {
+  rememberStep();
   meFocus = next;
-  openTab('me');
+  openTab('me', { record: false });
 }
 
 export function clearMeFocus(): void {
@@ -210,10 +271,12 @@ function bindNavReset(): void {
     if (!nav || nav.dataset.focusOpening) return;
     // A tab tapped by hand starts afresh: no way back along links followed before it.
     trail.length = 0;
+    placeFocus = null;
+    renderGraphPlaceView();
     syncBackButton();
-    if (nav.dataset.view !== 'contacts') clearContactsFocus();
-    if (nav.dataset.view !== 'talks') talksFocus = null;
-    if (nav.dataset.view !== 'me') meFocus = null;
+    clearContactsFocus();
+    talksFocus = null;
+    meFocus = null;
   }, true);
 }
 
@@ -223,27 +286,31 @@ function openTab(view: 'contacts' | 'talks' | 'me' | 'chatrooms', options: { rec
     trail.push(currentStep());
     syncBackButton();
   }
-  // A person page or a chat thread sits over the tabs: step back out of it first, so the list shows.
-  for (const [overlayId, backId] of [['peer-detail-overlay', 'back-from-peer-detail'], ['conversation-detail-overlay', 'back-from-conversation']]) {
-    const overlay = document.getElementById(overlayId);
-    if (overlay && getComputedStyle(overlay).display !== 'none') document.getElementById(backId)?.click();
-  }
-  const tab = document.querySelector<HTMLElement>(`.nav-btn[data-view="${view}"]`);
-  if (!tab) return;
-  tab.dataset.focusOpening = '1';
+  navigating = true;
   try {
-    tab.click();
-  } finally {
-    delete tab.dataset.focusOpening;
-  }
+    // A person page or a chat thread sits over the tabs: step back out of it first, so the list shows.
+    for (const [overlayId, backId] of [['peer-detail-overlay', 'back-from-peer-detail'], ['conversation-detail-overlay', 'back-from-conversation']]) {
+      const overlay = document.getElementById(overlayId);
+      if (overlay && getComputedStyle(overlay).display !== 'none') document.getElementById(backId)?.click();
+    }
+    const tab = document.querySelector<HTMLElement>(`.nav-btn[data-view="${view}"]`);
+    if (!tab) return;
+    tab.dataset.focusOpening = '1';
+    try {
+      tab.click();
+    } finally {
+      delete tab.dataset.focusOpening;
+    }
+  } finally { navigating = false; renderGraphPlaceView(); }
 }
 
 /** Shows Contacts filtered to a question's people: the same as typing it into the filter. */
 export function openContactsTopic(label: string, fallback?: GraphTopic): void {
+  rememberStep();
   if (fallback) linkedTopics.set(norm(label), fallback);
   const input = document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null;
   if (input) input.value = label;
-  openTab('contacts');
+  openTab('contacts', { record: false });
 }
 
 export function clearContactsFocus(): void {
@@ -253,8 +320,9 @@ export function clearContactsFocus(): void {
 
 /** Shows the Talks list narrowed to the Talks that asked a question. */
 export function openTalksFocus(next: TalksFocus): void {
+  rememberStep();
   talksFocus = next;
-  openTab('talks');
+  openTab('talks', { record: false });
 }
 
 export function clearTalksFocus(): void {
@@ -340,6 +408,14 @@ let linksBound = false;
 export function bindGraphLinks(): void {
   if (linksBound) return;
   linksBound = true;
+  bindNavReset();
+  document.addEventListener('keydown', (event) => {
+    const link = (event.target as HTMLElement | null)?.closest?.('.graph-link') as HTMLElement | null;
+    if (!link || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    link.click();
+  }, true);
   document.addEventListener('click', (event) => {
     // Links that carry their topic; others (a person page's) handle their own clicks.
     if ((event.target as HTMLElement | null)?.closest?.('#graph-back-btn')) {
@@ -354,15 +430,15 @@ export function bindGraphLinks(): void {
     const talkIds = (link.dataset.talkIds || '').split(' ').filter(Boolean);
     const peerIds = link.dataset.peerIds ? link.dataset.peerIds.split(' ').filter(Boolean) : undefined;
     if (link.classList.contains('graph-place-link')) {
-      openPlace(link.dataset.roomId || '');
+      openPlace(link.dataset.roomId || '', topic);
     } else if (peerIds) {
-      openContactsTopic(topic, { label: topic, talkIds, isTag: false, peerIds });
+      openContactsTopic(topic, { label: topic, talkIds, isTag: false, peerIds, ...(link.dataset.roomId ? { roomId: link.dataset.roomId } : {}) });
     } else if (link.classList.contains('graph-answer-link')) {
-      openMeFocus({ label: `${link.textContent || ''} ${topic}`.trim(), talkIds });
+      openMeFocus({ label: link.classList.contains('answer-tag-mark') ? `${link.textContent || ''} ${topic}`.trim() : topic, talkIds, ...(link.dataset.roomId ? { roomId: link.dataset.roomId } : {}) });
     } else if (link.classList.contains('graph-people-link')) {
       openContactsTopic(topic, talkIds.length ? { label: topic, talkIds, isTag: link.dataset.tag === '1' } : undefined);
     } else {
-      openTalksFocus({ label: `💬 ${topic}`, talkIds });
+      openTalksFocus({ label: `💬 ${topic}`, talkIds, ...(link.dataset.roomId ? { roomId: link.dataset.roomId } : {}) });
     }
   }, true);
 }
@@ -420,32 +496,56 @@ export function placeLinksHtml(
   const name = roomName || placesOf({}).find((place) => place.roomId === roomId)?.roomName || roomId;
   const topic = `📍 ${name}`;
   const people = peerIds.length
-    ? `<span class="graph-link graph-people-link" data-testid="place-people" data-topic="${deps.escapeHtml(topic)}" data-peer-ids="${deps.escapeHtml(peerIds.join(' '))}" role="link" tabindex="0">👥 ${deps.escapeHtml(deps.text('placeMetHere').replace('{count}', String(peerIds.length)))}</span>`
+    ? `<span class="graph-link graph-people-link" data-testid="place-people" data-room-id="${deps.escapeHtml(roomId)}" data-topic="${deps.escapeHtml(topic)}" data-peer-ids="${deps.escapeHtml(peerIds.join(' '))}" role="link" tabindex="0">👥 ${deps.escapeHtml(deps.text('placeMetHere').replace('{count}', String(peerIds.length)))}</span>`
     : '';
   const talks = talkIds.length
-    ? `<span class="graph-link graph-talks-link" data-testid="place-talks" data-topic="${deps.escapeHtml(topic)}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" role="link" tabindex="0">💬 ${deps.escapeHtml(deps.text('placeTalksHere').replace('{count}', String(talkIds.length)))}</span>`
+    ? `<span class="graph-link graph-talks-link" data-testid="place-talks" data-room-id="${deps.escapeHtml(roomId)}" data-topic="${deps.escapeHtml(topic)}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" role="link" tabindex="0">💬 ${deps.escapeHtml(deps.text('placeTalksHere').replace('{count}', String(talkIds.length)))}</span>`
     : '';
-  return `<div class="place-graph-links" data-testid="place-graph-links" data-room-id="${deps.escapeHtml(roomId)}">${people}${talks}</div>`;
+  const answers = answersLinkHtml(topic, talkIds, deps, roomId);
+  return `<div class="place-graph-links" data-testid="place-graph-links" data-room-id="${deps.escapeHtml(roomId)}">${people}${talks}${answers}</div>`;
 }
 
-/** "📍 Nearby" — a link to where this was (most recently) exchanged; nothing when no place is known. */
+/** Every known exchange Place has its own inspectable link. */
 export function placeLinkHtml(
   places: GraphPlace[],
   deps: { escapeHtml: (text: string) => string; text: (key: UiTranslationKey) => string },
 ): string {
-  const place = places[0];
-  if (!place) return '';
-  const more = places.length > 1 ? ` +${places.length - 1}` : '';
-  return `<span class="graph-link graph-place-link" data-testid="answer-place" data-topic="${deps.escapeHtml(place.roomName)}" data-room-id="${deps.escapeHtml(place.roomId)}" role="link" tabindex="0" title="${deps.escapeHtml(deps.text('placeWhereExchanged'))}">📍 ${deps.escapeHtml(place.roomName)}${more}</span>`;
+  return places.map((place) => `<span class="graph-link graph-place-link" data-testid="answer-place" data-topic="${deps.escapeHtml(place.roomName)}" data-room-id="${deps.escapeHtml(place.roomId)}" role="link" tabindex="0" title="${deps.escapeHtml(deps.text('placeWhereExchanged'))}">📍 ${deps.escapeHtml(place.roomName)}</span>`).join(' ');
 }
 
-/**
- * Shows a place: Chatrooms, and for a Place its own room (entered from its row there). Nearby is
- * the Chatrooms list itself.
- */
-export function openPlace(roomId: string): void {
-  openTab('chatrooms');
-  if (!roomId || roomId === NEARBY_V3_ROOM_ID) return;
-  const id = (window.CSS?.escape ?? ((value: string) => value))(roomId);
-  document.querySelector<HTMLElement>(`#chatroom-list [data-chatroom-id="${id}"], #chatroom-list [data-room-id="${id}"]`)?.click();
+/** My answers associated with these Talks; available for every Talk type. */
+export function answersLinkHtml(topic: string, talkIds: string[], deps: { escapeHtml: (text: string) => string; text: (key: UiTranslationKey) => string; answeredTalkIds?: ReadonlySet<string> }, roomId?: string): string {
+  const known = deps.answeredTalkIds ?? new Set(Object.values(getFlatAnswerHistory()).map((record) => record.talkId));
+  const answered = [...new Set(talkIds)].filter((id) => known.has(id));
+  if (!answered.length) return '';
+  return `<span class="graph-link graph-answer-link" data-testid="graph-my-answers" data-topic="${deps.escapeHtml(topic)}" data-talk-ids="${deps.escapeHtml(answered.join(' '))}"${roomId ? ` data-room-id="${deps.escapeHtml(roomId)}"` : ''} role="link" tabindex="0">${deps.escapeHtml(deps.text('graphMyAnswers'))}</span>`;
+}
+
+/** Inspect exchange history, including unlisted Places, without joining or travelling. */
+export function openPlace(roomId: string, roomName = ''): void {
+  rememberStep();
+  placeFocus = { roomId, roomName: roomName || placesOf({}).find((place) => place.roomId === roomId)?.roomName || (roomId === NEARBY_V3_ROOM_ID ? graphText('chatroomNearbyName') : graphText('graphUnknownPlace')) };
+  openTab('chatrooms', { record: false });
+}
+
+/** Kept separate from the live audience, whose map and list retain their state behind this view. */
+export function renderGraphPlaceView(): void {
+  document.body.toggleAttribute('data-graph-place-active', !!placeFocus && document.querySelector('.nav-btn.active')?.getAttribute('data-view') === 'chatrooms');
+  const view = document.getElementById('chatrooms-view');
+  if (!view) return;
+  view.classList.toggle('graph-place-focused', !!placeFocus);
+  let panel = document.getElementById('graph-place-panel');
+  if (!placeFocus) { panel?.remove(); return; }
+  if (!panel) {
+    panel = document.createElement('section');
+    panel.id = 'graph-place-panel';
+    panel.setAttribute('data-testid', 'graph-place-panel');
+    view.appendChild(panel);
+  }
+  const { roomId, roomName } = placeFocus;
+  panel.dataset.roomId = roomId;
+  panel.innerHTML = `<h2>${escapeHtml(roomName)}</h2><p>${escapeHtml(graphText('graphPlaceHistory'))}</p>`
+    + (placeLinksHtml(roomId, roomName, { escapeHtml, text: graphText }) || `<p role="status">${escapeHtml(graphText('graphPlaceEmpty'))}</p>`)
+    + `<button type="button" class="btn" data-testid="graph-place-back">${escapeHtml(graphText('graphBack'))}</button>`;
+  panel.querySelector('button')!.addEventListener('click', goBackAlongGraph);
 }

@@ -359,7 +359,10 @@ export class IinPublicApp {
   /** Interaction ledger (Phase E). Initialized lazily after SEA keypair is ready. */
   private ledgerService: WebLedgerService | null = null;
   private uiManager: UIManager;
-  private readonly mapMatchView = new MapMatchView((counts) => this.uiManager.setMapMatchCounts(counts));
+  private readonly mapMatchView = new MapMatchView(
+    (counts) => this.uiManager.setMapMatchCounts(counts),
+    (talks) => this.uiManager.setMapTalkConnections(talks),
+  );
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
   private currentChatroomId?: string;

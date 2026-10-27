@@ -54,10 +54,11 @@ describe('places in the graph', () => {
     document.querySelector<HTMLElement>('#place [data-testid="place-people"]')!.click();
     expect(getContactsFocus()).toEqual({ label: '📍 Nearby', peerIds: ['ben', 'ann'] });
     document.querySelector<HTMLElement>('#place [data-testid="place-talks"]')!.click();
-    expect(getTalksFocus()).toEqual({ label: '💬 📍 Nearby', talkIds: ['tag-pizza', 'tag-jazz'] });
+    expect(getTalksFocus()).toEqual({ label: '💬 📍 Nearby', roomId: 'nearby-v3', talkIds: ['tag-pizza', 'tag-jazz'] });
   });
 
-  it('an answer’s 📍 opens the place: Chatrooms, and a Place’s own room', () => {
+  it('an answer’s 📍 inspects any recorded Place without entering it', () => {
+    document.body.insertAdjacentHTML('beforeend', '<div id="chatrooms-view"></div>');
     const entered = jest.fn();
     document.querySelector('[data-chatroom-id="place_coffee"]')!.addEventListener('click', entered);
     let chatrooms = 0;
@@ -65,10 +66,12 @@ describe('places in the graph', () => {
     document.body.insertAdjacentHTML('beforeend', `<div id="answer">${placeLinkHtml(placesOf({ talkIds: ['tag-pizza'] }), deps)}</div>`);
     bindGraphLinks();
     const link = document.querySelector<HTMLElement>('#answer [data-testid="answer-place"]')!;
-    expect(link.textContent).toContain('📍 Coffee Room +1');
+    expect(link.textContent).toContain('📍 Coffee Room');
+    expect(document.querySelectorAll('#answer [data-testid="answer-place"]')).toHaveLength(2);
     link.click();
     expect(chatrooms).toBe(1);
-    expect(entered).toHaveBeenCalledTimes(1);
+    expect(entered).not.toHaveBeenCalled();
+    expect(document.getElementById('graph-place-panel')?.dataset.roomId).toBe('place_coffee');
   });
 });
 

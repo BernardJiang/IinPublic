@@ -13,6 +13,7 @@ import {
   type ChatroomMapLocation,
 } from '../../shared/chatroom-map-locations';
 import { MapBroadcastEffects, type MapBroadcastEvent, type MapEffectAnchors } from './map-broadcast-effects';
+import { MapTalkConnections, type MapTalkConnection } from './map-talk-connections';
 import { layoutMapUsers, selfMapPosition, type UserDotGroup } from './map-user-layout';
 import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
 export { groupUserDots } from './map-user-layout';
@@ -73,6 +74,16 @@ export type RoomMemberCardSource = {
   message: (userId: string, stageName: string) => void;
   contact?: (userId: string, stageName: string) => void;
   matchText?: (count: number) => string;
+  navigation?: {
+    me: () => void;
+    talks: (userId: string, stageName: string) => void;
+    meText: string;
+    relationshipText: string;
+    talksText: string;
+    travelText: string;
+    countText: (count: number) => string;
+    withText: (name: string) => string;
+  };
   profile: (userId: string, stageName: string) => void;
   text: { message: string; profile: string; online: string; away: string; matched: string; traveler: string };
 };
@@ -136,6 +147,7 @@ export type MapUserDots = {
   /** Current room roster: these users can exchange Talks with me. */
   roomMemberIds: ReadonlySet<string>;
   matchCounts?: ReadonlyMap<string, number>;
+  talkIdsByPeer?: ReadonlyMap<string, readonly string[]>;
   roomTravelerIds?: ReadonlySet<string>;
   isCandidate?: (dot: MapPresenceDot) => boolean;
   load: (bounds: MapBounds) => Promise<{ dots: MapPresenceDot[]; density: MapDensityCell[] }>;
@@ -158,6 +170,7 @@ type MapState = {
   userDotMarkers: MapLibreMarker[];
   userDotGroups?: UserDotGroup[];
   broadcastEffects?: MapBroadcastEffects;
+  talkConnections?: MapTalkConnections;
   userDotTimer?: ReturnType<typeof setTimeout> | undefined;
   userDotRequest: number;
   /** Last dot query, reused for the same view for USER_DOT_REUSE_MS (the list re-renders often). */
@@ -293,6 +306,7 @@ function clearSelection(state: MapState): void {
 
 function handleMapTap(maplibre: MapLibre, state: MapState, latitude: number, longitude: number): void {
   clearSelection(state);
+  state.talkConnections?.select();
   if (state.options.selectNearbyPoint) selectNearbyPoint(maplibre, state, { latitude, longitude });
 }
 
@@ -300,11 +314,13 @@ function handleMapTap(maplibre: MapLibre, state: MapState, latitude: number, lon
 function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotGroup): void {
   const source = state.options.roomMemberCard;
   if (!source) return;
+  state.awaitingListFit = false;
   clearSelection(state);
   const card = document.createElement('div');
   card.className = 'chatroom-map-tile-card chatroom-map-member-card';
   card.setAttribute('data-testid', 'map-member-card');
   card.addEventListener('click', (event) => event.stopPropagation());
+  card.addEventListener('dblclick', (event) => { event.preventDefault(); event.stopPropagation(); });
   for (const userId of group.userIds) {
     const summary = source.describe(userId);
     const row = document.createElement('div');
@@ -351,13 +367,35 @@ function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotG
     profile.type = 'button';
     profile.className = 'chatroom-map-member-profile';
     profile.setAttribute('data-testid', 'map-member-profile');
-    profile.textContent = `👤 ${source.text.profile}`;
+    profile.textContent = `👤 ${source.navigation?.relationshipText ?? source.text.profile}`;
     profile.addEventListener('click', (event) => {
       event.stopPropagation();
       clearSelection(state);
       source.profile(userId, summary.stageName);
     });
     actions.append(message, profile);
+    if (source.navigation) {
+      const talks = document.createElement('button');
+      talks.type = 'button';
+      talks.className = 'chatroom-map-member-profile';
+      talks.dataset.testid = 'map-member-talks';
+      talks.textContent = source.navigation.talksText;
+      talks.addEventListener('click', () => {
+        clearSelection(state);
+        state.awaitingListFit = false;
+        source.navigation!.talks(userId, summary.stageName);
+      });
+      actions.appendChild(talks);
+      if (group.kind === 'other' && state.options.selectNearbyPoint) {
+        const travel = document.createElement('button');
+        travel.type = 'button';
+        travel.className = 'chatroom-map-member-profile';
+        travel.dataset.testid = 'map-member-travel';
+        travel.textContent = source.navigation.travelText;
+        travel.addEventListener('click', () => handleMapTap(maplibre, state, group.latitude, group.longitude));
+        actions.appendChild(travel);
+      }
+    }
     row.append(avatar, info, actions);
     card.appendChild(row);
     void source.loadProfile?.(userId).then((loaded) => {
@@ -383,6 +421,29 @@ function showRoomMemberCard(maplibre: MapLibre, state: MapState, group: UserDotG
   state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom', offset: [0, -14] })
     .setLngLat([group.displayPoint?.longitude ?? group.longitude, group.displayPoint?.latitude ?? group.latitude])
     .addTo(state.map);
+}
+
+function showSelfCard(maplibre: MapLibre, state: MapState, group: UserDotGroup): void {
+  const navigation = state.options.roomMemberCard?.navigation;
+  if (!navigation) return;
+  clearSelection(state);
+  state.talkConnections?.select();
+  const card = document.createElement('div');
+  card.className = 'chatroom-map-tile-card';
+  card.dataset.testid = 'map-self-card';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'chatroom-map-member-profile';
+  open.textContent = navigation.meText;
+  open.dataset.testid = 'map-self-open';
+  open.addEventListener('click', (event) => {
+    event.stopPropagation(); clearSelection(state); state.awaitingListFit = false; navigation.me();
+  });
+  card.addEventListener('dblclick', (event) => { event.preventDefault(); event.stopPropagation(); });
+  card.appendChild(open);
+  const point = group.displayPoint ?? group;
+  state.selectionMarker = new maplibre.Marker({ element: card, anchor: 'bottom', offset: [0, -20] })
+    .setLngLat([point.longitude, point.latitude]).addTo(state.map);
 }
 
 /** Preview a map point as a flat Nearby destination; no internal tile or room id is exposed. */
@@ -733,8 +794,10 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
   });
   map.once('load', () => {
     state.loaded = true;
+    state.talkConnections = new MapTalkConnections(map.getCanvasContainer());
+    map.on('render', () => syncTalkConnections(state));
     state.broadcastEffects = new MapBroadcastEffects(options.container, () => mapEffectAnchors(state), () => state.options.userDots?.broadcastText, map.getCanvasContainer());
-    map.on('remove', () => state.broadcastEffects?.destroy());
+    map.on('remove', () => { state.broadcastEffects?.destroy(); state.talkConnections?.destroy(); });
     map.off('error', failBeforeLoad);
     map.on('error', (event) => {
       state.options.container.dataset.mapError = String(event.error?.message || event.error || 'unknown');
@@ -854,6 +917,39 @@ function syncBroadcastEffects(state: MapState): void {
   state.broadcastEffects?.sync((state.options.broadcastEvents ?? []).filter((event) => event.roomId === state.options.currentChatroom));
 }
 
+function syncTalkConnections(state: MapState): void {
+  const card = state.options.roomMemberCard;
+  const nav = card?.navigation;
+  const source = state.options.userDots;
+  if (!card || !nav || !source || state.map.getZoom() < 14 || !isMapOnScreen(state.options.container)) {
+    state.talkConnections?.clear(); return;
+  }
+  const anchors = mapEffectAnchors(state);
+  if (!anchors.self) { state.talkConnections?.clear(); return; }
+  const { clientWidth: width, clientHeight: height } = state.options.container;
+  const links: MapTalkConnection[] = [];
+  for (const group of state.userDotGroups ?? []) {
+    if (group.kind === 'self' || group.count !== 1 || group.userIds.length !== 1) continue;
+    const peerId = group.userIds[0]!;
+    const count = source.talkIdsByPeer?.get(peerId)?.length ?? 0;
+    const to = anchors.peers.get(peerId);
+    if (!count || !to || to.x < 0 || to.y < 0 || to.x > width || to.y > height) continue;
+    if (Math.hypot(to.x - anchors.self.x, to.y - anchors.self.y) < 64) continue;
+    links.push({ peerId, count, name: card.describe(peerId).stageName, from: anchors.self, to });
+  }
+  // Bound dense views; count-first order keeps the strongest exchange histories discoverable.
+  links.sort((a, b) => b.count - a.count || a.peerId.localeCompare(b.peerId));
+  const obstacles = [...anchors.peers.values(), anchors.self];
+  const place = currentPlaceLocation(state);
+  if (place) {
+    const pin = state.map.project([place.longitude, place.latitude]);
+    obstacles.push({ x: pin.x, y: pin.y - 36 });
+  }
+  state.talkConnections?.sync(links.slice(0, 12), { count: nav.countText, with: nav.withText, open: nav.talksText }, (id, name) => {
+    clearSelection(state); state.awaitingListFit = false; nav.talks(id, name);
+  }, obstacles);
+}
+
 function regionGeoJson(boundary: [number, number][]): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
   return {
     type: 'FeatureCollection',
@@ -875,6 +971,7 @@ function densityGeoJson(cells: ReadonlyArray<MapDensityCell>) {
 function clearUserDots(state: MapState): void {
   state.userDotRequest++;
   state.broadcastEffects?.clear();
+  state.talkConnections?.clear();
   state.userDotGroups = [];
   (state.map.getSource(USER_REGION_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)?.setData(regionGeoJson([]));
   if (state.userDotTimer) clearTimeout(state.userDotTimer);
@@ -907,7 +1004,7 @@ function scheduleUserDots(maplibre: MapLibre, state: MapState, delayMs = 400): v
 /** Below this zoom yellow dots would pile up; the heat layer shows where those people are. */
 const STRANGER_DOT_MIN_ZOOM = 10;
 
-function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => void, card?: RoomMemberCardSource): HTMLElement {
+function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => void, card?: RoomMemberCardSource, onDoubleTap?: () => void): HTMLElement {
   const element = document.createElement('div');
   element.className = `chatroom-map-user-dot chatroom-map-user-dot-${group.kind}`;
   element.dataset.testid = `map-user-dot-${group.kind}`;
@@ -928,6 +1025,10 @@ function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => 
   element.setAttribute('role', onTap ? 'button' : 'img');
   if (onTap) {
     element.tabIndex = 0;
+    element.addEventListener('pointerdown', (event) => event.stopPropagation());
+    element.addEventListener('dblclick', (event) => {
+      event.preventDefault(); event.stopPropagation(); onDoubleTap?.();
+    });
     element.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
@@ -1021,6 +1122,7 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
   }, currentPlaceLocation(state));
   const groups = laidOut.filter((group) => showStrangers || group.kind !== 'other' || group.displayPoint);
   state.userDotGroups = groups;
+  syncTalkConnections(state);
   const signature = JSON.stringify([groups, density, boundary]);
   if (signature === state.userDotSignature && state.userDotMarkers.length === groups.length) {
     ensureUserDotLegend(state, source);
@@ -1032,17 +1134,35 @@ async function refreshUserDots(maplibre: MapLibre, state: MapState): Promise<voi
   // Green dot: who is it (card). Yellow dot: they are outside my room, so it is a tap on that point.
   const onTap = (group: UserDotGroup): (() => void) | undefined => {
     const card = state.options.roomMemberCard;
+    if (group.kind === 'self' && card?.navigation) return () => showSelfCard(maplibre, state, group);
     if (group.matchCount && group.userIds.length === 1 && card?.contact) return () => {
       const userId = group.userIds[0]!;
       clearSelection(state);
+      state.awaitingListFit = false;
       card.contact!(userId, card.describe(userId).stageName);
     };
-    if (group.kind === 'room' && group.userIds.length && state.options.roomMemberCard) return () => showRoomMemberCard(maplibre, state, group);
+    if (group.userIds.length && card) return () => {
+      state.talkConnections?.select(group.count === 1 ? group.userIds[0] : undefined);
+      showRoomMemberCard(maplibre, state, group);
+    };
     if (group.kind === 'other') return () => handleMapTap(maplibre, state, group.latitude, group.longitude);
     return undefined;
   };
+  const onDoubleTap = (group: UserDotGroup): (() => void) => () => {
+    const card = state.options.roomMemberCard;
+    clearSelection(state);
+    state.awaitingListFit = false;
+    if (group.kind === 'self') { card?.navigation?.me(); return; }
+    if (group.count === 1 && group.userIds.length === 1 && card) {
+      const id = group.userIds[0]!;
+      (card.contact ?? card.profile)(id, card.describe(id).stageName);
+      return;
+    }
+    const point = group.displayPoint ?? group;
+    state.map.easeTo({ center: [point.longitude, point.latitude], zoom: Math.min(19, state.map.getZoom() + 2) });
+  };
   state.userDotMarkers = groups.map((group) =>
-    new maplibre.Marker({ element: userDotElement(source, group, onTap(group), state.options.roomMemberCard), offset: group.offset ?? [0, 0] })
+    new maplibre.Marker({ element: userDotElement(source, group, onTap(group), state.options.roomMemberCard, onDoubleTap(group)), offset: group.offset ?? [0, 0] })
       .setLngLat([group.displayPoint?.longitude ?? group.longitude, group.displayPoint?.latitude ?? group.latitude])
       .addTo(state.map));
   (state.map.getSource(USER_DENSITY_SOURCE_ID) as import('maplibre-gl').GeoJSONSource | undefined)
@@ -1077,6 +1197,7 @@ export async function renderChatroomMap(options: ChatroomMapOptions): Promise<vo
       if (state.options.currentChatroom !== options.currentChatroom) {
         clearSelection(state);
         state.broadcastEffects?.clear();
+        state.talkConnections?.clear();
         state.userDotGroups = [];
       }
       state.options = options;

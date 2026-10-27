@@ -5,6 +5,24 @@ describe('map match view', () => {
   const exchange = (outcome: MapMatchExchange['outcome'], revision = 1): MapMatchExchange =>
     ({ peerId: 'eve', talkId: 'talk-1', direction: 'sent', outcome, revision });
 
+  it('applies Talk connection patches and removes old connections on a replacement snapshot or reset', () => {
+    const publishTalks = jest.fn();
+    const view = new MapMatchView(jest.fn(), publishTalks);
+    let update!: (event: MapMatchUpdate) => void;
+    view.setSource({ subscribe: (listener) => { update = listener; return jest.fn(); } });
+    update({ type: 'snapshot', counts: {}, talkIdsByPeer: { eve: ['one', 'one', 'two'] } });
+    expect(publishTalks).toHaveBeenLastCalledWith(new Map([['eve', ['one', 'two']]]));
+    update({ type: 'patch', counts: {}, talkIdsByPeer: { bob: ['three'] } });
+    expect(publishTalks).toHaveBeenLastCalledWith(new Map([['eve', ['one', 'two']], ['bob', ['three']]]));
+    update({ type: 'patch', counts: {}, talkIdsByPeer: { eve: null } });
+    expect(publishTalks).toHaveBeenLastCalledWith(new Map([['bob', ['three']]]));
+    update({ type: 'snapshot', counts: {} });
+    expect(publishTalks).toHaveBeenLastCalledWith(new Map());
+    view.reset();
+    update({ type: 'snapshot', counts: {}, talkIdsByPeer: { eve: ['stale'] } });
+    expect(publishTalks).toHaveBeenLastCalledWith(new Map());
+  });
+
   it('restores a core snapshot and applies committed count updates without reading storage', () => {
     const publish = jest.fn();
     const view = new MapMatchView(publish);

@@ -11,8 +11,12 @@ export class MapMatchView {
   private unsubscribe: (() => void) | undefined;
   private generation = 0;
   private hasSource = false;
+  private talkIdsByPeer = new Map<string, readonly string[]>();
 
-  constructor(private readonly publish: (counts: ReadonlyMap<string, number>) => void) {}
+  constructor(
+    private readonly publish: (counts: ReadonlyMap<string, number>) => void,
+    private readonly publishTalks?: (talks: ReadonlyMap<string, readonly string[]>) => void,
+  ) {}
 
   setSource(source: MapMatchSource | null): void {
     this.reset();
@@ -48,11 +52,20 @@ export class MapMatchView {
     this.hasSource = false;
     this.liveExchanges.clear();
     this.counts.clear();
+    this.talkIdsByPeer.clear();
+    this.publishTalks?.(new Map());
     this.publish(new Map());
   }
 
   private apply(update: MapMatchUpdate): void {
     if (update.type === 'snapshot') this.counts.clear();
+    if (update.type === 'snapshot') this.talkIdsByPeer.clear();
+    for (const [peerId, ids] of Object.entries(update.talkIdsByPeer ?? {})) {
+      const unique = [...new Set(ids ?? [])].filter(Boolean);
+      if (peerId && unique.length) this.talkIdsByPeer.set(peerId, unique);
+      else this.talkIdsByPeer.delete(peerId);
+    }
+    this.publishTalks?.(new Map(this.talkIdsByPeer));
     for (const [peerId, count] of Object.entries(update.counts)) {
       if (peerId && typeof count === 'number' && Number.isSafeInteger(count) && count > 0) this.counts.set(peerId, count);
       else this.counts.delete(peerId);

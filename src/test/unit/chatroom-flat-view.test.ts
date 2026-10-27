@@ -78,6 +78,11 @@ describe('flat Nearby and Places list', () => {
       ],
     });
 
+    const people = document.querySelector('[data-testid="nearby-people-section"]')!;
+    expect(people.firstElementChild).toHaveAttribute('data-testid', 'nearby-self-row');
+    expect(people.firstElementChild).toHaveTextContent('You · Me');
+    expect(document.querySelectorAll('[data-broadcast-self="true"]')).toHaveLength(1);
+    expect(document.querySelector('[data-testid="rooms-near-you-section"] #room-list-sort')).not.toBeNull();
     expect(document.querySelector('[data-testid="room-list-total"]')).toBeNull();
     expect(document.querySelector('[data-testid="current-group-section"]')).toBeNull();
     expect(document.querySelector(`.chatroom-item[data-chatroom-id="${NEARBY_ID}"]`)).toBeNull();
@@ -353,7 +358,7 @@ describe('Nearby screens (§3.7 "Map, list and headcounts")', () => {
     ], 'me');
 
     expect(Array.from(document.querySelectorAll('.chatroom-member-name'), (row) => row.textContent?.trim()))
-      .toEqual(['First by v3', 'Second by v3']);
+      .toEqual(['You', 'First by v3', 'Second by v3']);
   });
 });
 

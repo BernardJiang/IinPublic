@@ -150,7 +150,7 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
   await expect(back).toBeHidden();
   await pizzaRow.locator('[data-testid="answer-place"]').click();
   await expect(active('chatrooms')).toHaveClass(/\bactive\b/);
-  await a.locator('[data-testid="place-graph-links"] [data-testid="place-people"]').click();
+  await a.locator('[data-testid="place-graph-links"]:visible [data-testid="place-people"]').click();
   await expect(a.locator('[data-testid="contacts-focus-chip"]')).toContainText('📍');
   await expect.poll(async () => (await peopleIds(a)).sort(), { timeout: 15_000 }).toEqual([benId, cyId].sort());
   await openPersonFromList(a, benId);
@@ -160,7 +160,7 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
   await a.locator('#back-from-peer-detail').click();
   await back.click();
   await expect(active('chatrooms')).toHaveClass(/\bactive\b/);
-  await expect(a.locator('[data-testid="place-graph-links"] [data-testid="place-talks"]')).toBeVisible();
+  await expect(a.locator('[data-testid="place-graph-links"]:visible [data-testid="place-talks"]')).toBeVisible();
   await back.click();
   await expect(active('me')).toHaveClass(/\bactive\b/);
   await expect(pizzaRow).toBeVisible();

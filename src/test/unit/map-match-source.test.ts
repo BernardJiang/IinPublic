@@ -25,16 +25,20 @@ describe('core exchange view to map badges', () => {
       removePeers: (peerIds) => handle({ name: 'exchanges.removePeers', peerIds }),
     });
     const publish = jest.fn();
-    const view = new MapMatchView(publish);
+    const publishTalks = jest.fn();
+    const view = new MapMatchView(publish, publishTalks);
     try {
       view.setSource(exchangeMapMatchSource);
       expect(publish).toHaveBeenLastCalledWith(new Map([['eve', 2]]));
+      expect(publishTalks).toHaveBeenLastCalledWith(new Map([['eve', ['one', 'two']]]));
       upsertExchange(exchange('one', { outcome: 'mismatch' }));
       expect(publish).toHaveBeenLastCalledWith(new Map([['eve', 2]]));
       upsertExchange(exchange('one', { outcome: 'mismatch', direction: 'received' }));
       expect(publish).toHaveBeenLastCalledWith(new Map([['eve', 1]]));
+      expect(publishTalks).toHaveBeenLastCalledWith(new Map([['eve', ['one', 'two']]]));
       removeExchangePeers(['eve']);
       expect(publish).toHaveBeenLastCalledWith(new Map());
+      expect(publishTalks).toHaveBeenLastCalledWith(new Map());
     } finally {
       view.reset();
       getItem.mockRestore();

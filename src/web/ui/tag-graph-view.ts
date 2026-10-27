@@ -11,7 +11,9 @@ import {
   currentTagGraph,
   openContactsTopic,
   openMeFocus,
-  openTalksFocus,
+  openPeerTalks,
+  answersLinkHtml,
+  bindGraphLinks,
   placeLinkHtml,
   placesOf,
   tagKeyword,
@@ -73,9 +75,9 @@ export function sharedTagsChipHtml(count: number, template: string): string {
 export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerName = ''): void {
   const deps = configured;
   const graph = currentTagGraph();
-  if (!deps || !graph) return;
-  const tags = tagsOfPeer(graph, peerId);
-  if (tags.length === 0) return;
+  if (!deps) return;
+  bindGraphLinks();
+  const tags = graph ? tagsOfPeer(graph, peerId) : [];
   const shared = tags.filter((tag) => tag.shared);
   const exchangedTalkIds = [...new Set(readLocalTalkExchanges()
     .filter((exchange) => String(exchange?.peerId || '') === peerId)
@@ -87,9 +89,10 @@ export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerN
   section.setAttribute('data-testid', 'peer-tags-section');
   markPerson(section, peerId, name);
   section.innerHTML = `
-    <div class="tag-graph-heading">${escapeHtml(deps.t('peerTagsTitle'))}
+    <div class="tag-graph-heading">${tags.length ? escapeHtml(deps.t('peerTagsTitle')) : ''}
       ${shared.length > 0 ? `<span class="graph-link" data-testid="peer-shared-tags-link" role="link" tabindex="0">♡ ${escapeHtml(fill(deps.t('tagsInCommon'), shared.length))}</span>` : ''}
-      ${exchangedTalkIds.length > 0 ? `<span class="graph-link" data-testid="peer-talks-link" role="link" tabindex="0">💬 ${exchangedTalkIds.length}</span>` : ''}
+      ${exchangedTalkIds.length > 0 ? `<span class="graph-link" data-testid="peer-talks-link" role="link" tabindex="0">💬 ${escapeHtml(deps.t('graphOurTalks'))} · ${exchangedTalkIds.length}</span>` : ''}
+      ${answersLinkHtml(name, exchangedTalkIds, { escapeHtml, text: deps.t })}
     </div>
     <div class="tag-graph-chips">${tags.map((tag) => {
       const keyword = tagKeyword(tag.label);
@@ -104,7 +107,7 @@ export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerN
   section.querySelector('[data-testid="peer-shared-tags-link"]')?.addEventListener('click', () =>
     openMeFocus({ label: `♡ ${name}`, talkIds: shared.map((tag) => tag.key) }));
   section.querySelector('[data-testid="peer-talks-link"]')?.addEventListener('click', () =>
-    openTalksFocus({ label: `💬 ${name}`, talkIds: exchangedTalkIds }));
+    openPeerTalks(peerId, `💬 ${name}`));
 }
 
 /** "Met in 📍 Nearby": where I exchanged with this person (most recently), a link to that place. */

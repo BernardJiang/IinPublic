@@ -24,12 +24,18 @@ export class MapBroadcastEffects {
     private readonly anchors: () => MapEffectAnchors,
     private readonly labels?: () => { outgoing: string; incoming: string } | undefined,
     host: HTMLElement = container,
+    private readonly layout: 'map' | 'list' = 'map',
   ) {
     this.svg.classList.add('chatroom-map-broadcast-effects');
     this.svg.setAttribute('aria-hidden', 'true');
-    this.svg.setAttribute('data-testid', 'map-broadcast-effects');
+    this.svg.setAttribute('data-testid', `${layout}-broadcast-effects`);
     host.appendChild(this.svg);
     document.addEventListener('visibilitychange', this.onVisibility);
+  }
+
+  /** Keep event identity and elapsed time when a roster refresh replaces its rows. */
+  attach(host: HTMLElement): void {
+    if (this.svg.parentElement !== host) host.appendChild(this.svg);
   }
 
   sync(events: readonly MapBroadcastEvent[]): void {
@@ -68,7 +74,7 @@ export class MapBroadcastEffects {
     const anchors = this.anchors();
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
     const nodes: SVGElement[] = [];
-    const shape = (name: 'circle' | 'line', attributes: Record<string, string | number>, parent: SVGGElement) => {
+    const shape = (name: 'circle' | 'line' | 'path', attributes: Record<string, string | number>, parent: SVGGElement) => {
       const node = document.createElementNS(SVG_NS, name);
       for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
       parent.appendChild(node);
@@ -94,7 +100,7 @@ export class MapBroadcastEffects {
       const radius = Math.min(Math.max(this.container.clientWidth, this.container.clientHeight), Math.max(72, ...targets.map((point) => Math.hypot(point.x - start.x, point.y - start.y))));
       // Outgoing rings expand from me. Incoming rings expand from the sender, with directed
       // pulses and an arrival halo at me. Reduced motion keeps the same colour/direction static.
-      for (let wave = 0; wave < (reduced ? 1 : 3); wave++) {
+      for (let wave = 0; this.layout === 'map' && wave < (reduced ? 1 : 3); wave++) {
         const phase = reduced ? 0.65 : ((elapsed / 1_500 + wave / 3) % 1);
         shape('circle', { cx: start.x, cy: start.y, r: Math.max(8, radius * (incoming && !sender ? 1 - phase : phase)), opacity: reduced ? 0.5 : (1 - phase) * 0.65, 'stroke-dasharray': incoming ? '4 5' : 'none' }, group);
       }
@@ -102,7 +108,18 @@ export class MapBroadcastEffects {
         shape('line', { x1: start.x, y1: start.y, x2: target.x, y2: target.y, opacity: 0.25, 'stroke-dasharray': incoming ? '3 6' : 'none' }, group);
         const phase = reduced ? 1 : Math.min(1, (elapsed % 1_200) / 900);
         shape('circle', { cx: start.x + (target.x - start.x) * phase, cy: start.y + (target.y - start.y) * phase, r: reduced ? 5 : 4, fill: incoming ? '#a855f7' : '#0284c7' }, group);
+        if (this.layout === 'list') {
+          // Narrow wavefronts travel along the avatar column without crossing names or Places.
+          for (let wave = 0; wave < (reduced ? 1 : 3); wave++) {
+            const progress = reduced ? 0.5 : (elapsed / 1_500 + wave / 3) % 1;
+            const x = start.x + (target.x - start.x) * progress;
+            const y = start.y + (target.y - start.y) * progress;
+            const bend = incoming ? -12 : 12;
+            shape('path', { d: `M ${x - 21} ${y} Q ${x} ${y + bend} ${x + 21} ${y}`, opacity: reduced ? 0.65 : (1 - progress) * 0.8, 'stroke-dasharray': incoming ? '4 3' : 'none' }, group);
+          }
+        }
       }
+      if (this.layout === 'list' && !incoming && !targets.length) shape('circle', { cx: start.x, cy: start.y, r: 20, opacity: 0.6 }, group);
       if (incoming) shape('circle', { cx: anchors.self.x, cy: anchors.self.y, r: reduced ? 19 : 17 + 5 * Math.sin(elapsed / 170), opacity: 0.8 }, group);
       nodes.push(group);
     }
@@ -112,8 +129,9 @@ export class MapBroadcastEffects {
       if (!labels?.[direction] || ![...this.active.values()].some((event) => event.direction === direction)) continue;
       const label = document.createElementNS(SVG_NS, 'text');
       label.textContent = labels[direction];
-      label.setAttribute('x', '12');
-      label.setAttribute('y', String(24 + 22 * labelRow++));
+      label.setAttribute('x', String(this.layout === 'list' ? (anchors.self?.x ?? 0) + 36 + 110 * labelRow : 12));
+      label.setAttribute('y', String(this.layout === 'list' ? (anchors.self?.y ?? 0) + 18 : 24 + 22 * labelRow));
+      labelRow++;
       label.setAttribute('class', 'chatroom-map-broadcast-label');
       label.setAttribute('fill', direction === 'outgoing' ? '#0369a1' : '#7e22ce');
       nodes.push(label);

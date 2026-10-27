@@ -1,3 +1,4 @@
+import { syncListBroadcastEffects } from './list-broadcast-effects';
 import type { MapBroadcastEvent } from './map-broadcast-effects';
 import { getEncounterLocation } from '../services/encounter-location';
 import type { ActiveRoomSort, ActiveRoomsView } from '../../shared/active-rooms';
@@ -13,7 +14,7 @@ import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId } from '../../shared/place-rooms';
 import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId, isPersonalListScope, NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
-import { bindGraphLinks, placeLinksHtml } from './graph-focus';
+import { bindGraphLinks, openMapMe, placeLinksHtml, renderGraphPlaceView } from './graph-focus';
 import { getL1TileInfo, parseTileId, tileBounds, tileCenter, TILE_BOTTOM_LAYER } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
@@ -76,6 +77,7 @@ type ChatroomsViewDeps = {
   openPeerDetail: (userId: string, stageName: string) => void;
   emit: (eventName: string, payload?: unknown) => void;
   currentUserId: string;
+  currentUserName?: string;
   apiBase: string;
   text: (key: UiTranslationKey) => string;
   formatDate: (date: Date) => string;
@@ -340,24 +342,27 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
 
   bindGraphLinks();
   chatroomList.innerHTML = `
-    ${renderRoomListHeader(sort, deps.text, showRoomsSection)}
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
-      ${placeLinksHtml(deps.currentChatroom || NEARBY_V3_ROOM_ID, currentNode?.name || '', deps)}
+      ${renderSelfRow(deps)}
       <div id="nearby-browser-members">
         ${nearbyPeople.length
           ? nearbyPeople.map((member) => renderOrdinaryMemberRow(member, deps, true)).join('')
           : `<p class="chatroom-flat-empty">${deps.text('chatroomNoOtherUsers')}</p>`}
       </div>
+      ${placeLinksHtml(deps.currentChatroom || NEARBY_V3_ROOM_ID, currentNode?.name || '', deps)}
     </section>
     ${showRoomsSection ? `<section class="chatroom-flat-section nearby-browser-rooms" data-testid="rooms-near-you-section">
         <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
+        ${renderRoomListHeader(sort, deps.text, showRoomsSection)}
         ${currentNode ? renderRoomRow(currentNode, true) : ''}
         ${visibleRoomRows.map((row) => renderRoomListRow(row, deps.text, deps.escapeHtml)).join('')}
         ${deps.activeRooms?.hasMore ? `<button type="button" class="btn" id="room-list-more" data-testid="room-list-more">${deps.text('roomListShowMore')}</button>` : ''}
       </section>` : ''}
     </div>`;
 
+  renderGraphPlaceView();
+  bindSelfRow(chatroomList);
   syncNearbyPagingActions(deps, nearbyPeople.length);
 
   document.getElementById('room-list-sort')?.addEventListener('change', (event) => {
@@ -381,6 +386,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     });
   });
   chatroomList.querySelectorAll<HTMLElement>('.nearby-person-item').forEach((item) => {
+    bindPersonRowKeyboard(item);
     item.addEventListener('click', () => {
       const userId = item.dataset.userId;
       if (userId) deps.openPeerDetail(userId, item.dataset.stageName || 'User');
@@ -408,6 +414,7 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   mapContainer.hidden = !isMap;
   if (!isMap) hideTransientMapHint(mapStatus);
   listContainer.classList.toggle('map-mode', isMap);
+  syncPeopleListEffects(deps);
 
   const activateBrowseMode = (mode: 'list' | 'map'): void => {
     const detailContainer = document.getElementById('chatroom-detail-container');
@@ -549,6 +556,14 @@ export function updateChatroomMembers(
   currentUserId: string,
 ): void {
   const chatroomMembersList = document.getElementById('chatroom-members-list');
+  const detail = document.getElementById('chatroom-detail-container');
+  let links = document.getElementById('place-detail-graph-links');
+  if (detail && !links) {
+    links = document.createElement('div');
+    links.id = 'place-detail-graph-links';
+    detail.insertBefore(links, chatroomMembersList);
+  }
+  if (links) links.innerHTML = placeLinksHtml(deps.currentChatroom, deps.customChatrooms.find((room) => room.id === deps.currentChatroom)?.name || '', deps);
   const chatroomStatus = document.getElementById('current-chatroom-status');
   // TechSupport is a built-in Contact only. Filter legacy rows before count, detail state, and
   // rendering so stale relay/Gun data cannot resurrect a support room presence.
@@ -580,7 +595,7 @@ export function updateChatroomMembers(
     }
 
     if (otherMembers.length === 0) {
-      chatroomMembersList.innerHTML = `
+      chatroomMembersList.innerHTML = `${renderSelfRow(deps)}
         <div class="empty-state" style="padding: 40px 20px; text-align: center;">
           <p style="font-size: 1.2em; margin-bottom: 8px;">${deps.text('chatroomNoOtherUsers')}</p>
           <p style="font-size: 0.9em; color: #999;">${deps.text('chatroomFirstHere')}</p>
@@ -595,6 +610,8 @@ export function updateChatroomMembers(
     }
   }
 
+  if (chatroomMembersList) bindSelfRow(chatroomMembersList);
+  syncPeopleListEffects(deps);
   syncStatusBroadcastButtonVisibility(deps.currentChatroom);
 }
 
@@ -625,6 +642,46 @@ function hydrateMemberHeadshots(container: HTMLElement, members: ChatroomMember[
   }
 }
 
+/** A distinct self row is not counted as a nearby recipient. */
+function renderSelfRow(deps: ChatroomsViewDeps): string {
+  if (!deps.currentUserId) return '';
+  const name = deps.currentUserName || deps.nearbyMembers?.find((member) => member.userId === deps.currentUserId)?.stageName;
+  return `<button type="button" class="nearby-self-row" data-testid="nearby-self-row"
+    data-broadcast-self="true" data-broadcast-user-id="${deps.escapeHtml(deps.currentUserId)}"
+    aria-label="${deps.text('mapOpenMe')}">
+    <span class="chatroom-member-avatar" aria-hidden="true">★</span>
+    <span class="chatroom-member-info">
+      <span class="chatroom-member-name">${deps.text('mapUserSelf')}${name ? ` · ${deps.escapeHtml(name)}` : ''}${deps.travelModeActive ? ` <span title="${deps.text('chatroomTraveler')}">✈</span>` : ''}</span>
+      <span class="nearby-self-effect-space" aria-hidden="true"></span>
+    </span>
+    <span class="chatroom-member-arrow" aria-hidden="true">›</span>
+  </button>`;
+}
+
+function bindPersonRowKeyboard(row: HTMLElement): void {
+  row.addEventListener('keydown', (event) => {
+    if (event.target !== row || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    row.click();
+  });
+}
+
+function bindSelfRow(container: HTMLElement): void {
+  const row = container.querySelector<HTMLElement>('.nearby-self-row');
+  if (row) row.onclick = () => openMapMe();
+}
+
+function syncPeopleListEffects(deps: ChatroomsViewDeps): void {
+  const labels = { outgoing: deps.text('listBroadcastOutgoing'), incoming: deps.text('listBroadcastIncoming') };
+  const events = (deps.mapBroadcastEvents ?? []).filter((event) => event.roomId === deps.currentChatroom);
+  const scope = JSON.stringify([deps.currentUserId, deps.currentChatroom]);
+  const browser = document.getElementById('chatroom-list');
+  const people = browser?.querySelector<HTMLElement>('.nearby-browser-people');
+  if (browser && people) syncListBroadcastEffects(browser, people, scope, events, labels);
+  const detail = document.getElementById('chatroom-members-list');
+  if (detail) syncListBroadcastEffects(detail, detail, scope, events, labels);
+}
+
 function renderOrdinaryMemberRow(
   member: ChatroomMember,
   deps: ChatroomsViewDeps,
@@ -649,7 +706,7 @@ function renderOrdinaryMemberRow(
     ? `<span class="chatroom-member-traveler-badge" role="img" title="${deps.text('chatroomTraveler')}" aria-label="${deps.text('chatroomTraveler')}">✈</span>`
     : '';
   return `
-    <div class="${browserRow ? 'nearby-person-item' : 'chatroom-member-item'} ${isMatched ? 'member-matched' : ''} ${relationClass}" ${browserRow ? 'data-testid="nearby-person-row"' : ''} data-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}" data-traveler="${member.isTraveler === true}"${isMatched ? ' data-matched="true"' : ''}>
+    <div class="${browserRow ? 'nearby-person-item' : 'chatroom-member-item'} ${isMatched ? 'member-matched' : ''} ${relationClass}" ${browserRow ? 'data-testid="nearby-person-row"' : ''} data-user-id="${deps.escapeHtml(member.userId)}" role="button" tabindex="0" data-broadcast-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}" data-traveler="${member.isTraveler === true}"${isMatched ? ' data-matched="true"' : ''}>
       <div class="chatroom-member-avatar-wrap">
         <div class="chatroom-member-avatar">${avatarInnerHtml(deps.getCachedHeadshot?.(member.userId) ?? undefined, member.stageName.charAt(0).toUpperCase(), deps.escapeHtml)}</div>${travelerBadge}
       </div>
@@ -671,9 +728,12 @@ function renderMemberList(
   // The v3 service already supplies its protocol ranking: public distance, established identity,
   // then the daily per-viewer hash. Preserve that exact order in both the browser and room detail;
   // relationship statistics decorate a row but must not silently reshuffle it.
-  container.innerHTML = members.map((member) => renderOrdinaryMemberRow(member, deps, false, statsMap)).join('');
+  container.innerHTML = renderSelfRow(deps) + members.map((member) => renderOrdinaryMemberRow(member, deps, false, statsMap)).join('');
+  bindSelfRow(container);
+  syncPeopleListEffects(deps);
 
-  container.querySelectorAll('.chatroom-member-item').forEach((item) => {
+  container.querySelectorAll<HTMLElement>('.chatroom-member-item').forEach((item) => {
+    bindPersonRowKeyboard(item);
     item.addEventListener('click', () => {
       const targetUserId = (item as HTMLElement).dataset.userId;
       const stageName = (item as HTMLElement).dataset.stageName || 'User';

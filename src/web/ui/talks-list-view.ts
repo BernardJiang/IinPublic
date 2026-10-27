@@ -1,7 +1,7 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import type { GPSCoordinate, User } from '../../shared/types';
 import { getAnsweredTalkByContent } from './answer-preferences-storage';
-import { getTalkContentKey } from './answer-history-storage';
+import { getFlatAnswerHistory, getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
 import { getMyTalks } from './my-talks-storage';
@@ -23,7 +23,7 @@ import {
 } from './tag-tap-mode';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
-import { bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
+import { answersLinkHtml, peopleLinkHtml, peopleWhoExchanged, bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 import { settingsStorage } from '../services/core-storage';
 
 const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
@@ -460,9 +460,9 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       <div class="empty-state" style="padding: 60px 20px; text-align: center;">
         <div style="font-size: 3em; margin-bottom: 16px;">💬</div>
         <p style="font-size: 1.2em; color: #666; margin-bottom: 8px;">${deps.t('talksNoTalks')}</p>
-        <p style="font-size: 0.9em; color: #999;">${deps.t('talksNoTalksHelp')}</p>
+        <p style="font-size: 0.9em; color: #999;">${deps.t(focus?.peerId ? 'mapTalksEmpty' : 'talksNoTalksHelp')}</p>
         ${hiddenReasonsText ? `<p style="font-size: 0.85em; color: #999; margin-top: 8px;">${escapeHtml(hiddenReasonsText)}</p>` : ''}
-        ${!hasTalkHistory ? `<div class="talks-starter-actions">
+        ${!hasTalkHistory && !focus ? `<div class="talks-starter-actions">
           <button type="button" class="btn" id="talks-starter-more" data-testid="talks-starter-more">${escapeHtml(deps.t('talksStarterMore'))}</button>
           <button type="button" class="btn" id="talks-starter-scratch" data-testid="talks-starter-scratch">${escapeHtml(deps.t('talksStarterScratch'))}</button>
         </div>` : ''}
@@ -580,7 +580,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="font-size:0.85em;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(statsLine)} · ${escapeHtml(deps.formatTalkRelativeTime(new Date(talk.lastInteraction || 0)))}</span>
-          ${placeLinkHtml(placesOf({ talkIds: [talkId] }), { escapeHtml, text: deps.t })}
+          ${talkGraphLinks(talkId, talk.title)}
         </div>
         ${matchedLine}
         <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
@@ -760,7 +760,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="${metaStyle}font-size:0.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(row2Parts.join(' · '))}</span>
-          ${placeLinkHtml(placesOf({ talkIds: [String(talkId), identityKey] }), { escapeHtml, text: deps.t })}
+          ${talkGraphLinks(String(talkId), cluster?.title, identityKey)}
         </div>
         <div class="talk-item-details" data-talk-id="${talkId}" style="display:none;">
           ${statusBadge}
@@ -788,6 +788,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     };
 
     // One face for a tag on Talks and Me (graph-focus.ts): ♡ / ✕ / none, its text, and "👥 N".
+    const answeredTalkIds = new Set(Object.values(getFlatAnswerHistory()).map((record) => record.talkId));
+    const talkGraphLinks = (talkId: string, title: string, identityKey?: string): string => {
+      const ids = [...new Set([talkId, ...(identityKey ? [identityKey] : [])])];
+      const linkDeps = { escapeHtml, text: deps.t, answeredTalkIds };
+      return `<span class="talk-graph-links">${peopleLinkHtml(title, peopleWhoExchanged(ids, false).length, linkDeps, ids)}${answersLinkHtml(title, ids, linkDeps)}${placeLinkHtml(placesOf({ talkIds: ids }), linkDeps)}</span>`;
+    };
     const tagFace = (face: { state: 'liked' | 'passed' | 'open'; talk: any; talkId: string; suffixHtml?: string }): string => {
       const questions = face.talk?.fullTalk?.questions || face.talk?.questions || [];
       const keyword = String(questions[0]?.text || '');
@@ -804,7 +810,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         // On Talks, the ♡ / ✕ is my answer: it opens that answer on Me.
         markLinksToAnswer: true,
         ...(face.suffixHtml ? { suffixHtml: face.suffixHtml } : {}),
-      }, { escapeHtml, text: deps.t });
+      }, { escapeHtml, text: deps.t }) + placeLinkHtml(placesOf({ talkIds: [face.talkId] }), { escapeHtml, text: deps.t });
     };
 
     const isStale = () => renderSeq !== documentState.renderSeq;

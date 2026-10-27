@@ -3,6 +3,8 @@ export type MapMatchUpdate = {
   type: 'snapshot' | 'patch';
   /** A snapshot replaces the view. In patches, zero/null removes that peer's badge. */
   counts: Readonly<Record<string, number | null>>;
+  /** All exchanged Talks, independent of match outcome. Empty/null removes the connection. */
+  talkIdsByPeer?: Readonly<Record<string, readonly string[] | null>>;
 };
 
 /** The core-backed GUI view supplies the initial snapshot, then updated snapshots or patches. */
@@ -29,4 +31,15 @@ export function mapMatchCounts(exchanges: Iterable<MapMatchExchange>): Map<strin
     talks.set(exchange.peerId, ids);
   }
   return new Map([...talks].map(([peer, ids]) => [peer, ids.size]));
+}
+
+export function mapTalkIds(exchanges: Iterable<Pick<MapMatchExchange, 'peerId' | 'talkId'>>): Map<string, readonly string[]> {
+  const talks = new Map<string, Set<string>>();
+  for (const { peerId, talkId } of exchanges) {
+    if (!peerId || !talkId) continue;
+    const ids = talks.get(peerId) ?? new Set<string>();
+    ids.add(talkId);
+    talks.set(peerId, ids);
+  }
+  return new Map([...talks].map(([peer, ids]) => [peer, [...ids].sort()]));
 }

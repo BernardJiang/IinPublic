@@ -1366,10 +1366,11 @@ button:focus:not(:focus-visible) {
   cursor: pointer;
 }
 
-/* My own star is not tappable; map gestures can pass through it. */
+/* Older/static map sources have no self action; interactive stars open Me. */
 .chatroom-map-user-dot-self {
   pointer-events: none;
 }
+.chatroom-map-user-dot-self[role="button"] { pointer-events: auto; }
 
 /* A 14 px dot is a hard tap target on a phone: widen the hit area without changing the dot. */
 .chatroom-map-user-dot[role="button"]::after {
@@ -1458,6 +1459,50 @@ button:focus:not(:focus-visible) {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+}
+
+.nearby-browser-people,
+#chatroom-members-list {
+  position: relative;
+}
+
+.nearby-self-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 78px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nearby-self-row .chatroom-member-avatar {
+  margin-right: 12px;
+  flex-shrink: 0;
+  color: #b45309;
+  background: #fef3c7;
+}
+
+.nearby-self-row .chatroom-member-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nearby-self-effect-space {
+  display: block;
+  height: 20px;
+}
+
+.nearby-self-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
 }
 
 .nearby-browser-list .chatroom-flat-section + .chatroom-flat-section {
@@ -5696,6 +5741,24 @@ body.iinpublic-debug .conversation-health-status {
 .place-graph-links { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 8px; }
 .place-graph-links .graph-link { margin-left: 0; font-size: 0.85em; }
 .graph-link { font-size: 0.8em; color: var(--accent-text); margin-left: 6px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.graph-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.graph-place-link { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.talk-graph-links { display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.talk-graph-links .graph-link { white-space: normal; overflow-wrap: anywhere; }
+.tag-graph-heading .graph-link,
+.talk-graph-links .graph-link,
+.talk-tag-chip .graph-link { display: inline-flex; align-items: center; min-height: 32px; font-size: 0.875rem; }
+.talk-tag-chip:has(.graph-place-link) { flex-wrap: wrap; }
+.graph-place-focused > #chatroom-list-container,
+.graph-place-focused > #chatroom-detail-container { display: none !important; }
+#graph-place-panel { padding: 20px; overflow-y: auto; min-width: 0; }
+#graph-place-panel h2 { overflow-wrap: anywhere; }
+#graph-place-panel .place-graph-links { gap: 12px; margin: 18px 0; }
+#graph-place-panel .graph-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 1em; white-space: normal; }
+#graph-place-panel button { min-height: 44px; padding: 8px 14px; }
+#place-detail-graph-links { padding: 0 16px; }
+body[data-graph-place-active] [data-appbar-view="chatrooms"],
+body[data-graph-place-active] #back-to-chatrooms { display: none !important; }
 .contact-item,
 .answer-talk-item { -webkit-touch-callout: none; user-select: none; }
 .talks-tap-hint { font-size: 0.8em; color: var(--text-tertiary); margin: 2px 2px 8px; }
@@ -5712,3 +5775,36 @@ body.iinpublic-debug .conversation-health-status {
 }
 .talks-direction-divider::before,
 .talks-direction-divider::after { content: ''; flex: 1; border-top: 1px solid var(--border-strong); }
+
+/* Map exchange history: neutral, selectable connections under people and broadcast effects. */
+.chatroom-map-connections, .chatroom-map-connection-lines {
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+}
+.chatroom-map-connection-line { stroke: #64748b; stroke-width: 1.5; opacity: .65; }
+.chatroom-map-connection-line.selected { stroke: #334155; stroke-width: 3; opacity: 1; }
+.chatroom-map-connection-line.dimmed, .chatroom-map-connection-label.dimmed { opacity: .25; }
+.chatroom-map-connection-hit { stroke: transparent; stroke-width: 24; pointer-events: stroke; cursor: pointer; }
+.chatroom-map-connection-hit:focus-visible { stroke: #64748b33; outline: none; }
+.chatroom-map-connection-label {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
+  border: 1px solid #94a3b8; border-radius: 12px; padding: 3px 7px; min-height: 28px;
+  background: var(--surface, white); color: var(--text-primary, #334155); font-size: 11px; white-space: nowrap;
+}
+.chatroom-map-connection-label[hidden] { display: none; }
+.chatroom-map-connection-panel {
+  position: absolute; bottom: 36px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);
+  display: flex; align-items: center; gap: 10px; border-radius: 10px; padding: 8px 12px;
+  background: var(--surface, white); color: var(--text-primary, #334155); box-shadow: 0 2px 12px #0003;
+  pointer-events: auto; font-size: 13px;
+}
+.chatroom-map-connection-panel[hidden] { display: none; }
+.chatroom-map-connection-panel button { min-width: 80px; min-height: 44px; cursor: pointer; }
+.chatroom-map-connection-label:focus-visible, .chatroom-map-connection-panel button:focus-visible {
+  outline: 2px solid var(--accent, #2563eb); outline-offset: 2px;
+}
+.chatroom-map-member-actions { flex-wrap: wrap; }
+@media (pointer: coarse) {
+  .chatroom-map-connection-hit { stroke-width: 32; }
+  .chatroom-map-connection-label { min-height: 44px; min-width: 44px; }
+  .chatroom-map-member-profile { min-height: 44px; }
+}

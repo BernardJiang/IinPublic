@@ -100,6 +100,6 @@ describe('tag graph view', () => {
     expect(getMeFocus()).toEqual({ label: '♡ Carol', talkIds: ['qa_hike'] });
 
     container.querySelector<HTMLElement>('[data-testid="peer-talks-link"]')!.click();
-    expect(getTalksFocus()).toEqual({ label: '💬 Carol', talkIds: ['qa_hike'] });
+    expect(getTalksFocus()).toEqual({ label: '💬 Carol', peerId: 'carol', talkIds: ['qa_hike'] });
   });
 });

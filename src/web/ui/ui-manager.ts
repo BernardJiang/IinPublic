@@ -1,3 +1,4 @@
+import { configureGraphText, openMapPerson } from './graph-focus';
 import {
   User,
   type GPSCoordinate,
@@ -696,6 +697,7 @@ export class UIManager extends EventEmitter {
    * measurement, and the mobile "Filters ▾" disclosure toggles (redesign §1–§3, §6).
    */
   private setupAppBarChrome(): void {
+    configureGraphText(this.t.bind(this));
     setupAppBarChrome({
       t: this.t.bind(this),
       showBroadcastToGroupDialog: () => this.showBroadcastToGroupDialog(),
@@ -969,11 +971,10 @@ export class UIManager extends EventEmitter {
       isBlockedByMe: peer.isBlockedByMe,
       getPeerName: peer.getPeerName,
       resolvePeerStageName: peer.resolvePeerStageNameLive,
-      // Rule N2a (redesign §5): tapping the contact's NAME lands on the DM Conversation
-      // directly, with the shared User layout underneath — identical to a chatroom member
-      // click. Tapping the row anywhere else opens the User layout alone (openPeerDetailOnly).
-      openPeerDetail: peer.openUserConversationFirst,
-      openPeerDetailOnly: peer.openPeerDetailForUser,
+      // People are graph nodes: both name and row open the relationship under Contacts.
+      // Messaging remains an explicit action inside that page.
+      openPeerDetail: (id, name) => openMapPerson(id, name, peer.openPeerDetailForUser),
+      openPeerDetailOnly: (id, name) => openMapPerson(id, name, peer.openPeerDetailForUser),
       updateStatsStrip: (prefix: string) => this.displayContextualStatistics('contacts-stats-strip', prefix),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
@@ -1035,7 +1036,7 @@ export class UIManager extends EventEmitter {
         this.showConversationDetail(target.id, target.threadTalkId);
         break;
       case 'person':
-        this.showContactDetail(target.id, target.name);
+        openMapPerson(target.id, target.name, (id, name) => this.openPeerDetailForUser(id, name));
         break;
     }
   }
@@ -1156,6 +1157,7 @@ export class UIManager extends EventEmitter {
   animateMapBroadcast(direction: 'outgoing' | 'incoming', userId?: string, roomId?: string, recipientIds?: readonly string[]): void { this.chatroomShell().animateMapBroadcast(direction, userId, roomId, recipientIds); }
   refreshMapMatches(): void { this.chatroomShell().refreshMapMatches(); }
   setMapMatchCounts(counts: ReadonlyMap<string, number>): void { this.chatroomShell().setMapMatchCounts(counts); }
+  setMapTalkConnections(talks: ReadonlyMap<string, readonly string[]>): void { this.chatroomShell().setMapTalkConnections(talks); }
   setNearbyGroup(group: { group: number; exhausted: boolean; pageable?: boolean; hasMore?: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
 
   displayTalksList(): void {
@@ -2372,7 +2374,7 @@ export class UIManager extends EventEmitter {
       // already established. Only offered when I've actually answered this talk (viewing my own
       // answer), not while answering it live for the first time.
       ...(talkId && this.hasMeTabAnswerForTalk(talkId)
-        ? { viewInMyAnswers: () => this.navigateToMyAnswerForTalk(talkId) }
+        ? { viewInMyAnswers: () => this.navigateToMyAnswerForTalk(talkId, String(talk?.title || this.t('graphMyAnswers'))) }
         : {}),
     });
   }
@@ -2390,8 +2392,8 @@ export class UIManager extends EventEmitter {
    * answer entry (or entries, for a multi-question flow/route talk) that came from this talk —
    * the reverse of P's Q&A → Talk `showTalkDetailAsAnswer` direction, same talkId join.
    */
-  private navigateToMyAnswerForTalk(talkId: string): void {
-    navigateToMyAnswerForTalkImpl(talkId);
+  private navigateToMyAnswerForTalk(talkId: string, label: string): void {
+    navigateToMyAnswerForTalkImpl(talkId, label);
   }
 
   /** Record (locally, quietly) a talk the chatbot already answered for the user — marked 🤖. */

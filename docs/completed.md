@@ -1,6 +1,68 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-25
+Last updated: 2026-10-27
+
+## 2026-10-27 — OPEN-94 complete contextual traversal across the four tabs
+
+- Chatrooms, Contacts, Talks, and Me now offer contextual People, Talks, My answers, and Place
+  links wherever the corresponding relationship exists. Non-tag-only peers have Our Talks and
+  My answers; non-tag Talk cards expose their people and answers; tag chips include every recorded
+  Place; live Place details include their people/Talks/answers summary.
+- Person clicks in rosters, Contacts, and Talk navigation open the relationship under Contacts.
+  Messaging remains an explicit person-page action. Peer-focused Talks use the existing live
+  exchange view, including both directions and all outcomes.
+- Every recorded Place is selectable, including historical Places absent from current room rows.
+  These links inspect exchange history inside Chatrooms without joining, travelling, or changing
+  the active audience. The live map/list stays behind the history view. History exposes People,
+  Talks, and My answers; unavailable history has an explicit empty state.
+- Navigation captures source filters before changing them, restores nested person/Place context,
+  and avoids recursive Back actions while closing overlays. Non-tag answer review now uses the
+  same graph focus/trail. Manual bottom-tab navigation starts afresh. Keyboard activation follows
+  the focused graph link without triggering a parent tag; phone tap targets were enlarged.
+- Verified **186 tests across 18 unit suites**, TypeScript, targeted ESLint, and **8 full-app
+  Chromium tests** (stage1/54, the new stage1/95, and stage3/82 with three real browser peers). The new 390px touch/keyboard journey follows
+  all 12 directed tab pairs, non-tag-only peers, multiple/unlisted Places, and nested Back, and
+  confirms the active room never changes. Existing map navigation and map/list broadcast effects
+  pass. Inspected phone-width relationship, Talk, and Place-history screenshots.
+- Implementation uses existing core-backed GUI views; no database schema or persistence changes.
+  No physical devices used. Original findings: `docs/design/graph-traversal-audit.md`.
+
+## 2026-10-26 — OPEN-93 list broadcast animation
+
+- Nearby lists begin with a distinct self star/row linking to Me, followed by people in the
+  existing service order. Places and their sort control follow the people. Place member lists
+  also show self first; self never contributes to the nearby-recipient count.
+- The existing GUI broadcast events drive blue downward wavefronts along the avatar column and
+  purple dashed upward wavefronts from a sender to self. Sending/Receiving labels distinguish
+  direction without relying only on colour. Unknown/offscreen senders produce an arrival halo;
+  Place rows are never destinations. Graph shortcuts sit below the people, outside the waves.
+- Shared bounded animation lifetime, recipient filtering, visibility cleanup, and reduced-motion
+  cues preserve map behavior. Roster redraws reattach the overlay without restarting events;
+  account/room changes clear active effects. No persistence, transport, or database schema changes.
+- Verified: TypeScript, targeted ESLint, **94 unit tests across 13 suites**, and **6 full-app
+  Chromium tests** covering map navigation/effects, phone-width list ordering and bidirectional
+  effects, refresh/expiry, self-to-Me navigation, and Place lists. Inspected desktop Place and
+  390px Nearby screenshots. Browser fixtures only; no physical phones used.
+
+## 2026-10-26 — OPEN-92 map people and Talk connections
+
+- Double-click the self star for Me, an individual for their relationship page under Contacts,
+  or an exchange line for Talks with that person. Matched badges retain immediate relationship
+  access. Single-tap cards and keyboard controls expose the same actions; opening a stranger
+  does not add a Contact. Yellow people have an explicit Travel here action.
+- Close-zoom neutral lines show up to 12 visible individual peers' recorded exchange histories,
+  counting distinct Talk ids in either direction across all outcomes. Selected connections are
+  emphasized and expose Open Talks. Labels yield to markers/other labels in cramped views; wide
+  line hit areas and the selected-line panel stay usable. Crowds have no ambiguous connection.
+- The Talks destination has a removable “With …” filter and explicit empty state. AppBar Back
+  and the relationship page's own Back return to the same map position and zoom. The existing
+  core-backed exchange view supplies connections and live updates; no database/schema work.
+- Validation: 71 tests across 11 focused suites, typecheck, targeted ESLint, and 4 full-app
+  Playwright tests passed. Browser coverage exercises actual line double-clicks, Me/relationship
+  navigation, filtered Talks, unchanged map position, no automatic Contact creation, real touch
+  taps at phone width, empty states, and filter removal. Real MapLibre visual checks cover GPS,
+  Places, density, and overlapping-label suppression; broadcast effects and match badges remain
+  verified. No physical phones used; C10 remains the only authorized phone.
 
 ## 2026-10-26 — OPEN-91 P2–P4 the device core takes the user's data and the app's rules
 

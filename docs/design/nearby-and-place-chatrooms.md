@@ -927,6 +927,28 @@ This starter bar raises the cost of map spam but does not defeat a twelve-identi
 Backers, reputable-visitor liveness, official-build credentials for high-risk writes, and
 reputation-weighted dense-crowd ranking remain separate deferred defenses.
 
+#### Four tabs as graph views (OPEN-94, 2026-10-27)
+
+Chatrooms represents Places/audiences, Contacts represents people, Talks represents exchanged
+content, and Me represents my answers. Each view links to related nodes in the other views through
+People, Talks, My answers, and Places. Missing history does not imply a relationship: links use
+only the existing core-backed exchange and answer views.
+
+- Person links from map dots, rosters, Contacts, and Talks open the relationship under Contacts.
+  Message remains an explicit action. A person's Our Talks and My answers apply to every Talk
+  type; they do not require shared tags. Shared tags remains a separate shortcut.
+- Talk cards link to their people, my answers, and every recorded Place. Tag chips retain their
+  answer mark and people links and also expose every Place. Me rows lead to the people, Talks,
+  and Places associated with the question. Place browser/detail summaries include my answers.
+- A historical Place link opens an exchange-history view inside Chatrooms, even if the Place is
+  not in the current room list. It does not join, travel, or change the active audience. Room-row
+  and map travel actions remain explicit. The history view links to People, Talks, and My answers,
+  and shows an empty state if no recorded history remains. The live map/list retains its state.
+- Back restores the source filter, person page, and historical Place, including nested traversals.
+  Source state is captured before changing destination state. A manually selected bottom tab
+  starts afresh. Keyboard and touch follow the same graph links; activating a child link must not
+  also act on its parent tag. Directional broadcast effects remain independent of navigation.
+
 #### Map, list and headcounts
 
 - **Map:** fits itself to my candidate population. Green dots are every identity counted by Nearby,
@@ -957,15 +979,39 @@ reputation-weighted dense-crowd ranking remain separate deferred defenses.
   unsubscribes. The existing exchange view owns restoration and persistence; this GUI change
   adds neither. Broadcast animations are transient UI events and never replay when persisted
   exchanges hydrate.
+  **Navigation (OPEN-92):** double-click my star for Me, an individual person for their relationship
+  page under Contacts, and a Talk connection for Talks exchanged with that person. A single tap
+  opens a card with the same named actions; matched badges retain their immediate relationship
+  shortcut. Yellow individuals also open person cards, with Travel here as an explicit action.
+  Opening a relationship does not add a Contact. Crowd summaries open member cards and can be
+  double-clicked to zoom; they never have a Talk connection.
+  At zoom 14+, up to 12 thin neutral lines join me to individually visible people with exchange
+  history. Counts deduplicate Talk ids across both directions and include all outcomes; they are
+  separate from match counts. Selecting a line emphasizes it and shows its count plus Open Talks.
+  Wide hit areas and keyboard controls provide alternatives to double-clicking. Count labels yield
+  where they would overlap markers or other labels (especially compact Places); selected-line
+  details remain available. Blue/purple broadcast waves remain transient, separate effects.
+  Talks opens with a removable “With …” chip, both directions, and an explicit empty state for no
+  available exchanged content. The navigation Back action restores the same map position/zoom;
+  the person's own Back button also returns to the map. Empty-map double-click zoom is unchanged.
 - **List:** one compact browser surface. Nearby is not a room. Its headcount occupies the top
-  utility row, and the list begins directly with people—there is no redundant "People near you"
-  heading or room-loading message. It shows at most `C` other identities. Room sorting appears only
+  utility row, and the list begins with my own star/row, which opens Me, followed by other people.
+  There is no redundant "People near you" heading or room-loading message. It shows at most `C` other identities. Room sorting appears only
   when rooms exist. "Meet new people" appears only for a crowded blurred area or Place with another
   page; after paging, "Back to group 1" appears there too. Only custom Places appear as enterable
   room rows, with a
   door icon, in a section below the people. Person rows preserve the v3 rank order: public
   distance, established identity, then the daily per-viewer hash. Relationship history decorates
-  rows but never reorders them. The overlapping Nearby groups ("Here · 2…") disappear.
+  rows but never reorders them. Place sorting stays with the Place section below the people.
+  Place member lists also begin with my own row; self is never counted as a nearby recipient.
+  **Broadcasts (OPEN-93):** the same transient GUI events as the map send blue wavefronts down
+  the avatar column toward visible recipients and purple dashed wavefronts up from a sender to me.
+  Sending/Receiving labels and direction cues distinguish them. Unknown/offscreen senders get
+  only an arrival halo; Places are never animation destinations. Effects last 2.6 seconds,
+  survive roster redraws without replay, stop while hidden, and use static reduced-motion cues.
+  Room/account changes clear active effects. Graph shortcuts follow the people so waves do not
+  cross them. No database schema, persistence, or transport is added for these effects.
+  The overlapping Nearby groups ("Here · 2…") disappear.
 - **Headcounts:** "N nearby · G online". `N` is the candidate-population formula above and may be
   larger than the visible page while Nearby is active. Inside a Place, `N` is that Place's
   occupancy minus me (the room list and map icon show the full occupancy). `G` is the number of live count keys across Nearby and Places.

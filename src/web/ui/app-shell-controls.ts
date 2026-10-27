@@ -280,7 +280,7 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
       if (headerActions) headerActions.style.display = 'flex';
       deps.syncAppBarActionsForView(targetView);
 
-      if (targetView === 'chatrooms') {
+      if (targetView === 'chatrooms' && !(button as HTMLElement).dataset.focusOpening) {
         const detailRoomId = deps.getChatroomsDetailRoomId();
         if (detailRoomId) deps.showChatroomDetail(detailRoomId);
         else deps.showChatroomList();

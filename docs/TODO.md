@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-25.
+Last reconciled: 2026-10-27.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in

@@ -76,11 +76,11 @@ describe('chatroom shell controller', () => {
     jest.clearAllMocks();
   });
 
-  it('coalesces real broadcast bursts, isolates rooms, and expires old map effects', () => {
+  it.each(['map', 'list'] as const)('coalesces broadcast bursts, isolates rooms, and expires old effects in %s view', (mode) => {
     jest.useFakeTimers();
     try {
       let room = 'nearby-v3';
-      const controller = createChatroomShellController(makeDeps({ getCurrentChatroom: () => room, getChatroomBrowseMode: () => 'map' }));
+      const controller = createChatroomShellController(makeDeps({ getCurrentChatroom: () => room, getChatroomBrowseMode: () => mode }));
       controller.animateMapBroadcast('outgoing');
       controller.animateMapBroadcast('outgoing');
       controller.animateMapBroadcast('incoming', 'eve');

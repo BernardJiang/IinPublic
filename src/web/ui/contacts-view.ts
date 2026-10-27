@@ -897,11 +897,8 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         const userId = row?.dataset.contactUserId;
         const stageName = row?.dataset.contactName;
         if (!userId || !stageName) return;
-        // Tapping the name specifically (Rule N2a) jumps straight to the DM Conversation
-        // with the shared User layout underneath — same destination as a chatroom member
-        // click. Tapping the row anywhere else opens that same User-layout detail view
-        // without also opening the conversation, so browsing contacts doesn't force a DM
-        // open on every tap.
+        // Both callbacks now lead to the relationship page; keeping the two entry points
+        // lets consumers distinguish a name click without introducing an implicit DM.
         if (target.closest('.contact-item-name')) {
           currentDeps.openPeerDetail(userId, stageName);
         } else {
