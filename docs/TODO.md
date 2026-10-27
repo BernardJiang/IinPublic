@@ -28,10 +28,10 @@ its ID.
   `docs/design/data-sharing-privacy-rules.md`. On every native app (Android, Windows, Ubuntu, macOS,
   iOS) one Gun instance and all app logic live in the embedded Node.js process; on the web they live
   in a background worker; the GUI only draws from an in-memory view model and sends intents. The
-  same `src/core/` TypeScript runs in both hosts. Today the logic runs in the page with two Gun
+  same `src/core/` TypeScript runs in both hosts. The original page-hosted layout had two Gun
   instances and ~25 localStorage logs (the S3 design drifted). Phases, each shippable: P1 the core
   seam + the exchange log (OPEN-88); P2 the sharing policy (default-deny `out`/`in` filter; pair
-  responses and the delivery journal move under it — today the hub can read who answered whom);
+  responses and the delivery journal move under it to prevent hub-visible reply relationships);
   P3 the other local logs; P4 the domain logic out of `app.ts`; P5 the native host runs the core;
   P6 one Gun on the web. **P1 done 2026-10-25** (OPEN-88, see `docs/completed.md`): `src/core/`
   holds the protocol, the graph store, the exchange log and the web worker host
@@ -46,14 +46,23 @@ its ID.
   My Conversations (`my-conversations-storage.ts`) and the talk ledger (one entry per record,
   `<section>::<key>`), the Me tab's answer history, the deal maps, and the answer preferences
   and chatbot memory (`answer-preferences-storage.ts`, via `mapStore`/`sectionedDocStore`).
-  Left in localStorage: settings and UI state (small, per-device), `peerNameCache`, match
-  collection sessions, imported handoff threads. Next: P4 (domain logic out of `app.ts`). **P4 done 2026-10-26:** the domain rules live in
+  **P4 rules extraction done 2026-10-26:** the domain rules live in
   `src/core/` (see the design doc's P4 entry for the module list); `app.ts` keeps the effects
   (10,272 → 9,863 lines). **The move off localStorage done 2026-10-26:** the remaining app data is
   the core's `appData` collection (`appStorage`), settings and UI state its `settings` collection
-  (`settingsStorage`, localStorage kept as a start-up copy); only identity custody, Gun's page
-  storage and the user id / cached user (mirrored to IndexedDB) stay in localStorage. Next: P5 — the
-  embedded Node process hosts the core and the WebView becomes GUI-only over loopback.
+  (`settingsStorage`, localStorage kept as a start-up copy); only identity custody, legacy/fallback
+  Gun page storage and the user id / cached user (mirrored to IndexedDB) stay in localStorage.
+  **P5.1–P5.3 implemented 2026-10-26, merged 2026-10-27:** the native embedded node hosts the
+  core and its one Gun; the WebView uses authenticated loopback core/Gun RPC, migrates its worker
+  data, and shuts down that worker. iOS retains the web-worker fallback until its shell supplies
+  the node secret. **P6 single-worker Gun implemented 2026-10-26, merged 2026-10-27:** the web
+  worker's Gun peers with the hub and the page uses `RemoteGun` over messages (page Gun remains
+  an explicit/startup-failure fallback). Outbound filtering now covers private namespaces, private
+  links, acknowledgement payloads and reconnect mesh sends.
+  **Remaining:** finish P2's default-deny inbound/outbound policy and pair/room encryption checks;
+  P5.4 must execute domain commands in the host, beyond extracting their rules; and P6 needs one
+  core per web origin (SharedWorker or tab leader), since separate tabs currently share IndexedDB
+  and whole-file radisk writes can overwrite each other's changes.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport
