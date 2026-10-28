@@ -226,7 +226,16 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       const nearby = await peer.user.window.evaluate(() => {
         const service = (window as any).__iinpublicNearbyOffline;
         const scope = (window as any).__iinpublic_app?.getApp?.()?.activeExchangeRoomController?.getScope?.();
+        const app = (window as any).__iinpublic_app?.getApp?.();
         return service ? {
+          gossip: app?.nearbyV3?.diagnostics?.(),
+          mesh: app?.peerMeshService?.getDiagnostics?.(),
+          neighbors: [...(app?.peerMeshService?.neighbors?.values?.() ?? [])].map((neighbor: any) => ({
+            userId: neighbor.userId,
+            connected: neighbor.connected,
+            state: neighbor.session.getState?.(),
+            handshake: neighbor.session.getHandshakeDiagnostics?.(),
+          })),
           status: service.getStatus?.(),
           diagnostics: service.getDiagnostics?.(),
           // Which group this phone considers its own right now (the name is broadcast over the air anyway).
@@ -325,6 +334,32 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
         pinStableLocation: false,
       });
       const partial = { device, user, id, sdk: Number(metadata.sdk || 0) };
+      if (process.env.E2E_MESH_TRACE === '1') await user.window.evaluate(() => {
+        const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
+        const create = mesh.createSession.bind(mesh);
+        mesh.createSession = (...args: any[]) => {
+          const session = create(...args);
+          if (session.traceInstalled) return session;
+          session.traceInstalled = true;
+          for (const method of ['sendHandshake', 'handleHandshake', 'sendMeshFrame', 'handleRemoteSignal']) {
+            const original = session[method].bind(session);
+            session[method] = async (...values: any[]) => {
+              const start = Date.now();
+              try { return await original(...values); }
+              catch (error) { console.log('[session-error]', session.getOtherUserId(), method, String(error)); throw error; }
+              finally { if (Date.now() - start > 1000) console.log('[session-slow]', session.getOtherUserId(), method, Date.now() - start); }
+            };
+          }
+          for (const method of ['resetSecureSession', 'failSecureHandshake', 'dispose', 'reconnect']) {
+            const original = session[method].bind(session);
+            session[method] = (...values: any[]) => {
+              console.log('[session-lifecycle]', session.getOtherUserId(), method, values[0], new Error().stack?.split('\n').slice(1, 5).join(' '));
+              return original(...values);
+            };
+          }
+          return session;
+        };
+      });
       const roomId = await routeToFixedNearby(partial);
       if (AREA_SIZES[index]) await setAreaSize(partial, AREA_SIZES[index]!);
       peers.push({ ...partial, roomId });

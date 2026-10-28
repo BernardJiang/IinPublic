@@ -12,6 +12,22 @@ const pair: GunPair = {
 };
 
 describe('WebUserService', () => {
+  it('reads handshake pins privately without hydrating the public profile, and sees changed pins', async () => {
+    const gunService = {
+      getPrivate: jest.fn().mockResolvedValue({ knownPeople: [{ userId: 'peer', identityPub: 'first-key' }] }),
+      get: jest.fn(() => new Promise(() => {})),
+    };
+    const service = new WebUserService(gunService as any);
+    await expect(service.getPinnedIdentityPub('peer')).resolves.toBe('first-key');
+    gunService.getPrivate.mockResolvedValue({ knownPeople: [{ userId: 'peer', identityPub: 'new-key' }] });
+    await expect(service.getPinnedIdentityPub('peer')).resolves.toBe('new-key');
+    await expect(service.getPinnedIdentityPub('stranger')).resolves.toBeUndefined();
+    expect(gunService.get).not.toHaveBeenCalled();
+    expect(gunService.getPrivate).toHaveBeenCalledWith('profile');
+    gunService.getPrivate.mockRejectedValue(new Error('private store unavailable'));
+    await expect(service.getPinnedIdentityPub('peer')).rejects.toThrow('private store unavailable');
+  });
+
   it('publishes only the public square and leaves room selection to the Nearby service', async () => {
     const gunService = { put: jest.fn().mockResolvedValue(undefined) };
     const service = new WebUserService(gunService as any);

@@ -165,6 +165,21 @@ describe('P2P session encrypted handshake across a reconnect', () => {
     expect(internals(bob).secureSessionConfirmed).toBe(true);
   });
 
+  it.each(['changed pin', 'unavailable private store'])('rejects a handshake with %s', async (reason) => {
+    setP2PContactIdentityResolver((localUserId) => {
+      if (localUserId !== 'alice') return undefined;
+      if (reason === 'unavailable private store') throw new Error('private store unavailable');
+      return 'a-different-pinned-key';
+    });
+    const [alice, bob] = sessions();
+    const [ca, cb] = openChannel(alice, bob);
+    await pump(ca, cb);
+    expect(alice.getState()).toBe('failed');
+    expect(internals(alice).secureSessionConfirmed).toBe(false);
+    alice.dispose();
+    bob.dispose();
+  });
+
   it('fails the session when the handshake is never confirmed, so it is rebuilt', async () => {
     jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] });
     try {

@@ -624,6 +624,12 @@ export class WebUserService {
     return user;
   }
 
+  /** Handshakes need only the owner's private pin, never public-profile/network hydration. */
+  async getPinnedIdentityPub(otherUserId: string): Promise<string | undefined> {
+    const privateData = await this.gunService.getPrivate(PRIVATE_USER_DATA_KEY) as PrivateUserData | null;
+    return normalizeKnownPeople(privateData?.knownPeople).find((known) => known.userId === otherUserId)?.identityPub;
+  }
+
   async getUser(userId: string): Promise<User> {
     // The local graph can hold a partial users/<id> node (e.g. offline, before the full record ever
     // synced); never let its Gun metadata or a missing id leak out — callers merge, not replace.

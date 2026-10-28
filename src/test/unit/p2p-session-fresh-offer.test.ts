@@ -159,4 +159,41 @@ describe('P2P session: a fresh offer from a rebuilt connection (OPEN-74)', () =>
     await settle();
     expect(bob.posted.some((post) => post.payload.type === 'restart')).toBe(false);
   });
+
+  it('asks the initiator for a new offer when Nearby reopens a disposed answering session', async () => {
+    const bob = harness(bobPair, alicePair.pub, false);
+    void bob.session.ensureConnected(1_000).catch(() => undefined);
+    await settle();
+    expect(bob.posted.some((post) => post.payload.type === 'restart')).toBe(false);
+    await bob.signal({ type: 'offer', sdp: { type: 'offer', sdp: 'alice-pc-1' }, offerId: 'offer-1' });
+    bob.session.dispose();
+    void bob.session.ensureConnected(1_000).catch(() => undefined);
+    await settle();
+    expect(bob.posted.filter((post) => post.payload.type === 'restart')).toHaveLength(1);
+  });
+
+  it.each(['reconnect', 'dispose'])('a retired attempt cannot close its replacement after %s', async (action) => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] });
+    try {
+      const bob = harness(bobPair, alicePair.pub, false);
+      const first = bob.session.ensureConnected(1_000).catch(() => undefined);
+      await settle();
+      jest.advanceTimersByTime(500);
+      if (action === 'dispose') bob.session.dispose();
+      const replacement = (action === 'dispose'
+        ? bob.session.ensureConnected(2_000)
+        : bob.session.reconnect(2_000, { requestOffer: false })).catch(() => undefined);
+      await settle();
+      const pc = FakePeerConnection.instances.at(-1)!;
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(pc.closed).toBe(false);
+      expect(bob.session.getState()).toBe('connecting');
+      bob.session.dispose();
+      jest.advanceTimersByTime(2_000);
+      await Promise.all([first, replacement]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

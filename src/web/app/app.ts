@@ -1262,9 +1262,7 @@ export class IinPublicApp {
     });
     setP2PContactIdentityResolver(async (localUserId, otherUserId) => {
       if (this.currentUser?.id !== localUserId) return undefined;
-      const user = await this.userService.getUser(localUserId).catch(() => this.currentUser!);
-      const knownPeople = Array.isArray(user.knownPeople) ? user.knownPeople : this.currentUser.knownPeople;
-      return (Array.isArray(knownPeople) ? knownPeople : []).find((known) => known.userId === otherUserId)?.identityPub;
+      return this.userService.getPinnedIdentityPub(otherUserId);
     });
   }
 

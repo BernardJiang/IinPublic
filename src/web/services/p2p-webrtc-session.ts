@@ -430,6 +430,8 @@ export class P2PConversationSession {
   private readonly listeners = new Set<(messages: Message[]) => void>();
   private readonly lastSeenFromOther = new Map<string, string>();
   private connectPromise: Promise<void> | null = null;
+  private cancelConnectAttempt: (() => void) | null = null;
+  private hasStarted = false;
   private remoteDescriptionSet = false;
   private makingOffer = false;
   /**
@@ -547,15 +549,7 @@ export class P2PConversationSession {
     this.closeTransport();
     this.connectPromise = null;
     this.setState('idle');
-    const connected = this.ensureConnected(timeoutMs);
-    // The answering side cannot offer: ask the other side for a fresh offer (OPEN-74). Its old
-    // connection would otherwise stay up until ICE notices ours is gone, ~30 s later. Not when
-    // the other side reconnects anyway (the Wi-Fi Direct switch: `requestOffer: false`).
-    if (!this.config.isInitiator && options.requestOffer !== false) {
-      const request: SignalPayload = { type: 'restart', requestId: `restart_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`, at: Date.now() };
-      void this.postSignal('connection-state', request).catch(() => undefined);
-    }
-    return connected;
+    return this.ensureConnected(timeoutMs, { requestOffer: options.requestOffer !== false });
   }
 
   /**
@@ -567,7 +561,7 @@ export class P2PConversationSession {
     this.closeTransport();
     this.connectPromise = null;
     this._state = 'idle';
-    const attempt = this.ensureConnected();
+    const attempt = this.ensureConnected(P2P_WEBRTC_CONNECT_TIMEOUT_MS, { requestOffer: false });
     void attempt.catch(() => undefined);
     // start() is async up to the new RTCPeerConnection; wait until it exists.
     for (let i = 0; i < 100 && !this.pc && (this._state as P2PConnectionState) === 'connecting'; i += 1) {
@@ -828,7 +822,7 @@ export class P2PConversationSession {
     await this.signaling.post(this.config.conversationId, body);
   }
 
-  ensureConnected(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS): Promise<void> {
+  ensureConnected(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS, options: { requestOffer?: boolean } = {}): Promise<void> {
     if (this._state === 'connected') return Promise.resolve();
     // Never hand back a finished attempt for a session that has since failed.
     if (this.connectPromise && this._state !== 'failed') return this.connectPromise;
@@ -851,43 +845,50 @@ export class P2PConversationSession {
       this.resetTransport();
     }
 
+    const requestOffer = !this.config.isInitiator && (options.requestOffer ?? this.hasStarted);
+    this.hasStarted = true;
     const attempt = new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let check: ReturnType<typeof setInterval> | undefined;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (check) clearInterval(check);
+        if (this.cancelConnectAttempt === cancel) this.cancelConnectAttempt = null;
+        if (error) reject(error);
+        else resolve();
+      };
+      const cancel = () => finish(new Error('WebRTC connection replaced'));
       const timer = setTimeout(() => {
         if (this._state !== 'connected') {
+          finish(new Error('WebRTC connection timeout'));
           this.setState('failed');
           // Free the leaked RTCPeerConnection now; otherwise failed attempts pile up against
           // Chromium's per-renderer connection cap (see closeTransport).
           this.closeTransport();
-          reject(new Error('WebRTC connection timeout'));
         }
       }, timeoutMs);
       (timer as { unref?: () => void }).unref?.();
-
-      const finish = () => {
-        clearTimeout(timer);
-        resolve();
-      };
+      this.cancelConnectAttempt = cancel;
 
       void this.start()
         .then(() => {
+          if (settled) return;
           if (this._state === 'connected') finish();
           else {
-            const check = setInterval(() => {
+            check = setInterval(() => {
               if (this._state === 'connected') {
-                clearInterval(check);
                 finish();
               } else if (this._state === 'failed') {
-                clearInterval(check);
-                clearTimeout(timer);
+                finish(new Error('WebRTC connection failed'));
                 this.closeTransport();
-                reject(new Error('WebRTC connection failed'));
               }
             }, 200);
           }
         })
         .catch((err) => {
-          clearTimeout(timer);
-          reject(err);
+          finish(err);
         });
     });
 
@@ -895,6 +896,14 @@ export class P2PConversationSession {
     void attempt.catch(() => {
       if (this.connectPromise === attempt) this.connectPromise = null;
     });
+    // Cached Nearby sessions reopen through ensureConnected after idle disposal, not just
+    // reconnect(). The answerer needs a fresh offer in both cases: old signals are deduplicated
+    // and the initiator may still consider its old connection live. A coordinated switch or
+    // rebuild for an offer already received explicitly suppresses this request.
+    if (requestOffer) {
+      const request: SignalPayload = { type: 'restart', requestId: `restart_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`, at: Date.now() };
+      void this.postSignal('connection-state', request).catch(() => undefined);
+    }
     return attempt;
   }
 
@@ -906,6 +915,9 @@ export class P2PConversationSession {
    * pc accumulate until "Cannot create so many PeerConnections", which then freezes the page.
    */
   private closeTransport(): void {
+    // Nearby releases idle links and can immediately reopen the cached session. Retire both
+    // timers with the old attempt: otherwise its timeout closes the replacement connection.
+    this.cancelConnectAttempt?.();
     this.stopPolling?.();
     this.stopPolling = null;
     // Detach first: a discarded channel's onclose fires asynchronously and would otherwise mark
