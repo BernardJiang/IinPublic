@@ -59,6 +59,15 @@ export function runGunRpc(gun: any, body: GunRpcRequest, session?: GunRpcSession
     try {
       switch (body.op) {
         case 'put': {
+          if (body.waitForAck === false) {
+            // Match Gun's callback-free put: submit to this device's graph, without holding
+            // a loopback HTTP connection for an ack the caller never requested. Ephemeral
+            // signaling writes can have no storage ack; a burst otherwise occupies every
+            // WebView HTTP slot until the 8 s fallback, starving the handshake's own reads.
+            resolve(gun, body.path).put(body.data);
+            reply({ ok: true, queued: true });
+            return;
+          }
           resolve(gun, body.path).put(body.data, (ack: any) => reply({ ok: !ack?.err, err: ack?.err ? String(ack.err) : undefined }));
           // The device acks from its own storage; a missing ack is not a failed write.
           setTimeout(() => reply({ ok: true }), Number(body.timeoutMs) || 8_000);

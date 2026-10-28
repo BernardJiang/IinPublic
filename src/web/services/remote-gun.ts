@@ -171,7 +171,7 @@ export class RemoteChain {
   }
 
   put(data: unknown, cb?: (ack: { err?: string; ok?: boolean }) => void): RemoteChain {
-    this.root.rpc({ op: 'put', path: this.path, data })
+    this.root.rpc({ op: 'put', path: this.path, data, ...(cb ? {} : { waitForAck: false }) })
       .then((answer) => cb?.(answer.ok ? { ok: true } : { err: answer.err || 'put failed' }))
       .catch((error) => cb?.({ err: String((error as Error).message || error) }));
     return this;

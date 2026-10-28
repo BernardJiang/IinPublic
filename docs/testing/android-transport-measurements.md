@@ -235,6 +235,46 @@ demonstrate the scan conflict, but its transport timings are not a controlled pe
 The corrected run used the selected P30/C10 pair alone. Both APK SHA-256 values are retained in
 `test-results/four-phone-2026-10-27/`. No real unplugged energy result is claimed.
 
+## 2026-10-28 — four-phone convergence after the native Gun migration
+
+The merged 1.0.199 build repeatedly discovered all four LAN peers but lost Nearby entries after
+failed encrypted handshakes, before any ring Talk was sent. The repaired build passed
+`native-app/30` on P30, C10, PH-1 and Honor FRD-L04 in 3.7 minutes. Every phone retained all three
+peers, with zero failed gossip swaps at the final snapshot. All four ring Talks arrived in
+15.322 / 10.922 / 13.070 / 11.620 seconds; the C10 background delivery took 10.260 seconds.
+The group round trip and online query passed. Counters recorded 286 sent and 286 received mesh
+frames, zero duplicate frames and zero duplicate accepted Talk bodies. This is a small functional
+bench sample, not a throughput or energy comparison.
+
+The investigation produced these fixes:
+
+- Handshake contact-key checks read the owner's private pinned identity directly, avoiding an
+  unrelated full public-profile/reputation lookup while preserving rejection on a changed key or
+  unavailable private store.
+- Closing a connection cancels its connect timeout/poll; reopening a cached answering session
+  requests a fresh offer. Coordinated Wi-Fi Direct switches still suppress redundant requests.
+- SDP creation, remote description handling and callbacks stay bound to their original peer
+  connection. Delayed old work can no longer publish an old offer under a new offer id, send a
+  duplicate answer on the replacement, or cause its real answer to be ignored.
+- Callback-free `RemoteGun.put()` calls no longer hold an HTTP connection waiting for an unused
+  storage acknowledgement. The RPC returns after submitting the write to the device Gun; callers
+  that provide callbacks retain acknowledgement/error reporting. A six-write regression reproduced
+  six held requests before the fix. PH-1 startup timings also showed ~8-second Gun RPC server waits
+  and ~7.2–7.4-second queue delays for core/signaling requests. The change removes that unnecessary
+  wait for ephemeral signaling writes; it does not bypass acknowledged writes or encryption.
+
+The earlier private-pin/timer/reopen candidates alone did not pass the four-phone gate. The final
+hardware pass contains both the SDP guards and callback-free RPC correction, so this report does
+not attribute all improvement to either in isolation. A C10/PH-1/FRD three-phone run also passed in
+3.0 minutes before the full run. All 39 focused RPC, signaling, session, ledger and encryption tests
+passed, together with TypeScript, targeted lint and the ARM64 APK build. The real-Gun subscription
+regression additionally verifies delivery of a callback-free write.
+
+Local evidence: `test-results/four-phone-2026-10-28/four-phone-nearby-evidence.json`,
+`ring-gun-fixed-four/`, `ring-gun-fixed-three/` and `gun-fixed-apk.sha256`. The intermediate
+`ring-handshake-trace` run was interrupted by P30 USB disconnection and is not a qualification run.
+The production discovery timers and mesh ACK timeout remain unchanged.
+
 ## Not measured yet
 
 - A long unplugged battery run (real drain, not the model estimate).

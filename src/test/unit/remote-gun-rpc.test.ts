@@ -37,6 +37,46 @@ const eventually = async (check: () => boolean, ms = 2_000): Promise<void> => {
 };
 
 describe('RemoteGun over the device Gun RPC', () => {
+  it('releases fire-and-forget signaling RPCs without waiting for storage acknowledgements', async () => {
+    jest.useFakeTimers();
+    try {
+      const put = jest.fn();
+      const node = { get: () => node, put };
+      const { transport } = inProcess(node);
+      let pending = 0;
+      const remote = new RemoteGun({ ...transport, call: async (body) => {
+        pending += 1;
+        try { return await transport.call(body); } finally { pending -= 1; }
+      } });
+      // Signaling is ephemeral and its Gun writes need not produce a storage ack. Six held
+      // HTTP requests can otherwise block the WebView's handshake and subscription requests.
+      for (let i = 0; i < 6; i += 1) remote.get('p2p-signal').get(`frame-${i}`).put({ frame: 'signal' });
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+      expect(put).toHaveBeenCalledTimes(6);
+      expect(pending).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('still waits for and reports a write rejection when the caller requests an acknowledgement', async () => {
+    jest.useFakeTimers();
+    try {
+      let ack: (result: unknown) => void = () => undefined;
+      const node = { get: () => node, put: (_data: unknown, cb: typeof ack) => { ack = cb; } };
+      const remote = new RemoteGun(inProcess(node).transport);
+      const callback = jest.fn();
+      remote.get('profile').put({ name: 'Ann' }, callback);
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+      expect(callback).not.toHaveBeenCalled();
+      ack({ err: 'storage unavailable' });
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+      expect(callback).toHaveBeenCalledWith({ err: 'storage unavailable' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   // Stored, as the worker's and the node's are: a Gun without storage never answers a read.
   const files = new Map<string, unknown>();
   const store = {
@@ -70,7 +110,7 @@ describe('RemoteGun over the device Gun RPC', () => {
     const chain = remote.get('rpc-live');
     chain.on((data) => { if (data?.n !== undefined) seen.push(data.n); });
     await new Promise((r) => setTimeout(r, 20));
-    gun.get('rpc-live').put({ n: 1 });
+    remote.get('rpc-live').put({ n: 1 });
     await eventually(() => seen.includes(1));
     chain.off();
     await new Promise((r) => setTimeout(r, 20));
