@@ -12,6 +12,8 @@ status remains in `docs/TODO.md`; check an item here only after its evidence is 
   Include genuine GPS loss, a screen-off background receiver, stopping an outing before a delayed
   reply, and revisiting the same peer for a repeated encounter. Record route conditions, phones,
   timestamps and whether every late/repeated result appears exactly once in the ended outing.
+  The corrected 1.0.199 build is installed on all four phones; the 2026-10-28 ring, offline catch-up
+  and P30/C10/PH-1/Honor screen-off process-recovery bench gates pass. The carried field gate remains.
 - [ ] **OPEN-76 — Long unplugged battery run.** After the agent adds the measurement harness,
   physically unplug at least three charged phones and run the supplied idle/active scenarios for
   the documented duration. Record start/end charge, Android battery statistics, screen state,

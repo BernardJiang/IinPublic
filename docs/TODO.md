@@ -125,8 +125,8 @@ its ID.
       pauses in background**, states that a persistent notification is used, and warns that vendor
       battery savers can still delay/stop delivery unless unrestricted battery use is allowed.
       Host SEA-cycle, authorization, durable-relay, policy, mailbox-relay and packaged-mobile gates
-      pass. One physical screen-off/process-death path is qualified under G7; broader vendor and
-      carried-field qualification remains open.
+      pass. Physical screen-off/process-death bench paths now pass on P30, C10, PH-1 and Honor
+      FRD-L04 (2026-10-28); carried-field and real vendor battery behavior remain open under G7.
   - [ ] **G7 — Qualification gate.** Add a deterministic 498-person model for ranking and storage,
     a 10–20 simulated-client outing, and physical Android runs for walking movement, subway/no-GPS,
     Wi-Fi ↔ cellular ↔ offline transitions, screen-off, restart, delayed replies and repeated
@@ -139,7 +139,12 @@ its ID.
       with Activity closed, screen off, forced Doze and killed process. Android restarted the
       foreground service, returned the exact approved encrypted answer in 5.727 s after the outing
       had stopped, and WebView resume reconciled it exactly once. See
-      `docs/testing/android-match-collection-g7.md`.
+      `docs/testing/android-match-collection-g7.md`. **2026-10-28 regression:** repaired native
+      Gun RPC acknowledgement stalls and connection-replacement races; the 1.0.199 four-phone
+      ring (3.7 min) and P30/C10/PH-1 offline catch-up (2.6 min) pass again. Native screen-off
+      process recovery, late reply and exact replay pass with all four phones as receivers:
+      P30 6.153 s, C10 5.626 s, PH-1 6.313 s, Honor FRD-L04 5.895 s. Every run retains one
+      outing result, the exact whole-Talk/selected-tag responder identities and zero pending events.
     - [ ] Carried field gate: literal walking movement, a transit/subway route with genuine no-GPS,
       physical repeated encounters and broader vendor battery behavior. Fixed coordinates, radio
       toggles and simulated reconnects do not qualify those real-world conditions.

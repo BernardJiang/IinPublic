@@ -328,38 +328,53 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       user.window.on('console', (message) => {
         if (lines.length < 20_000) lines.push(`${new Date().toISOString()} ${message.type()} ${message.text()}`);
       });
+      if (process.env.E2E_MESH_TRACE === '1') await user.window.evaluate(() => {
+        const install = () => {
+          const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
+          if (!mesh) return false;
+          const create = mesh.createSession.bind(mesh);
+          const instrument = (session: any) => {
+            if (session.traceInstalled) return session;
+            session.traceInstalled = true;
+            for (const method of ['sendHandshake', 'handleHandshake', 'sendMeshFrame', 'handleRemoteSignal', 'sendSignedHandshake', 'handleSignedChannelFrame', 'handleEncryptedChannelFrame', 'acceptRemoteHandshake']) {
+              const original = session[method].bind(session);
+              session[method] = async (...values: any[]) => {
+                const start = Date.now();
+                const detail = () => JSON.stringify({ generation: session.secureGeneration, state: session.getState(),
+                  channel: session.dc?.readyState, type: values[0]?.type, offer: values[0]?.offerId,
+                  session: session.secureSessionId, incomingSession: values[0]?.sessionId,
+                  localHandshake: !!session.localHandshakePayload, remoteHandshake: !!session.remoteHandshakePayload,
+                  confirmed: session.secureSessionConfirmed });
+                if (method !== 'sendMeshFrame') console.log('[session-call]', session.getOtherUserId(), method, detail());
+                try { return await original(...values); }
+                catch (error) { console.log('[session-error]', session.getOtherUserId(), method, String(error)); throw error; }
+                finally { if (method !== 'sendMeshFrame') console.log('[session-return]', session.getOtherUserId(), method, Date.now() - start, detail()); else if (Date.now() - start > 1000) console.log('[session-slow]', session.getOtherUserId(), method, Date.now() - start); }
+              };
+            }
+            for (const method of ['resetSecureSession', 'failSecureHandshake', 'dispose', 'reconnect']) {
+              const original = session[method].bind(session);
+              session[method] = (...values: any[]) => {
+                console.log('[session-lifecycle]', session.getOtherUserId(), method, values[0], new Error().stack?.split('\n').slice(1, 5).join(' '));
+                return original(...values);
+              };
+            }
+            return session;
+          };
+          mesh.createSession = (...args: any[]) => instrument(create(...args));
+          for (const neighbor of mesh.neighbors.values()) instrument(neighbor.session);
+          return true;
+        };
+        if (!install()) {
+          const timer = setInterval(() => { if (install()) clearInterval(timer); }, 50);
+          setTimeout(() => clearInterval(timer), 150_000);
+        }
+      });
       const id = await bootstrapNativeWindow(user.window, `Nearby ${index + 1}`, {
         waitForSupportGreeting: false,
         readinessTimeoutMs: 150_000,
         pinStableLocation: false,
       });
       const partial = { device, user, id, sdk: Number(metadata.sdk || 0) };
-      if (process.env.E2E_MESH_TRACE === '1') await user.window.evaluate(() => {
-        const mesh = (window as any).__iinpublic_app?.getApp?.()?.peerMeshService;
-        const create = mesh.createSession.bind(mesh);
-        mesh.createSession = (...args: any[]) => {
-          const session = create(...args);
-          if (session.traceInstalled) return session;
-          session.traceInstalled = true;
-          for (const method of ['sendHandshake', 'handleHandshake', 'sendMeshFrame', 'handleRemoteSignal']) {
-            const original = session[method].bind(session);
-            session[method] = async (...values: any[]) => {
-              const start = Date.now();
-              try { return await original(...values); }
-              catch (error) { console.log('[session-error]', session.getOtherUserId(), method, String(error)); throw error; }
-              finally { if (Date.now() - start > 1000) console.log('[session-slow]', session.getOtherUserId(), method, Date.now() - start); }
-            };
-          }
-          for (const method of ['resetSecureSession', 'failSecureHandshake', 'dispose', 'reconnect']) {
-            const original = session[method].bind(session);
-            session[method] = (...values: any[]) => {
-              console.log('[session-lifecycle]', session.getOtherUserId(), method, values[0], new Error().stack?.split('\n').slice(1, 5).join(' '));
-              return original(...values);
-            };
-          }
-          return session;
-        };
-      });
       const roomId = await routeToFixedNearby(partial);
       if (AREA_SIZES[index]) await setAreaSize(partial, AREA_SIZES[index]!);
       peers.push({ ...partial, roomId });

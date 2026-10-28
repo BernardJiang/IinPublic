@@ -19,6 +19,8 @@ import {
 } from './helpers/native-app-android';
 import { createTagTalk, everyoneListsEveryone, type NearbyParticipant } from '../journeys/nearby-ring-journey';
 import type { TestActor } from '../helpers/test-actor';
+import { buildTalkIdentityKey } from '../../../src/shared/cid';
+import { selectedTalkIdentityKeys } from '../../../src/core/talk-rules';
 
 const execFileAsync = promisify(execFile);
 const RUN = process.env.E2E_REAL_ANDROID_BACKGROUND_AGENT === '1';
@@ -157,7 +159,16 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
 
     const title = `G7 unattended ${Date.now()}`;
     const talk = await createTagTalk(participant('G7 Author', author, authorId).actor, title);
+    const approvedQuestion = talk.talkData.questions[0];
+    const approvedAnswer = approvedQuestion.answers.find((answer: any) => answer.id === 'a_0_match');
+    const expectedIdentityKeys = [...new Set([
+      buildTalkIdentityKey(talk.talkData),
+      ...selectedTalkIdentityKeys(talk.talkData, [{
+        questionId: approvedQuestion.id, answerId: approvedAnswer.id, answerText: approvedAnswer.text,
+      }]),
+    ])].sort();
     await configureAlwaysExactAnswer(receiver, talk.talkData);
+    console.log(`[background-agent] ${RECEIVER_SERIAL} provisioned; testing screen-off process recovery`);
     await author.window.evaluate(() => {
       const app = (window as any).__iinpublic_app?.getApp?.();
       app?.uiManager?.emit?.('startMatchCollection', { scopeId: 'nearby-v3', label: 'G7 physical background' });
@@ -175,15 +186,25 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
     await adb(RECEIVER_SERIAL, 'input', 'keyevent', 'KEYCODE_SLEEP');
     const processPidBeforeKill = (await adb(RECEIVER_SERIAL, 'pidof', PACKAGE)).trim().split(/\s+/)[0] || '';
     expect(processPidBeforeKill).not.toBe('');
-    const processKilled = await adb(RECEIVER_SERIAL, 'run-as', PACKAGE, 'kill', '-9', processPidBeforeKill)
-      .then(() => true)
-      .catch(() => false);
-    expect(processKilled).toBe(true);
+    let restartMethod = 'run-as-sigkill';
+    try {
+      await adb(RECEIVER_SERIAL, 'run-as', PACKAGE, 'kill', '-9', processPidBeforeKill);
+    } catch (error) {
+      // Some vendor policies forbid run-as from signaling the app. ActivityManager's debug
+      // crash still kills this exact process without force-stopping the package (which would
+      // prohibit the foreground service restart that this gate is testing).
+      console.log('[background-agent] run-as kill unavailable:', String(error));
+      restartMethod = 'activity-manager-crash';
+      await adb(RECEIVER_SERIAL, 'am', 'crash', processPidBeforeKill);
+    }
     let backgroundServicePid = '';
     await expect.poll(async () => {
       backgroundServicePid = (await adb(RECEIVER_SERIAL, 'pidof', PACKAGE).catch(() => '')).trim().split(/\s+/)[0] || '';
       return backgroundServicePid && backgroundServicePid !== processPidBeforeKill;
     }, { timeout: 90_000, intervals: [1_000, 2_000, 3_000], message: 'foreground service should restart without the Activity' }).toBe(true);
+    expect(await adb(RECEIVER_SERIAL, 'dumpsys', 'activity', 'activities'))
+      .not.toMatch(/(?:mResumedActivity|topResumedActivity).*com\.iinpublic\.app/);
+    console.log(`[background-agent] service restarted via ${restartMethod}; forcing Doze before delivery`);
     await adb(RECEIVER_SERIAL, 'dumpsys', 'deviceidle', 'force-idle').catch(() => '');
     await new Promise((resolve) => setTimeout(resolve, 15_000));
     const sentAt = Date.now();
@@ -211,6 +232,7 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
       message: 'author should receive the native background exact response',
     }).toBe(1);
     const responseReceivedAt = Date.now();
+    console.log(`[background-agent] native exact response received in ${responseReceivedAt - sentAt} ms; checking replay`);
 
     const collection = await author.window.evaluate(({ sessionId, talkId, responderId }) => {
       const store = JSON.parse((((window as any).__iinpublic_collection?.('appData') ?? {})['iinpublic_match_collection_sessions_v1'] ?? null) || '{}');
@@ -233,10 +255,16 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
     receiver = await launchAndroidUserViaAdb({ deviceSerial: RECEIVER_SERIAL, hubGunUrl, disableLanDiscovery: true });
     await expect.poll(() => receiver!.window.evaluate(() => Boolean((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id)), { timeout: 90_000 }).toBe(true);
 
+    // A tag response records both the whole Talk and the selected tag's suppression identity.
+    // These are aliases of one exchange, not duplicate outcomes; require each exactly once.
     await expect.poll(() => receiver!.window.evaluate((talkId) => {
       const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-      return Object.values(doc?.exchanged || {}).filter((row: any) => row?.role === 'responder' && row?.talkId === talkId).length;
-    }, talk.talkId), { timeout: 120_000, intervals: [1_000, 2_000, 3_000] }).toBe(1);
+      return Object.values(doc?.exchanged || {})
+        .filter((row: any) => row?.role === 'responder' && row?.talkId === talkId)
+        .map((row: any) => ({ identityKey: row.identityKey, peerId: row.peerId, version: row.version }))
+        .sort((a, b) => a.identityKey.localeCompare(b.identityKey));
+    }, talk.talkId), { timeout: 120_000, intervals: [1_000, 2_000, 3_000] })
+      .toEqual(expectedIdentityKeys.map((identityKey) => ({ identityKey, peerId: authorId, version: 1 })));
     await expect.poll(() => receiver!.window.evaluate(() => {
       const raw = (window as any).IinPublicBackground?.status?.();
       try { return JSON.parse(raw || '{}').pendingEvents ?? -1; } catch { return -1; }
@@ -245,15 +273,18 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
     const evidence = {
       authorSerial: AUTHOR_SERIAL,
       receiverSerial: RECEIVER_SERIAL,
+      restartMethod,
       talkId: talk.talkId,
       responseWhileScreenOffMs: responseReceivedAt - sentAt,
       collection,
       lateReplyAttachedToEndedOuting: true,
-      processKilled,
+      processKilled: backgroundServicePid !== processPidBeforeKill,
       processPidBeforeKill,
       backgroundServicePid,
       processPidAfterActivityRelaunch: (await adb(RECEIVER_SERIAL, 'pidof', PACKAGE)).trim(),
-      exactResponderLedgerRows: 1,
+      logicalResponderExchanges: 1,
+      exactResponderLedgerRows: expectedIdentityKeys.length,
+      responderIdentityKeys: expectedIdentityKeys,
     };
     const evidencePath = testInfo.outputPath('g7-background-agent-evidence.json');
     fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));

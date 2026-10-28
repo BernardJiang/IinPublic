@@ -59,11 +59,50 @@ The first background run exposed two real integration gaps:
 Focused unit coverage exercises the mailbox selection and policy export. The corrected packaged
 app then passed the screen-off/process-death physical gate above.
 
+## 2026-10-28 — regression checks on app 1.0.199
+
+After merging the native/core Gun migration, the four-phone ring initially failed during Nearby
+convergence. The connection/RPC corrections and their regression evidence are described in
+[the transport report](android-transport-measurements.md#2026-10-28--four-phone-convergence-after-the-native-gun-migration).
+The same corrected ARM64 APK was installed on all four phones listed above.
+
+- `30-android-four-phone-nearby.spec.ts`: all four phones passed in 3.7 minutes. Every phone
+  retained all three peers, with zero failed gossip swaps and zero duplicate accepted Talk bodies.
+  The four ring deliveries took 15.322 / 10.922 / 13.070 / 11.620 seconds, C10 background delivery
+  took 10.260 seconds, and the group round trip and online query passed.
+- `13-android-three-phone-offline-resync.spec.ts`: P30/C10/PH-1 passed in 2.6 minutes. Concurrent
+  Talk propagation and a missed Talk after PH-1 Wi-Fi off/on were verified; Wi-Fi was restored.
+- `40-android-background-talk-agent.spec.ts`: all four receiver variants passed sequentially.
+  Each receiver recovered its native service after process death with the Activity closed, returned
+  the exact approved encrypted answer while screen-off after Doze was requested, attached the late
+  reply to the ended outing, and reconciled once on Activity relaunch with zero pending native events.
+
+| Receiver | Author | Process termination | Screen-off reply | Full gate |
+| --- | --- | --- | --- | --- |
+| PH-1, Android 10 | C10 | ActivityManager crash | 6.313 s | 2.6 min, passed |
+| Honor FRD-L04, Android 7 | P30 | run-as SIGKILL | 5.895 s | 2.4 min, passed |
+| P30, Android 10 | C10 | ActivityManager crash | 6.153 s | 2.7 min, passed |
+| C10, Android 14 | P30 | run-as SIGKILL | 5.626 s | 2.9 min, passed |
+
+The background gate now checks the exact responder identity set. A tag answer intentionally records
+both the whole-Talk identity and its selected-tag identity; each must have exactly one version-1 row
+for the author. It also requires one author outcome, one outing result and no pending native events.
+The previous one-row assertion incorrectly treated these two suppression identities as duplicates.
+Where a vendor rejects `run-as ... kill -9`, the harness uses ActivityManager's debug crash for the
+exact app PID. Both paths must produce a replacement service PID without a resumed app Activity;
+neither uses force-stop to test service recovery.
+
+Raw local outputs are under `test-results/four-phone-2026-10-28/` (`ring-gun-fixed-four/`,
+`offline-resync/`, `background-{ph1,honor,p30,c10}-qualified/`, and `gun-fixed-apk.sha256`).
+Each background directory contains `g7-background-agent-evidence.json` with process IDs, restart
+method, reply time, ended-outing association and exact responder identities. These USB-connected
+fixed-location runs do not complete the carried field or unplugged battery gates.
+
 ## Remaining manual field gate
 
 G7 remains open. A person must still carry the phones through literal walking movement and a
 transit/subway route with genuine location loss, then revisit peers for physical repeated
 encounters. Fixed test coordinates, toggled radios and simulated reconnects are useful deterministic
 bench coverage, but are not evidence for RF behavior, GPS behavior or encounter timing while
-moving. The background receiver also needs field coverage across more than the C10's Android/vendor
-battery implementation.
+moving. All four vendors now have screen-off/process-recovery bench coverage; background delivery
+still needs carried, unplugged field coverage under their real battery restrictions.
