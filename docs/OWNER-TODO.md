@@ -17,7 +17,8 @@ status remains in `docs/TODO.md`; check an item here only after its evidence is 
   the documented duration. Record start/end charge, Android battery statistics, screen state,
   radios, ambient conditions and any vendor battery restrictions. Reconnect the phones afterward
   so the agent can collect and analyze the retained artifacts. The automated bench work is ready;
-  pay particular attention to the online phone's BLE scan churn recorded in the 2026-10-22 report.
+  use the build containing the 2026-10-27 BLE scan-churn fix. The bench now follows its requested
+  scan policy; real unplugged energy use still needs measurement.
 - [ ] **OPEN-77 — Release-key custody ceremony.** Put the K3 and K4 vault/passphrase halves in
   separate durable offline backups, prove each restoration, and remove development-machine working
   copies when the release ceremony no longer needs them. Do not send keys or passphrases in chat.

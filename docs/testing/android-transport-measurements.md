@@ -207,6 +207,34 @@ removed, Wi-Fi restored, the current 1.0.187 build retained, and all three scree
 - **OPEN-74** (1.0.181): fresh reconnects never succeeded over an offline Wi-Fi Direct group, and
   each pair's first one failed online; 5 of 5 succeed in both modes now.
 
+## 2026-10-27 — online Wi-Fi Direct BLE scan churn fixed
+
+The P30/C10 mixed-nearby run reproduced the previously unexplained churn on the merged 1.0.199
+build: the online P30 requested two scan periods but started the native scanner 19 times in
+197.2 seconds. Its final requested state was scanning, but the native scanner was stopped.
+`NearbyOfflineService.tick()` applied the online-member policy; `advertise()` immediately applied
+the older rule that every group member stops scanning. Each following tick repeated the conflict.
+
+Advertisement refresh now preserves the policy used by `tick()`: online group members scan for
+offline peers; offline group members stop scanning. Regression tests reproduce both owner and
+client cases and verify that losing the hub still stops scanning in a group. All 67 discovery and
+offline-service unit tests pass.
+
+The corrected APK passed the same P30/C10 mixed-nearby journey, with 3 native P30 scan starts in
+201.8 seconds, two requested periods, and a final active scanner matching the requested state.
+Both runs delivered all four Talk bodies, with zero duplicate accepted bodies. The corrected run's
+single fresh connection took 1.396 seconds; delivery p50/p95 was 3.393/5.474 seconds. These are
+small bench samples, not a throughput or battery-drain qualification. Frame duplicates remained
+observable and were deduplicated; the ACK timeout and production discovery timers are unchanged.
+
+Raw records (local, uncommitted):
+`test-results/android-measurements/mixed-nearby-2026-10-27T16-25-45-232Z.json` and
+`test-results/android-measurements/mixed-nearby-2026-10-27T20-41-59-830Z.json`.
+The baseline briefly overlapped an aborted background-test setup on a third phone; its counters
+demonstrate the scan conflict, but its transport timings are not a controlled performance baseline.
+The corrected run used the selected P30/C10 pair alone. Both APK SHA-256 values are retained in
+`test-results/four-phone-2026-10-27/`. No real unplugged energy result is claimed.
+
 ## Not measured yet
 
 - A long unplugged battery run (real drain, not the model estimate).

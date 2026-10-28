@@ -766,7 +766,9 @@ export class NearbyOfflineService {
     const inGroup = state.state === 'owner' || state.state === 'client';
     const txt = JSON.stringify(encodeNearbyTxt({ ...self, port: this.opts.port, roomToken: scope.roomToken, group, online: this.isOnlineStage() }));
     const advertisementState = txt + (inGroup ? '|in-group' : '');
-    if (this.bleState) this.applyBle(true, !inGroup && (this.lastDecision?.bleScan ?? true));
+    // Keep the same scan policy as tick(): an online group member watches for offline peers.
+    // Unconditionally stopping here makes every tick start the scanner and immediately stop it.
+    if (this.bleState) this.applyBle(true, (this.lastDecision?.bleScan ?? true) && (!inGroup || this.isOnlineStage()));
     if (advertisementState === this.lastAdvertised) return;
     this.lastAdvertised = advertisementState;
     this.opts.bridge.advertiseWifiDirectService(txt);

@@ -41,8 +41,13 @@ Add whatever helps you do your job. This is your cheat sheet.
 
 ## Android test devices
 
-- User restriction (2026-10-26): use only the C10 phone when physical-device testing is needed.
-  Do not operate other phones, including for cleanup. Target C10 explicitly; do not run device-wide commands.
+- User authorization (2026-10-27): use the four available phones to fix open issues, superseding
+  the 2026-10-26 C10-only restriction for this task. Selected devices: P30 `DUM0219418001663`,
+  C10 `PADC100013000534`, PH-1 `PM1LHMA7A2707315`, Honor FRD-L04 `RNV0217207000190`.
+  Target these serials explicitly; do not operate other phones or run device-wide commands.
+- Run physical Nearby suites sequentially even when their selected phones are disjoint: BLE and
+  Wi-Fi Direct share the room capability and radio environment, so another suite can influence
+  host election, group membership and transport measurements.
 
 - After every physical-phone test session, restore any temporary battery/Doze/radio state and turn
   off the screen on the authorized test phone with `adb -s <authorized-serial> shell input keyevent KEYCODE_SLEEP`.

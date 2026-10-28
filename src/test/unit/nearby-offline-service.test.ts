@@ -304,6 +304,33 @@ describe('NearbyOfflineService', () => {
 });
 
 describe('NearbyOfflineService BLE presence', () => {
+  it.each(['owner', 'client'] as const)('keeps an online %s scanning without restarting BLE on each discovery tick', async (state) => {
+    const t = setup({ hubReachable: true, roomPeers: { count: 0, pubs: [] } });
+    try {
+      await t.service.start();
+      t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 0, hosting: false }));
+      await t.tick();
+      t.native.set({ state, localIp: '192.168.49.1', clientCount: 1, ...TEST_GROUP_CREDENTIALS });
+      await flush();
+      await t.tick();
+      const lastBeacon = t.calls.filter((call) => call.startsWith('ble:')).at(-1);
+      expect(lastBeacon).toBeDefined();
+      expect(lastBeacon).not.toContain(':no-scan');
+      t.calls.length = 0;
+      for (let i = 0; i < 3; i += 1) {
+        t.advance(1_000);
+        await t.tick();
+      }
+      expect(t.calls.filter((call) => call.startsWith('ble:'))).toEqual([]);
+      // Losing the hub changes the policy: an offline group member stops scanning.
+      t.setHub(false);
+      await t.tick();
+      expect(t.calls.filter((call) => call.startsWith('ble:')).at(-1)).toContain(':no-scan');
+    } finally {
+      t.service.dispose();
+    }
+  });
+
   it('advertises BLE presence while offline and flips the hosting bit once it owns a group', async () => {
     const t = setup();
     await t.service.start();

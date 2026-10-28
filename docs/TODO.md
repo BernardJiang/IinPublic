@@ -179,7 +179,12 @@ its ID.
     Retained 30 s / 10 min / 30 min and the 3 s ACK: 306 sent and 306 received frames produced zero
     duplicate frames and zero duplicate Talk bodies, so neither ACK inflation nor route-selection
     wiring is justified. Native idempotence reduced P30 BLE advertiser starts from 67 to 4 per
-    ~200 s mixed run; scan-command churn remains explicit evidence for the unplugged run.
+    ~200 s mixed run. **2026-10-27 follow-up:** fixed conflicting scan policies in the discovery
+    tick and advertisement refresh. The P30/C10 mixed-nearby bench passed with native P30 scan
+    starts reduced from 19 to 3 over comparable ~200 s windows; all four Talk bodies arrived
+    without duplicate accepted bodies. Both online owner/client regression tests pass. This
+    removes the repeated scan-toggle defect, but does not establish real unplugged energy use;
+    timers and the ACK timeout remain unchanged. See the transport report for limitations.
   - [x] **Automatable D — Regression/reporting:** add focused deterministic tests, rerun the relevant
     Android matrix, and append the measurements and limitations to the transport report.
   - [ ] **Owner action:** perform the long unplugged battery run after the automated harness is
