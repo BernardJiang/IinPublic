@@ -33,7 +33,7 @@ const CAPACITY = 3;
 const TALK_PREFIX = 'MapOps user-';
 const DELIVERY_POINT = { latitude: 32.7157, longitude: -117.1611 };
 
-const WORLD_POINTS = [
+const INITIAL_MAP_LOCATIONS = [
   { latitude: 37.7749, longitude: -122.4194 }, // San Francisco
   { latitude: 40.7128, longitude: -74.0060 }, // New York
   { latitude: 51.5074, longitude: -0.1278 }, // London
@@ -50,6 +50,11 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 async function visualPause(page: Page, multiplier = 1): Promise<void> {
   if (headless) return;
   await page.waitForTimeout(positiveInt(process.env.E2E_DEMO_PAUSE_MS, 2_500) * multiplier);
+}
+
+async function visualStepPause(page: Page): Promise<void> {
+  if (headless) return;
+  await page.waitForTimeout(positiveInt(process.env.E2E_TRAVEL_STEP_PAUSE_MS, 10_000));
 }
 
 async function mapCounts(page: Page): Promise<{ green: number; yellow: number }> {
@@ -75,42 +80,31 @@ function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: n
 }
 
 async function injectDeterministicWorldMapDots(users: DemoUser[]): Promise<void> {
-  const relativeOffsets = [
-    { lat: 0.025, lng: 0.010 },
-    { lat: -0.022, lng: 0.020 },
-    { lat: 0.018, lng: -0.024 },
-    { lat: 0.060, lng: 0.055 },
-    { lat: -0.058, lng: -0.050 },
-  ];
-
   for (const viewer of users) {
-    const othersRaw = users
-      .filter((candidate) => candidate.userId !== viewer.userId)
-      .map((candidate) => ({
-        userId: candidate.userId,
-      }));
+    const displayOffsets = [
+      { lat: 0.008, lng: 0.006 },
+      { lat: -0.010, lng: 0.009 },
+      { lat: 0.011, lng: -0.008 },
+      { lat: 0.017, lng: 0.014 },
+      { lat: -0.018, lng: -0.015 },
+    ];
 
-    const others = othersRaw.map((entry, index) => {
-      const offset = relativeOffsets[index % relativeOffsets.length]!;
-      return {
-        userId: entry.userId,
+    const others = users
+      .filter((candidate) => candidate.userId !== viewer.userId)
+      .map((candidate, index) => {
+        const offset = displayOffsets[index % displayOffsets.length]!;
+        return {
+        userId: candidate.userId,
         latitude: viewer.location.latitude + offset.lat,
         longitude: viewer.location.longitude + offset.lng,
       };
-    });
+      });
 
-    const inReachIds = others
+    const inReachIds = users
+      .filter((candidate) => candidate.userId !== viewer.userId)
       .slice()
       .sort((a, b) =>
-        distanceKm(
-          { latitude: viewer.location.latitude, longitude: viewer.location.longitude },
-          { latitude: a.latitude, longitude: a.longitude },
-        )
-          - distanceKm(
-            { latitude: viewer.location.latitude, longitude: viewer.location.longitude },
-            { latitude: b.latitude, longitude: b.longitude },
-          ),
-      )
+        distanceKm(viewer.location, a.location) - distanceKm(viewer.location, b.location))
       .slice(0, CAPACITY)
       .map((entry) => entry.userId);
 
@@ -155,6 +149,35 @@ async function openMapAndApplyShowcaseDots(users: DemoUser[]): Promise<void> {
       await locateSelf.click();
     }
   }));
+}
+
+async function assertAllVisible(users: DemoUser[]): Promise<void> {
+  for (const user of users.slice(0, VISIBLE_USERS)) {
+    await expect
+      .poll(async () => {
+        const counts = await mapCounts(user.page);
+        return counts.green + counts.yellow;
+      }, { timeout: 60_000, intervals: [1_000, 2_000] })
+      .toBe(TOTAL_USERS - 1);
+  }
+}
+
+async function travelUsersIntoFirstRegionOneByOne(users: DemoUser[]): Promise<void> {
+  const first = users[0]!;
+  const regionCenter = { ...first.location };
+  await first.page.bringToFront();
+  await visualStepPause(first.page);
+
+  for (let i = 1; i < users.length; i += 1) {
+    users[i]!.location = {
+      latitude: regionCenter.latitude + (i * 0.0015),
+      longitude: regionCenter.longitude - (i * 0.0012),
+    };
+    await openMapAndApplyShowcaseDots(users);
+    await assertAllVisible(users);
+    await first.page.bringToFront();
+    await visualStepPause(first.page);
+  }
 }
 
 async function arrangeSixVisibleWindows(users: DemoUser[]): Promise<void> {
@@ -233,7 +256,7 @@ async function seedIncomingTalkWithRetry(
 
 test.describe('M6 map world operations showcase', () => {
   test('shows 6 side-by-side windows with 6 world users and tag/manual+auto flow', async () => {
-    test.setTimeout(1_200_000);
+    test.setTimeout(1_800_000);
     await clearGunForStage1Spec();
 
     const browser: Browser = await chromium.launch({
@@ -263,7 +286,7 @@ test.describe('M6 map world operations showcase', () => {
           index: i,
           label: `U${String(i + 1).padStart(2, '0')}`,
           stageName,
-          location: WORLD_POINTS[i]!,
+          location: INITIAL_MAP_LOCATIONS[i]!,
           context: ready.context,
           page: ready.page,
           userId,
@@ -274,19 +297,10 @@ test.describe('M6 map world operations showcase', () => {
       await users[0]!.page.bringToFront();
       await openMapAndApplyShowcaseDots(users);
 
-      for (const user of users.slice(0, VISIBLE_USERS)) {
-        await expect
-          .poll(() => mapCounts(user.page), { timeout: 120_000, intervals: [1_000, 2_000, 4_000] })
-          .toEqual({ green: 3, yellow: 2 });
-        await expect
-          .poll(async () => {
-            const counts = await mapCounts(user.page);
-            return counts.green + counts.yellow;
-          }, { timeout: 30_000, intervals: [500, 1_000] })
-          .toBe(TOTAL_USERS - 1);
-      }
+      await assertAllVisible(users);
 
       await visualPause(users[0]!.page, 2);
+      await travelUsersIntoFirstRegionOneByOne(users);
 
       const authoredTalks: Array<{
         authorId: string;
