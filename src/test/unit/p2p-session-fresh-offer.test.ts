@@ -153,6 +153,68 @@ describe('P2P session: a fresh offer from a rebuilt connection (OPEN-74)', () =>
     expect(alice.posted.filter((post) => post.kind === 'offer')).toHaveLength(2);
   });
 
+  it('retires an offer still applying its SDP when a newer offer arrives', async () => {
+    const bob = harness(bobPair, alicePair.pub, false);
+    void bob.session.ensureConnected(1_000).catch(() => undefined);
+    await settle();
+    const first = FakePeerConnection.instances.at(-1)!;
+    let release: () => void = () => undefined;
+    const apply = first.setRemoteDescription.bind(first);
+    first.setRemoteDescription = async (description) => {
+      await apply(description);
+      await new Promise<void>((resolve) => { release = resolve; });
+    };
+    const oldOffer = bob.signal({ type: 'offer', sdp: { type: 'offer', sdp: 'alice-pc-1' }, offerId: 'offer-1' });
+    await settle();
+    await bob.signal({ type: 'offer', sdp: { type: 'offer', sdp: 'alice-pc-2' }, offerId: 'offer-2' });
+    release();
+    await oldOffer;
+    expect(first.closed).toBe(true);
+    expect(bob.posted.filter((post) => post.kind === 'answer').map((post) => post.payload.offerId)).toEqual(['offer-2']);
+  });
+
+  it('does not apply a retired answer to a replacement connection', async () => {
+    const alice = harness(alicePair, bobPair.pub, true);
+    void alice.session.ensureConnected(1_000).catch(() => undefined);
+    await settle();
+    const first = FakePeerConnection.instances.at(-1)!;
+    let release: () => void = () => undefined;
+    first.setRemoteDescription = async () => new Promise<void>((resolve) => { release = resolve; });
+    const oldAnswer = alice.signal({ type: 'answer', sdp: { type: 'answer', sdp: 'bob-pc-1' }, offerId: alice.posted[0].payload.offerId });
+    await settle();
+    void alice.session.reconnect(1_000).catch(() => undefined);
+    await settle();
+    release();
+    await oldAnswer;
+    const offer = alice.posted.filter((post) => post.kind === 'offer').at(-1)!;
+    await alice.signal({ type: 'answer', sdp: { type: 'answer', sdp: 'bob-pc-2' }, offerId: offer.payload.offerId });
+    expect(FakePeerConnection.instances.at(-1)!.boundTo).toBe('bob-pc-2');
+  });
+
+  it('does not publish an offer whose connection was replaced while creating SDP', async () => {
+    let release: () => void = () => undefined;
+    const create = FakePeerConnection.prototype.createOffer;
+    let calls = 0;
+    const spy = jest.spyOn(FakePeerConnection.prototype, 'createOffer').mockImplementation(async function (this: FakePeerConnection) {
+      const offer = await create.call(this);
+      if (++calls === 1) await new Promise<void>((resolve) => { release = resolve; });
+      return offer;
+    });
+    try {
+      const alice = harness(alicePair, bobPair.pub, true);
+      void alice.session.ensureConnected(1_000).catch(() => undefined);
+      await settle();
+      void alice.session.reconnect(1_000).catch(() => undefined);
+      await settle();
+      const current = FakePeerConnection.instances.at(-1)!;
+      release();
+      await settle();
+      expect(alice.posted.filter((post) => post.kind === 'offer').map((post) => post.payload.sdp.sdp)).toEqual([`pc-${current.id}`]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('the Wi-Fi Direct switch asks for no extra offer (both sides switch)', async () => {
     const bob = harness(bobPair, alicePair.pub, false);
     void bob.session.reconnect(1_000, { requestOffer: false }).catch(() => undefined);

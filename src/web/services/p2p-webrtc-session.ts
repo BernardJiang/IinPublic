@@ -423,6 +423,7 @@ export function setP2PContactIdentityResolver(resolver: ContactIdentityResolver 
 export class P2PConversationSession {
   private _state: P2PConnectionState = 'idle';
   private pc: RTCPeerConnection | null = null;
+  private transportGeneration = 0;
   private dc: RTCDataChannel | null = null;
   private signaling: SignalingTransport;
   private stopPolling: (() => void) | null = null;
@@ -915,6 +916,7 @@ export class P2PConversationSession {
    * pc accumulate until "Cannot create so many PeerConnections", which then freezes the page.
    */
   private closeTransport(): void {
+    this.transportGeneration += 1;
     // Nearby releases idle links and can immediately reopen the cached session. Retire both
     // timers with the old attempt: otherwise its timeout closes the replacement connection.
     this.cancelConnectAttempt?.();
@@ -958,6 +960,7 @@ export class P2PConversationSession {
 
   private async start(): Promise<void> {
     if (this._state === 'connecting' || this._state === 'connected') return;
+    const generation = this.transportGeneration;
     this.resetSecureSession();
     this.setState('connecting');
 
@@ -970,8 +973,11 @@ export class P2PConversationSession {
     // reconnect attempt, the initiator's offer (posted fast on retry, since resolveIceServers'
     // result is cached) reached the answerer before the answerer's own `await
     // resolveIceServers()` had assigned `this.pc`, permanently stalling both sides' DM channel.
-    this.pc = new RTCPeerConnection(this.iceConfigOverride ?? { iceServers: await resolveIceServers(this.config.apiBase) });
-    this.pc.onicecandidate = (event) => {
+    const iceConfig = this.iceConfigOverride ?? { iceServers: await resolveIceServers(this.config.apiBase) };
+    if (generation !== this.transportGeneration) return;
+    const pc = this.pc = new RTCPeerConnection(iceConfig);
+    pc.onicecandidate = (event) => {
+      if (this.pc !== pc) return;
       if (!event.candidate) return;
       void this.postSignal('ice-candidate', {
         type: 'ice',
@@ -979,8 +985,9 @@ export class P2PConversationSession {
         ...(this.currentOfferId ? { offerId: this.currentOfferId } : {}),
       }).catch(() => undefined);
     };
-    this.pc.onconnectionstatechange = () => {
-      const cs = this.pc?.connectionState;
+    pc.onconnectionstatechange = () => {
+      if (this.pc !== pc) return;
+      const cs = pc.connectionState;
       if (cs === 'connected') {
         this.markTransportConnected();
       } else if (cs === 'failed' || cs === 'closed' || cs === 'disconnected') {
@@ -988,8 +995,9 @@ export class P2PConversationSession {
         this.connectPromise = null;
       }
     };
-    this.pc.oniceconnectionstatechange = () => {
-      const ice = this.pc?.iceConnectionState;
+    pc.oniceconnectionstatechange = () => {
+      if (this.pc !== pc) return;
+      const ice = pc.iceConnectionState;
       if (ice === 'connected' || ice === 'completed') {
         this.markTransportConnected();
       } else if (ice === 'failed') {
@@ -998,7 +1006,8 @@ export class P2PConversationSession {
       }
     };
     if (!this.config.isInitiator) {
-      this.pc.ondatachannel = (event) => {
+      pc.ondatachannel = (event) => {
+        if (this.pc !== pc) return;
         this.dc = event.channel;
         this.attachDataChannel(this.dc);
       };
@@ -1008,19 +1017,22 @@ export class P2PConversationSession {
       this.config.conversationId,
       this.config.localPub,
       async (_envelope, payload) => {
+        if (this.pc !== pc) return;
         await this.handleRemoteSignal(payload as SignalPayload);
       },
     );
 
     if (this.config.isInitiator) {
-      this.dc = this.pc.createDataChannel('iinpublic-dm', { ordered: true });
+      this.dc = pc.createDataChannel('iinpublic-dm', { ordered: true });
       this.attachDataChannel(this.dc);
       this.makingOffer = true;
-      this.currentOfferId = `offer_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-      const offer = await this.pc.createOffer();
-      await this.pc.setLocalDescription(offer);
-      await this.postSignal('offer', { type: 'offer', sdp: offer, offerId: this.currentOfferId });
-      this.makingOffer = false;
+      const offerId = this.currentOfferId = `offer_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const offer = await pc.createOffer();
+      if (this.pc !== pc) return;
+      await pc.setLocalDescription(offer);
+      if (this.pc !== pc) return;
+      await this.postSignal('offer', { type: 'offer', sdp: offer, offerId });
+      if (this.pc === pc) this.makingOffer = false;
     }
   }
 
@@ -1561,21 +1573,27 @@ export class P2PConversationSession {
       // (reconnect, the Wi-Fi Direct switch). Applying it to this connection fails — its DTLS
       // identity is new — so every first reconnect failed until ICE gave up on the old one
       // (OPEN-74). Answer it on a fresh connection instead.
-      if (this.remoteDescriptionSet || this.pc.signalingState !== 'stable') {
+      if (this.currentOfferId || this.remoteDescriptionSet || this.pc.signalingState !== 'stable') {
         await this.rebuildForRemote();
         if (!this.pc) return;
       }
       // Track which offer generation we are answering so the initiator can
       // correlate our answer (and discard answers to retired offers).
       this.currentOfferId = payload.offerId ?? null;
-      await this.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      const pc = this.pc;
+      const offerId = this.currentOfferId;
+      const isCurrent = () => this.pc === pc && this.currentOfferId === offerId;
+      await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      if (!isCurrent()) return;
       this.remoteDescriptionSet = true;
-      const answer = await this.pc.createAnswer();
-      await this.pc.setLocalDescription(answer);
+      const answer = await pc.createAnswer();
+      if (!isCurrent()) return;
+      await pc.setLocalDescription(answer);
+      if (!isCurrent()) return;
       await this.postSignal('answer', {
         type: 'answer',
         sdp: answer,
-        ...(this.currentOfferId ? { offerId: this.currentOfferId } : {}),
+        ...(offerId ? { offerId } : {}),
       });
     } else if (payload.type === 'answer') {
       // Drop answers that correspond to a previous (timed-out, reset) offer cycle;
@@ -1583,7 +1601,9 @@ export class P2PConversationSession {
       // for the current offer would then be ignored.
       if (payload.offerId && payload.offerId !== this.currentOfferId) return;
       if (this.config.isInitiator && !this.remoteDescriptionSet) {
-        await this.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        const pc = this.pc;
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        if (this.pc !== pc) return;
         this.remoteDescriptionSet = true;
       }
     } else if (payload.type === 'ice' && payload.candidate) {
