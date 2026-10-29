@@ -78,7 +78,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
   // collections keep their existing concurrency; no network/transport work holds this lock.
   let ledgerQueue: Promise<unknown> = Promise.resolve();
   return (request) => {
-    const touchesLedger = request.name === 'response.commit' || request.name.startsWith('ledger.') || ('collection' in request && request.collection === 'talkLedger');
+    const touchesLedger = request.name === 'response.commit' || request.name.startsWith('ledger.') || ('collection' in request && request.collection === 'talkLedger')
+      || (request.name === 'delivery.record' && request.input.objectKind === 'talk-response');
     if (!touchesLedger) return execute(request);
     const result = ledgerQueue.then(() => execute(request));
     ledgerQueue = result.catch(() => undefined);

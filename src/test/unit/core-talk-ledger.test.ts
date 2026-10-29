@@ -67,6 +67,9 @@ describe('response commit commands', () => {
     expect(replay.response?.payload.responseId).toBe(results[5].response?.payload.responseId);
     expect(replay.response?.isContentChange).toBe(false);
     expect(await restarted({ name: 'delivery.get', objectId: replay.response!.payload.responseId, recipientId: 'author' })).toMatchObject({ state: 'committed' });
+    await restarted({ name: 'delivery.record', input: { objectId: replay.response!.payload.responseId, recipientId: 'author', objectKind: 'talk-response', state: 'sent' } });
+    await restarted(commands[5]);
+    expect(await restarted({ name: 'delivery.get', objectId: replay.response!.payload.responseId, recipientId: 'author' })).toMatchObject({ state: 'sent' });
   });
 
   it('refuses incomplete, retracted and unencrypted responses before transport preparation', async () => {

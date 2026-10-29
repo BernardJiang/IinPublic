@@ -53,6 +53,9 @@ export class DeliveryStore {
   }
 
   async record(input: DeliveryInput): Promise<void> {
+    const previous = await this.get(input.objectId, input.recipientId);
+    const rank: Record<DeliveryState, number> = { committed: 0, sent: 1, 'persisted-receipt': 2 };
+    if (previous?.objectKind === input.objectKind && rank[previous.state] >= rank[input.state]) return;
     const record: DeliveryJournalRecord = { version: 1, ...input, updatedAt: new Date().toISOString() };
     await this.store.put(`${DELIVERY_JOURNAL_PATH}/${key(input.objectId, input.recipientId)}`, { json: JSON.stringify(record) });
   }

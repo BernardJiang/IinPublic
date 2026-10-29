@@ -30,6 +30,8 @@ describe('the delivery records in the device core', () => {
     await handle({ name: 'delivery.record', input: { objectId: 'talk-cid', recipientId: 'bob', objectKind: 'talk-offer', state: 'committed' } });
     await handle({ name: 'delivery.record', input: { objectId: 'talk-cid', recipientId: 'bob', objectKind: 'talk-offer', state: 'sent' } });
     await expect(handle({ name: 'delivery.get', objectId: 'talk-cid', recipientId: 'bob' })).resolves.toMatchObject({ state: 'sent' });
+    await handle({ name: 'delivery.record', input: { objectId: 'talk-cid', recipientId: 'bob', objectKind: 'talk-offer', state: 'committed' } });
+    await expect(handle({ name: 'delivery.get', objectId: 'talk-cid', recipientId: 'bob' })).resolves.toMatchObject({ state: 'sent' });
     expect(await store.childKeys(DELIVERY_JOURNAL_PATH)).toHaveLength(1);
   });
 });

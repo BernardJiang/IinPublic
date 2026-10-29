@@ -229,6 +229,8 @@ Each phase ships on its own and keeps every test green.
      These ordered writes are not a multi-record atomic transaction. The GUI still owns encryption,
      transport scheduling, fanout, chatbot execution, Nearby and conversation effects; cached GUI
      reads are not yet a complete live host view model. P5.4 remains open.
+     A retry of the same response preserves a delivery journal's higher state (`sent` or
+     `persisted-receipt`); talk-response journal writes share the host command queue.
 6. **P6 (2026-10-26) — One Gun on the web**: the page's hub-connected Gun goes away; the worker
    core's Gun is the only one. It peers with the hub, and the page reaches it through the same
    `RemoteGun`, over `postMessage` instead of HTTP (`GunBridge.gunTransport()`, worker message
