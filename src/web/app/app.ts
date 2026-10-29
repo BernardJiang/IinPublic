@@ -228,11 +228,11 @@ import {
   getTalkLedgerDoc,
   connectTalkLedgerCore,
   commitTalkResponse,
+  recordAuthorAnswer,
   getResponderVersionForTalk,
   writeResponderExchangedEntry,
   getResponderTargetsForIdentity,
   getResponderLastResponseId,
-  writeAuthorExchangedEntries,
   markTalkSentToPeer,
 } from '../services/web-talk-ledger-store';
 import { buildTalkIdentityKey } from '../../shared/cid';
@@ -6289,8 +6289,7 @@ export class IinPublicApp {
     const ledger = authorLedgerWritesFor(input, this.currentUser.id);
     if (!ledger) return;
     try {
-      void applyTalkLedgerEvent(ledger.event)
-        .then(() => writeAuthorExchangedEntries(ledger.exchanged))
+      void recordAuthorAnswer(ledger.event, ledger.exchanged)
         .catch((error) => console.warn('[ledger] exchange commit failed:', error));
     } catch {
       // Ledger write failures are non-fatal — suppression misses cost one redundant send.

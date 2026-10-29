@@ -82,6 +82,7 @@ its ID.
   stores encrypted per-recipient copies, journal and ledger before returning a sendable payload.
   Unacknowledged writes now fail. These are ordered writes, not an atomic multi-record transaction.
   Retries preserve `sent`/receipt journal states instead of resetting them to `committed`.
+  Received-answer outcome and author aliases are planned in one host command, with version checks.
   Validation: 228 focused unit tests; all 12 stage1/96 Chromium/Firefox/WebKit cases; wire09 and
   two ledger UI regressions; native37 Talk→answer→match→P2P chat on C10/PH1 (2.1 minutes).
   **Remaining:** P2 compatibility migration, legacy audiences and sharing settings; P5.4 host

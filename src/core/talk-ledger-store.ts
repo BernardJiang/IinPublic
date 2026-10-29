@@ -31,7 +31,8 @@ export type LedgerCommand =
   | { name: 'ledger.apply'; event: LedgerEvent }
   | { name: 'ledger.gate'; peerId: string; nowMs: number; talkId?: string; unlimitedForTesting?: boolean }
   | { name: 'ledger.responder'; input: ResponderEntryInput }
-  | { name: 'ledger.author'; input: AuthorEntriesInput };
+  | { name: 'ledger.author'; input: AuthorEntriesInput }
+  | { name: 'ledger.authorAnswer'; event: LedgerEvent; input: AuthorEntriesInput };
 export type LedgerCommandResult = { entries: Record<string, unknown>; gate?: { ok: boolean; rejectedBy: string[] }; response?: CommittedResponse };
 
 export function ledgerFromEntries(entries: Record<string, unknown>): TalkLedgerDoc {
@@ -109,6 +110,15 @@ export class CoreTalkLedger {
         };
         break;
       }
+      case 'ledger.authorAnswer':
+        if (command.event.kind !== 'TALK_ANSWERED' || command.event.responderId !== command.input.responderId
+          || command.event.version !== command.input.version || command.event.outcome !== command.input.outcome) {
+          throw new Error('Author answer event and aliases disagree');
+        }
+        applyEvent(doc, command.event);
+      // The received answer and its author-side identity aliases must be planned against the
+      // same host snapshot. A stale GUI is not allowed to overwrite a newer answer version.
+      // falls through
       case 'ledger.author': {
         const input = command.input;
         for (const identityKey of new Set(input.identityKeys.filter(Boolean))) {

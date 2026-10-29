@@ -29,6 +29,23 @@ describe('host-owned Talk ledger commands', () => {
     expect(ledger.exchanged[exchangedKey('author', 'identity')]).toMatchObject({ version: 3, responseId: 'response-3' });
   });
 
+  it('records a received answer and its selected identity aliases in one host command', async () => {
+    const core = createCoreHandler(memoryGraphStore());
+    const event = (version: number) => ({ kind: 'TALK_ANSWERED' as const, responderId: 'peer', talkId: 'talk', authorId: 'me',
+      identityKey: 'whole', outcome: 'matched' as const, version, responseId: `response-${version}`,
+      respondedAt: new Date(now).toISOString(), now: new Date(now).toISOString() });
+    for (const version of [2, 1]) await core({ name: 'ledger.authorAnswer', event: event(version), input: {
+      responderId: 'peer', identityKeys: ['whole', 'selected'], outcome: 'matched', version, respondedAt: new Date(now).toISOString(),
+    } });
+    const ledger = ledgerFromEntries(await core({ name: 'collection.snapshot', collection: 'talkLedger' }) as Record<string, unknown>);
+    expect(ledger.outcomes[outcomeKey('peer', 'talk', 'me')]).toMatchObject({ version: 2, responseId: 'response-2' });
+    expect(ledger.exchanged[exchangedKey('peer', 'whole')]).toMatchObject({ version: 2, role: 'author' });
+    expect(ledger.exchanged[exchangedKey('peer', 'selected')]).toMatchObject({ version: 2, role: 'author' });
+    await expect(core({ name: 'ledger.authorAnswer', event: event(3), input: {
+      responderId: 'other', identityKeys: ['selected'], outcome: 'matched', version: 3, respondedAt: new Date(now).toISOString(),
+    } })).rejects.toThrow('disagree');
+  });
+
   it('keeps the queue usable after a failed write and does not acknowledge an uncommitted command', async () => {
     const store = memoryGraphStore();
     const put = store.put;

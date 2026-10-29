@@ -165,6 +165,10 @@ export async function writeAuthorExchangedEntries(input: AuthorEntriesInput): Pr
   await command({ name: 'ledger.author', input });
 }
 
+export async function recordAuthorAnswer(event: LedgerEvent, input: AuthorEntriesInput): Promise<void> {
+  await command({ name: 'ledger.authorAnswer', event, input });
+}
+
 /**
  * Get the responseId last sent by the responder for the given (authorId, identityKey).
  * Used to detect content change: if new responseId !== stored, version must bump.

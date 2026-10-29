@@ -231,6 +231,8 @@ Each phase ships on its own and keeps every test green.
      reads are not yet a complete live host view model. P5.4 remains open.
      A retry of the same response preserves a delivery journal's higher state (`sent` or
      `persisted-receipt`); talk-response journal writes share the host command queue.
+     Received answers now use one host command for the outcome and author-side identity aliases;
+     the host rejects mismatched event/alias inputs and older versions.
 6. **P6 (2026-10-26) — One Gun on the web**: the page's hub-connected Gun goes away; the worker
    core's Gun is the only one. It peers with the hub, and the page reaches it through the same
    `RemoteGun`, over `postMessage` instead of HTTP (`GunBridge.gunTransport()`, worker message

@@ -37,6 +37,7 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'ledger.gate':
       case 'ledger.responder':
       case 'ledger.author':
+      case 'ledger.authorAnswer':
         return ledger.execute(request);
       case 'exchanges.snapshot':
         return exchanges.all();
