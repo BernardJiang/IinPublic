@@ -149,6 +149,15 @@ Each phase ships on its own and keeps every test green.
 2. **P2 — The sharing policy.** One Gun's `out`/`in` filter (default deny) per
    `data-sharing-privacy-rules.md`; move the pair responses and the delivery journal into the core
    under it; extend the wire audit (spec 09) to every private namespace.
+   **Boundary hardening implemented 2026-10-28:** unknown namespaces are denied with an explicit
+   legacy-protocol compatibility inventory. Input is guarded at `mesh.hear.one`, before Gun's
+   already-registered universe handler can merge a network write; local storage is unaffected.
+   Private signed answer memory, object/signed links and direct private-field queries are blocked.
+   Pair/room writes require SEA encrypted-envelope content, and content-free violation counters
+   are exposed on the mesh policy. This checks envelope shape, not successful decryption.
+   Still open: migrate the compatibility protocols, constrain outgoing peers to the audience,
+   and restrict inbound shared nodes to subscriptions/addresses (the current input gate checks
+   namespace/content only).
 3. **P3 — The other local logs**: My Talks, My Conversations, the talk ledger, answer history,
    chatbot memory and templates move into the core's graph; the tag graph, places and statistics
    become core queries.

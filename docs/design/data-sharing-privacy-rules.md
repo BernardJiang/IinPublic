@@ -18,10 +18,12 @@ narrowest audience, and encrypted unless it is meant to be public.
 - **SEA signs, it does not hide.** Data under a user (`~pubkey/…`) is signed: nobody else can
   forge or overwrite it. Anyone who receives it can read it. Encryption is a separate, explicit step
   (`SEA.encrypt`, or a secret shared with another user).
-- **A peerless instance is local-only.** Today's worker Gun (`peers: []`) already works this way.
-- **Every message passes Gun's wire hooks** (`root.on('out', …)`, `root.on('in', …)`;
-  `src/server/services/runtime-profiler.ts` already uses them). With one instance per device, those
-  hooks are where the rules below are enforced.
+- **A peerless instance is local-only.** The earlier worker used this layout; the current shared worker
+  peers with the hub and requires the policy.
+- **Policy must run before storage merge.** Gun registers its `in` universe handler before
+  `create` hooks, so adding an ordinary `root.on('in')` listener there is too late. The input guard
+  uses the parsed `mesh.hear.one` boundary, including batched frames. Output is guarded in `out`
+  and `mesh.say` (which also handles reconnect reads outside the `out` chain).
 
 ## Namespaces
 
@@ -59,7 +61,7 @@ Every node the core writes lives in exactly one namespace; its first path segmen
 
 ## What leaves the device today
 
-Audit of the current code, 2026-10-25:
+Audit updated 2026-10-28:
 
 - **Fixed in P2 (2026-10-25):** the sender's copy of each Talk response and the delivery journal
   were written through the page's hub-connected Gun (`pairs/…`, `deliveryJournal/…`). The answer was
@@ -68,18 +70,42 @@ Audit of the current code, 2026-10-25:
   `local/sentResponses` and `local/deliveryJournal` (`src/core/delivery.ts`), and the page's Gun
   runs the policy's `out` filter (`src/core/sharing-policy.ts`), which drops any write or read of a
   private namespace whatever code path issues it. Spec 09 asserts both.
-- **The rule is still a list, not default deny:** `local`, `pairs`, `deliveryJournal` are private;
-  everything else may leave. Default deny needs every shared node moved under `pair/`, `room/` or
-  `public/` first (P3–P6).
+- **Unknown namespaces now default to local.** The shared roots are `public`, `pair`, `room`,
+  signed `~pub` graphs (excluding private/answer-memory subtrees), and the explicit compatibility
+  inventory `LEGACY_SHARED_NAMESPACES` in `src/core/sharing-policy.ts`. Arbitrary old roots such as
+  `talks` and new, unreviewed roots cannot replicate. Exact private-field reads and wildcard soul
+  queries are blocked too. Private links are removed with their HAM timestamps, including SEA's
+  signed/packed link formats. Changed messages discard stale wire serialization/hash while
+  retaining routing metadata.
+- **Input has the same namespace/content gate.** Remote writes into private or unknown namespaces
+  are dropped before storage. Local writes/reads still work. This is not yet the subscription or
+  addressed-recipient gate required by rule 4: permitted shared namespaces can still arrive
+  unsolicited.
+- **Pair/room content requires SEA ciphertext envelopes.** Non-null scalar fields must have SEA's
+  encrypted `{ct,iv,s}` envelope; signed plaintext is not encryption. Index links may only point
+  beneath the same audience/path. Null tombstones are allowed. This validates the wire format;
+  only the recipient can authenticate/decrypt it. Policy violations increment counters containing
+  no identities, souls or payloads.
+- **Compatibility migration remains open.** Existing profiles/rosters/reputation, conversation and
+  signaling envelopes, identity links/handoff, and TechSupport records retain their listed old
+  roots. This preserves interoperability but does not yet conceal legacy metadata or enforce the
+  new encrypted pair/room schema on those roots. Move each writer/reader together, then remove its
+  compatibility entry. Peer-audience restrictions and user-setting enforcement at the boundary
+  remain open as well.
 - **User records, rosters, presence** go through the hub-connected Gun by design; they belong in
   `public/` with the user's settings deciding what is included.
 - **Talk content** no longer crosses the hub: owner Talk repositories and incoming clusters live in
-  the peerless worker Gun, and `tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`
+  the policy-protected device Gun, and `tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`
   asserts it.
 
 ## Tests
 
-- Unit tests of the policy: each namespace, puts and gets, encrypted and not.
+- Unit tests of the policy: namespaces, exact/wildcard reads, encrypted versus signed/plaintext
+  content, packed links, cached-wire invalidation, and a real Gun mesh receiving batched private
+  injection attempts. The six added regression cases fail against the earlier policy.
+- Spec 09 captures SharedWorker sockets and requires public probes from both peers. It also writes
+  deliberate unknown-namespace, plaintext pair/room and signed private-answer probes, proves the
+  unknown write is available locally, and checks that none escapes while the Talk exchange works.
 - A wire audit per category (extending spec 09): run journeys, record every message on the hub
   boundary, and fail on any `local/` soul, any plaintext in `pair/` or `room/`, or any readable
   identity in a shared soul name.

@@ -28,6 +28,7 @@ const MARKERS = {
   question: `ZQQUESTION${RUN}`,
   answerYes: `ZQANSWERYES${RUN}`,
   answerNo: `ZQANSWERNO${RUN}`,
+  policy: `ZQPOLICY${RUN}`,
 } as const;
 
 type WireEvent = {
@@ -69,7 +70,7 @@ function privateSoulsIn(payload: string): string[] {
       const souls = [...Object.keys((msg?.put ?? {}) as Record<string, unknown>), ...(typeof msg?.get?.['#'] === 'string' ? [msg.get['#']] : [])];
       for (const soul of souls) {
         const decoded = decodeURIComponent(soul);
-        if (PRIVATE_NAMESPACES.includes(decoded.split('/')[0]) || /^users\/[^/]+\/private(?:\/|$)/.test(decoded)) out.add(soul);
+        if (PRIVATE_NAMESPACES.includes(decoded.split('/')[0]) || /^users\/[^/]+\/private(?:\/|$)/.test(decoded) || /^~[^/]+\/answers\/private(?:\/|$)/.test(decoded) || decoded.startsWith('unreviewed-policy-probe')) out.add(soul);
       }
     }
   } catch {
@@ -247,6 +248,23 @@ test.describe('Wire audit — talk content vs the hub', () => {
 
     // Everything above is setup; only what happens from here on is the talk exchange.
     const exchangeStartedAt = events.length;
+
+    // Deliberate unknown/plaintext writes must land locally without escaping the socket.
+    await pageTom.evaluate(async (marker) => {
+      const app = (window as any).__iinpublic_app.getApp();
+      const gun = app.gunService.getGun();
+      gun.get('unreviewed-policy-probe').put({ secret: marker });
+      gun.get('pair/policy-probe/messages/plaintext').put({ content: marker });
+      gun.get('room/policy-probe/messages/plaintext').put({ content: marker });
+      // Real SEA signing must not make owner answer memory shareable.
+      gun.user().get('answers').get('private').get('wire-policy-probe').put({ secret: marker });
+      const local = await new Promise<any>((resolve) => gun.get('unreviewed-policy-probe').once(resolve));
+      if (local?.secret !== marker) throw new Error('Policy probe did not persist locally');
+    }, MARKERS.policy);
+    await expect.poll(() => pageTom!.evaluate(() => new Promise<any>((resolve) => {
+      const gun = (window as any).__iinpublic_app.getApp().gunService.getGun();
+      gun.user().get('answers').get('private').get('wire-policy-probe').once((data: any) => resolve(data?.secret ?? null));
+    })), { timeout: 10_000, message: 'Signed private probe must remain readable on its device' }).toBe(MARKERS.policy);
 
     // Tom creates the talk through the app's real talk service (the authoritative commit path),
     // then announces it to the room exactly as the UI's broadcast button does.

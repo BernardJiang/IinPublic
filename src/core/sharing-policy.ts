@@ -1,114 +1,179 @@
-/**
- * The device's sharing policy (OPEN-91 P2, docs/design/data-sharing-privacy-rules.md): which Gun
- * souls may leave the device. Installed as an `out` hook on every Gun instance the page creates, so
- * a private node is never sent to — or asked of — the hub, whatever code path writes it.
- *
- * Until every shared node lives under `pair/`, `room/` or `public/`, the rule is a list of private
- * namespaces rather than the design's default deny; each move into the core adds its namespace here.
- */
+/** Device Gun wire boundary (OPEN-91 P2). Unknown namespaces are local by default.
+ * Legacy protocols have explicit compatibility rules until their writers migrate to public/pair/room.
+ * See docs/design/data-sharing-privacy-rules.md for the remaining audience/subscription work. */
 
-/** Namespaces that never leave the device. `pairs/` and `deliveryJournal/` are the old page-Gun homes
- *  of the sender's delivery records (now `local/` in the core); listed so an old code path cannot leak.
- *  `device-local/`, `nodes/` and `edges/` were the worker's own while it ran peerless (OPEN-91 P6:
- *  the web worker's Gun is now the page's and peers with the hub). */
 export const PRIVATE_NAMESPACES = ['local', 'pairs', 'deliveryJournal', 'device-local', 'nodes', 'edges'] as const;
 
-/** The owner's encrypted records in the worker: `users/<pub>/private/…`. */
-const OWNER_PRIVATE_SOUL = /^users\/[^/]+\/private(\/|$)/;
+/** Existing wire protocols, not permission for arbitrary new top-level data. Keep this inventory
+ * explicit: a new writer must choose its audience before it can replicate. */
+export const LEGACY_SHARED_NAMESPACES = [
+  // Public profiles, discovery, reputation and Place presence.
+  'users', 'user-public-profile', 'user-talk-filters', 'user-tags', 'user-tags-delta', 'tag-index',
+  'chatrooms', 'block-pairs', 'reputation-friend-marks', 'network-root-techsupport', 'p2p-peer-bindings', 'connectivity-bindings',
+  // Existing conversation/signaling envelopes. Their metadata still needs the P2 namespace migration.
+  'conversations', 'conversation-wakeups', 'p2p-signal', 'pairTalkResponses',
+  // Signed identity linking and encrypted handoff protocols.
+  'identity-links', 'identity-link-revocations', 'identity-link-requests', 'identity-epub', 'handoff', 'handoff-ack',
+  // Existing signed operator records and support inbox.
+  'techsupport-inbox', 'techsupport-faq', 'techsupport-faq-entries', 'techsupport-delegates',
+  'techsupport-delegate-revocations', 'techsupport-delegate-requests', 'techsupport-delegate-invites',
+  'techsupport-recovery', 'techsupport-recovery-history',
+] as const;
+const sharedRoots = new Set<string>(['public', 'pair', 'room', ...LEGACY_SHARED_NAMESPACES]);
+const OWNER_PRIVATE_SOUL = /^users\/[^/]+\/private(?:\/|$)/;
+// SEA signs these nodes but signing does not hide the owner's answer memory.
+const SIGNED_PRIVATE_SOUL = /^~[^/]+\/(?:private|answers\/private)(?:\/|$)/;
 
 export function soulLeavesDevice(soul: string): boolean {
-  const text = String(soul);
-  const first = text.split('/')[0];
-  if ((PRIVATE_NAMESPACES as readonly string[]).includes(first)) return false;
-  return !OWNER_PRIVATE_SOUL.test(text);
+  if (typeof soul !== 'string' || !soul || OWNER_PRIVATE_SOUL.test(soul) || SIGNED_PRIVATE_SOUL.test(soul)) return false;
+  const first = soul.split('/')[0];
+  return sharedRoots.has(first) || (first.startsWith('~') && first.length > 1);
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * The part of an outgoing Gun message the policy allows, or null to drop it. A `put` keeps only its
- * shareable nodes; a `get` for a private soul is dropped (asking reveals interest); an ack keeps
- * only its status.
- */
-export function filterOutgoingGunMessage(msg: any): any | null {
-  if (!msg || typeof msg !== 'object') return msg;
-  // An ack says whether a write landed; a storage adapter that answers with its data (a whole
-  // radisk file, private records included) must not send that along.
+export type SharingPolicyViolation = 'namespace' | 'query' | 'plaintext' | 'malformed';
+type Report = (reason: SharingPolicyViolation) => void;
+
+/** Validate SEA's encrypted envelope, never confuse a SEA signature with ciphertext.
+ * This is a format gate; only the recipient can authenticate/decrypt the ciphertext. */
+export function isSeaCiphertext(value: unknown): boolean {
+  if (typeof value !== 'string' || !value.startsWith('SEA{')) return false;
+  try {
+    const parsed = JSON.parse(value.slice(3));
+    const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+    return Object.keys(parsed).sort().join(',') === 'ct,iv,s'
+      && ['ct', 'iv', 's'].every((key) => typeof parsed[key] === 'string' && parsed[key].length > 0 && base64.test(parsed[key]))
+      && parsed.ct.length >= 24 && parsed.iv.length >= 16 && parsed.s.length >= 12;
+  } catch { return false; }
+}
+
+function linkSoul(value: any): string | undefined {
+  if (value && typeof value === 'object' && typeof value['#'] === 'string') return value['#'];
+  // SEA-signed links are serialized envelopes; filtering only object links leaks private paths.
+  if (typeof value === 'string') {
+    try {
+      const signed = JSON.parse(value.startsWith('SEA{') ? value.slice(3) : value);
+      if (typeof signed?.s === 'string' && signed?.m && typeof signed.m['#'] === 'string') return signed.m['#'];
+      // Current Gun SEA packs signed graph fields as { ':': value, '~': signature }.
+      if (typeof signed?.['~'] === 'string' && typeof signed?.[':']?.['#'] === 'string') return signed[':']['#'];
+    } catch { /* scalar, not a signed link */ }
+  }
+  return undefined;
+}
+
+/** A changed payload must not reuse Gun's cached serialization/hash. Preserve routing metadata
+ * (especially via), so a filtered remote message is not reflected back to its sender. */
+function changedMessage(msg: any, changes: any): any {
+  const { _: oldMeta, '##': _hash, ...rest } = msg;
+  const fresh = { ...rest, ...changes };
+  if (oldMeta) {
+    const { raw: _raw, $put: _put, ...routing } = oldMeta;
+    if (Object.keys(routing).length) fresh._ = Object.assign(function () { /* Gun metadata */ }, routing);
+  }
+  return fresh;
+}
+
+function allowedRead(get: any): boolean {
+  // No wildcard/range query may evade the namespace rule. Current app reads use exact souls.
+  const soul = get?.['#'];
+  if (typeof soul !== 'string' || !soulLeavesDevice(soul)) return false;
+  const field = get['.'];
+  return typeof field !== 'string' || soulLeavesDevice(`${soul}/${field}`);
+}
+
+function encryptedNode(soul: string, node: any): boolean {
+  const parts = soul.split('/');
+  if (parts[0] !== 'pair' && parts[0] !== 'room') return true;
+  return Object.entries(node).every(([key, value]) => {
+    if (key === '_') return true;
+    if (value === null) return true; // deletion
+    const target = linkSoul(value);
+    // Index links stay under this exact audience; no links to public or another pair/room.
+    if (target) return target.startsWith(`${soul}/`);
+    return parts.length >= 2 && !!parts[1] && isSeaCiphertext(value);
+  });
+}
+
+/** Same namespace/content rules apply in both directions. On input this runs at mesh.hear.one,
+ * before Gun's universe handler can merge a remote put or answer a remote private get. Local
+ * storage reads/writes never traverse that boundary and remain available. */
+export function filterOutgoingGunMessage(msg: any, report?: Report): any | null {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) { report?.('malformed'); return null; }
   if (msg.ok !== undefined && msg.ok !== null && typeof msg.ok !== 'number' && typeof msg.ok !== 'boolean'
     && !(typeof msg.ok === 'object' && Object.keys(msg.ok).every((key) => typeof msg.ok[key] === 'number'))) {
-    msg = { ...msg, ok: 1 };
+    msg = changedMessage(msg, { ok: 1 });
   }
-  if (msg.get && typeof msg.get['#'] === 'string' && !soulLeavesDevice(msg.get['#'])) return null;
-  if (msg.put && typeof msg.put === 'object') {
-    const souls = Object.keys(msg.put);
-    const kept = souls.filter(soulLeavesDevice);
-    if (kept.length === 0) return null;
-    let changed = kept.length !== souls.length;
-    const put: Record<string, any> = {};
-    for (const soul of kept) {
-      const node = withoutPrivateLinks(msg.put[soul]);
-      if (node !== msg.put[soul]) changed = true;
+  if (msg.get && !allowedRead(msg.get)) { report?.('query'); return null; }
+  if (msg.put !== undefined) {
+    if (!msg.put || typeof msg.put !== 'object' || Array.isArray(msg.put)) { report?.('malformed'); return null; }
+    let changed = false;
+    const put: Record<string, any> = Object.create(null);
+    for (const [soul, raw] of Object.entries<any>(msg.put)) {
+      if (!soulLeavesDevice(soul)) { changed = true; report?.('namespace'); continue; }
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw) || (raw._?.['#'] !== undefined && raw._['#'] !== soul)) {
+        changed = true; report?.('malformed'); continue;
+      }
+      if (!encryptedNode(soul, raw)) { changed = true; report?.('plaintext'); continue; }
+      const hidden = Object.keys(raw).filter((key) => key !== '_'
+        && (!soulLeavesDevice(`${soul}/${key}`) || (linkSoul(raw[key]) !== undefined && !soulLeavesDevice(linkSoul(raw[key])!))));
+      let node = raw;
+      if (hidden.length) {
+        changed = true;
+        report?.('namespace');
+        node = { ...raw };
+        for (const key of hidden) delete node[key];
+        if (node._?.['>']) {
+          const state = { ...node._['>'] };
+          for (const key of hidden) delete state[key];
+          node._ = { ...node._, '>': state };
+        }
+      }
       put[soul] = node;
     }
-    return changed ? { ...msg, put } : msg;
+    if (!Object.keys(put).length) return null;
+    return changed ? changedMessage(msg, { put }) : msg;
   }
   return msg;
 }
 
-/** A shared node without its links to private nodes: a link alone tells the hub a private record exists. */
-function withoutPrivateLinks(node: any): any {
-  if (!node || typeof node !== 'object') return node;
-  const hidden = Object.keys(node).filter((key) => key !== '_' && node[key] && typeof node[key] === 'object'
-    && typeof node[key]['#'] === 'string' && !soulLeavesDevice(node[key]['#']));
-  if (hidden.length === 0) return node;
-  const copy = { ...node };
-  for (const key of hidden) delete copy[key];
-  if (copy._ && typeof copy._ === 'object' && copy._['>'] && typeof copy._['>'] === 'object') {
-    const state = { ...copy._['>'] };
-    for (const key of hidden) delete state[key];
-    copy._ = { ...copy._, '>': state };
+export const filterIncomingGunMessage = filterOutgoingGunMessage;
+
+/** Counters contain no souls, identities or payloads. */
+export function guardMeshSay(mesh: any): void {
+  if (!mesh || typeof mesh.say !== 'function' || mesh.sharingPolicy) return;
+  const violations: Record<SharingPolicyViolation, number> = { namespace: 0, query: 0, plaintext: 0, malformed: 0 };
+  const report: Report = (reason) => { violations[reason]++; };
+  const say = mesh.say;
+  mesh.say = function (this: any, msg: any, peer: any) {
+    const allowed = filterOutgoingGunMessage(msg, report);
+    return allowed ? say.call(this, allowed, peer) : false;
+  };
+  // An ordinary root.on('in') hook is too late: Gun registers universe before create hooks.
+  // All socket messages, including batched frames, pass through this parsed-message boundary.
+  if (typeof mesh.hear?.one === 'function') {
+    const hear = mesh.hear.one;
+    mesh.hear.one = function (this: any, msg: any, peer: any, ...rest: any[]) {
+      const allowed = filterIncomingGunMessage(msg, report);
+      if (allowed) return hear.call(this, allowed, peer, ...rest);
+    };
   }
-  return copy;
+  mesh.sharingPolicy = { violations };
 }
 
 let installed = false;
-
-/**
- * The policy on the mesh's `say`, the last step before a socket: Gun also sends there directly,
- * outside the `out` chain — on reconnect it re-asks a peer for every soul it is subscribed to, the
- * device's private ones included (gun.js `root.on('hi')`). A message the policy changed is sent as a
- * new one: the original's cached wire text (`_.raw`) would carry what was removed.
- */
-export function guardMeshSay(mesh: any): void {
-  if (!mesh || typeof mesh.say !== 'function' || mesh.sharingPolicy) return;
-  const say = mesh.say;
-  mesh.say = function (this: any, msg: any, peer: any) {
-    const allowed = filterOutgoingGunMessage(msg);
-    if (!allowed) return false;
-    if (allowed === msg) return say.call(this, msg, peer);
-    const { _: _meta, ...fresh } = allowed;
-    return say.call(this, fresh, peer);
-  };
-  mesh.sharingPolicy = true;
-}
-
-/**
- * Registers the policy on Gun's `create` hook: global create hooks run before an instance's own, so
- * this `out` handler sits ahead of the mesh's `say` and sees every message before it is sent; the
- * mesh's `say` itself is guarded too (`guardMeshSay`). Local writes and reads are unaffected — Gun
- * stores and answers them before the `out` chain reaches here.
- */
 export function installSharingPolicy(Gun: any): void {
   if (installed || !Gun?.on) return;
   installed = true;
   Gun.on('create', function (this: any, root: any) {
-    // Registered before passing `root` on, so it precedes every handler a later create hook adds.
     root.on('out', function (this: any, msg: any) {
-      const allowed = filterOutgoingGunMessage(msg);
+      const allowed = filterOutgoingGunMessage(msg, (reason) => {
+        const counts = root.opt?.mesh?.sharingPolicy?.violations;
+        if (counts) counts[reason]++;
+      });
       if (allowed) this.to.next(allowed);
     });
     this.to.next(root);
-    // The mesh is made by Gun's 'opt' hook, which has run by now (a peer added later reuses it).
     guardMeshSay(root.opt?.mesh);
   });
 }

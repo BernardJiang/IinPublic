@@ -37,10 +37,15 @@ its ID.
   holds the protocol, the graph store, the exchange log and the web worker host
   (`core-worker.js`, replacing `public/worker.js`). **P2 first slice done 2026-10-25:** the
   sender's response copy and delivery journal moved into the core (`local/`), and the page's Gun runs
-  the sharing policy's `out` filter; spec 09 fails on any private soul on the hub wire. Remaining P2:
-  default deny (needs the shared nodes under `pair/`/`room/`/`public/`), the `in` filter, and
-  encryption checks on `pair/`/`room/` writes. **P3 started 2026-10-26:** keyed collections in the
-  core (`src/core/collections.ts`, GUI view `core-collection-view.ts`, views in `core-views.ts`);
+  the sharing policy's `out` filter; spec 09 fails on any private soul on the hub wire.
+  **P2 boundary hardening implemented 2026-10-28:** unknown namespaces are denied in both
+  directions, with explicit compatibility entries for existing protocols. Network input is filtered
+  before Gun can merge it into storage; signed private answer memory and private links are blocked
+  too. Pair/room content requires SEA ciphertext envelopes; violations increment content-free
+  counters. Remaining P2: migrate compatibility protocols to their intended namespaces, enforce
+  peer audiences and accept only subscribed/addressed inbound records.
+  **P3 started 2026-10-26:** keyed collections in the core (`src/core/collections.ts`, GUI view
+  `core-collection-view.ts`, views in `core-views.ts`);
   chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
   edit via `__iinpublic_collection_edit`; seeding the old blob still works — it is imported) and
   My Conversations (`my-conversations-storage.ts`) and the talk ledger (one entry per record,
@@ -57,8 +62,7 @@ its ID.
   data, and shuts down that worker. iOS retains the web-worker fallback until its shell supplies
   the node secret. **P6 single-worker Gun implemented 2026-10-26, merged 2026-10-27:** the web
   worker's Gun peers with the hub and the page uses `RemoteGun` over messages. Outbound filtering
-  now covers private namespaces, private
-  links, acknowledgement payloads and reconnect mesh sends.
+  now covers private namespaces, private links, acknowledgement payloads and reconnect mesh sends.
   **P6 origin ownership implemented 2026-10-28:** tabs share a named SharedWorker, with a
   Web Locks/BroadcastChannel owner when dedicated workers are needed. Request IDs, subscriptions
   and login state belong to each tab; ownership/session replacement restores login and listeners
@@ -67,7 +71,7 @@ its ID.
   Stage1/96 covers concurrent records, per-tab logout/subscriptions, owner closure and persisted
   edits across Chromium, Firefox and WebKit; spec 09 now captures SharedWorker sockets and requires
   a public probe from both participants before accepting its privacy result.
-  **Remaining:** finish P2's default-deny inbound/outbound policy and pair/room encryption checks;
+  **Remaining:** finish P2's compatibility migration and audience/subscription restrictions;
   P5.4 must execute domain commands in the host, beyond extracting their rules.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,

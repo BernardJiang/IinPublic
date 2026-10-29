@@ -30,3 +30,8 @@ asks for a soul in a private namespace (`local/`, and the old `pairs/` and `deli
 the sender's response copy and delivery journal). Before P2 there were five on every run: Jerry's
 pair response, its payload and its journal entry, and the same souls asked for by Tom — the hub could
 see who answered whom and when.
+
+The policy regression also deliberately writes an unknown namespace, plaintext pair/room content,
+and SEA-signed private answer memory. The unknown record must be readable locally, but no probe
+marker or private soul may appear on the wire. This catches accidental replication even when
+normal app writers happen to use the right namespace.

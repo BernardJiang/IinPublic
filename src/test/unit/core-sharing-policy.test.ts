@@ -37,7 +37,64 @@ describe('the delivery records in the device core', () => {
 describe('the sharing policy', () => {
   it('keeps private namespaces on the device', () => {
     for (const soul of ['local', 'local/exchanges/x', 'pairs/abc/talkResponses/t/r', 'deliveryJournal/o/r']) expect(soulLeavesDevice(soul)).toBe(false);
-    for (const soul of ['users/u1', 'user-public-profile/u1', '~pub/profile', 'localish/x']) expect(soulLeavesDevice(soul)).toBe(true);
+    for (const soul of ['users/u1', 'user-public-profile/u1', '~pub/profile']) expect(soulLeavesDevice(soul)).toBe(true);
+  });
+
+  it('denies unknown namespaces, including similar names and signed private answer memory', () => {
+    for (const soul of ['localish/x', 'unreviewed/secret', 'talks/t1', 'publicish/x', '~pub/answers/private', '~pub/answers/private/qa1', '~pub/private/x']) {
+      expect(soulLeavesDevice(soul)).toBe(false);
+      expect(filterOutgoingGunMessage({ get: { '#': soul } })).toBeNull();
+      expect(filterOutgoingGunMessage({ put: { [soul]: { secret: 'answer' } } })).toBeNull();
+    }
+    for (const soul of ['public/cards/a', 'p2p-signal/channel/frame', 'chatrooms/r/users', 'identity-links/a/b']) {
+      expect(soulLeavesDevice(soul)).toBe(true);
+    }
+  });
+
+  it('rejects wildcard soul reads and direct private field reads', () => {
+    for (const get of [{ '#': { '*': '' } }, { '#': { '>': 'local' } }, { '#': 'users/pub', '.': 'private' }, { '#': '~pub/answers', '.': 'private' }]) {
+      expect(filterOutgoingGunMessage({ get })).toBeNull();
+    }
+    expect(filterOutgoingGunMessage({ get: { '#': 'public/cards', '.': { '*': '' } } })).toBeTruthy();
+  });
+
+  it('strips private fields and SEA-signed private links, including their HAM timestamps', () => {
+    const signedLink = 'SEA' + JSON.stringify({ m: { '#': '~pub/answers/private' }, s: 'signature' });
+    const node = { _: { '#': '~pub/answers', '>': { private: 1, renamed: 2, public: 3 } }, private: signedLink, renamed: signedLink, public: 'yes' };
+    const out = filterOutgoingGunMessage({ put: { '~pub/answers': node } });
+    expect(out.put['~pub/answers']).toEqual({ _: { '#': '~pub/answers', '>': { public: 3 } }, public: 'yes' });
+    expect(node.private).toBe(signedLink); // storage remains untouched
+  });
+
+  it('recognizes current Gun SEA packed link values as private too', () => {
+    const packed = JSON.stringify({ ':': { '#': 'local/answer' }, '~': 'signature' });
+    const out = filterOutgoingGunMessage({ put: { '~pub/profile': { safe: 'public', alias: packed } } });
+    expect(out.put['~pub/profile']).toEqual({ safe: 'public' });
+  });
+
+  it('requires ciphertext envelopes in pair/room content and rejects cross-audience links', () => {
+    const ciphertext = 'SEA' + JSON.stringify({ ct: 'AAAAAAAAAAAAAAAAAAAAAA==', iv: 'AAAAAAAAAAAAAAAAAAAA', s: 'AAAAAAAAAAAA' });
+    for (const root of ['pair', 'room']) {
+      const soul = `${root}/opaque/messages/m1`;
+      const valid = { put: { [soul]: { content: ciphertext } } };
+      expect(filterOutgoingGunMessage(valid)).toBe(valid);
+      for (const value of ['answer', 'SEA{ciphertext}', 'SEA' + JSON.stringify({ m: 'signed plaintext', s: 'sig' }), 42, { '#': `${root}/other/messages/m1` }]) {
+        expect(filterOutgoingGunMessage({ put: { [soul]: { content: value } } })).toBeNull();
+      }
+      expect(filterOutgoingGunMessage({ put: { [soul]: { content: null } } })).toBeTruthy();
+      expect(filterOutgoingGunMessage({ put: { [`${root}/opaque`]: { messages: { '#': `${root}/opaque/messages` } } } })).toBeTruthy();
+    }
+  });
+
+  it('drops malformed nodes and invalidates cached serialization and hash after filtering', () => {
+    expect(filterOutgoingGunMessage({ put: { 'public/x': { _: { '#': 'local/secret' }, answer: 'x' } } })).toBeNull();
+    const via = { id: 'peer' };
+    const meta = Object.assign(function () {}, { via, raw: 'secret', $put: 'secret' });
+    const out = filterOutgoingGunMessage({ '##': 'old-hash', _: meta, put: { 'public/x': { ok: true }, 'unknown/x': { secret: true } } });
+    expect(out['##']).toBeUndefined();
+    expect(out._.via).toBe(via);
+    expect(out._.raw).toBeUndefined();
+    expect(out._.$put).toBeUndefined();
   });
 
   it('drops private reads and strips private nodes from a mixed write', () => {
@@ -88,6 +145,25 @@ describe('the sharing policy', () => {
     expect(said[0]).toBe(shared);
     expect(said[1]).toEqual({ '#': 'm', put: { 'users/u1': { a: 1 } } });
     expect(said).toHaveLength(2);
+  });
+
+  it('rejects remote private injection before real Gun storage, including batched network messages', async () => {
+    installSharingPolicy(Gun);
+    const gun = (Gun as any)({ peers: [], localStorage: false, radisk: false, axe: false, multicast: false });
+    const mesh = gun._.opt.mesh || (Gun as any).Mesh(gun._);
+    guardMeshSay(mesh);
+    const peer = { id: 'untrusted', wire: { send: jest.fn() } };
+    const node = (soul: string, value: string) => ({ _: { '#': soul, '>': { value: Date.now() } }, value });
+    const injected = ['local/injected', 'users/pub/private/injected', '~pub/answers/private/injected', 'unknown/injected'];
+    mesh.hear(JSON.stringify(injected.map((soul, index) => ({ '#': `attack-${index}`, put: { [soul]: node(soul, 'remote') } }))), peer);
+    mesh.hear(JSON.stringify({ '#': 'public-control', put: { 'public/control': node('public/control', 'remote') } }), peer);
+    gun.get('local/own').put({ value: 'local' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    for (const soul of injected) expect(gun._.graph[soul]).toBeUndefined();
+    expect(gun._.graph['public/control']?.value).toBe('remote');
+    expect(gun._.graph['local/own']?.value).toBe('local');
+    expect(mesh.sharingPolicy.violations.namespace).toBeGreaterThanOrEqual(injected.length);
+    gun.off?.();
   });
 
   it('sits ahead of the wire on a real Gun instance; local writes still land', async () => {
