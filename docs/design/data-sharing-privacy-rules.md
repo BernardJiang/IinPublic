@@ -102,6 +102,11 @@ Audit updated 2026-10-29:
   new encrypted pair/room schema on those roots. Move each writer/reader together, then remove its
   compatibility entry. These old roots are not yet covered by pair/room peer audiences. Sharing
   settings at the network boundary also remain open.
+- **Legacy user mirror hardened 2026-10-29.** Server create/upsert writes only public profile
+  rows and an empty contact list under `users/<id>`. Profile-foundation updates tombstone the
+  former `fullProfileJson` plaintext field in Gun. The compatibility HTTP endpoint still receives
+  a full profile to serve contact-filtered views; existing `knownPeople` graph writes and copies
+  already replicated before an update remain part of the migration.
 - **User records, rosters, presence** go through the hub-connected Gun by design; they belong in
   `public/` with the user's settings deciding what is included.
 - **Talk content** no longer crosses the hub: owner Talk repositories and incoming clusters live in

@@ -60,6 +60,16 @@ export class UserService {
     }
   }
 
+  /** Legacy server routes can receive the full local User. Never mirror its private rows or
+   * relationship list into the public Gun user record. */
+  private publicUserRecord(user: User): User {
+    return {
+      ...user,
+      profile: (user.profile || []).filter((entry) => (entry.visibility || 'public') === 'public'),
+      knownPeople: [],
+    };
+  }
+
 private static readonly DEFAULT_REPUTATION: Reputation = {
     questionsAnswered: 0, talksSent: 0, matchesFound: 0, friendsCount: 0,
     mutualFriendsCount: 0, likedCount: 0, dislikedCount: 0, starRating: 3.0,
@@ -244,7 +254,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       ...(userData.supportMuted ? { supportMuted: userData.supportMuted } : {}),
     };
 
-    await this.gunService.put(`users/${user.id}`, user);
+    await this.gunService.put(`users/${user.id}`, this.publicUserRecord(user));
     await this.gunService.put(`${PUBLIC_TALK_FILTERS_KEY}/${user.id}`, {
       filtersJson: JSON.stringify(userData.talkFilters || getDefaultTalkIntakeFilters(user.languages)),
     });
@@ -295,8 +305,9 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       ...(userData.networkRole ? { networkRole: userData.networkRole } : {}),
       ...(userData.supportMuted ? { supportMuted: userData.supportMuted } : {}),
     };
-    this.recentPublicUsers.set(user.id, user);
-    this.gunService.putFast(`users/${user.id}`, user);
+    const publicUser = this.publicUserRecord(user);
+    this.recentPublicUsers.set(user.id, publicUser);
+    this.gunService.putFast(`users/${user.id}`, publicUser);
     return user;
   }
 
@@ -466,6 +477,8 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     await this.gunService.put(`${PUBLIC_PROFILE_FOUNDATION_KEY}/${userId}`, {
       ...fullNode,
       profileJson: JSON.stringify(publicProfile),
+      // Tombstone the old plaintext field on update; omission leaves an earlier Gun value intact.
+      fullProfileJson: null,
     });
     await this.gunService.put(`${USER_TAGS_KEY}/${userId}`, buildUserTagsEnvelope(updates.interests));
     // The compatibility API still applies viewer-specific filtering from this process-local copy.
