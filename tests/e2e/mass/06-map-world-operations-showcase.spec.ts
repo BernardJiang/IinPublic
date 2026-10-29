@@ -181,8 +181,35 @@ async function assertAllUsersVisible(users: DemoUser[]): Promise<void> {
   }
 }
 
+async function ensureWorldMapView(user: DemoUser, expectedGreen: number, expectedYellow: number): Promise<void> {
+  const zoomOutButton = user.page.locator('.maplibregl-ctrl-zoom-out');
+  for (let round = 0; round < 10; round += 1) {
+    const visibleCounts = await user.page.evaluate(() => ({
+      green: document.querySelectorAll('[data-testid="map-user-dot-room"]').length,
+      yellow: document.querySelectorAll('[data-testid="map-user-dot-other"]').length,
+    }));
+    if (visibleCounts.green >= expectedGreen && visibleCounts.yellow >= expectedYellow) {
+      return;
+    }
+    if (await zoomOutButton.isVisible().catch(() => false)) {
+      await zoomOutButton.click();
+      await afterSync();
+      await user.page.waitForTimeout(300);
+      continue;
+    }
+    break;
+  }
+  await expect.poll(async () => {
+    return user.page.evaluate(() => ({
+      green: document.querySelectorAll('[data-testid="map-user-dot-room"]').length,
+      yellow: document.querySelectorAll('[data-testid="map-user-dot-other"]').length,
+    }));
+  }, { timeout: 30_000, intervals: [700, 1200] }).toEqual({ green: expectedGreen, yellow: expectedYellow });
+}
+
 async function assertNearbyBalance(users: DemoUser[], expectedGreen: number, expectedYellow: number): Promise<void> {
   for (const user of users) {
+    await ensureWorldMapView(user, expectedGreen, expectedYellow);
     await expect.poll(async () => {
       return user.page.evaluate(() => {
         const green = document.querySelectorAll('[data-testid="map-user-dot-room"]').length;
