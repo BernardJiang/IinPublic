@@ -39,13 +39,17 @@ export class DeliveryStore {
   constructor(private readonly store: GraphStore) {}
 
   async putSentResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
-    await this.store.put(`${SENT_RESPONSES_PATH}/${key(payload.talkId, payload.responseId)}`, {
+    await this.store.put(`${SENT_RESPONSES_PATH}/${key(payload.authorId, payload.talkId, payload.responseId)}`, {
       json: JSON.stringify({ version: 1, responseId: payload.responseId, payload }),
     });
   }
 
-  async getSentResponse(talkId: string, responseId: string): Promise<P2PMeshTalkResponsePayload | null> {
-    return decode<{ payload: P2PMeshTalkResponsePayload }>(await this.store.get(`${SENT_RESPONSES_PATH}/${key(talkId, responseId)}`))?.payload ?? null;
+  async getSentResponse(talkId: string, responseId: string, recipientId: string): Promise<P2PMeshTalkResponsePayload | null> {
+    const current = decode<{ payload: P2PMeshTalkResponsePayload }>(await this.store.get(`${SENT_RESPONSES_PATH}/${key(recipientId, talkId, responseId)}`))?.payload;
+    if (current) return current.authorId === recipientId ? current : null;
+    // Earlier devices keyed only by content: a response to another author could overwrite it.
+    const legacy = decode<{ payload: P2PMeshTalkResponsePayload }>(await this.store.get(`${SENT_RESPONSES_PATH}/${key(talkId, responseId)}`))?.payload;
+    return legacy?.authorId === recipientId ? legacy : null;
   }
 
   async record(input: DeliveryInput): Promise<void> {

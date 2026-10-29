@@ -155,9 +155,13 @@ Each phase ships on its own and keeps every test green.
    Private signed answer memory, object/signed links and direct private-field queries are blocked.
    Pair/room writes require SEA encrypted-envelope content, and content-free violation counters
    are exposed on the mesh policy. This checks envelope shape, not successful decryption.
-   Still open: migrate the compatibility protocols, constrain outgoing peers to the audience,
-   and restrict inbound shared nodes to subscriptions/addresses (the current input gate checks
-   namespace/content only).
+   **Inbound read capabilities implemented 2026-10-29:** only local chain reads grant permission
+   to receive shared nodes. Exact reads admit the requested record and the necessary ancestor
+   links; map reads admit their subtree. Live listeners retain permission until cancellation;
+   one-shot reads have a 30-second lease for late network replies. Remote GETs cannot grant it.
+   RPC cancellation revokes permission even before the first callback. Local storage bypasses
+   this network gate. Still open: migrate compatibility protocols, constrain outgoing peers to
+   the audience, and enforce sharing settings at the boundary.
 3. **P3 — The other local logs**: My Talks, My Conversations, the talk ledger, answer history,
    chatbot memory and templates move into the core's graph; the tag graph, places and statistics
    become core queries.
@@ -214,6 +218,14 @@ Each phase ships on its own and keeps every test green.
    - **P5.4: the core's logic runs in the node.** Core commands (deliver a Talk, answer, chatbot)
      execute where the data is; the GUI sends commands and renders views, with the WebRTC adapter
      still in the WebView until the node has its own.
+     **First commands implemented 2026-10-29:** ledger events, quota decisions, responder versions
+     and author aliases execute in a host queue shared with legacy ledger imports. Response commit
+     checks completeness/retraction/encrypted-envelope shape, computes the response CID, match and
+     version, and writes the recipient-specific encrypted copy, journal and ledger before returning
+     a transport payload. Missing storage acknowledgements fail instead of authorizing a send.
+     These ordered writes are not a multi-record atomic transaction. The GUI still owns encryption,
+     transport scheduling, fanout, chatbot execution, Nearby and conversation effects; cached GUI
+     reads are not yet a complete live host view model. P5.4 remains open.
 6. **P6 (2026-10-26) — One Gun on the web**: the page's hub-connected Gun goes away; the worker
    core's Gun is the only one. It peers with the hub, and the page reaches it through the same
    `RemoteGun`, over `postMessage` instead of HTTP (`GunBridge.gunTransport()`, worker message

@@ -12,6 +12,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { cancelSharingRead } from './sharing-interests';
+
 export type GunRpcRequest = Record<string, any> & { op: string };
 export type GunRpcEmit = (event: { sub: string; data: unknown; key: string }) => void;
 
@@ -91,14 +93,17 @@ export function runGunRpc(gun: any, body: GunRpcRequest, session?: GunRpcSession
         case 'on': {
           if (!session) throw new Error('no such stream session');
           const subId = String(body.sub);
+          session.subs.get(subId)?.off();
           let event: any = null;
+          let stopped = false;
           const listener = (data: unknown, key: string, _msg: unknown, ev: any) => {
             event = ev;
+            if (stopped) { ev?.off?.(); return; }
             session.emit({ sub: subId, data: plain(data), key });
           };
           const ref = resolve(gun, body.path);
           (body.map ? ref.map() : ref).on(listener);
-          session.subs.set(subId, { off: () => event?.off?.() });
+          session.subs.set(subId, { off: () => { stopped = true; cancelSharingRead(gun, listener); event?.off?.(); } });
           reply({ ok: true });
           return;
         }

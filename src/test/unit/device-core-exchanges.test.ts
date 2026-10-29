@@ -111,6 +111,16 @@ describe('the GUI’s view of the exchange log', () => {
 });
 
 describe('the Gun-backed store', () => {
+  it('requires a storage acknowledgement before reporting a write as committed', async () => {
+    const { gunGraphStore } = await import('../../core/graph-store');
+    const chain = { get: () => chain, put: (_value: unknown, _cb: (ack: unknown) => void) => {} };
+    await expect(gunGraphStore(chain, { putTimeoutMs: 20 }).put('local/test', { value: 1 })).rejects.toThrow('did not acknowledge');
+    chain.put = (_value, cb) => cb({ err: 'disk full' });
+    await expect(gunGraphStore(chain).put('local/test', { value: 1 })).rejects.toThrow('disk full');
+    chain.put = (_value, cb) => cb({ ok: 1 });
+    await expect(gunGraphStore(chain).put('local/test', { value: 1 })).resolves.toBeUndefined();
+  });
+
   it('a node that does not exist is empty; storage that does not answer is an error to retry', async () => {
     const { gunGraphStore } = await import('../../core/graph-store');
     const silent = { get: () => ({ once: () => {} }) };

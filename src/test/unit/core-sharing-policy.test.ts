@@ -19,7 +19,7 @@ describe('the delivery records in the device core', () => {
     await new DeliveryStore(store).record({ objectId: response.responseId, recipientId: 'alice', objectKind: 'talk-response', state: 'committed' });
     const afterRestart = new DeliveryStore(store);
     await expect(afterRestart.get(response.responseId, 'alice')).resolves.toMatchObject({ state: 'committed', objectId: response.responseId });
-    await expect(afterRestart.getSentResponse('talk-cid', 'response-cid')).resolves.toMatchObject({ payloadCiphertext: 'SEA{ciphertext}' });
+    await expect(afterRestart.getSentResponse('talk-cid', 'response-cid', 'alice')).resolves.toMatchObject({ payloadCiphertext: 'SEA{ciphertext}' });
     expect(await store.childKeys(SENT_RESPONSES_PATH)).toHaveLength(1);
     expect(SENT_RESPONSES_PATH.startsWith('local/') && DELIVERY_JOURNAL_PATH.startsWith('local/')).toBe(true);
   });
@@ -156,6 +156,7 @@ describe('the sharing policy', () => {
     const node = (soul: string, value: string) => ({ _: { '#': soul, '>': { value: Date.now() } }, value });
     const injected = ['local/injected', 'users/pub/private/injected', '~pub/answers/private/injected', 'unknown/injected'];
     mesh.hear(JSON.stringify(injected.map((soul, index) => ({ '#': `attack-${index}`, put: { [soul]: node(soul, 'remote') } }))), peer);
+    gun.get('public/control').on(() => {});
     mesh.hear(JSON.stringify({ '#': 'public-control', put: { 'public/control': node('public/control', 'remote') } }), peer);
     gun.get('local/own').put({ value: 'local' });
     await new Promise((resolve) => setTimeout(resolve, 100));

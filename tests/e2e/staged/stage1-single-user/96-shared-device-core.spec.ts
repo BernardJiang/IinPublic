@@ -43,6 +43,12 @@ for (const dedicated of [false, true]) {
       })));
       for (const page of [a, b, c]) await expect.poll(() => snapshot(page)).toEqual(expected);
 
+      // The quota is decided and committed by the shared host, never by stale per-tab views.
+      const quotas = await Promise.all(Array.from({ length: 18 }, (_, i) => core([a, b, c][i % 3], {
+        name: 'ledger.gate', peerId: 'quota-peer', nowMs: Date.now(), talkId: `quota-talk-${i}`,
+      })));
+      expect(quotas.filter((result) => result.gate.ok)).toHaveLength(10);
+
       // Every bridge allocates sub_1: sessions must not replace/unsubscribe another tab's listener.
       for (const page of [a, b, c]) await page.evaluate(() => {
         const w = window as any;
@@ -86,6 +92,7 @@ for (const dedicated of [false, true]) {
       await Promise.all([b.close(), c.close()]);
       const reloaded = await client(context, baseURL!, dedicated);
       await expect.poll(() => snapshot(reloaded)).toEqual(expected);
+      expect(await core(reloaded, { name: 'ledger.gate', peerId: 'quota-peer', nowMs: Date.now(), talkId: 'quota-overflow' })).toMatchObject({ gate: { ok: false } });
     } finally { await context.close(); }
   });
 }

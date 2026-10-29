@@ -226,6 +226,8 @@ import {
   applyEdgeGateForPeer,
   shouldSuppressForPeer,
   getTalkLedgerDoc,
+  connectTalkLedgerCore,
+  commitTalkResponse,
   getResponderVersionForTalk,
   writeResponderExchangedEntry,
   getResponderTargetsForIdentity,
@@ -3285,12 +3287,12 @@ export class IinPublicApp {
         const deliveredIdentityKeys = buildTagIdentityKeys(deliveredTalk, wholeIdentityKey);
         const sentAt = new Date().toISOString();
         for (const identityKey of deliveredIdentityKeys) {
-          markTalkSentToPeer({
+          void markTalkSentToPeer({
             peerId: recipientUserId,
             identityKey,
             talkId: payload.talkId,
             sentAt,
-          });
+          }).catch((error) => console.warn('[ledger] delivery acknowledgement commit failed:', error));
         }
         recordTalkRevisionSent(
           recipientUserId,
@@ -4844,7 +4846,7 @@ export class IinPublicApp {
     this.contentNodeService.unpinTalkAttachments(talkId);
 
     // 1. Write local tombstone (clears outcomes + exchanged for this talkId::authorId).
-    applyTalkLedgerEvent({
+    await applyTalkLedgerEvent({
       kind: 'TALK_RETRACTED',
       talkId,
       authorId,
@@ -4930,7 +4932,7 @@ export class IinPublicApp {
     });
 
     // 1. Write tombstone to local ledger.
-    applyTalkLedgerEvent({
+    await applyTalkLedgerEvent({
       kind: 'TALK_RETRACTED',
       talkId: payload.talkId,
       authorId: payload.authorId,
@@ -6226,6 +6228,7 @@ export class IinPublicApp {
       for (let attempt = 1; ; attempt++) {
         try {
           await Promise.all([connectExchangeCore(link), connectCoreCollections(collections)]);
+          connectTalkLedgerCore(core);
           return;
         } catch (error) {
           if (attempt >= 6) {
@@ -6286,8 +6289,9 @@ export class IinPublicApp {
     const ledger = authorLedgerWritesFor(input, this.currentUser.id);
     if (!ledger) return;
     try {
-      applyTalkLedgerEvent(ledger.event);
-      writeAuthorExchangedEntries(ledger.exchanged);
+      void applyTalkLedgerEvent(ledger.event)
+        .then(() => writeAuthorExchangedEntries(ledger.exchanged))
+        .catch((error) => console.warn('[ledger] exchange commit failed:', error));
     } catch {
       // Ledger write failures are non-fatal — suppression misses cost one redundant send.
     }
@@ -6640,7 +6644,7 @@ export class IinPublicApp {
       }
 
       // Step 8.3: client per-edge cooldown/quota gate.
-      const gate = applyEdgeGateForPeer(recipientId, nowMs, talkId);
+      const gate = await applyEdgeGateForPeer(recipientId, nowMs, talkId);
       if (!gate.ok) {
         console.debug(`[Ledger] Edge gate rejected deliver to ${recipientId}: ${gate.rejectedBy.join(',')}`);
         continue;
@@ -6724,7 +6728,7 @@ export class IinPublicApp {
       if (!acceptedRecipientIds.has(plan.recipientId)) continue;
       this.noteNearbyDelivery(talkId, plan.recipientId);
       for (const ik of plan.sentIdentityKeys) {
-        markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
+        await markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
       }
       recordTalkRevisionSent(plan.recipientId, talkId, talkRevision);
     }
@@ -6855,7 +6859,7 @@ export class IinPublicApp {
       const existingVersion = getResponderVersionForTalk(identityKey, senderId);
       if (existingVersion === 0) {
         // Only seed the sender record if not yet answered (version 0 = no prior answer)
-        writeResponderExchangedEntry({
+        await writeResponderExchangedEntry({
           authorId: senderId,
           identityKey,
           talkId,
@@ -7053,7 +7057,7 @@ export class IinPublicApp {
     const isIgnore = isIgnoreAnswerSet(params.answers);
     // R-1: CIDv1 response id — REQ-LEDGER-04/12 (replaces resp_<ts>_<rand> non-deterministic id)
     const responseContentJson = canonicalSerialize(params.answers);
-    const responseId = await computeResponseId({
+    let responseId = await computeResponseId({
       talkId: params.talkId,
       responderId: this.currentUser.id,
       responseContentJson,
@@ -7066,8 +7070,8 @@ export class IinPublicApp {
     const wholeTalkIdentityKey = buildTalkIdentityKey(params.talkData);
     const priorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, params.authorId);
     const priorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, params.authorId);
-    const isContentChange = priorResponseId !== null && priorResponseId !== responseId;
-    const newVersion = nextResponseVersion(priorResponseId, priorVersion, responseId);
+    let isContentChange = priorResponseId !== null && priorResponseId !== responseId;
+    let newVersion = nextResponseVersion(priorResponseId, priorVersion, responseId);
     const respondedAt = submittedAt; // first answer: respondedAt == submittedAt; supersession: now
 
     const skipE2eLocalOnlyReject =
@@ -7109,41 +7113,21 @@ export class IinPublicApp {
         console.warn(`[Step9] Failed to encrypt response for ${targetAuthorId}:`, err);
         return;
       }
-      const targetResponseId = targetTalkId === params.talkId
-        ? responseId
-        : await computeResponseId({
-            talkId: targetTalkId,
-            responderId: this.currentUser!.id,
-            responseContentJson,
-          });
-      const targetPriorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, targetAuthorId);
-      const targetPriorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, targetAuthorId);
-      const targetVersion = nextResponseVersion(targetPriorResponseId, targetPriorVersion, targetResponseId);
-      const responderEpub = this.gunService.getStoredPair()?.epub;
-      const meshPayload: P2PMeshTalkResponsePayload = {
-        responseId: targetResponseId,
-        talkId: targetTalkId,
-        authorId: targetAuthorId,
-        responderId: this.currentUser!.id,
-        submittedAt,
-        respondedAt,
-        version: targetVersion,
-        encryption: 'sea-ecdh-v1',
-        payloadCiphertext,
-        transportMode: 'mesh-p2p',
-        // The author decrypts with the pair secret derived from OUR epub — carry it inline
-        // so the author never has to network-resolve it at ingest (see type comment).
-        ...(responderEpub ? { responderEpub } : {}),
-      };
-      // The response and its delivery journal are stored in the device core before any transport
-      // is tried; both are local — the hub never learns who answered whom (OPEN-91 P2).
-      await this.coreDelivery({ name: 'delivery.putSentResponse', payload: meshPayload });
-      await this.coreDelivery({ name: 'delivery.record', input: {
-        objectId: targetResponseId,
-        recipientId: targetAuthorId,
-        objectKind: 'talk-response',
-        state: 'committed',
-      } });
+      const committed = await commitTalkResponse({
+        talkId: targetTalkId, talkData: params.talkData, answers: params.answers,
+        authorId: targetAuthorId, authorName: targetAuthorName, authorEpub,
+        responderId: this.currentUser!.id, responderEpub: this.gunService.getStoredPair()?.epub,
+        payloadCiphertext, submittedAt,
+        selfTag: this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
+      });
+      const meshPayload = committed.payload;
+      const targetResponseId = meshPayload.responseId;
+      const targetVersion = meshPayload.version!;
+      if (targetAuthorId === params.authorId) {
+        responseId = targetResponseId;
+        newVersion = targetVersion;
+        isContentChange = committed.isContentChange;
+      }
       const mesh = this.ensurePeerMeshService();
       let sent = false;
       if (mesh) {
@@ -7228,7 +7212,7 @@ export class IinPublicApp {
     // This persists version + responseId for future version-bump decisions.
     try {
       const ledgerOutcomeVal = isMatch ? 'matched' as const : 'ignored' as const;
-      writeResponderExchangedEntry({
+      await writeResponderExchangedEntry({
         authorId: params.authorId,
         identityKey: wholeTalkIdentityKey,
         talkId: params.talkId,
@@ -7241,7 +7225,7 @@ export class IinPublicApp {
       });
       for (const identityKey of selectedTalkIdentityKeys(params.talkData, params.answers)) {
         if (identityKey === wholeTalkIdentityKey) continue;
-        writeResponderExchangedEntry({
+        await writeResponderExchangedEntry({
           authorId: params.authorId,
           identityKey,
           talkId: params.talkId,
@@ -7266,7 +7250,7 @@ export class IinPublicApp {
             this.roomTravelerIds,
           )) continue;
           const sentResponse = sentResponseByAuthor.get(senderId);
-          writeResponderExchangedEntry({
+          await writeResponderExchangedEntry({
             authorId: senderId,
             identityKey: wholeTalkIdentityKey,
             ...(sentResponse?.talkId || sender.talkId
@@ -7627,8 +7611,8 @@ export class IinPublicApp {
    * identityKey the same way `deliverTalkToReceiversOverMesh` does (`buildTalkIdentityKey`) so
    * a test-written entry suppresses exactly what a real send would.
    */
-  public markTalkSentToPeerForE2e(params: { peerId: string; talkId: string; talkData: unknown; sentAt?: string }): void {
-    markTalkSentToPeer({
+  public async markTalkSentToPeerForE2e(params: { peerId: string; talkId: string; talkData: unknown; sentAt?: string }): Promise<void> {
+    await markTalkSentToPeer({
       peerId: params.peerId,
       talkId: params.talkId,
       identityKey: buildTalkIdentityKey(params.talkData),

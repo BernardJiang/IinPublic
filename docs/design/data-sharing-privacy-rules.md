@@ -61,7 +61,7 @@ Every node the core writes lives in exactly one namespace; its first path segmen
 
 ## What leaves the device today
 
-Audit updated 2026-10-28:
+Audit updated 2026-10-29:
 
 - **Fixed in P2 (2026-10-25):** the sender's copy of each Talk response and the delivery journal
   were written through the page's hub-connected Gun (`pairs/…`, `deliveryJournal/…`). The answer was
@@ -77,10 +77,13 @@ Audit updated 2026-10-28:
   queries are blocked too. Private links are removed with their HAM timestamps, including SEA's
   signed/packed link formats. Changed messages discard stale wire serialization/hash while
   retaining routing metadata.
-- **Input has the same namespace/content gate.** Remote writes into private or unknown namespaces
-  are dropped before storage. Local writes/reads still work. This is not yet the subscription or
-  addressed-recipient gate required by rule 4: permitted shared namespaces can still arrive
-  unsolicited.
+- **Input requires local read permission as well as namespace/content checks.** Local `.on` reads
+  admit their record until cancelled; `.once` reads admit replies for 30 seconds, including after
+  an early cache miss. Maps admit their subtree; ancestor nodes admit only the fields leading to
+  requested paths. Unsolicited records and siblings are dropped before storage. A remote GET never
+  creates permission. RPC cancellation revokes a listener even before its first event. This uses
+  subscriptions for rule 4; merely claiming a recipient in an incoming payload grants no access.
+  Local storage reads/writes do not traverse this gate.
 - **Pair/room content requires SEA ciphertext envelopes.** Non-null scalar fields must have SEA's
   encrypted `{ct,iv,s}` envelope; signed plaintext is not encryption. Index links may only point
   beneath the same audience/path. Null tombstones are allowed. This validates the wire format;
@@ -102,7 +105,8 @@ Audit updated 2026-10-28:
 
 - Unit tests of the policy: namespaces, exact/wildcard reads, encrypted versus signed/plaintext
   content, packed links, cached-wire invalidation, and a real Gun mesh receiving batched private
-  injection attempts. The six added regression cases fail against the earlier policy.
+  injection attempts. Read-capability tests cover unsolicited siblings, remote-GET injection,
+  one-shot expiry, and cancellation of one RPC session while another remains subscribed.
 - Spec 09 captures SharedWorker sockets and requires public probes from both peers. It also writes
   deliberate unknown-namespace, plaintext pair/room and signed private-answer probes, proves the
   unknown write is available locally, and checks that none escapes while the Talk exchange works.

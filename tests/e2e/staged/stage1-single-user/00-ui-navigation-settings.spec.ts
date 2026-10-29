@@ -1019,7 +1019,7 @@ test.describe('UI navigation and settings shell', () => {
 
   test('chatbot room-entry auto-send emits only pending talks and does not replay recorded delivery', async () => {
     const p = page!;
-    const result = await p.evaluate(() => {
+    const result = await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
       const ui = app.uiManager as any;
       const userId = app.getCurrentUser().id;
@@ -1039,7 +1039,7 @@ test.describe('UI navigation and settings shell', () => {
       const first = emitted.map((event) => ({ automatic: event.automatic, talkIds: event.talkIds, memberIds: event.members.map((m: any) => m.userId) }));
       // docs/TODO.md §W Gap 2: simulate "already sent" via the unified ledger mechanism —
       // the same write deliverTalkToReceiversOverMesh itself does on a real send.
-      app.markTalkSentToPeerForE2e({ peerId: 'peer-auto', talkId: 'autoOut', talkData: fullTalk });
+      await app.markTalkSentToPeerForE2e({ peerId: 'peer-auto', talkId: 'autoOut', talkData: fullTalk });
       ui.broadcastPendingTalksOnRoomEntry();
       const emittedCountAfterNoReplay = emitted.length;
       // A metadata-only touch (no content change) must NOT un-suppress — ledger suppression
@@ -1138,7 +1138,7 @@ test.describe('UI navigation and settings shell', () => {
 
   test('broadcast history (ledger-based, §W Gap 2) suppresses unchanged repeat room sends', async () => {
     const p = page!;
-    const result = await p.evaluate(() => {
+    const result = await p.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
       const ui = app.uiManager as any;
       const fullTalk = {
@@ -1157,7 +1157,7 @@ test.describe('UI navigation and settings shell', () => {
       };
       localStorage.setItem('myTalks', JSON.stringify({ repeat_talk_1: talk }));
       const before = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
-      app.markTalkSentToPeerForE2e({ peerId: 'peer-1', talkId: 'repeat_talk_1', talkData: fullTalk });
+      await app.markTalkSentToPeerForE2e({ peerId: 'peer-1', talkId: 'repeat_talk_1', talkData: fullTalk });
       const afterSame = ui.getUnsentBroadcastTalkIds('global', ['peer-1']);
       // Metadata-only touch (lastInteraction) — same content, must stay suppressed.
       localStorage.setItem('myTalks', JSON.stringify({

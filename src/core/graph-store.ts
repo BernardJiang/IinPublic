@@ -49,8 +49,9 @@ export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTim
   };
   return {
     put: (path, value) => new Promise((resolve, reject) => {
-      // A peerless instance acks from its own storage; a missing ack is not a failed write.
-      const timer = setTimeout(() => resolve(), options.putTimeoutMs ?? 8000);
+      // A timeout leaves the write uncertain. Never authorize a transport side effect on an
+      // unconfirmed commit; the host's local storage adapter must acknowledge it.
+      const timer = setTimeout(() => reject(new Error(`storage did not acknowledge write for ${path}`)), options.putTimeoutMs ?? 8000);
       ref(path).put(value, (ack: any) => {
         clearTimeout(timer);
         if (ack?.err) reject(new Error(String(ack.err)));

@@ -23,6 +23,7 @@ export class CoreCollectionView<T> {
   private readonly listeners = new Set<() => void>();
   private core: CollectionCoreLink | null = null;
   private loaded = false;
+  private readonly pending = new Set<Promise<void>>();
   private readonly unsavedKey: string;
 
   /**
@@ -91,6 +92,22 @@ export class CoreCollectionView<T> {
     this.notify();
   }
 
+  /** Import/journal writes must finish before a host command reads this collection. */
+  async flush(): Promise<void> {
+    if (!this.core) throw new Error(`${this.collection}: device core is not connected`);
+    this.load();
+    while (this.pending.size) await Promise.all([...this.pending]);
+    if (Object.keys(this.readUnsaved()).length) throw new Error(`${this.collection}: unsaved changes remain`);
+  }
+
+  /** A committed host-command result updates only the GUI view; never write it back as a stale
+   * whole-document edit. The caller has flushed pending imports before issuing the command. */
+  acceptSnapshot(snapshot: Record<string, T>): void {
+    this.entries.clear();
+    for (const [key, value] of Object.entries(snapshot)) this.entries.set(key, value);
+    this.notify();
+  }
+
   resetForTests(): void {
     this.entries.clear();
     this.listeners.clear();
@@ -148,7 +165,7 @@ export class CoreCollectionView<T> {
     if (!this.core) return;
     const upserts = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== null));
     const removals = Object.keys(changes).filter((key) => changes[key] === null);
-    Promise.all([
+    const write = Promise.all([
       Object.keys(upserts).length ? this.core.upsert(this.collection, upserts) : null,
       removals.length ? this.core.remove(this.collection, removals) : null,
     ]).then(() => {
@@ -157,6 +174,8 @@ export class CoreCollectionView<T> {
       for (const [key, value] of Object.entries(changes)) if (JSON.stringify(still[key]) === JSON.stringify(value)) delete still[key];
       this.writeUnsaved(still);
     }).catch((error) => console.warn(`[${this.collection}] core write failed (kept as unsaved):`, error));
+    this.pending.add(write);
+    void write.finally(() => this.pending.delete(write));
   }
 
   private importLegacy(): void {

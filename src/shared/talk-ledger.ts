@@ -303,8 +303,9 @@ export function applyEdgeGate(
   peerId: string,
   nowMs: number,
   talkId?: string,
+  quotaUnlimited = talkLedgerQuotaUnlimited,
 ): { ok: boolean; rejectedBy: string[] } {
-  if (talkLedgerQuotaUnlimited) {
+  if (quotaUnlimited) {
     touchEdge(doc, peerId, nowMs, talkId);
     return { ok: true, rejectedBy: [] };
   }

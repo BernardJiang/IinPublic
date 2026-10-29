@@ -724,10 +724,23 @@ describe('UTC bucket helpers', () => {
 
 // ─── Store round-trip (mock localStorage) ────────────────────────────────────
 
-describe('store round-trip (localStorage mock)', () => {
-  beforeEach(() => {
+beforeEach(async () => {
     globalThis.localStorage.clear();
+    const { createCoreHandler } = await import('../../core/core-handler');
+    const { memoryGraphStore } = await import('../../core/graph-store');
+    const { talkLedgerView } = await import('../../web/services/core-views');
+    const { connectTalkLedgerCore } = await import('../../web/services/web-talk-ledger-store');
+    const handle = createCoreHandler(memoryGraphStore());
+    connectTalkLedgerCore(handle);
+    await talkLedgerView.connect({
+      snapshot: (collection) => handle({ name: 'collection.snapshot', collection }) as Promise<Record<string, unknown>>,
+      upsert: (collection, entries) => handle({ name: 'collection.upsert', collection, entries }),
+      remove: (collection, keys) => handle({ name: 'collection.remove', collection, keys }),
+    });
   });
+
+describe('store round-trip (device core with a GUI view)', () => {
+
 
   it('loadTalkLedger returns empty doc when key is absent', async () => {
     const { loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
@@ -752,9 +765,9 @@ describe('store round-trip (localStorage mock)', () => {
     expect(loaded.edges['alice']!.lastSendAt).toBe(9999);
   });
 
-  it('applyTalkLedgerEvent persists outcome to localStorage', async () => {
+  it('applyTalkLedgerEvent persists outcome in the core and refreshes the view', async () => {
     const { applyTalkLedgerEvent, loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
-    applyTalkLedgerEvent(makeAnsweredEvent());
+    await applyTalkLedgerEvent(makeAnsweredEvent());
     const doc = loadTalkLedger();
     const k = outcomeKey('jerry', 'talk1', 'tom');
     expect(doc.outcomes[k]).toBeDefined();
@@ -763,7 +776,7 @@ describe('store round-trip (localStorage mock)', () => {
 
   it('shouldSuppressForPeer returns true after an outcome is written', async () => {
     const { applyTalkLedgerEvent, shouldSuppressForPeer } = await import('../../web/services/web-talk-ledger-store');
-    applyTalkLedgerEvent(makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis' }));
+    await applyTalkLedgerEvent(makeAnsweredEvent({ responderId: 'jerry', identityKey: 'qa_tennis' }));
     expect(shouldSuppressForPeer('jerry', 'qa_tennis')).toBe(true);
     expect(shouldSuppressForPeer('bob', 'qa_tennis')).toBe(false);
   });
@@ -771,7 +784,7 @@ describe('store round-trip (localStorage mock)', () => {
   it('applyEdgeGateForPeer persists edge counter', async () => {
     const { applyEdgeGateForPeer, loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
     const nowMs = new Date('2024-06-01T08:00:00.000Z').getTime();
-    const r = applyEdgeGateForPeer('jerry', nowMs);
+    const r = await applyEdgeGateForPeer('jerry', nowMs);
     expect(r.ok).toBe(true);
     const doc = loadTalkLedger();
     expect(doc.edges['jerry']!.sentToday).toBe(1);
@@ -780,7 +793,7 @@ describe('store round-trip (localStorage mock)', () => {
   // docs/TODO.md §W Gap 2
   it('markTalkSentToPeer persists a sent entry and suppresses via shouldSuppressForPeer', async () => {
     const { markTalkSentToPeer, shouldSuppressForPeer, loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
-    markTalkSentToPeer({ peerId: 'jerry', identityKey: 'qa_tennis', talkId: 'talk1', sentAt: '2024-01-01T10:00:00.000Z' });
+    await markTalkSentToPeer({ peerId: 'jerry', identityKey: 'qa_tennis', talkId: 'talk1', sentAt: '2024-01-01T10:00:00.000Z' });
     const doc = loadTalkLedger();
     expect(doc.sent[exchangedKey('jerry', 'qa_tennis')]).toEqual({
       peerId: 'jerry',
@@ -826,7 +839,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       getResponderLastResponseId,
     } = await import('../../web/services/web-talk-ledger-store');
 
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'matched',
@@ -846,7 +859,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       getResponderLastResponseId,
     } = await import('../../web/services/web-talk-ledger-store');
 
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'ignored',
@@ -854,7 +867,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       responseId: 'resp_v1',
       respondedAt: '2024-01-01T10:00:00.000Z',
     });
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'matched',
@@ -873,7 +886,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       getResponderVersionForTalk,
     } = await import('../../web/services/web-talk-ledger-store');
 
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'matched',
@@ -882,7 +895,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       respondedAt: '2024-01-01T12:00:00.000Z',
     });
     // Attempt stale write
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'ignored',
@@ -899,7 +912,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       writeResponderExchangedEntry,
     } = await import('../../web/services/web-talk-ledger-store');
 
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_chess',
       outcome: 'matched',
@@ -919,7 +932,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       getResponderSendersForIdentity,
     } = await import('../../web/services/web-talk-ledger-store');
 
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'ignored',
@@ -927,7 +940,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       responseId: 'r1',
       respondedAt: '2024-01-01T10:00:00.000Z',
     });
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'bob',
       identityKey: 'qa_tennis',
       outcome: 'matched',
@@ -948,7 +961,7 @@ describe('Step 9 — version monotonicity and responder-side helpers (localStora
       getResponderSendersForIdentity,
     } = await import('../../web/services/web-talk-ledger-store');
 
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'ignored',
@@ -1172,7 +1185,7 @@ describe('Step 11 — symmetric write coverage: both roles produce exchanged ent
     globalThis.localStorage.clear();
 
     const { writeResponderExchangedEntry, loadTalkLedger } = await import('../../web/services/web-talk-ledger-store');
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'matched',
@@ -1205,7 +1218,7 @@ describe('Step 11 — symmetric write coverage: both roles produce exchanged ent
     expect(shouldSuppress(doc, 'jerry', 'qa_tennis')).toBe(true);
 
     // Responder side: Jerry records that he answered Tom's tennis (role:'responder' entry for peerId=tom)
-    writeResponderExchangedEntry({
+    await writeResponderExchangedEntry({
       authorId: 'tom',
       identityKey: 'qa_tennis',
       outcome: 'matched',

@@ -7,18 +7,14 @@
  *
  * Design ref: docs/design/p0-steps8-11-ledger.md §1
  *
- * Delegates ALL ordering / eviction logic to src/shared/talk-ledger.ts.
- * This module only handles:
- *   - load / save (the doc to/from the core collection's view)
- *   - apply (load → applyEvent → save, returned updated doc)
- *   - applyEdgeGateForPeer (load → applyEdgeGate → save, returned gate result)
- *   - read helpers (shouldSuppressForPeer, getDoc)
+ * Mutations are commands executed in sequence on the core's storage owner. This module flushes
+ * legacy imports, sends commands and installs their committed snapshots. Synchronous read helpers
+ * use the GUI's cached view; saveTalkLedger remains for legacy migration/test fixtures.
  */
 
 import {
   emptyTalkLedgerDoc,
-  applyEvent,
-  applyEdgeGate,
+  talkLedgerQuotaUnlimited,
   shouldSuppress,
   exchangedKey,
   type TalkLedgerDoc,
@@ -26,6 +22,23 @@ import {
   type ExchangedEntry,
 } from '../../shared/talk-ledger';
 import { TALK_LEDGER_SECTIONS, talkLedgerView } from './core-views';
+import type { LedgerCommand, LedgerCommandResult, AuthorEntriesInput, ResponderEntryInput, ResponseCommitInput, CommittedResponse } from '../../core/talk-ledger-store';
+import type { CoreRequester } from './node-core-link';
+
+let requestCore: CoreRequester | null = null;
+let commandQueue: Promise<unknown> = Promise.resolve();
+export function connectTalkLedgerCore(request: CoreRequester): void { requestCore = request; }
+async function command(request: LedgerCommand): Promise<LedgerCommandResult> {
+  const result = commandQueue.then(async () => {
+    if (!requestCore) throw new Error('Talk ledger host is unavailable');
+    await talkLedgerView.flush();
+    const result = await requestCore(request) as LedgerCommandResult;
+    talkLedgerView.acceptSnapshot(result.entries);
+    return result;
+  });
+  commandQueue = result.catch(() => undefined);
+  return result;
+}
 
 type Section = typeof TALK_LEDGER_SECTIONS[number];
 
@@ -59,31 +72,19 @@ export function saveTalkLedger(doc: TalkLedgerDoc): void {
 // ─── Transaction helpers ───────────────────────────────────────────────────────
 
 /**
- * Apply a ledger event: load → applyEvent → save.
- * Returns the updated doc (may be the same reference if event was rejected).
+ * Apply a ledger event on the host and refresh this GUI's view.
  */
-export function applyTalkLedgerEvent(event: LedgerEvent): TalkLedgerDoc {
-  const doc = loadTalkLedger();
-  const updated = applyEvent(doc, event);
-  saveTalkLedger(updated);
-  return updated;
+export async function applyTalkLedgerEvent(event: LedgerEvent): Promise<TalkLedgerDoc> {
+  await command({ name: 'ledger.apply', event });
+  return loadTalkLedger();
 }
 
 /**
  * Apply an edge gate check for outbound send to `peerId` at `nowMs`.
  * If the gate passes, debit counters and save; otherwise return the rejection reasons.
  */
-export function applyEdgeGateForPeer(
-  peerId: string,
-  nowMs: number,
-  talkId?: string,
-): { ok: boolean; rejectedBy: string[] } {
-  const doc = loadTalkLedger();
-  const result = applyEdgeGate(doc, peerId, nowMs, talkId);
-  if (result.ok) {
-    saveTalkLedger(doc);
-  }
-  return result;
+export async function applyEdgeGateForPeer(peerId: string, nowMs: number, talkId?: string): Promise<{ ok: boolean; rejectedBy: string[] }> {
+  return (await command({ name: 'ledger.gate', peerId, nowMs, unlimitedForTesting: talkLedgerQuotaUnlimited, ...(talkId ? { talkId } : {}) })).gate!;
 }
 
 /**
@@ -132,40 +133,8 @@ export function getResponderVersionForTalk(
  * Called from submitTalkResponsePairDirect after sending the response.
  * Stores version + responseId so change-of-mind fanout can read prior state.
  */
-export function writeResponderExchangedEntry(params: {
-  authorId: string;
-  identityKey: string;
-  talkId?: string;
-  authorName?: string;
-  authorEpub?: string;
-  outcome: ExchangedEntry['outcome'];
-  version: number;
-  responseId: string;
-  respondedAt: string;
-}): void {
-  const doc = loadTalkLedger();
-  const key = exchangedKey(params.authorId, params.identityKey);
-  const existing = doc.exchanged[key];
-  // Only update if incoming version is >= existing (allow idempotent re-write at same version)
-  if (existing && existing.role === 'responder' && existing.version > params.version) {
-    return; // stale write — existing is newer
-  }
-  doc.exchanged[key] = {
-    peerId: params.authorId,
-    identityKey: params.identityKey,
-    ...(params.talkId || existing?.talkId ? { talkId: params.talkId || existing?.talkId } : {}),
-    ...(params.authorName || existing?.peerName ? { peerName: params.authorName || existing?.peerName } : {}),
-    ...(params.authorEpub || existing?.peerEpub ? { peerEpub: params.authorEpub || existing?.peerEpub } : {}),
-    outcome: params.outcome,
-    version: params.version,
-    role: 'responder',
-    lastExchangedAt: params.respondedAt,
-    // Extra field for change-of-mind fanout: store responseId so we can detect content change.
-    // TypeScript: cast to any is required because ExchangedEntry doesn't have responseId.
-    // We attach it as a non-schema field that fanout reads.
-    ...(params.responseId ? { responseId: params.responseId } as any : {}),
-  };
-  saveTalkLedger(doc);
+export async function writeResponderExchangedEntry(input: ResponderEntryInput): Promise<void> {
+  await command({ name: 'ledger.responder', input });
 }
 
 /**
@@ -192,28 +161,8 @@ export function getResponderTargetsForIdentity(identityKey: string): ExchangedEn
   );
 }
 
-export function writeAuthorExchangedEntries(params: {
-  responderId: string;
-  identityKeys: string[];
-  outcome: ExchangedEntry['outcome'];
-  version: number;
-  respondedAt: string;
-}): void {
-  const doc = loadTalkLedger();
-  for (const identityKey of new Set(params.identityKeys.filter(Boolean))) {
-    const key = exchangedKey(params.responderId, identityKey);
-    const existing = doc.exchanged[key];
-    if (existing && existing.version > params.version) continue;
-    doc.exchanged[key] = {
-      peerId: params.responderId,
-      identityKey,
-      outcome: params.outcome,
-      version: params.version,
-      role: 'author',
-      lastExchangedAt: params.respondedAt,
-    };
-  }
-  saveTalkLedger(doc);
+export async function writeAuthorExchangedEntries(input: AuthorEntriesInput): Promise<void> {
+  await command({ name: 'ledger.author', input });
 }
 
 /**
@@ -239,17 +188,22 @@ export function getResponderLastResponseId(
  * right after a send is attempted, so `shouldSuppressForPeer` can suppress a resend even before
  * the recipient has answered.
  */
-export function markTalkSentToPeer(params: {
+export async function markTalkSentToPeer(params: {
   peerId: string;
   identityKey: string;
   talkId: string;
   sentAt?: string;
-}): void {
-  applyTalkLedgerEvent({
+}): Promise<void> {
+  await applyTalkLedgerEvent({
     kind: 'TALK_SENT',
     peerId: params.peerId,
     identityKey: params.identityKey,
     talkId: params.talkId,
     sentAt: params.sentAt ?? new Date().toISOString(),
   });
+}
+
+/** Persist and version a response before its encrypted payload is passed to the transport. */
+export async function commitTalkResponse(input: ResponseCommitInput): Promise<CommittedResponse> {
+  return (await command({ name: 'response.commit', input })).response!;
 }

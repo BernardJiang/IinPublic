@@ -3,6 +3,8 @@
 OPEN-91 P6. The tests use actual worker bundles, Gun and IndexedDB in one browser context/origin.
 
 - Three tabs write different records concurrently, then each reads the complete set.
+- Eighteen concurrent quota requests from three tabs admit exactly ten distinct Talks; the limit
+  survives closing all tabs and reopening the host.
 - Identical subscription IDs belong to separate tabs; unsubscribing one preserves the others.
 - Tabs sharing the owner's identity can decrypt the same private record. Logging out one does not
   log out another, and a different identity cannot replace the active signer.

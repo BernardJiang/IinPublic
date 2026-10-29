@@ -2,6 +2,8 @@
  * Legacy protocols have explicit compatibility rules until their writers migrate to public/pair/room.
  * See docs/design/data-sharing-privacy-rules.md for the remaining audience/subscription work. */
 
+import { SharingInterests, installSharingInterests } from './sharing-interests';
+
 export const PRIVATE_NAMESPACES = ['local', 'pairs', 'deliveryJournal', 'device-local', 'nodes', 'edges'] as const;
 
 /** Existing wire protocols, not permission for arbitrary new top-level data. Keep this inventory
@@ -32,7 +34,7 @@ export function soulLeavesDevice(soul: string): boolean {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type SharingPolicyViolation = 'namespace' | 'query' | 'plaintext' | 'malformed';
+export type SharingPolicyViolation = 'namespace' | 'query' | 'plaintext' | 'malformed' | 'unsolicited';
 type Report = (reason: SharingPolicyViolation) => void;
 
 /** Validate SEA's encrypted envelope, never confuse a SEA signature with ciphertext.
@@ -137,13 +139,30 @@ export function filterOutgoingGunMessage(msg: any, report?: Report): any | null 
   return msg;
 }
 
-export const filterIncomingGunMessage = filterOutgoingGunMessage;
+export function filterIncomingGunMessage(msg: any, report?: Report, interests?: SharingInterests): any | null {
+  const allowed = filterOutgoingGunMessage(msg, report);
+  if (!allowed?.put || !interests) return allowed;
+  const put: Record<string, any> = Object.create(null);
+  let changed = false;
+  for (const [soul, node] of Object.entries<any>(allowed.put)) {
+    const keys = Object.keys(node).filter((key) => key !== '_');
+    const kept = keys.filter((key) => interests.acceptsField(soul, key));
+    if (kept.length === keys.length && keys.length) { put[soul] = node; continue; }
+    changed = true;
+    report?.('unsolicited');
+    if (!kept.length) continue;
+    put[soul] = Object.fromEntries(kept.map((key) => [key, node[key]]));
+    if (node._) put[soul]._ = { ...node._, '>': Object.fromEntries(kept.map((key) => [key, node._['>']?.[key]])) };
+  }
+  return !Object.keys(put).length ? null : changed ? changedMessage(allowed, { put }) : allowed;
+}
 
 /** Counters contain no souls, identities or payloads. */
 export function guardMeshSay(mesh: any): void {
   if (!mesh || typeof mesh.say !== 'function' || mesh.sharingPolicy) return;
-  const violations: Record<SharingPolicyViolation, number> = { namespace: 0, query: 0, plaintext: 0, malformed: 0 };
+  const violations: Record<SharingPolicyViolation, number> = { namespace: 0, query: 0, plaintext: 0, malformed: 0, unsolicited: 0 };
   const report: Report = (reason) => { violations[reason]++; };
+  const interests = new SharingInterests();
   const say = mesh.say;
   mesh.say = function (this: any, msg: any, peer: any) {
     const allowed = filterOutgoingGunMessage(msg, report);
@@ -154,17 +173,18 @@ export function guardMeshSay(mesh: any): void {
   if (typeof mesh.hear?.one === 'function') {
     const hear = mesh.hear.one;
     mesh.hear.one = function (this: any, msg: any, peer: any, ...rest: any[]) {
-      const allowed = filterIncomingGunMessage(msg, report);
+      const allowed = filterIncomingGunMessage(msg, report, interests);
       if (allowed) return hear.call(this, allowed, peer, ...rest);
     };
   }
-  mesh.sharingPolicy = { violations };
+  mesh.sharingPolicy = { violations, interests };
 }
 
 let installed = false;
 export function installSharingPolicy(Gun: any): void {
   if (installed || !Gun?.on) return;
   installed = true;
+  installSharingInterests(Gun);
   Gun.on('create', function (this: any, root: any) {
     root.on('out', function (this: any, msg: any) {
       const allowed = filterOutgoingGunMessage(msg, (reason) => {

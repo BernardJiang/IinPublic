@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-28.
+Last reconciled: 2026-10-29.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -42,8 +42,11 @@ its ID.
   directions, with explicit compatibility entries for existing protocols. Network input is filtered
   before Gun can merge it into storage; signed private answer memory and private links are blocked
   too. Pair/room content requires SEA ciphertext envelopes; violations increment content-free
-  counters. Remaining P2: migrate compatibility protocols to their intended namespaces, enforce
-  peer audiences and accept only subscribed/addressed inbound records.
+  counters. **Inbound subscriptions enforced 2026-10-29:** local reads grant bounded record/subtree
+  permissions; unsolicited nodes and sibling fields are dropped before storage. Remote GETs cannot
+  authorize writes; cancelled listeners lose permission before their first callback too. One-shot
+  reads retain a 30-second late-reply window. Remaining P2: compatibility migration, peer audiences
+  and sharing-setting enforcement.
   **P3 started 2026-10-26:** keyed collections in the core (`src/core/collections.ts`, GUI view
   `core-collection-view.ts`, views in `core-views.ts`);
   chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
@@ -71,8 +74,15 @@ its ID.
   Stage1/96 covers concurrent records, per-tab logout/subscriptions, owner closure and persisted
   edits across Chromium, Firefox and WebKit; spec 09 now captures SharedWorker sockets and requires
   a public probe from both participants before accepting its privacy result.
-  **Remaining:** finish P2's compatibility migration and audience/subscription restrictions;
-  P5.4 must execute domain commands in the host, beyond extracting their rules.
+  **P5.4 first host commands implemented 2026-10-29:** ledger mutation/quota decisions serialize
+  across GUI sessions. Response commit assigns CID/version, checks completeness/retraction, and
+  stores encrypted per-recipient copies, journal and ledger before returning a sendable payload.
+  Unacknowledged writes now fail. These are ordered writes, not an atomic multi-record transaction.
+  Validation: 228 focused unit tests; all 12 stage1/96 Chromium/Firefox/WebKit cases; wire09 and
+  two ledger UI regressions; native37 Talk→answer→match→P2P chat on C10/PH1 (2.1 minutes).
+  **Remaining:** P2 compatibility migration, outgoing audiences and sharing settings; P5.4 host
+  execution of encryption, transport/fanout, chatbot, Nearby and conversation effects, plus live
+  views replacing cached GUI decisions.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

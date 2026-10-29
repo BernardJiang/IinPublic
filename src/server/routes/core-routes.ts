@@ -43,7 +43,8 @@ function forgetDeviceSouls(gun: any): void {
 export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): { resetForTesting: () => void } {
   // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
   const store = () => gunGraphStore(gun, { missWaitMs: 0 });
-  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir) });
+  const allowTestOverrides = process.env.E2E_GUN_MEMORY_ONLY === '1';
+  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir), allowTestOverrides });
   const authorized = (req: express.Request): boolean => token.length >= 32 && req.get('authorization') === `Bearer ${token}`;
 
   app.post('/api/core', async (req, res) => {
@@ -61,7 +62,7 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   return {
     resetForTesting: () => {
       forgetDeviceSouls(gun);
-      handle = createCoreHandler(store(), { freshDevice: true });
+      handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides });
     },
   };
 }

@@ -13,6 +13,7 @@ import { gunGraphStore } from '../graph-store';
 import { createCoreHandler } from '../core-handler';
 import type { CoreRequest } from '../protocol';
 import { closeGunRpcSession, createGunRpcSession, runGunRpc } from '../gun-rpc';
+import { cancelSharingRead } from '../sharing-interests';
 import { installSharingPolicy } from '../sharing-policy';
 import { coordinateWorker } from './worker-coordinator';
 
@@ -101,7 +102,7 @@ function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<voi
     }))
     .catch(() => false)
     .then((freshDevice) => {
-      handleCore = createCoreHandler(gunGraphStore(gun), { freshDevice });
+      handleCore = createCoreHandler(gunGraphStore(gun), { freshDevice, allowTestOverrides: process.env.DISABLE_HMR === 'true' });
     });
   return initialized;
 }
@@ -152,12 +153,13 @@ function pathRef(path: string): any {
 function subscribePath(path: string, listener: (data: any, key: string) => void): { off(): void } {
   let active = true;
   let event: any;
-  pathRef(path).on((data: any, key: string, _message: any, subscription: any) => {
+  const onData = (data: any, key: string, _message: any, subscription: any) => {
     event = subscription;
     if (active) listener(data, key);
     else event?.off?.();
-  });
-  return { off: () => { active = false; event?.off?.(); } };
+  };
+  pathRef(path).on(onData);
+  return { off: () => { active = false; cancelSharingRead(gun, onData); event?.off?.(); } };
 }
 
 function gunPut(path: string, data: unknown): Promise<unknown> {

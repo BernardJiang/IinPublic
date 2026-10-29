@@ -10,9 +10,12 @@ import type { P2PMeshTalkResponsePayload } from '../shared/p2p-mesh-protocol';
 import type { DeliveryInput, DeliveryJournalRecord } from './delivery';
 import type { ExchangeRecord } from './exchanges';
 
+import type { LedgerCommand, LedgerCommandResult } from './talk-ledger-store';
+
 export const CORE_PROTOCOL_VERSION = 1;
 
 export type CoreRequest =
+  | LedgerCommand
   | { name: 'exchanges.snapshot' }
   | { name: 'exchanges.upsert'; records: ExchangeRecord[] }
   | { name: 'exchanges.removePeers'; peerIds: string[] }
@@ -29,7 +32,8 @@ export type CoreRequest =
   | { name: 'device.put'; path: string; value: unknown };
 
 export type CoreResponse<R extends CoreRequest> =
-  R extends { name: 'exchanges.snapshot' } ? ExchangeRecord[]
+  R extends LedgerCommand ? LedgerCommandResult
+    : R extends { name: 'exchanges.snapshot' } ? ExchangeRecord[]
     : R extends { name: 'exchanges.upsert' } ? { written: number }
       : R extends { name: 'exchanges.removePeers' } ? { removed: number }
         : R extends { name: 'delivery.get' } ? DeliveryJournalRecord | null
