@@ -14,11 +14,14 @@ covers: docs/testing/room-heartbeat-load-test.md (wire-audit finding)
 4. Every WebSocket frame to/from the hub's Gun endpoint and every `/api` request/response of both browsers is
    recorded, then scanned for the markers. The report (console + `wire-report` attachment) lists which Gun records
    carried plaintext and which server calls carried only ciphertext (signaling relay, mailbox).
+   SharedWorker sockets are captured through their separate Chromium network targets. Before the
+   exchange, each participant writes a known public probe that the audit must observe; an empty
+   worker capture cannot produce a passing privacy result.
 
 ## Expected and current result
 
-No plaintext marker may cross the hub boundary. Since 2026-10-09, authored/received Talk records and
-the receiver's incoming-cluster envelope are SEA-encrypted inside the peerless worker Gun. Direct
+No plaintext marker may cross the hub boundary. Authored/received Talk records and
+the receiver's incoming-cluster envelope are protected by the core's sharing policy. Direct
 mesh delivery carries the body endpoint-to-endpoint; server fallbacks may carry ciphertext only.
 This is now a passing release gate rather than an expected-failure defect record.
 

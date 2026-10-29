@@ -1520,8 +1520,14 @@ export class IinPublicApp {
         ? LocationPrivacy.coordinateFromRegion(region) ?? undefined
         : undefined;
     });
-    // Get or create user
-    await this.initializeUser();
+    // Two first-ever tabs can finish SEA custody together, then both observe no app user id.
+    // Keep the read/create/cache operation under one origin lock so the second tab adopts the
+    // first one's user record. Storage ownership alone cannot serialize these GUI-side effects.
+    if (!nativeNode && typeof navigator !== 'undefined' && navigator.locks) {
+      await navigator.locks.request('iinpublic-device-user-initialization', () => this.initializeUser());
+    } else {
+      await this.initializeUser();
+    }
     // Contextual chatbot memory (docs/design/contextual-chatbot-memory.md): one-time, no-
     // user-interaction resync of the chatbot's answer memory whenever ANSWER_CONTEXT_VERSION
     // bumps — see answer-context-migration.ts's own header for why this is a full rebuild from

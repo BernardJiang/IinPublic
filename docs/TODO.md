@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-27.
+Last reconciled: 2026-10-28.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -56,13 +56,19 @@ its ID.
   core and its one Gun; the WebView uses authenticated loopback core/Gun RPC, migrates its worker
   data, and shuts down that worker. iOS retains the web-worker fallback until its shell supplies
   the node secret. **P6 single-worker Gun implemented 2026-10-26, merged 2026-10-27:** the web
-  worker's Gun peers with the hub and the page uses `RemoteGun` over messages (page Gun remains
-  an explicit/startup-failure fallback). Outbound filtering now covers private namespaces, private
+  worker's Gun peers with the hub and the page uses `RemoteGun` over messages. Outbound filtering
+  now covers private namespaces, private
   links, acknowledgement payloads and reconnect mesh sends.
+  **P6 origin ownership implemented 2026-10-28:** tabs share a named SharedWorker, with a
+  Web Locks/BroadcastChannel owner when dedicated workers are needed. Request IDs, subscriptions
+  and login state belong to each tab; ownership/session replacement restores login and listeners
+  without blindly retrying writes. Browser startup fails closed if safe storage cannot start;
+  `?pageGun=1` remains an explicit diagnostic layout. The native migration worker stays isolated.
+  Stage1/96 covers concurrent records, per-tab logout/subscriptions, owner closure and persisted
+  edits across Chromium, Firefox and WebKit; spec 09 now captures SharedWorker sockets and requires
+  a public probe from both participants before accepting its privacy result.
   **Remaining:** finish P2's default-deny inbound/outbound policy and pair/room encryption checks;
-  P5.4 must execute domain commands in the host, beyond extracting their rules; and P6 needs one
-  core per web origin (SharedWorker or tab leader), since separate tabs currently share IndexedDB
-  and whole-file radisk writes can overwrite each other's changes.
+  P5.4 must execute domain commands in the host, beyond extracting their rules.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

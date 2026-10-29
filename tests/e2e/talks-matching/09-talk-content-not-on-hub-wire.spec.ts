@@ -22,6 +22,7 @@ import { webAppURLStableChatroom } from '../helpers/ports';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 const RUN = Date.now().toString(36).toUpperCase();
+const PROBE = `PUBLIC_WIRE_PROBE_${RUN}`;
 const MARKERS = {
   title: `ZQTITLE${RUN}`,
   question: `ZQQUESTION${RUN}`,
@@ -41,6 +42,7 @@ type WireEvent = {
   souls?: string[];
   /** Souls in private namespaces this frame wrote or asked for (OPEN-91 P2: must be none). */
   privateSouls?: string[];
+  probe?: boolean;
 };
 
 /** Namespaces that never leave the device (src/core/sharing-policy.ts). */
@@ -65,7 +67,10 @@ function privateSoulsIn(payload: string): string[] {
   try {
     for (const msg of gunMessages(payload)) {
       const souls = [...Object.keys((msg?.put ?? {}) as Record<string, unknown>), ...(typeof msg?.get?.['#'] === 'string' ? [msg.get['#']] : [])];
-      for (const soul of souls) if (PRIVATE_NAMESPACES.includes(decodeURIComponent(soul).split('/')[0])) out.add(soul);
+      for (const soul of souls) {
+        const decoded = decodeURIComponent(soul);
+        if (PRIVATE_NAMESPACES.includes(decoded.split('/')[0]) || /^users\/[^/]+\/private(?:\/|$)/.test(decoded)) out.add(soul);
+      }
     }
   } catch {
     /* not JSON */
@@ -99,9 +104,39 @@ function scan(who: string, channel: WireEvent['channel'], where: string, payload
     channel,
     where,
     size: payload.length,
+    ...(payload.includes(PROBE) ? { probe: true } : {}),
     markers,
     ...(first >= 0 ? { excerpt: payload.slice(Math.max(0, first - 60), first + 100), souls: soulsCarryingMarkers(payload) } : {}),
   };
+}
+
+/** SharedWorker sockets belong to a separate Chromium target, not to page.on('websocket'). */
+async function tapSharedWorkers(browser: Browser, who: string, sink: WireEvent[]): Promise<void> {
+  const cdp = await browser.newBrowserCDPSession();
+  let commandId = 0;
+  const attached = new Set<string>();
+  const sockets = new Map<string, string>();
+  cdp.on('Target.receivedMessageFromTarget', ({ sessionId, message }) => {
+    const event = JSON.parse(message);
+    const params = event.params || {};
+    const key = `${sessionId}:${params.requestId}`;
+    if (event.method === 'Network.webSocketCreated') sockets.set(key, params.url);
+    const url = sockets.get(key) || '';
+    if (!/\/gun(\?|$)/.test(url)) return;
+    if (event.method === 'Network.webSocketFrameSent') sink.push(scan(who, 'gun-ws-out', url, params.response.payloadData));
+    if (event.method === 'Network.webSocketFrameReceived') sink.push(scan(who, 'gun-ws-in', url, params.response.payloadData));
+  });
+  const attach = async (info: { type: string; targetId: string }): Promise<void> => {
+    if (info.type !== 'shared_worker' || attached.has(info.targetId)) return;
+    attached.add(info.targetId);
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: info.targetId, flatten: false });
+    await cdp.send('Target.sendMessageToTarget', {
+      sessionId, message: JSON.stringify({ id: ++commandId, method: 'Network.enable' }),
+    });
+  };
+  cdp.on('Target.targetCreated', ({ targetInfo }) => { void attach(targetInfo).catch(() => {}); });
+  await cdp.send('Target.setDiscoverTargets', { discover: true });
+  for (const info of (await cdp.send('Target.getTargets')).targetInfos) await attach(info);
 }
 
 function attachWireTap(who: string, page: Page, sink: WireEvent[]): void {
@@ -165,6 +200,10 @@ test.describe('Wire audit — talk content vs the hub', () => {
     test.setTimeout(180_000);
     void webAppURLStableChatroom();
     const events: WireEvent[] = [];
+    await Promise.all([
+      tapSharedWorkers(browserTom!, 'Tom', events),
+      tapSharedWorkers(browserJerry!, 'Jerry', events),
+    ]);
 
     const [tom, jerry] = await Promise.all([
       bootstrapUser(tappedBrowser(browserTom!, 'Tom', events), 'Tom', 'Tom Audit'),
@@ -194,6 +233,17 @@ test.describe('Wire audit — talk content vs the hub', () => {
       { label: 'Tom', page: pageTom, otherIds: [jerryId] },
       { label: 'Jerry', page: pageJerry, otherIds: [tomId] },
     ]);
+
+    // Prove both Gun sockets are observed; an empty worker capture cannot qualify privacy.
+    for (const [who, page] of [['Tom', pageTom], ['Jerry', pageJerry]] as const) {
+      await page.evaluate(({ probe, who }) => {
+        const gun = (window as any).__iinpublic_app.getApp().gunService.getGun();
+        gun.get('public').get('wire-audit').get(who).put({ probe });
+      }, { probe: PROBE, who });
+      await expect.poll(() => events.some((event) => event.who === who && event.channel === 'gun-ws-out' && event.probe), {
+        timeout: 15_000, message: `${who}: audit must observe a known public Gun write`,
+      }).toBe(true);
+    }
 
     // Everything above is setup; only what happens from here on is the talk exchange.
     const exchangeStartedAt = events.length;
@@ -268,6 +318,8 @@ test.describe('Wire audit — talk content vs the hub', () => {
     const report = {
       markers: MARKERS,
       framesRecordedDuringExchange: exchange.length,
+      publicProbeObservedBy: [...new Set(events.filter((event) => event.probe && event.channel === 'gun-ws-out').map((event) => event.who))],
+      gunFramesDuringExchange: exchange.filter((event) => event.channel.startsWith('gun-ws-')).length,
       leaksFound: leaks.length,
       leaks: leaks.map(({ who, channel, where, size, markers, excerpt, souls }) => ({ who, channel, where, size, markers, excerpt, souls })),
       // Distinct Gun records whose plaintext crossed the hub, generalised (ids -> <id>) for readability.
@@ -288,8 +340,8 @@ test.describe('Wire audit — talk content vs the hub', () => {
     console.log('=== END WIRE AUDIT ===\n');
 
     // Talk content travels over the direct mesh and, at most, as ciphertext through a server
-    // fallback. Owner Talk repositories and the incoming cluster envelope live in the peerless
-    // private worker Gun, so none of the unique plaintext may appear on the hub boundary.
+    // fallback. The core's sharing policy keeps owner Talk repositories and incoming clusters
+    // private, so none of the unique plaintext may appear on the hub boundary.
     expect(leaks, 'plaintext talk content reached the hub').toEqual([]);
     // Nothing from a private namespace — the sender's response copy and delivery journal included —
     // is sent to the hub or asked of it, during the whole session (OPEN-91 P2).

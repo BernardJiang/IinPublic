@@ -208,8 +208,9 @@ Each phase ships on its own and keeps every test green.
 6. **P6 (2026-10-26) — One Gun on the web**: the page's hub-connected Gun goes away; the worker
    core's Gun is the only one. It peers with the hub, and the page reaches it through the same
    `RemoteGun`, over `postMessage` instead of HTTP (`GunBridge.gunTransport()`, worker message
-   `gunRpc`, events as `gun-event`, the hub's 'hi' as `gun-hi`). A worker that does not start
-   leaves the page its own Gun as before; `?pageGun=1` asks for that layout on purpose.
+   `gunRpc`, events as `gun-event`, the hub's 'hi' as `gun-hi`). Since 2026-10-28, a worker that
+   cannot start safely fails startup rather than creating an independent page Gun. `?pageGun=1`
+   still asks for the old layout explicitly, for diagnosis.
    Joining the hub put everything the worker had kept privately next to a peer, so the sharing
    policy grew with it:
    - namespaces `device-local/`, `nodes/`, `edges/` and souls `users/<pub>/private/…` stay on the
@@ -219,10 +220,22 @@ Each phase ships on its own and keeps every test green.
    - the policy also sits on the mesh's `say`: on reconnect Gun re-asks a peer for every soul it
      is subscribed to, outside the `out` chain (`guardMeshSay`).
    The wire audit (e2e `09-talk-content-not-on-hub-wire`) reads batched Gun frames too.
-   Still open: one core per origin (a `SharedWorker`, or a leader among tabs). Each tab still runs
-   its own worker over the same IndexedDB, and radisk writes whole files, so with two tabs open the
-   last tab to write a file wins it — a risk that grew now that all graph data, not only the
-   private records, is stored there.
+   **Origin ownership implemented 2026-10-28:** a named SharedWorker serves the tabs. The
+   dedicated-worker fallback elects one storage owner with a Web Lock; BroadcastChannel routes
+   requests and replies to it. Followers never create a Gun or open IndexedDB. Ownership changes
+   only when the browser releases the previous worker's lock, not when a heartbeat expires.
+   Each tab has independent request IDs, subscriptions, private login and a page-lifetime lease
+   where Web Locks are supported. Logging out or closing one tab does not clear another's signer
+   or listeners; a different identity cannot replace the active owner's signer.
+   The bridge restores login/subscriptions after an owner change or replacement worker session
+   (also observed in WebKit after its creating tab closed). Ambiguous in-flight operations fail;
+   they are not replayed as duplicate writes. First app-user creation is separately serialized
+   across tabs because it still runs in the GUI until P5.4. Native migration uses an isolated
+   temporary worker, then shuts it down as before.
+   Stage1/96 covers concurrent writes, subscription collisions, logout, owner closure, persisted
+   records and normal app authentication. The wire audit captures SharedWorker network targets
+   and proves its capture with public probes. Old tabs running the pre-coordination bundle must
+   be reloaded when upgrading; that old code cannot obey the new ownership lock.
 
 ## Testing
 

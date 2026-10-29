@@ -452,7 +452,7 @@ export class WebGunService extends EventEmitter {
       if (this.nativeNode.keepWorker) {
         // Only to copy what an earlier version kept in the WebView over to the node.
         try {
-          await this.bridge.init({ hubUrl: this.peers[0] });
+          await this.bridge.init({ hubUrl: this.peers[0], isolated: true });
           this.bridgeReady = true;
         } catch (bridgeErr) {
           this.bridgeReady = false;
@@ -463,7 +463,7 @@ export class WebGunService extends EventEmitter {
     }
     // The page's Gun is the core worker's (OPEN-91 P6): one Gun on the device, persisted to
     // IndexedDB and peered with the hub behind the sharing policy. The page keeps Gun's chain API
-    // through a thin client. A worker that will not start leaves the page its own Gun, as before P6.
+    // through a thin client. Failure must not start another independent database writer.
     if (this.workerGunAllowed()) {
       try {
         await this.bridge.init({ hubUrl: this.peers[0], peer: true });
@@ -474,9 +474,8 @@ export class WebGunService extends EventEmitter {
         console.log('🔗 Gun: the core worker’s (no Gun on the page) — hub:', this.peers[0]);
         return;
       } catch (bridgeErr) {
-        console.warn('⚠️ Core worker unavailable — the page runs its own Gun:', bridgeErr);
         this.bridge.terminate();
-        this.bridge = new GunBridge('/core-worker.js');
+        throw new Error('Device storage could not start safely. Reload this page to retry.', { cause: bridgeErr });
       }
     }
     await this.initializePageGun();
@@ -485,9 +484,9 @@ export class WebGunService extends EventEmitter {
   /** `?pageGun=1` keeps the pre-P6 layout (Gun on the page, a peerless worker beside it), for comparison. */
   private workerGunAllowed(): boolean {
     try {
-      return typeof Worker !== 'undefined' && new URLSearchParams(window.location.search).get('pageGun') !== '1';
+      return new URLSearchParams(window.location.search).get('pageGun') !== '1';
     } catch {
-      return typeof Worker !== 'undefined';
+      return true;
     }
   }
 
