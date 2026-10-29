@@ -13,6 +13,10 @@ OPEN-91 P6. The tests use actual worker bundles, Gun and IndexedDB in one browse
 - Both named SharedWorker and the Web Locks/BroadcastChannel dedicated-worker fallback are tested.
 - Normal app startup in two tabs preserves identity, both tabs' confirmed edits, and private access
   after the first tab closes. Simultaneous first startup must create only one device identity.
+- An author ledger command in one app tab appears in the other tab's synchronous view without
+  reloading or manually requesting a snapshot. The remaining tab keeps updating after the first
+  tab closes.
+- Core collection edits in one tab update another tab's synchronous `appData` view as well.
 
 Run the spec with `chromium`, or enable `E2E_WEBKIT_SUITE=1 E2E_FIREFOX_SUITE=1` and select the
 `webkit-suite` and `firefox-suite` projects. Unconfirmed requests interrupted by owner replacement

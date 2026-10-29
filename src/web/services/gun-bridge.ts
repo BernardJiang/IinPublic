@@ -48,6 +48,7 @@ export class GunBridge {
   private gunEventListener: ((event: { sub: string; data: unknown; key: string }) => void) | null = null;
   private readonly peerListeners: Array<() => void> = [];
   private readonly closeListeners: Array<() => void> = [];
+  private readonly collectionListeners = new Set<(collection: string) => void>();
   private hubPeerSeen = false;
   private nextId = 1;
   private nextSubId = 1;
@@ -107,6 +108,7 @@ export class GunBridge {
       if (this.loginPair) await this.sendRaw('login', { pair: this.loginPair });
       if (this.authPair) await this.sendRaw('gunRpc', { op: 'auth', pair: this.authPair });
       for (const { type, payload } of this.subscriptionRequests.values()) await this.sendRaw(type, payload);
+      for (const listener of this.collectionListeners) listener('*');
     })();
     void this.recovery.catch((error) => this.fail(error));
   }
@@ -121,6 +123,10 @@ export class GunBridge {
     }
     if (msg.type === 'core-reset') { this.recover(); return; }
     if (msg.type === 'core-error') { this.fail(new Error(msg.error)); return; }
+    if (msg.type === 'core-collection-changed') {
+      for (const listener of this.collectionListeners) listener(msg.collection);
+      return;
+    }
 
     // Unsolicited subscription update
     if (msg.type === 'subscription') {
@@ -225,6 +231,13 @@ export class GunBridge {
   core<R extends CoreRequest>(request: R): Promise<CoreResponse<R>> {
     return this.send('core', request);
   }
+
+  onCoreCollectionChanged(listener: (collection: string) => void): () => void {
+    this.collectionListeners.add(listener);
+    return () => this.collectionListeners.delete(listener);
+  }
+
+  isClosed(): boolean { return this.closed; }
 
   /* ── The worker's Gun as the page's (OPEN-91 P6) ─────────────── */
 

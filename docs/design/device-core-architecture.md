@@ -233,6 +233,13 @@ Each phase ships on its own and keeps every test green.
      `persisted-receipt`); talk-response journal writes share the host command queue.
      Received answers now use one host command for the outcome and author-side identity aliases;
      the host rejects mismatched event/alias inputs and older versions.
+     **Browser view refresh implemented 2026-10-29:** the worker sends an invalidation to each tab
+     after a collection or ledger mutation commits. Each tab rereads the changed collection and
+     updates its synchronous view, coalescing concurrent notices. A local edit made during a snapshot request is retained and
+     reread. Only this tab's unacknowledged edits remain visible during refresh; another tab's
+     shared recovery-journal entries are not mistaken for committed host state.
+     Worker replacement triggers a refresh of all collections after session recovery. Native
+     multi-window refresh and the remaining domain effects are still future work.
 6. **P6 (2026-10-26) — One Gun on the web**: the page's hub-connected Gun goes away; the worker
    core's Gun is the only one. It peers with the hub, and the page reaches it through the same
    `RemoteGun`, over `postMessage` instead of HTTP (`GunBridge.gunTransport()`, worker message

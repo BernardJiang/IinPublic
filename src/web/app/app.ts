@@ -6227,8 +6227,9 @@ export class IinPublicApp {
     const loaded = (async () => {
       for (let attempt = 1; ; attempt++) {
         try {
-          await Promise.all([connectExchangeCore(link), connectCoreCollections(collections)]);
-          connectTalkLedgerCore(core);
+          const bridge = this.gunService.isNativeNode() ? undefined : this.gunService.getBridge();
+          await Promise.all([connectExchangeCore(link), connectCoreCollections(collections, bridge)]);
+          connectTalkLedgerCore(core, bridge);
           return;
         } catch (error) {
           if (attempt >= 6) {

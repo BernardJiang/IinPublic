@@ -6,6 +6,8 @@ import type { FlatAnswerHistoryRecord } from '../ui/answer-history-storage';
 import type { MyTalkEntry } from '../ui/my-talks-storage';
 import type { ChatbotTemplate } from '../ui/ui-settings-storage';
 import { CoreCollectionView, sectionEntries, type CollectionCoreLink } from './core-collection-view';
+import type { CoreCollection } from '../../core/collections';
+import type { GunBridge } from './gun-bridge';
 
 /** Answer templates the chatbot reuses, by Talk id (and content id). Old key: `chatbotTemplates`. */
 export const chatbotTemplatesView = new CoreCollectionView<ChatbotTemplate>('chatbotTemplates', 'chatbotTemplates');
@@ -65,11 +67,40 @@ const VIEWS: Array<CoreCollectionView<unknown>> = [
   talkRevisionSentView, appDataView, settingsView,
 ] as Array<CoreCollectionView<unknown>>;
 
-export async function connectCoreCollections(link: CollectionCoreLink): Promise<void> {
+let stopChanges: (() => void) | null = null;
+const changeGeneration = new Map<CoreCollection, number>();
+const refreshing = new Set<CoreCollection>();
+
+export async function connectCoreCollections(link: CollectionCoreLink, bridge?: GunBridge): Promise<void> {
   await Promise.all(VIEWS.map((view) => view.connect(link)));
+  stopChanges?.();
+  stopChanges = bridge?.onCoreCollectionChanged((collection) => {
+    for (const view of VIEWS) {
+      if (view.collection === 'talkLedger' || (collection !== '*' && collection !== view.collection)) continue;
+      const name = view.collection;
+      changeGeneration.set(name, (changeGeneration.get(name) ?? 0) + 1);
+      if (refreshing.has(name)) continue;
+      refreshing.add(name);
+      void (async () => {
+        try {
+          let seen: number;
+          do {
+            seen = changeGeneration.get(name) ?? 0;
+            await view.refresh();
+          } while (seen !== changeGeneration.get(name));
+        } catch (error) {
+          if (!bridge.isClosed()) console.warn(`[${name}] host view refresh failed:`, error);
+        } finally { refreshing.delete(name); }
+      })();
+    }
+  }) ?? null;
 }
 
 export function resetCoreViewsForTests(): void {
+  stopChanges?.();
+  stopChanges = null;
+  changeGeneration.clear();
+  refreshing.clear();
   for (const view of VIEWS) view.resetForTests();
 }
 

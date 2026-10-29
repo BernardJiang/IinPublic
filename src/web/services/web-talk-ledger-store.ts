@@ -24,10 +24,35 @@ import {
 import { TALK_LEDGER_SECTIONS, talkLedgerView } from './core-views';
 import type { LedgerCommand, LedgerCommandResult, AuthorEntriesInput, ResponderEntryInput, ResponseCommitInput, CommittedResponse } from '../../core/talk-ledger-store';
 import type { CoreRequester } from './node-core-link';
+import type { GunBridge } from './gun-bridge';
 
 let requestCore: CoreRequester | null = null;
 let commandQueue: Promise<unknown> = Promise.resolve();
-export function connectTalkLedgerCore(request: CoreRequester): void { requestCore = request; }
+let stopChanges: (() => void) | null = null;
+let refreshPending = false;
+let changeGeneration = 0;
+export function connectTalkLedgerCore(request: CoreRequester, bridge?: GunBridge): void {
+  requestCore = request;
+  stopChanges?.();
+  stopChanges = bridge?.onCoreCollectionChanged((collection) => {
+    if (collection !== 'talkLedger' && collection !== '*') return;
+    changeGeneration++;
+    if (refreshPending) return;
+    refreshPending = true;
+    const refresh = commandQueue.then(async () => {
+      try {
+        let seen: number;
+        do {
+          seen = changeGeneration;
+          await talkLedgerView.refresh();
+        } while (seen !== changeGeneration);
+      } finally { refreshPending = false; }
+    });
+    commandQueue = refresh.catch((error) => {
+      if (!bridge.isClosed()) console.warn('[ledger] host view refresh failed:', error);
+    });
+  }) ?? null;
+}
 async function command(request: LedgerCommand): Promise<LedgerCommandResult> {
   const result = commandQueue.then(async () => {
     if (!requestCore) throw new Error('Talk ledger host is unavailable');

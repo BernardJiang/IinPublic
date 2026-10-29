@@ -110,8 +110,21 @@ test('two app tabs keep the same identity and both confirmed edits after the fir
     await Promise.all([a, b].map((page, n) => core(page, { name: 'collection.upsert', collection: 'appData', entries: { [`core-tab-${n}`]: `saved-${n}` } })));
     const read = () => core(b, { name: 'collection.snapshot', collection: 'appData' });
     await expect.poll(read).toMatchObject({ 'core-tab-0': 'saved-0', 'core-tab-1': 'saved-1' });
+    await expect.poll(() => b.evaluate(() => (window as any).__iinpublic_collection('appData')))
+      .toMatchObject({ 'core-tab-0': 'saved-0', 'core-tab-1': 'saved-1' });
+    // The other tab's synchronous ledger view must follow host commits without a reload.
+    const liveLedger = () => b.evaluate(() => (window as any).__iinpublic_collection('talkLedger')['sent::peer-live::identity-live']);
+    await core(a, { name: 'ledger.apply', event: {
+      kind: 'TALK_SENT', peerId: 'peer-live', identityKey: 'identity-live', talkId: 'talk-live', sentAt: '2026-10-29T12:00:00.000Z',
+    } });
+    await expect.poll(liveLedger).toMatchObject({ talkId: 'talk-live' });
     await a.close();
     await expect.poll(() => read().catch(() => null)).toMatchObject({ 'core-tab-0': 'saved-0', 'core-tab-1': 'saved-1' });
+    await core(b, { name: 'ledger.apply', event: {
+      kind: 'TALK_SENT', peerId: 'peer-live', identityKey: 'identity-after-close', talkId: 'talk-after-close', sentAt: '2026-10-29T12:01:00.000Z',
+    } });
+    await expect.poll(() => b.evaluate(() => (window as any).__iinpublic_collection('talkLedger')['sent::peer-live::identity-after-close']))
+      .toMatchObject({ talkId: 'talk-after-close' });
     await expect.poll(() => b.evaluate(() => (window as any).bridge.putPrivate('core-tab-probe', { saved: true }).then(() => (window as any).bridge.getPrivate('core-tab-probe')).catch(() => null)), { timeout: 20_000 }).toEqual({ saved: true });
   } finally { await context.close(); }
 });

@@ -84,6 +84,65 @@ describe('the GUI’s view of a collection', () => {
     expect(localStorage.getItem('iinpublic_core_unsaved_chatbotTemplates_v1')).toBeNull();
   });
 
+  it('refreshes a stale view without replacing a local edit made during the snapshot request', async () => {
+    const handle = createCoreHandler(memoryGraphStore());
+    const base = linkTo(handle);
+    let pause = false;
+    let release!: () => void;
+    let started!: () => void;
+    const captured = new Promise<void>((resolve) => { started = resolve; });
+    const link: CollectionCoreLink = { ...base, snapshot: async (collection) => {
+      const snapshot = await base.snapshot(collection);
+      if (pause) {
+        pause = false;
+        started();
+        await new Promise<void>((resolve) => { release = resolve; });
+      }
+      return snapshot;
+    } };
+    const view = new CoreCollectionView<{ answers: string[] }>('chatbotTemplates', 'chatbotTemplates');
+    await view.connect(link);
+    await handle({ name: 'collection.upsert', collection: 'chatbotTemplates', entries: { remote: { answers: ['remote'] } } });
+    pause = true;
+    const refreshing = view.refresh();
+    await captured;
+    view.set({ mine: { answers: ['mine'] } });
+    await view.flush();
+    release();
+    await refreshing;
+    expect(view.all()).toEqual({ remote: { answers: ['remote'] }, mine: { answers: ['mine'] } });
+  });
+
+  it('keeps a failed local edit visible during refresh without overwriting the host', async () => {
+    const handle = createCoreHandler(memoryGraphStore());
+    const base = linkTo(handle);
+    const unavailable = true;
+    const link: CollectionCoreLink = { ...base, upsert: (collection, entries) => unavailable
+      ? Promise.reject(new Error('owner died before acknowledgement'))
+      : base.upsert(collection, entries) };
+    const view = new CoreCollectionView<{ answers: string[] }>('chatbotTemplates', 'chatbotTemplates');
+    await view.connect(link);
+    view.set({ mine: { answers: ['mine'] } });
+    await expect(view.flush()).rejects.toThrow('unsaved changes remain');
+    await view.refresh();
+    expect(view.get('mine')).toEqual({ answers: ['mine'] });
+    expect(await base.snapshot('chatbotTemplates')).toEqual({});
+  });
+
+  it('does not mistake another tab’s recovery journal for a confirmed host update', async () => {
+    const handle = createCoreHandler(memoryGraphStore());
+    const base = linkTo(handle);
+    const first = new CoreCollectionView<{ answers: string[] }>('chatbotTemplates', 'chatbotTemplates');
+    const second = new CoreCollectionView<{ answers: string[] }>('chatbotTemplates', 'chatbotTemplates');
+    await first.connect({ ...base, upsert: () => Promise.reject(new Error('owner unavailable')) });
+    await second.connect(base);
+    first.set({ pending: { answers: ['not yet committed'] } });
+    await expect(first.flush()).rejects.toThrow('unsaved changes remain');
+    await second.refresh();
+    expect(first.get('pending')).toEqual({ answers: ['not yet committed'] });
+    expect(second.get('pending')).toBeUndefined();
+  });
+
   it('shows unconfirmed changes from the first read, before the core answers', () => {
     const before = new CoreCollectionView<{ answers: string[] }>('myTalks', 'myTalks');
     before.set({ t1: { answers: ['mine'] } });

@@ -24,6 +24,8 @@ export class CoreCollectionView<T> {
   private core: CollectionCoreLink | null = null;
   private loaded = false;
   private readonly pending = new Set<Promise<void>>();
+  private readonly localUnconfirmed = new Map<string, T | null>();
+  private localEpoch = 0;
   private readonly unsavedKey: string;
 
   /**
@@ -57,6 +59,7 @@ export class CoreCollectionView<T> {
   set(changes: Record<string, T>): void {
     this.load();
     if (Object.keys(changes).length === 0) return;
+    this.localEpoch++;
     for (const [key, value] of Object.entries(changes)) this.entries.set(key, value);
     this.save(changes);
     this.notify();
@@ -65,6 +68,7 @@ export class CoreCollectionView<T> {
   remove(keys: string[]): void {
     this.load();
     if (keys.length === 0) return;
+    this.localEpoch++;
     for (const key of keys) this.entries.delete(key);
     this.save(Object.fromEntries(keys.map((key) => [key, null])));
     this.notify();
@@ -100,6 +104,28 @@ export class CoreCollectionView<T> {
     if (Object.keys(this.readUnsaved()).length) throw new Error(`${this.collection}: unsaved changes remain`);
   }
 
+  /** Refresh a stale tab from the host. The recovery journal is shared by tabs, so only this
+   * view's own unconfirmed edits may overlay a host snapshot. */
+  async refresh(): Promise<void> {
+    if (!this.core) throw new Error(`${this.collection}: device core is not connected`);
+    for (;;) {
+      while (this.pending.size) await Promise.all([...this.pending]);
+      const epoch = this.localEpoch;
+      const link: CollectionCoreLink | null = this.core;
+      if (!link) throw new Error(`${this.collection}: device core disconnected during refresh`);
+      const snapshot = await link.snapshot(this.collection);
+      if (this.core !== link || this.localEpoch !== epoch || this.pending.size) continue;
+      this.entries.clear();
+      for (const [key, value] of Object.entries(snapshot)) this.entries.set(key, value as T);
+      for (const [key, value] of this.localUnconfirmed) {
+        if (value === null) this.entries.delete(key);
+        else this.entries.set(key, value);
+      }
+      this.notify();
+      return;
+    }
+  }
+
   /** A committed host-command result updates only the GUI view; never write it back as a stale
    * whole-document edit. The caller has flushed pending imports before issuing the command. */
   acceptSnapshot(snapshot: Record<string, T>): void {
@@ -111,6 +137,7 @@ export class CoreCollectionView<T> {
   resetForTests(): void {
     this.entries.clear();
     this.listeners.clear();
+    this.localUnconfirmed.clear();
     this.core = null;
     this.loaded = false;
   }
@@ -161,6 +188,7 @@ export class CoreCollectionView<T> {
   /** Sends changes (null = remove) to the core, listing each until the core has stored it. */
   private save(changes: Record<string, T | null>): void {
     if (Object.keys(changes).length === 0) return;
+    for (const [key, value] of Object.entries(changes)) this.localUnconfirmed.set(key, value);
     this.writeUnsaved({ ...this.readUnsaved(), ...changes });
     if (!this.core) return;
     const upserts = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== null));
@@ -171,7 +199,10 @@ export class CoreCollectionView<T> {
     ]).then(() => {
       const still = this.readUnsaved();
       // Only if not changed again meanwhile; a newer change keeps its own place in the list.
-      for (const [key, value] of Object.entries(changes)) if (JSON.stringify(still[key]) === JSON.stringify(value)) delete still[key];
+      for (const [key, value] of Object.entries(changes)) {
+        if (JSON.stringify(still[key]) === JSON.stringify(value)) delete still[key];
+        if (JSON.stringify(this.localUnconfirmed.get(key)) === JSON.stringify(value)) this.localUnconfirmed.delete(key);
+      }
       this.writeUnsaved(still);
     }).catch((error) => console.warn(`[${this.collection}] core write failed (kept as unsaved):`, error));
     this.pending.add(write);

@@ -242,7 +242,20 @@ coordinateWorker(scope, { disconnect, async receive(clientId, message, emit) {
       }
       case 'core':
         if (!handleCore) throw new Error('device core not ready');
-        reply(id, null, await handleCore(payload as CoreRequest));
+        {
+          const result = await handleCore(payload as CoreRequest);
+          const request = payload as CoreRequest;
+          const unchangedGate = request.name === 'ledger.gate'
+            && (result as { gate?: { ok?: boolean } }).gate?.ok === false;
+          if (!unchangedGate && (request.name === 'response.commit' || request.name.startsWith('ledger.')
+            || (('collection' in request) && request.collection === 'talkLedger' && request.name !== 'collection.snapshot'))) {
+            for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: 'talkLedger' });
+          } else if ((request.name === 'collection.upsert' || request.name === 'collection.remove')
+            && request.collection !== 'talkLedger') {
+            for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: request.collection });
+          }
+          reply(id, null, result);
+        }
         break;
       case 'put':
         await gunPut(payload.path, payload.data);
