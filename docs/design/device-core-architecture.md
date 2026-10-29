@@ -160,8 +160,11 @@ Each phase ships on its own and keeps every test green.
    links; map reads admit their subtree. Live listeners retain permission until cancellation;
    one-shot reads have a 30-second lease for late network replies. Remote GETs cannot grant it.
    RPC cancellation revokes permission even before the first callback. Local storage bypasses
-   this network gate. Still open: migrate compatibility protocols, constrain outgoing peers to
-   the audience, and enforce sharing settings at the boundary.
+   this network gate. **Pair/room relay audience implemented 2026-10-29:** outbound reads/writes
+   go only through explicitly configured hub connections, including cached replies; unbound LAN
+   peers receive public records without links into pair/room. Direct pair/room Gun links need an
+   authenticated peer binding before they can be allowed. Still open: migrate compatibility
+   protocols (which retain their old audience rules) and enforce sharing settings at the boundary.
 3. **P3 — The other local logs**: My Talks, My Conversations, the talk ledger, answer history,
    chatbot memory and templates move into the core's graph; the tag graph, places and statistics
    become core queries.

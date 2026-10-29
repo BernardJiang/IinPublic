@@ -45,8 +45,11 @@ its ID.
   counters. **Inbound subscriptions enforced 2026-10-29:** local reads grant bounded record/subtree
   permissions; unsolicited nodes and sibling fields are dropped before storage. Remote GETs cannot
   authorize writes; cancelled listeners lose permission before their first callback too. One-shot
-  reads retain a 30-second late-reply window. Remaining P2: compatibility migration, peer audiences
-  and sharing-setting enforcement.
+  reads retain a 30-second late-reply window. **Pair/room relay audience enforced 2026-10-29:**
+  only configured hub connections carry these encrypted Gun namespaces; unbound LAN peers cannot
+  request or receive them, and public records to those peers lose pair/room links. Legacy shared
+  roots retain their old protocols and still require migration and audience review. Remaining P2:
+  compatibility migration, legacy audiences and sharing-setting enforcement.
   **P3 started 2026-10-26:** keyed collections in the core (`src/core/collections.ts`, GUI view
   `core-collection-view.ts`, views in `core-views.ts`);
   chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
@@ -80,7 +83,7 @@ its ID.
   Unacknowledged writes now fail. These are ordered writes, not an atomic multi-record transaction.
   Validation: 228 focused unit tests; all 12 stage1/96 Chromium/Firefox/WebKit cases; wire09 and
   two ledger UI regressions; native37 Talk→answer→match→P2P chat on C10/PH1 (2.1 minutes).
-  **Remaining:** P2 compatibility migration, outgoing audiences and sharing settings; P5.4 host
+  **Remaining:** P2 compatibility migration, legacy audiences and sharing settings; P5.4 host
   execution of encryption, transport/fanout, chatbot, Nearby and conversation effects, plus live
   views replacing cached GUI decisions.
 

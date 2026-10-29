@@ -89,12 +89,19 @@ Audit updated 2026-10-29:
   beneath the same audience/path. Null tombstones are allowed. This validates the wire format;
   only the recipient can authenticate/decrypt it. Policy violations increment counters containing
   no identities, souls or payloads.
+- **Pair/room peer audience is restricted to configured relays.** The core labels its own hub URLs
+  at startup; pair/room writes and reads, including cached reply routing, are dropped for every
+  other Gun peer. A discovered LAN peer or incoming GET does not grant permission. Public nodes
+  sent to those peers also lose links into pair/room paths. Direct peer links require a future
+  authenticated audience binding; the existing encrypted mesh/mailbox response transport is
+  separate from this Gun rule. The relay still carries encrypted pair/room data and can forward it
+  to other connected clients; ciphertext and opaque path IDs protect its contents.
 - **Compatibility migration remains open.** Existing profiles/rosters/reputation, conversation and
   signaling envelopes, identity links/handoff, and TechSupport records retain their listed old
   roots. This preserves interoperability but does not yet conceal legacy metadata or enforce the
   new encrypted pair/room schema on those roots. Move each writer/reader together, then remove its
-  compatibility entry. Peer-audience restrictions and user-setting enforcement at the boundary
-  remain open as well.
+  compatibility entry. These old roots are not yet covered by pair/room peer audiences. Sharing
+  settings at the network boundary also remain open.
 - **User records, rosters, presence** go through the hub-connected Gun by design; they belong in
   `public/` with the user's settings deciding what is included.
 - **Talk content** no longer crosses the hub: owner Talk repositories and incoming clusters live in

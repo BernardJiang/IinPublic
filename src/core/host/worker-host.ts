@@ -83,11 +83,11 @@ let initialized: Promise<void> | null = null;
 let hubPeerSeen = false;
 function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<void> {
   if (initialized) {
-    if (options.peer && options.hubUrl) gun.opt({ peers: [options.hubUrl] });
+    if (options.peer && options.hubUrl) gun.opt({ peers: [options.hubUrl], sharingRelayPeers: [options.hubUrl] });
     return initialized;
   }
   const peers = options.peer && options.hubUrl ? [options.hubUrl] : [];
-  gun = Gun({ peers, localStorage: false, store: idbAdapter, axe: false, multicast: false });
+  gun = Gun({ peers, sharingRelayPeers: peers, localStorage: false, store: idbAdapter, axe: false, multicast: false });
   gun.on('hi', () => {
     hubPeerSeen = true;
     for (const client of clients.values()) client.emit({ type: 'gun-hi' });

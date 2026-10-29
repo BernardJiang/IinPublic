@@ -509,6 +509,7 @@ export class WebGunService extends EventEmitter {
       installSharingPolicy(Gun);
       this.gun = Gun({
         peers: this.peers,
+        sharingRelayPeers: [...this.peers],
         localStorage: persistBrowserGraph,
         radisk: false,
         ...(disableAxe ? { axe: false, multicast: false } : {}),

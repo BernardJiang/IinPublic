@@ -315,6 +315,7 @@ export function attachGun(server: HttpServer): any {
   const gun = Gun({
     web: server,
     localStorage: false,
+    ...(embedded.enabled ? { sharingRelayPeers: upstreamHubPeers } : {}),
     // Embedded nodes always persist on-device (Gun-on-device is source of truth).
     radisk: embedded.enabled ? true : !isolatedGun,
     // IINPUBLIC_HUB_AXE=1 turns Gun AXE (subscription-based routing) ON for a relay-only/isolated hub, so a

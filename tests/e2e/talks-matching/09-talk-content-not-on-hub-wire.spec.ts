@@ -44,6 +44,7 @@ type WireEvent = {
   /** Souls in private namespaces this frame wrote or asked for (OPEN-91 P2: must be none). */
   privateSouls?: string[];
   probe?: boolean;
+  pairProbe?: boolean;
 };
 
 /** Namespaces that never leave the device (src/core/sharing-policy.ts). */
@@ -106,6 +107,7 @@ function scan(who: string, channel: WireEvent['channel'], where: string, payload
     where,
     size: payload.length,
     ...(payload.includes(PROBE) ? { probe: true } : {}),
+    ...(payload.includes('pair/wire-audit/encrypted') ? { pairProbe: true } : {}),
     markers,
     ...(first >= 0 ? { excerpt: payload.slice(Math.max(0, first - 60), first + 100), souls: soulsCarryingMarkers(payload) } : {}),
   };
@@ -245,6 +247,17 @@ test.describe('Wire audit — talk content vs the hub', () => {
         timeout: 15_000, message: `${who}: audit must observe a known public Gun write`,
       }).toBe(true);
     }
+
+    // The worker's configured hub is an allowed relay for encrypted pair records. This positive
+    // probe prevents a fail-closed audience check from silently disabling the whole pair path.
+    await pageTom.evaluate(() => {
+      const gun = (window as any).__iinpublic_app.getApp().gunService.getGun();
+      const encrypted = 'SEA' + JSON.stringify({ ct: 'AAAAAAAAAAAAAAAAAAAAAA==', iv: 'AAAAAAAAAAAAAAAAAAAA', s: 'AAAAAAAAAAAA' });
+      gun.get('pair').get('wire-audit').get('encrypted').put({ content: encrypted });
+    });
+    await expect.poll(() => events.some((event) => event.who === 'Tom' && event.channel === 'gun-ws-out' && event.pairProbe), {
+      timeout: 15_000, message: 'Encrypted pair record must reach the configured hub relay',
+    }).toBe(true);
 
     // Everything above is setup; only what happens from here on is the talk exchange.
     const exchangeStartedAt = events.length;

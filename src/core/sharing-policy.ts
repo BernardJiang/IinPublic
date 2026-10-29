@@ -34,7 +34,7 @@ export function soulLeavesDevice(soul: string): boolean {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type SharingPolicyViolation = 'namespace' | 'query' | 'plaintext' | 'malformed' | 'unsolicited';
+export type SharingPolicyViolation = 'namespace' | 'query' | 'plaintext' | 'malformed' | 'unsolicited' | 'audience';
 type Report = (reason: SharingPolicyViolation) => void;
 
 /** Validate SEA's encrypted envelope, never confuse a SEA signature with ciphertext.
@@ -157,15 +157,59 @@ export function filterIncomingGunMessage(msg: any, report?: Report, interests?: 
   return !Object.keys(put).length ? null : changed ? changedMessage(allowed, { put }) : allowed;
 }
 
+const restrictedAudience = (soul: unknown): boolean => typeof soul === 'string' && /^(?:pair|room)(?:\/|$)/.test(soul);
+
+/** Until a direct Gun peer has an authenticated audience binding, pair/room traffic uses only
+ * explicitly configured relays. Discovering a LAN peer or receiving its GET grants no access.
+ * Public records cannot smuggle pair/room paths through object or signed links either. */
+export function filterPeerAudience(msg: any, relay: boolean, report?: Report): any | null {
+  if (relay) return msg;
+  if (restrictedAudience(msg.get?.['#'])) { report?.('audience'); return null; }
+  if (!msg.put) return msg;
+  let changed = false;
+  const put: Record<string, any> = Object.create(null);
+  for (const [soul, raw] of Object.entries<any>(msg.put)) {
+    if (restrictedAudience(soul)) { changed = true; report?.('audience'); continue; }
+    const hidden = Object.keys(raw).filter((key) => key !== '_' && restrictedAudience(linkSoul(raw[key])));
+    if (!hidden.length) { put[soul] = raw; continue; }
+    changed = true;
+    report?.('audience');
+    const node = { ...raw };
+    for (const key of hidden) delete node[key];
+    if (node._?.['>']) {
+      const state = { ...node._['>'] };
+      for (const key of hidden) delete state[key];
+      node._ = { ...node._, '>': state };
+    }
+    if (Object.keys(node).some((key) => key !== '_')) put[soul] = node;
+  }
+  return !Object.keys(put).length ? null : changed ? changedMessage(msg, { put }) : msg;
+}
+
 /** Counters contain no souls, identities or payloads. */
-export function guardMeshSay(mesh: any): void {
+export function guardMeshSay(mesh: any, root?: any): void {
   if (!mesh || typeof mesh.say !== 'function' || mesh.sharingPolicy) return;
-  const violations: Record<SharingPolicyViolation, number> = { namespace: 0, query: 0, plaintext: 0, malformed: 0, unsolicited: 0 };
+  const violations: Record<SharingPolicyViolation, number> = { namespace: 0, query: 0, plaintext: 0, malformed: 0, unsolicited: 0, audience: 0 };
   const report: Report = (reason) => { violations[reason]++; };
   const interests = new SharingInterests();
   const say = mesh.say;
   mesh.say = function (this: any, msg: any, peer: any) {
-    const allowed = filterOutgoingGunMessage(msg, report);
+    let allowed = filterOutgoingGunMessage(msg, report);
+    if (!allowed) return false;
+    // Gun resolves reply destinations inside say, bypassing its public per-peer recursion.
+    // Resolve the same local routing entry first so cached replies cannot skip this gate.
+    if (!peer && allowed['@']) {
+      const route = root?.dup?.s?.[allowed['@']];
+      peer = route?.via || route?.it?._?.via || (mesh.last?.['#'] === allowed['@'] ? mesh.leap : undefined);
+      if (!peer) allowed = filterPeerAudience(allowed, false, report);
+    }
+    if (allowed && peer?.id) {
+      const url = peer.url;
+      const relay = typeof url === 'string' && Array.isArray(root?.opt?.sharingRelayPeers)
+        && root.opt.sharingRelayPeers.includes(url) && root.opt.peers?.[url] === peer;
+      allowed = filterPeerAudience(allowed, relay, report);
+    }
+    // Broadcasts recurse through mesh.say once for each concrete peer, after serialization.
     return allowed ? say.call(this, allowed, peer) : false;
   };
   // An ordinary root.on('in') hook is too late: Gun registers universe before create hooks.
@@ -194,6 +238,6 @@ export function installSharingPolicy(Gun: any): void {
       if (allowed) this.to.next(allowed);
     });
     this.to.next(root);
-    guardMeshSay(root.opt?.mesh);
+    guardMeshSay(root.opt?.mesh, root);
   });
 }
