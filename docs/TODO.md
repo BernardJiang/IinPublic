@@ -81,11 +81,12 @@ its ID.
   non-public profile rows and contact lists from `users/<id>` writes; profile-foundation updates
   tombstone the old `fullProfileJson` Gun field. The compatibility HTTP API now accepts and
   returns only public profile rows; a claimed `viewerId` cannot reveal owner or contact-only
-  data. Legacy `knownPeople` graph paths plus already replicated data still need migration.
+  data. The old unauthenticated known-people HTTP CRUD now returns 410, so it cannot publish or
+  enumerate contact notes; historical graph copies still need a cleanup/migration decision.
   **P2 legacy read/write boundary hardened 2026-10-29:** client core blocks old
   `users/<id>/knownPeople` branches and `user-public-profile/<id>/fullProfileJson` fields in both
-  directions, including parent links and exact reads. The server's contact write endpoints and
-  historical hub copies still require migration. Contact-only profile sharing needs an
+  directions, including parent links and exact reads. Historical hub copies still require
+  migration. Contact-only profile sharing needs an
   authenticated encrypted protocol before it can be restored to peer views.
   **P5.4 first host commands implemented 2026-10-29:** ledger mutation/quota decisions serialize
   across GUI sessions. Response commit assigns CID/version, checks completeness/retraction, and

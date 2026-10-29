@@ -29,6 +29,19 @@ function buildHubRelayClient(overrides: Partial<EmbeddedHubRelayClientLike> = {}
 }
 
 describe('user routes', () => {
+  it('retires unauthenticated contact CRUD without touching the public graph', async () => {
+    const app = express();
+    app.use(express.json());
+    const userService = { addKnownPerson: jest.fn(), removeKnownPerson: jest.fn(), listKnownPeople: jest.fn() };
+    registerUserRoutes(app, { userService: userService as any });
+    await request(app).post('/api/users/owner/known-people').send({ targetId: 'friend', label: 'friend', notes: 'private' }).expect(410);
+    await request(app).get('/api/users/owner/known-people').expect(410);
+    await request(app).delete('/api/users/owner/known-people/friend').expect(410);
+    expect(userService.addKnownPerson).not.toHaveBeenCalled();
+    expect(userService.removeKnownPerson).not.toHaveBeenCalled();
+    expect(userService.listKnownPeople).not.toHaveBeenCalled();
+  });
+
   it('does not trust a claimed viewer identity or accept private profile rows on the public API', async () => {
     const app = express();
     app.use(express.json());

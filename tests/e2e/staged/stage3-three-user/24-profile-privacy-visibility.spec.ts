@@ -174,7 +174,7 @@ test.describe('Profile privacy visibility', () => {
       .toBe(true);
   }
 
-  async function postKnownPersonAndVerifyPublicOnly(
+  async function rejectLegacyContactWriteAndVerifyPublicOnly(
     page: Page,
     ownerId: string,
     targetId: string,
@@ -184,35 +184,9 @@ test.describe('Profile privacy visibility', () => {
     },
   ): Promise<void> {
     const postUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(ownerId)}/known-people`;
-    const userUrl = `${gunBaseURL()}/api/users/${encodeURIComponent(ownerId)}?viewerId=${encodeURIComponent(targetId)}`;
-
-    await expect
-      .poll(
-        async () => {
-          const postRes = await page.request.post(postUrl, {
-            data: {
-              targetId,
-              label: 'friend',
-            },
-          });
-          if (!postRes.ok()) return false;
-
-          // Delay to allow server-side write + Gun replication to propagate before the GET check.
-          // Parallel workers with multiple Gun servers need longer propagation windows.
-          await new Promise((r) => setTimeout(r, 3000));
-
-          const userRes = await page.request.get(userUrl);
-          if (!userRes.ok()) return false;
-          const user = await userRes.json();
-          const profileText = JSON.stringify(user?.profile ?? []);
-          return (
-            expectations.visible.every((text) => profileText.includes(text)) &&
-            expectations.hidden.every((text) => !profileText.includes(text))
-          );
-        },
-        { timeout: 120_000, intervals: [2000, 4000, 8000] },
-      )
-      .toBe(true);
+    const postRes = await page.request.post(postUrl, { data: { targetId, label: 'friend' } });
+    expect(postRes.status()).toBe(410);
+    await waitForProfileRows(page, ownerId, targetId, expectations);
   }
 
   test('hides contacts_only/private profile rows from non-owner viewers', async () => {
@@ -300,7 +274,7 @@ test.describe('Profile privacy visibility', () => {
     const jNonContactId = await getCurrentUserId(pageJerryNonContact);
     expect(jNonContactId).toBeTruthy();
 
-    // Viewer 2: Jerry2 (added to Tom's known-people list)
+    // Viewer 2: Jerry2 (tries the retired public contact API)
     const jContact = await bootstrapUser(browser, 'JerryContact');
     contextJerryContact = jContact.context;
     pageJerryContact = jContact.page;
@@ -315,7 +289,7 @@ test.describe('Profile privacy visibility', () => {
       visible: [PUBLIC_Q, PUBLIC_A],
       hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });
-    await postKnownPersonAndVerifyPublicOnly(pageTom, tomId, jContactId, {
+    await rejectLegacyContactWriteAndVerifyPublicOnly(pageTom, tomId, jContactId, {
       visible: [PUBLIC_Q, PUBLIC_A],
       hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });

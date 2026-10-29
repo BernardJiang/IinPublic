@@ -1,5 +1,5 @@
 import type express from 'express';
-import type { QuestionAnswer, RelationshipLabel, Tag } from '../../shared/types';
+import type { QuestionAnswer, Tag } from '../../shared/types';
 import { UserService } from '../services/user-service';
 import type { EmbeddedHubRelayClientLike } from '../../node-app/embedded-hub-relay-client';
 
@@ -101,55 +101,13 @@ export function registerUserRoutes(
     }
   });
 
-  app.post('/api/users/:id/known-people', async (req, res) => {
-    try {
-      const { targetId, label, nickname, customLabel, rating, notes } = req.body as {
-        targetId?: string;
-        label?: string;
-        nickname?: string;
-        customLabel?: string;
-        rating?: number;
-        notes?: string;
-      };
-      if (!targetId || !label) {
-        res.status(400).json({ error: 'targetId and label required' });
-        return;
-      }
-      const extras = {
-        ...(customLabel ? { customLabel } : {}),
-        ...(typeof rating === 'number' ? { rating } : {}),
-        ...(notes ? { notes } : {}),
-      };
-      await userService.addKnownPerson(
-        req.params.id,
-        targetId,
-        label as RelationshipLabel,
-        nickname,
-        extras,
-      );
-      res.json({ ok: true });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.delete('/api/users/:id/known-people/:targetId', async (req, res) => {
-    try {
-      await userService.removeKnownPerson(req.params.id, req.params.targetId);
-      res.json({ ok: true });
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
-
-  app.get('/api/users/:id/known-people', async (req, res) => {
-    try {
-      const list = await userService.listKnownPeople(req.params.id);
-      res.json(list);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  });
+  // The former CRUD API let any caller enumerate or publish another user's private contact
+  // notes on a public Gun path. Browser contacts now live in the owner's encrypted core data.
+  const retiredKnownPeople = (_req: express.Request, res: express.Response) => {
+    res.status(410).json({ error: 'Known people are private to the device core' });
+  };
+  app.all('/api/users/:id/known-people', retiredKnownPeople);
+  app.all('/api/users/:id/known-people/:targetId', retiredKnownPeople);
 
   app.put('/api/users/:id/friend-marks/:targetId', async (req, res) => {
     try {

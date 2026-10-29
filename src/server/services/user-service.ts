@@ -1,4 +1,4 @@
-import { User, Reputation, GPSCoordinate, RelationshipLabel, KnownPerson, TalkIntakeFilters, QuestionAnswer, Tag } from '../../shared/types';
+import { User, Reputation, GPSCoordinate, TalkIntakeFilters, QuestionAnswer, Tag } from '../../shared/types';
 import { GunService } from './gun-service';
 import { generateRandomStageName } from '../../shared/user-utils';
 import { getDefaultTalkIntakeFilters, normalizeCustomBlockedTerms } from '../../shared/talk-intake-filters';
@@ -26,7 +26,6 @@ const AGE_VERIF_KEY = 'user-age-verification';
 
 export class UserService {
   private readonly recentBlockMutations = new Map<string, boolean>();
-  private readonly recentKnownPersonMutations = new Map<string, boolean>();
   private readonly recentPublicProfileFoundations = new Map<string, {
     headshot?: string | null;
     languagesJson?: string;
@@ -43,7 +42,6 @@ export class UserService {
   /** E2E / test-only: in-memory block overrides survive Gun graph clears. */
   resetBlockMutationsForTesting(): void {
     this.recentBlockMutations.clear();
-    this.recentKnownPersonMutations.clear();
     this.recentPublicProfileFoundations.clear();
     this.recentPublicUsers.clear();
     this.recentReputationWrites.clear();
@@ -311,53 +309,6 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return publicUser;
   }
 
-  async addKnownPerson(
-    userId: string,
-    targetId: string,
-    label: RelationshipLabel,
-    nickname?: string,
-    extras?: { customLabel?: string; rating?: number; notes?: string },
-  ): Promise<void> {
-    const entry = {
-      userId: targetId,
-      label,
-      ...(nickname ? { nickname } : {}),
-      ...(extras?.customLabel ? { customLabel: extras.customLabel } : {}),
-      ...(typeof extras?.rating === 'number' ? { rating: extras.rating } : {}),
-      ...(extras?.notes ? { notes: extras.notes } : {}),
-      addedAt: new Date().toISOString(),
-    };
-    await this.gunService.putPath(['users', userId, 'knownPeople', targetId], entry);
-    this.recentKnownPersonMutations.set(this.knownPersonKey(userId, targetId), true);
-  }
-
-  async removeKnownPerson(userId: string, targetId: string): Promise<void> {
-    await this.gunService.putPath(['users', userId, 'knownPeople', targetId], null);
-    this.recentKnownPersonMutations.set(this.knownPersonKey(userId, targetId), false);
-  }
-
-  async listKnownPeople(userId: string): Promise<KnownPerson[]> {
-    const gun = this.gunService.getGun();
-    return new Promise((resolve) => {
-      const items: KnownPerson[] = [];
-      gun
-        .get('users')
-        .get(userId)
-        .get('knownPeople')
-        .map()
-        .once((data: any, key: string) => {
-          if (!data || !key || key.startsWith('_')) return;
-          items.push({
-            userId: data.userId || key,
-            labels: Array.isArray(data.labels) ? data.labels : (data.label ? [data.label] : []),
-            ...(data.nickname ? { nickname: data.nickname } : {}),
-            addedAt: new Date(data.addedAt),
-          });
-        });
-      setTimeout(() => resolve(items), 500);
-    });
-  }
-
   /**
    * @param view Omit for internal/server callers that need the full stored profile.
    * The public HTTP route always passes `{ viewerId: null }`; caller-supplied viewer IDs are
@@ -490,18 +441,12 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
   /** True if `ownerId` has saved `candidateId` under knownPeople (public Gun path). */
   async isKnownPerson(ownerId: string, candidateId: string): Promise<boolean> {
     if (!ownerId || !candidateId) return false;
-    const recentMutation = this.recentKnownPersonMutations.get(this.knownPersonKey(ownerId, candidateId));
-    if (recentMutation !== undefined) return recentMutation;
     const node = await this.gunService.getPath(['users', ownerId, 'knownPeople', candidateId], 300, 500);
     return !!(node && typeof node === 'object' && (node as { userId?: string }).userId);
   }
 
   private blockMutationKey(blockerId: string, targetId: string): string {
     return `${blockerId}\0${targetId}`;
-  }
-
-  private knownPersonKey(ownerId: string, candidateId: string): string {
-    return `${ownerId}\0${candidateId}`;
   }
 
   private async readEffectiveBlockState(blockerId: string, targetId: string): Promise<boolean> {

@@ -108,10 +108,11 @@ Audit updated 2026-10-29:
   and serves only public profile rows, ignoring unauthenticated `viewerId` claims. The owner
   keeps the full profile in private core storage. Contact-only peer viewing needs an authenticated
   encrypted exchange; existing `knownPeople` graph writes and copies already replicated before
-  an update remain part of the migration.
+  an update remain part of the migration. The server's unauthenticated known-people CRUD now
+  returns HTTP 410 instead of publishing or enumerating contact notes.
   Client core wire filtering also rejects legacy `users/<id>/knownPeople` branches and the
   `user-public-profile/<id>/fullProfileJson` field on both reads and writes, including parent
-  links. The server's old contact write endpoints and historical relay copies are still separate work.
+  links. Historical relay copies are still separate work.
 - **User records, rosters, presence** go through the hub-connected Gun by design; they belong in
   `public/` with the user's settings deciding what is included.
 - **Talk content** no longer crosses the hub: owner Talk repositories and incoming clusters live in
