@@ -14,8 +14,9 @@ export function normalizeProfileAttributeVisibility(v: unknown): ProfileAttribut
 /**
  * Strips profile Q&A rows the viewer is not allowed to see.
  * - public: anyone
- * - contacts_only: viewer is in the profile owner's known-people list
- * - private: owner only (handled by skipping filter when viewer is self)
+ * - contacts_only: verified viewer is in the owner's known-people list (internal compatibility only)
+ * - private: owner only (handled by skipping this filter for an authenticated owner)
+ * The public HTTP route always uses the stranger view until authenticated sharing exists.
  */
 export function filterProfileAttributesForViewer(
   profile: QuestionAnswer[],

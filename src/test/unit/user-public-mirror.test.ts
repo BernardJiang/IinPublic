@@ -29,7 +29,9 @@ describe('legacy server public Gun mirror', () => {
       profile: [input.profile[0]],
       knownPeople: [],
     }));
-    await service.upsertPublicUser(input);
+    const published = await service.upsertPublicUser(input);
+    expect(published.profile).toEqual([input.profile[0]]);
+    expect(published.knownPeople).toEqual([]);
     expect(putFast).toHaveBeenCalledWith('users/owner', expect.objectContaining({
       profile: [input.profile[0]],
       knownPeople: [],

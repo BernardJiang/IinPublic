@@ -308,7 +308,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     const publicUser = this.publicUserRecord(user);
     this.recentPublicUsers.set(user.id, publicUser);
     this.gunService.putFast(`users/${user.id}`, publicUser);
-    return user;
+    return publicUser;
   }
 
   async addKnownPerson(
@@ -360,7 +360,8 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
 
   /**
    * @param view Omit for internal/server callers that need the full stored profile.
-   * From HTTP pass `{ viewerId }`: use `null` when the query is absent (stranger); same id as `userId` returns full profile rows.
+   * The public HTTP route always passes `{ viewerId: null }`; caller-supplied viewer IDs are
+   * unauthenticated. Internal callers can still request a viewer-specific compatibility view.
   */
   async getUser(userId: string, view?: { viewerId: string | null }): Promise<User> {
     // recentPublicUsers makes a freshly-created user readable before its Gun write settles,
@@ -481,7 +482,8 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       fullProfileJson: null,
     });
     await this.gunService.put(`${USER_TAGS_KEY}/${userId}`, buildUserTagsEnvelope(updates.interests));
-    // The compatibility API still applies viewer-specific filtering from this process-local copy.
+    // Internal callers may still supply a full profile; the unauthenticated HTTP route filters
+    // it to public rows before calling this method.
     this.recentPublicProfileFoundations.set(userId, fullNode);
   }
 

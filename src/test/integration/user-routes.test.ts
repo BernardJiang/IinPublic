@@ -29,6 +29,32 @@ function buildHubRelayClient(overrides: Partial<EmbeddedHubRelayClientLike> = {}
 }
 
 describe('user routes', () => {
+  it('does not trust a claimed viewer identity or accept private profile rows on the public API', async () => {
+    const app = express();
+    app.use(express.json());
+    const userService = {
+      getUser: jest.fn().mockResolvedValue({
+        id: 'owner', stageName: 'Owner', pub: 'pub', epub: 'epub',
+        profile: [{ id: 'public', visibility: 'public' }, { id: 'private', visibility: 'private' }],
+        knownPeople: [{ userId: 'friend' }], blockedUserIds: ['blocked'],
+      }),
+      updatePublicProfileFoundation: jest.fn().mockResolvedValue(undefined),
+      isBlocked: jest.fn().mockResolvedValue(false),
+    };
+    registerUserRoutes(app, { userService: userService as any });
+    const ownerClaim = await request(app).get('/api/users/owner?viewerId=owner').expect(200);
+    expect(userService.getUser).toHaveBeenCalledWith('owner', { viewerId: null });
+    expect(ownerClaim.body.profile).toEqual([{ id: 'public', visibility: 'public' }]);
+    expect(ownerClaim.body.knownPeople).toEqual([]);
+    expect(ownerClaim.body.blockedUserIds).toBeUndefined();
+
+    const publicRow = { id: 'public', question: 'Public', answer: 'yes', visibility: 'public' };
+    const privateRow = { id: 'private', question: 'Private', answer: 'secret', visibility: 'private' };
+    await request(app).post('/api/users/owner/public-profile-foundation')
+      .send({ profile: [publicRow, privateRow] }).expect(200);
+    expect(userService.updatePublicProfileFoundation).toHaveBeenCalledWith('owner', expect.objectContaining({ profile: [publicRow] }));
+  });
+
   it('falls back to the explicit hub relay when local user data lacks public keys', async () => {
     const app = express();
     app.use(express.json());
@@ -45,6 +71,8 @@ describe('user routes', () => {
         stageName: 'Browser',
         pub: 'pub_browser',
         epub: 'epub_browser',
+        profile: [{ id: 'secret', visibility: 'private', answer: 'hidden' }],
+        knownPeople: [{ userId: 'contact', nickname: 'hidden' }],
       }),
     });
     registerUserRoutes(app, { userService: userService as any, hubRelayClient });
@@ -57,6 +85,8 @@ describe('user routes', () => {
       stageName: 'Browser',
       pub: 'pub_browser',
       epub: 'epub_browser',
+      profile: [],
+      knownPeople: [],
     });
     expect(hubRelayClient.getPublicUser).toHaveBeenCalledWith('browser_1');
   });

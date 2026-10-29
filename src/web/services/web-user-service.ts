@@ -266,7 +266,7 @@ export class WebUserService {
         body: JSON.stringify({
           headshot: user.headshot || '',
           languages: user.languages || ['en'],
-          profile: user.profile || [],
+          profile: this.buildPublicUserRecord(user).profile,
           interests: user.interests || [],
         }),
         signal: controller.signal,
@@ -449,7 +449,7 @@ export class WebUserService {
     if (apiBase) {
       try {
         const response = await fetch(
-          `${apiBase}/api/users/${encodeURIComponent(user.id)}?viewerId=${encodeURIComponent(user.id)}`,
+          `${apiBase}/api/users/${encodeURIComponent(user.id)}`,
           { cache: 'no-store' },
         );
         if (response.ok) {

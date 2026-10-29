@@ -12,11 +12,23 @@ export function registerUserRoutes(
   app: express.Application,
   { userService, hubRelayClient }: RegisterUserRoutesDeps,
 ): void {
+  const publicResponse = <T extends { profile?: QuestionAnswer[] }>(record: T) => {
+    const { knownPeople: _contacts, blockedUserIds: _blocks, receivedBlockSignals: _received,
+      sharedBlockSignals: _shared, talkFilters: _filters, ...publicFields } = record as T & {
+        knownPeople?: unknown; blockedUserIds?: unknown; receivedBlockSignals?: unknown;
+        sharedBlockSignals?: unknown; talkFilters?: unknown;
+      };
+    return {
+      ...publicFields,
+      profile: (record.profile || []).filter((entry) => (entry.visibility || 'public') === 'public'),
+      knownPeople: [],
+    };
+  };
   const getRemotePublicUser = async (userId: string) => {
     if (!hubRelayClient) return null;
     try {
       const remoteUser = await hubRelayClient.getPublicUser(userId);
-      return remoteUser?.id ? remoteUser : null;
+      return remoteUser?.id ? publicResponse(remoteUser) : null;
     } catch {
       return null;
     }
@@ -28,7 +40,7 @@ export function registerUserRoutes(
       if (hubRelayClient) {
         void hubRelayClient.upsertPublicUser(user).catch(() => undefined);
       }
-      res.json(user);
+      res.json(publicResponse(user));
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
@@ -46,8 +58,9 @@ export function registerUserRoutes(
           return;
         }
       }
-      const profileViewer = qViewer.length > 0 ? qViewer : null;
-      const user = await userService.getUser(req.params.id, { viewerId: profileViewer });
+      // A caller-supplied viewerId is not authentication. Until contact views have a verified
+      // audience, this public route serves only public profile rows even to a claimed owner.
+      const user = await userService.getUser(req.params.id, { viewerId: null });
       if ((!user.id || !user.pub || !user.epub) && hubRelayClient) {
         const remoteUser = await getRemotePublicUser(req.params.id);
         if (remoteUser?.id) {
@@ -55,7 +68,7 @@ export function registerUserRoutes(
           return;
         }
       }
-      res.json(user);
+      res.json(publicResponse(user));
     } catch (error) {
       const remoteUser = await getRemotePublicUser(req.params.id);
       if (remoteUser?.id) {
@@ -77,7 +90,9 @@ export function registerUserRoutes(
       await userService.updatePublicProfileFoundation(req.params.id, {
         headshot: typeof body.headshot === 'string' ? body.headshot : '',
         languages: Array.isArray(body.languages) ? body.languages : ['en'],
-        profile: Array.isArray(body.profile) ? body.profile : [],
+        profile: Array.isArray(body.profile)
+          ? body.profile.filter((entry) => entry && typeof entry === 'object' && (entry.visibility || 'public') === 'public')
+          : [],
         interests: Array.isArray(body.interests) ? body.interests : [],
       });
       res.json({ ok: true });

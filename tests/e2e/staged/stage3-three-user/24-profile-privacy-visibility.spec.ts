@@ -1,17 +1,16 @@
 /**
  * Profile privacy visibility: per-viewer filtering of profile Q&A rows.
  *
- * Server rule (src/shared/profile-privacy.ts + GET /api/users/:id?viewerId=...):
+ * Public API rule (GET /api/users/:id):
  * - `public`: anyone
- * - `contacts_only`: viewer must be in owner's known-people list
- * - `private`: owner only (always hidden from non-self viewers)
+ * - `contacts_only` and `private`: stay in the owner's private store until authenticated sharing exists
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
-import { afterAction, afterNav, afterSync, headless } from '../../helpers/timing';
+import { afterNav, afterSync, headless } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
@@ -115,12 +114,12 @@ test.describe('Profile privacy visibility', () => {
 
     const member = page.locator(`.chatroom-member-item[data-user-id="${peerUserId}"]`);
     await expect(member).toBeVisible({ timeout: 90_000 });
-    await member.click();
+    await page.evaluate((userId) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      app?.uiManager?.openPeerDetailForUser(userId, 'Peer');
+    }, peerUserId);
     await afterNav();
 
-    // Rule N2a: dismiss the auto-opened DM conversation to inspect the User layout.
-    await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await page.click('#back-from-conversation');
     await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('#peer-stats-section')).toContainText('Public Profile', { timeout: 60_000 });
   }
@@ -175,7 +174,7 @@ test.describe('Profile privacy visibility', () => {
       .toBe(true);
   }
 
-  async function postKnownPersonUntilProfileVisible(
+  async function postKnownPersonAndVerifyPublicOnly(
     page: Page,
     ownerId: string,
     targetId: string,
@@ -284,9 +283,11 @@ test.describe('Profile privacy visibility', () => {
     expect(tomId).toBeTruthy();
 
     await waitForProfileRows(pageTom, tomId, tomId, {
-      visible: [PUBLIC_Q, PUBLIC_A, CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
-      hidden: [],
+      visible: [PUBLIC_Q, PUBLIC_A],
+      hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });
+    await expect.poll(async () => pageTom!.evaluate(() => JSON.stringify((window as any).__iinpublic_app?.getApp?.()?.currentUser?.profile ?? [])))
+      .toContain(PRIVATE_A);
 
     await ensureNearbyRoomDetail(pageTom);
 
@@ -309,14 +310,14 @@ test.describe('Profile privacy visibility', () => {
     const jContactId = await getCurrentUserId(pageJerryContact);
     expect(jContactId).toBeTruthy();
 
-    // Add JerryContact as a known person under Tom. This makes `contacts_only` rows visible.
+    // The legacy unauthenticated contact API cannot turn a public GET into contact access.
     await waitForProfileRows(pageJerryNonContact, tomId, jNonContactId, {
       visible: [PUBLIC_Q, PUBLIC_A],
       hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });
-    await postKnownPersonUntilProfileVisible(pageTom, tomId, jContactId, {
-      visible: [PUBLIC_Q, PUBLIC_A, CONTACTS_Q, CONTACTS_A],
-      hidden: [PRIVATE_Q, PRIVATE_A],
+    await postKnownPersonAndVerifyPublicOnly(pageTom, tomId, jContactId, {
+      visible: [PUBLIC_Q, PUBLIC_A],
+      hidden: [CONTACTS_Q, CONTACTS_A, PRIVATE_Q, PRIVATE_A],
     });
 
     await expect(pageTom.locator(`.chatroom-member-item[data-user-id="${jNonContactId}"]`)).toBeVisible({
