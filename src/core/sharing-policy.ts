@@ -23,11 +23,15 @@ export const LEGACY_SHARED_NAMESPACES = [
 ] as const;
 const sharedRoots = new Set<string>(['public', 'pair', 'room', ...LEGACY_SHARED_NAMESPACES]);
 const OWNER_PRIVATE_SOUL = /^users\/[^/]+\/private(?:\/|$)/;
+const LEGACY_CONTACT_SOUL = /^users\/[^/]+\/knownPeople(?:\/|$)/;
+const LEGACY_FULL_PROFILE_FIELD = /^user-public-profile\/[^/]+\/fullProfileJson$/;
 // SEA signs these nodes but signing does not hide the owner's answer memory.
 const SIGNED_PRIVATE_SOUL = /^~[^/]+\/(?:private|answers\/private)(?:\/|$)/;
 
 export function soulLeavesDevice(soul: string): boolean {
-  if (typeof soul !== 'string' || !soul || OWNER_PRIVATE_SOUL.test(soul) || SIGNED_PRIVATE_SOUL.test(soul)) return false;
+  if (typeof soul !== 'string' || !soul || OWNER_PRIVATE_SOUL.test(soul)
+    || LEGACY_CONTACT_SOUL.test(soul) || LEGACY_FULL_PROFILE_FIELD.test(soul)
+    || SIGNED_PRIVATE_SOUL.test(soul)) return false;
   const first = soul.split('/')[0];
   return sharedRoots.has(first) || (first.startsWith('~') && first.length > 1);
 }

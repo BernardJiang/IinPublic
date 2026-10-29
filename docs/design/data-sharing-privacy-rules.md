@@ -107,6 +107,9 @@ Audit updated 2026-10-29:
   former `fullProfileJson` plaintext field in Gun. The compatibility HTTP endpoint still receives
   a full profile to serve contact-filtered views; existing `knownPeople` graph writes and copies
   already replicated before an update remain part of the migration.
+  Client core wire filtering also rejects legacy `users/<id>/knownPeople` branches and the
+  `user-public-profile/<id>/fullProfileJson` field on both reads and writes, including parent
+  links. The server's old contact endpoints and historical relay copies are still separate work.
 - **User records, rosters, presence** go through the hub-connected Gun by design; they belong in
   `public/` with the user's settings deciding what is included.
 - **Talk content** no longer crosses the hub: owner Talk repositories and incoming clusters live in

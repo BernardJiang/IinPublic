@@ -82,6 +82,10 @@ its ID.
   tombstone the old `fullProfileJson` Gun field. The compatibility HTTP API still receives the
   full profile for viewer-specific responses, and legacy `knownPeople` graph paths plus already
   replicated data still need migration.
+  **P2 legacy read/write boundary hardened 2026-10-29:** client core blocks old
+  `users/<id>/knownPeople` branches and `user-public-profile/<id>/fullProfileJson` fields in both
+  directions, including parent links and exact reads. The server compatibility endpoints and
+  historical hub copies still require migration.
   **P5.4 first host commands implemented 2026-10-29:** ledger mutation/quota decisions serialize
   across GUI sessions. Response commit assigns CID/version, checks completeness/retraction, and
   stores encrypted per-recipient copies, journal and ledger before returning a sendable payload.

@@ -42,6 +42,26 @@ describe('the sharing policy', () => {
     for (const soul of ['users/u1', 'user-public-profile/u1', '~pub/profile']) expect(soulLeavesDevice(soul)).toBe(true);
   });
 
+  it('does not replicate old contact branches or full-profile fields on the legacy public roots', () => {
+    for (const soul of ['users/alice/knownPeople', 'users/alice/knownPeople/bob', 'user-public-profile/alice/fullProfileJson']) {
+      expect(soulLeavesDevice(soul)).toBe(false);
+      expect(filterOutgoingGunMessage({ get: { '#': soul } })).toBeNull();
+      expect(filterOutgoingGunMessage({ put: { [soul]: { secret: 'private' } } })).toBeNull();
+    }
+    const user = filterOutgoingGunMessage({ put: { 'users/alice': {
+      _: { '#': 'users/alice', '>': { stageName: 1, knownPeople: 1 } },
+      stageName: 'Alice', knownPeople: { '#': 'users/alice/knownPeople' },
+    } } });
+    expect(user.put['users/alice']).toEqual({ _: { '#': 'users/alice', '>': { stageName: 1 } }, stageName: 'Alice' });
+    const foundation = filterOutgoingGunMessage({ put: { 'user-public-profile/alice': {
+      _: { '#': 'user-public-profile/alice', '>': { profileJson: 1, fullProfileJson: 1 } },
+      profileJson: '[]', fullProfileJson: '[private]',
+    } } });
+    expect(foundation.put['user-public-profile/alice']).toEqual({
+      _: { '#': 'user-public-profile/alice', '>': { profileJson: 1 } }, profileJson: '[]',
+    });
+  });
+
   it('denies unknown namespaces, including similar names and signed private answer memory', () => {
     for (const soul of ['localish/x', 'unreviewed/secret', 'talks/t1', 'publicish/x', '~pub/answers/private', '~pub/answers/private/qa1', '~pub/private/x']) {
       expect(soulLeavesDevice(soul)).toBe(false);
