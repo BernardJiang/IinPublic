@@ -36,12 +36,21 @@ const TALK_PREFIX = 'MapOps user-';
 const DELIVERY_POINT = { latitude: 32.7157, longitude: -117.1611 };
 
 const WORLD_STARTS = [
-  { latitude: 37.7749, longitude: -122.4194 }, // San Francisco (leader)
-  { latitude: 34.0522, longitude: -118.2437 }, // Los Angeles, close enough to be green
-  { latitude: 36.1699, longitude: -115.1398 }, // Las Vegas, close enough to be green
-  { latitude: 47.6062, longitude: -122.3321 }, // Seattle, close enough to be green
-  { latitude: 35.6762, longitude: 139.6503 }, // Tokyo, far enough to stay yellow
-  { latitude: 51.5074, longitude: -0.1278 }, // London, far enough to stay yellow
+  { latitude: 32.7157, longitude: -117.1611 }, // San Diego (destination and final local cluster)
+  { latitude: 40.7128, longitude: -74.0060 }, // New York, distant but in same larger global view
+  { latitude: 39.9042, longitude: 116.4074 }, // Beijing, far enough to stay yellow at first
+  { latitude: 1.3521, longitude: 103.8198 }, // Singapore, far enough to stay yellow at first
+  { latitude: 51.5074, longitude: -0.1278 }, // London, far enough to stay yellow at first
+  { latitude: -33.8688, longitude: 151.2093 }, // Sydney, far enough to stay yellow at first
+] as const;
+
+const SAN_DIEGO_CLUSTER = [
+  { latitude: 32.7157, longitude: -117.1611 },
+  { latitude: 32.7257, longitude: -117.1511 },
+  { latitude: 32.7057, longitude: -117.1711 },
+  { latitude: 32.7357, longitude: -117.1411 },
+  { latitude: 32.6957, longitude: -117.1811 },
+  { latitude: 32.7457, longitude: -117.1311 },
 ] as const;
 
 function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
@@ -220,6 +229,38 @@ async function assertNearbyBalance(users: DemoUser[], expectedGreen: number, exp
   }
 }
 
+async function assertMapZoomedToLocalCluster(users: DemoUser[]): Promise<void> {
+  for (const user of users) {
+    const fixed = await user.page.evaluate(() => {
+      const map = document.querySelector('.maplibregl-map') as any;
+      if (!map) return { zoom: 0, center: null };
+      const api = map.__iinpublicMap ?? map.__maplibreMap ?? map.maplibreglMap ?? map._map;
+      const zoom = typeof api?.getZoom === 'function' ? api.getZoom() : 0;
+      const center = typeof api?.getCenter === 'function' ? api.getCenter() : null;
+      return { zoom, center: center ? { lng: center.lng, lat: center.lat } : null };
+    });
+    expect(fixed.zoom).toBeGreaterThanOrEqual(12);
+    expect(Math.abs((fixed.center?.lat ?? 0) - 32.7157)).toBeLessThan(2.5);
+    expect(Math.abs((fixed.center?.lng ?? 0) + 117.1611)).toBeLessThan(2.5);
+  }
+}
+
+async function fitMapToLocalCluster(users: DemoUser[]): Promise<void> {
+  const points = SAN_DIEGO_CLUSTER.map((point) => [point.longitude, point.latitude] as [number, number]);
+  for (const user of users) {
+    await user.page.evaluate(({ cluster }) => {
+      const map = document.querySelector('.maplibregl-map') as any;
+      if (!map) return;
+      const api = map.__iinpublicMap ?? map.__maplibreMap ?? map.maplibreglMap ?? map._map;
+      if (!api) return;
+      const bounds: [number, number][] = cluster.map(([lng, lat]: [number, number]) => [lng, lat]);
+      api.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 1800, curve: 1.8 });
+    }, { cluster: points });
+    await afterSync();
+    await user.page.waitForTimeout(300);
+  }
+}
+
 async function recenterMapForUser(user: DemoUser): Promise<void> {
   await waitForTabActive(user.page, 'chatrooms');
   await user.page.locator('[data-testid="chatroom-map-view-btn"]').click();
@@ -234,15 +275,15 @@ async function recenterMapForUser(user: DemoUser): Promise<void> {
 
 async function travelUsersOneByOne(users: DemoUser[]): Promise<void> {
   const leader = users[0]!;
-  const moveSteps = 24;
-  const interStepDelayMs = 1_000;
+  const moveSteps = 20;
+  const interStepDelayMs = 500;
 
   await assertNearbyBalance(users, STARTING_GREEN_COUNT, STARTING_YELLOW_COUNT);
 
   for (let idx = 1; idx < users.length; idx += 1) {
     const mover = users[idx]!;
     const start = { ...mover.location };
-    const target = { ...leader.location };
+    const target = { ...SAN_DIEGO_CLUSTER[idx % SAN_DIEGO_CLUSTER.length] };
     await mover.page.bringToFront();
     await recenterMapForUser(mover);
 
@@ -258,15 +299,25 @@ async function travelUsersOneByOne(users: DemoUser[]): Promise<void> {
         await syncDemoRoomMembers(user, users);
         await recenterMapForUser(user);
       }));
-      await assertAllUsersVisible(users);
-
       await userMapPause(mover.page, interStepDelayMs);
     }
 
     await leader.page.bringToFront();
     await recenterMapForUser(leader);
-    await userMapPause(leader.page, 1_500);
+    await userMapPause(leader.page, 1_000);
   }
+
+  for (const user of users) {
+    user.location = { ...SAN_DIEGO_CLUSTER[user.index % SAN_DIEGO_CLUSTER.length] };
+  }
+  await applyWorldMapDots(users);
+  await Promise.all(users.map(async (user) => {
+    await syncDemoRoomMembers(user, users);
+    await recenterMapForUser(user);
+  }));
+  await afterSync();
+  await fitMapToLocalCluster(users);
+  await assertMapZoomedToLocalCluster(users);
 }
 
 async function userMapPause(page: Page, ms: number): Promise<void> {

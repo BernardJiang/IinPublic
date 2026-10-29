@@ -754,6 +754,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     zoom: 2,
     attributionControl: false,
   });
+  (options.container as HTMLElement & { __iinpublicMap?: MapLibreMap }).__iinpublicMap = map;
   map.addControl(new maplibre.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(
     new maplibre.AttributionControl({
