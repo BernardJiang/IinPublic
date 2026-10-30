@@ -586,9 +586,11 @@ function rebuildHtmlMarkers(maplibre: MapLibre, state: MapState): number {
       feature.properties?.point_count,
     ]),
   ]);
-  if (signature === state.markerSignature && renderedFeatures.length > 0) return renderedFeatures.length;
-  state.markerSignature = signature;
+  if (signature === state.markerSignature) return renderedFeatures.length;
   clearMarkers(state);
+  // clearMarkers invalidates the previous key. Save the new key only after clearing; otherwise
+  // every idle/moveend/source event rebuilds all DOM markers again, starving WebView input.
+  state.markerSignature = signature;
   const roomsById = new Map(state.options.rooms.map((room) => [room.id, room]));
   const seen = new Set<string>();
   state.options.container.dataset.mapRenderedFeatureCount = String(renderedFeatures.length);

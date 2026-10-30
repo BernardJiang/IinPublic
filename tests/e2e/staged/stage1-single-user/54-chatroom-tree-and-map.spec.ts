@@ -80,6 +80,23 @@ test.describe('Nearby and Places list/map views', () => {
     await expect(map.locator('[data-testid="map-tile-card"]')).toHaveCount(0);
   });
 
+  test('center on me keeps bottom navigation responsive', async () => {
+    await openList();
+    await page!.locator('[data-testid="chatroom-map-view-btn"]').click();
+    const map = page!.locator('[data-testid="chatroom-map"]');
+    await expect(map).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
+    await page!.evaluate(() => {
+      (window as any).__iinpublic_app.getApp().uiManager.setMapUserDotSource({
+        selfPoint: { latitude: 32.715, longitude: -117.16, precisionMeters: 400 },
+        selfTraveler: true,
+        load: async () => ({ dots: [], density: [] }),
+      });
+    });
+    await map.locator('.chatroom-map-locate-self').click();
+    await page!.locator('.nav-btn[data-view="settings"]').click({ timeout: 2_000 });
+    await expect(page!.locator('.nav-btn[data-view="settings"]')).toHaveClass(/active/);
+  });
+
   test('broadcast event handlers animate the map and core exchange updates change match badges', async () => {
     await openList();
     await page!.locator('[data-testid="chatroom-map-view-btn"]').click();

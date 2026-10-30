@@ -41,6 +41,9 @@ Add whatever helps you do your job. This is your cheat sheet.
 
 ## Android test devices
 
+- User authorization (2026-10-29): fix the Map → Center on me freeze and update the five connected
+  phones. Android 1.0.202 installed in place; no app data reset. Field validation of the exact
+  freeze is still needed.
 - User authorization (2026-10-29): update all five connected phones in place to 1.0.201 with the
   GUI responsiveness fixes. The five devices reported versionCode 1000201 after installation;
   no app data was cleared. C10 still needs its Android Nearby permission granted by the user for

@@ -30,7 +30,7 @@ its ID.
   The service could report Searching with no discovery running, would retain a permission denial
   after a Settings grant until restart, and incorrectly required Bluetooth permission for the
   Wi-Fi-only fallback. These code paths now report the blocker and retry once ready; focused tests
-  pass. Android 1.0.201 was installed in place on all five USB phones on 2026-10-29. **Remaining gate:** confirm the pair/status, reproduce
+  pass. Android 1.0.202 was installed in place on all five USB phones on 2026-10-29. **Remaining gate:** confirm the pair/status, reproduce
   and verify the full airplane-mode two-phone journey without clearing identities. Checklist:
   `docs/guides/PARK_OFFLINE_WIFI_DIRECT_CHECK.md`.
 
@@ -40,11 +40,15 @@ its ID.
   and DM composers previously cleared drafts before persistence and gave little feedback while
   network/key lookup was pending; commit `2846414a` keeps the draft, shows Sending immediately,
   restores Send on failure, and uses the in-room recipient epub cache before a public-user lookup.
-  Android 1.0.201 was installed in place on all five USB phones on 2026-10-29. TypeScript, focused unit tests and web build pass. A support E2E run stopped before Send because
+  The owner also reported that tapping Map → Center on me froze all buttons under 1.0.201. The
+  map marker refresh invalidated its cache key during every rebuild, causing repeated DOM work
+  after map movement; 1.0.202 retains the key and adds a center-then-tab navigation regression.
+  Android 1.0.202 was installed in place on all five USB phones on 2026-10-29. TypeScript, lint,
+  Android build and all seven map E2E tests pass. A support E2E run stopped before Send because
   its local greeting/bootstrap was unavailable. **Remaining gate:** reproduce the owner's exact DM
   symptom, verify actual send and immediate Back/tab response on a phone with the new build, and
   confirm the fixes on all five phones; the prior 1.0.200 movement/battery field run must be
-  restarted under 1.0.201 for comparable evidence.
+  restarted under 1.0.202 for comparable evidence.
 
 - [ ] **OPEN-91 — Device core: one Gun, one copy of the app logic, a thin GUI (adopted
   2026-10-25).** Design: `docs/design/device-core-architecture.md`; privacy rules:
