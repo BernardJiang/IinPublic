@@ -15,6 +15,7 @@ import {
   WebGunService,
 } from '../services/web-gun-service';
 import { WebUserService } from '../services/web-user-service';
+import { readNativeBackgroundEvents } from '../services/native-background-events';
 import { WebIdentityLinkService } from '../services/web-identity-link-service';
 import { WebDeviceHandoffService } from '../services/web-device-handoff-service';
 import { WebDeviceSyncService } from '../services/web-device-sync-service';
@@ -3697,18 +3698,14 @@ export class IinPublicApp {
     }
     const bridge = (window as unknown as {
       IinPublicBackground?: {
-        events?: () => string;
-        acknowledge?: (idsJson: string) => boolean;
+        requestEvents?: (requestId: string) => boolean;
+        acknowledgeAsync?: (idsJson: string) => boolean;
       };
     }).IinPublicBackground;
-    if (!this.currentUser?.id || typeof bridge?.events !== 'function') return;
+    if (!this.currentUser?.id || typeof bridge?.requestEvents !== 'function') return;
     this.nativeBackgroundReplayRunning = true;
     try {
-      let events: any[] = [];
-      try {
-        const parsed = JSON.parse(bridge.events());
-        events = Array.isArray(parsed?.events) ? parsed.events : [];
-      } catch { return; }
+      const events = await readNativeBackgroundEvents(bridge) as any[];
       const acknowledged: string[] = [];
       for (const event of events) {
         try {
@@ -3738,8 +3735,8 @@ export class IinPublicApp {
           console.warn('[BackgroundAgent] Native event retained for retry:', error);
         }
       }
-      if (acknowledged.length > 0 && typeof bridge.acknowledge === 'function') {
-        try { bridge.acknowledge(JSON.stringify(acknowledged)); } catch { /* retry on next resume */ }
+      if (acknowledged.length > 0 && typeof bridge.acknowledgeAsync === 'function') {
+        try { bridge.acknowledgeAsync(JSON.stringify(acknowledged)); } catch { /* retry on next resume */ }
       }
     } finally {
       this.nativeBackgroundReplayRunning = false;
@@ -9590,6 +9587,7 @@ export class IinPublicApp {
     let lastForegroundRecoveryAt = 0;
     let foregroundRecoveryRunning = false;
     let foregroundRecoveryQueued = false;
+    let foregroundRecoveryScheduled = false;
     const recoverAfterForeground = () => {
       if (!this.currentUser) return;
       if (foregroundRecoveryRunning) {
@@ -9634,7 +9632,22 @@ export class IinPublicApp {
         }
       }
     };
-    window.addEventListener('iinpublic-native-resume', recoverAfterForeground);
+    const scheduleForegroundRecovery = () => {
+      if (foregroundRecoveryScheduled) return;
+      foregroundRecoveryScheduled = true;
+      const run = () => {
+        foregroundRecoveryScheduled = false;
+        recoverAfterForeground();
+      };
+      // Android can dispatch onResume while the WebView is painting its restored screen.
+      // Let navigation taps paint before local policy preparation and transport refresh.
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => window.setTimeout(run, 0));
+      } else {
+        window.setTimeout(run, 0);
+      }
+    };
+    window.addEventListener('iinpublic-native-resume', scheduleForegroundRecovery);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.syncNativeBackgroundAgent();
@@ -9644,7 +9657,7 @@ export class IinPublicApp {
           this.nearbyOfflineService = null;
         }
       } else {
-        recoverAfterForeground();
+        scheduleForegroundRecovery();
       }
     });
 

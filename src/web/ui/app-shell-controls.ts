@@ -262,12 +262,13 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
   const viewPanels = document.querySelectorAll('.view-panel');
   const headerTitle = document.getElementById('header-title');
   const headerActions = document.getElementById('header-actions');
-  let settingsRenderToken = 0;
+  let navigationToken = 0;
 
   navButtons.forEach((button) => {
     button.addEventListener('click', () => {
-      const renderToken = ++settingsRenderToken;
+      const renderToken = ++navigationToken;
       const targetView = (button as HTMLElement).dataset.view;
+      const focusOpening = !!(button as HTMLElement).dataset.focusOpening;
       if (!targetView) return;
       document.getElementById('broadcast-preamble-modal')?.remove();
       try { settingsStorage.setItem(LAST_TAB_KEY, targetView); } catch { /* optional */ }
@@ -280,41 +281,47 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
       if (headerActions) headerActions.style.display = 'flex';
       deps.syncAppBarActionsForView(targetView);
 
-      if (targetView === 'chatrooms' && !(button as HTMLElement).dataset.focusOpening) {
-        const detailRoomId = deps.getChatroomsDetailRoomId();
-        if (detailRoomId) deps.showChatroomDetail(detailRoomId);
-        else deps.showChatroomList();
-      }
-      if (targetView === 'contacts') {
-        deps.dismissMatchNotifications();
-        deps.showContactsList();
-      }
-      if (targetView === 'talks') {
-        deps.emit('needIncomingTalkClusters');
-        deps.displayTalksList();
-        void deps.refreshCreatorReplies();
-      }
-      if (targetView === 'me') {
-        const user = deps.getCurrentUser();
-        if (user) deps.showMainInterface(user);
-        deps.emit('needConversationSync');
-        deps.displayAnswersList();
-      }
       if (targetView === 'settings') {
         const content = document.getElementById('settings-content');
         if (content && !content.hasChildNodes()) content.textContent = deps.t('loading');
-        const render = () => {
-          if (renderToken !== settingsRenderToken || !button.classList.contains('active')) return;
+      }
+      const render = () => {
+        if (renderToken !== navigationToken || !button.classList.contains('active')) return;
+        if (targetView === 'chatrooms' && !focusOpening) {
+          const detailRoomId = deps.getChatroomsDetailRoomId();
+          if (detailRoomId) deps.showChatroomDetail(detailRoomId);
+          else deps.showChatroomList();
+        }
+        if (targetView === 'contacts') {
+          deps.dismissMatchNotifications();
+          deps.showContactsList();
+        }
+        if (targetView === 'talks') {
+          deps.emit('needIncomingTalkClusters');
+          deps.displayTalksList();
+          void deps.refreshCreatorReplies();
+        }
+        if (targetView === 'me') {
+          const user = deps.getCurrentUser();
+          if (user) deps.showMainInterface(user);
+          deps.emit('needConversationSync');
+          deps.displayAnswersList();
+        }
+        if (targetView === 'settings') {
           const user = deps.getCurrentUser();
           if (user) deps.renderSettingsView(user);
-        };
-        // Commit the active-tab chrome first. requestAnimationFrame callbacks run before paint,
-        // so put the expensive render in the following task to guarantee a responsive tap.
-        if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(() => window.setTimeout(render, 0));
-        } else {
-          window.setTimeout(render, 0);
         }
+      };
+      // Commit tab chrome before any view-specific rendering, storage reads or sync work.
+      // rAF alone runs before paint; the next task gives the browser a chance to display the tab.
+      // Graph links set focusOpening only for this click and then immediately inspect the
+      // destination. Keep that contextual transition atomic; ordinary bottom-nav taps defer.
+      if (focusOpening) {
+        render();
+      } else if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => window.setTimeout(render, 0));
+      } else {
+        window.setTimeout(render, 0);
       }
     });
   });

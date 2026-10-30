@@ -778,6 +778,44 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.getByTestId('settings-app-version')).toHaveText(`IinPublic version ${APP_VERSION} · web`);
   });
 
+  test('foreground network recovery does not delay Settings Back or a tab tap', async () => {
+    const p = page!;
+    await p.locator('.nav-btn[data-view="settings"]').click();
+    await openSettingsSection(p, SETTINGS_SECTION.profile);
+    const result = await p.evaluate(async () => {
+      const win = window as any;
+      win.IinPublicBackground = {
+        configure: () => true,
+        requestEvents: (id: string) => {
+          window.setTimeout(() => window.dispatchEvent(new CustomEvent('iinpublic-background-agent-events', {
+            detail: { id, payload: '{"events":[]}' },
+          })), 2000);
+          return true;
+        },
+        // This is the old synchronous bridge call. A regression to it stalls the page for 2s.
+        events: () => {
+          const until = performance.now() + 2000;
+          while (performance.now() < until) { /* emulate a slow native loopback request */ }
+          return '{"events":[]}';
+        },
+      };
+      const start = performance.now();
+      window.dispatchEvent(new Event('iinpublic-native-resume'));
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      document.getElementById('back-to-settings-menu')?.click();
+      const settingsMenuVisible = getComputedStyle(document.getElementById('settings-menu-container')!).display !== 'none';
+      (document.querySelector('.nav-btn[data-view="chatrooms"]') as HTMLElement).click();
+      return {
+        elapsedMs: performance.now() - start,
+        settingsMenuVisible,
+        chatroomsActive: document.getElementById('chatrooms-view')?.classList.contains('active'),
+      };
+    });
+    expect(result.settingsMenuVisible).toBe(true);
+    expect(result.chatroomsActive).toBe(true);
+    expect(result.elapsedMs).toBeLessThan(1000);
+  });
+
   test('custom room creation opens the newly created room', async () => {
     const p = page!;
     const roomName = `Mesa College ${Date.now()}`;

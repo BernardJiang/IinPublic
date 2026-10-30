@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private val activityLaunchEpochMs = System.currentTimeMillis()
     private lateinit var webView: WebView
     private lateinit var nearbyBridge: NearbyJavascriptBridge
+    private lateinit var backgroundAgentBridge: BackgroundAgentJavascriptBridge
     @Volatile private var nodeLoadScheduled = false
 
     // Android 13+ (API 33, TIRAMISU) requires POST_NOTIFICATIONS to be granted
@@ -214,7 +215,8 @@ class MainActivity : AppCompatActivity() {
         nearbyBridge = NearbyJavascriptBridge(this, webView)
         webView.addJavascriptInterface(nearbyBridge, "IinPublicNearby")
         webView.addJavascriptInterface(NativeCustodyBridge(this), "IinPublicCustody")
-        webView.addJavascriptInterface(BackgroundAgentJavascriptBridge(), "IinPublicBackground")
+        backgroundAgentBridge = BackgroundAgentJavascriptBridge(webView)
+        webView.addJavascriptInterface(backgroundAgentBridge, "IinPublicBackground")
         webView.addJavascriptInterface(NativeAttestationBridge(this), "IinPublicAttestation")
         // targetSdk 35+ forces edge-to-edge on Android 15+: without this the top bar sits under
         // the status bar / camera cutout and the bottom nav under the gesture bar. Pad a container
@@ -568,6 +570,7 @@ class MainActivity : AppCompatActivity() {
         // Detach only the UI event sink; "Always" mode continues across Activity recreation.
         pageScript = null
         nearbyBridge.detach()
+        backgroundAgentBridge.close()
         webView.destroy()
         super.onDestroy()
     }

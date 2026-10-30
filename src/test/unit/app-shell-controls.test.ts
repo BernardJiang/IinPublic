@@ -128,6 +128,7 @@ describe('bindAppShellControls', () => {
   });
 
   it('switches panels and runs the active tab lifecycle', () => {
+    jest.useFakeTimers();
     const emit = jest.fn();
     const displayTalksList = jest.fn();
     const refreshCreatorReplies = jest.fn().mockResolvedValue(undefined);
@@ -145,11 +146,42 @@ describe('bindAppShellControls', () => {
 
     expect(document.getElementById('talks-view')?.classList.contains('active')).toBe(true);
     expect(document.getElementById('chatrooms-view')?.classList.contains('active')).toBe(false);
+    expect(displayTalksList).not.toHaveBeenCalled();
+    jest.runAllTimers();
     expect(emit).toHaveBeenCalledWith('needIncomingTalkClusters');
     expect(displayTalksList).toHaveBeenCalledTimes(1);
     expect(refreshCreatorReplies).toHaveBeenCalledTimes(1);
     expect(syncHeaderStatusView).toHaveBeenCalledWith('talks');
     expect(syncAppBarActionsForView).toHaveBeenCalledWith('talks');
+    jest.useRealTimers();
+  });
+
+  it('shows Chatrooms immediately and cancels work for a tab left before paint', () => {
+    jest.useFakeTimers();
+    const showChatroomList = jest.fn();
+    const renderSettingsView = jest.fn();
+    bindAppShellControls(deps({ showChatroomList, renderSettingsView, getCurrentUser: () => ({ id: 'self' } as any) }));
+    (document.querySelector('.nav-btn[data-view="settings"]') as HTMLButtonElement).click();
+    (document.querySelector('.nav-btn[data-view="chatrooms"]') as HTMLButtonElement).click();
+    expect(document.getElementById('chatrooms-view')?.classList.contains('active')).toBe(true);
+    expect(showChatroomList).not.toHaveBeenCalled();
+    jest.runAllTimers();
+    expect(showChatroomList).toHaveBeenCalledTimes(1);
+    expect(renderSettingsView).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('preserves a graph-opening Chatrooms click when its temporary flag is cleared before render', () => {
+    jest.useFakeTimers();
+    const showChatroomList = jest.fn();
+    bindAppShellControls(deps({ showChatroomList }));
+    const button = document.querySelector<HTMLElement>('.nav-btn[data-view="chatrooms"]')!;
+    button.dataset.focusOpening = '1';
+    button.click();
+    delete button.dataset.focusOpening;
+    jest.runAllTimers();
+    expect(showChatroomList).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('paints the Settings tab before rendering its large view', () => {
