@@ -41,6 +41,10 @@ Add whatever helps you do your job. This is your cheat sheet.
 
 ## Android test devices
 
+- User authorization (2026-10-29): update all five connected phones in place to 1.0.201 with the
+  GUI responsiveness fixes. The five devices reported versionCode 1000201 after installation;
+  no app data was cleared. C10 still needs its Android Nearby permission granted by the user for
+  offline Wi-Fi Direct discovery.
 - User authorization (2026-10-29): install release 1.0.200 on five connected phones, including
   Honor FCP-AN10 `AG2H024712001421`. The prior four-phone restriction below is superseded for
   this release install. Do not clear FCP-AN10 data without separate authorization.
