@@ -23,7 +23,7 @@ class FakeNative implements WifiDirectNative {
   set(state: WifiDirectNativeState) { this.state = state; for (const listener of this.listeners) listener(state); }
 }
 
-type Readiness = { permission: boolean; wifiEnabled: boolean; locationEnabled: boolean; bluetoothEnabled?: boolean };
+type Readiness = { permission: boolean; wifiEnabled: boolean; locationEnabled: boolean; bluetoothPermission?: boolean; bluetoothEnabled?: boolean };
 
 function fakeBridge(readiness: Readiness = { permission: true, wifiEnabled: true, locationEnabled: true }) {
   const calls: string[] = [];
@@ -439,6 +439,45 @@ describe('NearbyOfflineService back online', () => {
 });
 
 describe('NearbyOfflineService settings switches and status', () => {
+  it('reports a denied Wi-Fi Direct permission and resumes after Android Settings grants it', async () => {
+    const readiness: Readiness = { permission: false, wifiEnabled: true, locationEnabled: true };
+    const t = setup({ readiness });
+    t.native.permission = false;
+    await t.service.start();
+    expect(t.service.getStatus()).toEqual({ kind: 'blocked', gap: 'permission', lanPhones: 0 });
+    expect(t.calls).not.toContain('wd-start');
+    readiness.permission = true;
+    await t.tick();
+    expect(t.calls).toContain('wd-start');
+    expect(t.service.getStatus().kind).toBe('searching');
+    t.service.dispose();
+  });
+
+  it('waits for Wi-Fi and Location instead of claiming to search with those radios off', async () => {
+    const readiness: Readiness = { permission: true, wifiEnabled: false, locationEnabled: true };
+    const t = setup({ readiness });
+    await t.service.start();
+    expect(t.service.getStatus()).toEqual({ kind: 'blocked', gap: 'wifi', lanPhones: 0 });
+    expect(t.calls).not.toContain('wd-start');
+    readiness.wifiEnabled = true;
+    readiness.locationEnabled = false;
+    await t.tick();
+    expect(t.service.getStatus()).toEqual({ kind: 'blocked', gap: 'location', lanPhones: 0 });
+    expect(t.calls).not.toContain('wd-start');
+    readiness.locationEnabled = true;
+    await t.tick();
+    expect(t.calls).toContain('wd-start');
+    t.service.dispose();
+  });
+
+  it('can use Wi-Fi Direct without the optional Bluetooth permission', async () => {
+    const t = setup({ readiness: { permission: true, bluetoothPermission: false, wifiEnabled: true, locationEnabled: true } });
+    await t.service.start();
+    expect(t.calls).toContain('wd-start');
+    expect(t.calls.some((call) => call.startsWith('ble:'))).toBe(false);
+    t.service.dispose();
+  });
+
   it('turning Wi-Fi Direct off leaves the offline group and stops discovery right away', async () => {
     const t = setup();
     await t.service.start();

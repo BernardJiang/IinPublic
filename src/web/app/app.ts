@@ -3249,6 +3249,8 @@ export class IinPublicApp {
         : (status.hosting ? text('settingsNearbyStatusHosting', status.phones ?? 0) : text('settingsNearbyStatusJoined')))
       : status.kind === 'quiet'
         ? text('settingsNearbyStatusQuiet', Math.max(1, Math.ceil(status.nextScanInSeconds / 60)))
+        : status.kind === 'blocked'
+          ? text(status.gap === 'permission' ? 'settingsNearbyStatusPermission' : status.gap === 'wifi' ? 'settingsNearbyStatusWifi' : 'settingsNearbyStatusLocation')
         : text(status.kind === 'searching' ? 'settingsNearbyStatusSearching' : status.kind === 'off' ? 'settingsNearbyStatusOff' : 'settingsNearbyStatusStandby');
     return status.lanPhones > 0 ? `${main} ${text('settingsNearbyStatusLan', status.lanPhones)}` : main;
   }

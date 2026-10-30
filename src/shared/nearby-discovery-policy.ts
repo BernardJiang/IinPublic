@@ -69,7 +69,7 @@ export function discoveryProviderAvailability(
     case 'wifi-direct':
       if (readiness.wifiDirect === false || readiness.joinByCredential === false) return 'unsupported';
       if (!enabled) return 'off';
-      if (env.permissionDenied) return 'permission-denied';
+      if (env.permissionDenied || readiness.permission === false) return 'permission-denied';
       if (readiness.wifiEnabled === false || readiness.locationEnabled === false) return 'radio-off';
       return 'on';
     case 'bluetooth':

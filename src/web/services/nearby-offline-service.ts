@@ -65,6 +65,7 @@ export type NearbyStatus =
   /** Online: the hub is reachable, Wi-Fi Direct is not needed. */
   | { kind: 'standby'; lanPhones: number }
   | { kind: 'off'; lanPhones: number }
+  | { kind: 'blocked'; gap: 'permission' | 'wifi' | 'location'; lanPhones: number }
   | { kind: 'searching'; lanPhones: number }
   /** Offline and nobody found: beacon only, the next scan window is backed off. */
   | { kind: 'quiet'; lanPhones: number; nextScanInSeconds: number }
@@ -356,6 +357,10 @@ export class NearbyOfflineService {
       };
     }
     if (!this.wifiDirectAllowed) return { kind: 'off', lanPhones };
+    const readiness = this.readRawReadiness();
+    if (readiness?.wifiEnabled === false) return { kind: 'blocked', gap: 'wifi', lanPhones };
+    if (readiness?.locationEnabled === false) return { kind: 'blocked', gap: 'location', lanPhones };
+    if (this.permissionDenied || readiness?.permission === false) return { kind: 'blocked', gap: 'permission', lanPhones };
     if (this.lastDecision?.stage === 'offline-quiet') {
       return { kind: 'quiet', lanPhones, nextScanInSeconds: Math.max(0, Math.round((this.lastDecision.nextReviewAt - this.now()) / 1000)) };
     }
@@ -452,8 +457,14 @@ export class NearbyOfflineService {
       // Offline groups need Android 10+ (app-chosen credentials); older phones use the LAN path only.
       const caps = this.opts.native.capabilities();
       const readiness = this.readRawReadiness();
+      // A grant changed in Android Settings is visible without restarting IinPublic.
+      if (readiness?.permission === true) {
+        this.permissionDenied = false;
+        this.reportedGaps.delete('permission');
+      }
       const env = { nativeBridge: true, readiness, permissionDenied: this.permissionDenied };
-      const wifiDirectUsable = discoveryProviderAvailability('wifi-direct', this.wifiDirectAllowed, env) !== 'unsupported'
+      const wifiAvailability = discoveryProviderAvailability('wifi-direct', this.wifiDirectAllowed, env);
+      const wifiDirectUsable = wifiAvailability !== 'unsupported' && wifiAvailability !== 'radio-off'
         && this.wifiDirectAllowed && !this.permissionDenied && caps.wifiDirect && caps.joinByCredential;
       const state = this.opts.native.getState();
       const inGroup = state.state === 'owner' || state.state === 'client';
@@ -476,9 +487,9 @@ export class NearbyOfflineService {
       // Online, the beacon runs only with an already-granted permission: no OS prompt mid-exchange.
       const bleAvailable = discoveryProviderAvailability('bluetooth', this.blePresence, env);
       // The beacon is the Wi-Fi Direct rendezvous, so it needs a phone that can join by credential.
-      const bleUsable = this.blePresence && bleAvailable !== 'unsupported' && !this.permissionDenied
+      const bleUsable = this.blePresence && bleAvailable === 'on' && !this.permissionDenied
         && caps.wifiDirect && caps.joinByCredential
-        && (offline ? true : bleAvailable === 'on' && readiness?.permission === true);
+        && (offline || readiness?.permission === true);
       const lanIds = this.registry.lanIds(now);
       // Network-free: any eligible phone the LAN does not reach needs a link while we are offline;
       // while we reach the hub, only an OFFLINE phone does (so we can exchange Talks; online pairs
@@ -884,7 +895,8 @@ export class NearbyOfflineService {
       const value = JSON.parse(this.opts.bridge.nearbyReadiness()) as Partial<NearbyReadiness>;
       const raw = value as Partial<NearbyReadiness> & { bluetoothPermission?: boolean; ble?: boolean };
       return {
-        permission: raw.permission === true && raw.bluetoothPermission !== false,
+        // Wi-Fi Direct can use DNS-SD without the optional Bluetooth beacon.
+        permission: raw.permission === true,
         wifiEnabled: raw.wifiEnabled !== false,
         locationEnabled: raw.locationEnabled !== false,
         bluetoothEnabled: raw.ble === false || raw.bluetoothEnabled !== false,

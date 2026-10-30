@@ -23,6 +23,17 @@ its ID.
 
 ## Active execution queue — website and Android first
 
+- [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
+  Airplane mode with Wi-Fi and Bluetooth re-enabled did not make two phones find each other.
+  Post-visit USB preflight found C10's Nearby Wi-Fi Devices/Bluetooth permissions denied and Honor
+  FCP-AN10's Wi-Fi off; the exact park pair and its then-current radio/room states are unconfirmed.
+  The service could report Searching with no discovery running, would retain a permission denial
+  after a Settings grant until restart, and incorrectly required Bluetooth permission for the
+  Wi-Fi-only fallback. These code paths now report the blocker and retry once ready; focused tests
+  pass. **Remaining gate:** confirm the pair/status, install a versioned candidate, and reproduce
+  and verify the full airplane-mode two-phone journey without clearing identities. Checklist:
+  `docs/guides/PARK_OFFLINE_WIFI_DIRECT_CHECK.md`.
+
 - [ ] **OPEN-92 — Message Send and navigation responsiveness on Android (reported
   2026-10-29).** Foreground recovery previously blocked WebView on native loopback calls and
   bottom-tab work; commit `bd7427e8` removes those waits from the visible interaction. Chatroom

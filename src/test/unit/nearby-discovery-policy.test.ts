@@ -54,6 +54,7 @@ describe('discovery provider availability', () => {
     expect(discoveryProviderAvailability('bluetooth', true, env({ ...ready, ble: false }))).toBe('unsupported');
     expect(discoveryProviderAvailability('wifi-direct', true, env({ ...ready, ble: false }))).toBe('on');
     expect(discoveryProviderAvailability('wifi-direct', true, env(ready, true))).toBe('permission-denied');
+    expect(discoveryProviderAvailability('wifi-direct', true, env({ ...ready, permission: false }))).toBe('permission-denied');
     expect(discoveryProviderAvailability('bluetooth', true, env({ ...ready, bluetoothPermission: false }))).toBe('permission-denied');
     expect(discoveryProviderAvailability('bluetooth', true, env({ ...ready, bluetoothEnabled: false }))).toBe('radio-off');
     expect(discoveryProviderAvailability('wifi-direct', true, env({ ...ready, bluetoothEnabled: false }))).toBe('on');
