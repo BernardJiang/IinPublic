@@ -41,6 +41,9 @@ Add whatever helps you do your job. This is your cheat sheet.
 
 ## Android test devices
 
+- User authorization (2026-10-29): install release 1.0.200 on five connected phones, including
+  Honor FCP-AN10 `AG2H024712001421`. The prior four-phone restriction below is superseded for
+  this release install. Do not clear FCP-AN10 data without separate authorization.
 - User authorization (2026-10-27): use the four available phones to fix open issues, superseding
   the 2026-10-26 C10-only restriction for this task. Selected devices: P30 `DUM0219418001663`,
   C10 `PADC100013000534`, PH-1 `PM1LHMA7A2707315`, Honor FRD-L04 `RNV0217207000190`.
