@@ -23,6 +23,17 @@ its ID.
 
 ## Active execution queue — website and Android first
 
+- [ ] **OPEN-92 — Message Send and navigation responsiveness on Android (reported
+  2026-10-29).** Foreground recovery previously blocked WebView on native loopback calls and
+  bottom-tab work; commit `bd7427e8` removes those waits from the visible interaction. Chatroom
+  and DM composers previously cleared drafts before persistence and gave little feedback while
+  network/key lookup was pending; commit `2846414a` keeps the draft, shows Sending immediately,
+  restores Send on failure, and uses the in-room recipient epub cache before a public-user lookup.
+  TypeScript, focused unit tests and web build pass. A support E2E run stopped before Send because
+  its local greeting/bootstrap was unavailable. **Remaining gate:** reproduce the owner's exact DM
+  symptom, verify actual send and immediate Back/tab response on a phone with the new build, and
+  roll out a versioned update without invalidating the ongoing 1.0.200 movement/battery field run.
+
 - [ ] **OPEN-91 — Device core: one Gun, one copy of the app logic, a thin GUI (adopted
   2026-10-25).** Design: `docs/design/device-core-architecture.md`; privacy rules:
   `docs/design/data-sharing-privacy-rules.md`. On every native app (Android, Windows, Ubuntu, macOS,
