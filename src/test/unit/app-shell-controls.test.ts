@@ -2,6 +2,7 @@
 
 import {
   bindAppShellControls,
+  showSettingsPanelIfReady,
   type AppShellControlsDeps,
 } from '../../web/ui/app-shell-controls';
 import { uiText } from '../../web/ui/ui-translations';
@@ -71,7 +72,7 @@ beforeEach(() => {
     <button class="nav-btn" data-view="settings"></button>
     <section id="chatrooms-view" class="view-panel active"></section>
     <section id="talks-view" class="view-panel"></section>
-    <section id="settings-view" class="view-panel"></section>`;
+    <section id="settings-view" class="view-panel"><div id="settings-content"></div></section>`;
 });
 
 describe('bindAppShellControls', () => {
@@ -196,18 +197,53 @@ describe('bindAppShellControls', () => {
     jest.useRealTimers();
   });
 
-  it('paints the Settings tab before rendering its large view', () => {
+  it('keeps the previous panel until the first Settings content is ready', () => {
     jest.useFakeTimers();
-    const renderSettingsView = jest.fn();
+    const renderSettingsView = jest.fn(() => {
+      document.getElementById('settings-content')!.textContent = 'Settings controls';
+    });
     const user = { id: 'self' } as any;
     bindAppShellControls(deps({ getCurrentUser: () => user, renderSettingsView }));
 
     (document.querySelector('.nav-btn[data-view="settings"]') as HTMLButtonElement).click();
 
-    expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(true);
+    expect(document.querySelector('.nav-btn[data-view="settings"]')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('chatrooms-view')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(false);
+    expect(document.getElementById('settings-content')?.textContent).toBe('');
     expect(renderSettingsView).not.toHaveBeenCalled();
     jest.runAllTimers();
     expect(renderSettingsView).toHaveBeenCalledWith(user);
+    expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('chatrooms-view')?.classList.contains('active')).toBe(false);
+    jest.useRealTimers();
+  });
+
+  it('shows cached Settings content immediately while its refresh is pending', () => {
+    jest.useFakeTimers();
+    document.getElementById('settings-content')!.textContent = 'Previous settings';
+    const renderSettingsView = jest.fn();
+    bindAppShellControls(deps({ getCurrentUser: () => ({ id: 'self' } as any), renderSettingsView }));
+
+    (document.querySelector('.nav-btn[data-view="settings"]') as HTMLButtonElement).click();
+
+    expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('settings-content')?.textContent).toBe('Previous settings');
+    expect(renderSettingsView).not.toHaveBeenCalled();
+    jest.runAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reveals Settings when the identity arrives after the first tap', () => {
+    jest.useFakeTimers();
+    bindAppShellControls(deps());
+    (document.querySelector('.nav-btn[data-view="settings"]') as HTMLButtonElement).click();
+    jest.runAllTimers();
+    expect(document.getElementById('chatrooms-view')?.classList.contains('active')).toBe(true);
+
+    document.getElementById('settings-content')!.textContent = 'Settings controls';
+    showSettingsPanelIfReady();
+    expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(true);
     jest.useRealTimers();
   });
 });

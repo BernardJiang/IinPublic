@@ -343,7 +343,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     // Settings is a large drill-down view. Building it while the startup Chatrooms panel is
     // visible delays the first useful input on slower WebViews for a screen the person may never
     // open. If Settings was selected before identity hydration completed, adoptSessionUser handles
-    // that active-view case; otherwise the bottom-nav handler renders it on demand.
+    // that pending-tab case; otherwise the bottom-nav handler renders it on demand.
     if (document.getElementById('settings-view')?.classList.contains('active')) {
       deps.renderSettingsView(user);
     }

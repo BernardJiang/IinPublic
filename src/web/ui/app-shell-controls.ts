@@ -270,6 +270,16 @@ export function restoreLastTab(): void {
   }
 }
 
+/** Finish a first Settings transition only after there is content to display. */
+export function showSettingsPanelIfReady(): void {
+  const button = document.querySelector<HTMLElement>('.nav-btn[data-view="settings"]');
+  const content = document.getElementById('settings-content');
+  const panel = document.getElementById('settings-view');
+  if (!button?.classList.contains('active') || !content?.hasChildNodes() || !panel) return;
+  document.querySelectorAll('.view-panel.active').forEach((view) => view.classList.remove('active'));
+  panel.classList.add('active');
+}
+
 function bindBottomNavigation(deps: AppShellControlsDeps): void {
   const navButtons = document.querySelectorAll('.nav-btn');
   const viewPanels = document.querySelectorAll('.view-panel');
@@ -287,17 +297,17 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
       try { settingsStorage.setItem(LAST_TAB_KEY, targetView); } catch { /* optional */ }
       navButtons.forEach((candidate) => candidate.classList.remove('active'));
       button.classList.add('active');
-      viewPanels.forEach((panel) => panel.classList.remove('active'));
-      document.getElementById(`${targetView}-view`)?.classList.add('active');
+      const settingsContent = document.getElementById('settings-content');
+      const keepPreviousPanel = targetView === 'settings' && !settingsContent?.hasChildNodes();
+      if (!keepPreviousPanel) {
+        viewPanels.forEach((panel) => panel.classList.remove('active'));
+        document.getElementById(`${targetView}-view`)?.classList.add('active');
+      }
       if (headerTitle) headerTitle.textContent = '';
       deps.syncHeaderStatusView(targetView);
       if (headerActions) headerActions.style.display = 'flex';
       deps.syncAppBarActionsForView(targetView);
 
-      if (targetView === 'settings') {
-        const content = document.getElementById('settings-content');
-        if (content && !content.hasChildNodes()) content.textContent = deps.t('loading');
-      }
       const render = () => {
         if (renderToken !== navigationToken || !button.classList.contains('active')) return;
         if (targetView === 'chatrooms' && !focusOpening) {
@@ -322,7 +332,10 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
         }
         if (targetView === 'settings') {
           const user = deps.getCurrentUser();
-          if (user) deps.renderSettingsView(user);
+          if (user) {
+            deps.renderSettingsView(user);
+            showSettingsPanelIfReady();
+          }
         }
       };
       // Commit tab chrome before any view-specific rendering, storage reads or sync work.

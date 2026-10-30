@@ -8,15 +8,15 @@ status remains in `docs/TODO.md`; check an item here only after its evidence is 
 ## Current owner actions
 
 - [ ] **OPEN-81 G7 — Carry the Android field matrix.** After the automated bench build is installed,
-  follow the step-by-step [1.0.202 phone field run](guides/PHONE_FIELD_RUN_1.0.202.md) and
+  follow the step-by-step [1.0.203 phone field run](guides/PHONE_FIELD_RUN_1.0.203.md) and
   carry at least two vendor-distinct phones through a walking route and a real transit/subway route.
   Include genuine GPS loss, a screen-off background receiver, stopping an outing before a delayed
   reply, and revisiting the same peer for a repeated encounter. Record route conditions, phones,
   timestamps and whether every late/repeated result appears exactly once in the ended outing.
-  Version 1.0.202 is installed on all five phones; the 2026-10-28 ring, offline catch-up
+  Version 1.0.203 is installed on all five phones; the 2026-10-28 ring, offline catch-up
   and P30/C10/PH-1/Honor screen-off process-recovery bench gates pass. The carried field gate remains.
 - [ ] **OPEN-76 — Long unplugged battery run.** The automated bench harness is ready;
-  use the [1.0.202 field run](guides/PHONE_FIELD_RUN_1.0.202.md) for charge, timing and
+  use the [1.0.203 field run](guides/PHONE_FIELD_RUN_1.0.203.md) for charge, timing and
   evidence instructions;
   physically unplug at least three charged phones and run the supplied idle/active scenarios for
   the documented duration. Record start/end charge, Android battery statistics, screen state,

@@ -182,7 +182,7 @@ import {
   tryBuildChatbotAnswersFromFlattened as buildChatbotAnswersFromPreferences,
 } from './answer-preference-resolution';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
-import { bindAppShellControls, type AppShellControlsDeps } from './app-shell-controls';
+import { bindAppShellControls, showSettingsPanelIfReady, type AppShellControlsDeps } from './app-shell-controls';
 import { PeerHeadshotCache } from './peer-headshot-cache';
 import { createChatroomShellController, type ChatroomShellController } from './chatroom-shell-controller';
 import { createTalkEditorController, type TalkEditorController } from './talk-editor-controller';
@@ -790,12 +790,11 @@ export class UIManager extends EventEmitter {
     this.currentUser = user;
     this.currentUserId = user.id;
     this.applyShellTranslations();
-    // The Settings tab can be clicked before this identity was known (cold launch, before the
-    // rest of the boot chain reaches showMainInterface) — setupBottomNavigation's
-    // `targetView === 'settings'` handler no-ops in that case, leaving the panel blank. Paint it
-    // now that the user is available instead of leaving the tab waiting on the full boot chain.
-    if (document.getElementById('settings-view')?.classList.contains('active')) {
+    // A first Settings tap may be waiting for the identity while the previous panel stays visible.
+    // Render once the identity arrives, then reveal Settings only after it has real content.
+    if (document.querySelector('.nav-btn[data-view="settings"].active')) {
       this.renderSettingsView(user);
+      showSettingsPanelIfReady();
     }
   }
 

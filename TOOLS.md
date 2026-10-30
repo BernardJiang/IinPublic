@@ -41,6 +41,8 @@ Add whatever helps you do your job. This is your cheat sheet.
 
 ## Android test devices
 
+- User authorization (2026-10-29): address the five-second blank Settings transition and update
+  the five connected phones. Android 1.0.203 installs in place with identities preserved.
 - User authorization (2026-10-29): fix the Map → Center on me freeze and update the five connected
   phones. Android 1.0.202 installed in place; no app data reset. Field validation of the exact
   freeze is still needed.

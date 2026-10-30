@@ -43,12 +43,15 @@ its ID.
   The owner also reported that tapping Map → Center on me froze all buttons under 1.0.201. The
   map marker refresh invalidated its cache key during every rebuild, causing repeated DOM work
   after map movement; 1.0.202 retains the key and adds a center-then-tab navigation regression.
-  Android 1.0.202 was installed in place on all five USB phones on 2026-10-29. TypeScript, lint,
-  Android build and all seven map E2E tests pass. A support E2E run stopped before Send because
+  The owner then reported a five-second white Settings "Loading..." view after changing tabs.
+  Navigation used to activate empty Settings content before the first render; 1.0.203 keeps the
+  prior panel visible until Settings is populated and shows cached Settings content on later
+  visits. Unit and browser navigation regressions pass. Android 1.0.203 was installed in place
+  on all five USB phones on 2026-10-29. A support E2E run stopped before Send because
   its local greeting/bootstrap was unavailable. **Remaining gate:** reproduce the owner's exact DM
   symptom, verify actual send and immediate Back/tab response on a phone with the new build, and
   confirm the fixes on all five phones; the prior 1.0.200 movement/battery field run must be
-  restarted under 1.0.202 for comparable evidence.
+  restarted under 1.0.203 for comparable evidence.
 
 - [ ] **OPEN-91 — Device core: one Gun, one copy of the app logic, a thin GUI (adopted
   2026-10-25).** Design: `docs/design/device-core-architecture.md`; privacy rules:
