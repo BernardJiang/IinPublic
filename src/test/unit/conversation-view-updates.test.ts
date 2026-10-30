@@ -50,6 +50,54 @@ describe('conversation view and list update extraction', () => {
     warning.mockRestore();
   });
 
+  it('keeps a DM draft while persistence is pending and allows Back immediately', () => {
+    document.body.innerHTML = `
+      <div id="conversation-detail-overlay" style="display:none"></div>
+      <button id="back-from-conversation"></button>
+      <textarea id="conversation-message-input"></textarea>
+      <button id="send-conversation-message"></button>`;
+    const emit = jest.fn();
+    let currentConversationId: string | undefined;
+    let currentThreadTalkId: string | undefined;
+    const deps = {
+      getMyConversations: () => ({ c1: { conversationId: 'c1', otherUserId: 'peer', talkId: 'direct' } }),
+      closeMediaGallery: jest.fn(),
+      getCurrentConversationId: () => currentConversationId,
+      setCurrentConversationId: (id: string | undefined) => { currentConversationId = id; },
+      getCurrentThreadTalkId: () => currentThreadTalkId,
+      setCurrentThreadTalkId: (id: string | undefined) => { currentThreadTalkId = id; },
+      captureSessionsByConversationId: new Map(),
+      currentUserId: 'me',
+      getPeerName: () => 'Peer',
+      resolvePeerStageNameLive: async () => null,
+      t: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+      updateMatchBadge: jest.fn(),
+      refreshOpenPeerThreadList: jest.fn(),
+      allowOutgoingMessage: () => true,
+      emit,
+    } as unknown as ConversationDetailViewDeps;
+    showConversationDetail('c1', undefined, deps);
+    const input = document.getElementById('conversation-message-input') as HTMLTextAreaElement;
+    const button = document.getElementById('send-conversation-message') as HTMLButtonElement;
+    input.value = 'hello';
+    button.click();
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('Sending...');
+    expect(input.value).toBe('hello');
+    document.getElementById('back-from-conversation')?.click();
+    expect(currentConversationId).toBeUndefined();
+    const first = emit.mock.calls.find(([event]) => event === 'sendConversationMessage')?.[1] as {
+      onError: () => void;
+    };
+    first.onError();
+    expect(button.disabled).toBe(false);
+    expect(input.value).toBe('hello');
+    button.click();
+    const sends = emit.mock.calls.filter(([event]) => event === 'sendConversationMessage');
+    (sends[1][1] as { onPersisted: () => void }).onPersisted();
+    expect(input.value).toBe('');
+  });
+
   it('adds a conversation while preserving sticky match metadata', () => {
     const conversations: Record<string, any> = {
       c1: {

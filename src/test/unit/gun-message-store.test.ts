@@ -11,8 +11,23 @@ import {
   MESSAGE_RETENTION_WINDOW,
   planMessageCheckpoint,
   planMessagePruning,
+  GunMessageStore,
 } from '../../web/services/gun-message-store';
 import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
+import type { WebGunService } from '../../web/services/web-gun-service';
+
+it('uses an in-room recipient epub without waiting for a slow public-user request', async () => {
+  const getPublicUser = jest.fn(() => new Promise<never>(() => undefined));
+  const gun = {
+    getCachedRosterEpub: (id: string) => id === 'peer' ? 'epub_peer' : undefined,
+    getPublicUser,
+  } as unknown as WebGunService;
+  const store = new GunMessageStore(gun);
+  const keys = store as unknown as { getUserEpub: (id: string) => Promise<string | undefined> };
+
+  await expect(keys.getUserEpub('peer')).resolves.toBe('epub_peer');
+  expect(getPublicUser).not.toHaveBeenCalled();
+});
 
 describe('planMessageCheckpoint / planMessagePruning (TODO §S Item 4, pure logic)', () => {
   function wires(count: number, offset = 0): { id: string; text: string }[] {

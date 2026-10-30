@@ -243,9 +243,10 @@ export function showConversationDetail(
     sendBtn.textContent = deps.t('conversationSend');
     messageInput.placeholder = deps.t('conversationMessagePlaceholder');
     sendBtn.replaceWith(sendBtn.cloneNode(true)); // Remove old listeners
-    const newSendBtn = document.getElementById('send-conversation-message');
+    const newSendBtn = document.getElementById('send-conversation-message') as HTMLButtonElement | null;
 
     const sendMessage = async () => {
+      if (newSendBtn?.disabled) return;
       const message = messageInput.value.trim();
       if (!message) return;
       // Send-path content filter (redesign §9): a blocked message is not sent
@@ -256,6 +257,8 @@ export function showConversationDetail(
       // ordinary send, not after (unlike the IPFS-share precedent, which only ever parses
       // already-sent text at render time). Mandatory confirm, never silent.
       const capturedLine = FlowCapture.parseChatLine(message);
+      let outgoingMessage = message;
+      let onStored: (() => void) | undefined;
       if (capturedLine) {
         const confirmed = await deps.confirmCapturedQuestionDialog(capturedLine);
         if (confirmed) {
@@ -263,33 +266,47 @@ export function showConversationDetail(
             scopeTalkId: deps.getCurrentThreadTalkId(),
             lines: [],
           };
-          session.lines.push(message);
-          deps.captureSessionsByConversationId.set(conversationId, session);
-          deps.emit('sendConversationMessage', {
-            conversationId,
-            message: encodeCapturedQuestionMessage(capturedLine),
-            ...(deps.getCurrentThreadTalkId() ? { talkId: deps.getCurrentThreadTalkId() } : {}),
-          });
-          messageInput.value = '';
-          return;
+          outgoingMessage = encodeCapturedQuestionMessage(capturedLine);
+          onStored = () => {
+            session.lines.push(message);
+            deps.captureSessionsByConversationId.set(conversationId, session);
+          };
         }
-        // Declined — fall through and send the original text as an ordinary message.
       } else {
         const activeSession = deps.captureSessionsByConversationId.get(conversationId);
         if (activeSession) {
           // FR-TK-7: a non-captured message closes the capture — finalize what's been
-          // gathered so far, then this message itself still sends normally, below.
-          deps.captureSessionsByConversationId.delete(conversationId);
-          deps.emit('finalizeCaptureSession', { conversationId, ...activeSession });
+          // gathered so far only after this message has been stored.
+          onStored = () => {
+            deps.captureSessionsByConversationId.delete(conversationId);
+            deps.emit('finalizeCaptureSession', { conversationId, ...activeSession });
+          };
         }
       }
 
+      // The send event is asynchronous. Keep the draft until encrypted local persistence
+      // succeeds, and show progress while key lookup or storage is slow.
+      if (newSendBtn) {
+        newSendBtn.disabled = true;
+        newSendBtn.textContent = deps.t('peerSending');
+      }
+      const finish = () => {
+        if (newSendBtn) {
+          newSendBtn.disabled = false;
+          newSendBtn.textContent = deps.t('conversationSend');
+        }
+      };
       deps.emit('sendConversationMessage', {
         conversationId,
-        message,
+        message: outgoingMessage,
         ...(deps.getCurrentThreadTalkId() ? { talkId: deps.getCurrentThreadTalkId() } : {}),
+        onPersisted: () => {
+          onStored?.();
+          if (messageInput.value.trim() === message) messageInput.value = '';
+          finish();
+        },
+        onError: finish,
       });
-      messageInput.value = '';
     };
 
     newSendBtn?.addEventListener('click', sendMessage);

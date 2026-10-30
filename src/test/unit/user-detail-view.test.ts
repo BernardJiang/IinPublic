@@ -69,6 +69,27 @@ describe('openPeerDetailView — linked-identity badge (TODO §I)', () => {
     return new Promise((resolve) => setTimeout(resolve, 0));
   }
 
+  it('keeps the peer DM draft during key lookup and after a send error', async () => {
+    let rejectSend: (error: Error) => void = () => undefined;
+    const sendDirectMessage = jest.fn(() => new Promise<void>((_resolve, reject) => {
+      rejectSend = reject;
+    }));
+    openPeerDetailView('peer-1', 'Peer One', baseDeps({ sendDirectMessage }));
+    const input = document.getElementById('peer-dm-input') as HTMLTextAreaElement;
+    const button = document.getElementById('peer-dm-send-btn') as HTMLButtonElement;
+    input.value = 'hello';
+    button.click();
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toContain('Sending...');
+    expect(input.value).toBe('hello');
+    document.getElementById('back-from-peer-detail')?.click();
+    expect(document.getElementById('peer-detail-overlay')?.style.display).toBe('none');
+    rejectSend(new Error('Recipient has no epub published'));
+    await flush();
+    expect(button.disabled).toBe(false);
+    expect(input.value).toBe('hello');
+  });
+
   it('renders the badge when isLinkedIdentity resolves true', async () => {
     const deps = baseDeps({ isLinkedIdentity: async () => true });
     openPeerDetailView('peer-1', 'Peer One', deps);

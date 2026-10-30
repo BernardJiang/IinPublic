@@ -923,6 +923,11 @@ export class WebGunService extends EventEmitter {
     if (id && key) this.rosterEpubByUserId.set(id, key);
   }
 
+  /** Fast path for an in-room peer's encryption key; never waits for the public-user API. */
+  getCachedRosterEpub(userId: string): string | undefined {
+    return this.rosterEpubByUserId.get(String(userId || '').trim());
+  }
+
   /** Read the public user graph record stored at `users/<id>`. */
   async getPublicUser(userId: string): Promise<Partial<User>> {
     const rosterEpub = this.rosterEpubByUserId.get(userId);

@@ -8998,14 +8998,15 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('sendMessage', async (data: { conversationId: string; message: string }) => {
+    this.uiManager.on('sendMessage', async (data: { conversationId: string; message: string; onPersisted?: () => void; onError?: () => void }) => {
       try {
-        console.log('📤 Sending message:', data.message);
+        console.log('📤 Sending chatroom message');
 
         // For now, broadcast message to the chatroom
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (!chatroomId) {
           this.uiManager.showNotification(this.uiManager.formatNotInChatroom(), 'error');
+          data.onError?.();
           return;
         }
 
@@ -9019,12 +9020,14 @@ export class IinPublicApp {
         };
 
         const stored = await this.placeChatClient.send(chatroomId, message);
+        data.onPersisted?.();
         // The next bounded poll dedupes this id; render immediately for responsive sending.
         this.uiManager.displayChatroomMessage({ ...stored, isOwnMessage: true });
 
-        console.log('✅ Message sent:', stored);
+        console.log('✅ Chatroom message sent');
         this.uiManager.showNotification(this.uiManager.formatMessageSent(), 'success');
       } catch (error) {
+        data.onError?.();
         console.error('Failed to send message:', error);
         this.uiManager.showNotification(
           this.uiManager.formatMessageSendFailed((error as Error).message),
@@ -9081,14 +9084,16 @@ export class IinPublicApp {
     // Handle sending conversation messages
     this.uiManager.on(
       'sendConversationMessage',
-      async (data: { conversationId: string; message: string; talkId?: string }) => {
+      async (data: { conversationId: string; message: string; talkId?: string; onPersisted?: () => void; onError?: () => void }) => {
+        let conversation: ReturnType<typeof this.uiManager.getMyConversations>[string] | undefined;
+        let otherUserId: string | undefined;
+        const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
         try {
-          console.log('📤 Sending conversation message:', data.message);
-          const conversation = this.uiManager.getMyConversations()[data.conversationId];
-          const otherUserId = conversation?.otherUserId
+          console.log('📤 Sending conversation message');
+          conversation = this.uiManager.getMyConversations()[data.conversationId];
+          otherUserId = conversation?.otherUserId
             ? String(conversation.otherUserId)
             : undefined;
-          const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
           await this.conversationService.sendMessage(
             data.conversationId,
@@ -9102,24 +9107,31 @@ export class IinPublicApp {
             },
           );
 
-          console.log('✅ Conversation message sent');
-          if (conversation?.supportChannel === true || otherUserId === TECHSUPPORT_ROOT_USER_ID) {
-            await this.handleSupportQuestion(data.conversationId, messageId, data.message);
-          }
-
-          // Phase E: ledger hook — CONVERSATION_MSG
-          this.ledgerEmit(InteractionKind.CONVERSATION_MSG, {
-            conversationId: data.conversationId,
-            messageId,
-            seq: Date.now(),
-          });
         } catch (error) {
+          data.onError?.();
           console.error('Failed to send conversation message:', error);
           this.uiManager.showNotification(
             this.uiManager.formatMessageSendFailed((error as Error).message),
             'error',
           );
+          return;
         }
+
+        data.onPersisted?.();
+        console.log('✅ Conversation message sent');
+        if (conversation?.supportChannel === true || otherUserId === TECHSUPPORT_ROOT_USER_ID) {
+          // The message is already stored. A support-service failure must not tell the
+          // composer the send failed or invite a duplicate retry.
+          void this.handleSupportQuestion(data.conversationId, messageId, data.message)
+            .catch((error) => console.warn('Support follow-up failed after message send:', error));
+        }
+
+        // Phase E: ledger hook — CONVERSATION_MSG
+        this.ledgerEmit(InteractionKind.CONVERSATION_MSG, {
+          conversationId: data.conversationId,
+          messageId,
+          seq: Date.now(),
+        });
       },
     );
 

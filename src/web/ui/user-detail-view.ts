@@ -379,7 +379,7 @@ export function openPeerDetailView(
       fresh.textContent = `⏳ ${deps.text('peerSending')}`;
       try {
         await deps.sendDirectMessage(peerId, peerName, text);
-        if (inp) inp.value = '';
+        if (inp?.value.trim() === text) inp.value = '';
         fresh.textContent = `✓ ${deps.text('peerSentStatus')}`;
         setTimeout(() => {
           fresh.disabled = false;

@@ -268,6 +268,11 @@ export class GunMessageStore {
   private async getUserEpub(userId: string, attempts = 8): Promise<string | undefined> {
     const cached = this.epubByUserId.get(userId);
     if (cached) return cached;
+    const rosterEpub = this.gunService.getCachedRosterEpub?.(userId);
+    if (rosterEpub) {
+      this.epubByUserId.set(userId, rosterEpub);
+      return rosterEpub;
+    }
     // WebGunService.getPublicUser()/get() rejects when the *first* `.once()` callback fires
     // with `data === undefined` — a normal transient state for a peer record that hasn't
     // synced to this device's local Gun yet (freshly-matched conversation, cold page). That

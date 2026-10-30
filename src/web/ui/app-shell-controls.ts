@@ -205,10 +205,23 @@ function bindPrimaryControls(deps: AppShellControlsDeps): void {
   const messageInput = document.getElementById('message-input') as HTMLTextAreaElement | null;
   if (sendButton && messageInput) {
     sendButton.addEventListener('click', () => {
+      if ((sendButton as HTMLButtonElement).disabled) return;
       const message = messageInput.value.trim();
       if (!message || !deps.allowOutgoingMessage(message)) return;
-      deps.emit('sendMessage', { conversationId: 'default', message });
-      messageInput.value = '';
+      (sendButton as HTMLButtonElement).disabled = true;
+      sendButton.textContent = deps.t('peerSending');
+      const finish = () => {
+        (sendButton as HTMLButtonElement).disabled = false;
+        sendButton.textContent = deps.t('conversationSend');
+      };
+      deps.emit('sendMessage', {
+        conversationId: 'default', message,
+        onPersisted: () => {
+          if (messageInput.value.trim() === message) messageInput.value = '';
+          finish();
+        },
+        onError: finish,
+      });
     });
     messageInput.addEventListener('keypress', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {

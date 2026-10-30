@@ -83,7 +83,7 @@ describe('bindAppShellControls', () => {
     expect(showDmInboxPicker).toHaveBeenCalledTimes(1);
   });
 
-  it('sends trimmed messages and preserves blocked composer text', () => {
+  it('keeps the draft during a slow send and restores it on failure', () => {
     const emit = jest.fn();
     const allowOutgoingMessage = jest.fn((message: string) => message !== 'blocked');
     bindAppShellControls(deps({ emit, allowOutgoingMessage }));
@@ -91,10 +91,22 @@ describe('bindAppShellControls', () => {
 
     input.value = '  hello  ';
     document.getElementById('send-button')?.click();
-    expect(emit).toHaveBeenCalledWith('sendMessage', {
+    expect(emit).toHaveBeenCalledWith('sendMessage', expect.objectContaining({
       conversationId: 'default',
       message: 'hello',
-    });
+    }));
+    expect(input.value).toBe('  hello  ');
+    const button = document.getElementById('send-button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const first = emit.mock.calls[0][1] as { onError: () => void };
+    first.onError();
+    expect(button.disabled).toBe(false);
+    expect(input.value).toBe('  hello  ');
+
+    button.click();
+    const second = emit.mock.calls[1][1] as { onPersisted: () => void };
+    second.onPersisted();
+    expect(button.disabled).toBe(false);
     expect(input.value).toBe('');
 
     input.value = 'blocked';
