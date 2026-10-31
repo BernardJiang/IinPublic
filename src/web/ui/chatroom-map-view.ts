@@ -756,6 +756,7 @@ function createMap(maplibre: MapLibre, options: ChatroomMapOptions): MapState {
     zoom: 2,
     attributionControl: false,
   });
+  (options.container as HTMLElement & { __iinpublicMap?: MapLibreMap }).__iinpublicMap = map;
   map.addControl(new maplibre.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(
     new maplibre.AttributionControl({
@@ -1003,8 +1004,11 @@ function scheduleUserDots(maplibre: MapLibre, state: MapState, delayMs = 400): v
   }, delayMs);
 }
 
-/** Below this zoom yellow dots would pile up; the heat layer shows where those people are. */
-const STRANGER_DOT_MIN_ZOOM = 10;
+/** Overview mode must keep the world-map context visible: far yellow dots show the broader
+ * nearby audience before the map tightens around the local cluster. At the true world scale the
+ * map still needs to show these out-of-range peers, otherwise a wide-view demo collapses to just
+ * green in-range members. */
+const STRANGER_DOT_MIN_ZOOM = 0.5;
 
 function userDotElement(source: MapUserDots, group: UserDotGroup, onTap?: () => void, card?: RoomMemberCardSource, onDoubleTap?: () => void): HTMLElement {
   const element = document.createElement('div');
