@@ -28,6 +28,9 @@ import {
   resolveEmbeddedNodeConfig,
   type EmbeddedNodeConfig,
 } from '../shared/embedded-node-config';
+import { protectStdioFromWriteFailures } from '../server/logger';
+
+protectStdioFromWriteFailures();
 
 export interface StartEmbeddedNodeOptions {
   /** Host-specific defaults injected by the native shell. */

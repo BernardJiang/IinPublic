@@ -120,14 +120,6 @@ its ID.
     suites cited there now pass (4 tests, 2026-10-30). Update stale expectations only when the
     intended product behavior is documented; fix genuine regressions without weakening assertions.
 
-- [ ] **OPEN-95 — Android `node-stdio.log` never rotates and can brick the app (found 2026-10-31,
-  OPEN-81 walk).** `native-lib.cpp` sends embedded-node stdio to `files/node-data/node-stdio.log`
-  with no size limit. On Honor FRD-L04 it reached 1.88 GB and took `/data` to 0 free; every start
-  then died with an unhandled `ENOSPC` from the logger about 3.9 s after launch (41 restarts seen
-  in the retained log). After recovery it regrew 434 MB in 54 minutes (~130 KB/s) while running
-  in Always mode, so an emptied FRD can refill in hours. Bound the log, and never let a failed
-  log write kill the node. Workaround: empty the file with `run-as`, then restart the app.
-
 - [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** (a) A late auto-answer was
   lost: PH-1 recorded `walk-late` as outcome match/answeredBy chatbot, but P30's ledger and outing
   never received it, more than 45 minutes later with both online. The PH-1 process had died at
@@ -367,7 +359,7 @@ or evidence tasks, not active feature development.
       outing mid-run (13:08:08) and it was reopened by editing its record over USB; `walk-return`
       took 10 minutes; journey-bob's `walk-late` reply never arrived, with the PH-1 rebooted and
       its app opened by hand during that step; distance walked and GPS loss were not recorded.
-      See OPEN-95 to OPEN-99. Rerun after OPEN-95/96/98. Transit remains not run.
+      See OPEN-96 to OPEN-99; OPEN-95 is complete. Rerun after OPEN-96/98. Transit remains not run.
   - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
     auto-answers, add actionable pending states, carry the completed starter credit/block-count
     policy into launch review, and treat iOS as unsupported until its native background/discovery

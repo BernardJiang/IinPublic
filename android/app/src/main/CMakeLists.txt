@@ -18,6 +18,7 @@ set_target_properties(libnode PROPERTIES
 # ── JNI shim ─────────────────────────────────────────────────────────────
 add_library(native-lib SHARED
     cpp/native-lib.cpp
+    cpp/bounded_stdio_log.cpp
 )
 
 target_link_libraries(native-lib

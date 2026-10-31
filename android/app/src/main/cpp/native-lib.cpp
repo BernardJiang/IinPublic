@@ -23,6 +23,8 @@
 #include <android/log.h>
 #include <node/node.h>            // nodejs-mobile headers live under include/node/
 
+#include "bounded_stdio_log.h"
+
 #define TAG "IinPublic-Native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
@@ -138,8 +140,12 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
     // (WebView threads included) then lands on a stdio fd and Node aborts in
     // InitializeOncePerProcess / libuv asserts "fd > STDERR_FILENO". Only swap the fds in
     // once the log file is actually open.
+    // The file is capped (OPEN-95): an unbounded one filled a phone and then stopped the app
+    // from starting. Routine per-request lines stay off here for the same reason.
+    setenv("LOG_LEVEL", "warn", 0);
     {
         std::string log_path = std::string(sandbox_dir) + "/node-stdio.log";
+        iinpublic::trim_stdio_log(log_path.c_str(), iinpublic::kStdioLogMaxBytes);
         int log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
         if (log_fd >= 0) {
             dup2(log_fd, STDOUT_FILENO);
@@ -147,6 +153,7 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
             close(log_fd);
             setvbuf(stdout, nullptr, _IONBF, 0);
             setvbuf(stderr, nullptr, _IONBF, 0);
+            iinpublic::start_stdio_log_rotation(log_path.c_str());
         } else {
             LOGE("[jni] open(%s) failed: errno=%d — Node stdio left as-is", log_path.c_str(), errno);
         }

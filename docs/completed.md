@@ -2,6 +2,26 @@
 
 Last updated: 2026-10-31
 
+## 2026-10-31 — OPEN-95 the Android node log can no longer fill a phone
+
+- Found on the OPEN-81 walk: `node-stdio.log` had no size limit. It reached 1.88 GB on FRD-L04
+  and filled `/data`; the embedded node then died about 3.9 s after every start with an uncaught
+  `ENOSPC` from the logger. P30 had reached 5.4 GB and PH-1 501 MB. After a manual recovery the
+  FRD log regrew 434 MB in 54 minutes.
+- `bounded_stdio_log.cpp` trims an oversized log to its last 4 MiB at start (this also works on
+  a full disk) and rotates to one `.1` generation at 4 MiB, checked every 10 s. Fds 1/2 stay
+  synchronous O_APPEND files, so the last lines before a native abort survive. If no fresh file
+  can be created, the current one is emptied. The app sets `LOG_LEVEL=warn`, unless already set,
+  which removes routine per-request lines. `protectStdioFromWriteFailures` keeps a failed stdio
+  write from ending the embedded node on any native host.
+- Verification, app 1.0.208 installed in place on P30, PH-1 and FRD with identities kept:
+  3/3 focused tests (host-built native trim/rotate checks, plus a real stream failure that kills
+  an unprotected process and not a protected one). P30 went from 5.4 GB to about 4.2 MB and
+  gained 5 GB; PH-1 went from 501 MB to about 4.2 MB. A 5 MiB append on P30 rotated live with the
+  same process running. Growth measured 8 B/s on P30 and PH-1 and 182 B/s on FRD soon after
+  start. FRD had no restarts after the install. A real `ENOSPC` on a phone was not reproduced:
+  that path is covered by the host test only.
+
 ## 2026-10-31 — OPEN-94a Settings startup test
 
 - The test expected the old Chatrooms panel to remain active after a Settings tap before an
