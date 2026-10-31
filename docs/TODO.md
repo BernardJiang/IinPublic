@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-29.
+Last reconciled: 2026-10-30.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -22,6 +22,41 @@ move its outcome and verification evidence to `docs/completed.md`, remove it her
 its ID.
 
 ## Active execution queue — website and Android first
+
+- [ ] **OPEN-94 — `test:all` failure backlog surfaced 2026-10-30 (restored-gate fallout).**
+  The canonical gate was red 2026-10-01 → 10-30 because this worktree's `.env.local` held the
+  pre-rotation TechSupport key while the trust anchors rotated 2026-09-27 (commit b4b58d6c);
+  the fail-closed boot guard zeroed every E2E phase each night. Fixed 2026-10-30 by syncing
+  the key line from the `IinPublic.claude` worktree, plus `scripts/check-env-drift.js`
+  (`npm run doctor:env`, wired as `pretest:all`, commit 57cd0b87) so drift fails in seconds.
+  The first full run after the fix (59m6s) booted all phases and exposed the backlog hidden
+  by the red month: jest 3713 pass / **1 fail**, E2E **34 failed tests** across 7 phases
+  (light 23, stage5 2, mesh-isolated 1, find-similar 1, isolated 1, mass 2, phone-path 4);
+  mesh-batch, heavy-staged and cross-browser passed. Every item below needs a flake-vs-real
+  verdict (solo rerun evidence) before any fix; do not weaken assertions to make them pass.
+  - [ ] **OPEN-94a — Unit: `app-shell-controls.test.ts` "reveals Settings when the identity
+    arrives after the first tap"** fails in isolation (expected `chatrooms-view` active after
+    first Settings tap with no identity). Prime suspect: the 1.0.203 "keep the prior panel
+    visible until Settings is populated" change (OPEN-92) altered the semantics the test
+    encodes. Decide which behavior is correct, then fix product or test.
+  - [ ] **OPEN-94b — TechSupport E2E trio in light phase:** `00m-techsupport-delegate-answers`,
+    `00n-techsupport-conversation-answer-flow`, `00n-techsupport-delegate-answers-cold-asker`.
+    All three exercise delegate/conversation signing paths; prime suspect is fixture drift from
+    the 2026-09-27 key rotation (pre-signed delegate/greeting artifacts), not product logic.
+  - [ ] **OPEN-94c — Stage2/3 two-party interaction cluster (20 light-phase tests):**
+    74-talk-row-traceback ×3, 78-dm-inbox-affordance, 81-graph-traversal, 60/61 peer layout +
+    appbar, 21c-reputation-vouch, 88-asymmetric-attachment, 95-device-sync, 94/96 dating match,
+    89-buy-sell-cross-talk, 00f-ux, 00g-age-gating, 09-cross-navigation, 13-me-filters,
+    79-dm-inbox-multi-sender, 54-chatroom-map, 82-list-pins. Breadth suggests a shared
+    interaction/transport cause or wave-1 (light+stage5 concurrent) contention rather than 20
+    independent bugs — solo light-phase rerun is the first evidence gate.
+  - [ ] **OPEN-94d — Heavy/timing phases:** stage5 (starter-tags, 15-nearby-audience-shapes),
+    mesh-isolated (02-mesh-broadcast find-similar), find-similar (chatbot auto-matches),
+    isolated-02 mixed saturation, mass (05 layout tour, 06 map showcase), phone-path ×4
+    (02 talk-match-chat journey — 120s conversation predicate timeout; 04 mismatch-block;
+    07b reconnect — "WebRTC connection replaced" on 2 of 4 attempts; 09 tag-graph-tour).
+    Triage each: contention flake vs genuine regression (per skill: failing all retries =
+    genuine).
 
 - [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
   Airplane mode with Wi-Fi and Bluetooth re-enabled did not make two phones find each other.
