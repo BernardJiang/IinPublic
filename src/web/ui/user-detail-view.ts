@@ -374,7 +374,8 @@ export function openPeerDetailView(
     fresh.addEventListener('click', async () => {
       const inp = document.getElementById('peer-dm-input') as HTMLTextAreaElement | null;
       const text = inp?.value?.trim() ?? '';
-      if (!text) return;
+      // An empty Send takes the user to the composer rather than doing nothing visible.
+      if (!text) { inp?.focus(); return; }
       fresh.disabled = true;
       fresh.textContent = `⏳ ${deps.text('peerSending')}`;
       try {
@@ -482,8 +483,30 @@ function computeLocalStats(peerId: string): PeerRelationshipStats {
 
 async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserDetailViewDeps): Promise<void> {
   const statsEl = document.getElementById('peer-stats-section');
+  // Still this person's page? A slow read must not paint over someone else's.
+  const stillShown = (): boolean => shownPeerDetailId() === peerId;
   try {
+    // P0 step 5: relationship stats derived locally — no server call. Shown at once: the block
+    // status (hub, up to 5 s) and the public profile (up to 8.5 s of retries, forever-missing for
+    // TechSupport) used to keep the whole section on "Loading…" (gui-responsiveness-audit.md).
+    const stats = computeLocalStats(peerId);
+    const render = (publicUser: any): void => {
+      if (!stillShown()) return;
+      const subtitleEl = document.getElementById('peer-detail-subtitle');
+      if (subtitleEl) subtitleEl.textContent = buildStatsSubtitle(peerName, stats, deps);
+      if (statsEl) {
+        statsEl.innerHTML = renderProfileHtml(publicUser, deps, peerId) +
+          renderTransportHtml(deps) +
+          renderStatsHtml(stats, deps);
+      }
+    };
+    render(null);
+    renderMatchedConversations(peerId, deps);
+
+    // Public profile still fetched from Gun (local Gun cache, not a REST endpoint).
+    const profileRead = readPublicProfileFoundation(peerId, deps).catch(() => null);
     const blockStatus = await readPeerBlockStatus(peerId, deps);
+    if (!stillShown()) return;
     if (blockStatus.blockedBy) {
       const subtitleEl = document.getElementById('peer-detail-subtitle');
       if (subtitleEl) subtitleEl.textContent = `${peerName} · blocked`;
@@ -493,28 +516,11 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
       await applySendButtonFromBlockStatus(peerId, deps, blockStatus);
       return;
     }
-    // P0 step 5: relationship stats derived locally — no server call.
-    const stats = computeLocalStats(peerId);
-
-    // Public profile still fetched from Gun (local Gun cache, not a REST endpoint).
-    const publicUser = await readPublicProfileFoundation(peerId, deps);
-
-    const subtitleEl = document.getElementById('peer-detail-subtitle');
-    if (subtitleEl) {
-      subtitleEl.textContent = buildStatsSubtitle(peerName, stats, deps);
-    }
-
-    if (statsEl) {
-      statsEl.innerHTML = renderProfileHtml(publicUser, deps, peerId) +
-        renderTransportHtml(deps) +
-        renderStatsHtml(stats, deps);
-    }
-    await applySendButtonFromBlockStatus(peerId, deps);
-
-    // Render matched conversations below stats
-    renderMatchedConversations(peerId, deps);
+    await applySendButtonFromBlockStatus(peerId, deps, blockStatus);
+    const publicUser = await profileRead;
+    if (publicUser) render(publicUser);
   } catch {
-    if (statsEl) statsEl.innerHTML = `<div style="padding:12px;color:#c00;">${deps.text('peerStatsUnavailable')}</div>`;
+    if (statsEl && stillShown()) statsEl.innerHTML = `<div style="padding:12px;color:#c00;">${deps.text('peerStatsUnavailable')}</div>`;
     await applySendButtonFromBlockStatus(peerId, deps);
   }
 }

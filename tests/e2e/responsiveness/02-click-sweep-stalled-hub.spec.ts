@@ -25,6 +25,7 @@ import { webAppURLStableChatroom } from '../helpers/ports';
 import { dismissNotificationOverlays } from '../helpers/durable-ui';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../helpers/settings-nav';
 import {
+  closeAppOverlays,
   formatSweepFailures,
   installMainThreadProbe,
   failHub,
@@ -75,16 +76,8 @@ function judge(reports: SweepReport[]): { unexpected: string; known: string[]; n
 
 /** Back to a tab's top-level screen with nothing open over it. */
 async function resetTo(page: Page, view: View, settingsSection?: string): Promise<void> {
-  await page.keyboard.press('Escape').catch(() => undefined);
   // Test-only cleanup between clicks: a dialog a previous control opened is not under test here.
-  await page.evaluate(() => {
-    document.querySelectorAll('.modal-overlay, .notification, .item-details-popup').forEach((element) => element.remove());
-    document.getElementById('app-bar-overflow-menu')?.style.setProperty('display', 'none');
-  });
-  for (const back of ['#back-from-conversation', '#back-from-media', '#back-from-peer-detail']) {
-    const button = page.locator(back);
-    if (await button.isVisible().catch(() => false)) await button.click({ timeout: 1_000 }).catch(() => undefined);
-  }
+  await closeAppOverlays(page);
   await page.locator(`.nav-btn[data-view="${view}"]`).click({ timeout: 2_000 });
   const drillBack = { chatrooms: '#back-to-chatrooms', contacts: '#back-to-contacts-list' } as Record<string, string>;
   const back = drillBack[view] ? page.locator(drillBack[view]) : null;

@@ -207,7 +207,9 @@ function bindPrimaryControls(deps: AppShellControlsDeps): void {
     sendButton.addEventListener('click', () => {
       if ((sendButton as HTMLButtonElement).disabled) return;
       const message = messageInput.value.trim();
-      if (!message || !deps.allowOutgoingMessage(message)) return;
+      // An empty Send takes the user to the composer rather than doing nothing visible.
+      if (!message) { messageInput.focus(); return; }
+      if (!deps.allowOutgoingMessage(message)) return;
       (sendButton as HTMLButtonElement).disabled = true;
       sendButton.textContent = deps.t('peerSending');
       const finish = () => {
@@ -298,6 +300,20 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
       navButtons.forEach((candidate) => candidate.classList.remove('active'));
       button.classList.add('active');
       const settingsContent = document.getElementById('settings-content');
+      // Still starting (no identity yet): open Settings anyway with an honest placeholder — leaving
+      // the previous tab (e.g. the map) on screen made the tap look ignored. The real Settings
+      // replaces it as soon as the identity is known (UIManager adopts the user and re-renders).
+      if (targetView === 'settings' && settingsContent && !settingsContent.hasChildNodes() && !deps.getCurrentUser()) {
+        const pending = document.createElement('div');
+        pending.className = 'settings-pending';
+        pending.setAttribute('data-testid', 'settings-pending');
+        pending.setAttribute('role', 'status');
+        pending.style.cssText = 'padding:24px 16px;color:var(--text-secondary);text-align:center;';
+        pending.textContent = deps.t('settingsStarting');
+        settingsContent.appendChild(pending);
+      }
+      // Identity known: the first render happens on the next task; keep the previous panel until
+      // then instead of flashing an empty white page.
       const keepPreviousPanel = targetView === 'settings' && !settingsContent?.hasChildNodes();
       if (!keepPreviousPanel) {
         viewPanels.forEach((panel) => panel.classList.remove('active'));

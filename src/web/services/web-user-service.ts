@@ -498,7 +498,7 @@ export class WebUserService {
       epub: pair.epub,
     });
     try {
-      const user = await this.getUser(userId);
+      const user = await this.readOwnUser(userId);
       this.syncPublicUserToApiBestEffort({ ...user, pub: pair.pub, epub: pair.epub });
     } catch {
       // Identity was already written to local Gun; API sync remains best-effort.
@@ -634,6 +634,26 @@ export class WebUserService {
     return normalizeKnownPeople(privateData?.knownPeople).find((known) => known.userId === otherUserId)?.identityPub;
   }
 
+  private currentUserProvider: (() => User | null | undefined) | null = null;
+
+  /** The app's in-memory signed-in user, so this device's own record never depends on the hub. */
+  setCurrentUserProvider(provider: () => User | null | undefined): void {
+    this.currentUserProvider = provider;
+  }
+
+  /**
+   * This device's own user, for read-modify-write of its private data. Uses the app's in-memory
+   * user (re-merged with the private store, which owns the private fields) instead of re-reading
+   * `users/<me>`: offline that read can miss (getUser throws after 8 s) or come back without
+   * `pub` — then the private data is not merged and the write is silently skipped. Either way a
+   * block or contact saved offline was lost (docs/testing/gui-responsiveness-audit.md F5/F17).
+   */
+  private async readOwnUser(userId: string): Promise<User> {
+    const current = this.currentUserProvider?.();
+    if (current && current.id === userId && current.pub) return this.mergePrivateUserData({ ...current });
+    return this.getUser(userId);
+  }
+
   async getUser(userId: string): Promise<User> {
     // The local graph can hold a partial users/<id> node (e.g. offline, before the full record ever
     // synced); never let its Gun metadata or a missing id leak out — callers merge, not replace.
@@ -689,7 +709,7 @@ export class WebUserService {
     /** The caller's current copy of this user, when it has one; otherwise it is read from Gun. */
     current?: User,
   ): Promise<User> {
-    const user = current ?? await this.getUser(userId);
+    const user = current ?? await this.readOwnUser(userId);
     const nextUser: User = {
       ...user,
       languages: updates.languages,
@@ -801,7 +821,7 @@ export class WebUserService {
   ): Promise<void> {
     try {
       await this.withPrivateDataLock(async () => {
-        const u = await this.getUser(userId);
+        const u = await this.readOwnUser(userId);
         const existing = (u.knownPeople || []).find((known) => known.userId === targetId);
         if (existing?.identityPub && extras?.identityPub && existing.identityPub !== extras.identityPub) {
           throw new Error('Contact identity key changed; remove and verify the contact before adding again');
@@ -831,7 +851,7 @@ export class WebUserService {
   async removeKnownPerson(userId: string, targetId: string): Promise<void> {
     try {
       await this.withPrivateDataLock(async () => {
-        const u = await this.getUser(userId);
+        const u = await this.readOwnUser(userId);
         const list = (u.knownPeople || []).filter((k) => k.userId !== targetId);
         await this.putPrivateUserData({ ...u, knownPeople: list });
       });
@@ -849,7 +869,7 @@ export class WebUserService {
   async recordReceivedBlockSignal(userId: string, targetIdentity: string, signalId: string): Promise<void> {
     try {
       await this.withPrivateDataLock(async () => {
-        const u = await this.getUser(userId);
+        const u = await this.readOwnUser(userId);
         const next = recordBlockSignal(u.receivedBlockSignals, targetIdentity, signalId);
         await this.putPrivateUserData({ ...u, receivedBlockSignals: next });
       });
@@ -872,7 +892,7 @@ export class WebUserService {
   ): Promise<void> {
     try {
       await this.withPrivateDataLock(async () => {
-        const u = await this.getUser(userId);
+        const u = await this.readOwnUser(userId);
         const next = mergeSharedBlockSignal(u.sharedBlockSignals, targetIdentity, groupId, signalId);
         await this.putPrivateUserData({ ...u, sharedBlockSignals: next });
       });
@@ -949,7 +969,7 @@ export class WebUserService {
     this.blockIntent.set(targetId, blocked);
     if (this.getApiBase()) {
       const ids = await this.withPrivateDataLock(async () => {
-        const user = await this.getUser(userId);
+        const user = await this.readOwnUser(userId);
         const next = blocked
           ? Array.from(new Set([...(user.blockedUserIds || []), targetId]))
           : (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
@@ -961,17 +981,22 @@ export class WebUserService {
     }
     // No application service: the block-pair and reputation edges are written to Gun directly.
     return await this.withPrivateDataLock(async () => {
-      const user = await this.getUser(userId);
+      const user = await this.readOwnUser(userId);
       const wasBlocked = !!user.blockedUserIds?.includes(targetId);
       const blockedUserIds = blocked
         ? Array.from(new Set([...(user.blockedUserIds || []), targetId]))
         : (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
       if (wasBlocked !== blocked) {
-        const targetUser = await this.getUser(targetId);
-        await this.gunService.put(`users/${targetId}/reputation`, {
-          ...targetUser.reputation,
-          blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + (blocked ? 1 : -1)),
-        });
+        // Best effort: the target's public counter must never stop the block itself being saved.
+        try {
+          const targetUser = await this.getUser(targetId);
+          await this.gunService.put(`users/${targetId}/reputation`, {
+            ...targetUser.reputation,
+            blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + (blocked ? 1 : -1)),
+          });
+        } catch (error) {
+          console.warn(`[block] could not update ${targetId}'s block count:`, error);
+        }
       }
       await this.putNested([BLOCK_PAIRS_KEY, blockPairHash(userId, targetId)], blocked
         ? { blockerId: userId, targetId, blockedAt: new Date().toISOString() }
@@ -995,7 +1020,7 @@ export class WebUserService {
 
   async updateTalkFilters(userId: string, talkFilters: TalkIntakeFilters): Promise<void> {
     await this.withPrivateDataLock(async () => {
-      const user = await this.getUser(userId);
+      const user = await this.readOwnUser(userId);
       await this.putPublicTalkFilters(userId, talkFilters);
       await this.putPrivateUserData({ ...user, talkFilters });
     });
@@ -1013,7 +1038,7 @@ export class WebUserService {
     merge: { knownPeople?: KnownPerson[]; talkFilters?: TalkIntakeFilters },
   ): Promise<void> {
     await this.withPrivateDataLock(async () => {
-      const user = await this.getUser(userId);
+      const user = await this.readOwnUser(userId);
       if (merge.talkFilters) await this.putPublicTalkFilters(userId, merge.talkFilters);
       await this.putPrivateUserData({
         ...user,
@@ -1024,7 +1049,7 @@ export class WebUserService {
   }
 
   async updateReputationVisibility(userId: string, isHidden: boolean): Promise<void> {
-    const user = await this.getUser(userId);
+    const user = await this.readOwnUser(userId);
     await this.gunService.put(`users/${userId}/reputation`, {
       ...user.reputation,
       isHidden,

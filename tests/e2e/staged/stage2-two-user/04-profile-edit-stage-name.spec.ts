@@ -240,9 +240,7 @@ test.describe('Profile foundation', () => {
     await expect(tomMember.locator('.chatroom-member-avatar .profile-avatar-image')).toBeVisible({ timeout: 20_000 });
     await tomMember.click();
     await afterNav();
-    // Rule N2a: dismiss the auto-opened DM conversation to interact with the User layout.
-    await expect(peerPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await peerPage.click('#back-from-conversation');
+    // OPEN-94: a person link opens the person page directly (no auto-opened DM).
     await expect(peerPage.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect
       .poll(async () => peerPage.locator('#peer-stats-section').innerText(), { timeout: 10_000, intervals: [200, 400, 800] })

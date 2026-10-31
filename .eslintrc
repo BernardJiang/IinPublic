@@ -29,6 +29,7 @@
     "window": "readonly"
   },
   "rules": {
+    "prefer-const": ["error", { "ignoreReadBeforeAssign": true }],
     "@typescript-eslint/no-explicit-any": "off",
     "@typescript-eslint/no-unused-vars": [
       "warn",

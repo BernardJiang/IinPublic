@@ -25,8 +25,8 @@ import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
 import { answersLinkHtml, peopleLinkHtml, peopleWhoExchanged, bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 import { settingsStorage } from '../services/core-storage';
+import { TALKS_TAB_STATE_KEY } from './talks-tab-state';
 
-const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 const TALKS_FIRST_CHUNK_SIZE = 25;
 
 type TalkStatsMap = Record<string, { responses: number; matches: number; ignores: number }>;

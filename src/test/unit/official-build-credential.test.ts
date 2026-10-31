@@ -66,7 +66,7 @@ describe('isWellFormedCredential', () => {
     expect(isWellFormedCredential(undefined)).toBe(false);
     expect(isWellFormedCredential('not an object')).toBe(false);
     expect(isWellFormedCredential({ ...baseCredential(), verifierSignature: 'sig', schemaVersion: 2 })).toBe(false);
-    const { appVersion, ...missingAppVersion } = { ...baseCredential(), verifierSignature: 'sig' };
+    const { appVersion: _appVersion, ...missingAppVersion } = { ...baseCredential(), verifierSignature: 'sig' };
     expect(isWellFormedCredential(missingAppVersion)).toBe(false);
   });
 

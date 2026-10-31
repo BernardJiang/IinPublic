@@ -110,9 +110,9 @@ test.describe('Matched-talk threads', () => {
     await tom.waitForSelector('.chatroom-member-item', { timeout: 20_000 });
     const jerryRow = tom.locator('.chatroom-member-item').filter({ hasText: 'JerryThread' }).first();
     await expect(jerryRow).toBeVisible({ timeout: 15_000 });
+    // OPEN-94: a person link opens the person page directly (no auto-opened DM).
     await jerryRow.click();
-    await expect(tom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await tom.click('#back-from-conversation');
+    await expect(tom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
 
     const threadRow = tom.locator('[data-testid="matched-talk-thread"]');
     await expect(threadRow).toHaveCount(1);

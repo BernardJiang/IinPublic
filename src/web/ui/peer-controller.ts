@@ -180,8 +180,7 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
           .filter((candidate: any) => candidate?.otherUserId === userId)
           .sort((a: any, b: any) =>
             new Date(b.lastMessageTime || b.createdAt || 0).getTime()
-            - new Date(a.lastMessageTime || a.createdAt || 0).getTime())
-          [0] as any;
+            - new Date(a.lastMessageTime || a.createdAt || 0).getTime())[0] as any;
         return {
           mode: String(conversation?.transportMode || 'direct-p2p'),
           fallbackReason: conversation?.transportFallbackReason ?? null,

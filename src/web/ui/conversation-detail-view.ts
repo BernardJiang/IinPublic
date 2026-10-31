@@ -248,7 +248,8 @@ export function showConversationDetail(
     const sendMessage = async () => {
       if (newSendBtn?.disabled) return;
       const message = messageInput.value.trim();
-      if (!message) return;
+      // An empty Send takes the user to the composer rather than doing nothing visible.
+      if (!message) { messageInput.focus(); return; }
       // Send-path content filter (redesign §9): a blocked message is not sent
       // and the composer text is preserved for editing.
       if (!deps.allowOutgoingMessage(message)) return;

@@ -124,7 +124,9 @@ test.describe('TechSupport-mode boot authenticates with the canonical DM key (do
     await waitForTabActive(userPage, 'contacts');
     const supportContactRow = userPage.locator(`.contact-item[data-support-contact="true"][data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await supportContactRow.waitFor({ state: 'visible', timeout: 15_000 });
-    await supportContactRow.locator(".contact-item-name").click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
+    // A name tap opens the person page (OPEN-94); the chat opens from its thread row.
+    await supportContactRow.locator('.contact-item-name').click();
+    await userPage.locator('#peer-detail-overlay .peer-thread-item').first().click({ timeout: 15_000 });
     await afterNav();
     await expect(userPage.locator('#conversation-messages')).toContainText(DM_TEXT, { timeout: 20_000 });
 

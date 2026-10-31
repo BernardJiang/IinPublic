@@ -614,6 +614,35 @@ describe('WebUserService', () => {
     }
   }, 10_000);
 
+  // F5/F17: offline, this device's own public record can be unreadable (the read throws after
+  // 8 s) — a block must still be saved, from the app's in-memory user, without that read.
+  it('saves a block offline when its own public record cannot be read', async () => {
+    const me = { id: 'user-1', stageName: 'Alice', blockedUserIds: ['old'], knownPeople: [], pub: pair.pub, epub: pair.epub } as unknown as User;
+    const putPrivate = jest.fn().mockResolvedValue(undefined);
+    const gunNode = (): Record<string, jest.Mock> => ({
+      get: jest.fn(() => gunNode()),
+      put: jest.fn((_data: unknown, cb?: (ack: { ok: boolean }) => void) => cb?.({ ok: true })),
+      once: jest.fn((cb?: (data: unknown) => void) => cb?.(null)),
+    });
+    const gunService = {
+      get: jest.fn().mockRejectedValue(new Error('No data found for key: users/user-1')),
+      getPrivate: jest.fn().mockResolvedValue({ blockedUserIds: ['old'], knownPeople: [{ userId: 'friend', labels: ['friend'] }] }),
+      put: jest.fn().mockResolvedValue(undefined),
+      putPrivate,
+      getStoredPair: jest.fn(() => pair),
+      getGun: jest.fn(() => gunNode()),
+    };
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+    const service = new WebUserService(gunService as any);
+    service.setCurrentUserProvider(() => me);
+    await expect(service.blockUser('user-1', 'user-2')).resolves.toEqual(['old', 'user-2']);
+    expect(gunService.get).not.toHaveBeenCalledWith('users/user-1');
+    const saved = putPrivate.mock.calls[0][1];
+    expect(saved.blockedUserIds).toEqual(['old', 'user-2']);
+    // Private fields the app's copy did not carry are kept, not wiped.
+    expect(JSON.stringify(saved.knownPeople)).toContain('friend');
+  });
+
   it('persists block and unblock state in the public mirror and private profile data', async () => {
     const currentUser: User = {
       id: 'user-1',

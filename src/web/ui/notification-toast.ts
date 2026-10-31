@@ -80,7 +80,9 @@ export function showNotification(
   if (options?.retry) notification.dataset.retryable = 'true';
   notification.addEventListener('click', () => {
     if (document.body.contains(notification)) document.body.removeChild(notification);
-    if (isMatchNotification && options?.conversationId) {
+    // A toast about a conversation (a Match!, a new message) opens that conversation: since
+    // OPEN-94 a person link only opens the person page, which hid the message just announced.
+    if (options?.conversationId) {
       deps.openConversation(options.conversationId);
     } else if (options?.peerId) {
       deps.navigateToPerson({ type: 'person', id: options.peerId, name: options.peerName || '' });

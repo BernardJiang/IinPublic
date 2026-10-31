@@ -35,6 +35,8 @@ import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-clie
 import { BlockStatusCache } from '../services/block-status-cache';
 import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
 import { fetchWithTimeout } from '../services/fetch-with-timeout';
+import { TalkCompletionPipeline } from '../services/talk-completion-pipeline';
+import { bufferEmitsUntilReleased } from '../services/early-emit-buffer';
 import { NearbyV3Runtime, FetchNearbyV3Hub } from '../services/nearby-v3-runtime';
 import type { NearbyCountIdentity } from '../../shared/nearby-v3-card';
 import { nearbyV3AttestorKeysFromManifest, nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
@@ -486,7 +488,8 @@ export class IinPublicApp {
    * aborting delivery before local exchange bookkeeping. Keep the per-device completion
    * pipeline ordered while allowing failures to be reported without poisoning later work.
    */
-  private talkCompletionQueue: Promise<void> = Promise.resolve();
+  private readonly talkCompletions = new TalkCompletionPipeline();
+  private releaseEarlyUiEvents: () => void = () => undefined;
   private attachmentShareSentIds = new Set<string>();
   private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
   /** Cached object URLs for decrypted shared attachments, keyed by cid (L5 image preview). */
@@ -1099,6 +1102,7 @@ export class IinPublicApp {
   constructor() {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
+    this.userService.setCurrentUserProvider(() => this.currentUser);
     this.chatroomService = new WebChatroomService(this.gunService);
     this.placeChatClient = new PlaceChatClient(() => this.getBackendApiBase());
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
@@ -1184,6 +1188,7 @@ export class IinPublicApp {
       void this.deviceSyncService.enqueuePreferencesChange(user.pub || '', user.talkFilters);
     });
     this.uiManager = new UIManager();
+    this.releaseEarlyUiEvents = bufferEmitsUntilReleased(this.uiManager);
     // A link change can move my Nearby count key; that audience refresh runs in the background so
     // the linked-devices dialog never waits on the hub (stage2/73 timed out on "Removed").
     this.uiManager.setIdentityLinkHooks({
@@ -1571,6 +1576,8 @@ export class IinPublicApp {
 
     // Setup event handlers
     this.setupEventHandlers();
+    // Taps made while booting (before these handlers existed) are delivered now, not dropped.
+    this.releaseEarlyUiEvents();
     this.ensureMatchCollectionSession(this.chatroomService.getCurrentChatroomId());
 
     // Show main interface
@@ -6177,13 +6184,15 @@ export class IinPublicApp {
       : null;
     const node = nativeNode?.core ?? null;
     if (node && worker) {
-      try {
-        const result = await migrateWorkerCoreToNode(worker, node);
+      // In the background: the node serves from now on, and this copy only adds records the node
+      // lacks. On a phone whose WebView store no longer answers it failed, and was waited for, on
+      // every start (~12 s, Honor FCP 2026-10-30; gui-responsiveness-audit.md).
+      void migrateWorkerCoreToNode(worker, node).then((result) => {
         if (result.migrated) console.log(`[core] moved to the app's node: ${result.records} record(s) copied from the WebView`);
-      } catch (error) {
-        // Not marked done: it runs again at the next start. The node still serves meanwhile.
+      }).catch((error) => {
+        // Not marked done: it runs again at the next start.
         console.warn('[core] copying the WebView core to the node failed (retried next start):', error);
-      }
+      });
     }
     this.coreRequest = node ?? worker;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
@@ -6198,11 +6207,19 @@ export class IinPublicApp {
   private async finishMoveToNativeNode(): Promise<void> {
     if (!this.gunService.isNativeNode() || !this.gunService.isBridgeReady() || !this.coreRequest) return;
     const core = this.coreRequest;
+    // Before the user loads (private records must be on the node before anything rewrites them),
+    // but each WebView-store call is bounded: one that no longer answers held start-up for 45 s per
+    // request, on every start (Honor FCP 2026-10-30). A timeout fails this attempt; the next start
+    // retries.
+    const bounded = <T>(work: Promise<T>, what: string): Promise<T> => Promise.race([
+      work,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${what}: the WebView store did not answer in 6 s`)), 6_000)),
+    ]);
     try {
-      const copied = await this.gunService.copyPrivateFromWorker();
+      const copied = await this.gunService.copyPrivateFromWorker(6_000);
       const bridge = this.gunService.getBridge();
       for (const path of [IinPublicApp.DEVICE_LOCAL_USER_ID_PATH, IinPublicApp.DEVICE_LOCAL_CACHED_USER_PATH]) {
-        const value = await bridge.get(path).catch(() => null);
+        const value = await bounded(bridge.get(path), path).catch(() => null);
         if (!value || typeof value !== 'object' || await this.gunService.getDeviceLocal(path)) continue;
         const { _: _meta, ...rest } = value as Record<string, unknown>;
         await this.gunService.putDeviceLocal(path, rest);
@@ -9003,10 +9020,13 @@ export class IinPublicApp {
     this.uiManager.on(
       'talkCompleted',
       async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
-        const completion = this.talkCompletionQueue
-          .catch(() => undefined)
-          .then(() => this.handleTalkCompleted(data));
-        this.talkCompletionQueue = completion;
+        // One at a time, but the author's key is fetched before joining the line
+        // (talk-completion-pipeline.ts; gui-responsiveness-audit.md F7).
+        const authorId = String(data.talkData?.authorId || '');
+        const keyReady = authorId && authorId !== this.currentUser?.id && !data.isChatbotResponse
+          ? this.resolvePeerEpub(authorId, firstKeyHint(data.talkData?.authorEpub, data.talkData?.senderEpub))
+          : Promise.resolve();
+        const completion = this.talkCompletions.submit(String(data.talkId || ''), keyReady, () => this.handleTalkCompleted(data));
         (globalThis as any).__iinpublic_lastTalkCompletion = completion;
         try {
           await completion;

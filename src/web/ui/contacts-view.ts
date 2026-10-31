@@ -485,16 +485,11 @@ export async function openRelationshipDialog(
   document.getElementById('broadcast-preamble-modal')?.remove();
   closeRelationshipModal();
   const known = deps.getKnownPerson(userId);
+  // Open at once from what this device knows; the hub's view of the block (up to ~1.2 s, more on
+  // a hung network) updates the dialog when it arrives (gui-responsiveness-audit.md).
   let blockedByMe = deps.isBlockedByMe(userId);
   let blockedBy = false;
-  const blockStatus = await Promise.race([
-    fetchContactBlockStatus(deps, userId),
-    new Promise<{ blocked: boolean; blockedBy: boolean }>((resolve) => {
-      window.setTimeout(() => resolve({ blocked: blockedByMe, blockedBy: false }), 1_200);
-    }),
-  ]);
-  blockedByMe = blockedByMe || blockStatus.blocked;
-  blockedBy = blockStatus.blockedBy;
+  const blockStatusRead = fetchContactBlockStatus(deps, userId).catch(() => ({ blocked: blockedByMe, blockedBy: false }));
 
   const modal = document.createElement('div');
   modal.id = 'contact-relationship-modal';
@@ -604,8 +599,14 @@ export async function openRelationshipDialog(
     if (event.target === modal) close();
   });
 
+  const stillOpen = (): boolean => document.getElementById('contact-relationship-modal') === modal;
   const cached = contactDetailUserProfileCache?.userId === userId ? contactDetailUserProfileCache.publicUser : undefined;
   if (cached !== undefined) {
+    applyRelationshipModalProfileFetch(deps, blockedByMe, cached, blockedBy);
+    const status = await blockStatusRead;
+    if (!stillOpen()) return;
+    blockedByMe = blockedByMe || status.blocked;
+    blockedBy = status.blockedBy;
     applyRelationshipModalProfileFetch(deps, blockedByMe, cached, blockedBy);
     return;
   }
@@ -630,6 +631,10 @@ export async function openRelationshipDialog(
   } finally {
     window.clearTimeout(timeoutId);
   }
+  const status = await blockStatusRead;
+  if (!stillOpen()) return;
+  blockedByMe = blockedByMe || status.blocked;
+  blockedBy = blockedBy || status.blockedBy;
   applyRelationshipModalProfileFetch(deps, blockedByMe, publicUser, blockedBy);
 }
 

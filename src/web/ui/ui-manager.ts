@@ -212,8 +212,8 @@ import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
 import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
 import { getMyConversations, setMyConversations } from './my-conversations-storage';
 import { settingsStorage } from '../services/core-storage';
+import { readTalksTabState, writeTalksTabState } from './talks-tab-state';
 
-const TALKS_TAB_STATE_KEY = 'iinpublic_talks_tab_state';
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
  * banner, and is throttled to once per checkpoint per day rather than every occurrence. */
 const SAFETY_TOAST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -1254,55 +1254,34 @@ export class UIManager extends EventEmitter {
   /** Remembers the Talks tab's direction/type/sort/search/date filters and scroll position
    * across reloads — mirrors the Contacts tab's `iinpublic_contacts_tab_state` pattern. */
   private persistTalksTabState(): void {
-    try {
-      const talksScrollContainer = document.getElementById('talks-view-content');
-      settingsStorage.setItem(TALKS_TAB_STATE_KEY, JSON.stringify({
-        showIncoming: this.talksShowIncoming,
-        showOutgoing: this.talksShowOutgoing,
-        enabledTypes: Array.from(this.talksEnabledTypes),
-        sort: this.talksOutSortMode,
-        query: this.talksQuery,
-        completion: this.talksCompletionFilter,
-        outcome: this.talksOutcomeFilter,
-        dateFrom: this.talksDateFrom,
-        dateTo: this.talksDateTo,
-        scrollTop: talksScrollContainer?.scrollTop || 0,
-      }));
-    } catch {
-      /* local-only preference persistence is optional */
-    }
+    writeTalksTabState({
+      showIncoming: this.talksShowIncoming,
+      showOutgoing: this.talksShowOutgoing,
+      enabledTypes: Array.from(this.talksEnabledTypes),
+      sort: this.talksOutSortMode,
+      query: this.talksQuery,
+      completion: this.talksCompletionFilter,
+      outcome: this.talksOutcomeFilter,
+      dateFrom: this.talksDateFrom,
+      dateTo: this.talksDateTo,
+      scrollTop: document.getElementById('talks-view-content')?.scrollTop || 0,
+    });
   }
 
   private restoreTalksTabState(): void {
-    try {
-      const raw = settingsStorage.getItem(TALKS_TAB_STATE_KEY);
-      if (!raw) return;
-      const state = JSON.parse(raw) as {
-        showIncoming?: boolean;
-        showOutgoing?: boolean;
-        enabledTypes?: string[];
-        sort?: 'recent' | 'oldest' | 'latest-reply' | 'matches' | 'responses' | 'match-rate' | 'weighted' | 'title';
-        query?: string;
-        completion?: 'all' | 'unanswered' | 'answered' | 'ignored';
-        outcome?: 'all' | 'match' | 'mismatch';
-        dateFrom?: string;
-        dateTo?: string;
-      };
-      if (typeof state.showIncoming === 'boolean') this.talksShowIncoming = state.showIncoming;
-      if (typeof state.showOutgoing === 'boolean') this.talksShowOutgoing = state.showOutgoing;
-      if (Array.isArray(state.enabledTypes) && state.enabledTypes.length > 0) {
-        this.talksEnabledTypes = new Set(state.enabledTypes);
-      }
-      if (state.sort) this.talksOutSortMode = state.sort;
-      if (state.query) this.talksQuery = state.query;
-      if (state.completion) this.talksCompletionFilter = state.completion;
-      if (state.outcome) this.talksOutcomeFilter = state.outcome;
-      if (state.dateFrom) this.talksDateFrom = state.dateFrom;
-      if (state.dateTo) this.talksDateTo = state.dateTo;
-    } catch {
-      /* local-only preference persistence is optional */
-    }
+    const state = readTalksTabState();
+    if (!state) return;
+    if (typeof state.showIncoming === 'boolean') this.talksShowIncoming = state.showIncoming;
+    if (typeof state.showOutgoing === 'boolean') this.talksShowOutgoing = state.showOutgoing;
+    if (Array.isArray(state.enabledTypes) && state.enabledTypes.length > 0) this.talksEnabledTypes = new Set(state.enabledTypes);
+    if (state.sort) this.talksOutSortMode = state.sort;
+    if (state.query) this.talksQuery = state.query;
+    if (state.completion) this.talksCompletionFilter = state.completion;
+    if (state.outcome) this.talksOutcomeFilter = state.outcome;
+    if (state.dateFrom) this.talksDateFrom = state.dateFrom;
+    if (state.dateTo) this.talksDateTo = state.dateTo;
   }
+
 
   private async refreshCreatorReplies(): Promise<void> {
     if (!this.currentUserId) return;

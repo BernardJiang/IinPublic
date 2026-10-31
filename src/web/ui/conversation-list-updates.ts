@@ -233,6 +233,7 @@ export function syncConversationMessageSummary(
   ) {
     const name = deps.getPeerName(conversation.otherUserId, conversation.otherUserName);
     deps.showNotification(deps.tf('conversationNewMessage', { name }), 'info', {
+      conversationId,
       peerId: conversation.otherUserId,
       peerName: name,
     });

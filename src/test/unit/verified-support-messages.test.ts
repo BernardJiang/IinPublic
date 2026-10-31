@@ -2,6 +2,7 @@ import { filterVerifiedSupportMessages } from '../../web/ui/verified-support-mes
 import { signGreeting, signSupportAck, signOnboardingTips } from '../../shared/techsupport-greeting';
 import { signFaqBundle } from '../../shared/techsupport-faq-bundle';
 import { signFaqEntry } from '../../shared/techsupport-faq-entry';
+import { supportQuestionKey } from '../../shared/techsupport-faq';
 import SEA from 'gun/sea';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { describeWithRealTechSupportPair } from '../support/techsupport-real-pair';
@@ -213,7 +214,6 @@ describeWithRealTechSupportPair('filterVerifiedSupportMessages', (DEV_PAIR) => {
       answeredAt: '2026-09-24T00:00:00.000Z',
     };
     const built = async () => {
-      const { supportQuestionKey } = require('../../shared/techsupport-faq');
       const entry = { ...base, questionKey: supportQuestionKey(base.canonicalQuestion) };
       const signed = await signFaqEntry(entry, DEV_PAIR);
       const msg = {
@@ -239,7 +239,6 @@ describeWithRealTechSupportPair('filterVerifiedSupportMessages', (DEV_PAIR) => {
     });
 
     it('drops it when the carried record is signed by an untrusted key', async () => {
-      const { supportQuestionKey } = require('../../shared/techsupport-faq');
       const stranger = await SEA.pair();
       const entry = { ...base, questionKey: supportQuestionKey(base.canonicalQuestion) };
       const signed = await signFaqEntry(entry, stranger);

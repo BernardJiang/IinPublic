@@ -172,10 +172,9 @@ test.describe('Chatroom peer detail views', () => {
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
 
-      // Rule N2a: the click lands on the DM Conversation directly, with the shared
-      // User layout underneath; the first back pops to the User layout.
-      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-      await pageTom.click('#back-from-conversation');
+      // OPEN-94 (docs/design/nearby-and-place-chatrooms.md, "Four tabs as graph views"): a person
+      // link opens the relationship (the person page) under Contacts; Message is an explicit action.
+      await expect(pageTom.locator('#conversation-detail-overlay')).toBeHidden();
 
       // Peer detail (User layout) underneath
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
@@ -206,9 +205,7 @@ test.describe('Chatroom peer detail views', () => {
       const jerryItem = pageTom.locator(`.chatroom-member-item[data-user-id="${jerryId}"]`);
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
-      // N2a: dismiss the auto-opened DM conversation to use the User layout composer.
-      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-      await pageTom.click('#back-from-conversation');
+      // OPEN-94: a person link opens the person page directly (no auto-opened DM).
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
 
       const message = `Manual direct hello ${Date.now()}`;
@@ -281,9 +278,7 @@ test.describe('Chatroom peer detail views', () => {
       await expect(jerryItem).toBeVisible({ timeout: 15_000 });
       await jerryItem.click();
 
-      // N2a: dismiss the auto-opened DM conversation first.
-      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-      await pageTom.click('#back-from-conversation');
+      // OPEN-94: a person link opens the person page directly (no auto-opened DM).
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
       const hasHistory = await pageTom
         .locator('.peer-history-item')
@@ -379,9 +374,7 @@ test.describe('Chatroom peer detail views', () => {
       await expect(jerryItem).toBeVisible({ timeout: 30_000 });
       await jerryItem.click();
 
-      // N2a: dismiss the auto-opened DM conversation to use the User layout.
-      await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-      await pageTom.click('#back-from-conversation');
+      // OPEN-94: a person link opens the person page directly (no auto-opened DM).
       await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
 
       // Auto mode should be checked by default

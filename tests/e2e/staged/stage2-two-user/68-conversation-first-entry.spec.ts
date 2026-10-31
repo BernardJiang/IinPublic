@@ -1,13 +1,9 @@
 /**
- * Conversation-first entry (redesign §5/§7 rule N2a, T8) — chatroom member row only.
- * Clicking a member row opens the default DM Conversation directly with the shared
- * User layout underneath; the back chain is Conversation → User layout → opener.
- *
- * The Contacts-tab row no longer follows N2a (contacts-view.ts tap-target split,
- * docs/TODO.md): a contact row click lands on the User layout directly, and the DM
- * thread is reached from there via its thread row. Both entry points still resolve
- * to the SAME pair thread (same conv_pair conversation id) once the conversation is
- * actually opened.
+ * Person-first entry (OPEN-94, docs/design/nearby-and-place-chatrooms.md "Four tabs as graph
+ * views"; superseded redesign rule N2a). A chatroom member row opens the person page (the shared
+ * User layout) — not the conversation; Message is an explicit action there. The back chain is
+ * Conversation → User layout → opener. The Contacts-tab row lands on the same User layout, and
+ * both entry points resolve to the SAME pair thread (same conv_pair conversation id).
  */
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -21,7 +17,7 @@ import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 test.describe.configure({ timeout: 120_000 });
 
-test.describe('Conversation-first entry (N2a)', () => {
+test.describe('Person-first entry (OPEN-94)', () => {
   let browserTom: Browser;
   let browserJerry: Browser;
   let contextTom: BrowserContext | undefined;
@@ -65,7 +61,7 @@ test.describe('Conversation-first entry (N2a)', () => {
     return { context, page };
   }
 
-  test('member click lands on ⟨Conv⟩; back chain pops ⟨User⟩ then opener; contact entry reaches the same thread via ⟨User⟩', async () => {
+  test('member click lands on ⟨User⟩; Message opens ⟨Conv⟩; back chain pops ⟨User⟩ then opener; contact entry reaches the same thread', async () => {
     ({ context: contextTom, page: pageTom } = await bootstrap(browserTom, 'TomEntry'));
     ({ context: contextJerry, page: pageJerry } = await bootstrap(browserJerry, 'JerryEntry'));
     const tom = pageTom!;
@@ -77,20 +73,24 @@ test.describe('Conversation-first entry (N2a)', () => {
     await expect(jerryRow).toBeVisible({ timeout: 15_000 });
     await jerryRow.click();
 
-    // ⟨Conv⟩ opens directly, ⟨User⟩ layout sits underneath (two levels pushed at once).
+    // ⟨User⟩ opens; the conversation does not open by itself.
+    await expect(tom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+    await expect(tom.locator('#conversation-detail-overlay')).toBeHidden();
+    await expect(tom.locator('#peer-detail-name')).toContainText('JerryEntry');
+
+    // Message is explicit: send a DM from the person page, then open its thread.
+    const dmText = `entry dm ${Date.now()}`;
+    await tom.locator('#peer-dm-input').fill(dmText);
+    await tom.locator('#peer-dm-send-btn').click();
+    await expect(tom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
+    await tom.locator('[data-testid="dm-thread-entry"]').click({ timeout: 15_000 });
     await expect(tom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await expect(tom.locator('#peer-detail-overlay')).toBeVisible();
     await expect(tom.locator('#conversation-user-name')).toContainText('JerryEntry');
     // The DM thread carries no talk scope.
     await expect(tom.locator('#conversation-thread-scope')).toBeHidden();
-
-    // Send a DM so the pair conversation exists on both sides.
-    const dmText = `entry dm ${Date.now()}`;
-    await tom.locator('#conversation-message-input').fill(dmText);
-    await tom.locator('#send-conversation-message').click();
     await expect(tom.locator('#conversation-messages')).toContainText(dmText, { timeout: 20_000 });
 
-    // ── Back chain (N2a): Conversation → User layout → opener (room detail) ──
+    // ── Back chain: Conversation → User layout → opener (room detail) ──
     await tom.click('#back-from-conversation');
     await expect(tom.locator('#conversation-detail-overlay')).toBeHidden();
     await expect(tom.locator('#peer-detail-overlay')).toBeVisible();

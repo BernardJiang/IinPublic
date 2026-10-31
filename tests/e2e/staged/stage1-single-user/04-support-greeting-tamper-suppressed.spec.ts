@@ -63,7 +63,9 @@ test.describe('TechSupport — tampered greeting suppressed, never rendered (doc
     await waitForTabActive(page, 'contacts');
     const supportContactRow = page.locator(`.contact-item[data-support-contact="true"][data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await supportContactRow.waitFor({ state: 'visible', timeout: 15_000 });
-    await supportContactRow.locator(".contact-item-name").click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
+    // A name tap opens the person page (OPEN-94); the chat opens from its thread row.
+    await supportContactRow.locator(".contact-item-name").click();
+    await page.locator('#peer-detail-overlay .peer-thread-item').first().click({ timeout: 15_000 });
     await afterNav();
     await expect(page.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
 

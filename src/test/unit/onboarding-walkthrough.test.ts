@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+import fs from 'fs';
+import path from 'path';
 import { showWalkthroughDialog } from '../../web/ui/onboarding-walkthrough';
 
 const text = (_key: string, fallback?: string): string => fallback ?? _key;
@@ -65,7 +67,7 @@ describe('onboarding walkthrough', () => {
 });
 
 describe('walkthrough decorative animation (OPEN-39)', () => {
-  const css = require('fs').readFileSync(require('path').resolve(__dirname, '../../web/styles/main.css'), 'utf8') as string;
+  const css = fs.readFileSync(path.resolve(__dirname, '../../web/styles/main.css'), 'utf8');
 
   it('never loops the orbit animation forever', () => {
     const rule = css.match(/\.walkthrough-orbit\s*\{[^}]*\}/)?.[0] || '';

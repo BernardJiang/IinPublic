@@ -128,7 +128,9 @@ test.describe('TechSupport is unblockable by every available route (docs/TODO.md
     await page.click('.nav-btn[data-view="contacts"]');
     await waitForTabActive(page, 'contacts');
     await expect(supportRow).toBeVisible({ timeout: 15_000 });
-    await supportRow.locator('.contact-item-name').click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
+    // A name tap opens the person page (by design since 1a77307e); the chat opens from its thread row.
+    await supportRow.locator('.contact-item-name').click();
+    await page.locator('#peer-detail-overlay .peer-thread-item').first().click({ timeout: 15_000 });
     await afterAction();
     await expect(page.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
 

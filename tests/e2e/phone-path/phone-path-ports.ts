@@ -13,6 +13,9 @@ export const PHONE_PATH_SPEC_PORTS = {
   restartPhone: 18190,
   offlinePhone: 18191,
   deadHub: 18199,
+  /** Accepts connections and never answers: a hung network, not a refused one. */
+  hungHub: 18198,
+  hungHubPhone: 18192,
 } as const;
 
 export type PhonePathOrigin = keyof typeof PHONE_PATH_PORTS;

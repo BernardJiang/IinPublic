@@ -1358,12 +1358,21 @@ export class WebGunService extends EventEmitter {
    * Copies the WebView worker's private records to the app's node (OPEN-91 P5): each decrypted by
    * the worker, re-encrypted here, stored on the node unless it already has that record.
    */
-  async copyPrivateFromWorker(): Promise<number> {
+  async copyPrivateFromWorker(workerCallTimeoutMs = 45_000): Promise<number> {
     if (!this.nativeNode || !this.bridgeReady || !this.seaPair) return 0;
+    // Each WebView-store call gives up after `workerCallTimeoutMs`: a store that no longer answers
+    // must fail this attempt quickly rather than hold start-up (gui-responsiveness-audit.md).
+    const bounded = <T>(work: Promise<T>, what: string): Promise<T> => Promise.race([
+      work,
+      new Promise<T>((_, reject) => setTimeout(
+        () => reject(new Error(`${what}: the WebView store did not answer in ${workerCallTimeoutMs} ms`)),
+        workerCallTimeoutMs,
+      )),
+    ]);
     let copied = 0;
-    for (const key of await this.bridge.privateKeys()) {
+    for (const key of await bounded(this.bridge.privateKeys(), 'privateKeys')) {
       if (await this.nativeNode.core({ name: 'private.get', key })) continue;
-      const value = await this.bridge.getPrivate(key);
+      const value = await bounded(this.bridge.getPrivate(key), `private ${key}`);
       if (value === null || value === undefined) continue;
       await this.putPrivate(key, value);
       copied += 1;

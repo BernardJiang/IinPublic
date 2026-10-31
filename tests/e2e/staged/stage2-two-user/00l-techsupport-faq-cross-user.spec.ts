@@ -80,7 +80,9 @@ test.describe('TechSupport FAQ: a different user gets the same question auto-ans
     await afterNav();
     const tomSupportRow = tomPage.locator(`.contact-support-item[data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await expect(tomSupportRow).toBeVisible({ timeout: 15_000 });
-    await tomSupportRow.locator('.contact-item-name').click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
+    // A name tap opens the person page (OPEN-94); the chat opens from its thread row.
+    await tomSupportRow.locator('.contact-item-name').click();
+    await tomPage.locator('#peer-detail-overlay .peer-thread-item').first().click({ timeout: 15_000 });
     await expect(tomPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
 
     const question = `Why does my warp coil hum at ${Date.now()} Hz?`;
@@ -121,7 +123,9 @@ test.describe('TechSupport FAQ: a different user gets the same question auto-ans
     await waitForTabActive(jerryPage, 'contacts');
     const jerrySupportRow = jerryPage.locator(`.contact-support-item[data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await expect(jerrySupportRow).toBeVisible({ timeout: 15_000 });
-    await jerrySupportRow.locator('.contact-item-name').click(); // tap the name — row tap alone no longer opens the DM (contacts-view.ts tap-target split)
+    // A name tap opens the person page (OPEN-94); the chat opens from its thread row.
+    await jerrySupportRow.locator('.contact-item-name').click();
+    await jerryPage.locator('#peer-detail-overlay .peer-thread-item').first().click({ timeout: 15_000 });
     await expect(jerryPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(jerryPage.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
 

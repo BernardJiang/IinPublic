@@ -13,7 +13,7 @@
  *    reaction (any DOM change outside the ignored background regions, a focus change, a
  *    browser dialog, a popup, a download or a file chooser) within a deadline.
  */
-import { expect, type Locator, type Page, type Route } from '@playwright/test';
+import { expect, type BrowserContext, type Locator, type Page, type Route } from '@playwright/test';
 import { gunPort } from './ports';
 
 /** Visible reaction deadline for a tap. Above ~1 s a user taps again or thinks the app froze. */
@@ -121,8 +121,8 @@ export async function stallHubPath(page: Page, match: RegExp): Promise<HubFaultH
  * Install before `goto`. Records the longest gap between 50 ms heartbeat ticks and every long
  * task (>50 ms) since the last `readMainThreadProbe(page, { reset: true })`.
  */
-export async function installMainThreadProbe(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+export async function installMainThreadProbe(target: Page | BrowserContext): Promise<void> {
+  await target.addInitScript(() => {
     const w = window as unknown as {
       __uiProbe?: { maxGap: number; last: number; longTasks: number[]; reset: () => void };
     };
@@ -242,7 +242,9 @@ async function armMutationWatch(page: Page, target: Locator, ignoredRoots: strin
       return !!el && ignored.some((selector) => !!el.closest(selector));
     };
     w.__uiClickWatch?.observer.disconnect();
-    const el = element as Element | null;
+    // A label's reaction is its control's tick (a label wrapping a checkbox or radio).
+    const tapped = element as Element | null;
+    const el = tapped instanceof HTMLLabelElement ? (tapped.control ?? tapped) : tapped;
     const watch: ClickWatchShape = {
       observer: null as unknown as MutationObserver,
       firstAt: null, evidence: null, t0: performance.now(),
@@ -431,8 +433,11 @@ export const SWEEP_DENYLIST = [
   'a[download]',
   '[disabled]',
   '[aria-disabled="true"]',
-  // Re-selecting the selected radio is correctly a no-op.
+  // Re-selecting the selected radio is correctly a no-op (directly or through its label).
   'input[type="radio"]:checked',
+  'label:has(> input[type="radio"]:checked)',
+  // Hidden from people (and screen readers) on purpose.
+  '[aria-hidden="true"]',
 ];
 
 export interface SweepFailure {
@@ -463,7 +468,11 @@ async function listClickableKeys(page: Page, scope: string, deny: string[]): Pro
       const visible = (element: Element): boolean => {
         const style = getComputedStyle(element);
         if (style.visibility === 'hidden' || style.display === 'none' || style.pointerEvents === 'none') return false;
+        // Visually-hidden controls (opacity 0, clipped) are not something a user can tap.
+        if (Number(style.opacity) === 0 || style.clipPath === 'inset(50%)' || style.clip === 'rect(0px, 0px, 0px, 0px)') return false;
         const rect = element.getBoundingClientRect();
+        // Parked off-screen (left: -9999px) is hidden from the user, like display: none.
+        if (rect.right <= 0 || rect.bottom <= 0) return false;
         return rect.width > 1 && rect.height > 1;
       };
       const pathKey = (element: Element): string => {
@@ -480,14 +489,25 @@ async function listClickableKeys(page: Page, scope: string, deny: string[]): Pro
         }
         return parts.join(' > ');
       };
+      // Rows and cards are often plain elements with a click handler: they show it with
+      // cursor: pointer. Counted when set on the element itself, or not inherited from a parent.
+      const explicitPointer = (element: Element): boolean => (element as HTMLElement).style?.cursor === 'pointer';
+      const isClickable = (element: Element): boolean => {
+        if (element.matches(clickable) || explicitPointer(element)) return true;
+        if (getComputedStyle(element).cursor !== 'pointer') return false;
+        const parent = element.parentElement;
+        return !parent || getComputedStyle(parent).cursor !== 'pointer';
+      };
       const out: Array<{ key: string; label: string }> = [];
       const seen = new Set<string>();
-      for (const element of Array.from(root.querySelectorAll(clickable))) {
+      for (const element of Array.from(root.querySelectorAll('*')).filter(isClickable)) {
         if (!visible(element)) continue;
         if (denied.some((selector) => element.matches(selector) || !!element.closest(selector))) continue;
-        // A nested clickable inside another clickable (icon span inside a button) is the same tap.
-        const outer = element.parentElement?.closest(clickable);
-        if (outer && root.contains(outer) && outer !== element) continue;
+        // A nested clickable inside another clickable (an icon inside a button) is the same tap —
+        // unless it declares its own pointer (a name link inside a row is a different action).
+        let outer = element.parentElement;
+        while (outer && root.contains(outer) && !isClickable(outer)) outer = outer.parentElement;
+        if (outer && root.contains(outer) && !explicitPointer(element) && !element.matches('button, a[href], input, select, [role="button"]')) continue;
         const key = pathKey(element);
         if (seen.has(key)) continue;
         seen.add(key);
@@ -537,10 +557,29 @@ export async function sweepClickables(
     const target = page.locator(control.key).first();
     if (!(await target.isVisible().catch(() => false))) continue;
     if (await target.isDisabled().catch(() => false)) continue;
-    const result = await clickAndMeasure(page, target, {
+    // Selected since discovery (e.g. through its label): selecting it again is correctly a no-op.
+    const alreadySelected = await target.evaluate((el) => {
+      const input = el instanceof HTMLLabelElement ? el.control : el;
+      if (input instanceof HTMLInputElement && input.type === 'radio' && input.checked) return true;
+      // The selected half of a segmented switch (Map | List): pressing it again is a no-op.
+      return el.matches('.chatroom-view-mode-btn[aria-pressed="true"]');
+    }).catch(() => false);
+    if (alreadySelected) continue;
+    let result = await clickAndMeasure(page, target, {
       ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}),
       ...(options.ignoredMutationRoots ? { ignoredMutationRoots: options.ignoredMutationRoots } : {}),
     });
+    if (!result.clicked && /detached|not answering/.test(result.evidence ?? '')) {
+      // A list that re-sorted under the click (positional keys): try the control once more from a
+      // fresh starting screen; if it no longer exists there, it is gone, not dead.
+      await options.restore();
+      const again = page.locator(control.key).first();
+      if (!(await again.isVisible().catch(() => false))) continue;
+      result = await clickAndMeasure(page, again, {
+        ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}),
+        ...(options.ignoredMutationRoots ? { ignoredMutationRoots: options.ignoredMutationRoots } : {}),
+      });
+    }
     report.clicked += 1;
     report.responses.push(
       `${control.key} — ${result.via ?? (result.lateMs !== null ? `LATE ${result.lateMs} ms` : 'NONE')}`
@@ -584,4 +623,20 @@ export function formatSweepFailures(reports: SweepReport[]): string {
     }
   }
   return lines.join('\n');
+}
+
+/**
+ * Back to a plain tab screen between sweep clicks: dismiss dialogs a previous control opened and
+ * leave the full-screen person / conversation pages (they cover the bottom nav by design).
+ */
+export async function closeAppOverlays(page: Page): Promise<void> {
+  await page.keyboard.press('Escape').catch(() => undefined);
+  await page.evaluate(() => {
+    document.querySelectorAll('.modal-overlay, .notification, .item-details-popup, [id$="-modal"]').forEach((element) => element.remove());
+    document.getElementById('app-bar-overflow-menu')?.style.setProperty('display', 'none');
+  });
+  for (const back of ['#back-from-media', '#back-from-conversation', '#back-from-peer-detail']) {
+    const button = page.locator(back);
+    if (await button.isVisible().catch(() => false)) await button.click({ timeout: 1_000 }).catch(() => undefined);
+  }
 }

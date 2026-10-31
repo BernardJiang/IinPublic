@@ -116,9 +116,7 @@ test.describe('Blocking system — block stops delivery', () => {
     const jerryMember = pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryMember).toBeVisible({ timeout: 15000 });
     await jerryMember.click();
-    // N2a: dismiss the auto-opened DM conversation first.
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
+    // OPEN-94: a person link opens the person page directly (no auto-opened DM).
     await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#peer-send-talks-btn')).toBeDisabled({ timeout: 10000 });
     await expect(pageTom.locator('#peer-block-user-btn')).toContainText('Unblock User');
