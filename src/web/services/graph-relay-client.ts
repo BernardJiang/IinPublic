@@ -1,3 +1,8 @@
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 15 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 15_000);
+
 /**
  * HTTP fallback for a small allowlist of Gun paths that must reach a real cross-device peer even
  * when this device is a native/embedded build (Android/iOS/Electron, `src/node-app/embedded-node.ts`).
@@ -44,7 +49,7 @@ function relayUrl(apiBase: string, path: string): string {
 /** Best-effort — never throws. The caller's own Gun write already applied to its local graph. */
 export async function putGraphRelay(apiBase: string, path: string, data: unknown): Promise<void> {
   try {
-    await fetch(relayUrl(apiBase, path), {
+    await boundedFetch(relayUrl(apiBase, path), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data }),
@@ -57,7 +62,7 @@ export async function putGraphRelay(apiBase: string, path: string, data: unknown
 /** Best-effort — resolves to `null` (never throws) on any failure. */
 export async function getGraphRelay<T = unknown>(apiBase: string, path: string): Promise<T | null> {
   try {
-    const response = await fetch(relayUrl(apiBase, path));
+    const response = await boundedFetch(relayUrl(apiBase, path));
     if (!response.ok) return null;
     const body = (await response.json()) as { data?: T | null };
     return body.data ?? null;

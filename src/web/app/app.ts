@@ -34,6 +34,7 @@ import { WebTalkService } from '../services/web-talk-service';
 import { fetchActiveRooms, getRoomListSort } from '../services/active-rooms-client';
 import { BlockStatusCache } from '../services/block-status-cache';
 import { isPageHidden, throttleWhileHidden } from '../services/throttle-while-hidden';
+import { fetchWithTimeout } from '../services/fetch-with-timeout';
 import { NearbyV3Runtime, FetchNearbyV3Hub } from '../services/nearby-v3-runtime';
 import type { NearbyCountIdentity } from '../../shared/nearby-v3-card';
 import { nearbyV3AttestorKeysFromManifest, nearbyV3ConfigFromManifest } from '../../shared/nearby-v3-config';
@@ -1337,7 +1338,9 @@ export class IinPublicApp {
     void durableChatbotMemory.loadState().then((restored) => {
       if (restored) setExactChatbotMemory(restored);
     }).catch(() => {});
-    await this.syncConversationTransportFromServer();
+    // Not awaited: one hung request here used to keep boot (and every handler registered after
+    // it) from ever finishing (docs/testing/gui-responsiveness-audit.md F1).
+    void this.syncConversationTransportFromServer();
     this.initLedgerTransportHooks();
 
     // Phase E: initialize ledger after SEA keypair is established
@@ -2199,7 +2202,7 @@ export class IinPublicApp {
       const base = this.getBackendApiBase();
       // Our own key keeps our expired Place listed for us.
       const creatorPub = this.gunService.getStoredPair()?.pub;
-      const res = await fetch(`${base}/api/chatrooms${creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : ''}`);
+      const res = await fetchWithTimeout(`${base}/api/chatrooms${creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : ''}`);
       if (!res.ok) return;
       const rows = (await res.json()) as Array<{
         id: string;
@@ -2720,7 +2723,7 @@ export class IinPublicApp {
     if (!me?.id) return null;
     try {
       const base = this.getBackendApiBase();
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `${base}/api/users/${encodeURIComponent(me.id)}/block-status/${encodeURIComponent(peerId)}`,
         { cache: 'no-store' },
       );
@@ -2737,7 +2740,7 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return false;
     try {
       const base = this.getBackendApiBase();
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `${base}/api/users/${encodeURIComponent(this.currentUser.id)}?viewerId=${encodeURIComponent(this.currentUser.id)}`,
         { cache: 'no-store' },
       );
@@ -2876,29 +2879,35 @@ export class IinPublicApp {
         isDiscoveryAllowed: () => this.hubDiscoveryAllowedNow(),
         ...(pair.epub ? { epub: String(pair.epub) } : {}),
       });
-      const peers = !this.hubDiscoveryAllowedNow() ? [] : await this.presenceClient.fetchNearby(
-        this.currentUser.id,
-        20,
-        this.activeExchangeRoomController?.getScope() ?? undefined,
-      );
-      // K1 item 3: TechSupport's online/away indicator is real peer presence, not a fake heartbeat —
-      // this reuses the same registry an eventual TechSupport client (K3) would heartbeat into by
-      // running the ordinary client in TechSupport mode, same as any other peer.
-      this.uiManager.setTechSupportOnlineStatus(peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID));
-      for (const peer of peers) {
-        if (peer.epub) this.peerEpubByUserId.set(peer.userId, peer.epub);
-        try {
-          await this.presenceClient.acknowledgePeer({
-            fromUserId: this.currentUser.id,
-            fromPub: String(pair.pub),
-            toUserId: peer.userId,
-            toPub: peer.pub,
-            pair,
-          });
-        } catch {
-          /* best-effort peer ack */
+      // The nearby lookup and per-peer acks are background work: room entry (and boot, which
+      // awaits it) must not wait one hub round trip per peer (gui-responsiveness-audit.md F1).
+      const presenceClient = this.presenceClient;
+      const userId = this.currentUser.id;
+      void (async () => {
+        const peers = !this.hubDiscoveryAllowedNow() ? [] : await presenceClient.fetchNearby(
+          userId,
+          20,
+          this.activeExchangeRoomController?.getScope() ?? undefined,
+        );
+        // K1 item 3: TechSupport's online/away indicator is real peer presence, not a fake heartbeat —
+        // this reuses the same registry an eventual TechSupport client (K3) would heartbeat into by
+        // running the ordinary client in TechSupport mode, same as any other peer.
+        this.uiManager.setTechSupportOnlineStatus(peers.some((peer) => peer.userId === TECHSUPPORT_ROOT_USER_ID));
+        for (const peer of peers) {
+          if (peer.epub) this.peerEpubByUserId.set(peer.userId, peer.epub);
+          try {
+            await presenceClient.acknowledgePeer({
+              fromUserId: userId,
+              fromPub: String(pair.pub),
+              toUserId: peer.userId,
+              toPub: peer.pub,
+              pair,
+            });
+          } catch {
+            /* best-effort peer ack */
+          }
         }
-      }
+      })().catch((err) => console.warn('P2P presence lookup failed (non-fatal):', err));
     } catch (err) {
       console.warn('P2P presence init failed (non-fatal):', err);
     }
@@ -3115,7 +3124,7 @@ export class IinPublicApp {
       addGunPeer: (url) => this.gunService.addPeer(url),
       setLocalLinkIceServer,
       hubReachable: async () => {
-        const res = await fetch(`${apiBase}/api/local-link/hub-status`, { cache: 'no-store' });
+        const res = await fetchWithTimeout(`${apiBase}/api/local-link/hub-status`, { cache: 'no-store' });
         if (!res.ok || ((await res.json()) as { reachable?: unknown }).reachable !== true) return false;
         let nativePath: { connected?: unknown; validated?: unknown; metered?: unknown; transports?: unknown } = {};
         try {
@@ -4238,7 +4247,7 @@ export class IinPublicApp {
     const apiBaseForFaq = this.getBackendApiBase();
     if (apiBaseForFaq) {
       try {
-        const res = await fetch(`${apiBaseForFaq}/api/support/faq-entries`, {
+        const res = await fetchWithTimeout(`${apiBaseForFaq}/api/support/faq-entries`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(signedEntry),
@@ -5497,7 +5506,7 @@ export class IinPublicApp {
       ref.put(invite as unknown as Record<string, unknown>);
       const apiBase = this.getBackendApiBase();
       if (!apiBase) return 'sent';
-      const response = await fetch(`${apiBase}/api/support/delegate-invites`, {
+      const response = await fetchWithTimeout(`${apiBase}/api/support/delegate-invites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(invite),
@@ -5536,7 +5545,7 @@ export class IinPublicApp {
       if (isDelegateInviteExpired(invite)) continue;
       if (this.delegateRequestsCache.some((r) => r.requestId === invite.requestId)) continue;
       try {
-        const response = await fetch(`${apiBase}/api/support/delegate-requests/${encodeURIComponent(invite.requestId)}`);
+        const response = await fetchWithTimeout(`${apiBase}/api/support/delegate-requests/${encodeURIComponent(invite.requestId)}`);
         if (response.ok) await this.handleIncomingDelegateRequest(await response.json());
       } catch {
         /* best-effort */
@@ -5570,7 +5579,7 @@ export class IinPublicApp {
     if (!pub) return;
     let raw: unknown = null;
     try {
-      const response = await fetch(`${apiBase}/api/support/delegate-invites/${encodeURIComponent(pub)}`);
+      const response = await fetchWithTimeout(`${apiBase}/api/support/delegate-invites/${encodeURIComponent(pub)}`);
       if (response.ok) raw = await response.json();
     } catch {
       /* best-effort */
@@ -5630,7 +5639,7 @@ export class IinPublicApp {
       // a harmless, lower-latency fast path for plain browsers already peered with the hub.
       const apiBase = this.getBackendApiBase();
       if (apiBase) {
-        void fetch(`${apiBase}/api/support/delegate-requests`, {
+        void fetchWithTimeout(`${apiBase}/api/support/delegate-requests`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(request),
@@ -6555,7 +6564,7 @@ export class IinPublicApp {
 
   private async syncConversationTransportFromServer(): Promise<void> {
     try {
-      const res = await fetch(`${this.getBackendApiBase()}/api/debug/storage`, { cache: 'no-store' });
+      const res = await fetchWithTimeout(`${this.getBackendApiBase()}/api/debug/storage`, { cache: 'no-store' }, 3_000);
       if (!res.ok) return;
       const payload = (await res.json()) as { flags?: P2PRuntimeFlags };
       if (payload.flags) {
@@ -7912,28 +7921,27 @@ export class IinPublicApp {
         resolvedOtherUserName === 'Unknown' ||
         resolvedOtherUserName === 'Someone'
       ) {
-        try {
-          const publicUser = await this.gunService.getPublicUser(otherUserId);
-          if (publicUser?.stageName) {
-            resolvedOtherUserName = publicUser.stageName;
-          }
-        } catch {
-          /* keep placeholder */
-        }
-        if (
-          !resolvedOtherUserName ||
-          resolvedOtherUserName === 'Unknown' ||
-          resolvedOtherUserName === 'Someone'
-        ) {
+        // A display name is not worth holding a conversation open for: opening a DM used to wait
+        // here on hub/Gun lookups with no overall bound (gui-responsiveness-audit.md F2). The
+        // placeholder stays if neither answers within the budget; the record updates later.
+        const lookupName = async (): Promise<string | undefined> => {
           try {
-            const fullUser = await this.userService.getUser(otherUserId);
-            if (fullUser?.stageName) {
-              resolvedOtherUserName = fullUser.stageName;
-            }
+            const publicUser = await this.gunService.getPublicUser(otherUserId);
+            if (publicUser?.stageName) return publicUser.stageName;
           } catch {
-            /* keep placeholder */
+            /* try the full record */
           }
-        }
+          try {
+            return (await this.userService.getUser(otherUserId))?.stageName || undefined;
+          } catch {
+            return undefined;
+          }
+        };
+        const found = await Promise.race([
+          lookupName(),
+          new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2_500)),
+        ]);
+        if (found) resolvedOtherUserName = found;
       }
 
       this.uiManager.addNewConversation({
@@ -8290,42 +8298,50 @@ export class IinPublicApp {
       try {
         await this.userService.updateStageName(userId, newStageName);
 
-        // Update current user object
+        // Update current user object. The local write above is the save: confirm now and
+        // publish to the hub in the background (gui-responsiveness-audit.md F3 — this used to
+        // wait ~13.5 s for the hub on a hung network before saying anything).
         if (this.currentUser && this.currentUser.id === userId) {
           this.currentUser.stageName = newStageName;
           this.writeCachedUser(this.currentUser);
-          const pair = this.gunService.getStoredPair();
-          await this.userService.syncPublicUserForRelay({
-            ...this.currentUser,
-            ...(pair?.pub ? { pub: pair.pub } : {}),
-            ...(pair?.epub ? { epub: pair.epub } : {}),
-          });
           // Refresh the UI to show the new name
           this.uiManager.showMainInterface(this.currentUser);
-          await this.renderSupportGreeting({ notify: false });
+          this.refreshStatusBar();
 
           // Nearby: my card carries my name; reissue it and tell the nearest person now.
           this.nearbyV3?.refresh();
           // Update the stage name in the current Place so others can see it
-          if (this.currentChatroomId && !hasNoHubRoster(this.currentChatroomId)) {
+          const roomId = this.currentChatroomId;
+          if (roomId && !hasNoHubRoster(roomId)) {
             const gun = this.gunService.getGun();
-            gun.get('chatrooms').get(this.currentChatroomId).get('users').get(userId).put({
+            gun.get('chatrooms').get(roomId).get('users').get(userId).put({
               stageName: newStageName,
             });
             // Restart the membership heartbeat with the new name — its ~30s beats re-put the
             // member record with the name captured at heartbeat start and would otherwise
             // clobber this write back to the old name (peers' rosters then stay stale forever).
-            this.chatroomService.refreshMembershipStageName(this.currentChatroomId, userId, newStageName);
-            await fetch(
-              `${this.getBackendApiBase()}/api/chatrooms/${encodeURIComponent(this.currentChatroomId)}/members/${encodeURIComponent(userId)}`,
-              {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stageName: newStageName, lastSeen: new Date().toISOString() }),
-              },
-            ).catch(() => undefined);
+            this.chatroomService.refreshMembershipStageName(roomId, userId, newStageName);
           }
-          this.refreshStatusBar();
+          const pair = this.gunService.getStoredPair();
+          const published = { ...this.currentUser };
+          void (async () => {
+            await this.userService.syncPublicUserForRelay({
+              ...published,
+              ...(pair?.pub ? { pub: pair.pub } : {}),
+              ...(pair?.epub ? { epub: pair.epub } : {}),
+            });
+            await this.renderSupportGreeting({ notify: false });
+            if (roomId && !hasNoHubRoster(roomId)) {
+              await fetchWithTimeout(
+                `${this.getBackendApiBase()}/api/chatrooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}`,
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ stageName: newStageName, lastSeen: new Date().toISOString() }),
+                },
+              ).catch(() => undefined);
+            }
+          })().catch((error) => console.warn('Publishing the new stage name failed (kept locally):', error));
         }
 
         this.uiManager.showNotification(this.uiManager.formatStageNameUpdated(), 'success');
@@ -8344,9 +8360,30 @@ export class IinPublicApp {
         interests: Tag[];
       },
     ) => {
+      const previousUser = this.currentUser;
       try {
         const previousTalkFilters = this.currentUser?.talkFilters;
-        const updatedUser = await this.userService.updateProfileFoundation(userId, updates);
+        // Apply the change at once (local-first); the writes below take up to ~1 s even locally,
+        // and the screen used to wait for them (gui-responsiveness-audit.md F3).
+        if (previousUser && previousUser.id === userId) {
+          const applied: User = {
+            ...previousUser,
+            languages: updates.languages,
+            profile: updates.profile,
+            interests: updates.interests,
+            ...(updates.headshot ? { headshot: updates.headshot } : {}),
+          };
+          if (!updates.headshot) delete (applied as Partial<User>).headshot;
+          this.currentUser = applied;
+          this.uiManager.showMainInterface(applied);
+        }
+        // Start from the user already in memory: re-reading it from Gun cost up to 8 s per
+        // missing sub-record before the save even began.
+        const updatedUser = await this.userService.updateProfileFoundation(
+          userId,
+          updates,
+          previousUser?.id === userId ? previousUser : undefined,
+        );
         if (this.currentUser && this.currentUser.id === userId) {
           this.currentUser = {
             ...updatedUser,
@@ -8359,6 +8396,11 @@ export class IinPublicApp {
         this.uiManager.showNotification(this.uiManager.formatProfileUpdated(), 'success');
       } catch (error) {
         console.error('Failed to update profile foundation:', error);
+        // Not saved: put back what was there, so the screen does not claim a change that failed.
+        if (previousUser && this.currentUser?.id === userId) {
+          this.currentUser = previousUser;
+          this.uiManager.showMainInterface(previousUser);
+        }
         throw error;
       }
     };
@@ -9274,8 +9316,19 @@ export class IinPublicApp {
       }
     });
 
+    // Settings → Refresh Location: say it started, and say how it ended — it used to show nothing
+    // for seconds, and nothing at all when the room did not change (gui-responsiveness-audit.md F11).
     this.uiManager.on('requestLocationUpdate', async () => {
-      await this.updateLocationAndMaybeSwitch();
+      this.uiManager.showNotification(this.uiText('locationRefreshing'), 'info');
+      const roomBefore = this.currentChatroomId;
+      try {
+        await this.updateLocationAndMaybeSwitch();
+      } catch {
+        return; // updateLocationAndMaybeSwitch already showed the failure
+      }
+      if (this.locationConfirmed && !this.travelModeActive && this.currentChatroomId === roomBefore) {
+        this.uiManager.showNotification(this.uiText('locationRefreshed'), 'success');
+      }
     });
     // Android: the location sheet (first launch, or "Use my location") was answered with a grant.
     window.addEventListener('iinpublic-location-granted', () => {
@@ -9384,7 +9437,7 @@ export class IinPublicApp {
             location: { latitude: anchor.latitude, longitude: anchor.longitude },
             pair,
           });
-          const res = await fetch(`${base}/api/chatrooms`, {
+          const res = await fetchWithTimeout(`${base}/api/chatrooms`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -9396,7 +9449,7 @@ export class IinPublicApp {
               ...(payload.description != null ? { description: payload.description } : {}),
               ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
             }),
-          });
+          }, 10_000);
           const text = await res.text();
           let created: {
             id?: string;

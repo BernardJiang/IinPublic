@@ -4,6 +4,10 @@ import {
   type DirectP2PMessageEnvelope,
 } from '../../shared/p2p-runtime';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 15 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 15_000);
 export class P2PConversationRelayClient {
   private seenNonces = new Set<string>();
 
@@ -13,7 +17,7 @@ export class P2PConversationRelayClient {
   ) {}
 
   async post(conversationId: string, envelope: DirectP2PMessageEnvelope): Promise<void> {
-    const res = await fetch(
+    const res = await boundedFetch(
       `${this.apiBase}/api/p2p/conversation-relay/${encodeURIComponent(conversationId)}`,
       {
         method: 'POST',
@@ -34,7 +38,7 @@ export class P2PConversationRelayClient {
       `${this.apiBase}/api/p2p/conversation-relay/${encodeURIComponent(conversationId)}`,
     );
     url.searchParams.set('recipientPub', recipientPub);
-    const res = await fetch(url.toString(), { cache: 'no-store' });
+    const res = await boundedFetch(url.toString(), { cache: 'no-store' });
     if (!res.ok) return [];
     const data = (await res.json()) as { envelopes?: DirectP2PMessageEnvelope[] };
     return data.envelopes ?? [];

@@ -90,8 +90,13 @@ export function showNotification(
   });
 
   document.body.appendChild(notification);
+  // Start below the app bar wherever it actually is (a banner above it, a status-bar inset):
+  // at a fixed 58 px, toasts sat over the app-bar actions for 3–10 s and a tap there only
+  // dismissed the toast (gui-responsiveness-audit.md F9).
+  const headerBottom = document.getElementById('top-header')?.getBoundingClientRect().bottom ?? 0;
   Array.from(document.querySelectorAll<HTMLElement>('.notification')).forEach((item, index) => {
     item.style.setProperty('--toast-index', String(index));
+    if (headerBottom > 0) item.style.setProperty('--toast-top', `${Math.round(headerBottom) + 4}px`);
   });
 
   const hideAfter = isMatchNotification

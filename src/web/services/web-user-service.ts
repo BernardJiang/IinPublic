@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from './fetch-with-timeout';
 import {
   User,
   QuestionAnswer,
@@ -448,9 +449,12 @@ export class WebUserService {
     const apiBase = this.getApiBase();
     if (apiBase) {
       try {
-        const response = await fetch(
+        // Bounded: every getUser() runs this, often inside withPrivateDataLock, so one hung
+        // request used to stall every later private-data write (gui-responsiveness-audit.md F17).
+        const response = await fetchWithTimeout(
           `${apiBase}/api/users/${encodeURIComponent(user.id)}`,
           { cache: 'no-store' },
+          3_000,
         );
         if (response.ok) {
           const publicUser = await response.json() as Partial<User>;
@@ -505,7 +509,7 @@ export class WebUserService {
     const apiBase = this.getApiBase();
     if (apiBase) {
       try {
-        const root = await fetch(`${apiBase}/api/users/${encodeURIComponent(TECHSUPPORT_ROOT_USER_ID)}`, {
+        const root = await fetchWithTimeout(`${apiBase}/api/users/${encodeURIComponent(TECHSUPPORT_ROOT_USER_ID)}`, {
           cache: 'no-store',
         });
         if (root.ok) return true;
@@ -682,8 +686,10 @@ export class WebUserService {
       profile: QuestionAnswer[];
       interests?: Tag[];
     },
+    /** The caller's current copy of this user, when it has one; otherwise it is read from Gun. */
+    current?: User,
   ): Promise<User> {
-    const user = await this.getUser(userId);
+    const user = current ?? await this.getUser(userId);
     const nextUser: User = {
       ...user,
       languages: updates.languages,
@@ -888,7 +894,7 @@ export class WebUserService {
     const url = blocked
       ? `${apiBase}/api/users/${encodeURIComponent(userId)}/blocks`
       : `${apiBase}/api/users/${encodeURIComponent(userId)}/blocks/${encodeURIComponent(targetId)}`;
-    const response = await fetch(url, blocked
+    const response = await fetchWithTimeout(url, blocked
       ? {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -902,7 +908,7 @@ export class WebUserService {
   async setFriendMark(mark: SignedFriendMark): Promise<number> {
     const apiBase = this.getApiBase();
     if (!apiBase) throw new Error('friend reputation requires the application service');
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${apiBase}/api/users/${encodeURIComponent(mark.markerUserId)}/friend-marks/${encodeURIComponent(mark.targetUserId)}`,
       {
         method: 'PUT',
@@ -921,63 +927,69 @@ export class WebUserService {
     // TechSupport is unblockable (docs/TODO.md K6). Refuse before touching the API or
     // the SEA-private block list, so no half-written block edge can survive locally.
     assertBlockTargetAllowed(targetId);
-    const apiOk = await this.updateBlockAtApi(userId, targetId, true);
-    if (apiOk) {
-      // The server block-pairs graph is updated (non-enumerable, see block-pair.ts), but the
-      // client's SEA-encrypted private blockedUserIds is the on-device source of truth (the
-      // server cannot read it). Without this write the block list is lost on browser restart.
-      return await this.withPrivateDataLock(async () => {
+    return this.setBlockState(userId, targetId, true);
+  }
+
+  async unblockUser(userId: string, targetId: string): Promise<string[]> {
+    if (!userId || !targetId) throw new Error('userId and targetId required');
+    return this.setBlockState(userId, targetId, false);
+  }
+
+  /** The latest block/unblock asked for per target, so a delayed hub retry never undoes a newer one. */
+  private readonly blockIntent = new Map<string, boolean>();
+
+  /**
+   * The client's SEA-private `blockedUserIds` is the on-device source of truth (the server cannot
+   * read it), so it is written first and the block holds offline. The hub's block-pairs graph
+   * (non-enumerable, see block-pair.ts) is updated afterwards, in the background, with retries —
+   * blocking used to wait on that request (no timeout) and, offline, never happen at all
+   * (docs/testing/gui-responsiveness-audit.md F5).
+   */
+  private async setBlockState(userId: string, targetId: string, blocked: boolean): Promise<string[]> {
+    this.blockIntent.set(targetId, blocked);
+    if (this.getApiBase()) {
+      const ids = await this.withPrivateDataLock(async () => {
         const user = await this.getUser(userId);
-        const merged = Array.from(new Set([...(user.blockedUserIds || []), targetId]));
-        await this.putPrivateUserData({ ...user, blockedUserIds: merged });
-        return merged;
+        const next = blocked
+          ? Array.from(new Set([...(user.blockedUserIds || []), targetId]))
+          : (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
+        await this.putPrivateUserData({ ...user, blockedUserIds: next });
+        return next;
       });
+      this.publishBlockToHub(userId, targetId, blocked);
+      return ids;
     }
+    // No application service: the block-pair and reputation edges are written to Gun directly.
     return await this.withPrivateDataLock(async () => {
       const user = await this.getUser(userId);
-      const blockedUserIds = Array.from(new Set([...(user.blockedUserIds || []), targetId]));
-      if (!user.blockedUserIds?.includes(targetId)) {
+      const wasBlocked = !!user.blockedUserIds?.includes(targetId);
+      const blockedUserIds = blocked
+        ? Array.from(new Set([...(user.blockedUserIds || []), targetId]))
+        : (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
+      if (wasBlocked !== blocked) {
         const targetUser = await this.getUser(targetId);
         await this.gunService.put(`users/${targetId}/reputation`, {
           ...targetUser.reputation,
-          blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + 1),
+          blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) + (blocked ? 1 : -1)),
         });
       }
-      await this.putNested([BLOCK_PAIRS_KEY, blockPairHash(userId, targetId)], {
-        blockerId: userId,
-        targetId,
-        blockedAt: new Date().toISOString(),
-      });
+      await this.putNested([BLOCK_PAIRS_KEY, blockPairHash(userId, targetId)], blocked
+        ? { blockerId: userId, targetId, blockedAt: new Date().toISOString() }
+        : null);
       await this.putPrivateUserData({ ...user, blockedUserIds });
       return blockedUserIds;
     });
   }
 
-  async unblockUser(userId: string, targetId: string): Promise<string[]> {
-    if (!userId || !targetId) throw new Error('userId and targetId required');
-    const apiOk = await this.updateBlockAtApi(userId, targetId, false);
-    if (apiOk) {
-      // Mirror the unblock into private data too (see blockUser).
-      return await this.withPrivateDataLock(async () => {
-        const user = await this.getUser(userId);
-        const merged = (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
-        await this.putPrivateUserData({ ...user, blockedUserIds: merged });
-        return merged;
-      });
-    }
-    return await this.withPrivateDataLock(async () => {
-      const user = await this.getUser(userId);
-      const blockedUserIds = (user.blockedUserIds || []).filter((candidate) => candidate !== targetId);
-      if (user.blockedUserIds?.includes(targetId)) {
-        const targetUser = await this.getUser(targetId);
-        await this.gunService.put(`users/${targetId}/reputation`, {
-          ...targetUser.reputation,
-          blockCount: Math.max(0, Number(targetUser.reputation?.blockCount || 0) - 1),
-        });
+  private publishBlockToHub(userId: string, targetId: string, blocked: boolean, attempt = 0): void {
+    void this.updateBlockAtApi(userId, targetId, blocked).catch((error) => {
+      if (attempt >= 4) {
+        console.warn(`[block] hub never confirmed ${blocked ? 'block' : 'unblock'} of ${targetId}:`, error);
+        return;
       }
-      await this.putNested([BLOCK_PAIRS_KEY, blockPairHash(userId, targetId)], null);
-      await this.putPrivateUserData({ ...user, blockedUserIds });
-      return blockedUserIds;
+      setTimeout(() => {
+        if (this.blockIntent.get(targetId) === blocked) this.publishBlockToHub(userId, targetId, blocked, attempt + 1);
+      }, 2_000 * 2 ** attempt);
     });
   }
 

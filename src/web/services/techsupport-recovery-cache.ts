@@ -7,6 +7,10 @@ import {
 } from '../../shared/techsupport-recovery';
 import { settingsStorage } from './core-storage';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
 /**
  * Local cache of the verified TechSupport recovery anchor record (docs/TODO.md OPEN-29).
  *
@@ -93,7 +97,7 @@ export function subscribeToRecoveryAnchor(
  */
 export async function fetchRecoveryAnchorFromServer(apiBase: string): Promise<RecoveryAnchorRecord | null> {
   try {
-    const res = await fetch(`${apiBase}/api/support/recovery`);
+    const res = await boundedFetch(`${apiBase}/api/support/recovery`);
     if (!res.ok) return null;
     const body = (await res.json()) as { current?: unknown; history?: unknown[] };
     let latest: RecoveryAnchorRecord | null = null;

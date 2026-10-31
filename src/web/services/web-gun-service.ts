@@ -3,6 +3,7 @@ import { installSharingPolicy } from '../../core/sharing-policy';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
 import { RemoteGun, httpGunTransport } from './remote-gun';
+import { fetchWithTimeout } from './fetch-with-timeout';
 import type { CoreRequest } from '../../core/protocol';
 import { getSEA } from '../sea-gun';
 import { isDevStageZero } from '../dev-stage-env';
@@ -894,9 +895,10 @@ export class WebGunService extends EventEmitter {
       try {
         const { protocol, hostname, port } = window.location;
         const apiBase = deriveBackendApiBaseFromLocation(protocol, hostname, port);
-        const response = await fetch(`${apiBase}/api/users/${encodeURIComponent(userId)}`, {
+        // Bounded: DM open/send wait on this (gui-responsiveness-audit.md F2).
+        const response = await fetchWithTimeout(`${apiBase}/api/users/${encodeURIComponent(userId)}`, {
           cache: 'no-store',
-        });
+        }, 3_000);
         if (response.ok) {
           const fromApi = (await response.json()) as Partial<User>;
           if (fromApi?.id) return fromApi;

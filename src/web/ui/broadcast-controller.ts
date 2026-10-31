@@ -122,14 +122,25 @@ export function createBroadcastController(deps: BroadcastControllerDeps) {
     // Saving a newly-created talk finishes asynchronously after the editor closes. Give that
     // local write a short bounded window before treating the room as having no outgoing talks.
     let broadcastableIds = deps.getBroadcastableTalkIds();
+    const activeTab = (): string => (document.querySelector('.nav-btn.active') as HTMLElement | null)?.dataset.view ?? '';
+    const tappedFrom = activeTab();
     if (broadcastableIds.length === 0) {
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 75));
-        broadcastableIds = deps.getBroadcastableTalkIds();
-        if (broadcastableIds.length > 0) break;
+      // A tap must show something during this wait (gui-responsiveness-audit.md F10).
+      const button = document.getElementById('broadcast-talk-btn') as HTMLButtonElement | null;
+      if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+      try {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 75));
+          broadcastableIds = deps.getBroadcastableTalkIds();
+          if (broadcastableIds.length > 0) break;
+        }
+      } finally {
+        if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
       }
     }
     if (broadcastableIds.length === 0) {
+      // The user may have moved on during the wait: never pop the editor over another screen.
+      if (activeTab() !== tappedFrom) return;
       deps.showTalkEditorDialog();
       setTimeout(() => deps.showNotification(deps.t('chatroomNoTalksToBroadcast'), 'info'), 0);
       return;

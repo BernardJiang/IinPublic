@@ -72,11 +72,54 @@ export function parseNativeAttestedKeyResult(raw: unknown): NativeAttestedKeyRes
 type AndroidAttestationGlobal = {
   describe(): string;
   generateAttestedKey(challengeBase64: string): string;
+  /** Newer shells: queues the work off the WebView's JS thread and answers with an event. */
+  generateAttestedKeyAsync?(requestId: string, challengeBase64: string): boolean;
 };
 
 type NativeWindow = {
   IinPublicAttestation?: AndroidAttestationGlobal;
+  addEventListener?: (type: string, listener: (event: Event) => void) => void;
+  removeEventListener?: (type: string, listener: (event: Event) => void) => void;
 };
+
+const ATTESTATION_RESULT_EVENT = 'iinpublic-attestation-result';
+let nextAttestationRequest = 0;
+
+/**
+ * Key generation can take seconds (StrongBox) and a synchronous JavascriptInterface call freezes
+ * the page for all of it (docs/testing/gui-responsiveness-audit.md F8). Use the shell's async call
+ * when it has one; an older shell gets the synchronous call as before.
+ */
+function generateAttestedKeyOffThread(
+  win: NativeWindow,
+  android: AndroidAttestationGlobal,
+  challengeBase64: string,
+  timeoutMs = 60_000,
+): Promise<string> {
+  if (typeof android.generateAttestedKeyAsync !== 'function' || !win.addEventListener || !win.removeEventListener) {
+    return Promise.resolve(android.generateAttestedKey(challengeBase64));
+  }
+  const requestId = `attest_${Date.now()}_${++nextAttestationRequest}`;
+  return new Promise((resolve, reject) => {
+    const finish = (error: Error | null, payload?: string): void => {
+      clearTimeout(timer);
+      win.removeEventListener!(ATTESTATION_RESULT_EVENT, receive);
+      if (error) reject(error);
+      else resolve(payload as string);
+    };
+    const receive = (event: Event): void => {
+      const detail = (event as CustomEvent<{ id?: string; payload?: string }>).detail;
+      if (detail?.id === requestId) finish(null, String(detail.payload ?? ''));
+    };
+    win.addEventListener!(ATTESTATION_RESULT_EVENT, receive);
+    const timer = setTimeout(() => finish(new Error('Native attestation timed out')), timeoutMs);
+    try {
+      if (!android.generateAttestedKeyAsync!(requestId, challengeBase64)) finish(new Error('Native attestation not queued'));
+    } catch (error) {
+      finish(error as Error);
+    }
+  });
+}
 
 /** Returns the platform's hardware attestation bridge, or null when unavailable (plain browser,
  * a platform without an attestation bridge built yet, or — for Android specifically — an OS
@@ -91,7 +134,7 @@ export function detectNativeAttestationBridge(
     return {
       describe: async () => parseNativeAttestationDescription(android.describe()),
       generateAttestedKey: async (challengeBase64) =>
-        parseNativeAttestedKeyResult(android.generateAttestedKey(challengeBase64)),
+        parseNativeAttestedKeyResult(await generateAttestedKeyOffThread(win, android, challengeBase64)),
     };
   }
   return null;

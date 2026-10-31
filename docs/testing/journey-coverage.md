@@ -126,6 +126,10 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
    nobody is in, no location.
 4. **Never create a Place against www.iinpublic.com** in a test: Places are public and cannot be
    deleted. The phone path and the release smoke both run their own hub.
+5. **A new button, row action or dialog must respond with the hub stalled.** The click sweep
+   (`tests/e2e/responsiveness/02-click-sweep-stalled-hub.spec.ts`) covers it automatically if
+   it is on a swept surface. Otherwise, add its surface to the sweep or a targeted test —
+   `docs/testing/gui-responsiveness-test-plan.md`.
 
 ## Release smoke (before every Play upload)
 

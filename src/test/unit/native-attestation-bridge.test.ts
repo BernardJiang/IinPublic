@@ -100,3 +100,50 @@ describe('detectNativeAttestationBridge', () => {
     await expect(bridge!.generateAttestedKey('Y2hhbGxlbmdl')).rejects.toThrow(/unsupported-below-api-24/);
   });
 });
+
+// F8 (docs/testing/gui-responsiveness-audit.md): key generation must not run as a synchronous
+// JavascriptInterface call — it freezes the WebView for as long as the keystore takes.
+describe('detectNativeAttestationBridge — off-thread key generation', () => {
+  const okResult = JSON.stringify({ ok: true, certChainDer: ['leaf'], devicePublicKeyDer: 'spki' });
+
+  function fakeWindow(android: Record<string, unknown>) {
+    const target = new EventTarget();
+    return Object.assign(target, { IinPublicAttestation: android }) as unknown as Parameters<typeof detectNativeAttestationBridge>[0];
+  }
+
+  it('uses the async shell call and resolves from its result event', async () => {
+    const sync = jest.fn(() => okResult);
+    const android: Record<string, unknown> = { describe: () => '{}', generateAttestedKey: sync };
+    const win = fakeWindow(android);
+    android.generateAttestedKeyAsync = jest.fn((id: string) => {
+      setTimeout(() => (win as unknown as EventTarget).dispatchEvent(
+        new CustomEvent('iinpublic-attestation-result', { detail: { id, payload: okResult } }),
+      ), 0);
+      return true;
+    });
+    const bridge = detectNativeAttestationBridge(win)!;
+    await expect(bridge.generateAttestedKey('Y2hhbGxlbmdl')).resolves.toEqual({ certChainDer: ['leaf'], devicePublicKeyDer: 'spki' });
+    expect(android.generateAttestedKeyAsync).toHaveBeenCalledWith(expect.any(String), 'Y2hhbGxlbmdl');
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it('ignores another request\'s result event', async () => {
+    const android: Record<string, unknown> = { describe: () => '{}', generateAttestedKey: () => okResult };
+    const win = fakeWindow(android);
+    android.generateAttestedKeyAsync = jest.fn((id: string) => {
+      const target = win as unknown as EventTarget;
+      setTimeout(() => {
+        target.dispatchEvent(new CustomEvent('iinpublic-attestation-result', { detail: { id: 'other', payload: '{"ok":false}' } }));
+        target.dispatchEvent(new CustomEvent('iinpublic-attestation-result', { detail: { id, payload: okResult } }));
+      }, 0);
+      return true;
+    });
+    await expect(detectNativeAttestationBridge(win)!.generateAttestedKey('c')).resolves.toMatchObject({ devicePublicKeyDer: 'spki' });
+  });
+
+  it('falls back to the synchronous call on an older shell', async () => {
+    const android = { describe: () => '{}', generateAttestedKey: jest.fn(() => okResult) };
+    await expect(detectNativeAttestationBridge(fakeWindow(android))!.generateAttestedKey('c')).resolves.toMatchObject({ devicePublicKeyDer: 'spki' });
+    expect(android.generateAttestedKey).toHaveBeenCalledWith('c');
+  });
+});

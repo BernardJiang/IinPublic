@@ -2,6 +2,10 @@ import { escapeHtml } from './ui-formatters';
 import type { UiTranslationKey } from './ui-translations';
 import { readNativeHostInfo } from './native-host-info';
 
+import { fetchWithTimeout } from '../services/fetch-with-timeout';
+
+/** Every hub call here gives up after 5 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 5_000);
 export type DownloadPlatform = 'mac' | 'windows' | 'linux' | 'android' | 'ios';
 
 export function detectDownloadPlatform(): DownloadPlatform | null {
@@ -43,7 +47,7 @@ export async function renderAppDownloadBanner(deps: AppDownloadBannerDeps): Prom
   let downloadUrl: string | null = null;
   if (platform && deps.apiBase) {
     try {
-      const res = await fetch(`${deps.apiBase}/api/downloads`, { cache: 'no-store' });
+      const res = await boundedFetch(`${deps.apiBase}/api/downloads`, { cache: 'no-store' });
       if (res.ok) {
         const manifest = (await res.json()) as Record<string, string | null>;
         downloadUrl = manifest[platform] || null;

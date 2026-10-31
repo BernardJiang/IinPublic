@@ -8,6 +8,10 @@ import {
 import { readCachedRecoveryAnchor } from './techsupport-recovery-cache';
 import { settingsStorage } from './core-storage';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
 /**
  * Local cache of signature-verified TechSupport delegate grants (docs/TODO.md K7).
  *
@@ -86,7 +90,7 @@ export async function applyRawDelegateGrant(data: unknown): Promise<TechSupportD
  */
 export async function fetchDelegateGrantsFromServer(apiBase: string): Promise<TechSupportDelegateGrant[]> {
   try {
-    const res = await fetch(`${apiBase}/api/support/delegate-grants`);
+    const res = await boundedFetch(`${apiBase}/api/support/delegate-grants`);
     if (!res.ok) return [];
     const body = (await res.json()) as { grants?: unknown[]; revocations?: unknown[] };
     const grants = Array.isArray(body.grants) ? body.grants : [];

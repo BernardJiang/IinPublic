@@ -528,6 +528,92 @@ describe('WebUserService', () => {
     );
   });
 
+  // F5 (docs/testing/gui-responsiveness-audit.md): a block must hold on this device even when the
+  // hub never answers; the hub is told in the background.
+  it('saves a block to private data without waiting for a hung hub', async () => {
+    const realFetch = global.fetch;
+    const g = globalThis as unknown as { window?: unknown };
+    const hadWindow = 'window' in g;
+    const previousWindow = g.window;
+    g.window = { location: { protocol: 'http:', hostname: '127.0.0.1', port: '3001' } };
+    // The block request hangs; every other hub read fails fast (F17 covers a hung read).
+    const fetchSpy = jest.fn((url: string) => (String(url).includes('/blocks')
+      ? new Promise(() => undefined)
+      : Promise.reject(new Error('offline'))));
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const user = { id: 'user-1', stageName: 'Alice', blockedUserIds: [] as string[], knownPeople: [], pub: pair.pub, epub: pair.epub };
+      const gunNode = (): Record<string, jest.Mock> => ({
+        get: jest.fn(() => gunNode()),
+        put: jest.fn((_data: unknown, cb?: (ack: { ok: boolean }) => void) => cb?.({ ok: true })),
+        once: jest.fn((cb?: (data: unknown) => void) => cb?.(null)),
+        on: jest.fn(),
+        off: jest.fn(),
+        map: jest.fn(() => gunNode()),
+      });
+      const gunService = {
+        get: jest.fn().mockResolvedValue(user),
+        getPrivate: jest.fn().mockResolvedValue(null),
+        put: jest.fn().mockResolvedValue(undefined),
+        putPrivate: jest.fn().mockResolvedValue(undefined),
+        getStoredPair: jest.fn(() => pair),
+        getGun: jest.fn(() => gunNode()),
+      };
+      /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+      const service = new WebUserService(gunService as any);
+      await expect(service.blockUser('user-1', 'user-2')).resolves.toEqual(['user-2']);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/api/users/user-1/blocks'),
+        expect.objectContaining({ method: 'POST' }),
+      );
+    } finally {
+      global.fetch = realFetch;
+      if (hadWindow) g.window = previousWindow;
+      else delete g.window;
+    }
+  });
+
+  // F17: getUser() read the public profile from the hub with no timeout, inside the private-data
+  // lock, so one hung request stalled every later private write. Bounded at 3 s now.
+  it('getUser settles when every hub request hangs', async () => {
+    const realFetch = global.fetch;
+    const g = globalThis as unknown as { window?: unknown };
+    const hadWindow = 'window' in g;
+    const previousWindow = g.window;
+    g.window = { location: { protocol: 'http:', hostname: '127.0.0.1', port: '3001' } };
+    global.fetch = jest.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    })) as unknown as typeof fetch;
+    try {
+      const user = { id: 'user-1', stageName: 'Alice', blockedUserIds: [] as string[], knownPeople: [], pub: pair.pub, epub: pair.epub };
+      const gunNode = (): Record<string, jest.Mock> => ({
+        get: jest.fn(() => gunNode()),
+        put: jest.fn((_data: unknown, cb?: (ack: { ok: boolean }) => void) => cb?.({ ok: true })),
+        once: jest.fn((cb?: (data: unknown) => void) => cb?.(null)),
+        on: jest.fn(),
+        off: jest.fn(),
+        map: jest.fn(() => gunNode()),
+      });
+      const gunService = {
+        get: jest.fn().mockResolvedValue(user),
+        getPrivate: jest.fn().mockResolvedValue(null),
+        put: jest.fn().mockResolvedValue(undefined),
+        putPrivate: jest.fn().mockResolvedValue(undefined),
+        getStoredPair: jest.fn(() => pair),
+        getGun: jest.fn(() => gunNode()),
+      };
+      /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+      const service = new WebUserService(gunService as any);
+      const started = Date.now();
+      await expect(service.getUser('user-1')).resolves.toMatchObject({ id: 'user-1' });
+      expect(Date.now() - started).toBeLessThan(5_000);
+    } finally {
+      global.fetch = realFetch;
+      if (hadWindow) g.window = previousWindow;
+      else delete g.window;
+    }
+  }, 10_000);
+
   it('persists block and unblock state in the public mirror and private profile data', async () => {
     const currentUser: User = {
       id: 'user-1',

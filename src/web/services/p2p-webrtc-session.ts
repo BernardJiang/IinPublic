@@ -39,6 +39,10 @@ import {
   type GeneratedSecureSessionOffer,
 } from '../../shared/p2p-secure-session';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 5 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 5_000);
 export type P2PConnectionState = 'idle' | 'connecting' | 'connected' | 'failed';
 
 type SignalPayload =
@@ -262,7 +266,7 @@ let turnUnavailableUntilMs = 0;
 
 async function fetchTurnServer(apiBase: string): Promise<{ server: RTCIceServer; ttlSeconds: number } | null> {
   try {
-    const res = await fetch(`${apiBase}/api/turn-credentials`, { cache: 'no-store' });
+    const res = await boundedFetch(`${apiBase}/api/turn-credentials`, { cache: 'no-store' });
     if (!res.ok) return null;
     const body = (await res.json()) as { urls?: string[]; username?: string; credential?: string; ttl?: number };
     if (!Array.isArray(body.urls) || body.urls.length === 0 || !body.username || !body.credential) return null;

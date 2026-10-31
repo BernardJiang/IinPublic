@@ -125,9 +125,10 @@ describe('storage inspector characterization', () => {
 
     await refreshStorageInspector(options());
 
-    expect(global.fetch).toHaveBeenCalledWith('https://relay.example/api/debug/storage', {
+    expect(global.fetch).toHaveBeenCalledWith('https://relay.example/api/debug/storage', expect.objectContaining({
       cache: 'no-store',
-    });
+      signal: expect.any(AbortSignal),
+    }));
     expect(document.querySelector('#storage-inspector-app-state')?.textContent).toContain('English, Español');
     expect(document.querySelector('#storage-inspector-room-visits')?.textContent).toContain('a-room');
     expect(document.querySelector('#storage-inspector-room-visits')?.textContent).not.toContain('z-room');

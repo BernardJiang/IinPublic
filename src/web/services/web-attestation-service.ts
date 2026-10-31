@@ -20,6 +20,10 @@ import type { OfficialBuildCredential } from '../../shared/official-build-creden
 import { readNativeHostInfo } from '../ui/native-host-info';
 import { settingsStorage } from './core-storage';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 15 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 15_000);
 const CACHE_STORAGE_KEY = 'iinpublic_attestation_credential_v1';
 /** Refresh proactively once less than this much validity remains, rather than waiting for a
  * peer-visible expiry — avoids a credential going stale mid-session for a long-running app. */
@@ -86,7 +90,7 @@ export class WebAttestationService {
 
   private async fetchVerifierKeys(): Promise<void> {
     try {
-      const res = await fetch(`${this.apiBase}/api/attestation/verifier-keys`);
+      const res = await boundedFetch(`${this.apiBase}/api/attestation/verifier-keys`);
       if (!res.ok) return;
       const { keys } = (await res.json()) as { keys?: Array<{ verifierKeyId: string; publicKeyPem: string }> };
       for (const key of keys ?? []) {
@@ -132,7 +136,7 @@ export class WebAttestationService {
       const description = await this.bridge.describe();
       if (!description.available) return null;
 
-      const challengeRes = await fetch(`${this.apiBase}/api/attestation/challenge`, {
+      const challengeRes = await boundedFetch(`${this.apiBase}/api/attestation/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pub: devicePublicKey }),
@@ -148,7 +152,7 @@ export class WebAttestationService {
       // real "is this really us" check); readNativeHostInfo() is the one place this codebase
       // already resolves "this device's actual running version" from, see its own doc comment.
       const runningVersion = readNativeHostInfo().version;
-      const verifyRes = await fetch(`${this.apiBase}/api/attestation/verify`, {
+      const verifyRes = await boundedFetch(`${this.apiBase}/api/attestation/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

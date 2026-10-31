@@ -198,7 +198,7 @@ describe('WebAttestationService', () => {
       expect(service.lookupVerifierKey('key-1')).toBe('PEM_1');
       expect(service.lookupVerifierKey('key-2')).toBe('PEM_2');
       expect(service.lookupVerifierKey('unknown-key')).toBeUndefined();
-      expect(fetchMock).toHaveBeenCalledWith('http://api/api/attestation/verifier-keys');
+      expect(fetchMock).toHaveBeenCalledWith('http://api/api/attestation/verifier-keys', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     });
 
     it('does not refetch once keys are already cached', async () => {

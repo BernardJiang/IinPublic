@@ -3107,7 +3107,8 @@ button.talk-icon-btn:hover {
 /* Notifications - above modals so "no talks to broadcast" etc. are visible when modal opens */
 .notification {
   position: fixed;
-  top: calc(62px + (var(--toast-index, 0) * 58px));
+  /* --toast-top: the app bar's measured bottom (notification-toast.ts); never over its actions. */
+  top: calc(var(--toast-top, 62px) + (var(--toast-index, 0) * 58px));
   right: 20px;
   padding: 15px 20px;
   border-radius: var(--radius-sm);
@@ -3120,7 +3121,7 @@ button.talk-icon-btn:hover {
    at the top, one at a time, instead of stacking top-right. */
 @media (max-width: 767px) {
   .notification {
-    top: calc(58px + (var(--toast-index, 0) * 58px) + env(safe-area-inset-top, 0px));
+    top: calc(var(--toast-top, calc(58px + env(safe-area-inset-top, 0px))) + (var(--toast-index, 0) * 58px));
     left: 12px;
     right: 12px;
     text-align: center;

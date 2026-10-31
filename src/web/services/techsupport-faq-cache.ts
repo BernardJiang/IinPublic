@@ -6,6 +6,10 @@ import { readCachedRecoveryAnchor } from './techsupport-recovery-cache';
 import techsupportFaqSeedBundle from '../../shared/techsupport-faq-seed.signed.json';
 import { settingsStorage } from './core-storage';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
 /**
  * Local cache of the verified TechSupport FAQ bundle (docs/TODO.md K5, design note §Item 1a/2).
  *
@@ -152,7 +156,7 @@ export async function fetchFaqBundleFromServer(
   gun: { get: (key: string) => any },
 ): Promise<SignedFaqBundle | null> {
   try {
-    const res = await fetch(`${apiBase}/api/support/faq-bundle`);
+    const res = await boundedFetch(`${apiBase}/api/support/faq-bundle`);
     if (!res.ok) return null;
     const body = (await res.json()) as { bundle?: unknown };
     if (!body.bundle) return null;
@@ -247,7 +251,7 @@ export async function fetchFaqEntryFromServer(
   questionKey: string,
 ): Promise<SignedFaqEntry | null> {
   try {
-    const res = await fetch(`${apiBase}/api/support/faq-entries/${encodeURIComponent(questionKey)}`);
+    const res = await boundedFetch(`${apiBase}/api/support/faq-entries/${encodeURIComponent(questionKey)}`);
     if (res.ok) {
       const body = (await res.json()) as { entry?: unknown };
       if (body.entry) {
@@ -271,7 +275,7 @@ export async function fetchRecentFaqEntriesFromServer(
   limit = 100,
 ): Promise<SignedFaqEntry[]> {
   try {
-    const res = await fetch(`${apiBase}/api/support/faq-entries?limit=${encodeURIComponent(String(limit))}`);
+    const res = await boundedFetch(`${apiBase}/api/support/faq-entries?limit=${encodeURIComponent(String(limit))}`);
     if (!res.ok) return [];
     const body = (await res.json()) as { entries?: unknown[] };
     const out: SignedFaqEntry[] = [];

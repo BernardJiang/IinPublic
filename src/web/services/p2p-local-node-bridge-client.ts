@@ -1,5 +1,9 @@
 import { DirectP2PConversationTransport } from './direct-p2p-conversation-transport';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 5 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 5_000);
 export type LocalNodeBridgeStatus = {
   enabled: boolean;
   bridgeUrl: string;
@@ -45,7 +49,7 @@ export class P2PLocalNodeBridgeClient {
 
     const base = apiBase || DirectP2PConversationTransport.resolveApiBase();
     try {
-      const res = await fetch(`${base}/api/p2p/local-node`, { cache: 'no-store' });
+      const res = await boundedFetch(`${base}/api/p2p/local-node`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`local-node status ${res.status}`);
       const snapshot = (await res.json()) as {
         status?: string;

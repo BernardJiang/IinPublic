@@ -17,6 +17,10 @@ import {
 import type { WebGunService } from './web-gun-service';
 import { settingsStorageAsStorage } from './core-storage';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
 /**
  * Nearby on one device (§3.7): the personal list, knocks in and out, and the hub client. The app's
  * own mesh carries gossip and Talks; while Nearby is active it runs in personal mode with the list
@@ -34,7 +38,7 @@ export class HttpNearbyKnockChannel {
   constructor(private readonly apiBase: () => string) {}
 
   async send(knock: NearbyKnock): Promise<void> {
-    await fetch(`${this.apiBase()}/api/nearby/v3/knocks`, {
+    await boundedFetch(`${this.apiBase()}/api/nearby/v3/knocks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ knock }),
@@ -50,9 +54,11 @@ export class HttpNearbyKnockChannel {
       while (!stopped) {
         controller = new AbortController();
         try {
-          const response = await fetch(
+          // A 20 s long poll; 30 s bounds a hung one so the loop retries instead of waiting forever.
+          const response = await fetchWithTimeout(
             `${this.apiBase()}/api/nearby/v3/knocks/${channel}?after=${cursor}&waitMs=20000`,
             { cache: 'no-store', signal: controller.signal },
+            30_000,
           );
           if (!response.ok) throw new Error(`knocks failed (${response.status})`);
           const body = await response.json() as { knocks?: unknown[]; cursor?: unknown };
@@ -81,7 +87,7 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
   ) {}
 
   async heartbeat(card: NearbyCard): Promise<NearbyHubHeartbeat> {
-    const response = await fetch(`${this.apiBase()}/api/nearby/v3/card`, {
+    const response = await boundedFetch(`${this.apiBase()}/api/nearby/v3/card`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ card, ...(this.capacity ? { capacity: this.capacity() } : {}) }),
@@ -118,7 +124,7 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
   }
 
   async leave(card: NearbyCard): Promise<void> {
-    const response = await fetch(`${this.apiBase()}/api/nearby/v3/leave`, {
+    const response = await boundedFetch(`${this.apiBase()}/api/nearby/v3/leave`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ card }),
@@ -128,7 +134,7 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
   }
 
   async introductions(input: Parameters<NearbyV3Hub['introductions']>[0]): Promise<NearbyIntroductionsAnswer> {
-    const response = await fetch(`${this.apiBase()}/api/nearby/v3/introductions`, {
+    const response = await boundedFetch(`${this.apiBase()}/api/nearby/v3/introductions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...input, ...(this.capacity ? { capacity: this.capacity() } : {}) }),
@@ -145,7 +151,7 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
   async online(userIds: readonly string[]): Promise<Set<string>> {
     const online = new Set<string>();
     for (let start = 0; start < userIds.length; start += 500) {
-      const response = await fetch(`${this.apiBase()}/api/nearby/v3/online`, {
+      const response = await boundedFetch(`${this.apiBase()}/api/nearby/v3/online`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userIds: userIds.slice(start, start + 500) }),
@@ -165,7 +171,7 @@ export class FetchNearbyV3Hub implements NearbyV3Hub {
     countRevision?: number;
   }> {
     const query = bounds ? `?${new URLSearchParams(Object.entries(bounds).map(([key, value]) => [key, String(value)]))}` : '';
-    const response = await fetch(`${this.apiBase()}/api/nearby/v3/stats${query}`, { cache: 'no-store' });
+    const response = await boundedFetch(`${this.apiBase()}/api/nearby/v3/stats${query}`, { cache: 'no-store' });
     if (!response.ok) throw new Error(`stats failed (${response.status})`);
     const body = await response.json() as {
       online: number;

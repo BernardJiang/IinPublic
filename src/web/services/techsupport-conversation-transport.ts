@@ -9,6 +9,10 @@ import {
 } from './star-gun-conversation-transport';
 import { throttleWhileHidden } from './throttle-while-hidden';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 15 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 15_000);
 type SupportWire = ConversationMessageWire & { supportMessage?: boolean };
 
 /** After a message, the server is polled every 5 s for this long; then every 30 s. */
@@ -35,7 +39,7 @@ export class TechSupportConversationTransport implements ConversationTransport {
   }
 
   private async persistToServer(conversationId: string, wire: SupportWire): Promise<void> {
-    const res = await fetch(`${this.apiBase}/api/support/messages/${encodeURIComponent(conversationId)}`, {
+    const res = await boundedFetch(`${this.apiBase}/api/support/messages/${encodeURIComponent(conversationId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -57,7 +61,7 @@ export class TechSupportConversationTransport implements ConversationTransport {
   }
 
   private async loadFromServer(conversationId: string): Promise<Message[]> {
-    const res = await fetch(
+    const res = await boundedFetch(
       `${this.apiBase}/api/support/messages/${encodeURIComponent(conversationId)}`,
       { cache: 'no-store' },
     );

@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from '../services/fetch-with-timeout';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
 import type { UiTranslationKey } from './ui-translations';
@@ -313,12 +314,13 @@ export async function refreshStorageInspector(options: StorageInspectorOptions):
   const { apiBase, appState, text } = options;
   const body = document.getElementById('settings-storage-inspector-body');
   if (!body) return;
+  body.textContent = text('loading');
   const browserStorage = await getBrowserStorageSnapshot();
   let serverStorage: any = null;
   let serverError = '';
   if (apiBase) {
     try {
-      const res = await fetch(`${apiBase}/api/debug/storage`, { cache: 'no-store' });
+      const res = await fetchWithTimeout(`${apiBase}/api/debug/storage`, { cache: 'no-store' }, 4_000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       serverStorage = await res.json();
     } catch (error) {

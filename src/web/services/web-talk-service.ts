@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from './fetch-with-timeout';
 import { Talk, type IpfsAttachment, type Question } from '../../shared/types';
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
@@ -6,6 +7,8 @@ import { GunTalkRepository } from './gun-talk-repository';
 import { getMyTalks, upsertMyTalk } from '../ui/my-talks-storage';
 import { appStorage } from './core-storage';
 
+/** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
 // ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
 const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
 const RECEIVED_TALKS_KEY = 'myReceivedTalks';
@@ -319,6 +322,22 @@ export class WebTalkService {
     talkId: string,
     opts?: { attempts?: number; gapMs?: number; deadlineMs?: number },
   ): Promise<Talk | null> {
+    // The deadline used to be checked only between attempts, and one local miss can take 8 s, so a
+    // UI waiting on "4 s" waited far longer (gui-responsiveness-audit.md F6). Enforce it.
+    if (opts?.deadlineMs === undefined) return this.getTalkWithRetryUnbounded(talkId, opts);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), opts.deadlineMs); });
+    try {
+      return await Promise.race([this.getTalkWithRetryUnbounded(talkId, opts), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async getTalkWithRetryUnbounded(
+    talkId: string,
+    opts?: { attempts?: number; gapMs?: number; deadlineMs?: number },
+  ): Promise<Talk | null> {
     const attempts = opts?.attempts ?? 20;
     const gapMs = opts?.gapMs ?? 250;
     // Each local read of a missing talk costs ~0.5 s (two private-store misses + the Gun read),
@@ -337,7 +356,7 @@ export class WebTalkService {
       const base = this.apiBase?.replace(/\/$/, '');
       if (!base) return null;
       try {
-        const res = await fetch(`${base}/api/talks/${encodeURIComponent(talkId)}`);
+        const res = await fetchWithTimeout(`${base}/api/talks/${encodeURIComponent(talkId)}`, {}, 3_000);
         // 202 means the server is still replicating — not a permanent failure
         if (res.status === 202) return null;
         if (!res.ok) return null;
@@ -480,7 +499,7 @@ export class WebTalkService {
     if (params?.bucket) q.set('bucket', params.bucket);
     const qs = q.toString();
     const url = `${base}/api/stats/talks/${encodeURIComponent(talkId)}/${dimension}${qs ? `?${qs}` : ''}`;
-    const res = await fetch(url);
+    const res = await boundedFetch(url);
     if (!res.ok) throw new Error(`queryStats ${dimension} failed: ${res.status}`);
     return res.json();
   }

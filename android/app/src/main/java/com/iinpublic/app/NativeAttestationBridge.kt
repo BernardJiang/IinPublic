@@ -6,10 +6,12 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.util.concurrent.Executors
 
 /**
  * Android hardware Key Attestation bridge — scenario 2 (§16.3 of the Identity & Key Architecture
@@ -27,8 +29,33 @@ import java.security.KeyStore
  * certificate at generation time, so a stale key from a previous (now-expired) challenge can't be
  * reused — this matches the credential's own 24h refresh design (§16.8), not an oversight.
  */
-class NativeAttestationBridge(context: Context) {
+class NativeAttestationBridge(context: Context, private val webView: WebView? = null) {
     private val appContext = context.applicationContext
+    // Key generation (StrongBox especially) can take seconds, and a JavascriptInterface call
+    // freezes the WebView's JS thread until it returns (gui-responsiveness-audit.md F8).
+    private val keystoreIo = Executors.newSingleThreadExecutor()
+
+    /**
+     * generateAttestedKey() off the JS thread: returns at once (false = not queued), and later
+     * dispatches `iinpublic-attestation-result` with {id, payload} (payload: the same JSON
+     * envelope generateAttestedKey returns).
+     */
+    @JavascriptInterface
+    fun generateAttestedKeyAsync(requestId: String, challengeBase64: String): Boolean {
+        val view = webView ?: return false
+        if (requestId.length !in 1..80 || !requestId.all { it.isLetterOrDigit() || it == '-' || it == '_' }) return false
+        return try {
+            keystoreIo.execute {
+                val payload = generateAttestedKey(challengeBase64)
+                val script = "window.dispatchEvent(new CustomEvent('iinpublic-attestation-result', " +
+                    "{detail:{id:${JSONObject.quote(requestId)},payload:${JSONObject.quote(payload)}}}));"
+                view.post { if (view.isAttachedToWindow) view.evaluateJavascript(script, null) }
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private fun ok(fields: JSONObject): String = fields.put("ok", true).toString()
     private fun fail(reason: String): String = JSONObject().put("ok", false).put("reason", reason).toString()

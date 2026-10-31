@@ -722,41 +722,29 @@ describe('setBlocked', () => {
     expect(d.emit).not.toHaveBeenCalled();
   });
 
-  it('POSTs to the blocks endpoint when blocking', async () => {
-    const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
+  // F5 (gui-responsiveness-audit.md): the UI applies a block at once and never waits on the hub;
+  // the app layer persists it (device first, hub in the background).
+  it('applies the block locally without any network call, even when the hub would hang', async () => {
+    const fetchSpy = jest.fn(() => new Promise(() => undefined));
     global.fetch = fetchSpy as any;
-    const d = blockDeps();
-    await setBlocked('u1', true, d);
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://api.example.com/api/users/me/blocks',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ targetId: 'u1' }) }),
-    );
-  });
-
-  it('DELETEs the specific block entry when unblocking', async () => {
-    const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
-    global.fetch = fetchSpy as any;
-    const d = blockDeps();
-    await setBlocked('u1', false, d);
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://api.example.com/api/users/me/blocks/u1',
-      expect.objectContaining({ method: 'DELETE' }),
-    );
-  });
-
-  it('skips the network call entirely when apiBase or currentUserId is missing', async () => {
-    const fetchSpy = jest.fn();
-    global.fetch = fetchSpy as any;
-    const d = blockDeps({ apiBase: '' });
+    const currentUser = { blockedUserIds: [] as string[] };
+    const d = blockDeps({ getCurrentUser: jest.fn(() => currentUser) });
     await setBlocked('u1', true, d);
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(d.emit).toHaveBeenCalled(); // local mutation still happens
+    expect(currentUser.blockedUserIds).toEqual(['u1']);
+    expect(d.emit).toHaveBeenCalledWith('setUserBlocked', { userId: 'u1', blocked: true });
+    expect(d.refreshContactsList).toHaveBeenCalled();
   });
 
-  it('throws when the server responds with a non-ok status', async () => {
-    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as any;
-    const d = blockDeps();
-    await expect(setBlocked('u1', true, d)).rejects.toThrow('Failed to block user: HTTP 500');
+  it('applies an unblock locally without any network call', async () => {
+    const fetchSpy = jest.fn();
+    global.fetch = fetchSpy as any;
+    const currentUser = { blockedUserIds: ['u1', 'u2'] };
+    const d = blockDeps({ getCurrentUser: jest.fn(() => currentUser) });
+    await setBlocked('u1', false, d);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(currentUser.blockedUserIds).toEqual(['u2']);
+    expect(d.emit).toHaveBeenCalledWith('setUserBlocked', { userId: 'u1', blocked: false });
   });
 
   it('adds the userId to blockedUserIds, deduped, when blocking', async () => {

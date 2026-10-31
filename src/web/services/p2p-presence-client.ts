@@ -8,6 +8,10 @@ import {
 } from '../../shared/p2p-presence';
 import { createSignedP2PEnvelopeProof, type SeaSigningPair } from '../../shared/p2p-runtime';
 import type { ActiveRoomScope } from '../../shared/active-exchange-room';
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** A presence call on a hung network must not hold up room entry (boot awaits the first one). */
+const PRESENCE_REQUEST_TIMEOUT_MS = 4_000;
 
 export type PresenceClientOptions = {
   apiBase: string;
@@ -40,11 +44,11 @@ export class P2PPresenceClient {
           ...(input.capabilities ? { capabilities: input.capabilities } : {}),
         })
       : createPresenceRecord(input);
-    const res = await fetch(`${this.options.apiBase}/api/presence/register`, {
+    const res = await fetchWithTimeout(`${this.options.apiBase}/api/presence/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(record),
-    });
+    }, PRESENCE_REQUEST_TIMEOUT_MS);
     if (!res.ok) {
       throw new Error(`presence register failed: ${res.status}`);
     }
@@ -66,9 +70,9 @@ export class P2PPresenceClient {
       params.set('manifestHash', roomScope.manifestHash);
       params.set('tokenExpiresAt', roomScope.tokenExpiresAt);
     }
-    const res = await fetch(`${this.options.apiBase}/api/presence/nearby?${params.toString()}`, {
+    const res = await fetchWithTimeout(`${this.options.apiBase}/api/presence/nearby?${params.toString()}`, {
       cache: 'no-store',
-    });
+    }, PRESENCE_REQUEST_TIMEOUT_MS);
     if (!res.ok) return [];
     const body = (await res.json()) as { peers?: PresenceRecord[] };
     return body.peers ?? [];
@@ -93,11 +97,11 @@ export class P2PPresenceClient {
       signature: proof.signature,
       nonce: proof.nonce,
     });
-    const res = await fetch(`${this.options.apiBase}/api/presence/ack`, {
+    const res = await fetchWithTimeout(`${this.options.apiBase}/api/presence/ack`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ack),
-    });
+    }, PRESENCE_REQUEST_TIMEOUT_MS);
     if (!res.ok) {
       throw new Error(`presence ack failed: ${res.status}`);
     }
@@ -128,10 +132,12 @@ export class P2PPresenceClient {
     const initialScope = input.getRoomScope?.();
     if (input.getRoomScope && !initialScope) throw new Error('active room scope is required for presence');
     const enteredAt = input.getRoomEnteredAt?.();
+    // Start beating before the first register: if that one fails (hub unreachable at room entry),
+    // the heartbeat must still retry once the network is back rather than never run.
+    this.heartbeatTimer = setInterval(beat, this.options.heartbeatMs ?? 30_000);
     if (!input.isDiscoveryAllowed || input.isDiscoveryAllowed()) {
       await this.register({ ...input, ...(initialScope ? { roomScope: initialScope } : {}), ...(enteredAt ? { enteredAt } : {}) });
     }
-    this.heartbeatTimer = setInterval(beat, this.options.heartbeatMs ?? 30_000);
   }
 
   stopHeartbeat(): void {

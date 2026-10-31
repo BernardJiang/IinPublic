@@ -112,8 +112,8 @@ describe('displayStatisticsDashboard', () => {
       return Promise.resolve({ ok: true, json: async () => ({ tags: [{ id: 'sell', count: 3 }] }) });
     }) as unknown as typeof fetch;
     await displayStatisticsDashboard(deps({ apiBase: 'http://api.test' }));
-    expect(global.fetch).toHaveBeenCalledWith('http://api.test/api/stats/broadcast-tags', { cache: 'no-store' });
-    expect(global.fetch).toHaveBeenCalledWith('http://api.test/api/stats/broadcast-tags/trends', { cache: 'no-store' });
+    expect(global.fetch).toHaveBeenCalledWith('http://api.test/api/stats/broadcast-tags', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }));
+    expect(global.fetch).toHaveBeenCalledWith('http://api.test/api/stats/broadcast-tags/trends', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }));
     expect(document.getElementById('statistics-content')!.innerHTML.length).toBeGreaterThan(0);
   });
 

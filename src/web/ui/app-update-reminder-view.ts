@@ -5,6 +5,10 @@ import { readNativeHostInfo } from './native-host-info';
 import { renderUpdateAvailableBadge } from './notification-badges';
 import { settingsStorage } from '../services/core-storage';
 
+import { fetchWithTimeout } from '../services/fetch-with-timeout';
+
+/** Every hub call here gives up after 5 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 5_000);
 /**
  * docs/TODO.md OPEN-33: a sideloaded Android APK (not Play Store) has no update channel at all —
  * this is a reminder only, never a silent self-update. Compares `GET /api/downloads`'s published
@@ -64,7 +68,7 @@ export async function renderAppUpdateReminderBanner(deps: AppUpdateReminderDeps)
 
   let manifest: { version?: string; android?: string | null } = {};
   try {
-    const res = await fetch(`${deps.apiBase}/api/downloads`, { cache: 'no-store' });
+    const res = await boundedFetch(`${deps.apiBase}/api/downloads`, { cache: 'no-store' });
     if (res.ok) manifest = await res.json();
   } catch {
     return; // offline/unreachable — no reminder this launch, not an error state to show

@@ -123,6 +123,7 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
     renderPeerTagsInto(container, peerId, peerName);
   };
 
+  const openingPeers = new Set<string>();
   const openDirectConversationWithPeer = async (
     peerId: string,
     peerName: string,
@@ -135,6 +136,13 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
       shownPeerDetailId() ?? '',
     ].join('|');
     const askedFrom = screen();
+    // One open per person at a time; a slow open says so instead of looking like a dead tap
+    // (gui-responsiveness-audit.md F2).
+    if (openingPeers.has(peerId)) return;
+    openingPeers.add(peerId);
+    // Safety release: an open that never settles must not leave this person's taps dead.
+    const release = setTimeout(() => openingPeers.delete(peerId), 15_000);
+    const slowNotice = setTimeout(() => deps.showNotification(deps.t('peerOpeningConversation'), 'info'), 400);
     try {
       const conversationId = await new Promise<string>((resolve, reject) => {
         deps.emit('openDirectConversation', { peerId, peerName, resolve, reject });
@@ -142,6 +150,10 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
       if (conversationId && screen() === askedFrom) deps.showConversationDetail(conversationId, talkId);
     } catch {
       // The peer layout stays open when its DM channel cannot be opened.
+    } finally {
+      clearTimeout(slowNotice);
+      clearTimeout(release);
+      openingPeers.delete(peerId);
     }
   };
 

@@ -11,6 +11,8 @@ export type TalkDetailViewDeps = {
   showTalkDetail: (talkId: string, identityKeyFallback?: string, options?: { preferAnswerView?: boolean; questionId?: string }) => void;
 };
 
+const openingTalkIds = new Set<string>();
+
 export function showTalkDetail(
   talkId: string,
   identityKeyFallback: string | undefined,
@@ -50,10 +52,19 @@ export function showTalkDetail(
     }
   } else {
     // Incoming: load by id; if Gun gave a bad id, app retries via identityKey from server API.
+    // One lookup per Talk at a time, and a slow one says so (gui-responsiveness-audit.md F6).
+    if (openingTalkIds.has(tid)) return;
+    openingTalkIds.add(tid);
+    const slowNotice = setTimeout(() => deps.showNotification(deps.t('talksOpening'), 'info'), 400);
+    // Safety release: a lookup that never answers must not leave this Talk's taps dead.
+    const release = setTimeout(() => openingTalkIds.delete(tid), 15_000);
     deps.emit('demandFullTalk', {
       talkId: tid,
       identityKeyFallback: identityKeyFallback || undefined,
       callback: (fullTalk: any) => {
+        clearTimeout(slowNotice);
+        clearTimeout(release);
+        openingTalkIds.delete(tid);
         if (fullTalk) deps.showTalkResponseDialog(fullTalk, { skipAutoAnswer: true, ...(options?.questionId ? { targetQuestionId: options.questionId } : {}) });
         // TODO §P: a real retry, not a one-shot toast whose copy claims retry it doesn't
         // perform — clicking re-runs this same lookup (mesh cache/identity-key resolution

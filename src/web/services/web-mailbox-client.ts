@@ -23,6 +23,10 @@
 
 import { getSEA, type GunPair } from '../sea-gun';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 15 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 15_000);
 export type MailboxEnvelopeRemote = {
   id: string;
   recipientId: string;
@@ -99,7 +103,7 @@ export class WebMailboxClient {
     ttlMs?: number;
   }): Promise<{ stored: boolean; error?: string }> {
     try {
-      const res = await fetch(
+      const res = await boundedFetch(
         `${this.apiBase}/api/mailbox/${encodeURIComponent(params.recipientId)}`,
         {
           method: 'POST',
@@ -124,7 +128,7 @@ export class WebMailboxClient {
    */
   async fetchEnvelopes(recipientId: string): Promise<MailboxEnvelopeRemote[]> {
     try {
-      const res = await fetch(
+      const res = await boundedFetch(
         `${this.apiBase}/api/mailbox/${encodeURIComponent(recipientId)}`,
         { cache: 'no-store' },
       );
@@ -142,7 +146,7 @@ export class WebMailboxClient {
    */
   async deleteEnvelope(recipientId: string, envelopeId: string): Promise<boolean> {
     try {
-      const res = await fetch(
+      const res = await boundedFetch(
         `${this.apiBase}/api/mailbox/${encodeURIComponent(recipientId)}/${encodeURIComponent(envelopeId)}`,
         { method: 'DELETE' },
       );

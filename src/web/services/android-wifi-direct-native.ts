@@ -1,6 +1,10 @@
 import type { WifiDirectGroupCredentials } from '../../shared/wifi-direct-link';
 import type { LocalLinkRelay, WifiDirectNative, WifiDirectNativeCapabilities, WifiDirectNativeState } from './wifi-direct-link-service';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
 /** Wi-Fi Direct group methods on `window.IinPublicNearby` (NearbyJavascriptBridge.kt). */
 export type AndroidWifiDirectBridge = {
   capabilities(): string;
@@ -132,7 +136,7 @@ export class EmbeddedNodeLocalRelay implements LocalLinkRelay {
   constructor(private readonly apiBase: string) {}
 
   async start(groupAddress: string): Promise<RTCIceServer> {
-    const res = await fetch(`${this.apiBase}/api/local-link/relay`, {
+    const res = await boundedFetch(`${this.apiBase}/api/local-link/relay`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ relayAddress: groupAddress }),
@@ -147,6 +151,6 @@ export class EmbeddedNodeLocalRelay implements LocalLinkRelay {
   }
 
   async stop(): Promise<void> {
-    await fetch(`${this.apiBase}/api/local-link/relay`, { method: 'DELETE', cache: 'no-store' });
+    await boundedFetch(`${this.apiBase}/api/local-link/relay`, { method: 'DELETE', cache: 'no-store' });
   }
 }

@@ -3,6 +3,10 @@ import { buildStatsDashboard, type StatsDashboard } from '../../shared/talk-stat
 import { renderStatisticsDashboard as renderLocalStatisticsDashboard } from './statistics-dashboard';
 import type { UiTranslationKey } from './ui-translations';
 
+import { fetchWithTimeout } from '../services/fetch-with-timeout';
+
+/** Every hub call here gives up after 5 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 5_000);
 export type LocalStatisticsDeps = {
   apiBase: string;
   currentUserId: string;
@@ -61,8 +65,8 @@ export async function displayStatisticsDashboard(deps: LocalStatisticsDeps): Pro
   if (base) {
     try {
       const [tagRes, trendRes] = await Promise.all([
-        fetch(`${base}/api/stats/broadcast-tags`, { cache: 'no-store' }),
-        fetch(`${base}/api/stats/broadcast-tags/trends`, { cache: 'no-store' }),
+        boundedFetch(`${base}/api/stats/broadcast-tags`, { cache: 'no-store' }),
+        boundedFetch(`${base}/api/stats/broadcast-tags/trends`, { cache: 'no-store' }),
       ]);
       if (tagRes.ok) {
         const tagData = (await tagRes.json()) as { tags?: Array<{ id: string; count: number }> };

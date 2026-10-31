@@ -28,6 +28,10 @@ import type {
   ActiveExchangeRoomController,
 } from '../../shared/active-exchange-room';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** Every hub call here gives up after 5 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 5_000);
 /**
  * Membership heartbeat cadence. Every member re-publishes its roster record this often and every
  * room-mate receives it, so relay/client traffic grows with (room size / interval) — see
@@ -476,7 +480,7 @@ export class WebChatroomService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
-      const response = await fetch(
+      const response = await boundedFetch(
         `${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members/${encodeURIComponent(userId)}`,
         {
           method: 'PATCH',
@@ -514,7 +518,7 @@ export class WebChatroomService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
-      await fetch(`${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
+      await boundedFetch(`${this.resolveApiBase()}/api/chatrooms/${encodeURIComponent(chatroomId)}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, stageName: stageName || userId, isTraveler }),

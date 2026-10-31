@@ -1166,28 +1166,16 @@ type SetBlockedDeps = {
   refreshContactsList: () => void;
 };
 
-/** Blocks or unblocks a user: server call (when online) + local `currentUser.blockedUserIds` mutation, then notifies and refreshes the Contacts list. */
+/**
+ * Blocks or unblocks a user: applied to `currentUser.blockedUserIds` at once, then the app layer
+ * persists it (device first, hub in the background — see `setUserBlocked` in app.ts). Blocking is
+ * a safety action: it must take effect immediately and offline (gui-responsiveness-audit.md F5).
+ */
 export async function setBlocked(
   userId: string, blocked: boolean, deps: SetBlockedDeps, notify?: BlockNotifyResult,
 ): Promise<void> {
   const currentUser = deps.getCurrentUser();
   if (!currentUser) return;
-  if (deps.apiBase && deps.currentUserId) {
-    const url = blocked
-      ? `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/blocks`
-      : `${deps.apiBase}/api/users/${encodeURIComponent(deps.currentUserId)}/blocks/${encodeURIComponent(userId)}`;
-    const response = await fetch(
-      url,
-      blocked
-        ? {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ targetId: userId }),
-          }
-        : { method: 'DELETE' },
-    );
-    if (!response.ok) throw new Error(`Failed to ${blocked ? 'block' : 'unblock'} user: HTTP ${response.status}`);
-  }
   currentUser.blockedUserIds = blocked
     ? Array.from(new Set([...(currentUser.blockedUserIds || []), userId]))
     : (currentUser.blockedUserIds || []).filter((candidate) => candidate !== userId);

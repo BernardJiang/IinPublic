@@ -3,6 +3,10 @@ import { BoundedNonceCache } from '../../shared/p2p-abuse-defense';
 import type { PostSignalingBody, SignalingTransport } from './signaling-transport';
 import { handleSignalingFrame } from './gun-pubsub-signaler';
 
+import { fetchWithTimeout } from './fetch-with-timeout';
+
+/** A hung poll used to stop polling for good (the next one is scheduled after it returns). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
 type SignalingRelayResponse = {
   conversationId: string;
   frames?: unknown[];
@@ -18,7 +22,7 @@ export class HttpRelaySignaler implements SignalingTransport {
   ) {}
 
   async post(conversationId: string, body: PostSignalingBody): Promise<void> {
-    const response = await fetch(
+    const response = await boundedFetch(
       `${this.apiBase}/api/p2p/signaling-relay/${encodeURIComponent(conversationId)}`,
       {
         method: 'POST',
@@ -49,7 +53,7 @@ export class HttpRelaySignaler implements SignalingTransport {
       if (stopped) return;
       try {
         const params = new URLSearchParams({ recipientPub: localPub });
-        const response = await fetch(
+        const response = await boundedFetch(
           `${this.apiBase}/api/p2p/signaling-relay/${encodeURIComponent(conversationId)}?${params.toString()}`,
           { cache: 'no-store' },
         );

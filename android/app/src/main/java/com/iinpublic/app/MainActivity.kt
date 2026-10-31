@@ -217,7 +217,7 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(NativeCustodyBridge(this), "IinPublicCustody")
         backgroundAgentBridge = BackgroundAgentJavascriptBridge(webView)
         webView.addJavascriptInterface(backgroundAgentBridge, "IinPublicBackground")
-        webView.addJavascriptInterface(NativeAttestationBridge(this), "IinPublicAttestation")
+        webView.addJavascriptInterface(NativeAttestationBridge(this, webView), "IinPublicAttestation")
         // targetSdk 35+ forces edge-to-edge on Android 15+: without this the top bar sits under
         // the status bar / camera cutout and the bottom nav under the gesture bar. Pad a container
         // by the system-bar + cutout insets (and the keyboard, which adjustResize no longer

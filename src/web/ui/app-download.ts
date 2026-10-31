@@ -1,5 +1,9 @@
 import type { UiTranslationKey } from './ui-translations';
 
+import { fetchWithTimeout } from '../services/fetch-with-timeout';
+
+/** Every hub call here gives up after 5 s (docs/testing/gui-responsiveness-audit.md F16). */
+const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 5_000);
 /** The 3 platforms IinPublic actually ships native apps for (Electron desktop,
  * `platforms/desktop`, covers Mac + Windows; `android/` is a real Gradle project) — matches
  * `GET /api/downloads`'s manifest keys (downloads-routes.ts). */
@@ -24,7 +28,7 @@ export async function fetchDownloadManifest(
 ): Promise<Record<string, string | null>> {
   if (!apiBase) return {};
   try {
-    const res = await fetch(`${apiBase}/api/downloads`, { cache: 'no-store' });
+    const res = await boundedFetch(`${apiBase}/api/downloads`, { cache: 'no-store' });
     if (res.ok) return (await res.json()) as Record<string, string | null>;
   } catch {
     // Offline/unreachable API — caller renders every platform as "Coming soon".

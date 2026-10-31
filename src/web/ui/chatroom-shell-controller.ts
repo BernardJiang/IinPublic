@@ -2,6 +2,7 @@ import type { User } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { roomCreationCredit, type RoomCreationCredit } from '../../shared/room-creation-credit';
 import { CONFIG } from '../../shared/config';
+import { fetchWithTimeout } from '../services/fetch-with-timeout';
 import { escapeHtml } from './ui-formatters';
 import { avatarInnerHtml } from './profile-avatar';
 import {
@@ -57,7 +58,7 @@ export type ChatroomShellControllerDeps = {
   /** The creator's blurred ~1 km cell (`region_<lat>_<lng>`), or null without a confirmed GPS fix. */
   getAnchorCell?: () => string | null;
   upsertCustomChatroomFromServer: (row: CustomChatroomRow) => void;
-  showNotification: (message: string, type: 'success' | 'error') => void;
+  showNotification: (message: string, type: 'success' | 'error' | 'info') => void;
   emit: (eventName: string, payload: unknown) => void;
   isUserOnline: (userId: string) => boolean;
   getCachedHeadshot?: (userId: string) => string | null;
@@ -230,51 +231,80 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     // A Talk exchange may create a Contact, but only explicit incoming Friend marks build the
     // reputation needed to publish a Place. The hub repeats this check authoritatively.
     const currentUser = deps.getCurrentUser();
-    let credit = roomCreationCredit(currentUser?.reputation, undefined, {
+    const policy = {
       minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
       maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
-    });
-    if (currentUser?.id && currentUser.pub) {
+    };
+    const localCredit = roomCreationCredit(currentUser?.reputation, undefined, policy);
+    // The hub's counts, bounded: on a hung network this used to keep the form from ever opening
+    // (gui-responsiveness-audit.md F4). Null = unknown; the most recently synchronized public
+    // counters stand, and the signed create request repeats the check at the hub.
+    const remoteCredit = (async (): Promise<RoomCreationCredit | null> => {
+      if (!currentUser?.id || !currentUser.pub) return null;
       try {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `${deps.getApiBase()}/api/users/${encodeURIComponent(currentUser.id)}/room-creation-credit?creatorPub=${encodeURIComponent(currentUser.pub)}`,
           { cache: 'no-store' },
+          4_000,
         );
         const remote = await response.json() as Partial<RoomCreationCredit>;
-        if (response.ok && typeof remote.eligible === 'boolean'
+        if (!(response.ok && typeof remote.eligible === 'boolean'
           && typeof remote.friendMarks === 'number' && typeof remote.blockCount === 'number'
           && typeof remote.requiredFriendMarks === 'number' && typeof remote.maximumAllowedBlocks === 'number'
-          && typeof remote.enoughFriendMarks === 'boolean' && typeof remote.blockCountAllowed === 'boolean') {
-          // The hub supplies authoritative counts. This client applies its own bundled threshold
-          // to those counts, so an older/misconfigured lower-threshold hub cannot silently weaken
-          // the release policy (and focused E2E can raise only the client threshold by URL).
-          credit = roomCreationCredit(
-            { friendsCount: remote.friendMarks, blockCount: remote.blockCount } as User['reputation'],
-            remote.friendMarks,
-            {
-              minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
-              maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
-            },
-          );
+          && typeof remote.enoughFriendMarks === 'boolean' && typeof remote.blockCountAllowed === 'boolean')) return null;
+        // The hub supplies authoritative counts. This client applies its own bundled threshold
+        // to those counts, so an older/misconfigured lower-threshold hub cannot silently weaken
+        // the release policy (and focused E2E can raise only the client threshold by URL).
+        const credit = roomCreationCredit(
+          { friendsCount: remote.friendMarks, blockCount: remote.blockCount } as User['reputation'],
+          remote.friendMarks,
+          policy,
+        );
+        if (currentUser.reputation) {
           currentUser.reputation.friendsCount = credit.friendMarks;
           currentUser.reputation.blockCount = credit.blockCount;
         }
+        return credit;
       } catch {
-        // The signed create request repeats this check at the hub. Offline UI falls back to the
-        // most recently synchronized public counters and remains fail-closed when they are low.
+        return null;
       }
-    }
-    if (!credit.eligible) {
+    })();
+    const refuse = (credit: RoomCreationCredit): void => {
       deps.showNotification(deps.tf('chatroomCreateNeedsCredit', {
         requiredFriends: credit.requiredFriendMarks,
         friends: credit.friendMarks,
         maximumBlocks: credit.maximumAllowedBlocks,
         blocks: credit.blockCount,
       }), 'error');
+    };
+
+    if (!localCredit.eligible) {
+      // The hub may know Friend marks this device has not synced yet: say so while it checks.
+      deps.showNotification(deps.t('chatroomCreateChecking'), 'info');
+      const credit = (await remoteCredit) ?? localCredit;
+      if (!credit.eligible) {
+        refuse(credit);
+        return;
+      }
+    }
+    // Eligible as far as this device knows: open the form now. If the hub's counts come back
+    // ineligible while it is open, close it and say why.
+    let closedByCheck = false;
+    void remoteCredit.then((credit) => {
+      if (!credit || credit.eligible) return;
+      const cancel = document.getElementById('cancel-custom-room-btn') as HTMLButtonElement | null;
+      if (!cancel) return;
+      closedByCheck = true;
+      cancel.click();
+      refuse(credit);
+    });
+    const payload = await deps.showCreateCustomChatroomDialog();
+    if (!payload || closedByCheck) return;
+    const finalCredit = await remoteCredit;
+    if (finalCredit && !finalCredit.eligible) {
+      refuse(finalCredit);
       return;
     }
-    const payload = await deps.showCreateCustomChatroomDialog();
-    if (!payload) return;
     deps.emit('createCustomChatroom', { ...payload, anchorCell });
   };
 

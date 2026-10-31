@@ -61,8 +61,26 @@ export function renderSupportDelegateOptInSection(deps: SupportDelegateOptInView
       const input = container.querySelector('#support-delegate-invite-code-input') as HTMLInputElement | null;
       const status = container.querySelector('#support-delegate-invite-code-status') as HTMLElement | null;
       const code = input?.value.trim() || '';
-      if (!code || !status) return;
-      const err = await deps.onSubmitInviteCode(code);
+      if (!status) return;
+      // Never a silent no-op (gui-responsiveness-audit.md F14): say what is missing, and show
+      // the request is in progress while it runs.
+      if (!code) {
+        status.textContent = deps.text('supportDelegateInviteEntryEmpty');
+        input?.focus();
+        return;
+      }
+      const button = container.querySelector('#support-delegate-invite-code-submit') as HTMLButtonElement | null;
+      if (button?.disabled) return;
+      if (button) button.disabled = true;
+      status.textContent = '…';
+      let err: 'invalid' | 'expired' | 'unavailable' | null;
+      try {
+        err = await deps.onSubmitInviteCode(code);
+      } catch {
+        err = 'unavailable';
+      } finally {
+        if (button) button.disabled = false;
+      }
       const errorText: Record<'invalid' | 'expired' | 'unavailable', string> = {
         invalid: deps.text('supportDelegateInviteErrorInvalid'),
         expired: deps.text('supportDelegateInviteErrorExpired'),
