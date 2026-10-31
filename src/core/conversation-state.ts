@@ -172,6 +172,9 @@ export function mergeConversationRecord(
     unread: isSupportChannel ? false : isNew ? true : (existing?.unread ?? false),
     respondedByBot,
     dealEligible,
+    // A metadata refresh can arrive while either participant is confirming. The local
+    // confirmation must survive that refresh; the signed peer update is merged separately.
+    ...(existing?.dealConfirmedByJson ? { dealConfirmedByJson: existing.dealConfirmedByJson } : {}),
     ...(matchScore !== undefined ? { matchScore } : {}),
     ...(matchTotal !== undefined ? { matchTotal } : {}),
     supportChannel: isSupportChannel,

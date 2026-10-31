@@ -16,6 +16,8 @@ export const LEGACY_SHARED_NAMESPACES = [
   'conversations', 'conversation-wakeups', 'p2p-signal', 'pairTalkResponses',
   // Signed identity linking and encrypted handoff protocols.
   'identity-links', 'identity-link-revocations', 'identity-link-requests', 'identity-epub', 'handoff', 'handoff-ack',
+  // Mutual device-sync authorization and encrypted exchange (already relayed over HTTP too).
+  'device-sync-authorization', 'device-sync-epub', 'device-sync-envelope', 'device-sync-ack',
   // Existing signed operator records and support inbox.
   'techsupport-inbox', 'techsupport-faq', 'techsupport-faq-entries', 'techsupport-delegates',
   'techsupport-delegate-revocations', 'techsupport-delegate-requests', 'techsupport-delegate-invites',

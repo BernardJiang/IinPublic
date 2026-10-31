@@ -9,7 +9,7 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
-import { headless, afterAction, afterNav, afterSync } from '../../helpers/timing';
+import { headless, afterAction, afterSync } from '../../helpers/timing';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
@@ -50,7 +50,7 @@ test.describe('Full graph traversal (Chatroom -> Person -> Talk -> Q&A) has no d
     await clearGunForStage2Spec();
   });
 
-  test('from Jerry: chatroom member -> conversation, back -> peer history -> talk, view -> Me-tab answer', async () => {
+  test('from Jerry: chatroom member -> person -> peer history -> talk, view -> Me-tab answer', async () => {
     test.setTimeout(120_000);
     const tom = await bootstrapUser(browserTom, 'GraphTom', 'GraphTom');
     const jerry = await bootstrapUser(browserJerry, 'GraphJerry', 'GraphJerry');
@@ -93,13 +93,10 @@ test.describe('Full graph traversal (Chatroom -> Person -> Talk -> Q&A) has no d
       await expect(tomRow).toBeVisible({ timeout: 20_000 });
       await tomRow.click();
       await afterAction();
-      await expect(pageJerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
       await expect(pageJerry.locator('#peer-detail-overlay')).toBeVisible();
 
-      // ── Hop 2: Person -> Talk. Back to the ⟨User⟩ layout, then the exchanged-talk history
-      // row for this specific talk re-opens the conversation scoped to it. ──
-      await pageJerry.click('#back-from-conversation');
-      await expect(pageJerry.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
+      // ── Hop 2: Person -> Talk. The exchanged-talk history row for this specific
+      // talk opens the conversation scoped to it. ──
       const historyRow = pageJerry.locator(`.peer-history-item[data-talk-id="${talkId}"]`);
       await expect(historyRow).toBeVisible({ timeout: 15_000 });
       await historyRow.click();

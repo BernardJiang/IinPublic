@@ -35,6 +35,7 @@ export class UserService {
   }>();
   private readonly recentPublicUsers = new Map<string, User>();
   private readonly recentReputationWrites = new Map<string, Reputation>();
+  private readonly recentAgeVerificationWrites = new Map<string, { votes: number; verified: boolean }>();
   private readonly recentFriendMarkStates = new Map<string, Map<string, { active: boolean; updatedAt: string }>>();
 
   constructor(private gunService: GunService) {}
@@ -45,6 +46,7 @@ export class UserService {
     this.recentPublicProfileFoundations.clear();
     this.recentPublicUsers.clear();
     this.recentReputationWrites.clear();
+    this.recentAgeVerificationWrites.clear();
     this.recentFriendMarkStates.clear();
   }
 
@@ -383,7 +385,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
       // the sole writer (see its own doc comment), so no separate scan/reconciliation is needed.
       const reputation = await this.mergeAgeVerificationIntoReputation(
         userId,
-        user.reputation ?? (await this.readReputation(userId)),
+        this.recentReputationWrites.get(userId) ?? user.reputation ?? (await this.readReputation(userId)),
       );
       return {
         ...user,
@@ -592,15 +594,17 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
    * avoiding Gun peer-sync races with the user's reputation sub-node.
    */
   private readAgeVerified(userId: string): Promise<boolean> {
+    const recent = this.recentAgeVerificationWrites.get(userId);
+    if (recent) return Promise.resolve(recent.verified);
     return this.gunService
-      .getPath([AGE_VERIF_KEY, userId], 300, 500)
+      .getPath([AGE_VERIF_KEY, userId], 300, 3000)
       .then((data) => !!(data as { verified?: boolean } | undefined)?.verified)
       .catch(() => false);
   }
 
   /** Votes live on `user-age-verification`; merge into API reputation for GET /users/:id. */
   private async mergeAgeVerificationIntoReputation(userId: string, reputation: Reputation): Promise<Reputation> {
-    const ageVerifNode = (await this.gunService.getPath([AGE_VERIF_KEY, userId], 300, 500).catch(() => null)) as
+    const ageVerifNode = this.recentAgeVerificationWrites.get(userId) ?? (await this.gunService.getPath([AGE_VERIF_KEY, userId], 300, 3000).catch(() => null)) as
       | { votes?: number; verified?: boolean }
       | null;
     return {
@@ -612,9 +616,13 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
 
   async vouchAgeVerified(targetUserId: string): Promise<void> {
     // Read current votes from the server-owned path (browser never writes here).
-    const current = await this.gunService.getPath([AGE_VERIF_KEY, targetUserId]).catch(() => null);
+    const current = this.recentAgeVerificationWrites.get(targetUserId)
+      ?? await this.gunService.getPath([AGE_VERIF_KEY, targetUserId]).catch(() => null);
     const votes = Number(current?.votes || 0) + 1;
     const verified = votes >= CONFIG.AGE_VERIFICATION_THRESHOLD;
     await this.gunService.putPath([AGE_VERIF_KEY, targetUserId], { votes, verified });
+    // The hub's Gun read can lag a completed local put. Keep the server-owned decision
+    // monotonic in this process so consecutive votes and delivery checks see the same state.
+    this.recentAgeVerificationWrites.set(targetUserId, { votes, verified });
   }
 }

@@ -1,7 +1,7 @@
 /**
  * TODO §N3 (single exchange partner): from a Talks-tab item, trace back to who I exchanged
  * it with, then DM them — clicking the matched-name (OUT) / sender-name (IN) should navigate
- * straight to the DM via navigateToGraphNode's 'person' destination, not just open the talk.
+ * to the person via navigateToGraphNode's 'person' destination, not just open the talk.
  */
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -57,7 +57,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
     await clearGunForStage2Spec();
   });
 
-  test('OUT row: clicking the sole matched name opens the DM with that responder', async () => {
+  test('OUT row: clicking the sole matched name opens that responder and their DM thread', async () => {
     pair = await setupFastMatchedDm(browserA, browserB, 'TraceTom', 'TraceJerry');
     const { pageA, userIdB } = pair;
 
@@ -75,6 +75,8 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
     await matchedLine.click();
     await afterAction();
 
+    await expect(pageA.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
+    await pageA.locator('[data-testid="dm-thread-entry"]').click();
     await expect(pageA.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
     await expect(pageA.locator('#conversation-user-name')).toContainText('TraceJerry');
     const openedConversationId = await pageA.evaluate(
@@ -94,7 +96,7 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
   // never carries an id — see ui-manager.ts's answeredIncomingEntries), so this case needs a
   // real broadcast-and-receive flow to exercise the live cluster.senders senderId that N3 traces
   // back through.
-  test('IN row: clicking the sender name opens the DM, without also opening the talk detail', async () => {
+  test('IN row: clicking the sender name opens that person, without opening the talk detail', async () => {
     const tom = await bootstrapUser(browserA, 'TraceTomIn2', 'TraceTomIn2');
     const jerry = await bootstrapUser(browserB, 'TraceJerryIn2', 'TraceJerryIn2');
     const pageTom = tom.page;
@@ -129,9 +131,11 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
       await senderLine.click();
       await afterAction();
 
-      // Clicking the sender opens the DM, not the talk detail/response dialog.
-      await expect(pageJerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
+      // Clicking the sender opens the person, not the talk detail/response dialog.
+      await expect(pageJerry.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
       await expect(pageJerry.locator('#talk-response-modal')).toHaveCount(0);
+      await pageJerry.locator('[data-testid="dm-thread-entry"]').click();
+      await expect(pageJerry.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
       const openedConversationId = await pageJerry.evaluate(
         () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',
       );
@@ -206,6 +210,8 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
       await afterAction();
 
       await expect(pageTom.locator('#talk-dm-picker-modal')).toHaveCount(0);
+      await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
+      await pageTom.locator('[data-testid="dm-thread-entry"]').click();
       await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
       const openedConversationId = await pageTom.evaluate(
         () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',

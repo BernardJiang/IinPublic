@@ -2,7 +2,7 @@
  * TODO §N2: the cross-tab "pick a conversation" affordance. The Me-tab badge only shows while
  * on the Me tab; #dm-inbox-btn is reachable from every tab, badge-driven off the same aggregate
  * unread count, and opens a sorted list of senders with unread messages. Picking one navigates
- * to that conversation.
+ * to that person, where the DM thread can be opened explicitly.
  */
 import { chromium, Browser } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -37,7 +37,7 @@ test.describe('Cross-tab DM inbox affordance (N2)', () => {
     await clearGunForStage2Spec();
   });
 
-  test('badge updates on a non-Me tab; picker lists the sender; picking navigates to the conversation', async () => {
+  test('badge updates on a non-Me tab; picker lists the sender and links to the DM thread', async () => {
     pair = await setupFastMatchedDm(browserA, browserB, 'InboxTom', 'InboxJerry');
     const { pageA, pageB, conversationId, userIdA } = pair;
 
@@ -68,6 +68,8 @@ test.describe('Cross-tab DM inbox affordance (N2)', () => {
     await afterAction();
 
     await expect(pageB.locator('#dm-inbox-modal')).toHaveCount(0);
+    await expect(pageB.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
+    await pageB.locator('[data-testid="dm-thread-entry"]').click();
     await expect(pageB.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
     const openedConversationId = await pageB.evaluate(
       () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',

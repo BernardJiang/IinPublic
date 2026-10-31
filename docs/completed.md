@@ -1,6 +1,22 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-27
+Last updated: 2026-10-31
+
+## 2026-10-31 — OPEN-94a Settings startup test
+
+- The test expected the old Chatrooms panel to remain active after a Settings tap before an
+  identity exists. The current UI intentionally opens Settings with a visible startup status and
+  replaces it when identity/content arrive. Updated the stale assertion and verified the full
+  `app-shell-controls.test.ts` suite (9/9).
+
+## 2026-10-31 — OPEN-94b TechSupport browser regression
+
+- The pinned support contact now opens a person page before its DM thread. Updated all three
+  TechSupport E2E journeys to take that explicit step, preserving their end-to-end delegate,
+  cold-asker, and operator reply assertions.
+- Verified all three Chromium specs pass together with the configured TechSupport key loaded
+  only into the test process. This checkout's `.env.local` still needs its own configuration
+  before the canonical gate can run.
 
 ## 2026-10-27 — OPEN-94 complete contextual traversal across the four tabs
 

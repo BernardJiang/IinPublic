@@ -421,7 +421,11 @@ test.describe('Buy/sell talks match each other via chatbot cross-talk flattened 
         message: 'Eve: Adam\'s chatbot did not resolve her sell-talk as a match using the correct (seller-context) values',
       })
       .toBe(true);
-    await expect(hasConversationWith(pageAdam, eveId)).resolves.toBe(true);
+    // Each device commits its conversation independently after the response arrives.
+    // Eve's local commit does not make Adam's projection synchronous.
+    await expect
+      .poll(() => hasConversationWith(pageAdam, eveId), { timeout: 30_000 })
+      .toBe(true);
 
     await afterAction();
   });

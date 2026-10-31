@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-30.
+Last reconciled: 2026-10-31.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -13,36 +13,58 @@ Actions that require the product owner, physical handling, privileged host chang
 an outside reviewer are mirrored in `docs/OWNER-TODO.md`. This file remains the canonical issue
 record.
 
-The current product priority is the **website and Android app**. Work on their shared web runtime,
-browser behavior, Android shell, and website↔Android interoperability before any other platform.
-The order below, not the numeric issue ID, defines execution priority. Do not start a deferred issue
-unless it directly blocks the website/Android focus or the product owner explicitly promotes it.
+The current product priority is **bug fixes and improvements to the website and Android app**.
+Pause new features and broad architecture work. Work on the shared web runtime, browser behavior,
+Android shell, and website↔Android interoperability only where they address a verified defect,
+reliability, performance, privacy, or release-readiness issue. The order below, not the numeric
+issue ID, defines execution priority. Do not start paused or deferred work unless it directly
+blocks this maintenance focus or the product owner explicitly promotes it.
 Run the Android availability preflight before physical-device work. When an issue is completed,
 move its outcome and verification evidence to `docs/completed.md`, remove it here, and do not reuse
 its ID.
 
-## Active execution queue — website and Android first
+## Current status (2026-10-31)
+
+- The repository is at 1.0.207. The last documented production website deployment is 1.0.200;
+  Android 1.0.205 responsiveness checks are documented on P30, PH-1, and FRD-L04. Do not infer
+  that 1.0.207 is installed on phones or deployed to the website from version metadata alone.
+- The web, server, shared core, and Android paths are implemented and have extensive unit,
+  integration, browser, and physical-device coverage. Recent stalled-hub responsiveness tests
+  passed 28/28 twice, and Android 1.0.205 measurements showed prompt tap reactions on three
+  phones. This does not close the owner-reported two-phone offline discovery or DM journey.
+- The last canonical full gate is **red**: 3,713 Jest passes / 1 failure and 34 E2E failures
+  on 2026-10-30. Focused website reruns now pass the TechSupport trio, age-vouch/dating,
+  person/DM navigation, linked-device sync, cross-navigation, and both buy/sell cases after
+  fixes below. The isolated Jest failure is fixed and its 9-test suite passes. The first
+  six-worker light rerun finished **348 passed, 12 skipped, 2 failed**; both residual cases
+  passed targeted reruns after repair. A second full light rerun finished **347 passed,
+  12 skipped, 3 failed**: message history after reload (29), an incoming device handoff
+  card (74), and mutual deal confirmation (88). The handoff screen now rechecks for a late
+  archive and its spec passed 3 repeated browser runs. Conversation refresh now preserves and
+  merges deal confirmations; 88 passed 3 repeated browser runs after this fix. Message history
+  after reload (29) remains under investigation.
+  `test:all` has not yet been rerun, so OPEN-94 remains open.
+- The two UI size-budget suites mentioned in the earlier responsiveness audit now pass locally
+  (4 tests on 2026-10-30); they are not current blockers.
+- Device-core privacy and host-command work has substantial focused validation, but OPEN-91
+  remains incomplete. The walking/transit and unplugged battery gates are still unverified.
+
+## Active maintenance queue — website and Android first
 
 - [ ] **OPEN-94 — `test:all` failure backlog surfaced 2026-10-30 (restored-gate fallout).**
   The canonical gate was red 2026-10-01 → 10-30 because this worktree's `.env.local` held the
   pre-rotation TechSupport key while the trust anchors rotated 2026-09-27 (commit b4b58d6c);
-  the fail-closed boot guard zeroed every E2E phase each night. Fixed 2026-10-30 by syncing
-  the key line from the `IinPublic.claude` worktree, plus `scripts/check-env-drift.js`
-  (`npm run doctor:env`, wired as `pretest:all`, commit 57cd0b87) so drift fails in seconds.
+  the fail-closed boot guard zeroed every E2E phase each night. The 2026-10-30 run used a
+  corrected key; `scripts/check-env-drift.js` (`npm run doctor:env`, wired as `pretest:all`,
+  commit 57cd0b87) now fails quickly on drift. **This checkout's current `.env.local` is
+  unconfigured again**; the configured key exists in the sibling `IinPublic.claude` worktree.
+  Focused TechSupport tests loaded that key only for their test process. Restore this checkout's
+  local configuration before a canonical `test:all` run.
   The first full run after the fix (59m6s) booted all phases and exposed the backlog hidden
   by the red month: jest 3713 pass / **1 fail**, E2E **34 failed tests** across 7 phases
   (light 23, stage5 2, mesh-isolated 1, find-similar 1, isolated 1, mass 2, phone-path 4);
-  mesh-batch, heavy-staged and cross-browser passed. Every item below needs a flake-vs-real
-  verdict (solo rerun evidence) before any fix; do not weaken assertions to make them pass.
-  - [ ] **OPEN-94a — Unit: `app-shell-controls.test.ts` "reveals Settings when the identity
-    arrives after the first tap"** fails in isolation (expected `chatrooms-view` active after
-    first Settings tap with no identity). Prime suspect: the 1.0.203 "keep the prior panel
-    visible until Settings is populated" change (OPEN-92) altered the semantics the test
-    encodes. Decide which behavior is correct, then fix product or test.
-  - [ ] **OPEN-94b — TechSupport E2E trio in light phase:** `00m-techsupport-delegate-answers`,
-    `00n-techsupport-conversation-answer-flow`, `00n-techsupport-delegate-answers-cold-asker`.
-    All three exercise delegate/conversation signing paths; prime suspect is fixture drift from
-    the 2026-09-27 key rotation (pre-signed delegate/greeting artifacts), not product logic.
+  mesh-batch, heavy-staged and cross-browser passed. The list below records focused repairs;
+  remaining failures still need an isolated verdict without weakening assertions.
   - [ ] **OPEN-94c — Stage2/3 two-party interaction cluster (light phase).**
     Solo-rerun evidence 2026-10-30 (PW_WORKERS=6, no concurrent stage5, ports cleaned):
     23 failed / 327 passed again. **20 tests reproduce in BOTH runs — genuine regressions,
@@ -52,7 +74,27 @@ its ID.
     00f-ux, 00g-age-gating, 09-cross-navigation, 79-dm-inbox-multi-sender. Cluster centres on
     the two-party match → conversation → DM path; suspect window is the 10-26 → 10-29
     OPEN-91 P5.4 host-command/ledger changes or the 1.0.201–203 navigation work (red month
-    hid the introducing commit — bisect against the solo light shard).
+    hid the introducing commit. **Focused repair status (2026-10-31):** the TechSupport trio,
+    21c/94 age checks, 60/61/74/78/81 navigation, 88 attachment, 89 buy/sell (both cases),
+    95 device sync, 96 dating (both cases), 00f/00g/09/79 three-user journeys now pass in
+    targeted Chromium runs. Fixes cover explicit person→DM navigation, closing a long-press
+    popup, age-vouch read consistency, device-sync namespace sharing, live author-reply refresh,
+    and direct device-core Gun writes with explicit parent links. The latter removed strict local
+    storage-ack failures seen in 89/96; the exchange log survived a reload in stage1/94.
+    The first complete six-worker light rerun finished 348 passed / 12 skipped / 2 failed.
+    `21a-reputation-block-count` exposed an unnecessary fallback API block that raced the UI's
+    background publish; the UI-only assertion now passes solo and in the second full shard.
+    `28-stage-zero-n2n` exposed a profile-save completion overwriting a concurrent stage-name
+    change; the merge fix passes solo and in the second full shard. That second shard finished
+    347 passed / 12 skipped / 3 failed. The device-handoff screen's one-shot archive check
+    could miss a readable archive; it now rechecks while open, with 3 repeated browser passes
+    and 17/17 linked-dialog unit tests. The 88 failure also reproduced once in three isolated
+    repeats: a conversation refresh dropped `dealConfirmedByJson`, and a stale peer snapshot
+    could replace a local confirmation. Both paths now preserve/union confirmations; 88 passed
+    three repeated browser runs and focused unit checks. **Remaining:** verify both repairs
+    under load and diagnose 29 (12 messages visible before reload, 11 afterward under six
+    workers). 29 passed once in isolation; 74 failed once in isolation before repair. Triage the public
+    `user-tags` Gun ack timeout still seen in passing runs.
     **Contention/order flakes (failed in only one of the two runs):** 54-chatroom-map,
     82-list-pins, 13-me-filters (in-suite only); 64-option-matrices, 69-matched-talk-threads,
     24-profile-privacy-visibility (solo only) — treat as flakiness backlog, not regressions.
@@ -63,6 +105,11 @@ its ID.
     07b reconnect — "WebRTC connection replaced" on 2 of 4 attempts; 09 tag-graph-tour).
     Triage each: contention flake vs genuine regression (per skill: failing all retries =
     genuine).
+  - [ ] **OPEN-94e — Remaining known test debt from the responsiveness audit.** Reconcile the
+    HEAD-reproducing E2E failures listed in `docs/testing/gui-responsiveness-audit.md`
+    (including contacts-to-DM navigation expectations) with 94b–d. The two UI size-budget
+    suites cited there now pass (4 tests, 2026-10-30). Update stale expectations only when the
+    intended product behavior is documented; fix genuine regressions without weakening assertions.
 
 - [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
   Airplane mode with Wi-Fi and Bluetooth re-enabled did not make two phones find each other.
@@ -88,11 +135,22 @@ its ID.
   Navigation used to activate empty Settings content before the first render; 1.0.203 keeps the
   prior panel visible until Settings is populated and shows cached Settings content on later
   visits. Unit and browser navigation regressions pass. Android 1.0.203 was installed in place
-  on all five USB phones on 2026-10-29. A support E2E run stopped before Send because
+  on all five USB phones on 2026-10-29. The later 1.0.205 stalled-hub audit measured prompt
+  reactions on P30, PH-1, and FRD-L04; the repository now declares 1.0.207, without a recorded
+  five-phone install or website deployment. The audit also found that TechSupport's relationship
+  stats placeholder can wait about 8.5 seconds for a profile that does not exist; remove that
+  unnecessary delay. A support E2E run stopped before Send because
   its local greeting/bootstrap was unavailable. **Remaining gate:** reproduce the owner's exact DM
-  symptom, verify actual send and immediate Back/tab response on a phone with the new build, and
-  confirm the fixes on all five phones; the prior 1.0.200 movement/battery field run must be
-  restarted under 1.0.203 for comparable evidence.
+  symptom, verify actual send and immediate Back/tab response on a phone with the tested build,
+  and confirm the fixes across the five-phone matrix. Record each installed version before a
+  comparable field run; the older 1.0.203 guide is a procedure, not proof of the current build.
+
+## Paused implementation and field qualification — track, but do not start new features
+
+OPEN-91's architecture expansion and OPEN-81's remaining adoption work are paused under the
+maintenance-only direction. Fix an existing privacy or correctness defect if it is verified;
+otherwise leave their remaining implementation scope parked. OPEN-76/77/79 remain open release
+or evidence tasks, not active feature development.
 
 - [ ] **OPEN-91 — Device core: one Gun, one copy of the app logic, a thin GUI (adopted
   2026-10-25).** Design: `docs/design/device-core-architecture.md`; privacy rules:

@@ -46,6 +46,7 @@ function baseDeps(overrides: Partial<LinkedDevicesDeps> = {}): LinkedDevicesDeps
 
 describe('linked devices dialog', () => {
   afterEach(() => {
+    jest.useRealTimers();
     document.body.innerHTML = '';
     mockedProbeLoopbackNode.mockReset();
   });
@@ -101,6 +102,21 @@ describe('linked devices dialog', () => {
 
     closeBeforeRefresh?.click();
     expect(document.getElementById('linked-devices-overlay')).toBeNull();
+  });
+
+  it('shows an incoming handoff that arrives after the dialog opens', async () => {
+    jest.useFakeTimers();
+    const checkIncomingHandoff = jest.fn(async () => ({ fromPub: 'pub-peer', fromName: 'Other device' }));
+    showLinkedDevicesDialog(baseDeps({ checkIncomingHandoff }));
+
+    expect(document.querySelector('[data-testid="incoming-handoff-card"]')).toBeNull();
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(checkIncomingHandoff).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-testid="incoming-handoff-card"]')).not.toBeNull();
+
+    document.getElementById('linked-devices-close')?.click();
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(checkIncomingHandoff).toHaveBeenCalledTimes(1);
   });
 });
 

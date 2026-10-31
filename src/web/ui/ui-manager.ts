@@ -1283,12 +1283,15 @@ export class UIManager extends EventEmitter {
   }
 
 
-  private async refreshCreatorReplies(): Promise<void> {
+  async refreshCreatorReplies(): Promise<void> {
     if (!this.currentUserId) return;
     // P0 step 5: replies derived from localTalkExchanges — no server call to /api/users/:id/replies.
     // creatorReplyRows also feeds the OUT-row matched-names line in displayTalksList (line ~2313).
     this.creatorReplyRows = deriveLocalCreatorReplies(this.currentUserId) as CreatorReplyRow[];
-    if (document.getElementById('talks-view')?.classList.contains('active')) this.displayTalksList();
+    if (document.getElementById('talks-view')?.classList.contains('active')) {
+      this.displayTalksList();
+      if (document.getElementById('creator-replies-panel')?.style.display !== 'none') this.renderCreatorReplies();
+    }
   }
 
   /**
@@ -3082,15 +3085,27 @@ export class UIManager extends EventEmitter {
 
   /** Optimistic local update after a `confirmDeal` write — refreshes the deal bar without
    *  waiting on a Gun round-trip. Re-renders the open thread only on a real change (closes the gallery). */
-  applyDealConfirmedBy(conversationId: string, dealConfirmedBy: string[]): void {
+  applyDealConfirmedBy(conversationId: string, dealConfirmedBy: string[]): string[] {
     const conversations = this.getMyConversations();
     const c = conversations[conversationId];
-    if (!c || (c.dealConfirmedByJson ?? '[]') === JSON.stringify(dealConfirmedBy)) return;
-    c.dealConfirmedByJson = JSON.stringify(dealConfirmedBy);
+    if (!c) return dealConfirmedBy;
+    let existing: string[] = [];
+    try {
+      const parsed = JSON.parse(c.dealConfirmedByJson || '[]');
+      if (Array.isArray(parsed)) existing = parsed.filter((id): id is string => typeof id === 'string');
+    } catch {
+      /* malformed local cache cannot block a valid synced confirmation */
+    }
+    // Confirmations are irreversible. A delayed metadata snapshot must not erase either
+    // participant's click while their direct control updates are still converging.
+    const merged = [...new Set([...existing, ...dealConfirmedBy])];
+    if ((c.dealConfirmedByJson ?? '[]') === JSON.stringify(merged)) return merged;
+    c.dealConfirmedByJson = JSON.stringify(merged);
     setMyConversations(conversations);
     if (this.currentConversationId === conversationId) {
       this.showConversationDetail(conversationId, this.currentThreadTalkId);
     }
+    return merged;
   }
 
   /**

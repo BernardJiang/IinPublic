@@ -145,6 +145,8 @@ test.describe('Cross-tab DM inbox affordance, multiple senders (N2 stage3)', () 
     await afterAction();
 
     await expect(bob.locator('#dm-inbox-modal')).toHaveCount(0);
+    await expect(bob.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
+    await bob.locator('[data-testid="dm-thread-entry"]').click();
     await expect(bob.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });
     const openedConversationId = await bob.evaluate(
       () => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.currentConversationId || '',

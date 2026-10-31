@@ -979,6 +979,11 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           } catch {
             return;
           }
+          // Long-press moves the sender row into a modal. Restore and close it before
+          // navigating, otherwise that modal remains above the opened person page.
+          if (peopleEl.closest('#item-details-popup')) {
+            document.getElementById('close-item-details-popup')?.click();
+          }
           if (people.length === 1) {
             deps.navigateToGraphNode({ type: 'person', id: people[0].id, name: people[0].name });
           } else if (people.length > 1) {

@@ -147,8 +147,6 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
     const jerryMember = pageTom.locator('.chatroom-member-item').filter({ hasText: 'Jerry' }).first();
     await expect(jerryMember).toBeVisible({ timeout: 15000 });
     await jerryMember.click();
-    await expect(pageTom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await pageTom.click('#back-from-conversation');
     await expect(pageTom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10000 });
     await expect(pageTom.locator('#peer-detail-name')).toContainText('Jerry');
     await pageTom.click('#back-from-peer-detail');

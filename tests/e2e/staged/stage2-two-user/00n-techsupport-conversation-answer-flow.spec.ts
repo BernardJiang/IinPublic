@@ -97,14 +97,14 @@ test.describe('TechSupport conversation UI: operator answers multiple questions 
     const userId = await userPage.evaluate(() => String((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id || ''));
     expect(userId).toBeTruthy();
 
-    // 1. User opens the TechSupport DM the same way any ordinary user does — tap the name on
-    // the pinned support contact row (contacts-view.ts tap-target split: this is the tap target
-    // that jumps straight to the conversation).
+    // 1. User opens the TechSupport DM through the pinned support contact's person view.
     await userPage.click('.nav-btn[data-view="contacts"]');
     await afterNav();
     const supportRow = userPage.locator(`.contact-support-item[data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
     await expect(supportRow).toBeVisible({ timeout: 15_000 });
     await supportRow.locator('.contact-item-name').click();
+    await expect(userPage.locator('#peer-detail-overlay')).toBeVisible();
+    await userPage.locator('[data-testid="dm-thread-entry"]').click();
     await expect(userPage.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(userPage.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
 

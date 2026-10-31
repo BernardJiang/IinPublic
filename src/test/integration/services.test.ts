@@ -76,6 +76,21 @@ describe('Service Integration Tests', () => {
   });
 
   describe('UserService Integration', () => {
+    it('counts consecutive age vouches despite lagging Gun reads and exposes the verified decision', async () => {
+      jest.spyOn(gunService, 'getPath').mockResolvedValue({ votes: 0, verified: false });
+      const putPath = jest.spyOn(gunService, 'putPath').mockResolvedValue(undefined);
+      jest.spyOn(gunService, 'getOptional').mockResolvedValue(null);
+
+      await userService.vouchAgeVerified('jerry');
+      await userService.vouchAgeVerified('jerry');
+      await userService.vouchAgeVerified('jerry');
+
+      expect(putPath).toHaveBeenNthCalledWith(1, ['user-age-verification', 'jerry'], { votes: 1, verified: false });
+      expect(putPath).toHaveBeenNthCalledWith(2, ['user-age-verification', 'jerry'], { votes: 2, verified: false });
+      expect(putPath).toHaveBeenNthCalledWith(3, ['user-age-verification', 'jerry'], { votes: 3, verified: true });
+      await expect(userService.getUserDeliveryContext('jerry')).resolves.toMatchObject({ ageVerified: true });
+    });
+
     it('should create user and store in Gun database', async () => {
       const userData = {
         stageName: 'TestUser',
@@ -165,7 +180,7 @@ describe('Service Integration Tests', () => {
       });
       expect(mockGetOptional).toHaveBeenCalledWith('users/user123', 500);
       expect(mockGetOptional).toHaveBeenCalledWith('user-public-profile/user123', 500);
-      expect(mockGetPath).toHaveBeenCalledWith(['user-age-verification', 'user123'], 300, 500);
+      expect(mockGetPath).toHaveBeenCalledWith(['user-age-verification', 'user123'], 300, 3000);
     });
 
     it('uses a cleared public headshot instead of a stale base-user photo', async () => {

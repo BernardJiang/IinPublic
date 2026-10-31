@@ -17,6 +17,7 @@ import {
 } from '../../helpers/reputation-e2e-helpers';
 import { clickBroadcastUntilBulkAck } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
+import { gunBaseURL } from '../../helpers/ports';
 
 test.describe('Reputation system — vouch threshold', () => {
   let browserTom: Browser;
@@ -76,6 +77,11 @@ test.describe('Reputation system — vouch threshold', () => {
 
     for (let i = 1; i <= 3; i += 1) {
       await serverVouchAgeVerified(pageTom!, jerryUserId);
+      await expect.poll(async () => {
+        const res = await pageTom!.request.get(`${gunBaseURL()}/api/users/${encodeURIComponent(jerryUserId)}`);
+        if (!res.ok()) return -1;
+        return Number(((await res.json()) as { reputation?: { ageVerificationVotes?: number } }).reputation?.ageVerificationVotes ?? -1);
+      }, { timeout: 10_000 }).toBe(i);
       await afterSync();
 
       const adultTitle = `E2E Adult Vote Step ${i} (${Date.now()})`;

@@ -14,11 +14,13 @@ describe('conversation records', () => {
     const existing = {
       otherUserName: 'Ann', talkId: 't1', relatedTalkIdsJson: JSON.stringify(['t1']), respondedByBot: true, dealEligible: true,
       unread: false, unreadCount: 3, threadSummaries: { t1: {} }, status: 'withdrawn', retractedAt: NOW, createdAt: '2026-01-01T00:00:00.000Z',
+      dealConfirmedByJson: JSON.stringify(['me']),
     };
     const record = mergeConversationRecord(existing, { conversationId: 'c1', otherUserId: 'ann', otherUserName: 'Unknown', talkId: 't2' }, names, NOW);
     expect(record).toMatchObject({
       otherUserName: 'Ann', talkId: 't2', respondedByBot: true, dealEligible: true, unread: false, unreadCount: 3,
       status: 'withdrawn', retractedAt: NOW, createdAt: '2026-01-01T00:00:00.000Z',
+      dealConfirmedByJson: JSON.stringify(['me']),
     });
     expect(record.relatedTalkIds.sort()).toEqual(['t1', 't2']);
   });

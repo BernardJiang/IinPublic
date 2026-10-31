@@ -71,9 +71,7 @@ test.describe('Peer actions in AppBar', () => {
     const jerryRow = tom.locator(`.chatroom-member-item[data-user-id="${jerryId}"]`);
     await expect(jerryRow).toBeVisible({ timeout: 15_000 });
     await jerryRow.click();
-    await expect(tom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await tom.click('#back-from-conversation');
-    await expect(tom.locator('#peer-detail-overlay')).toBeVisible();
+    await expect(tom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
 
     // 📤 renders inline in the AppBar's right zone with its testid.
     const sendBtn = tom.locator('#peer-detail-overlay .app-bar [data-testid="peer-send-talks-btn"]');
@@ -107,9 +105,11 @@ test.describe('Peer actions in AppBar', () => {
       .toBe(true);
 
     // Reopen: the same ⋯ item now unblocks.
+    await tom.click('.nav-btn[data-view="chatrooms"]');
+    await openCurrentChatroom(tom);
+    await expect(jerryRow).toBeVisible({ timeout: 15_000 });
     await jerryRow.click();
-    await expect(tom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await tom.click('#back-from-conversation');
+    await expect(tom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await tom.click('#peer-overflow-btn');
     await expect(tom.locator('[data-testid="peer-block-user-btn"]')).toContainText('Unblock User');
     await tom.locator('[data-testid="peer-block-user-btn"]').click();

@@ -6312,6 +6312,7 @@ export class IinPublicApp {
       nowIso: new Date().toISOString(),
     };
     upsertExchange(exchangeRecordFor(input));
+    void this.uiManager.refreshCreatorReplies();
     const ledger = authorLedgerWritesFor(input, this.currentUser.id);
     if (!ledger) return;
     try {
@@ -7982,8 +7983,8 @@ export class IinPublicApp {
         try {
           const dealConfirmedBy = JSON.parse(conversationData.dealConfirmedByJson);
           if (Array.isArray(dealConfirmedBy)) {
-            this.uiManager.applyDealConfirmedBy(conversationData.conversationId, dealConfirmedBy);
-            this.maybeFinalizeConfirmedDeal(dealConfirmedBy, otherUserId, conversationData.conversationId);
+            const mergedConfirmations = this.uiManager.applyDealConfirmedBy(conversationData.conversationId, dealConfirmedBy);
+            this.maybeFinalizeConfirmedDeal(mergedConfirmations, otherUserId, conversationData.conversationId);
           }
         } catch {
           /* malformed sync payload — ignore, next sync tick will retry */
@@ -8172,8 +8173,8 @@ export class IinPublicApp {
       const conversation = this.uiManager.getMyConversations()[data.conversationId] as any;
       if (!conversation) return;
       const dealConfirmedBy = await this.conversationService.confirmDeal(data.conversationId, this.currentUser.id);
-      this.uiManager.applyDealConfirmedBy(data.conversationId, dealConfirmedBy);
-      this.maybeFinalizeConfirmedDeal(dealConfirmedBy, conversation.otherUserId, data.conversationId);
+      const mergedConfirmations = this.uiManager.applyDealConfirmedBy(data.conversationId, dealConfirmedBy);
+      this.maybeFinalizeConfirmedDeal(mergedConfirmations, conversation.otherUserId, data.conversationId);
     });
 
     this.uiManager.on('updateTalkFilters', async (filters: any) => {
@@ -8379,7 +8380,6 @@ export class IinPublicApp {
     ) => {
       const previousUser = this.currentUser;
       try {
-        const previousTalkFilters = this.currentUser?.talkFilters;
         // Apply the change at once (local-first); the writes below take up to ~1 s even locally,
         // and the screen used to wait for them (gui-responsiveness-audit.md F3).
         if (previousUser && previousUser.id === userId) {
@@ -8402,10 +8402,16 @@ export class IinPublicApp {
           previousUser?.id === userId ? previousUser : undefined,
         );
         if (this.currentUser && this.currentUser.id === userId) {
+          // A name change can finish while this profile save is in flight. Keep the latest
+          // session fields instead of replacing them with the snapshot captured at entry.
           this.currentUser = {
-            ...updatedUser,
-            ...(previousTalkFilters ? { talkFilters: previousTalkFilters } : {}),
+            ...this.currentUser,
+            languages: updatedUser.languages,
+            profile: updatedUser.profile,
+            interests: updatedUser.interests,
+            ...(updatedUser.headshot ? { headshot: updatedUser.headshot } : {}),
           };
+          if (!updatedUser.headshot) delete (this.currentUser as Partial<User>).headshot;
           this.writeCachedUser(this.currentUser);
           this.uiManager.showMainInterface(this.currentUser);
           this.refreshStatusBar();
@@ -8415,8 +8421,15 @@ export class IinPublicApp {
         console.error('Failed to update profile foundation:', error);
         // Not saved: put back what was there, so the screen does not claim a change that failed.
         if (previousUser && this.currentUser?.id === userId) {
-          this.currentUser = previousUser;
-          this.uiManager.showMainInterface(previousUser);
+          this.currentUser = {
+            ...this.currentUser,
+            languages: previousUser.languages,
+            profile: previousUser.profile,
+            interests: previousUser.interests,
+            ...(previousUser.headshot ? { headshot: previousUser.headshot } : {}),
+          };
+          if (!previousUser.headshot) delete (this.currentUser as Partial<User>).headshot;
+          this.uiManager.showMainInterface(this.currentUser);
         }
         throw error;
       }

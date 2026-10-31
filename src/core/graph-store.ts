@@ -17,8 +17,7 @@ export interface GraphStore {
 
 /** A Gun-backed store. `gun` is a Gun instance (worker or Node). */
 export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTimeoutMs?: number; readWaitMs?: number; missWaitMs?: number } = {}): GraphStore {
-  // Writes go through the chain, so each parent links its children (`childKeys` lists them).
-  const ref = (path: string): any => path.split('/').filter(Boolean).reduce((node: any, part, i) => (i === 0 ? gun.get(part) : node.get(part)), null);
+  const parts = (path: string): string[] => path.split('/').filter(Boolean);
   // Reads ask for the node's soul directly: a chained node's soul is its path (`local/exchanges`).
   // Walking the chain on a cold start (after a reload) loses the first callback while Gun loads
   // each parent from storage; one direct lookup does not (found by e2e stage1/94).
@@ -47,17 +46,38 @@ export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTim
     if (found !== null || missWait <= 0) return found;
     return onceWithin(path, missWait);
   };
+  const write = (node: any, path: string, value: unknown): Promise<void> => new Promise((resolve, reject) => {
+    // A timeout leaves the write uncertain. Never authorize transport from an unconfirmed commit.
+    const timer = setTimeout(() => reject(new Error(`storage did not acknowledge write for ${path}`)), options.putTimeoutMs ?? 8000);
+    node.put(value, (ack: any) => {
+      clearTimeout(timer);
+      if (ack?.err) reject(new Error(String(ack.err)));
+      else resolve();
+    });
+  });
   return {
-    put: (path, value) => new Promise((resolve, reject) => {
-      // A timeout leaves the write uncertain. Never authorize a transport side effect on an
-      // unconfirmed commit; the host's local storage adapter must acknowledge it.
-      const timer = setTimeout(() => reject(new Error(`storage did not acknowledge write for ${path}`)), options.putTimeoutMs ?? 8000);
-      ref(path).put(value, (ack: any) => {
-        clearTimeout(timer);
-        if (ack?.err) reject(new Error(String(ack.err)));
-        else resolve();
-      });
-    }),
+    put: async (path, value) => {
+      const segments = parts(path);
+      if (segments.length === 0) throw new Error('storage path is empty');
+      // A chained put can wait forever for an absent parent node: private GETs are blocked at
+      // the wire boundary, so no peer can answer that lookup. Write exact souls and their index
+      // links directly instead; childKeys still sees the same parent/child graph.
+      const leafSoul = segments.join('/');
+      if (value === null) {
+        if (segments.length === 1) throw new Error('cannot delete the storage root');
+        const parentSoul = segments.slice(0, -1).join('/');
+        await write(gun.get(parentSoul).get(segments.at(-1)), path, null);
+        return;
+      }
+      await write(gun.get(leafSoul), path, value);
+      const links: Array<Promise<void>> = [];
+      for (let i = segments.length - 1; i > 0; i--) {
+        const parentSoul = segments.slice(0, i).join('/');
+        const childSoul = segments.slice(0, i + 1).join('/');
+        links.push(write(gun.get(parentSoul), parentSoul, { [segments[i]]: { '#': childSoul } }));
+      }
+      await Promise.all(links);
+    },
     get: async (path) => {
       const data = await once(path);
       if (!data || typeof data !== 'object') return null;

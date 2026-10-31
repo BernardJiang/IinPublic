@@ -239,11 +239,13 @@ describe('bindAppShellControls', () => {
     bindAppShellControls(deps());
     (document.querySelector('.nav-btn[data-view="settings"]') as HTMLButtonElement).click();
     jest.runAllTimers();
-    expect(document.getElementById('chatrooms-view')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(true);
+    expect(document.querySelector('[data-testid="settings-pending"]')?.textContent).toBe(uiText('en', 'settingsStarting'));
 
     document.getElementById('settings-content')!.textContent = 'Settings controls';
     showSettingsPanelIfReady();
     expect(document.getElementById('settings-view')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('settings-content')?.textContent).toBe('Settings controls');
     jest.useRealTimers();
   });
 });

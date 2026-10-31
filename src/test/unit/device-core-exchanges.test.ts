@@ -121,6 +121,25 @@ describe('the Gun-backed store', () => {
     await expect(gunGraphStore(chain).put('local/test', { value: 1 })).resolves.toBeUndefined();
   });
 
+  it('writes exact souls and parent links without waiting for a missing ancestor lookup', async () => {
+    const { gunGraphStore } = await import('../../core/graph-store');
+    const writes: Array<{ soul: string; value: unknown }> = [];
+    const node = (soul: string): any => ({
+      get: (field: string) => node(`${soul}/${field}`),
+      put: (value: unknown, cb: (ack: unknown) => void) => { writes.push({ soul, value }); cb({ ok: 1 }); },
+    });
+    const gun = { get: node };
+    await gunGraphStore(gun).put('local/collections/settings/theme', { json: 'dark' });
+    expect(writes).toEqual([
+      { soul: 'local/collections/settings/theme', value: { json: 'dark' } },
+      { soul: 'local/collections/settings', value: { theme: { '#': 'local/collections/settings/theme' } } },
+      { soul: 'local/collections', value: { settings: { '#': 'local/collections/settings' } } },
+      { soul: 'local', value: { collections: { '#': 'local/collections' } } },
+    ]);
+    await gunGraphStore(gun).put('local/collections/settings/theme', null);
+    expect(writes.at(-1)).toEqual({ soul: 'local/collections/settings/theme', value: null });
+  });
+
   it('a node that does not exist is empty; storage that does not answer is an error to retry', async () => {
     const { gunGraphStore } = await import('../../core/graph-store');
     const silent = { get: () => ({ once: () => {} }) };

@@ -168,6 +168,8 @@ test.describe('TechSupport delegation: master issues a grant, a delegate answers
     await supportRow.waitFor({ state: 'visible', timeout: 15_000 });
     await supportRow.locator('.contact-item-name').click();
     await afterNav();
+    await expect(amyPage.locator('#peer-detail-overlay')).toBeVisible();
+    await amyPage.locator('[data-testid="dm-thread-entry"]').click();
     await expect(amyPage.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
 
     const question = `Why won't my dilithium chamber sync at ${Date.now()}?`;

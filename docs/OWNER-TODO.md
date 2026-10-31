@@ -8,16 +8,20 @@ status remains in `docs/TODO.md`; check an item here only after its evidence is 
 ## Current owner actions
 
 - [ ] **OPEN-81 G7 — Carry the Android field matrix.** After the automated bench build is installed,
-  follow the step-by-step [1.0.203 phone field run](guides/PHONE_FIELD_RUN_1.0.203.md) and
-  carry at least two vendor-distinct phones through a walking route and a real transit/subway route.
+  follow the procedure in the [1.0.203 phone field run](guides/PHONE_FIELD_RUN_1.0.203.md) only
+  after confirming and recording the actual installed version on each phone; the guide's version
+  check is historical. Carry at least two vendor-distinct phones through a walking route and a
+  real transit/subway route.
   Include genuine GPS loss, a screen-off background receiver, stopping an outing before a delayed
   reply, and revisiting the same peer for a repeated encounter. Record route conditions, phones,
   timestamps and whether every late/repeated result appears exactly once in the ended outing.
-  Version 1.0.203 is installed on all five phones; the 2026-10-28 ring, offline catch-up
-  and P30/C10/PH-1/Honor screen-off process-recovery bench gates pass. The carried field gate remains.
+  Version 1.0.203 was installed on all five phones on 2026-10-29; 1.0.205 was later documented
+  on P30, PH-1 and FRD-L04. The 2026-10-28 ring, offline catch-up and
+  P30/C10/PH-1/Honor screen-off process-recovery bench gates pass. The carried field gate remains.
 - [ ] **OPEN-76 — Long unplugged battery run.** The automated bench harness is ready;
   use the [1.0.203 field run](guides/PHONE_FIELD_RUN_1.0.203.md) for charge, timing and
   evidence instructions;
+  record the actual installed version before starting so results can be compared;
   physically unplug at least three charged phones and run the supplied idle/active scenarios for
   the documented duration. Record start/end charge, Android battery statistics, screen state,
   radios, ambient conditions and any vendor battery restrictions. Reconnect the phones afterward

@@ -157,6 +157,16 @@ test.describe('Contacts/Talks cross-navigation: outcome filters + a talk\'s resp
     const bookIdMap = buildPositionalAnswerIdMap(bookQuestions);
     const chessIdMap = buildPositionalAnswerIdMap(chessQuestions);
 
+    // The author-side replies panel is populated by received pair responses. Establish
+    // the real send path before asking peers to answer; a direct completeTalk call alone
+    // can create local history without ever delivering a response to the author.
+    const bookDelivery = await pageTom.evaluate(async () =>
+      (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e(2));
+    expect(bookDelivery).toMatchObject({ talksSent: 1, receivers: 2 });
+    const chessDelivery = await pageJerry.evaluate(async () =>
+      (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e(2));
+    expect(chessDelivery).toMatchObject({ talksSent: 1, receivers: 2 });
+
     await completeTalkInAppByAnswerIds(pageJerry, bookClub.talkId, bookClub.talkData, [bookIdMap[BOOK_MATCH_ID]!], 'match');
     await waitForStatusBarMatchCountAtLeast(pageJerry, 1);
     await completeTalkInAppByAnswerIds(pageBob, bookClub.talkId, bookClub.talkData, [bookIdMap[BOOK_IGNORE_ID]!], 'mismatch');

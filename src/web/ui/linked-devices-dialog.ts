@@ -105,6 +105,8 @@ export interface LinkedDevicesDeps {
    * own contents never pass through this dialog, only the trigger.
    */
   incomingHandoff?: { fromPub: string; fromName: string } | null;
+  /** Recheck an archive that may arrive after this page opens. */
+  checkIncomingHandoff?: () => Promise<{ fromPub: string; fromName: string } | null>;
   /** Merge the incoming archive and publish the signed ack the sender is waiting on. */
   importHandoff?: () => Promise<void>;
   /** K7-adjacent WP5 wiring: current device-sync handshake state for a linked peer (undefined —
@@ -289,16 +291,24 @@ export async function openLinkedDevicesDialog(
       saveLinkedDeviceRecords(listRecords().map((row) => row.pub === pub ? { ...row, state } : row));
       return state;
     },
-    ...(incomingHandoff
-      ? {
-          incomingHandoff: { fromPub: incomingHandoff.fromPub, fromName: incomingHandoff.fromName },
-          importHandoff: async () => {
-            if (!incomingHandoff || !deps.deviceHandoffImport) return;
-            await deps.deviceHandoffImport(incomingHandoff.fromPub, incomingHandoff.archive);
-            incomingHandoff = null;
-          },
-        }
-      : {}),
+    incomingHandoff: incomingHandoff
+      ? { fromPub: incomingHandoff.fromPub, fromName: incomingHandoff.fromName }
+      : null,
+    ...(deps.deviceHandoffCheckIncoming ? {
+      checkIncomingHandoff: async () => {
+        incomingHandoff = await deps.deviceHandoffCheckIncoming!().catch(() => null);
+        return incomingHandoff
+          ? { fromPub: incomingHandoff.fromPub, fromName: incomingHandoff.fromName }
+          : null;
+      },
+    } : {}),
+    ...(deps.deviceHandoffImport ? {
+      importHandoff: async () => {
+        if (!incomingHandoff) return;
+        await deps.deviceHandoffImport!(incomingHandoff.fromPub, incomingHandoff.archive);
+        incomingHandoff = null;
+      },
+    } : {}),
     ...(deps.deviceSyncStateFor ? { deviceSyncStateFor: deps.deviceSyncStateFor } : {}),
     ...(deps.deviceSyncEnable ? { onEnableSync: deps.deviceSyncEnable } : {}),
   }, prefillLinkCode ? { prefillLinkCode } : undefined);
@@ -338,6 +348,7 @@ export function showLinkedDevicesDialog(
   overlay.id = 'linked-devices-overlay';
   overlay.className = 'modal-overlay';
   overlay.dataset.testid = 'linked-devices-overlay';
+  let incomingHandoff = deps.incomingHandoff ?? null;
 
   const renderList = (): string => {
     const rows = deps.listRecords();
@@ -434,10 +445,10 @@ export function showLinkedDevicesDialog(
             </div>
             <button type="button" class="btn" id="rename-current-device" data-testid="rename-current-device" style="margin-top:10px;">${deps.text('renameDevice', 'Rename device')}</button>
           </section>
-          ${deps.incomingHandoff ? `
+          ${incomingHandoff ? `
           <section data-testid="incoming-handoff-card" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
             <h3 style="margin:0 0 8px;font-size:1em;">${deps.text('incomingHandoffTitle', 'Data available to import')}</h3>
-            <p style="font-size:0.85em;color:var(--text-secondary);">${deps.text('incomingHandoffDescription', 'has saved data to this device before erasing.').replace('{device}', escapeHtml(deps.incomingHandoff.fromName || deps.text('eraseLinkedDevice', 'Your other device')))}</p>
+            <p style="font-size:0.85em;color:var(--text-secondary);">${deps.text('incomingHandoffDescription', 'has saved data to this device before erasing.').replace('{device}', escapeHtml(incomingHandoff.fromName || deps.text('eraseLinkedDevice', 'Your other device')))}</p>
             <div id="incoming-handoff-status" role="status" style="font-size:0.82em;color:var(--text-tertiary);min-height:1em;"></div>
             <div class="modal-actions" style="justify-content:flex-start;">
               <button type="button" class="btn primary-btn" id="import-handoff-btn" data-testid="import-handoff-btn">${deps.text('importHandoff', 'Import')}</button>
@@ -465,6 +476,7 @@ export function showLinkedDevicesDialog(
   // dialog re-renders on its own once that finishes, so poll while any row is still 'pending' and
   // stop once every row has settled (or the dialog closes).
   let syncStatusPollTimer: number | undefined;
+  let handoffPollTimer: number | undefined;
   const stopSyncStatusPoll = (): void => {
     if (syncStatusPollTimer) window.clearInterval(syncStatusPollTimer);
     syncStatusPollTimer = undefined;
@@ -486,6 +498,7 @@ export function showLinkedDevicesDialog(
   };
   const close = (): void => {
     stopSyncStatusPoll();
+    if (handoffPollTimer) window.clearInterval(handoffPollTimer);
     deactivatePageAccessibility();
     overlay.remove();
   };
@@ -990,6 +1003,30 @@ export function showLinkedDevicesDialog(
 
   document.body.appendChild(overlay);
   render();
+  if (!incomingHandoff && deps.checkIncomingHandoff) {
+    let checking = false;
+    const deadline = Date.now() + 30_000;
+    handoffPollTimer = window.setInterval(async () => {
+      if (!overlay.isConnected || incomingHandoff || Date.now() >= deadline) {
+        window.clearInterval(handoffPollTimer);
+        handoffPollTimer = undefined;
+        return;
+      }
+      if (checking) return;
+      checking = true;
+      try {
+        const found = await deps.checkIncomingHandoff!();
+        if (found && overlay.isConnected) {
+          incomingHandoff = found;
+          window.clearInterval(handoffPollTimer);
+          handoffPollTimer = undefined;
+          render();
+        }
+      } finally {
+        checking = false;
+      }
+    }, 1_000);
+  }
   deactivatePageAccessibility = activateModalAccessibility(overlay, {
     initialFocus: overlay.querySelector('#linked-devices-close') as HTMLElement | null,
     restoreFocusTo: pageOpener,

@@ -59,5 +59,14 @@ test.describe('The exchange log in the device core', () => {
     await page.locator('.nav-btn[data-view="contacts"]').click();
     await expect(people(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(people(page).filter({ hasText: 'Ann Old' })).toHaveCount(1);
+
+    // Deleting a child clears its parent index as well; the removed rows stay gone on restart.
+    await page.evaluate(async () => {
+      const bridge = (window as any).__iinpublic_app?.getApp?.()?.gunService?.getBridge?.();
+      await bridge.core({ name: 'exchanges.removePeers', peerIds: ['core-ann', 'core-ben'] });
+    });
+    await expect.poll(coreCount, { timeout: 20_000 }).toBe(0);
+    await gotoWebApp(page, page.url());
+    await expect.poll(coreCount, { timeout: 20_000 }).toBe(0);
   });
 });

@@ -68,8 +68,13 @@ describe('the sharing policy', () => {
       expect(filterOutgoingGunMessage({ get: { '#': soul } })).toBeNull();
       expect(filterOutgoingGunMessage({ put: { [soul]: { secret: 'answer' } } })).toBeNull();
     }
-    for (const soul of ['public/cards/a', 'p2p-signal/channel/frame', 'chatrooms/r/users', 'identity-links/a/b']) {
+    for (const soul of [
+      'public/cards/a', 'p2p-signal/channel/frame', 'chatrooms/r/users', 'identity-links/a/b',
+      'device-sync-authorization/a_b/a', 'device-sync-epub/a',
+      'device-sync-envelope/b/a', 'device-sync-ack/a/b',
+    ]) {
       expect(soulLeavesDevice(soul)).toBe(true);
+      expect(filterOutgoingGunMessage({ get: { '#': soul } })).not.toBeNull();
     }
   });
 

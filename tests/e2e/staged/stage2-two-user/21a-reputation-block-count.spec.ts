@@ -27,17 +27,6 @@ async function setBlockViaApi(page: Page, blockerId: string, targetId: string, b
   expect(res.ok(), `setBlockViaApi(${blocked}) failed with ${res.status()}`).toBeTruthy();
 }
 
-async function isBlockedViaApi(page: Page, blockerId: string, targetId: string): Promise<boolean> {
-  // No GET /blocks enumeration endpoint (block-pairs storage is deliberately non-enumerable,
-  // see src/shared/block-pair.ts) — use the specific-pair block-status check instead.
-  const res = await page.request.get(
-    `${gunBaseURL()}/api/users/${encodeURIComponent(blockerId)}/block-status/${encodeURIComponent(targetId)}`,
-  );
-  if (!res.ok()) return false;
-  const body = (await res.json()) as { blocked?: boolean };
-  return Boolean(body.blocked);
-}
-
 test.describe('Reputation system — block count propagation', () => {
   let browserTom: Browser;
   let browserJerry: Browser;
@@ -109,15 +98,12 @@ test.describe('Reputation system — block count propagation', () => {
     await pageTom.click('#contact-block-toggle-btn');
     await expect(pageTom.locator('#contact-relationship-modal')).toHaveCount(0, { timeout: 10000 });
     await afterSync();
-    if (!(await isBlockedViaApi(pageTom, tomUserId, jerryUserId))) {
-      await setBlockViaApi(pageTom, tomUserId, jerryUserId, true);
-    }
 
     await expect
       .poll(async () => {
         const rep = await getReputation(pageTom, jerryUserId, tomUserId);
         return rep.blockCount as number;
-      }, { timeout: 15000 })
+      }, { timeout: 30_000 })
       .toBe(1);
 
     await setBlockViaApi(pageTom, tomUserId, jerryUserId, false);

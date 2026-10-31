@@ -85,14 +85,17 @@ test.describe('Peer/contact layout parity', () => {
     const memberRow = tom.locator('.chatroom-member-item').filter({ hasText: 'JerryParity' }).first();
     await expect(memberRow).toBeVisible({ timeout: 15_000 });
     await memberRow.click();
-    await expect(tom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-    await tom.click('#back-from-conversation');
-    await expect(tom.locator('#peer-detail-overlay')).toBeVisible();
+    await expect(tom.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
     const fromMember = await layoutFingerprint(tom);
 
     // The retired contact-detail page must not exist anywhere.
     await expect(tom.locator('#contact-detail-container')).toHaveCount(0);
 
+    // A person row opens the shared User layout. Create a DM explicitly so Jerry appears
+    // in Contacts, then return to the same layout for the contact-entry comparison.
+    await tom.locator('#peer-dm-input').fill(`layout parity ${Date.now()}`);
+    await tom.locator('#peer-dm-send-btn').click();
+    await expect(tom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
     await tom.click('#back-from-peer-detail');
 
     // ── Entry 2: contact row (the DM conversation created above makes Jerry a contact) ──
