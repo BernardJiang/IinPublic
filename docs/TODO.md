@@ -43,13 +43,19 @@ its ID.
     `00n-techsupport-conversation-answer-flow`, `00n-techsupport-delegate-answers-cold-asker`.
     All three exercise delegate/conversation signing paths; prime suspect is fixture drift from
     the 2026-09-27 key rotation (pre-signed delegate/greeting artifacts), not product logic.
-  - [ ] **OPEN-94c — Stage2/3 two-party interaction cluster (20 light-phase tests):**
-    74-talk-row-traceback ×3, 78-dm-inbox-affordance, 81-graph-traversal, 60/61 peer layout +
-    appbar, 21c-reputation-vouch, 88-asymmetric-attachment, 95-device-sync, 94/96 dating match,
-    89-buy-sell-cross-talk, 00f-ux, 00g-age-gating, 09-cross-navigation, 13-me-filters,
-    79-dm-inbox-multi-sender, 54-chatroom-map, 82-list-pins. Breadth suggests a shared
-    interaction/transport cause or wave-1 (light+stage5 concurrent) contention rather than 20
-    independent bugs — solo light-phase rerun is the first evidence gate.
+  - [ ] **OPEN-94c — Stage2/3 two-party interaction cluster (light phase).**
+    Solo-rerun evidence 2026-10-30 (PW_WORKERS=6, no concurrent stage5, ports cleaned):
+    23 failed / 327 passed again. **20 tests reproduce in BOTH runs — genuine regressions,
+    not contention:** TechSupport trio (94b), 21c-reputation-vouch, 60/61 peer layout +
+    appbar, 74-talk-row-traceback ×3, 78-dm-inbox-affordance, 81-graph-traversal,
+    88-asymmetric-attachment, 89-buy-sell-cross-talk, 94/96 dating match, 95-device-sync,
+    00f-ux, 00g-age-gating, 09-cross-navigation, 79-dm-inbox-multi-sender. Cluster centres on
+    the two-party match → conversation → DM path; suspect window is the 10-26 → 10-29
+    OPEN-91 P5.4 host-command/ledger changes or the 1.0.201–203 navigation work (red month
+    hid the introducing commit — bisect against the solo light shard).
+    **Contention/order flakes (failed in only one of the two runs):** 54-chatroom-map,
+    82-list-pins, 13-me-filters (in-suite only); 64-option-matrices, 69-matched-talk-threads,
+    24-profile-privacy-visibility (solo only) — treat as flakiness backlog, not regressions.
   - [ ] **OPEN-94d — Heavy/timing phases:** stage5 (starter-tags, 15-nearby-audience-shapes),
     mesh-isolated (02-mesh-broadcast find-similar), find-similar (chatbot auto-matches),
     isolated-02 mixed saturation, mass (05 layout tour, 06 map showcase), phone-path ×4
