@@ -42,7 +42,12 @@ its ID.
   card (74), and mutual deal confirmation (88). The handoff screen now rechecks for a late
   archive and its spec passed 3 repeated browser runs. Conversation refresh now preserves and
   merges deal confirmations; 88 passed 3 repeated browser runs after this fix. Message history
-  after reload (29) remains under investigation.
+  after reload (29), handoff (74), and deal confirmation (88) passed the next complete
+  six-worker light shard. That shard finished **349 passed, 12 skipped, 1 failed**: the master
+  showed a TechSupport delegate grant before Dana could receive it. Grant issuance now waits
+  for the server's verified storage response; the delegate case passes alone and the support
+  trio passes twice with six workers (6/6). A full light shard after this last change remains
+  pending.
   `test:all` has not yet been rerun, so OPEN-94 remains open.
 - The two UI size-budget suites mentioned in the earlier responsiveness audit now pass locally
   (4 tests on 2026-10-30); they are not current blockers.
@@ -91,9 +96,13 @@ its ID.
     and 17/17 linked-dialog unit tests. The 88 failure also reproduced once in three isolated
     repeats: a conversation refresh dropped `dealConfirmedByJson`, and a stale peer snapshot
     could replace a local confirmation. Both paths now preserve/union confirmations; 88 passed
-    three repeated browser runs and focused unit checks. **Remaining:** verify both repairs
-    under load and diagnose 29 (12 messages visible before reload, 11 afterward under six
-    workers). 29 passed once in isolation; 74 failed once in isolation before repair. Triage the public
+    three repeated browser runs and focused unit checks. The next complete light shard passed
+    29, 74, and 88 under six workers, then failed only `00m-techsupport-delegate-answers`
+    (349 passed / 12 skipped / 1 failed). The master locally cached the signed delegate grant
+    before the remote storage path confirmed it; issuance now awaits the server's verified POST
+    before the master roster advances. The delegate case passes solo and the support trio passes
+    twice with six workers (6/6); its grant-cache unit suite passes 4/4. **Remaining:** a final
+    full light-shard run on this last fix, then the broader `test:all` gate. Triage the public
     `user-tags` Gun ack timeout still seen in passing runs.
     **Contention/order flakes (failed in only one of the two runs):** 54-chatroom-map,
     82-list-pins, 13-me-filters (in-suite only); 64-option-matrices, 69-matched-talk-threads,
@@ -112,6 +121,8 @@ its ID.
     intended product behavior is documented; fix genuine regressions without weakening assertions.
 
 - [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
+  Current work is browser-first. Physical checks in this session may use C10 only; defer the
+  multi-phone reproduction until the owner makes another device available.
   Airplane mode with Wi-Fi and Bluetooth re-enabled did not make two phones find each other.
   Post-visit USB preflight found C10's Nearby Wi-Fi Devices/Bluetooth permissions denied and Honor
   FCP-AN10's Wi-Fi off; the exact park pair and its then-current radio/room states are unconfirmed.

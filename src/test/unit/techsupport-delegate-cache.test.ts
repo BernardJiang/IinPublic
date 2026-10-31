@@ -4,6 +4,7 @@ import type { TechSupportDelegateGrant } from '../../shared/techsupport-delegate
 import {
   readCachedDelegateGrant,
   reconcileVerifiedDelegateGrant,
+  publishDelegateGrantToServer,
 } from '../../web/services/techsupport-delegate-cache';
 
 function grant(
@@ -42,5 +43,29 @@ describe('TechSupport delegate monotonic cache (OPEN-27)', () => {
     reconcileVerifiedDelegateGrant(revoked);
     expect(reconcileVerifiedDelegateGrant(reissued)).toEqual(reissued);
     expect(readCachedDelegateGrant(reissued.delegatePub)).toEqual(reissued);
+  });
+});
+
+describe('TechSupport delegate grant publication', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('waits for the signed grant to be accepted by the server', async () => {
+    const fetchMock = jest.fn(async () => ({ ok: true, status: 200 } as Response));
+    global.fetch = fetchMock as typeof fetch;
+    const signed = grant('2026-10-31T00:00:00.000Z');
+
+    await publishDelegateGrantToServer('http://localhost:3001', signed);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3001/api/support/delegate-grants',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify(signed) }),
+    );
+  });
+
+  it('reports a failed server write', async () => {
+    global.fetch = jest.fn(async () => ({ ok: false, status: 503 } as Response)) as typeof fetch;
+    await expect(publishDelegateGrantToServer('http://localhost:3001', grant('2026-10-31T00:00:00.000Z')))
+      .rejects.toThrow('Delegate grant storage returned 503');
   });
 });

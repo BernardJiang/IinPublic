@@ -154,6 +154,7 @@ import {
   subscribeToDelegateGrants,
   fetchGrantLive,
   fetchDelegateGrantsFromServer,
+  publishDelegateGrantToServer,
   applyRawDelegateGrant,
 } from '../services/techsupport-delegate-cache';
 import {
@@ -5390,7 +5391,7 @@ export class IinPublicApp {
       { delegatePub, delegateUserId, label: input.label, expiresAt: new Date(Date.now() + ttlMs).toISOString() },
       pair as import('../sea-gun').GunPair & { pub: string; priv: string },
     );
-    this.writeDelegateGrant(grant);
+    await this.writeDelegateGrant(grant);
     this.clearMatchingDelegateRequest(delegatePub);
   }
 
@@ -5430,16 +5431,19 @@ export class IinPublicApp {
       },
       pair as import('../sea-gun').GunPair & { pub: string; priv: string },
     );
-    this.writeDelegateGrant(grant);
+    await this.writeDelegateGrant(grant);
   }
 
-  private writeDelegateGrant(grant: TechSupportDelegateGrant): void {
+  private async writeDelegateGrant(grant: TechSupportDelegateGrant): Promise<void> {
+    const apiBase = this.getBackendApiBase();
+    if (apiBase) await publishDelegateGrantToServer(apiBase, grant);
     let ref = this.gunService.getGun().get(delegateGrantPath(grant.delegatePub)[0]);
     for (const segment of delegateGrantPath(grant.delegatePub).slice(1)) ref = ref.get(segment);
     ref.put(grant);
     // Our own freshly signed grant: cache it now (same verify + rollback rules as any received
     // grant) so the roster shows it at once instead of after the Gun echo / 5 s relay poll.
-    void applyRawDelegateGrant(grant).finally(() => this.refreshDelegateAdminPanel());
+    await applyRawDelegateGrant(grant);
+    this.refreshDelegateAdminPanel();
   }
 
   /** docs/TODO.md K7: pushes the current roster + delegate-answered FAQ entries to the master's Delegates panel.

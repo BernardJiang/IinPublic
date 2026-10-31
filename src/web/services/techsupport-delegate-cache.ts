@@ -108,6 +108,16 @@ export async function fetchDelegateGrantsFromServer(apiBase: string): Promise<Te
   }
 }
 
+/** Persist a root-signed grant before presenting it as issued to the master. */
+export async function publishDelegateGrantToServer(apiBase: string, grant: TechSupportDelegateGrant): Promise<void> {
+  const res = await boundedFetch(`${apiBase}/api/support/delegate-grants`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(grant),
+  });
+  if (!res.ok) throw new Error(`Delegate grant storage returned ${res.status}`);
+}
+
 /** The `fetchGrant` callback shape `isTrustedTechSupportAuthorPub`/`verifyFaqBundle` expect, backed by the local cache. */
 export async function fetchGrantFromCache(delegatePub: string): Promise<unknown> {
   return readCachedDelegateGrant(delegatePub);
