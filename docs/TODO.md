@@ -120,6 +120,40 @@ its ID.
     suites cited there now pass (4 tests, 2026-10-30). Update stale expectations only when the
     intended product behavior is documented; fix genuine regressions without weakening assertions.
 
+- [ ] **OPEN-95 — Android `node-stdio.log` never rotates and can brick the app (found 2026-10-31,
+  OPEN-81 walk).** `native-lib.cpp` sends embedded-node stdio to `files/node-data/node-stdio.log`
+  with no size limit. On Honor FRD-L04 it reached 1.88 GB and took `/data` to 0 free; every start
+  then died with an unhandled `ENOSPC` from the logger about 3.9 s after launch (41 restarts seen
+  in the retained log). After recovery it regrew 434 MB in 54 minutes (~130 KB/s) while running
+  in Always mode, so an emptied FRD can refill in hours. Bound the log, and never let a failed
+  log write kill the node. Workaround: empty the file with `run-as`, then restart the app.
+
+- [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** (a) A late auto-answer was
+  lost: PH-1 recorded `walk-late` as outcome match/answeredBy chatbot, but P30's ledger and outing
+  never received it, more than 45 minutes later with both online. The PH-1 process had died at
+  airplane-mode-on, and the phone was then rebooted, so isolate whether that caused it.
+  (b) P30's Nearby list was empty after `walk-return`'s 13:29:50 Broadcast; replies arrived
+  10 minutes later (13:39:39, 13:40:15), exactly once. Likely tied to the FRD crash loop and hub
+  timeouts, but the logs from that minute were overwritten. (c) The outing review reports
+  0 pending although journey-bob's `walk-late` reply never arrived.
+
+- [ ] **OPEN-97 — "Always" background mode does not survive a phone reboot.** The manifest has no
+  boot receiver: PH-1 had no app process 5 minutes after booting until the app was opened by hand.
+  Decide the intended behavior, then either restart the service or disclose the limit in Settings.
+
+- [ ] **OPEN-98 — Outing controls lost with `d3cecef7` (2026-10-23).** `reviewMatchCollection`
+  and `broadcastMatchCollection` still have handlers, but no UI emits them, so the G4/G5 review
+  cannot be opened on a device; it was reached over USB. Stopping now means unticking
+  **Collect nearby matches**. Tag Talks are chips with no broadcast on/off control, so a disabled
+  one cannot be re-enabled on the phone. The review also labels results with raw Talk ids instead
+  of titles. `docs/guides/PHONE_FIELD_RUN_1.0.203.md` still describes the removed controls.
+
+- [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
+  stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no
+  crash in the 30 minutes after it. Storage was fine (72% free). IinPublic's involvement is
+  unknown: the planned force-stop test was not run before the reboot. Treat as an observation
+  unless it recurs with a BLE-using Always mode.
+
 - [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
   Current work is browser-first. Physical checks in this session may use C10 only; defer the
   multi-phone reproduction until the owner makes another device available.
@@ -327,6 +361,13 @@ or evidence tasks, not active feature development.
     - [ ] Carried field gate: literal walking movement, a transit/subway route with genuine no-GPS,
       physical repeated encounters and broader vendor battery behavior. Fixed coordinates, radio
       toggles and simulated reconnects do not qualify those real-world conditions.
+      **2026-10-31 walking attempt, app 1.0.207, not passed:** P30 + PH-1 carried, FRD-L04 left at
+      home. `walk-out` matched both peers within seconds; both encounters stayed in one outing
+      with no duplicates, and the outing survived an app restart. Limits: the owner ended the
+      outing mid-run (13:08:08) and it was reopened by editing its record over USB; `walk-return`
+      took 10 minutes; journey-bob's `walk-late` reply never arrived, with the PH-1 rebooted and
+      its app opened by hand during that step; distance walked and GPS loss were not recorded.
+      See OPEN-95 to OPEN-99. Rerun after OPEN-95/96/98. Transit remains not run.
   - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
     auto-answers, add actionable pending states, carry the completed starter credit/block-count
     policy into launch review, and treat iOS as unsupported until its native background/discovery
