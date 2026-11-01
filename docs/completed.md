@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-31
 
+## 2026-10-31 — OPEN-102 phones could not look up each other's keys
+
+- `405a3022` raised the age-verification read inside every public user lookup from 0.5 s to 3 s.
+  Most people have no such record, so each lookup took about 3 s, past an embedded node's 2.5 s hub
+  relay limit. Peer key lookups then failed as `No data found for key: users/<id>`, which stopped
+  direct links from opening and broke background answers after a process kill.
+- The public read is back to 0.5 s; the age gate keeps its longer read. Peer key lookups now retry
+  instead of giving up on the first miss, and the key found for the link is shared with message
+  encryption, so a first message needs no second lookup.
+- Verification, app 1.0.217 on PH-1 + FRD-L04: `native-app/40` passed in the default While open mode
+  (screen off, process killed, forced Doze; answer in 6.5 s), and `native-app/37` passed (worst
+  arrival 178 ms). Full phone path: 13 passed, 3 failed (04, 07b, 09, all already in OPEN-94d),
+  compared with four failures on 2026-10-30.
+
 ## 2026-10-31 — OPEN-97 the embedded node's lifetime is decided
 
 - Owner decision: the node runs from app launch until Force stop or a reboot, including with the
@@ -11,7 +25,7 @@ Last updated: 2026-10-31
 - Saved answers now go out in the background unless the Nearby mode is Off
   (`backgroundTalkAgentEnabled`); they previously needed Always, which was not the default. The
   Nearby mode still decides what the radios do in the background, and the labels now say so. Unit
-  tests cover this; the real-phone proof is blocked by OPEN-102.
+  tests cover this, and `native-app/40` proved it on real phones (OPEN-102).
 
 ## 2026-10-31 — OPEN-100 a stalled page can no longer run the phone's node out of memory
 

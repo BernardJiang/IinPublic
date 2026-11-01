@@ -109,9 +109,10 @@ its ID.
     24-profile-privacy-visibility (solo only) — treat as flakiness backlog, not regressions.
   - [ ] **OPEN-94d — Heavy/timing phases:** stage5 (starter-tags, 15-nearby-audience-shapes),
     mesh-isolated (02-mesh-broadcast find-similar), find-similar (chatbot auto-matches),
-    isolated-02 mixed saturation, mass (05 layout tour, 06 map showcase), phone-path ×4
-    (02 talk-match-chat journey — 120s conversation predicate timeout; 04 mismatch-block;
-    07b reconnect — "WebRTC connection replaced" on 2 of 4 attempts; 09 tag-graph-tour).
+    isolated-02 mixed saturation, mass (05 layout tour, 06 map showcase), phone-path ×3
+    (04 mismatch-block; 07b reconnect — "WebRTC connection replaced"; 09 tag-graph-tour, which
+    passed in one of two runs on 2026-10-31). Phone-path 02 was fixed with OPEN-102. Direct phone-path
+    runs need `DISABLE_HMR=true`, or Place creation is refused.
     Triage each: contention flake vs genuine regression (per skill: failing all retries =
     genuine).
   - [ ] **OPEN-94e — Remaining known test debt from the responsiveness audit.** Reconcile the
@@ -119,14 +120,6 @@ its ID.
     (including contacts-to-DM navigation expectations) with 94b–d. The two UI size-budget
     suites cited there now pass (4 tests, 2026-10-30). Update stale expectations only when the
     intended product behavior is documented; fix genuine regressions without weakening assertions.
-
-- [ ] **OPEN-102 — Background auto-answer fails after the process is killed (found 2026-10-31).**
-  `native-app/40` on 1.0.216, PH-1 author and FRD-L04 receiver: the Android service restarted after
-  the kill, then no answer reached the author within 4 minutes, in both While open and Always. So
-  the 2026-10-31 While open change did not cause it. The same gate last passed on 2026-10-28, app
-  1.0.199 (FRD-L04 5.9 s). Not found yet: whether the Talk reached the mailbox, the node's drain ran,
-  or the reply was lost. `LOG_LEVEL=warn` hides the node's request lines, so add a focused trace
-  first. This also blocks proof that saved answers work in the default While open mode.
 
 - [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** Retest first on 1.0.210: the
   OPEN-100 memory crash may explain (a) and (b), but a clean rerun has not shown that. After that
@@ -177,15 +170,14 @@ its ID.
   own message 69–335 ms, arrival 0.4–0.8 s, exactly once. Own message on FRD misses the script's
   200 ms budget (about 300 ms). The owner confirmed 1.0.214 feels fast, including the first message.
   J-CHAT-04 (`tests/e2e/journeys/dm-speed-journey.ts`) now guards this inside `native-app/37`, so the
-  Android sweep runs it: it passed on PH-1 + FRD-L04, app 1.0.215 (own message 34 ms, worst arrival
-  1.6 s, with a 4 s slow-save case). It also runs in `phone-path/02`, which currently stops earlier:
-  the direct channel stays idle with `No data found for key: users/<id>`, though real phones return
-  both keys (see OPEN-94d). **Remaining gate:** FCP-AN10 when attached. C10 is excluded.
+  Android sweep runs it: it passed on PH-1 + FRD-L04, app 1.0.217 (own message 56 ms, worst arrival
+  178 ms, with a 4 s slow-save case), and in `phone-path/02`. **Remaining gate:** FCP-AN10 when
+  attached. C10 is excluded.
 
 - [ ] **OPEN-101 — Open DM defects from the 2026-10-31 timing session.** (a) Private saves are
   slow because every private write shares one queue and each DM rewrites and re-encrypts the whole
   conversation; FRD-L04 took 7.9 s for one write and saw repeated main-thread stalls of about 1 s.
-  (b) "hi 12" (P30, 16:36) was saved, but the mailbox refused it with `epub not found` although the
+  (b) "hi 12" (P30, 16:36; probably the slow read fixed under OPEN-102, not proven) was saved, but the mailbox refused it with `epub not found` although the
   sender had just used that key. It reached FRD only about 30 minutes later, after the direct link
   reconnected and the phones synced. The key is now passed through and posting retries 5 times, but
   this path has not been re-proven on phones. There is still no per-message delivered/failed state. (c) A received message can
@@ -371,7 +363,7 @@ or evidence tasks, not active feature development.
       outing mid-run (13:08:08) and it was reopened by editing its record over USB; `walk-return`
       took 10 minutes; journey-bob's `walk-late` reply never arrived, with the PH-1 rebooted and
       its app opened by hand during that step; distance walked and GPS loss were not recorded.
-      See OPEN-96, OPEN-98 and OPEN-99; OPEN-95, OPEN-97 and OPEN-100 are complete. Rerun after OPEN-96/98. Transit remains not run.
+      See OPEN-96, OPEN-98 and OPEN-99; OPEN-95, OPEN-97, OPEN-100 and OPEN-102 are complete. Rerun after OPEN-96/98. Transit remains not run.
   - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
     auto-answers, add actionable pending states, carry the completed starter credit/block-count
     policy into launch review, and treat iOS as unsupported until its native background/discovery

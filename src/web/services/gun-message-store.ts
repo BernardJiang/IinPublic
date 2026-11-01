@@ -270,6 +270,11 @@ export class GunMessageStore {
     return this.epubByUserId.get(userId);
   }
 
+  /** A key learned elsewhere, so the first message to that person needs no lookup. */
+  rememberEpub(userId: string, epub: string): void {
+    if (epub) this.epubByUserId.set(userId, epub);
+  }
+
   private async getUserEpub(userId: string, attempts = 8): Promise<string | undefined> {
     const cached = this.epubByUserId.get(userId);
     if (cached) return cached;

@@ -370,6 +370,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     const localPub = await this.getLocalPub();
     onStage?.('their key');
     const otherPub = await this.getUserPub(otherId);
+    const otherEpub = this.peerKeysByUserId.get(otherId)?.epub;
+    if (otherEpub) this.gunStore.rememberEpub(otherId, otherEpub);
     onStage?.('connect');
     const isInitiator = localUserId.localeCompare(otherId) < 0;
     const session = getOrCreateP2PSession({

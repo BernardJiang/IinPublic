@@ -205,6 +205,18 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     });
   });
 
+  it('shares the peer key found for the link, so the first message needs no second lookup', async () => {
+    const remember = jest.spyOn(GunMessageStore.prototype, 'rememberEpub');
+    const getPublicUser = jest.fn().mockResolvedValue({ pub: 'pub_bob', epub: 'epub_bob' });
+    const transport = new DirectP2PConversationTransport({ ...mockGun, getPublicUser } as unknown as WebGunService);
+
+    await (transport as unknown as { sessionFor: (c: string, l: string, o: string) => Promise<unknown> })
+      .sessionFor('conv1', 'alice', 'bob')
+      .catch(() => undefined);
+
+    expect(remember).toHaveBeenCalledWith('bob', 'epub_bob');
+  });
+
   it('keeps looking up a peer whose record has not synced yet', async () => {
     const getPublicUser = jest.fn()
       .mockRejectedValueOnce(new Error('No data found for key: users/bob'))

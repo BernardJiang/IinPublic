@@ -24,6 +24,9 @@ const PUBLIC_PROFILE_FOUNDATION_KEY = 'user-public-profile';
 const BLOCK_PAIRS_KEY = 'block-pairs';
 const AGE_VERIF_KEY = 'user-age-verification';
 
+/** The public read's limit on the age-verification record. */
+export const AGE_VERIFICATION_PUBLIC_READ_MS = 500;
+
 export class UserService {
   private readonly recentBlockMutations = new Map<string, boolean>();
   private readonly recentPublicProfileFoundations = new Map<string, {
@@ -604,7 +607,9 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
 
   /** Votes live on `user-age-verification`; merge into API reputation for GET /users/:id. */
   private async mergeAgeVerificationIntoReputation(userId: string, reputation: Reputation): Promise<Reputation> {
-    const ageVerifNode = this.recentAgeVerificationWrites.get(userId) ?? (await this.gunService.getPath([AGE_VERIF_KEY, userId], 300, 3000).catch(() => null)) as
+    // Every public user read waits on this, and most people have no record, so it must stay well
+    // under an embedded node's 2.5 s relay limit. The age gate keeps its own longer read.
+    const ageVerifNode = this.recentAgeVerificationWrites.get(userId) ?? (await this.gunService.getPath([AGE_VERIF_KEY, userId], 300, AGE_VERIFICATION_PUBLIC_READ_MS).catch(() => null)) as
       | { votes?: number; verified?: boolean }
       | null;
     return {
