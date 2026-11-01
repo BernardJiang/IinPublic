@@ -1,4 +1,5 @@
 # 07 — A Talk still arrives after the direct link is rebuilt
+covers: SPEC-5.2, SPEC-19.4
 
 Two phone nodes share a Nearby room. The phone that makes the WebRTC offer rebuilds its direct
 link to the other three times (the same `reconnect()` the Wi-Fi Direct switch uses). After each

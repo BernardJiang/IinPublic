@@ -1,4 +1,5 @@
 # Phone path 05 — restart keeps the identity
+covers: SPEC-3.1, SPEC-5.5
 
 Alice uses a phone node the spec starts on a kept data dir; Bob is on phone B. After both see
 each other in their Nearby room, Alice's page and phone node are stopped and started again on the

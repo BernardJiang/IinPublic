@@ -155,12 +155,16 @@ its ID.
 
 - [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
   `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains
-  330 specs. Regenerated matrix on 2026-11-01 now reports 330 specs, 115 untagged specs, and 139
+  330 specs. Regenerated matrix on 2026-11-01 now reports 330 specs, 94 untagged specs, and 139
   anchors without passing coverage. Keep this updated in regular health/review runs and reduce the
   untagged backlog incrementally (new specs should carry coverage tags when applicable).
   - [x] Regenerate `docs/testing/coverage-matrix.md` from `npm run coverage:matrix`.
   - [x] Refresh `tests/e2e/README.md` to describe the current suite layout and canonical docs.
   - [x] Add covers tags for high-value journeys (`phone-path/01/02/03`, `native-app/33`, `native-app/37`), reducing untagged specs 120 → 115.
+  - [x] Add covers tags for remaining phone-path journeys (`04/05/06/07/07b/08/09/10`), reducing
+    untagged specs 115 → 107.
+  - [x] Add covers tags for high-value native-app journeys (`02/04/05/18/19/23/27/28/29/35/36/38/39`),
+    reducing untagged specs 107 → 94.
   - [ ] Tag/highlight remaining high-value untagged specs (next: more native-app and cross-platform
     journeys) so
     matrix traceability improves without broad one-shot churn.

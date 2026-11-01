@@ -1,4 +1,5 @@
 # 28 — Sleeping Android 12+ receiver is notified of a Talk (OPEN-38)
+covers: SPEC-5.2, SPEC-19.4
 
 Gated by `E2E_REAL_ANDROID_SLEEP_NOTIFY=1`; resets app data on both phones.
 

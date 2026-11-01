@@ -1,4 +1,5 @@
 # Phone path 04 — mismatch, block and leave across two phones
+covers: SPEC-3.4, SPEC-3.8, SPEC-3.3
 
 Alice is on phone A and Bob on phone B, in the same Nearby room.
 

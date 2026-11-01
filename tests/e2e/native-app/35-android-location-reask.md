@@ -1,4 +1,5 @@
 # 35 — Android: ask for location again (J-START-04, OPEN-54)
+covers: SPEC-6.1
 
 A person who refused location, or was never asked, must not be stuck.
 

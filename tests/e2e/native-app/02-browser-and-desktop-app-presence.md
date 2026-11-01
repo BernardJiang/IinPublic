@@ -8,4 +8,4 @@ through the production chatroom service. The hub's active-member API and the bro
 roster must both remove the desktop user, while the underlying Gun membership record retains
 `isActive: false` and a durable `leftAt` timestamp.
 
-Covers: SPEC-5.5.
+covers: SPEC-5.5

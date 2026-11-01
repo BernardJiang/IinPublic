@@ -1,4 +1,5 @@
 # Test: Permissions are asked once, together, at first launch
+covers: SPEC-6.1
 
 **File:** 36-android-permission-batch.spec.ts
 **Gate:** `E2E_REAL_ANDROID_PERMISSIONS=1` (debug build installed; clears the app's data)

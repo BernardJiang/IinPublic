@@ -1,4 +1,5 @@
 # Test: Real cellular phone ↔ Wi-Fi phone through the public hub
+covers: SPEC-3.4, SPEC-19.4
 
 **File:** 29-android-cellular-talk-exchange.spec.ts
 **Gate:** `E2E_REAL_ANDROID_CELLULAR=1`, `NATIVE_APP_ANDROID_CELLULAR=<serial with SIM>`, `NATIVE_APP_ANDROID_WIFI_PEER=<serial>`

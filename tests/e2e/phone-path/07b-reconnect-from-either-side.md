@@ -1,4 +1,5 @@
 # 07b — A rebuilt direct link comes up at once, whichever phone rebuilds it
+covers: SPEC-5.2, SPEC-19.4
 
 Two phone nodes share Nearby and open a direct link. Each phone in turn rebuilds the link with
 `reconnect()` (what the Wi-Fi Direct switch does), twice each. Every rebuild must succeed by itself,
