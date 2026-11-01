@@ -1,4 +1,5 @@
 # Phone path 03 — Place refusals and expiry
+covers: SPEC-3.3, SPEC-6.1
 
 Every refusal goes from the New Room dialog to the phone's node, which publishes at the hub
 first and passes the hub's answer back. Each case is checked on screen and in the hub's own list.

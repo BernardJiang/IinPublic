@@ -1,4 +1,5 @@
 # Phone path 01 — Place journey across two phones
+covers: SPEC-3.3, SPEC-6.1
 
 Alice (phone A) creates a Place. The hub must list it and have Alice as a member, and list it
 among rooms with people. Bob (phone B, a different embedded node) finds it in his room list and

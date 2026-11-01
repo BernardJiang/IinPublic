@@ -1,4 +1,5 @@
 # 37 — Two real phones: talk → answer → match → P2P chat
+covers: SPEC-3.4, SPEC-19.4
 
 The two-person core loop, written once in `tests/e2e/journeys/talk-match-chat-journey.ts` and run
 here on two real phones (phone-path/02 runs the same body with host phone nodes).

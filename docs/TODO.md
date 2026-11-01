@@ -114,6 +114,12 @@ its ID.
     (04 mismatch-block; 07b reconnect — "WebRTC connection replaced"; 09 tag-graph-tour, which
     passed in one of two runs on 2026-10-31). Phone-path 02 was fixed with OPEN-102. Direct phone-path
     runs need `DISABLE_HMR=true`, or Place creation is refused.
+    **2026-10-31 journey-coverage follow-on:** J-PLACE-12 and map-side J-PLACE-11 assertions were
+    added to phone-path 01/03, and real UI-path DM reopen/composer-send assertions were added to
+    the shared talk-match-chat journey (used by native-app/37 and phone-path/02). Focused rerun:
+    phone-path/02 passes with the new UI-path assertions; phone-path/01 and phone-path/03 currently
+    fail earlier at existing Place creation (`createPlace` timeout, creator stays `nearby-v3`) so
+    the new map assertions do not execute yet. Keep this as OPEN-94d triage, not a new regression.
     Triage each: contention flake vs genuine regression (per skill: failing all retries =
     genuine).
   - [ ] **OPEN-94e — Remaining known test debt from the responsiveness audit.** Reconcile the
@@ -146,6 +152,18 @@ its ID.
   crash in the 30 minutes after it. Storage was fine (72% free). IinPublic's involvement is
   unknown: the planned force-stop test was not run before the reboot. Treat as an observation
   unless it recurs with a BLE-using Always mode.
+
+- [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
+  `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains
+  330 specs. Regenerated matrix on 2026-11-01 now reports 330 specs, 115 untagged specs, and 139
+  anchors without passing coverage. Keep this updated in regular health/review runs and reduce the
+  untagged backlog incrementally (new specs should carry coverage tags when applicable).
+  - [x] Regenerate `docs/testing/coverage-matrix.md` from `npm run coverage:matrix`.
+  - [x] Refresh `tests/e2e/README.md` to describe the current suite layout and canonical docs.
+  - [x] Add covers tags for high-value journeys (`phone-path/01/02/03`, `native-app/33`, `native-app/37`), reducing untagged specs 120 → 115.
+  - [ ] Tag/highlight remaining high-value untagged specs (next: more native-app and cross-platform
+    journeys) so
+    matrix traceability improves without broad one-shot churn.
 
 - [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
   Current work is browser-first. Physical checks in this session may use C10 only; defer the

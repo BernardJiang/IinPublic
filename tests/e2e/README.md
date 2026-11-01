@@ -4,27 +4,26 @@
 
 End-to-end tests for the IinPublic real-time Talk system using Playwright. Tests use **short** intervals by default for fast regression; set **long** intervals when you want to watch the run.
 
-## Test Files (one `test()` per file for easier debugging; shared helpers under `helpers/`)
+## Suite layout (current)
 
-| File | Coverage |
+This suite is no longer a small flat list. The canonical coverage/index docs are:
+
+- `docs/testing/journey-coverage.md` (user journeys across web / phone path / real phone)
+- `docs/testing/coverage-matrix.md` (spec anchors × E2E mapping; generated)
+
+Top-level E2E folders:
+
+| Folder | Purpose |
 |------|----------|
-| `01-login-single-user-headcount.spec.ts` | Single user login/re-login, headcount 1 |
-| `01-login-two-users-headcount.spec.ts` | Two users headcount 1→2→1→2 + room navigation |
-| `02-multi-user-headcount.spec.ts` | Three users: sequential enter, FIFO exit, random re-enter |
-| `03-capacity-eviction.spec.ts` | Four users: Global fills, fourth bumps first to North America; persistence |
-| `04-profile-edit-stage-name.spec.ts` | New user edits stage name |
-| `05-talks-edit.spec.ts` | Create talk, Talks tab, Edit with prefilled data |
-| `talks-matching/01-tennis-jerry-match.spec.ts` | Tom creates talk, Jerry answers match |
-| `talks-matching/02-two-talks-status-answers.spec.ts` | Two talks, status bar match count, Answers tab |
-| `talks-matching/03-chatbot-bot-badge.spec.ts` | Chatbot + `announceTalkToRoom`; bot badge on Bob not Tom |
-| `talks-matching/04-ignore-then-change-answer.spec.ts` | Multi-Q flow: mismatch then reopen → match |
-| `talks-matching/05-partial-auto-answers.spec.ts` | Flattened context: first talk saves prefs; second talk (new hash) auto-fills Q1–Q2; Jerry answers Q3 only |
-| `helpers/talks-matching-browsers.ts`, `helpers/talks-matching-flow.ts` | Shared browser launch + Tom/Jerry/Bob flows |
-| `06-contacts-tab.spec.ts` | Contacts list, click contact → matching talks |
-| `07-tags-checkbox.spec.ts` | Tag create, checkbox match/ignore |
-| `00d-super-user-20-broadcast.spec.ts` | 10 tags + 10 talks, broadcast 20, Tom answers all |
-| `08-super-user-copy-talk.spec.ts` | Copy talk: broadcast disable/enable + delete from My Talks |
-| `helpers/super-user-techsupport-shared.ts` | Shared bootstrap + Tom incoming modal helpers for `08-*` |
+| `staged/` | Main browser regression pipeline (stage0→stage5) |
+| `phone-path/` | Browser-driven journeys through phone-like embedded nodes |
+| `native-app/` | Real desktop/mobile shell and physical-device journeys |
+| `cross-platform/` | Website ↔ webapp/native interoperability scenarios |
+| `talks-matching/` | Focused Talk/response/match/mesh behavior and wire privacy checks |
+| `responsiveness/` | Hub-stalled and UI responsiveness sweeps |
+| `mass/`, `isolated/`, `browser-matrix/`, `embedded-node/`, `platform-smoke/` | Scale, isolation, matrix, and smoke slices |
+
+Shared utilities live under `tests/e2e/helpers/`.
 
 ## Short vs long intervals
 
