@@ -522,6 +522,9 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     // never as six yellow person dots (OPEN-86 E3/E5).
     const outsider = pages[7]!;
     await outsider.evaluate(async () => { await (window as any).__iinpublic_app?.getApp?.()?.refreshActiveRooms?.(); });
+    await expect.poll(() => outsider.evaluate((id) =>
+      (window as any).__iinpublic_app?.getApp?.()?.uiManager?.getCustomChatroomIds?.()?.includes(id), placeId),
+    { timeout: 60_000 }).toBe(true);
     await outsider.locator('[data-testid="chatroom-map-view-btn"]').click();
     await expect(outsider.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"] .chatroom-map-marker-count`))
       .toHaveText('6', { timeout: 60_000 });

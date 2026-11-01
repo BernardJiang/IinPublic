@@ -1282,7 +1282,6 @@ export class UIManager extends EventEmitter {
     if (state.dateTo) this.talksDateTo = state.dateTo;
   }
 
-
   async refreshCreatorReplies(): Promise<void> {
     if (!this.currentUserId) return;
     // P0 step 5: replies derived from localTalkExchanges — no server call to /api/users/:id/replies.
@@ -1931,7 +1930,6 @@ export class UIManager extends EventEmitter {
   public formatTravelHomeSet(name: string): string {
     return this.tf('travelHomeSet', { name });
   }
-
 
   public formatTravelLocationHeld(): string {
     return this.t('travelLocationHeld');

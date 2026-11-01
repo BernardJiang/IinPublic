@@ -85,9 +85,11 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
   private async readReputation(userId: string): Promise<Reputation> {
     const recent = this.recentReputationWrites.get(userId);
     if (recent) return { ...UserService.DEFAULT_REPUTATION, ...recent };
+    const cached = this.recentPublicUsers.get(userId)?.reputation;
+    const fallback = { ...UserService.DEFAULT_REPUTATION, ...cached };
     try {
       const data = await this.gunService.getPath([`users/${userId}`, 'reputation'], 300, 500);
-      if (!data || typeof data !== 'object') return { ...UserService.DEFAULT_REPUTATION };
+      if (!data || typeof data !== 'object') return fallback;
       const { _, ...rest } = data as any;
       // Gun may wrap stored objects under a nested `#` key; unwrap for stable reads.
       const repCandidate = rest && typeof rest === 'object' && (rest['#'] && typeof rest['#'] === 'object')
@@ -95,7 +97,7 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
         : rest;
       return { ...UserService.DEFAULT_REPUTATION, ...(repCandidate as any) } as Reputation;
     } catch {
-      return { ...UserService.DEFAULT_REPUTATION };
+      return fallback;
     }
   }
 

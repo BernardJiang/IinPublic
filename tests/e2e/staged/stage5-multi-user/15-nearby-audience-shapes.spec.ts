@@ -135,6 +135,16 @@ test.describe('Nearby audience shapes at C = 3 (OPEN-86 E5)', () => {
     // The map: the whole San Diego area is green (later pages included), North Park is yellow.
     await s1.locator('[data-testid="chatroom-map-view-btn"]').click();
     const map = s1.locator('#chatroom-map');
+    // The initial map fits the Nearby page tightly; North Park is outside that viewport.
+    // Show both points before checking the viewport-scoped presence dots.
+    await expect.poll(() => s1.evaluate(() => Boolean((document.querySelector('#chatroom-map') as any)?.__iinpublicMap)),
+      { timeout: 30_000 }).toBe(true);
+    await expect.poll(() => s1.evaluate(() => (document.querySelector('#chatroom-map') as any).__iinpublicMap.getZoom()),
+      { timeout: 30_000 }).toBeGreaterThan(12);
+    const zoomOut = s1.locator('.maplibregl-ctrl-zoom-out');
+    const northEdge = () => s1.evaluate(() => (document.querySelector('#chatroom-map') as any).__iinpublicMap.getBounds().getNorth());
+    for (let i = 0; i < 6 && await northEdge() < NORTH_PARK.latitude + 0.003; i += 1) await zoomOut.click();
+    await expect.poll(northEdge, { timeout: 10_000 }).toBeGreaterThan(NORTH_PARK.latitude + 0.003);
     await expect.poll(async () => s1.evaluate(() => {
       const count = (kind: string) => Array.from(document.querySelectorAll(`[data-testid="map-user-dot-${kind}"]`))
         .reduce((sum, dot) => sum + Number((dot as HTMLElement).dataset.count || '1'), 0);

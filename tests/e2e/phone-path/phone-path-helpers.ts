@@ -135,7 +135,10 @@ export async function pinLocation(page: Page, coords: { latitude: number; longit
 export async function closeUsers(...users: Array<JourneyUser | undefined>): Promise<void> {
   for (const user of users) {
     if (!user) continue;
-    await user.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {});
+    await user.page.evaluate(() => Promise.race([
+      (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.(),
+      new Promise((resolve) => window.setTimeout(resolve, 5_000)),
+    ])).catch(() => {});
     await user.context.close().catch(() => {});
     await user.releasePhone?.().catch(() => {});
   }
