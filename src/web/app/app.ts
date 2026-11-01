@@ -59,7 +59,7 @@ import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
-import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings } from '../ui/connectivity-settings';
+import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
@@ -324,6 +324,9 @@ const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
 const PRESENCE_REFRESH_MS = 60_000;
 /** On a phone the native mailbox watch wakes a drain; the page's own drain is a safety net. */
 const NATIVE_MAILBOX_SAFETY_DRAIN_MS = 15_000;
+/** A DM that reached neither the peer nor the mailbox exists only here, so keep trying a while. */
+const DM_MAILBOX_POST_ATTEMPTS = 5;
+const DM_MAILBOX_POST_RETRY_MS = 3_000;
 
 /**
  * The room protocol baseline. Outside production a local-debug/E2E capacity (`?e2e_capacity=`)
@@ -604,8 +607,8 @@ export class IinPublicApp {
       this.uiManager.updateConversationTransportMode(conversationId, mode, fallbackReason);
     });
     // Phase 4: queue undeliverable DMs to the recipient's offline mailbox.
-    this.conversationService.setMessageUndeliverableHandler((wire, conversationId, recipientUserId) => {
-      void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId).catch(() => {});
+    this.conversationService.setMessageUndeliverableHandler((wire, conversationId, recipientUserId, recipientEpub) => {
+      void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, recipientEpub).catch(() => {});
     });
     if (!this.ledgerService) return;
     const ledger = this.ledgerService;
@@ -3684,7 +3687,7 @@ export class IinPublicApp {
     try {
       bridge.configure(JSON.stringify({
         version: 1,
-        enabled: settings.nearbyMode === 'always',
+        enabled: backgroundTalkAgentEnabled(settings),
         userId: this.currentUser.id,
         stageName: this.currentUser.stageName,
         activeRoomId: this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || '',
@@ -3936,6 +3939,8 @@ export class IinPublicApp {
     wire: import('../services/gun-message-store').ConversationMessageWire,
     conversationId: string,
     recipientUserId: string,
+    knownEpub?: string,
+    attempt = 1,
   ): Promise<void> {
     if (this.mailboxFallbackDisabledForE2e) return;
     if (!this.currentUser?.id || !recipientUserId || recipientUserId === this.currentUser.id) return;
@@ -3943,11 +3948,8 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return;
     try {
-      const recipientEpub = await this.resolvePeerEpub(recipientUserId);
-      if (!recipientEpub) {
-        console.warn('[Mailbox] Cannot post DM — epub not found for', recipientUserId);
-        return;
-      }
+      const recipientEpub = await this.resolvePeerEpub(recipientUserId, knownEpub);
+      if (!recipientEpub) throw new Error(`epub not found for ${recipientUserId}`);
       const payload: MailboxConversationMessagePayload = {
         kind: 'conversation-message-v1',
         conversationId,
@@ -3962,13 +3964,19 @@ export class IinPublicApp {
         recipientId: recipientUserId,
         ciphertext,
       });
-      if (result.stored) {
-        console.log('[Mailbox] Posted DM envelope', wire.id, 'for', recipientUserId);
-      } else {
-        console.warn('[Mailbox] Server rejected DM envelope:', result.error);
-      }
+      if (!result.stored) throw new Error(`server rejected envelope: ${result.error}`);
+      console.log('[Mailbox] Posted DM envelope', wire.id, 'for', recipientUserId);
     } catch (err) {
-      console.warn('[Mailbox] postConversationMessageToMailbox failed:', err);
+      // The message exists only on this device until this works, so one failure must not end it.
+      if (attempt >= DM_MAILBOX_POST_ATTEMPTS) {
+        console.warn('[Mailbox] Gave up posting DM', wire.id, 'for', recipientUserId, err);
+        this.uiManager.showNotification(this.uiText('conversationDeliveryFailed'), 'error');
+        return;
+      }
+      console.warn('[Mailbox] Retrying DM post', wire.id, err);
+      setTimeout(() => {
+        void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, knownEpub, attempt + 1);
+      }, DM_MAILBOX_POST_RETRY_MS * attempt);
     }
   }
 

@@ -56,6 +56,14 @@ export function takeLegacyPrivacyMigration(): LegacyPrivacyMigration {
   return value;
 }
 
+/**
+ * The node stays up once the app has opened, so saved answers keep going out with the app in the
+ * background. The Nearby mode only decides what the radios do; Off also stops answering.
+ */
+export function backgroundTalkAgentEnabled(settings: Pick<ConnectivitySettings, 'nearbyMode'>): boolean {
+  return settings.nearbyMode !== 'off';
+}
+
 export function defaultConnectivitySettings(): ConnectivitySettings {
   return { version: 2, preset: 'automatic', nearbyMode: 'while-open', nearbyPrivacyMode: 'neighborhood', locationSource: 'resident', activeRoomSelection: 'manual', wifiOnlyForwarding: true, identityReveal: 'matches-only', freeFirst: true, directFirst: true, batteryAware: true, meteredPermission: 'wait-for-free', forwarding: { ...DEFAULT_FORWARDING_SETTINGS, wifiForwarding: true } };
 }

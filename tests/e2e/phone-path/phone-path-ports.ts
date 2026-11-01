@@ -1,8 +1,11 @@
-/** Fixed ports for the phone-path suite, outside the root suite's 3001+N / 8080+N bands. */
+/** Moves the whole suite, so two checkouts on one machine can run it side by side. */
+const OFFSET = Number(process.env.E2E_PHONE_PATH_PORT_OFFSET) || 0;
+
+/** Ports for the phone-path suite, outside the root suite's 3001+N / 8080+N bands. */
 export const PHONE_PATH_PORTS = {
-  hub: 18180,
-  phoneA: 18188,
-  phoneB: 18189,
+  hub: 18180 + OFFSET,
+  phoneA: 18188 + OFFSET,
+  phoneB: 18189 + OFFSET,
 } as const;
 
 /**
@@ -10,12 +13,12 @@ export const PHONE_PATH_PORTS = {
  * hub is unreachable). Nothing listens on `deadHub`.
  */
 export const PHONE_PATH_SPEC_PORTS = {
-  restartPhone: 18190,
-  offlinePhone: 18191,
-  deadHub: 18199,
+  restartPhone: 18190 + OFFSET,
+  offlinePhone: 18191 + OFFSET,
+  deadHub: 18199 + OFFSET,
   /** Accepts connections and never answers: a hung network, not a refused one. */
-  hungHub: 18198,
-  hungHubPhone: 18192,
+  hungHub: 18198 + OFFSET,
+  hungHubPhone: 18192 + OFFSET,
 } as const;
 
 export type PhonePathOrigin = keyof typeof PHONE_PATH_PORTS;

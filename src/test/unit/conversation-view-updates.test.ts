@@ -81,21 +81,22 @@ describe('conversation view and list update extraction', () => {
     const button = document.getElementById('send-conversation-message') as HTMLButtonElement;
     input.value = 'hello';
     button.click();
-    expect(button.disabled).toBe(true);
-    expect(button.textContent).toBe('Sending...');
-    expect(input.value).toBe('hello');
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe('Send');
+    expect(input.value).toBe('');
     document.getElementById('back-from-conversation')?.click();
     expect(currentConversationId).toBeUndefined();
     const first = emit.mock.calls.find(([event]) => event === 'sendConversationMessage')?.[1] as {
       onError: () => void;
     };
     first.onError();
-    expect(button.disabled).toBe(false);
     expect(input.value).toBe('hello');
     button.click();
-    const sends = emit.mock.calls.filter(([event]) => event === 'sendConversationMessage');
-    (sends[1][1] as { onPersisted: () => void }).onPersisted();
     expect(input.value).toBe('');
+    input.value = 'a newer draft';
+    const sends = emit.mock.calls.filter(([event]) => event === 'sendConversationMessage');
+    (sends[1][1] as { onError: () => void }).onError();
+    expect(input.value).toBe('a newer draft');
   });
 
   it('adds a conversation while preserving sticky match metadata', () => {

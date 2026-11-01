@@ -34,7 +34,7 @@ type DirectCapableTransport = ConversationTransport & {
     onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   }): void;
   setUndeliverableHandler?(
-    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
+    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string, recipientEpub?: string) => void,
   ): void;
   setAttachmentHooks?(hooks: {
     // KNOWN RESIDUAL GAP: this hook is invoked with only a bare cid, never the requesting
@@ -303,7 +303,7 @@ export class WebConversationService {
    * transports without the hook (e.g. TechSupport / injected test transports).
    */
   setMessageUndeliverableHandler(
-    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
+    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string, recipientEpub?: string) => void,
   ): void {
     (this.transport as DirectCapableTransport).setUndeliverableHandler?.(handler);
   }

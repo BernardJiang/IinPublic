@@ -7,7 +7,8 @@
  *   J-TALK-01  A writes and broadcasts a talk;
  *   J-TALK-02  B receives it and gives the matching answer;
  *   J-TALK-03  both get the conversation and the direct P2P channel connects;
- *   J-CHAT-01  a message A sends appears on B's screen.
+ *   J-CHAT-01  a message A sends appears on B's screen;
+ *   J-CHAT-04  sending never makes anyone wait (dm-speed-journey.ts).
  */
 import { expect } from '@playwright/test';
 import { createSimpleFlowTalk, goToChatrooms } from '../helpers/broadcast-cancellation-helpers';
@@ -16,6 +17,7 @@ import { openIncomingTalkModal, waitForResponseModalClosed } from '../helpers/ta
 import { prepareDirectP2PConversation } from '../helpers/p2p-transport-e2e';
 import { sendConversationMessage, waitForMessageVisible } from '../helpers/fast-dm-setup';
 import type { TestActor } from '../helpers/test-actor';
+import { dmSpeedJourney } from './dm-speed-journey';
 import { currentRoomId, memberItem, openCurrentRoom, stageName, userId } from '../phone-path/phone-path-helpers';
 
 const MATCH_ANSWER = 'Yes match';
@@ -54,5 +56,6 @@ export async function talkMatchChatJourney(alice: TestActor, bob: TestActor): Pr
   await sendConversationMessage(alice.page, conversationId, aliceId, hello);
   await waitForMessageVisible(bob.page, hello, 30_000);
   lap('dm');
+  Object.assign(timings, await dmSpeedJourney(alice, bob));
   return { timings };
 }

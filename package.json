@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.208",
+  "version": "1.0.216",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -143,6 +143,7 @@
     "test:e2e:regen-stage0-fixture": "npm run build:server && E2E_STAGE_PIPELINE=1 PW_WORKERS=1 DISABLE_HMR=true playwright test tests/e2e/staged/stage0-bootstrap && cp tests/e2e/staged/snapshots/worker-0/stage0.json tests/e2e/staged/fixtures/stage0.fixture.json && echo 'Regenerated tests/e2e/staged/fixtures/stage0.fixture.json -- review the diff and commit.'",
     "test:e2e:talks-matching": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching",
     "test:android:responsiveness": "node scripts/android-responsiveness-check.mjs",
+    "test:android:dm": "node scripts/android-dm-responsiveness-check.mjs",
     "test:e2e:responsiveness": "npm run build:server && DISABLE_HMR=true PW_WORKERS=4 playwright test tests/e2e/responsiveness --project=chromium --workers=4",
     "test:e2e:three-user-talk-matrix": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/staged/stage3-three-user/00-three-user-talk-matrix.spec.ts",
     "test:e2e:l3:node-discovery": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true E2E_P2P_NODE_ENABLED=1 PW_WORKERS=1 playwright test tests/e2e/talks-matching/06-mesh-ping-with-hub-api-down.spec.ts",

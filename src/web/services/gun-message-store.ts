@@ -265,6 +265,11 @@ export class GunMessageStore {
    *  turning a 12-message history render into ~10s+ and blowing e2e budgets after reload. */
   private readonly epubByUserId = new Map<string, string>();
 
+  /** The key this store has already used for a person, with no lookup. */
+  knownEpub(userId: string): string | undefined {
+    return this.epubByUserId.get(userId);
+  }
+
   private async getUserEpub(userId: string, attempts = 8): Promise<string | undefined> {
     const cached = this.epubByUserId.get(userId);
     if (cached) return cached;
@@ -322,6 +327,18 @@ export class GunMessageStore {
     text: string,
     opts?: SendMessageOptions & { transport?: ConversationTransportMode },
   ): Promise<ConversationMessageWire> {
+    const wire = await this.buildMessage(conversationId, senderId, text, opts);
+    await this.putMessageRecord(conversationId, wire, opts?.otherUserId ? { otherUserId: opts.otherUserId } : {});
+    return wire;
+  }
+
+  /** The encrypted message, ready to send. Saving it is separate: see `putMessageRecord`. */
+  async buildMessage(
+    conversationId: string,
+    senderId: string,
+    text: string,
+    opts?: SendMessageOptions & { transport?: ConversationTransportMode },
+  ): Promise<ConversationMessageWire> {
     const channel = opts?.channel ?? 'public';
     const transport = opts?.transport ?? this.mode;
     const messageId = String(opts?.messageId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
@@ -349,11 +366,6 @@ export class GunMessageStore {
       base.encryption = 'sea-ecdh-v1';
     }
 
-    await this.putMessageRecord(
-      conversationId,
-      base,
-      otherUserId ? { otherUserId } : {},
-    );
     return base;
   }
 

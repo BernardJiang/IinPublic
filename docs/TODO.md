@@ -120,7 +120,18 @@ its ID.
     suites cited there now pass (4 tests, 2026-10-30). Update stale expectations only when the
     intended product behavior is documented; fix genuine regressions without weakening assertions.
 
-- [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** (a) A late auto-answer was
+- [ ] **OPEN-102 — Background auto-answer fails after the process is killed (found 2026-10-31).**
+  `native-app/40` on 1.0.216, PH-1 author and FRD-L04 receiver: the Android service restarted after
+  the kill, then no answer reached the author within 4 minutes, in both While open and Always. So
+  the 2026-10-31 While open change did not cause it. The same gate last passed on 2026-10-28, app
+  1.0.199 (FRD-L04 5.9 s). Not found yet: whether the Talk reached the mailbox, the node's drain ran,
+  or the reply was lost. `LOG_LEVEL=warn` hides the node's request lines, so add a focused trace
+  first. This also blocks proof that saved answers work in the default While open mode.
+
+- [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** Retest first on 1.0.210: the
+  OPEN-100 memory crash may explain (a) and (b), but a clean rerun has not shown that. After that
+  crash Android delayed the background service's restart by about 35 minutes, and "Stopping
+  service due to app idle" followed, so a crash can also pause background delivery. (a) A late auto-answer was
   lost: PH-1 recorded `walk-late` as outcome match/answeredBy chatbot, but P30's ledger and outing
   never received it, more than 45 minutes later with both online. The PH-1 process had died at
   airplane-mode-on, and the phone was then rebooted, so isolate whether that caused it.
@@ -128,10 +139,6 @@ its ID.
   10 minutes later (13:39:39, 13:40:15), exactly once. Likely tied to the FRD crash loop and hub
   timeouts, but the logs from that minute were overwritten. (c) The outing review reports
   0 pending although journey-bob's `walk-late` reply never arrived.
-
-- [ ] **OPEN-97 — "Always" background mode does not survive a phone reboot.** The manifest has no
-  boot receiver: PH-1 had no app process 5 minutes after booting until the app was opened by hand.
-  Decide the intended behavior, then either restart the service or disclose the limit in Settings.
 
 - [ ] **OPEN-98 — Outing controls lost with `d3cecef7` (2026-10-23).** `reviewMatchCollection`
   and `broadcastMatchCollection` still have handlers, but no UI emits them, so the G4/G5 review
@@ -160,27 +167,32 @@ its ID.
   `docs/guides/PARK_OFFLINE_WIFI_DIRECT_CHECK.md`.
 
 - [ ] **OPEN-92 — Message Send and navigation responsiveness on Android (reported
-  2026-10-29).** Foreground recovery previously blocked WebView on native loopback calls and
-  bottom-tab work; commit `bd7427e8` removes those waits from the visible interaction. Chatroom
-  and DM composers previously cleared drafts before persistence and gave little feedback while
-  network/key lookup was pending; commit `2846414a` keeps the draft, shows Sending immediately,
-  restores Send on failure, and uses the in-room recipient epub cache before a public-user lookup.
-  The owner also reported that tapping Map → Center on me froze all buttons under 1.0.201. The
-  map marker refresh invalidated its cache key during every rebuild, causing repeated DOM work
-  after map movement; 1.0.202 retains the key and adds a center-then-tab navigation regression.
-  The owner then reported a five-second white Settings "Loading..." view after changing tabs.
-  Navigation used to activate empty Settings content before the first render; 1.0.203 keeps the
-  prior panel visible until Settings is populated and shows cached Settings content on later
-  visits. Unit and browser navigation regressions pass. Android 1.0.203 was installed in place
-  on all five USB phones on 2026-10-29. The later 1.0.205 stalled-hub audit measured prompt
-  reactions on P30, PH-1, and FRD-L04; the repository now declares 1.0.207, without a recorded
-  five-phone install or website deployment. The audit also found that TechSupport's relationship
-  stats placeholder can wait about 8.5 seconds for a profile that does not exist; remove that
-  unnecessary delay. A support E2E run stopped before Send because
-  its local greeting/bootstrap was unavailable. **Remaining gate:** reproduce the owner's exact DM
-  symptom, verify actual send and immediate Back/tab response on a phone with the tested build,
-  and confirm the fixes across the five-phone matrix. Record each installed version before a
-  comparable field run; the older 1.0.203 guide is a procedure, not proof of the current build.
+  2026-10-29).** Earlier freezes were fixed in `bd7427e8`, `2846414a` and 1.0.202/1.0.203. On
+  2026-10-31 the owner asked for an instant local message and a Send button that never blocks, and
+  reported delays of 10 s or more and a lost message. App 1.0.214 changes the send path: the message
+  shows and the composer clears at once; encryption and delivery no longer wait for the local save
+  (one shared private-write queue took 0.6 s on P30 and 7.9 s on FRD-L04); the mailbox goes at
+  once when no direct link is open; a failed save returns the text to the composer. Measured with
+  `npm run test:android:dm -- <a> <b> --no-launch`, P30 ↔ FRD, both directions, link connected:
+  own message 69–335 ms, arrival 0.4–0.8 s, exactly once. Own message on FRD misses the script's
+  200 ms budget (about 300 ms). The owner confirmed 1.0.214 feels fast, including the first message.
+  J-CHAT-04 (`tests/e2e/journeys/dm-speed-journey.ts`) now guards this inside `native-app/37`, so the
+  Android sweep runs it: it passed on PH-1 + FRD-L04, app 1.0.215 (own message 34 ms, worst arrival
+  1.6 s, with a 4 s slow-save case). It also runs in `phone-path/02`, which currently stops earlier:
+  the direct channel stays idle with `No data found for key: users/<id>`, though real phones return
+  both keys (see OPEN-94d). **Remaining gate:** FCP-AN10 when attached. C10 is excluded.
+
+- [ ] **OPEN-101 — Open DM defects from the 2026-10-31 timing session.** (a) Private saves are
+  slow because every private write shares one queue and each DM rewrites and re-encrypts the whole
+  conversation; FRD-L04 took 7.9 s for one write and saw repeated main-thread stalls of about 1 s.
+  (b) "hi 12" (P30, 16:36) was saved, but the mailbox refused it with `epub not found` although the
+  sender had just used that key. It reached FRD only about 30 minutes later, after the direct link
+  reconnected and the phones synced. The key is now passed through and posting retries 5 times, but
+  this path has not been re-proven on phones. There is still no per-message delivered/failed state. (c) A received message can
+  render as raw `SEA{...}` ciphertext and never re-decrypt. (d) P30's app died 12 s after launch at
+  16:51:30 with no crash record, and a local `/health` once took about 3 s; causes unknown.
+  (e) DM sessions report `WebRTC connection replaced` around start-up. (f) `getUserPub` gave up on
+  the first missing peer record instead of retrying; fixed in 1.0.215 with a unit test.
 
 ## Paused implementation and field qualification — track, but do not start new features
 
@@ -359,7 +371,7 @@ or evidence tasks, not active feature development.
       outing mid-run (13:08:08) and it was reopened by editing its record over USB; `walk-return`
       took 10 minutes; journey-bob's `walk-late` reply never arrived, with the PH-1 rebooted and
       its app opened by hand during that step; distance walked and GPS loss were not recorded.
-      See OPEN-96 to OPEN-99; OPEN-95 is complete. Rerun after OPEN-96/98. Transit remains not run.
+      See OPEN-96, OPEN-98 and OPEN-99; OPEN-95, OPEN-97 and OPEN-100 are complete. Rerun after OPEN-96/98. Transit remains not run.
   - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
     auto-answers, add actionable pending states, carry the completed starter credit/block-count
     policy into launch review, and treat iOS as unsupported until its native background/discovery

@@ -12,10 +12,33 @@
  * belong to a stream session and end with it.
  */
 import crypto from 'crypto';
+import type { ServerResponse } from 'http';
 import type express from 'express';
 import { closeGunRpcSession, createGunRpcSession, runGunRpc, type GunRpcSession } from '../../core/gun-rpc';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** More unread events than this means the page has stopped reading (OPEN-100). */
+export const GUN_RPC_STREAM_BACKLOG_LIMIT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Writes to a stream whose reader may have stopped. A frozen WebView keeps its socket open, so
+ * Node would otherwise queue every event in memory until the heap limit kills the app. Past the
+ * limit the stream is dropped: RemoteGun reopens it and resubscribes, and Gun then sends each
+ * subscription's current state, so nothing is lost but the backlog.
+ */
+export function writeBoundedStream(
+  res: Pick<ServerResponse, 'destroyed' | 'destroy' | 'write' | 'writableLength'>,
+  text: string,
+  limitBytes = GUN_RPC_STREAM_BACKLOG_LIMIT_BYTES,
+): void {
+  if (res.destroyed) return;
+  if (res.writableLength > limitBytes) {
+    res.destroy();
+    return;
+  }
+  res.write(text);
+}
 
 export function registerGunRpcRoutes(app: express.Application, gun: any, token: string): void {
   const sessions = new Map<string, GunRpcSession>();
@@ -27,12 +50,12 @@ export function registerGunRpcRoutes(app: express.Application, gun: any, token: 
       return;
     }
     const id = crypto.randomBytes(12).toString('hex');
-    sessions.set(id, createGunRpcSession((event) => res.write(`${JSON.stringify(event)}\n`)));
+    sessions.set(id, createGunRpcSession((event) => writeBoundedStream(res, `${JSON.stringify(event)}\n`)));
     res.status(200).set({ 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.flushHeaders?.();
     res.write(`${JSON.stringify({ session: id })}\n`);
-    const keepAlive = setInterval(() => res.write('\n'), 25_000);
-    req.on('close', () => {
+    const keepAlive = setInterval(() => writeBoundedStream(res, '\n'), 25_000);
+    res.on('close', () => {
       clearInterval(keepAlive);
       const session = sessions.get(id);
       if (session) closeGunRpcSession(session);

@@ -376,19 +376,12 @@ export function openPeerDetailView(
       const text = inp?.value?.trim() ?? '';
       // An empty Send takes the user to the composer rather than doing nothing visible.
       if (!text) { inp?.focus(); return; }
-      fresh.disabled = true;
-      fresh.textContent = `⏳ ${deps.text('peerSending')}`;
+      // Like the conversation composer: cleared now, and the text returns only on failure.
+      if (inp) inp.value = '';
       try {
         await deps.sendDirectMessage(peerId, peerName, text);
-        if (inp?.value.trim() === text) inp.value = '';
-        fresh.textContent = `✓ ${deps.text('peerSentStatus')}`;
-        setTimeout(() => {
-          fresh.disabled = false;
-          fresh.textContent = `💬 ${deps.text('peerSendMessage')}`;
-        }, 2000);
       } catch {
-        fresh.disabled = false;
-        fresh.textContent = `💬 ${deps.text('peerSendMessage')}`;
+        if (inp && !inp.value) inp.value = text;
       }
     });
   }
@@ -463,14 +456,20 @@ async function applySendButtonFromBlockStatus(
 
 async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewDeps): Promise<any | null> {
   if (!deps.getPublicProfileFoundation) return null;
-  const deadline = Date.now() + 8_500;
-  let foundation: PublicProfileFoundation | null = null;
-  while (!foundation && Date.now() < deadline) {
-    foundation = await Promise.race([
-      deps.getPublicProfileFoundation(peerId).catch(() => null),
-      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1_500)),
-    ]);
-    if (!foundation) await new Promise((resolve) => window.setTimeout(resolve, 250));
+  const read = deps.getPublicProfileFoundation;
+  const readOnce = (): Promise<PublicProfileFoundation | null> => Promise.race([
+    read(peerId).catch(() => null),
+    new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1_500)),
+  ]);
+  // A person's profile can still be arriving, so it is worth retrying. TechSupport's usually does
+  // not exist, and retrying would only spend 8.5 s of hub reads on every visit.
+  let foundation = await readOnce();
+  if (peerId !== TECHSUPPORT_ROOT_USER_ID) {
+    const deadline = Date.now() + 8_500;
+    while (!foundation && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      foundation = await readOnce();
+    }
   }
   if (!foundation) return null;
   return { ...publicProfileFromFoundation(foundation), reputation: foundation.reputation };
@@ -487,8 +486,8 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
   const stillShown = (): boolean => shownPeerDetailId() === peerId;
   try {
     // P0 step 5: relationship stats derived locally — no server call. Shown at once: the block
-    // status (hub, up to 5 s) and the public profile (up to 8.5 s of retries, forever-missing for
-    // TechSupport) used to keep the whole section on "Loading…" (gui-responsiveness-audit.md).
+    // status (hub, up to 5 s) and the public profile (up to 8.5 s of retries) used to keep the
+    // whole section on "Loading…" (gui-responsiveness-audit.md).
     const stats = computeLocalStats(peerId);
     const render = (publicUser: any): void => {
       if (!stillShown()) return;

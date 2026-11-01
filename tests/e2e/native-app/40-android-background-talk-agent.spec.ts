@@ -28,6 +28,8 @@ const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const AUTHOR_SERIAL = process.env.NATIVE_APP_ANDROID_AUTHOR?.trim() || 'DUM0219418001663';
 const RECEIVER_SERIAL = process.env.NATIVE_APP_ANDROID_RECEIVER?.trim() || 'PADC100013000534';
 const PACKAGE = 'com.iinpublic.app';
+// Saved answers go out in the default mode too; set `always` to include background radios.
+const NEARBY_MODE = process.env.E2E_BACKGROUND_NEARBY_MODE?.trim() || 'while-open';
 const FIXED_LOCATION = { latitude: 32.7157, longitude: -117.1611, accuracy: 10, timestamp: new Date().toISOString() };
 
 process.env.E2E_PORT_OFFSET = String(HUB_GUN_PORT - 8080);
@@ -58,7 +60,7 @@ function participant(label: string, user: AndroidUser, userId: string): NearbyPa
 }
 
 async function configureAlwaysExactAnswer(receiver: AndroidUser, talkData: any): Promise<void> {
-  await receiver.window.evaluate(({ talk }) => {
+  await receiver.window.evaluate(({ talk, nearbyMode }) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
     const question = talk?.questions?.[0];
     const answer = question?.answers?.find((candidate: any) => candidate?.id === 'a_0_match');
@@ -68,7 +70,7 @@ async function configureAlwaysExactAnswer(receiver: AndroidUser, talkData: any):
     const connectivity = {
       version: 2,
       preset: 'automatic',
-      nearbyMode: 'always',
+      nearbyMode,
       nearbyPrivacyMode: 'neighborhood',
       locationSource: 'resident',
       activeRoomSelection: 'manual',
@@ -111,7 +113,7 @@ async function configureAlwaysExactAnswer(receiver: AndroidUser, talkData: any):
     localStorage.setItem('iinpublic_connectivity_settings_v1', JSON.stringify(connectivity));
     app?.uiManager?.emit?.('connectivitySettingsChanged', connectivity);
     app?.syncNativeBackgroundAgent?.();
-  }, { talk: talkData });
+  }, { talk: talkData, nearbyMode: NEARBY_MODE });
 
   await expect.poll(() => receiver.window.evaluate(() => {
     const raw = (window as any).IinPublicBackground?.status?.();

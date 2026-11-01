@@ -8,5 +8,10 @@ here on two real phones (phone-path/02 runs the same body with host phone nodes)
 3. Phone B receives it and gives the matching answer.
 4. Both get the conversation and the direct P2P channel connects.
 5. A message sent on phone A appears on phone B's screen.
+6. Sending never makes anyone wait (`tests/e2e/journeys/dm-speed-journey.ts`, J-CHAT-04): in both
+   directions the composer clears and Send stays free at once, the sender sees the message within
+   500 ms and the receiver within 2 s. That also holds while the sender's local save is held back
+   4 s, as on a slow phone. Two quick messages arrive in order, and every message shows exactly
+   once.
 
 Opt-in (`E2E_REAL_ANDROID_JOURNEYS=1`); clears both phones' app data. Step timings are attached.

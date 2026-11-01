@@ -9,6 +9,22 @@ import { buildConversationDigest, computeMissingForPeer } from '../../shared/con
 import { getSEA, type GunPair } from '../sea-gun';
 import type { OfficialBuildCredential } from '../../shared/official-build-credential';
 
+/**
+ * How long an already-open direct link has to deliver before the mailbox carries the DM as well.
+ * With no open link the mailbox is used at once: waiting for one to connect added 10 s to every
+ * message on phones whose link would not connect.
+ */
+export const DM_OPEN_LINK_GRACE_MS = 1_500;
+
+/** Encrypting needs the peer's key. If that lookup stalls the send fails, returning the text. */
+export const DM_PREPARE_TIMEOUT_MS = 30_000;
+
+const within = <T>(work: Promise<T>, timeoutMs: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Preparing the message timed out')), timeoutMs);
+    work.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+
 export class DirectP2PConversationTransport implements ConversationTransport {
   mode: ConversationTransportMode = 'direct-p2p';
 
@@ -28,6 +44,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     wire: ConversationMessageWire,
     conversationId: string,
     recipientUserId: string,
+    recipientEpub?: string,
   ) => void;
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
@@ -122,7 +139,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
   /** Wire the offline-mailbox fallback (Phase 4); see `onUndeliverable`. */
   setUndeliverableHandler(
-    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string) => void,
+    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string, recipientEpub?: string) => void,
   ): void {
     this.onUndeliverable = handler;
   }
@@ -250,7 +267,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     for (let i = 0; i < attempts; i++) {
       const cached = this.peerKeysByUserId.get(userId)?.pub;
       if (cached) return cached;
-      const { pub } = await this.lookupPeerKeys(userId);
+      // A record not synced yet throws: that is a reason to retry, not to give up on the link.
+      const { pub } = await this.lookupPeerKeys(userId).catch(() => ({ pub: undefined }));
       if (pub) return pub;
       await new Promise((resolve) => setTimeout(resolve, 400));
     }
@@ -291,6 +309,13 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
   private pushLiveMessage(conversationId: string, message: Message): void {
     this.mergeLiveMessages(conversationId, [message]);
+  }
+
+  private removeLiveMessage(conversationId: string, messageId: string): void {
+    const bucket = this.liveMessagesByConversation.get(conversationId) ?? [];
+    const remaining = bucket.filter((message) => message.id !== messageId);
+    this.liveMessagesByConversation.set(conversationId, remaining);
+    for (const listener of this.listenersByConversation.get(conversationId) ?? []) listener([...remaining]);
   }
 
   /**
@@ -439,6 +464,10 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     return session;
   }
 
+  private hasOpenLink(conversationId: string, localUserId: string): boolean {
+    return getP2PSession(conversationId, localUserId)?.getState() === 'connected';
+  }
+
   async sendMessage(
     conversationId: string,
     senderId: string,
@@ -446,24 +475,55 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     opts?: SendMessageOptions,
   ): Promise<void> {
     const channel = opts?.channel ?? 'public';
-    const wire = await this.gunStore.buildAndPersistMessage(conversationId, senderId, text, {
-      ...opts,
-      transport: this.mode,
-    });
+    const messageId = opts?.messageId ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-    // Echo locally regardless of WebRTC outcome — Gun is authoritative (P2P-H).
+    // Shown at once: saving and delivery happen behind it, and a slow one must not hold the
+    // sender's own message back. A failed save takes it away again and reports to the caller.
     this.pushLiveMessage(conversationId, {
-      id: wire.id,
+      id: messageId,
       senderId,
       text,
-      timestamp: new Date(wire.timestamp),
+      timestamp: new Date(),
       channel: (channel as Message['channel']) || 'public',
       readBy: [],
-      isFromChatbot: !!wire.isFromChatbot,
-      ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
-      ...(wire.talkId ? { talkId: wire.talkId } : {}),
+      isFromChatbot: !!opts?.isFromChatbot,
+      ...(opts?.talkId && opts.talkId !== 'direct' ? { talkId: opts.talkId } : {}),
     });
 
+    let wire: ConversationMessageWire;
+    let saved: Promise<void>;
+    try {
+      wire = await within(
+        this.gunStore.buildMessage(conversationId, senderId, text, { ...opts, messageId, transport: this.mode }),
+        DM_PREPARE_TIMEOUT_MS,
+      );
+      // Saved alongside delivery, not before it: private writes share one queue, which took
+      // about 8 s on an older phone, and a link that could deliver in milliseconds waited behind it.
+      saved = this.gunStore.putMessageRecord(conversationId, wire, opts?.otherUserId ? { otherUserId: opts.otherUserId } : {});
+    } catch (error) {
+      this.removeLiveMessage(conversationId, messageId);
+      throw error;
+    }
+
+    this.deliver(wire, conversationId, senderId, text, channel, opts);
+
+    try {
+      await saved;
+    } catch (error) {
+      this.removeLiveMessage(conversationId, messageId);
+      throw error;
+    }
+  }
+
+  /** Delivery runs on its own, so neither a slow link nor a slow save holds up the other. */
+  private deliver(
+    wire: ConversationMessageWire,
+    conversationId: string,
+    senderId: string,
+    text: string,
+    channel: string,
+    opts?: SendMessageOptions,
+  ): void {
     console.log(`📤 Message sent in conversation ${conversationId} (${channel}, ${this.mode})`);
     void (async () => {
       // Where a delivery is, if it is slow: the WebView cannot otherwise tell a stalled key
@@ -471,10 +531,28 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       const startedAt = Date.now();
       let stage = 'session';
       const slow = setTimeout(() => console.warn(`[dm-notify] ${wire.id} still at "${stage}" after 15 s`), 15_000);
+      // Queued once: when the grace period runs out, or at once if the direct link fails. The
+      // recipient keys messages by id, so one that also arrives directly still shows once.
+      let queued = false;
+      const queueToMailbox = async () => {
+        if (queued || !this.onUndeliverable) return;
+        queued = true;
+        try {
+          const recipientUserId = opts?.otherUserId ?? (await this.resolveOtherUserId(conversationId, senderId));
+          if (recipientUserId) {
+            this.onUndeliverable(wire, conversationId, recipientUserId, this.gunStore.knownEpub(recipientUserId));
+          }
+        } catch (resolveErr) {
+          console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
+        }
+      };
+      const grace = this.hasOpenLink(conversationId, senderId)
+        ? setTimeout(() => void queueToMailbox(), DM_OPEN_LINK_GRACE_MS)
+        : void queueToMailbox();
       try {
         const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId, (next) => { stage = next; });
         stage = 'send';
-        await session.sendDm(senderId, text, channel, wire);
+        await session.sendDm(senderId, text, channel as Message['channel'], wire);
         console.info(`[dm-notify] ${wire.id} delivered over WebRTC in ${Date.now() - startedAt} ms`);
       } catch (err) {
         console.warn(
@@ -483,15 +561,9 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         );
         // Phase 4: peer unreachable over WebRTC → queue the (already-encrypted) wire to
         // the recipient's offline mailbox so it survives even without a hub archive.
-        if (this.onUndeliverable) {
-          try {
-            const recipientUserId = opts?.otherUserId ?? (await this.resolveOtherUserId(conversationId, senderId));
-            if (recipientUserId) this.onUndeliverable(wire, conversationId, recipientUserId);
-          } catch (resolveErr) {
-            console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
-          }
-        }
+        await queueToMailbox();
       } finally {
+        if (grace) clearTimeout(grace);
         clearTimeout(slow);
       }
     })();

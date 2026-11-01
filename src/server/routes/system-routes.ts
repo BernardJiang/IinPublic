@@ -82,7 +82,7 @@ import { NearbyV3Hub } from '../services/nearby-v3-hub';
 import { NearbyAttestor } from '../services/nearby-attestor';
 import { NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
 import { hubNearbyV3Config, registerNearbyV3Routes } from './nearby-v3-routes';
-import { captureRuntimeWindow } from '../services/runtime-profiler';
+import { captureHeapGrowth, captureRuntimeWindow } from '../services/runtime-profiler';
 import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
 import { isPlaceRoomId } from '../../shared/place-rooms';
 import {
@@ -1204,6 +1204,19 @@ export function registerSystemRoutes(
       }
       const seconds = Math.max(1, Math.min(120, Number(req.query.seconds) || 30));
       void captureRuntimeWindow(seconds, req.query.profile !== '0')
+        .then((report) => res.json(report))
+        .catch((error) => res.status(500).json({ error: (error as Error).message }));
+    });
+
+    // What is filling a phone's heap (loopback-only, for adb-forwarded use, like the route above).
+    app.get('/api/debug/heap-growth', (req, res) => {
+      const remoteAddress = String(req.socket.remoteAddress || '');
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remoteAddress)) {
+        res.status(403).json({ error: 'heap growth is loopback-only' });
+        return;
+      }
+      const seconds = Math.max(1, Math.min(120, Number(req.query.seconds) || 30));
+      void captureHeapGrowth(seconds)
         .then((report) => res.json(report))
         .catch((error) => res.status(500).json({ error: (error as Error).message }));
     });

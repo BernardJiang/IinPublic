@@ -2,6 +2,30 @@
 
 Last updated: 2026-10-31
 
+## 2026-10-31 — OPEN-97 the embedded node's lifetime is decided
+
+- Owner decision: the node runs from app launch until Force stop or a reboot, including with the
+  screen off and after the app is swiped away. It need not survive a reboot or Force stop, there is
+  no on/off switch, and Android's sleep rules apply. The chatbot only repeats saved answers. A crash
+  is a bug.
+- Saved answers now go out in the background unless the Nearby mode is Off
+  (`backgroundTalkAgentEnabled`); they previously needed Always, which was not the default. The
+  Nearby mode still decides what the radios do in the background, and the labels now say so. Unit
+  tests cover this; the real-phone proof is blocked by OPEN-102.
+
+## 2026-10-31 — OPEN-100 a stalled page can no longer run the phone's node out of memory
+
+- Found during OPEN-92: PH-1's embedded node died with `Reached heap limit` after about 18 minutes
+  (750 MB heap), and P30 reached 1.16 GB. Graph size ruled out Gun's memory (580 souls). A new
+  loopback-only `/api/debug/heap-growth` heap sample showed the live memory in `write_` from
+  the Gun RPC stream: the node queued events without limit for a page that was not reading them.
+- `writeBoundedStream` drops the stream past a 4 MiB backlog. RemoteGun already reopens it and
+  resubscribes, and Gun then replays current state. The route also cleans up on the response's
+  `close`, which fires when the server drops the stream.
+- Verification, app 1.0.210: 3/3 backlog tests, including a real HTTP reader that stops reading.
+  A 26-minute screen-off soak ended at 174 MB on P30 and 235 MB on PH-1, flat after start-up, with
+  no out-of-memory crash. Not separately proven: which WebView state stops it reading.
+
 ## 2026-10-31 — OPEN-95 the Android node log can no longer fill a phone
 
 - Found on the OPEN-81 walk: `node-stdio.log` had no size limit. It reached 1.88 GB on FRD-L04
