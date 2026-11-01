@@ -15,4 +15,5 @@ first and passes the hub's answer back. Each case is checked on screen and in th
    "Could not create room: … reach the network" and nothing is kept on the phone.
 6. **Expiry** (J-PLACE-11): a Place both phones have held is aged 31 days on the hub and both
    phones (`POST /api/test/chatrooms/:id/backdate`, non-production only). The hub and both phones
-   stop listing it, new users on the web and on a phone never see it, and its creator still does.
+   stop listing it, new users on the web and on a phone never see it, it disappears from their map
+   markers too, and its creator still does.
