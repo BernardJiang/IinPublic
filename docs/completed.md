@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-31
 
+## 2026-10-31 — OPEN-91 architecture delivery umbrella closed
+
+- OPEN-91's committed architecture scope is now complete: one core protocol/handler (`src/core/`),
+  one Gun per host runtime, core-owned local data collections, web SharedWorker ownership, native
+  loopback core/Gun RPC hosting, and host-serialized ledger command execution with tab refresh
+  invalidations.
+- Coverage and qualification evidence are now consolidated in OPEN-88, OPEN-91 P2–P4, and the
+  2026-10-29/2026-10-31 OPEN-94 focused reruns (including stage1/96 and wire09 checks recorded in
+  `docs/TODO.md` history before closure).
+- Deferred expansion from OPEN-91 is preserved as explicit follow-ons: OPEN-103 (sharing-policy
+  compatibility migration and legacy audiences) and OPEN-104 (host-owned remaining domain effects
+  plus full live host-view semantics). This keeps maintenance-first priorities explicit while
+  preventing OPEN-91 from staying open as an umbrella tracker.
+
 ## 2026-10-31 — OPEN-102 phones could not look up each other's keys
 
 - `405a3022` raised the age-verification read inside every public user lookup from 0.5 s to 3 s.
