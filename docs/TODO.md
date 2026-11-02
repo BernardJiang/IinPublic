@@ -57,6 +57,143 @@ its ID.
 
 ## Active maintenance queue — website and Android first
 
+- [ ] **OPEN-106 — Question-keyed graph store: each question once, Talks and the Me tab as links
+  (release blocker, owner decision 2026-11-01).** Must be done before release.
+
+  **Specified 2026-11-02: spec §31 (Device Graph Data Model), which supersedes the "Target design"
+  below and the draft where they differ.** Every record is an event or content, no types; nothing is
+  stored twice, as in git. The question is the key; a full-length context hash is the situation; a
+  Talk is the event that wrote it, and every edit is a new event that is re-sent; built-in values
+  such as a price range count as choices; all hashes are SHA-256. Text is exact, with a grammar
+  filter for English and Chinese (a received Talk with an error is ignored whole, no spelling
+  correction). §31.12 lists the open issues to settle before coding.
+
+  **Full design:** `docs/design/device-graph.md` (draft). It widens this issue from questions to the
+  one graph behind all four tabs: people, contacts, places, GPS, exchanges and reverse edges, plus how
+  encryption and communication work with it. The sections below cover the question and Talk part.
+
+  **Why.** The first project plan (2026-01-19) said the app "should maintain a list of questions and
+  answers in the database" and that questions are "linked together" to form a Talk. Searches of
+  `src` and `docs` history found no commit that built this. Instead a Talk is one JSON string
+  (`questionsJson` from 2026-04-05, `fe571bd4`), and the Me tab reads its own log (`myAnswerHistory`
+  from 2026-05-14, `0eb8b8e6`). Gun cannot see a question inside a string, so its per-field state
+  and links go unused here.
+
+  **Evidence, 2026-11-01.**
+  - A question's text is stored 10 times across 7 collections on the C10 and 30 times across 8
+    collections on the PH-1 (plain text matches, so a title with the same words also counts), plus
+    the encrypted Talk copy.
+  - Benchmark of the real engine on a Mac, 10,000 Talks of 3 questions, about 800-byte filler
+    entries, no disk or start-up cost: 55 MB in memory. Answering a Talk took 165 ms before the
+    single-key fix below, and saving one answer took 110 ms, both growing linearly. A hash lookup
+    took about 4 ns, so nearly all of it was whole-map copying.
+  - Current costs that the small fixes do not solve: saving an answer is O(N) (whole-map copy and
+    compare), start-up loads every entry with one Gun read each, the Me tab regroups by text on every
+    render, and text is duplicated across collections.
+
+  **Target design.** Everything stays under `local/`, so the sharing policy keeps it on the device.
+  Hash keys use normalised text. Language is part of a question's key. A question has no choices and
+  no answer of its own, because both vary by Talk and context.
+
+  ```
+  Text, each exactly once
+    q/<hash>            { text, language }
+    a/<hash>            { text }
+
+  Talks, structure only, no question or answer text
+    talk/<cid>          { type, title, start or 0..n: →step, tag: →q, accepts: →q }
+    talk/<cid>/<n>      { q: →q/<hash>, 0..n: →choice, rules that belong to this step }
+    talk/<cid>/<n>/<m>  { a: →a/<hash>, next: →step, match, ignore }
+
+  Me tab, links only
+    me                  { <context>: →me/<context> }
+    me/<context>        { q: →q/<hash>, a: →a/<hash>, talk: →talk/<cid>, after: →me/<previous> }
+  ```
+
+  Worked example: every Talk below asks "How often do you play?", and `q/<that hash>` exists once.
+  - Flow, Tennis partner: step 1 "Do you play tennis?" with `Yes` → step 2 "How often do you play?"
+    with `Weekly` as the match and `Daily` as ignore.
+  - Route, Hobby friend: "What do you play?" with `Tennis` → step 2 and `Piano` → step 3. Steps 2 and
+    3 link the same question node on two branches.
+  - Survey, Weekend habits: an ordered list of steps, no `next`.
+  - Tag, tennis: `talk/<cid>` links one question. A Pair tag adds `accepts: →q/<buy>`.
+
+  The Me tab walks `me`, groups by the `q` link, and follows links for text:
+  ```
+  How often do you play?
+     → Weekly   (Do you play tennis? → Yes)
+     → Daily    (What do you play? → Piano)
+     → Monthly  (Weekend habits)
+  ```
+
+  **Rules.**
+  - Talk ids stay content hashes computed by `computeTalkCIDv1`, so ids, deduplication and delivery
+    do not change. The hash payload must not depend on how a Talk is stored.
+  - Talks reach the receiver as nodes through Gun sync (owner direction, 2026-11-01), written once in
+    the author's signed space under a per-Talk key, with one encrypted grant per receiver. See "Talk
+    exchange by Gun sync" in `docs/design/device-graph.md`. No readable text or guessable hash reaches
+    a relay: extend the wire audit (`tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`)
+    to the new souls.
+  - Context keys use `buildQuestionContextHash` (`flattened-answer-keys.ts`), never `contextHashId`,
+    which hashes positional ids only.
+  - Node writes use exact souls and links as `gunGraphStore.put` does. A chained put can wait forever
+    for an absent private parent.
+  - GUI reads stay synchronous through an in-memory view filled from the nodes, loaded on demand.
+
+  **Decide before coding.**
+  1. Spelling: "Tennis" and "tennis" become one node showing the first spelling seen. Proposed: accept.
+  2. Language in the question key. Proposed: yes.
+  3. Label for a context with no earlier step. Proposed: the Talk title.
+  4. One context reached from two Talks: `talk` becomes a list of links. Proposed: yes.
+  5. Deleting: a node stays while anything links to it, so removing a Talk needs a sweep for unlinked
+     nodes, and Gun keeps tombstones. Define what "deleted" promises.
+  6. Encryption: encrypt Gun's storage chunks with an Android Keystore key instead of individual
+     values, and drop the encrypted Talk copy. Encrypting values would break traversal. See
+     `docs/design/device-graph.md`. The website needs its own answer. A privacy decision for the owner.
+  7. Whether `exactChatbotMemory`, `answerPreferences`, `flattenedAnswerPreferences`,
+     `myQuestionAnswers`, `questionDefaultContracts` and `myAnswerHistory` all become reads of these
+     nodes, or some stay. Proposed: all of them, in phases.
+
+  **Phases.**
+  - [ ] 1. Finish `docs/design/device-graph.md`, record the decisions above and update the spec.
+  - [ ] 2a. Prototype sync. Done in browsers on 2026-11-01 (see "Experiments" in the design): a
+    3-question Talk as signed, encrypted nodes over a real WebRTC channel, answered by key lookup in
+    6 ms, catching up after reconnect. Still needed: the same inside the phones' embedded Node,
+    WebRTC between real phones, many peers, and the outgoing audience filter, because Gun sent the
+    pair's ciphertext to an uninvolved connected peer.
+  - [ ] 2b. Measure storage: on the FRD and P30, compare write and read cost of the node shape against
+    the current records at 10,000 Talks. Radisk rewrites its whole chunk (up to 1 MB) on each flush,
+    and `gunGraphStore` reads wait at least 30 ms, so a cold 3-question lookup is estimated near
+    100 ms. Add a recently-used cache if the numbers need it.
+  - [ ] 3. Add the store in `src/core/` (question, answer, Talk and `me` nodes, split and rebuild),
+    with unit tests for all four Talk types, Pair tags, route branches and multi-select.
+  - [ ] 4. Write Talks to both stores, and check that a rebuilt Talk equals the original and hashes
+    to the same id.
+  - [ ] 5. Move the Me tab to `me` nodes, then remove its grouping code.
+  - [ ] 6. Move the chatbot, preferences and defaults to the nodes. Keep `whenever` and root-default
+    behaviour, and answer-frame exactness.
+  - [ ] 7. Migrate existing data on start-up: resumable, repeat-safe, and able to survive a process
+    kill part way. Keep old data until a verified read-back.
+  - [ ] 8. Remove the old collections and the duplicate Talk copies.
+
+  **Done when.**
+  - A scan of a phone's radata finds each question text in exactly one node.
+  - `me` and Talk nodes hold no question or answer text.
+  - Lookup and save times are flat from 100 to 10,000 Talks on the FRD.
+  - An upgraded phone keeps every Talk, answer and chatbot rule.
+  - `npm run test:all`, phone-path journeys, and the real-phone journeys pass.
+  - A two-user journey shows one question with answers from two Talks on the Me tab, and the chatbot
+    answers a new Talk from them, asserted on the other user's side.
+
+  **Small fixes already made ahead of this (2026-11-01, not yet on a phone).**
+  - The Me tab no longer uses `contextHash` as its context key, because that value hashes positional
+    ids: step 2 of two unrelated flows both got `d61994b8`, so one answer vanished. It now uses the
+    readable label, which needs no data migration. A context-free answer keeps its own line.
+  - The chatbot reads one key instead of deep-copying the map per question
+    (`getFlattenedAnswerPreference`, `answeredBeforeFor`). `isPassedTag`, question defaults and saves
+    still copy whole maps.
+  - `contextHashId` still exists and is still positional. Do not build on it.
+
 - [ ] **OPEN-94 — `test:all` failure backlog surfaced 2026-10-30 (restored-gate fallout).**
   The canonical gate was red 2026-10-01 → 10-30 because this worktree's `.env.local` held the
   pre-rotation TechSupport key while the trust anchors rotated 2026-09-27 (commit b4b58d6c);
