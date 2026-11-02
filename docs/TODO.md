@@ -384,6 +384,27 @@ or evidence tasks, not active feature development.
   `cacheReceivedTalk` (~0.6 s) dominate accepting a Talk, and the mesh ACK wait
   (`DEFAULT_MESH_ACK_TIMEOUT_MS`, 3 s) is shorter than a phone's ~3.7 s round trip, so a slow
   receiver gets one redundant re-flood (deduplicated). Tune with the measurements, not before.
+  - [ ] **Owner overnight run, 2026-10-31 23:17 to 2026-11-01 10:11 (11 h 54 min, 1.0.217): not a
+    pass.** No active hour was run (screen on 3 to 4 min per phone). P30 gave no result: Huawei
+    scheduled power off (about 00:30, back about 08:00), so the app was gone by morning. PH-1: 89%
+    to 83%, same process alive, awake 12.5%, app CPU about 3 min, Bluetooth scanning for the whole
+    run, gauge unreliable (bad battery). FRD: 91% to 50% (3.4% an hour, about 1,200 mAh), same
+    process alive, awake 63%, app CPU 2 h 27 min, wake locks only about 12 min, about 23,000
+    wakeups, led by GPIO23 (12,857) and Wi-Fi receive; deep Doze only about 58 min. Node on the FRD
+    kept polling all night while PH-1 stayed asleep. How much of the FRD drain is the app is
+    unproven: it needs a control night with the app stopped. Rerun on P30 with the schedule off,
+    and on the FCP. Also seen: bursts of Gun `chain not yet supported` dumps in the Node log (about 5 to
+    7 MB on FRD and PH-1 at the 10:12 wake-up), and the delegate-invite lookup repeats a 404 about every 2 minutes.
+  - [ ] **Owner daytime run, 2026-11-01 about 10:52 to 17:22 (6.5 h, 1.0.217): not a pass.** No
+    active hour again (screen on 3 to 9 min), and the FRD app was not stopped, so no control. C10:
+    63% to 55% (1.2% an hour), app alive until 17:23:06. P30: 89% to 82% (1.1% an hour), but the app
+    only ran about 15 min, so that is close to a no-app figure; last log 11:04:46, cause unknown, no
+    crash record. PH-1: 92% to 80% (1.8% an hour), alive. FRD: 47% to 20% (4.2% an hour), alive,
+    awake about 63% again. FRD also lost charge on the USB hub, so it needs a wall charger.
+    **Crash found and fixed (source only, not on a phone yet):** C10 Node exited with status 7 on
+    `send ENETUNREACH 224.0.0.251:5353`: bonjour-service throws mDNS send errors unless given an
+    error callback. `LanGunDiscovery` now passes one. The error reaches logcat (tag `nodejs`) but
+    not `node-stdio.log`, and Android then delayed the service restart by over an hour.
   - [x] **Automatable A — Measurement harness:** add per-provider scan-window/duty-cycle counters,
     logical-delivery and wire-byte/duplicate accounting, timer overrides, and retained JSON evidence.
   - [x] **Automatable B — Physical bench matrix:** on at least three attached phones, isolate BLE

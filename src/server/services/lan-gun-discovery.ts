@@ -37,7 +37,11 @@ export class LanGunDiscovery {
   start(): void {
     if (this.bonjour) return;
     try {
-      this.bonjour = new Bonjour();
+      // Without this callback bonjour-service throws every mDNS send failure. A phone answering a
+      // query while its network is down (ENETUNREACH) must not take Node down with it.
+      this.bonjour = new Bonjour({}, (error: unknown) => {
+        logger.warn({ error }, 'LAN Gun discovery could not send an mDNS packet');
+      });
       this.advertisement = this.bonjour.publish({
         name: `IinPublic-${this.instanceId}`,
         type: SERVICE_TYPE,
