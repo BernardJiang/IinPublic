@@ -1,4 +1,5 @@
 # Phone path 02 — Talk, match and chat across two phones
+covers: SPEC-3.4, SPEC-19.4
 
 Alice (phone A) and Bob (phone B) stand at the same spot: they land in the same Nearby room and
 see each other in it. Alice writes and broadcasts a flow Talk; Bob receives it and gives the

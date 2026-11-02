@@ -1,4 +1,5 @@
 # 38 — Two real phones: mismatch, block and leave
+covers: SPEC-3.4, SPEC-3.8, SPEC-3.3
 
 The journey bodies from `tests/e2e/journeys/mismatch-block-leave-journey.ts`, which phone-path/04
 also runs with host phone nodes:

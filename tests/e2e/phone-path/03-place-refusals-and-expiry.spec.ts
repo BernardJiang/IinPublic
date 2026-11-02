@@ -156,6 +156,10 @@ test.describe('Place refusals and expiry on the phone route', () => {
     await returnHome(bob.page);
     await returnHome(alice.page);
     await waitForRoomRow(bob.page, placeId);
+    await clickAppBarAction(bob.page, '#chatroom-map-view-btn');
+    await expect(bob.page.locator('#chatroom-map')).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
+    await expect(bob.page.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"]`)).toBeVisible({ timeout: 20_000 });
+    await openRoomList(bob.page);
     // Let the visit end at the hub first: a heartbeat sent just before leaving can reach the hub
     // after a backdate and count as a visit (it is one).
     await expect.poll(() => hubRoomMembers(request, placeId), { timeout: 30_000 }).toEqual([]);
@@ -176,6 +180,12 @@ test.describe('Place refusals and expiry on the phone route', () => {
       await viewer.page.waitForTimeout(3_000);
       await openRoomList(viewer.page);
       await expect(roomRow(viewer.page, placeId)).toHaveCount(0);
+      await clickAppBarAction(viewer.page, '#chatroom-map-view-btn');
+      await expect(viewer.page.locator('#chatroom-map')).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
+      await expect.poll(
+        () => viewer.page.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"]`).count(),
+        { timeout: 20_000, message: `${label} still sees expired Place marker on map` },
+      ).toBe(0);
     }
     // …while its creator still finds it under her own key.
     expect(await placeIds(phonePathURL('phoneA'), request, alicePub)).toContain(placeId);

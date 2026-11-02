@@ -1,4 +1,5 @@
 # 39 — Transport measurements on real phones
+covers: SPEC-5.2, SPEC-19.4
 
 A measurement run, not a pass/fail gate: it records numbers for one transport mode on every phone
 named in `NATIVE_APP_ANDROID_SERIALS` (2–5 phones). It clears the IinPublic app data on those

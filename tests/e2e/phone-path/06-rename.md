@@ -1,4 +1,5 @@
 # 06 — Rename on a phone (J-PROFILE-01)
+covers: SPEC-3.1
 
 Alice and Bob are on two phones in the same room. Alice changes her name in Settings → Profile.
 

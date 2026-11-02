@@ -51,8 +51,9 @@ its ID.
   `test:all` has not yet been rerun, so OPEN-94 remains open.
 - The two UI size-budget suites mentioned in the earlier responsiveness audit now pass locally
   (4 tests on 2026-10-30); they are not current blockers.
-- Device-core privacy and host-command work has substantial focused validation, but OPEN-91
-  remains incomplete. The walking/transit and unplugged battery gates are still unverified.
+- Device-core privacy and host-command work has substantial focused validation. OPEN-91 is now
+  closed as the architecture-delivery umbrella; deferred expansion is tracked as OPEN-103 and
+  OPEN-104. The walking/transit and unplugged battery gates remain unverified under OPEN-81.
 
 ## Active maintenance queue — website and Android first
 
@@ -113,6 +114,12 @@ its ID.
     (04 mismatch-block; 07b reconnect — "WebRTC connection replaced"; 09 tag-graph-tour, which
     passed in one of two runs on 2026-10-31). Phone-path 02 was fixed with OPEN-102. Direct phone-path
     runs need `DISABLE_HMR=true`, or Place creation is refused.
+    **2026-10-31 journey-coverage follow-on:** J-PLACE-12 and map-side J-PLACE-11 assertions were
+    added to phone-path 01/03, and real UI-path DM reopen/composer-send assertions were added to
+    the shared talk-match-chat journey (used by native-app/37 and phone-path/02). Focused rerun:
+    phone-path/02 passes with the new UI-path assertions; phone-path/01 and phone-path/03 currently
+    fail earlier at existing Place creation (`createPlace` timeout, creator stays `nearby-v3`) so
+    the new map assertions do not execute yet. Keep this as OPEN-94d triage, not a new regression.
     Triage each: contention flake vs genuine regression (per skill: failing all retries =
     genuine).
   - [ ] **OPEN-94e — Remaining known test debt from the responsiveness audit.** Reconcile the
@@ -145,6 +152,22 @@ its ID.
   crash in the 30 minutes after it. Storage was fine (72% free). IinPublic's involvement is
   unknown: the planned force-stop test was not run before the reboot. Treat as an observation
   unless it recurs with a BLE-using Always mode.
+
+- [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
+  `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains
+  330 specs. Regenerated matrix on 2026-11-01 now reports 330 specs, 94 untagged specs, and 139
+  anchors without passing coverage. Keep this updated in regular health/review runs and reduce the
+  untagged backlog incrementally (new specs should carry coverage tags when applicable).
+  - [x] Regenerate `docs/testing/coverage-matrix.md` from `npm run coverage:matrix`.
+  - [x] Refresh `tests/e2e/README.md` to describe the current suite layout and canonical docs.
+  - [x] Add covers tags for high-value journeys (`phone-path/01/02/03`, `native-app/33`, `native-app/37`), reducing untagged specs 120 → 115.
+  - [x] Add covers tags for remaining phone-path journeys (`04/05/06/07/07b/08/09/10`), reducing
+    untagged specs 115 → 107.
+  - [x] Add covers tags for high-value native-app journeys (`02/04/05/18/19/23/27/28/29/35/36/38/39`),
+    reducing untagged specs 107 → 94.
+  - [ ] Tag/highlight remaining high-value untagged specs (next: more native-app and cross-platform
+    journeys) so
+    matrix traceability improves without broad one-shot churn.
 
 - [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
   Current work is browser-first. Physical checks in this session may use C10 only; defer the
@@ -188,90 +211,20 @@ its ID.
 
 ## Paused implementation and field qualification — track, but do not start new features
 
-OPEN-91's architecture expansion and OPEN-81's remaining adoption work are paused under the
-maintenance-only direction. Fix an existing privacy or correctness defect if it is verified;
-otherwise leave their remaining implementation scope parked. OPEN-76/77/79 remain open release
-or evidence tasks, not active feature development.
+OPEN-103/OPEN-104 and OPEN-81's remaining adoption work are paused under the maintenance-only
+direction. Fix an existing privacy or correctness defect if it is verified; otherwise leave their
+remaining implementation scope parked. OPEN-76/77/79 remain open release or evidence tasks, not
+active feature development.
 
-- [ ] **OPEN-91 — Device core: one Gun, one copy of the app logic, a thin GUI (adopted
-  2026-10-25).** Design: `docs/design/device-core-architecture.md`; privacy rules:
-  `docs/design/data-sharing-privacy-rules.md`. On every native app (Android, Windows, Ubuntu, macOS,
-  iOS) one Gun instance and all app logic live in the embedded Node.js process; on the web they live
-  in a background worker; the GUI only draws from an in-memory view model and sends intents. The
-  same `src/core/` TypeScript runs in both hosts. The original page-hosted layout had two Gun
-  instances and ~25 localStorage logs (the S3 design drifted). Phases, each shippable: P1 the core
-  seam + the exchange log (OPEN-88); P2 the sharing policy (default-deny `out`/`in` filter; pair
-  responses and the delivery journal move under it to prevent hub-visible reply relationships);
-  P3 the other local logs; P4 the domain logic out of `app.ts`; P5 the native host runs the core;
-  P6 one Gun on the web. **P1 done 2026-10-25** (OPEN-88, see `docs/completed.md`): `src/core/`
-  holds the protocol, the graph store, the exchange log and the web worker host
-  (`core-worker.js`, replacing `public/worker.js`). **P2 first slice done 2026-10-25:** the
-  sender's response copy and delivery journal moved into the core (`local/`), and the page's Gun runs
-  the sharing policy's `out` filter; spec 09 fails on any private soul on the hub wire.
-  **P2 boundary hardening implemented 2026-10-28:** unknown namespaces are denied in both
-  directions, with explicit compatibility entries for existing protocols. Network input is filtered
-  before Gun can merge it into storage; signed private answer memory and private links are blocked
-  too. Pair/room content requires SEA ciphertext envelopes; violations increment content-free
-  counters. **Inbound subscriptions enforced 2026-10-29:** local reads grant bounded record/subtree
-  permissions; unsolicited nodes and sibling fields are dropped before storage. Remote GETs cannot
-  authorize writes; cancelled listeners lose permission before their first callback too. One-shot
-  reads retain a 30-second late-reply window. **Pair/room relay audience enforced 2026-10-29:**
-  only configured hub connections carry these encrypted Gun namespaces; unbound LAN peers cannot
-  request or receive them, and public records to those peers lose pair/room links. Legacy shared
-  roots retain their old protocols and still require migration and audience review. Remaining P2:
-  compatibility migration, legacy audiences and sharing-setting enforcement.
-  **P3 started 2026-10-26:** keyed collections in the core (`src/core/collections.ts`, GUI view
-  `core-collection-view.ts`, views in `core-views.ts`);
-  chatbot templates and My Talks moved (specs read `window.__iinpublic_collection('myTalks')` and
-  edit via `__iinpublic_collection_edit`; seeding the old blob still works — it is imported) and
-  My Conversations (`my-conversations-storage.ts`) and the talk ledger (one entry per record,
-  `<section>::<key>`), the Me tab's answer history, the deal maps, and the answer preferences
-  and chatbot memory (`answer-preferences-storage.ts`, via `mapStore`/`sectionedDocStore`).
-  **P4 rules extraction done 2026-10-26:** the domain rules live in
-  `src/core/` (see the design doc's P4 entry for the module list); `app.ts` keeps the effects
-  (10,272 → 9,863 lines). **The move off localStorage done 2026-10-26:** the remaining app data is
-  the core's `appData` collection (`appStorage`), settings and UI state its `settings` collection
-  (`settingsStorage`, localStorage kept as a start-up copy); only identity custody, legacy/fallback
-  Gun page storage and the user id / cached user (mirrored to IndexedDB) stay in localStorage.
-  **P5.1–P5.3 implemented 2026-10-26, merged 2026-10-27:** the native embedded node hosts the
-  core and its one Gun; the WebView uses authenticated loopback core/Gun RPC, migrates its worker
-  data, and shuts down that worker. iOS retains the web-worker fallback until its shell supplies
-  the node secret. **P6 single-worker Gun implemented 2026-10-26, merged 2026-10-27:** the web
-  worker's Gun peers with the hub and the page uses `RemoteGun` over messages. Outbound filtering
-  now covers private namespaces, private links, acknowledgement payloads and reconnect mesh sends.
-  **P6 origin ownership implemented 2026-10-28:** tabs share a named SharedWorker, with a
-  Web Locks/BroadcastChannel owner when dedicated workers are needed. Request IDs, subscriptions
-  and login state belong to each tab; ownership/session replacement restores login and listeners
-  without blindly retrying writes. Browser startup fails closed if safe storage cannot start;
-  `?pageGun=1` remains an explicit diagnostic layout. The native migration worker stays isolated.
-  Stage1/96 covers concurrent records, per-tab logout/subscriptions, owner closure and persisted
-  edits across Chromium, Firefox and WebKit; spec 09 now captures SharedWorker sockets and requires
-  a public probe from both participants before accepting its privacy result.
-  **P2 legacy user mirror hardening 2026-10-29:** server create/upsert paths now filter
-  non-public profile rows and contact lists from `users/<id>` writes; profile-foundation updates
-  tombstone the old `fullProfileJson` Gun field. The compatibility HTTP API now accepts and
-  returns only public profile rows; a claimed `viewerId` cannot reveal owner or contact-only
-  data. The old unauthenticated known-people HTTP CRUD now returns 410, so it cannot publish or
-  enumerate contact notes; historical graph copies still need a cleanup/migration decision.
-  **P2 legacy read/write boundary hardened 2026-10-29:** client core blocks old
-  `users/<id>/knownPeople` branches and `user-public-profile/<id>/fullProfileJson` fields in both
-  directions, including parent links and exact reads. Historical hub copies still require
-  migration. Contact-only profile sharing needs an
-  authenticated encrypted protocol before it can be restored to peer views.
-  **P5.4 first host commands implemented 2026-10-29:** ledger mutation/quota decisions serialize
-  across GUI sessions. Response commit assigns CID/version, checks completeness/retraction, and
-  stores encrypted per-recipient copies, journal and ledger before returning a sendable payload.
-  Unacknowledged writes now fail. These are ordered writes, not an atomic multi-record transaction.
-  Retries preserve `sent`/receipt journal states instead of resetting them to `committed`.
-  Received-answer outcome and author aliases now commit in one host command, with version checks.
-  Browser tabs now receive collection and ledger change notices and refresh their cached views
-  after host commits; worker replacement refreshes them too. A tab's unacknowledged local edit
-  survives refresh without exposing another tab's recovery-journal entries as committed data.
-  Validation: 228 focused unit tests; all 12 stage1/96 Chromium/Firefox/WebKit cases; wire09 and
-  two ledger UI regressions; native37 Talk→answer→match→P2P chat on C10/PH1 (2.1 minutes).
-  **Remaining:** P2 compatibility migration, legacy audiences and sharing settings; P5.4 host
-  execution of encryption, transport/fanout, chatbot, Nearby and conversation effects, plus live
-  views replacing cached GUI decisions.
+- [ ] **OPEN-103 — OPEN-91 follow-on: sharing-policy compatibility migration and legacy audiences.**
+  Complete the deferred P2 scope: migrate historical graph copies, review legacy shared roots and
+  audiences, and enforce sharing settings consistently at the compatibility boundary without
+  reopening hub-visible private relationships.
+
+- [ ] **OPEN-104 — OPEN-91 follow-on: host-owned domain effects and live host views.**
+  Complete deferred P5.4 scope by moving GUI-owned effects (encryption scheduling, transport/fanout,
+  chatbot, Nearby, conversation side effects) into host commands and replacing cached GUI decisions
+  with complete live host-backed view semantics across web/native windows.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

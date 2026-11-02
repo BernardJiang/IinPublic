@@ -1,4 +1,5 @@
 # Journey: a phone with a hung hub
+covers: SPEC-5.2
 
 **File:** 10-hung-hub-responsiveness.spec.ts
 **Plan / findings:** `docs/testing/gui-responsiveness-test-plan.md` (P4), `docs/testing/gui-responsiveness-audit.md`

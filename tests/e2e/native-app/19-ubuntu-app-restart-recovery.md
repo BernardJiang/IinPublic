@@ -1,4 +1,5 @@
 # 19 — Ubuntu app restart recovery (OPEN-11)
+covers: SPEC-5.2, SPEC-5.5
 
 The packaged Ubuntu Electron app (over SSH+CDP) and the macOS Electron app share a LAN hub. The
 Ubuntu app process is killed and relaunched on the same profile. Expected: identical user id,

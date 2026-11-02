@@ -2,7 +2,8 @@
  * The two-person core loop on two real phones: the same journey body phone-path/02 runs with host
  * phone nodes (tests/e2e/journeys/talk-match-chat-journey.ts). Phone A broadcasts a talk in the
  * shared Nearby room, phone B answers with the match, both get the conversation, the direct P2P
- * channel connects, and a message from A shows on B's screen. Clears both phones' app data.
+ * channel connects, both reopen it from Contacts (name tap to DM), and a composer-sent
+ * message from A shows on B's screen. Clears both phones' app data.
  *
  *   E2E_REAL_ANDROID_JOURNEYS=1 NATIVE_APP_ANDROID_SERIALS=<a>,<b> \
  *     npx playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/37-android-talk-match-chat-journey.spec.ts

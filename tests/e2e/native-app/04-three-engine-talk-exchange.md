@@ -1,4 +1,5 @@
 # 04-three-engine-talk-exchange
+covers: SPEC-3.4, SPEC-5.5
 
 Adam runs the real Electron desktop app, Eve runs Chromium, Bob runs WebKit (Safari's
 engine). Each publishes one talk of every type (tag, flow, survey, route), broadcasts

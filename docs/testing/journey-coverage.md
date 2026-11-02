@@ -82,16 +82,16 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-PLACE-08 | Refusals: too few incoming Friend marks, one Place per person | ✅ `stage1/54` | ✅ `phone-path/03` | — |
 | J-PLACE-09 | Refusals: same name in the cell, cell full | ◐ unit + integration only | ✅ `phone-path/03` | — |
 | J-PLACE-10 | Hub unreachable while creating → clear error, nothing kept locally | ◐ integration only | ✅ `phone-path/03` | — |
-| J-PLACE-11 | A Place with no visits for 30 days disappears from lists and the map | ◐ unit only | ✅ `phone-path/03` (lists, not the map) | — |
-| J-PLACE-12 | The Place shows on the map as a block at the right spot | ◐ `stage1/54-chatroom-tree-and-map` | — | — |
+| J-PLACE-11 | A Place with no visits for 30 days disappears from lists and the map | ◐ unit only | ✅ `phone-path/03` (lists + map marker removal) | — |
+| J-PLACE-12 | The Place shows on the map as a block at the right spot | ◐ `stage1/54-chatroom-tree-and-map` | ✅ `phone-path/01` | — |
 | **Talks** | | | | |
 | J-TALK-01 | Write and broadcast a Talk in the room | ✅ many (`talks-matching/*`, `stage2/*`) | ✅ `phone-path/02` | ✅ `native-app/07` |
-| J-TALK-02 | The other person receives it and answers | ✅ many | ✅ `phone-path/02` | ◐ `native-app/11` (received across devices) |
-| J-TALK-03 | Matching answer → both get a conversation | ✅ many | ✅ `phone-path/02` | ◐ `native-app/12` (match made through a shortcut, not the answer UI) |
+| J-TALK-02 | The other person receives it and answers | ✅ many | ✅ `phone-path/02` | ✅ `native-app/37` |
+| J-TALK-03 | Matching answer → both get a conversation | ✅ many | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-TALK-04 | Non-matching answer → no conversation for either | ✅ `stage3/11` | ✅ `phone-path/04` | — |
 | J-TALK-05 | Blocked person's Talks stop arriving | ✅ `stage2/15b` | ✅ `phone-path/04` | — |
 | **Chat** | | | | |
-| J-CHAT-01 | A message sent appears on the other person's screen | ✅ `stage2/09` | ✅ `phone-path/02` | ◐ `native-app/12` |
+| J-CHAT-01 | A message sent appears on the other person's screen | ✅ `stage2/09` | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-CHAT-04 | Sending never makes anyone wait: own message at once, Send stays free, arrival within 2 s, even during a slow local save | — | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-CHAT-02 | Message to someone offline arrives when they come back | ✅ `cross-platform/x6`, `talks-matching/05` | — | ✅ `native-app/13` |
 | J-CHAT-03 | A sleeping phone is notified and the message is there on wake | — | — | ✅ `native-app/28` |
@@ -103,9 +103,10 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 1. ~~**J-START-04 (location refused)** on a real phone~~ — `native-app/35` (2026-10-15).
 2. ~~**J-ROOM-02 (split/promote) on the phone path.**~~ Retired 2026-10-20: Nearby v3 has no
    shared rooms to split (OPEN-70); J-NEARBY-01–03 replace it.
-3. **J-PLACE-12 (map block)** and **J-PLACE-11 on the map** — only the lists are checked.
-4. **Real phone ◐ rows** (J-TALK-02/03, J-CHAT-01): answer and match through the UI on two phones
-   instead of the shortcut in `native-app/12`.
+3. ~~**J-PLACE-12 (map block)** and **J-PLACE-11 on the map** — only the lists are checked.~~
+   Covered in `phone-path/01` and `phone-path/03` (2026-10-31).
+4. ~~**Real phone ◐ rows** (J-TALK-02/03, J-CHAT-01): answer and match through the UI on two phones
+   instead of the shortcut in `native-app/12`.~~ Covered in `native-app/37` (2026-10-31).
 5. ~~A phone lists Places it learned from LAN neighbours even when its hub has never had them.~~
    Decided 2026-10-15 (product owner): yes, a phone lists them — that is how Places work offline.
    The release smoke now `pm clear`s both phones when it finishes (`--keep-data` skips that), so
