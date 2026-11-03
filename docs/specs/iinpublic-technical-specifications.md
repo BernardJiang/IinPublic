@@ -7148,7 +7148,7 @@ mismatch.
 
 ## 31. Device Graph Data Model
 
-Status: **specified for owner review, 2026-11-02. Phase 3 started 2026-11-02** (`src/core/device-graph/`, not wired into the app). Release blocker (OPEN-106).
+Status: **specified 2026-11-02; every owner decision settled 2026-11-03 (§31.12).** Built in `src/core/device-graph/`; the app is being moved onto it. Release blocker (OPEN-106).
 Rationale, experiments and alternatives: `docs/design/device-graph.md`. Where this section and
 §20 (Interaction Ledger), §12.2 or REQ-LEDGER-xx disagree, this section is the target design and
 §31.11 lists each conflict.
@@ -7402,10 +7402,15 @@ ev/<id> {
 ### 31.6 People and conversations
 
 ```
-person/<pub>    { pub, epub, userId, name, firstSeen }            state
-contact/<pub>   { person: →person/<pub>, nickname?, labels?, notes?, rating?, addedAt, blocked? }   state
-conv/<id>       { with: →person/<pub>, talk?: →ev/<talkId>, startedAt, status }                 state
+person/<userId>   { userId, pub?, epub?, name?, firstSeen }          state
+contact/<userId>  { person: →person/<userId>, nickname?, labels?, notes?, rating?, addedAt, blocked? }   state
+conv/<id>         { with: →person/<userId>, talk?: →ev/<talkId>, startedAt, status }                 state
 ```
+
+- People are keyed by user ID (owner decision 2026-11-03, §31.12 #12). One person may hold several
+  user IDs (one per device, or one used over Wi-Fi Direct); each has its own public key, which signs
+  that user's shared records and receives the keys of records sent to them. The stage name is never
+  a key. Every `ix/…/<peerPub>` and `<senderPub>` in §31.8 is a user ID.
 
 - A person node exists once someone appears in any event. A contact is my private relationship to a
   person. A name change updates one node.
@@ -7475,30 +7480,28 @@ Content and event souls are written by exact soul only and are never linked into
   SHALL NOT relay other people's souls (Gun floods by default).
 - **REQ-GRAPH-33:** No key of a guessable hash (`q/`, `a/`, `s/`, `rev/`) appears in clear on the
   wire. Shared souls use random tags; hashes travel only inside encrypted values.
-- Whether shared values are encrypted or public is **open** (§31.12 #8).
+- Shared values are encrypted (owner decision 2026-11-03, §31.12 #8): each shared record is
+  encrypted with a key that is wrapped for each receiver's public key.
+- **REQ-GRAPH-34 — provable timeline (§31.12 #11):** everything I share with one person is listed in
+  that pair's log, numbered from 0, each entry carrying the hash of the entry before it, so the
+  receiver can prove the order and see a gap.
+- **REQ-GRAPH-35 — deletes propagate (§31.12 #14):** deleting my Talk or my answer is a new event,
+  sent like any other record to everyone who holds the Talk or the answer; their devices then remove
+  it from their lists, and later copies of a deleted Talk are recorded but not shown.
+- **REQ-GRAPH-36 — storage limit (§31.12 #13):** the graph may use 1 GB. A full store refuses what
+  other people send; my own writes are never refused. Trimming old data comes later.
 
-### 31.10 Migration from today's collections
+### 31.10 No migration: old data is erased
 
-| Today (`local/collections/…`, JSON strings) | Becomes | Lost |
-|---|---|---|
-| `myTalks` | one Talk event per Talk (id from its `createdAt`), `rev/`, `q/`, `a/`, `mine/talk/`, `ix/legacy/` | edit history before the latest version |
-| `talkLedger` exchange records | offer, arrival and answer events, `ix/talk`, `ix/person` | per-question time and place |
-| `myAnswerHistory`, `answerPreferences`, `myQuestionAnswers` | answer events, `s/`, `ix/q/…/mine` | separate time per question |
-| `flattenedAnswerPreferences`, `exactChatbotMemory` | `ix/ctx/` | use counts (kept as a field if needed) |
-| `questionDefaultContracts` | `ix/whenever/` | nothing |
-| `answeredTalkByContent` | `ix/answered/` | nothing |
-| `ownerIncomingTalkIndex` clusters | the sender's Talk event, `rev/`, one arrival event per sender, `ix/received` | earlier arrivals (only the latest was kept) |
-| `myConversations` and `conversations/<id>/messages` | `conv/`, message events, `ix/conv` | nothing intended |
-| `chatbotTemplates`, `typedPreferenceState`, `tagOppositePairRegistry`, `dealTalkByConversation`, `needKeyByConversation` | to be mapped (§31.12 #16) | — |
-| `talkRevisionSent` | `ix/sent/` and offer events | nothing |
-| `local/private/talks%2F<id>` (SEA copy) | removed if storage is encrypted at rest (§31.12 #9) | nothing |
-
-Migration runs once per device at start-up, is idempotent (content keys are hashes, event ids are
-derived from the old record key and its timestamp), and keeps the old collections until the new
-indexes are verified. Existing text is not case-folded or re-spelled: old keys were case-folded, so
-memory is rebuilt from the original texts kept in `myTalks` and the answer history (the
-`answer-context-migration.ts` replay, run for context v3). Old texts that fail the grammar filter
-are kept for the owner's own history but are not offered again until edited.
+Owner decision 2026-11-03 (§31.12 #15, #17): the graph has not shipped, so there is no migration, no
+mixed-version period and no reading of both formats. When the graph takes over, today's collections
+(`myTalks`, `talkLedger`, `myAnswerHistory`, `answerPreferences`, `myQuestionAnswers`,
+`flattenedAnswerPreferences`, `exactChatbotMemory`, `questionDefaultContracts`,
+`answeredTalkByContent`, `ownerIncomingTalkIndex`, `talkRevisionSent`, `chatbotTemplates`,
+`typedPreferenceState`, `tagOppositePairRegistry`, `dealTalkByConversation`,
+`needKeyByConversation`, and the SEA Talk copies under `local/private/talks%2F…`) are deleted from
+the device. Conversations and chat messages stay where they are: they join the graph in a later
+release (§31.12 #16). The phase-4 mirror and `ix/legacy/` exist only for testing during development.
 
 ### 31.11 Conflicts with earlier sections
 

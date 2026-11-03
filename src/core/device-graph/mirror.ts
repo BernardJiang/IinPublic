@@ -120,7 +120,7 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
       talkId = formatEventId({ when: Math.max(0, when), deviceId: device, counter: parseInt(portableSha256Hex(entry.talkId).slice(0, 8), 16) });
       const senders: string[] = entry.senders?.length ? entry.senders : [author];
       for (const sender of senders) {
-        await arrivals.receive({ talkId, versionId: talkId, authorPub: author, when, device, talk: full }, { pub: String(sender), importing: true });
+        await arrivals.receive({ talkId, versionId: talkId, authorId: author, when, device, talk: full }, { userId: String(sender), importing: true });
       }
       await store.put(legacySoul(entry.talkId), { talk: link(souls.event(talkId)), title: String(full.title ?? ''), structure: talkStructureKey(talkStructureOf(full)) });
       await bump({ received: 1 });
@@ -142,7 +142,7 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
     }
     const mode = entry.answeredBy === 'chatbot' || completed.every((a) => a.mode === 'chatbot') ? 'chatbot' : 'manual';
     const previous = await answers.answered(talkId);
-    await answers.answer({ talkId, structure: talk, steps, mode, withPub: author, ...(previous ? { replaces: previous } : {}) });
+    await answers.answer({ talkId, structure: talk, steps, mode, withUser: author, ...(previous ? { replaces: previous } : {}) });
     await store.put(legacySoul(entry.talkId), { answers: signature });
     await bump({ answers: 1 });
   }

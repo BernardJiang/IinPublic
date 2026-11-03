@@ -6,11 +6,12 @@
  *
  *   ev/<talkId>        { v, when, device, rev: →rev/…, title, isAdult, expiresAt?, locationRadiusMiles? }
  *   ev/<editId>        { …the same, talk: →ev/<talkId>, re: →ev/<previous> }
- *   mine/talk/<talkId> { latest: →ev/…, active, isTemplate }                       state
+ *   ev/<deleteId>      { v, when, device, talk: →ev/<talkId>, re: →ev/<latest>, deleted: true }
+ *   mine/talk/<talkId> { latest: →ev/…, active, isTemplate, deleted? }             state
  *   ix/mine-talks      bucketed list of my Talks, by the Talk's first event time
  */
 import { putEvent } from './events';
-import { addToIndex, readIndex } from './index-buckets';
+import { addToIndex, readIndex, removeFromIndex } from './index-buckets';
 import { parseEventId } from './event-id';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { GRAPH_SCHEMA_VERSION, builtInValues, graphSouls, questionKeysOf, readTalkStructure, talkStructureOf, writeTalkStructure, type TalkStructure } from './talk-structure';
@@ -135,6 +136,30 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
       ]);
     },
 
+    /**
+     * I deleted a Talk (owner decision 2026-11-03): a new event, shared with everyone the Talk was
+     * sent to, so their copies go too. The Talk leaves my list; its events stay (REQ-GRAPH-01) until
+     * trimming removes old data. Returns the deletion event id, or undefined if it is not mine.
+     */
+    async remove(talkId: string, alongside: Array<Promise<unknown>> = []): Promise<string | undefined> {
+      const mine = await store.get(souls.mine(`talk/${talkId}`));
+      const latestSoul = linkSoul(mine?.latest);
+      if (!latestSoul || mine?.deleted === true) return undefined;
+      const when = now();
+      const eventId = await ids.next(when);
+      const event: GraphNode = {
+        v: GRAPH_SCHEMA_VERSION, when, device: await ids.deviceId(),
+        talk: link(souls.event(talkId)), re: link(latestSoul), deleted: true,
+      };
+      await Promise.all([
+        putEvent(store, souls, eventId, event),
+        store.put(souls.mine(`talk/${talkId}`), { deleted: true, active: false, deletedBy: link(souls.event(eventId)) }),
+        removeFromIndex(store, talksList, { key: talkId, when: parseEventId(talkId)?.when ?? when }),
+        ...alongside,
+      ]);
+      return eventId;
+    },
+
     async setState(talkId: string, state: { active?: boolean; isTemplate?: boolean }): Promise<void> {
       const value: GraphNode = {};
       if (state.active !== undefined) value.active = state.active;
@@ -145,6 +170,7 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
     /** A Talk in its latest version, or undefined when it or its structure is not stored. */
     async read(talkId: string): Promise<GraphTalk | undefined> {
       const mine = await store.get(souls.mine(`talk/${talkId}`));
+      if (mine?.deleted === true) return undefined;
       const latestSoul = linkSoul(mine?.latest) || souls.event(talkId);
       return readAt(talkId, latestSoul.slice(souls.event('').length), mine);
     },

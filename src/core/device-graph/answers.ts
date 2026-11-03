@@ -10,11 +10,13 @@
  *   ix/q/<questionKey>/mine  { <context>: →ev/… }                  Me tab: my answers to one question
  *   ix/me                    bucketed: questionKey → ix/q/<questionKey>/mine
  *   ix/answered/<talkId>     { ev: →ev/… }                          "already answered"
- *   ix/talk/<talkId>/ev, ix/person/<pub>/ev   bucketed event lists
+ *   ev/<deleteId>            { v, when, device, with?, talk, re: →my answer, deleted: true }
+ *   ix/talk/<talkId>/ev, ix/person/<userId>/ev   bucketed event lists
  *
  * Repeating the same answers writes one new answer event and no content (REQ-GRAPH-22).
  */
 import { answerQuestionsSoul, putEvent } from './events';
+import { personSoul } from './people-graph';
 import { ageRangeMutuallyAcceptable, intervalsOverlap, quantitySufficient } from '../../shared/built-in-comparisons';
 import { pickBuiltInAnswer } from '../../shared/built-in-question-resolution';
 import { singleNonIgnoreAnswer } from '../../shared/talk-engine';
@@ -133,6 +135,38 @@ export function builtInCompatible(theirs: BuiltInValues | undefined, mine: Built
   }
 }
 
+/**
+ * The index writes that forget an answer event and every earlier one it replaced: Same context and
+ * Me tab entries still pointing at one of them, and "already answered". Entries a later answer to
+ * another Talk overwrote are left alone. Used by `remove` and by the crash rebuild.
+ */
+export async function answerIndexClears(store: Pick<NodeStore, 'get'>, souls: ReturnType<typeof graphSouls>, latestAnswerId: string): Promise<Array<[string, GraphNode]>> {
+  const out: Array<[string, GraphNode]> = [];
+  const seen = new Set<string>();
+  let current: string | undefined = latestAnswerId;
+  let talkSoul: string | undefined;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const at = souls.event(current);
+    const [event, questions]: [GraphNode | null, GraphNode | null] = await Promise.all([store.get(at), store.get(answerQuestionsSoul(souls, current))]);
+    if (!event) break;
+    talkSoul ||= linkSoul(event.talk);
+    for (const [context, questionKey] of Object.entries(questions || {})) {
+      if (typeof questionKey !== 'string') continue;
+      const [ctx, mine] = await Promise.all([store.get(souls.index(`ctx/${context}`)), store.get(souls.index(`q/${questionKey}/mine`))]);
+      if (linkSoul(ctx?.ev) === at) out.push([souls.index(`ctx/${context}`), { entry: null, mode: null, ev: null, when: null }]);
+      if (linkSoul(mine?.[context]) === at) out.push([souls.index(`q/${questionKey}/mine`), { [context]: null }]);
+    }
+    current = (linkSoul(event.replaces) || '').slice(souls.event('').length) || undefined;
+  }
+  if (talkSoul) {
+    const talkId = talkSoul.slice(souls.event('').length);
+    const answered = await store.get(souls.index(`answered/${talkId}`));
+    if (seen.has((linkSoul(answered?.ev) || '').slice(souls.event('').length))) out.push([souls.index(`answered/${talkId}`), { ev: null, when: null }]);
+  }
+  return out;
+}
+
 export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number } = {}) {
   const souls = graphSouls(options.prefix);
   const now = options.now ?? Date.now;
@@ -177,8 +211,8 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       structure: TalkStructure;
       steps: AnswerStep[];
       mode: 'manual' | 'chatbot' | 'import';
-      /** The author, as a person soul key (`<pub>`), when answering someone else's Talk. */
-      withPub?: string;
+      /** The author's user ID (`person/<userId>`), when answering someone else's Talk. */
+      withUser?: string;
       /** The event this answers: the offer or the arrival of the version answered. */
       re?: string;
       /** My previous answer event to this Talk, when I change my answer. */
@@ -196,7 +230,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       const event: GraphNode = {
         v, when, device: await ids.deviceId(), talk: link(souls.event(params.talkId)), gave: link(souls.answerSet(setKey)), mode: params.mode,
       };
-      if (params.withPub) event.with = link(`${options.prefix ?? 'local/'}person/${params.withPub}`);
+      if (params.withUser) event.with = link(personSoul(options.prefix ?? 'local/', params.withUser));
       if (params.re) event.re = link(souls.event(params.re));
       if (params.replaces) event.replaces = link(souls.event(params.replaces));
       const at = link(souls.event(eventId));
@@ -212,8 +246,28 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
         ]),
         store.put(souls.index(`answered/${params.talkId}`), { ev: at, when }),
         addToIndex(store, souls.index(`talk/${params.talkId}/ev`), { key: eventId, target: souls.event(eventId), when }),
-        ...(params.withPub ? [addToIndex(store, souls.index(`person/${params.withPub}/ev`), { key: eventId, target: souls.event(eventId), when })] : []),
+        ...(params.withUser ? [addToIndex(store, souls.index(`person/${encodeURIComponent(params.withUser)}/ev`), { key: eventId, target: souls.event(eventId), when })] : []),
       ]);
+      return eventId;
+    },
+
+    /**
+     * I deleted my answer to a Talk (owner decision 2026-11-03): a new event, shared with the author
+     * so their copy goes too. Every index entry my answers to this Talk put there is cleared (earlier
+     * answers I replaced included). Returns the deletion event id, or undefined with no answer.
+     */
+    async remove(talkId: string): Promise<string | undefined> {
+      const latest = await this.answered(talkId);
+      if (!latest) return undefined;
+      const answerEvent = await store.get(souls.event(latest));
+      const when = now();
+      const eventId = await ids.next(when);
+      const event: GraphNode = {
+        v, when, device: await ids.deviceId(), talk: link(souls.event(talkId)), re: link(souls.event(latest)), deleted: true,
+      };
+      if (answerEvent?.with) event.with = answerEvent.with;
+      const clears = await answerIndexClears(store, souls, latest);
+      await Promise.all([putEvent(store, souls, eventId, event), ...clears.map(([soul, node]) => store.put(soul, node))]);
       return eventId;
     },
 

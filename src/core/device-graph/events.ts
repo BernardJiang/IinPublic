@@ -11,8 +11,12 @@
  *   rev and by          a received Talk's version  (content; nothing to index)
  *   gave                my answer                  → ix/ctx, ix/q/<key>/mine, ix/me, ix/typed, ix/answered, ix/talk, ix/person
  *   talk, re, no gave   an arrival                 → ix/received, ix/incoming, ix/person
+ *   deleted, no by      I deleted my Talk (re → a version) or my answer (re → an answer event)
+ *   deleted and by      the author deleted a Talk I received   → ix/deleted, off ix/incoming
  */
-import { addToIndex, readIndex } from './index-buckets';
+import { answerIndexClears } from './answers';
+import { addToIndex, bucketOf, readIndex } from './index-buckets';
+import { personIdOf } from './people-graph';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { builtInValues, graphSouls, questionKeysOf, readTalkStructure } from './talk-structure';
 
@@ -52,12 +56,33 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
   const ensureListed = async (listSoul: string, key: string, target: string, when: number, size: 'month' | 'day' = 'month') => {
     listed.push({ listSoul, key, target, when, size });
   };
+  // Deletions are applied after the replay, so they win over the entries the replay put back.
+  const deletions: Array<(view: Pick<NodeStore, 'get'>) => Promise<Array<[string, GraphNode]>>> = [];
 
   for (const { id, event } of loaded) {
     const when = Number(event.when);
     const talkSoul = linkSoul(event.talk);
-    const withPub = (linkSoul(event.with) || '').slice(`${prefix}person/`.length);
-    if (linkSoul(event.rev) && !event.by) {
+    const withUser = personIdOf(prefix, linkSoul(event.with));
+    const withKey = encodeURIComponent(withUser);
+    if (event.deleted === true) {
+      const target = linkSoul(event.re);
+      const targetEvent = target ? await store.get(target) : null;
+      if (event.by && talkSoul) {
+        const talkId = idOf(talkSoul);
+        await ensure(souls.index(`deleted/${talkId}`), { ev: link(souls.event(id)) });
+        deletions.push(async (view) => {
+          const at = await view.get(souls.index(`incoming-at/${talkId}`));
+          return Object.keys(at || {}).filter((b) => at![b] === true).map((b) => [`${souls.index('incoming')}/${b}`, { [talkId]: null }]);
+        });
+      } else if (linkSoul(targetEvent?.gave) && target) {
+        deletions.push((view) => answerIndexClears(view, souls, idOf(target)));
+      } else if (talkSoul) {
+        const talkId = idOf(talkSoul);
+        await ensure(souls.mine(`talk/${talkId}`), { deleted: true, active: false, deletedBy: link(souls.event(id)) });
+        const created = Number((await store.get(talkSoul))?.when ?? when);
+        deletions.push(async () => [[`${souls.index('mine-talks')}/${bucketOf(created, 'month')}`, { [talkId]: null }]]);
+      }
+    } else if (linkSoul(event.rev) && !event.by) {
       const talkId = talkSoul ? idOf(talkSoul) : id;
       await ensure(souls.mine(`talk/${talkId}`), { latest: link(souls.event(id)) });
       const structure = await readTalkStructure(store, linkSoul(event.rev)!.slice(souls.rev('').length), options.prefix);
@@ -82,12 +107,37 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       }
       await ensure(souls.index(`answered/${talkId}`), { ev: link(souls.event(id)), when });
       await ensureListed(souls.index(`talk/${talkId}/ev`), id, souls.event(id), when);
-      if (withPub) await ensureListed(souls.index(`person/${withPub}/ev`), id, souls.event(id), when);
-    } else if (talkSoul && linkSoul(event.re) && withPub) {
+      if (withUser) await ensureListed(souls.index(`person/${withKey}/ev`), id, souls.event(id), when);
+    } else if (talkSoul && linkSoul(event.re) && withUser) {
       const talkId = idOf(talkSoul);
-      await ensure(souls.index(`received/${talkId}`), { [withPub]: link(souls.event(id)) });
-      await ensureListed(souls.index('incoming'), talkId, souls.index(`received/${talkId}`), when);
-      await ensureListed(souls.index(`person/${withPub}/ev`), id, souls.event(id), when);
+      // As `receive`: an arrival after the author deleted the Talk lists nothing but the person.
+      if (event.ignored !== 'deleted') {
+        await ensure(souls.index(`received/${talkId}`), { [withUser]: link(souls.event(id)) });
+        await ensureListed(souls.index('incoming'), talkId, souls.index(`received/${talkId}`), when);
+        await ensure(souls.index(`incoming-at/${talkId}`), { [bucketOf(when, 'month')]: true });
+      }
+      await ensureListed(souls.index(`person/${withKey}/ev`), id, souls.event(id), when);
+    }
+  }
+  // Deletions see the replayed indexes (planned values over what is stored), and take their fields
+  // out of the plan, so a second run plans nothing and writes nothing.
+  const view: Pick<NodeStore, 'get'> = {
+    get: async (soul) => {
+      const stored = await store.get(soul);
+      const planned = desired.get(soul);
+      return stored || planned ? { ...(stored ?? {}), ...(planned ?? {}) } : null;
+    },
+  };
+  const removed = new Set<string>();
+  const nulls = new Map<string, GraphNode>();
+  for (const deletion of deletions) {
+    for (const [soul, value] of await deletion(view)) {
+      const planned = desired.get(soul);
+      for (const key of Object.keys(value)) {
+        removed.add(`${soul}\u0000${key}`);
+        if (planned) delete planned[key];
+        nulls.set(soul, { ...(nulls.get(soul) ?? {}), [key]: null });
+      }
     }
   }
   let repaired = 0;
@@ -98,7 +148,16 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
     await store.put(soul, differs);
     repaired += 1;
   }
+  for (const [soul, value] of nulls) {
+    const current = await store.get(soul);
+    const present = Object.fromEntries(Object.keys(value).filter((k) => current?.[k] !== null && current?.[k] !== undefined).map((k) => [k, null]));
+    if (!Object.keys(present).length) continue;
+    await store.put(soul, present);
+    repaired += 1;
+  }
   for (const entry of listed) {
+    const bucketSoul = `${entry.listSoul}/${new Date(entry.when).toISOString().slice(0, entry.size === 'day' ? 10 : 7)}`;
+    if (removed.has(`${bucketSoul}\u0000${entry.key}`)) continue;
     const bucket = new Date(entry.when).toISOString().slice(0, entry.size === 'day' ? 10 : 7);
     const [node, directory] = await Promise.all([store.get(`${entry.listSoul}/${bucket}`), store.get(entry.listSoul)]);
     if (linkSoul(node?.[entry.key]) === entry.target && linkSoul(directory?.[bucket])) continue;
