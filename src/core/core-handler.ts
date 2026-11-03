@@ -9,6 +9,38 @@ import { PrivateStore } from './private-store';
 import { ExchangeStore } from './exchanges';
 import { CoreTalkLedger } from './talk-ledger-store';
 import type { CoreRequest } from './protocol';
+import { createGraphMirror } from './device-graph/mirror';
+import type { NodeStore } from './device-graph/node-store';
+
+/**
+ * OPEN-106 phase 4: the device graph mirror. `nodeStore` is the same Gun as `store`, written by
+ * exact soul. It runs when `enabled` is true or the `deviceGraph` setting is "true" (checked at
+ * most every 30 s), so it can be turned on on one phone or in one e2e run.
+ */
+export type DeviceGraphOptions = { nodeStore: NodeStore; randomBytes: (length: number) => Uint8Array; enabled?: boolean; log?: (message: string) => void };
+
+function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefined) {
+  if (!options) return { mirror: undefined, enabled: async () => false, invalidate: () => {} };
+  const mirror = createGraphMirror(options.nodeStore, { randomBytes: options.randomBytes, ...(options.log ? { log: options.log } : {}) });
+  let checkedAt = 0;
+  let setting = false;
+  return {
+    mirror,
+    enabled: async (): Promise<boolean> => {
+      if (options.enabled) return true;
+      if (Date.now() - checkedAt > 30_000) {
+        checkedAt = Date.now();
+        try {
+          const node = await store.get('local/collections/settings/deviceGraph');
+          setting = typeof node?.json === 'string' && ['"true"', '"1"', 'true'].includes(node.json);
+        } catch { setting = false; }
+      }
+      return setting;
+    },
+    /** The setting was just written: check it again on the next write. */
+    invalidate: () => { checkedAt = 0; },
+  };
+}
 
 /**
  * `freshDevice`: the host found its storage empty at start (a new device, or one just wiped).
@@ -16,7 +48,8 @@ import type { CoreRequest } from './protocol';
  * was never written waits out the not-found grace period, which held every new device's first
  * boot by 1.5 s or more under load (e2e stage2/95, stage2/37).
  */
-export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean } = {}): (request: CoreRequest) => Promise<unknown> {
+export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean; deviceGraph?: DeviceGraphOptions } = {}): (request: CoreRequest) => Promise<unknown> {
+  const graph = deviceGraphGate(store, options.deviceGraph);
   let fresh = options.freshDevice === true;
   const exchanges = new ExchangeStore(store);
   const delivery = new DeliveryStore(store);
@@ -55,8 +88,25 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         return delivery.get(request.objectId, request.recipientId);
       case 'collection.snapshot':
         return collections.all(request.collection);
-      case 'collection.upsert':
-        return { written: await collections.upsert(request.collection, request.entries) };
+      case 'collection.upsert': {
+        const written = await collections.upsert(request.collection, request.entries);
+        if (request.collection === 'settings' && 'deviceGraph' in request.entries) graph.invalidate();
+        // After the app's write, never before or instead of it; not awaited, so it adds no latency.
+        if (graph.mirror && request.collection === 'myTalks' && await graph.enabled()) void graph.mirror.onCollectionUpsert(request.collection, request.entries);
+        return { written };
+      }
+      case 'deviceGraph.backfill': {
+        // Turn the mirror on and mirror every Talk already in `myTalks` (a test of phase 4 on a
+        // device's real data; phase 7's migration will do this for everyone). Repeat-safe.
+        if (!graph.mirror) return { queued: 0 };
+        await collections.upsert('settings', { deviceGraph: 'true' });
+        graph.invalidate();
+        const all = await collections.all('myTalks');
+        void graph.mirror.onCollectionUpsert('myTalks', all);
+        return { queued: Object.keys(all).length };
+      }
+      case 'deviceGraph.status':
+        return graph.mirror ? { enabled: await graph.enabled(), ...(await graph.mirror.status()) } : null;
       case 'collection.remove':
         return { removed: await collections.remove(request.collection, request.keys) };
       case 'private.get':

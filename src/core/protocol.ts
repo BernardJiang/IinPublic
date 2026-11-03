@@ -12,6 +12,8 @@ import type { ExchangeRecord } from './exchanges';
 
 import type { LedgerCommand, LedgerCommandResult } from './talk-ledger-store';
 
+import type { MirrorStatus } from './device-graph/mirror';
+
 export const CORE_PROTOCOL_VERSION = 1;
 
 export type CoreRequest =
@@ -29,7 +31,9 @@ export type CoreRequest =
   | { name: 'private.put'; key: string; value: string | null }
   | { name: 'private.keys' }
   | { name: 'device.get'; path: string }
-  | { name: 'device.put'; path: string; value: unknown };
+  | { name: 'device.put'; path: string; value: unknown }
+  | { name: 'deviceGraph.status' }
+  | { name: 'deviceGraph.backfill' };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends LedgerCommand ? LedgerCommandResult
@@ -45,4 +49,6 @@ export type CoreResponse<R extends CoreRequest> =
                     : R extends { name: 'private.keys' } ? string[]
                       : R extends { name: 'device.get' } ? unknown
                         : R extends { name: 'private.put' | 'device.put' } ? { ok: true }
-                          : never;
+                          : R extends { name: 'deviceGraph.status' } ? (MirrorStatus & { enabled: boolean }) | null
+                          : R extends { name: 'deviceGraph.backfill' } ? { queued: number }
+                            : never;

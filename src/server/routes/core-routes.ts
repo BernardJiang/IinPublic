@@ -10,7 +10,9 @@ import path from 'path';
 import type express from 'express';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import crypto from 'crypto';
 import { createCoreHandler } from '../../core/core-handler';
+import { gunNodeStore } from '../../core/device-graph/node-store';
 import { gunGraphStore } from '../../core/graph-store';
 import type { CoreRequest } from '../../core/protocol';
 import { soulLeavesDevice } from '../../core/sharing-policy';
@@ -44,7 +46,14 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
   const store = () => gunGraphStore(gun, { missWaitMs: 0 });
   const allowTestOverrides = process.env.E2E_GUN_MEMORY_ONLY === '1';
-  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir), allowTestOverrides });
+  // OPEN-106 phase 4: on when the `deviceGraph` setting is "true", or IINPUBLIC_DEVICE_GRAPH=1.
+  const deviceGraph = () => ({
+    nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
+    randomBytes: (length: number) => new Uint8Array(crypto.randomBytes(length)),
+    enabled: process.env.IINPUBLIC_DEVICE_GRAPH === '1',
+    log: (message: string) => console.warn(message),
+  });
+  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir), allowTestOverrides, deviceGraph: deviceGraph() });
   const authorized = (req: express.Request): boolean => token.length >= 32 && req.get('authorization') === `Bearer ${token}`;
 
   app.post('/api/core', async (req, res) => {
@@ -59,10 +68,24 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
     }
   });
 
+  // OPEN-106 phase 4 on a phone (adb forward, loopback only, not in production builds):
+  // GET the device graph mirror's counts; POST /backfill turns it on and mirrors the existing Talks.
+  if (process.env.NODE_ENV !== 'production') {
+    const loopback = (req: express.Request) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(String(req.socket.remoteAddress || ''));
+    app.get('/api/debug/device-graph', async (req, res) => {
+      if (!loopback(req)) { res.status(403).end(); return; }
+      res.json(await handle({ name: 'deviceGraph.status' }));
+    });
+    app.post('/api/debug/device-graph/backfill', async (req, res) => {
+      if (!loopback(req)) { res.status(403).end(); return; }
+      try { res.json(await handle({ name: 'deviceGraph.backfill' })); } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+  }
+
   return {
     resetForTesting: () => {
       forgetDeviceSouls(gun);
-      handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides });
+      handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides, deviceGraph: deviceGraph() });
     },
   };
 }

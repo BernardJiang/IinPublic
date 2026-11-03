@@ -13,6 +13,7 @@ import * as os from 'os';
 import { bootstrapNativeWindow } from './helpers/native-app';
 import { closeAndroidUser, isAndroidDeviceReady, launchAndroidUserViaAdb, resetAndroidAppData, type AndroidUser } from './helpers/native-app-android';
 import { talkMatchChatJourney } from '../journeys/talk-match-chat-journey';
+import { deviceGraphStatus, enableDeviceGraph, expectDeviceGraph } from '../helpers/device-graph';
 
 const RUN = process.env.E2E_REAL_ANDROID_JOURNEYS === '1';
 const SERIALS = String(process.env.NATIVE_APP_ANDROID_SERIALS || '').split(',').map((serial) => serial.trim()).filter(Boolean);
@@ -48,7 +49,13 @@ test.describe('Two real phones: talk → answer → match → P2P chat', () => {
       await bootstrapNativeWindow(user.window, `journey-${name.toLowerCase()}`, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000 });
       actors.push({ id: `${name} (${serial})`, runtime: 'android-webview' as const, page: user.window });
     }
+    // OPEN-106 phase 4: both phones also write Talks and answers to the device graph.
+    for (const actor of actors) await enableDeviceGraph(actor.page);
     const { timings } = await talkMatchChatJourney(actors[0]!, actors[1]!);
+    await expectDeviceGraph(actors[0]!.page, actors[0]!.id, { talks: 1 });
+    await expectDeviceGraph(actors[1]!.page, actors[1]!.id, { received: 1, answers: 1 });
+    const mirrorMs = await Promise.all(actors.map((actor) => deviceGraphStatus(actor.page).then((s: any) => ({ phone: actor.id, lastMs: s?.lastMs, maxMs: s?.maxMs }))));
+    console.log(`[device-graph] ${JSON.stringify(mirrorMs)}`);
     console.log(`[journey] ${JSON.stringify(timings)}`);
     await testInfo.attach('journey-timings.json', { body: Buffer.from(JSON.stringify(timings, null, 2)), contentType: 'application/json' });
   });

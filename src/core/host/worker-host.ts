@@ -11,6 +11,7 @@
  */
 import { gunGraphStore } from '../graph-store';
 import { createCoreHandler } from '../core-handler';
+import { gunNodeStore } from '../device-graph/node-store';
 import type { CoreRequest } from '../protocol';
 import { closeGunRpcSession, createGunRpcSession, runGunRpc } from '../gun-rpc';
 import { cancelSharingRead } from '../sharing-interests';
@@ -102,7 +103,17 @@ function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<voi
     }))
     .catch(() => false)
     .then((freshDevice) => {
-      handleCore = createCoreHandler(gunGraphStore(gun), { freshDevice, allowTestOverrides: process.env.DISABLE_HMR === 'true' });
+      handleCore = createCoreHandler(gunGraphStore(gun), {
+        freshDevice,
+        allowTestOverrides: process.env.DISABLE_HMR === 'true',
+        // OPEN-106 phase 4, on when the `deviceGraph` setting is "true". A miss there is final:
+        // a false miss only rewrites identical content.
+        deviceGraph: {
+          nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
+          randomBytes: (length) => crypto.getRandomValues(new Uint8Array(length)),
+          log: (message) => console.warn(message),
+        },
+      });
     });
   return initialized;
 }

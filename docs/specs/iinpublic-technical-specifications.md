@@ -7148,7 +7148,7 @@ mismatch.
 
 ## 31. Device Graph Data Model
 
-Status: **specified for owner review, 2026-11-02. Not implemented.** Release blocker (OPEN-106).
+Status: **specified for owner review, 2026-11-02. Phase 3 started 2026-11-02** (`src/core/device-graph/`, not wired into the app). Release blocker (OPEN-106).
 Rationale, experiments and alternatives: `docs/design/device-graph.md`. Where this section and
 §20 (Interaction Ledger), §12.2 or REQ-LEDGER-xx disagree, this section is the target design and
 §31.11 lists each conflict.
@@ -7265,6 +7265,9 @@ spellings consistent so that they meet. Where they still differ, users simply an
   same input, offline, or keys diverge. Each rule set has a version (`en-v1`, `zh-v1`), carried on
   the Talk's structure (`grammar`). A receiver that does not know that version checks with the
   newest version of that language it has.
+- **REQ-GRAPH-19a — names keep their end:** the "a question ends with `?`" rule does not apply
+  to a tag Talk's question, a simple tag, a Pair-tag question or a built-in question. Those are
+  names ("Tennis", "Buy"), and a simple tag's answer must stay equal to its question.
 - **REQ-GRAPH-19 — no spelling correction:** spelling ("tenis" → "tennis") is not corrected and
   not checked. "Do you play tenis?" and "Do you play tennis?" are two questions.
 
@@ -7315,6 +7318,16 @@ s/<hash>/<contextHash>  { a: →a/<hash> }                    single choice
                         { kind, quantity?, min?, max?, … }   built-in typed answer
 ```
 
+- As built (2026-11-02, `src/core/device-graph/talk-structure.ts`): `rev/<hash>` also links
+  `order` (`{ n, 0: <qid>, … }`, the authored question order), each `rev/…/q/<qid>` links `choices`
+  (the answer order), and a route question links `path` (its `contextPath` as `qid, aid` pairs) and
+  `branch` (`branchingLogic` as `aid, qid` pairs). Every list node carries `n`, its length, so a
+  partly read list is detected and the structure reads as not stored. A structure's root node is
+  written last.
+- Pair-tag scope in `q/<key>` is the reader's side: the author's self tag is the Pair-tag question's
+  text, a responder's is its answer (as `effectiveTagContext` does today), so one question has two
+  keys on the two phones.
+- `Talk.tags` and `ipfsAttachments` are not mapped yet (§31.12 #17).
 - `<qid>` and `<aid>` are the authored ids inside the structure (`q_0`, `a_0_1`). They are keys, not
   identities: the same question twice in one route Talk is two `<qid>` pointing to one `q/<key>`.
 - The text in `q/` and `a/` is exact, so there is no display override.
@@ -7436,6 +7449,13 @@ All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen re
 | `mine/talk/<talkId>` | `{ latest: →ev, active, checked, isTemplate }` | Talks tab | `myTalks` |
 | `ix/sent/<talkId>/<peerPub>` | `→ev` latest version sent | re-send on edit (D14) | `talkRevisionSent` |
 | `ix/legacy/<oldTalkId>` | `→ev` | migration: old `qa_`/CID ids to Talk events | — |
+
+A list that grows with history (`mine/talks`, `ix/person/<pub>/ev`, `ix/talk/<talkId>/ev`,
+`ix/day`) is split into buckets, `ix/<name>/<yyyy-mm>` (or `<yyyy-mm-dd>` for busy lists), with a
+directory node `ix/<name>` of bucket links (`index-buckets.ts`). No node may hold more than about
+5,000 links: Gun answers a node larger than one Radisk file (1 MB) in parts (OPEN-106 benchmark).
+Content and event souls are written by exact soul only and are never linked into a parent node
+(`local/q`, `local/ev`), which would hold every record.
 
 `settings` and `appData` stay as state.
 

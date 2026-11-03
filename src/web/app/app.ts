@@ -6208,6 +6208,10 @@ export class IinPublicApp {
     }
     this.coreRequest = node ?? worker;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
+    // Diagnostics and e2e: the device graph mirror's counts (OPEN-106 phase 4), from either host.
+    if (typeof window !== 'undefined') {
+      (window as any).__iinpublic_device_graph_status = () => this.coreRequest?.({ name: 'deviceGraph.status' }) ?? null;
+    }
   }
 
   /**

@@ -8,6 +8,7 @@
  * embedded node → hub relay), which no browser spec covers.
  */
 import { test } from '@playwright/test';
+import { enableDeviceGraph, expectDeviceGraph } from '../helpers/device-graph';
 import { talkMatchChatJourney } from '../journeys/talk-match-chat-journey';
 import { closeUsers, openUser, resetPhonePath, type JourneyUser } from './phone-path-helpers';
 
@@ -28,7 +29,13 @@ test.describe('Talk journey: phone A broadcasts, phone B answers, they match and
     test.setTimeout(300_000);
     alice = await openUser(browser, 'Alice', 'phoneA');
     bob = await openUser(browser, 'Bob', 'phoneB');
+    // OPEN-106 phase 4: both phones also write Talks and answers to the device graph.
+    for (const user of [alice, bob]) await enableDeviceGraph(user.page);
     // The journey body is shared with native-app/37 (real phones): tests/e2e/journeys/.
     await talkMatchChatJourney({ id: 'Alice', runtime: 'browser', page: alice.page }, { id: 'Bob', runtime: 'browser', page: bob.page });
+
+    // The device graph holds Alice's Talk and Bob's answer, each read back equal to what was written.
+    await expectDeviceGraph(alice.page, 'Alice', { talks: 1 });
+    await expectDeviceGraph(bob.page, 'Bob', { received: 1, answers: 1 });
   });
 });

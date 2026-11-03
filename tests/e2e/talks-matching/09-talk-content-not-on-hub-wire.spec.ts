@@ -17,6 +17,7 @@ import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync } from '../helpers/timing';
 import { bootstrapUser, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
+import { enableDeviceGraph, expectDeviceGraph } from '../helpers/device-graph';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
@@ -217,6 +218,9 @@ test.describe('Wire audit — talk content vs the hub', () => {
     pageTom = tom.page;
     pageJerry = jerry.page;
     await afterLoad();
+    // OPEN-106 phase 4: the device graph mirror is on, so its records are audited too.
+    await enableDeviceGraph(pageTom);
+    await enableDeviceGraph(pageJerry);
 
     for (const [label, page] of [['Tom', pageTom], ['Jerry', pageJerry]] as const) {
       await expect
@@ -379,5 +383,9 @@ test.describe('Wire audit — talk content vs the hub', () => {
     const privateOnWire = [...new Set(events.flatMap((event) => (event.privateSouls ?? []).map((soul) => `${event.who}: ${soul}`)))];
     console.log(`private souls sent to the hub: ${privateOnWire.length}`);
     expect(privateOnWire, 'a private soul reached the hub').toEqual([]);
+    // The mirror really wrote Tom's Talk. (Jerry answers through the low-level response path,
+    // which skips the UI's save of the answered Talk, so there is nothing of Jerry's to mirror;
+    // phone-path journey 02 covers the answering side.)
+    await expectDeviceGraph(pageTom, 'Tom', { talks: 1 });
   });
 });

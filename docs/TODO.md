@@ -190,6 +190,62 @@ its ID.
     100 ms. Add a recently-used cache if the numbers need it.
   - [ ] 3. Add the store in `src/core/` (question, answer, Talk and `me` nodes, split and rebuild),
     with unit tests for all four Talk types, Pair tags, route branches and multi-select.
+    - Started 2026-11-02, not wired into the app: `src/shared/grammar-filter.ts` (`en-v1`,
+      `zh-v1`), `src/core/device-graph/` — `keys.ts` (SHA-256 question, answer, context v3,
+      structure and answer-set keys), `event-id.ts` (persisted counter, reserved in blocks),
+      `node-store.ts` (exact-soul writes, no parent links), `talk-structure.ts` (a Talk's structure
+      as `rev/`, `q/`, `a/` nodes and back), `talk-events.ts` (create, edit as a new version, read,
+      history, list), `index-buckets.ts` (monthly or daily buckets). Test `device-graph.test.ts`,
+      including a Talk written and read back from Radisk on disk.
+    - Then `answers.ts` (situations, answer sets `s/`, answer events; `ix/ctx` Same context,
+      `ix/whenever` Whenever offered, `ix/q/<key>/mine` + bucketed `ix/me` for the Me tab,
+      `ix/answered`; a chatbot that walks a Talk by key lookups and stops at the first question it
+      cannot answer) and `arrivals.ts` (the author's version copied once, a private arrival event
+      per delivery, `ix/received`, grammar-ignored Talks recorded but not stored, newest version
+      wins). A received Pair-tag structure is stored from the responder's side as `rev/<hash>-r`.
+      Test `device-graph-answers.test.ts`.
+    - `events.ts`: every event is listed in `ix/day/<yyyy-mm-dd>`; `rebuildIndexes` puts back
+      every index an event implies after a crash, and a second run writes nothing (an answer's
+      private sidecar `ev/<id>/q` maps each situation to its question, for the Me tab).
+  - [ ] 4. **Started 2026-11-02: the graph mirror** (`src/core/device-graph/mirror.ts`, hooked into
+    `createCoreHandler`'s `collection.upsert`). Every `myTalks` write is also written to the graph
+    (my Talks as Talk events and versions; Talks I answered as the author's version, one arrival
+    per sender and my answer events), read back and compared; counts in `local/ix/mirror`, read
+    with the core request `deviceGraph.status`. Off unless the `deviceGraph` setting is "true" (or
+    `IINPUBLIC_DEVICE_GRAPH=1` on a node); never awaited, never fails the app's write. Old ids map
+    through `ix/legacy/<oldTalkId>`; imported Talks skip the grammar check (§31.10). Tests
+    `device-graph-mirror.test.ts`; phone-path journey 02 turns it on and asserts both phones'
+    status (passed 2026-11-02). Not yet run: a browser (web worker, IndexedDB) journey with it on,
+    real phones, and a full `test:all` with it on.
+    - Browser (web worker + IndexedDB): the wire audit (`talks-matching/09`) runs with the mirror
+      on and passes: no graph soul reaches the hub, and Tom's Talk is mirrored. Page hook
+      `window.__iinpublic_device_graph_status()`, e2e helper `tests/e2e/helpers/device-graph.ts`.
+      Found: a `copied` entry is someone else's Talk kept in my list; it was mirrored as mine.
+    - Chatbot walk now answers built-in questions (price range, time frame, age range, quantity)
+      from `ix/typed/<questionKey>`, my declared values (written by my own Talk's built-ins and by
+      typed answers I give), with the same comparisons and `<qid>_compatible` choice ids as today,
+      and auto-proceeds a Pair-tag question with one real choice. Location still asks. Unlike
+      today's `typedPreferenceState`, the declaration is scoped by the question key (text,
+      language, Pair-tag side), not by the Talk title.
+    - **Grammar filter vs today's templates:** Pair tags in `talk-templates.ts` are lower case
+      ("sell", "buy"). `en-v1` capitalises them, so once receivers apply the filter, a template
+      Talk from an older app version is ignored whole. Capitalise the templates (and accept
+      both in the `isSell` check, which already lower-cases) before turning the filter on.
+    - **Real phones, 2026-11-02 (1.0.220–1.0.222, all four: P30, PH-1, FRD, C10).** Debug
+      route `POST /api/debug/device-graph/backfill` (loopback, not in production) turns the mirror
+      on and mirrors the Talks already on the phone; `GET /api/debug/device-graph` reads the
+      counts. Back-fill: P30 6 Talks (4 mine, 2 received + 2 answers), FRD 1, PH-1 1, C10 0, all
+      with 0 mismatches and 0 errors. `native-app/37` (two real phones, C10 + PH-1) turns the
+      mirror on and asserts both phones' counts: passed twice.
+    - **Speed.** Radisk confirms a write only after ~250 ms of batching, so writes that wait on
+      each other cost a quarter second each: the first mirror took 3.2 s per Talk on the Mac and
+      ~8 s on the P30. Writes are now batched (one read of every node, then one write of what is
+      missing; the event and all its indexes in one batch; counts written off the critical path):
+      0.83 s per Talk on the Mac; on phones 1.3 s for a new Talk (C10) and 3.0 s for a received
+      Talk plus its answer (PH-1). A structure or answer set cut short by a crash is completed by
+      the next write of the same content. Saving an answer in the final design costs two flushes
+      (~0.5 s) against one today; consider a shorter Radisk batch wait for the graph's writes.
+    - Still to do in this phase: a `test:all` with the mirror on everywhere.
   - [ ] 4. Write Talks to both stores, and check that a rebuilt Talk equals the original and hashes
     to the same id.
   - [ ] 5. Move the Me tab to `me` nodes, then remove its grouping code.
