@@ -49,8 +49,8 @@ export type PeerKeys = { pub: string; epub: string };
 
 /** What a log entry carries. No `kind`: what it is follows from the field present (REQ-GRAPH-20). */
 export type LogBody =
-  | { offer: { talkId: string; versionId: string; talkTag: string; key: string } }
-  | { answer: { talkId: string; versionId?: string; eventId: string; when: number; device: string; mode: string; set: Record<string, AnswerSetEntry>; replaces?: string } }
+  | { offer: { talkId: string; versionId: string; talkTag: string; key: string; context?: Record<string, unknown> } }
+  | { answer: { talkId: string; versionId?: string; eventId: string; when: number; device: string; mode: string; set: Record<string, AnswerSetEntry>; replaces?: string; context?: Record<string, unknown> } }
   | { deleted: { talkId: string; eventId: string; when: number; device: string; versionId?: string } }
   | { deletedAnswer: { talkId: string; eventId: string; answerEventId: string; when: number; device: string } };
 
@@ -58,10 +58,10 @@ type LogEntry = { n: number; prev: string; when: number; by: string; body: LogBo
 
 export type GraphSyncEvents = {
   /** A Talk (or a new version of one) arrived from this person and is stored. */
-  onTalk?: (talkId: string, fromUserId: string) => void;
+  onTalk?: (talkId: string, fromUserId: string, context?: Record<string, unknown>) => void;
   onTalkDeleted?: (talkId: string, fromUserId: string) => void;
   /** Someone answered (or changed their answer to) my Talk. */
-  onAnswer?: (talkId: string, fromUserId: string, eventId: string) => void;
+  onAnswer?: (talkId: string, fromUserId: string, eventId: string, context?: Record<string, unknown>) => void;
   onAnswerDeleted?: (talkId: string, fromUserId: string) => void;
 };
 
@@ -177,6 +177,7 @@ export function createGraphSync(options: {
       if (structure.collectionImportance) head.collectionImportance = structure.collectionImportance;
       if (talk.expiresAt !== undefined) head.expiresAt = talk.expiresAt;
       if (talk.locationRadiusMiles !== undefined) head.locationRadiusMiles = talk.locationRadiusMiles;
+      if (talk.meta) head.meta = talk.meta;
       const steps = await Promise.all(structure.questions.map(async (question, i): Promise<[string, GraphNode]> => {
         const { text, answers, ...rest } = question;
         const ref = {
@@ -234,6 +235,7 @@ export function createGraphSync(options: {
     const talk: any = { ...structure, title: head.title, isAdult: head.isAdult };
     if (head.expiresAt !== undefined) talk.expiresAt = head.expiresAt;
     if (head.locationRadiusMiles !== undefined) talk.locationRadiusMiles = head.locationRadiusMiles;
+    if (head.meta && typeof head.meta === 'object') talk.meta = head.meta;
     // The structure must hash to what the signed head says (its integrity rides on the log).
     if (talkStructureKey(talkStructureOf(talk)) !== head.revKey) throw new Error(`Talk ${offer.talkId} does not match its structure key`);
     return { head, talk };
@@ -249,7 +251,7 @@ export function createGraphSync(options: {
         ...(head.previousVersionId ? { previousVersionId: head.previousVersionId } : {}),
         authorId: fromUserId, authorPub: keys.pub, when: Number(head.when), device: String(head.device), talk,
       }, { userId: fromUserId, pub: keys.pub, link });
-      if (!result.ignored) options.events?.onTalk?.(body.offer.talkId, fromUserId);
+      if (!result.ignored) options.events?.onTalk?.(body.offer.talkId, fromUserId, body.offer.context);
       else if (result.ignored === 'grammar') options.log?.(`[graph-sync] ignored Talk ${body.offer.talkId}: ${talkGrammarErrors(talk).length} grammar errors`);
     } else if ('answer' in body) {
       const answer = body.answer;
@@ -259,7 +261,7 @@ export function createGraphSync(options: {
         talkId: answer.talkId, structure: talk, eventId: answer.eventId, byUser: fromUserId, when: answer.when, device: answer.device,
         mode: answer.mode, set: answer.set, ...(answer.replaces ? { replaces: answer.replaces } : {}),
       });
-      if (ok) options.events?.onAnswer?.(answer.talkId, fromUserId, answer.eventId);
+      if (ok) options.events?.onAnswer?.(answer.talkId, fromUserId, answer.eventId, answer.context);
       else options.log?.(`[graph-sync] answer ${answer.eventId} does not fit Talk ${answer.talkId}`);
     } else if ('deleted' in body) {
       const d = body.deleted;
@@ -382,7 +384,7 @@ export function createGraphSync(options: {
      * Offer my Talk's latest version to these people. A person already offered this version is
      * skipped; an edit is a new version and is offered again (D14).
      */
-    async offerTalk(talkId: string, recipients: string[]): Promise<number> {
+    async offerTalk(talkId: string, recipients: string[], context?: Record<string, unknown>): Promise<number> {
       const talk = await graph.talks.read(talkId);
       if (!talk) throw new Error(`no Talk ${talkId}`);
       const { talkTag, key } = await publishVersion(talkId, talk.versionId);
@@ -391,14 +393,14 @@ export function createGraphSync(options: {
       const fresh = [...new Set(recipients)].filter((id) => id !== me.userId && sent?.[id] !== talk.versionId);
       await audience.grant(talkTag, fresh, now());
       for (const peerUserId of fresh) {
-        await append(peerUserId, { offer: { talkId, versionId: talk.versionId, talkTag, key } });
+        await append(peerUserId, { offer: { talkId, versionId: talk.versionId, talkTag, key, ...(context ? { context } : {}) } });
         await store.put(sentSoul, { [peerUserId]: talk.versionId });
       }
       return fresh.length;
     },
 
     /** Send my answer event to the Talk's author. */
-    async sendAnswer(answerEventId: string): Promise<void> {
+    async sendAnswer(answerEventId: string, context?: Record<string, unknown>): Promise<void> {
       const event = await store.get(souls.event(answerEventId));
       const talkSoul = linkSoul(event?.talk);
       if (!event || !talkSoul) throw new Error(`no answer event ${answerEventId}`);
@@ -414,6 +416,7 @@ export function createGraphSync(options: {
           talkId, eventId: answerEventId, when: Number(event.when), device: String(event.device ?? ''), mode: String(event.mode ?? 'manual'), set,
           ...(received ? { versionId: received.versionId } : {}),
           ...(linkSoul(event.replaces) ? { replaces: linkSoul(event.replaces)!.slice(souls.event('').length) } : {}),
+          ...(context ? { context } : {}),
         },
       };
       await append(author, body);

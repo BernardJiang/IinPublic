@@ -36,7 +36,8 @@ export type CoreRequest =
   | { name: 'deviceGraph.status' }
   | { name: 'deviceGraph.backfill' }
   | GraphHostRequest
-  | { name: 'graph.offer'; talkId: string; recipients: string[] };
+  | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown> }
+  | { name: 'graph.retract'; talkId: string };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends LedgerCommand ? LedgerCommandResult
@@ -57,5 +58,7 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.pull' } ? GraphPull
                           : R extends { name: 'graph.status' } ? GraphHostStatus
                           : R extends { name: 'graph.identity' | 'graph.open' | 'graph.close' | 'graph.hear' } ? { ok: true }
-                          : R extends { name: 'graph.offer' } ? { offered: number }
+                          : R extends { name: 'graph.offer' } ? { offered: number; known: boolean }
+                          : R extends { name: 'graph.answer' } ? { sent: boolean; eventId?: string }
+                          : R extends { name: 'graph.retract' } ? { sent: number }
                             : never;

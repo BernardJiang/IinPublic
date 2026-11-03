@@ -41,6 +41,8 @@ export class GraphLinkBridge {
 
   stop(): void { this.running = false; }
 
+  isRunning(): boolean { return this.running; }
+
   /** A direct neighbor connected. */
   open(userId: string): Promise<boolean> {
     if (!this.running) return Promise.resolve(false);

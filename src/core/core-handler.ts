@@ -130,11 +130,22 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.offer': {
         // My Talk as the app keys it (`myTalks`): the mirror wrote it into the graph first.
         const sync = graph.host?.sync();
-        if (!sync || !graph.mirror) return { offered: 0 };
+        if (!sync || !graph.mirror) return { offered: 0, known: false };
         await graph.mirror.idle();
         const talkId = await graph.mirror.graphTalkId(request.talkId);
-        if (!talkId) return { offered: 0 };
-        return { offered: await sync.offerTalk(talkId, request.recipients) };
+        // Not in the graph (never saved through the core): the caller sends it the old way.
+        if (!talkId) return { offered: 0, known: false };
+        return { offered: await sync.offerTalk(talkId, request.recipients, request.context), known: true };
+      }
+      case 'graph.retract': {
+        // I retracted (deleted or turned off) my Talk: a deletion event to everyone who has it.
+        const sync = graph.host?.sync();
+        if (!graph.mirror) return { sent: 0 };
+        await graph.mirror.idle();
+        const talkId = await graph.mirror.graphTalkId(request.talkId);
+        const deletionId = talkId ? await graph.mirror.graph.talks.remove(talkId) : undefined;
+        if (!talkId || !deletionId || !sync) return { sent: 0 };
+        return { sent: await sync.sendTalkDeletion(talkId, deletionId) };
       }
       case 'graph.identity':
       case 'graph.open':
@@ -142,6 +153,7 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.hear':
       case 'graph.pull':
       case 'graph.status':
+      case 'graph.answer':
         if (!graph.host) throw new Error('this core has no graph links');
         return graph.host.handle(request);
       case 'collection.remove':

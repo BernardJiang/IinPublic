@@ -33,10 +33,29 @@ export type GraphTalk = TalkStructure & {
   updatedAt: number;
   active: boolean;
   isTemplate: boolean;
+  /** The Talk's other fields the app shows (tags, attachments, author name), see `TALK_META_FIELDS`. */
+  meta?: Record<string, unknown>;
 };
+
+/**
+ * Talk fields that are neither structure nor delivery fields but that the app shows. They travel
+ * with the version, encrypted, as one value (spec §31.12 #17: to become graph records later).
+ */
+export const TALK_META_FIELDS = ['tags', 'ipfsAttachments', 'authorName', 'authorLocation', 'originalAuthorId', 'originalCreatedAt', 'originalAuthorLocation'] as const;
+
+export function talkMetaOf(talk: any): Record<string, unknown> | undefined {
+  const meta: Record<string, unknown> = {};
+  for (const field of TALK_META_FIELDS) {
+    const value = talk?.[field] ?? talk?.meta?.[field];
+    if (value !== undefined && value !== null && !(Array.isArray(value) && !value.length)) meta[field] = value;
+  }
+  return Object.keys(meta).length ? meta : undefined;
+}
 
 export function deliveryFields(talk: any): GraphNode {
   const out: GraphNode = { title: String(talk?.title ?? ''), isAdult: !!talk?.isAdult };
+  const meta = talkMetaOf(talk);
+  if (meta) out.meta = JSON.stringify(meta);
   if (typeof talk?.expiresAt === 'number' && Number.isFinite(talk.expiresAt)) out.expiresAt = talk.expiresAt;
   if (typeof talk?.locationRadiusMiles === 'number' && Number.isFinite(talk.locationRadiusMiles)) out.locationRadiusMiles = talk.locationRadiusMiles;
   return out;
@@ -106,6 +125,7 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
       active: mine?.active !== false,
       isTemplate: mine?.isTemplate === true,
     };
+    if (typeof latest.meta === 'string') { try { talk.meta = JSON.parse(latest.meta); } catch { /* unreadable meta is left out */ } }
     if (typeof latest.expiresAt === 'number') talk.expiresAt = latest.expiresAt;
     if (typeof latest.locationRadiusMiles === 'number') talk.locationRadiusMiles = latest.locationRadiusMiles;
     return talk;

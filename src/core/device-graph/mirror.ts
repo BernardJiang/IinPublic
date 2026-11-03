@@ -13,6 +13,7 @@
  * derived from the author: the same old record always maps to the same event (spec §31.10).
  */
 import { portableSha256Hex } from '../../shared/portable-sha256';
+import { applyGrammarToTalk } from '../../shared/grammar-filter';
 import type { AnswerStep } from './answers';
 import { createDeviceGraph, type DeviceGraph } from './device-graph';
 import { formatEventId } from './event-id';
@@ -71,12 +72,16 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
 
   /** My own Talk: create it once, then a new version whenever its structure or title changes. */
   async function mirrorCreated(entry: any): Promise<void> {
-    const full = entry.fullTalk;
+    // The grammar filter corrects on write (spec §31.3a): receivers ignore a Talk with errors.
+    const full = applyGrammarToTalk(entry.fullTalk);
     const structureKey = talkStructureKey(talkStructureOf(full));
     const title = String(full.title ?? entry.title ?? '');
     const legacy = await store.get(legacySoul(entry.talkId));
     const talk = { ...full, title, expiresAt: entry.expiresAt ?? full.expiresAt, locationRadiusMiles: entry.locationRadiusMiles ?? full.locationRadiusMiles };
     let talkId = (linkSoul(legacy?.talk) || '').slice(souls.event('').length);
+    // A Talk retracted (a deletion event, sent to everyone) and then turned on again is a new
+    // graph Talk: receivers keep the deleted one deleted.
+    if (talkId && (await store.get(souls.mine(`talk/${talkId}`)))?.deleted === true) talkId = '';
     // The legacy map goes in the same write batch as the Talk's event.
     const legacyNode = (id: string) => ({ talk: link(souls.event(id)), title, structure: structureKey });
     if (!talkId) {
@@ -198,6 +203,8 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
       if (typeof node.maxMs === 'number') status.maxMs = node.maxMs;
       return status;
     },
+
+    graph,
 
     /** The graph Talk id of an app Talk id (`myTalks` key), once mirrored. */
     async graphTalkId(oldTalkId: string): Promise<string | undefined> {

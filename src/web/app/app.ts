@@ -4560,7 +4560,11 @@ export class IinPublicApp {
     return true;
   }
 
-  private async handleMeshTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
+  private async handleMeshTalkResponse(
+    payload: P2PMeshTalkResponsePayload,
+    /** A graph answer arrives readable (decrypted by the core from our pair log). */
+    readable?: { answers: any[]; responderName: string; isChatbotResponse: boolean },
+  ): Promise<void> {
     if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
     if (!talkContactPolicyAllowsPeer(
       payload.responderId,
@@ -4573,7 +4577,7 @@ export class IinPublicApp {
     if (this.processedTalkResponseKeys.has(dedupeKey)) return;
     const talkData = await this.resolveMeshTalkData(payload.talkId);
     if (!talkData) return;
-    const decrypted = await this.decryptPairTalkResponsePayload(payload);
+    const decrypted = readable ?? await this.decryptPairTalkResponsePayload(payload);
 
     // The decision is the core's (src/core/response-ingest.ts); this method carries it out.
     const decision = decideResponseIngest({
@@ -4915,6 +4919,11 @@ export class IinPublicApp {
       } catch (err) {
         console.warn('[Retraction] Mesh flood failed (non-fatal):', err);
       }
+    }
+
+    // 3b. OPEN-106: everyone who got this Talk over a graph link gets a deletion event.
+    if (this.coreRequest && this.graphLinks?.isRunning()) {
+      void this.coreRequest({ name: 'graph.retract', talkId }).catch((err) => console.warn('[Retraction] graph deletion failed (non-fatal):', err));
     }
 
     // 4. Mailbox fanout to known responders.
@@ -6467,6 +6476,7 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair() as { pub?: string; priv?: string; epub?: string; epriv?: string } | null;
     const userId = this.currentUser?.id;
     if (!core || !userId || !pair?.pub || !pair.priv || !pair.epub || !pair.epriv) return;
+    if (!this.graphEventListeners.size) this.graphEventListeners.add((event) => this.handleGraphEvent(event));
     this.graphLinks ||= new GraphLinkBridge({
       core,
       mesh: () => this.peerMeshService,
@@ -6493,6 +6503,68 @@ export class IinPublicApp {
     } catch (error) {
       console.warn('[graph-link] could not start:', error);
     }
+  }
+
+  /**
+   * OPEN-106 step 3: a Talk that arrived over a graph link goes through the same intake, incoming
+   * list and chatbot as one that arrived in a Talk frame. The app keeps the author's Talk id
+   * (`appTalkId`) until its own records move onto graph ids.
+   */
+  private handleGraphEvent(event: GraphEvent): void {
+    if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
+    if (event.type === 'talk-deleted') {
+      void this.handleMeshTalkRetracted({ talkId: event.appTalkId ?? event.talkId, authorId: event.from, retractedAt: event.when ?? Date.now() })
+        .catch((error) => console.warn('[graph-link] retraction failed:', error));
+      return;
+    }
+    if (event.type !== 'talk' || !event.talk) return;
+    const context = event.context ?? {};
+    const talk = event.talk as Record<string, any>;
+    const appTalkId = typeof context.appTalkId === 'string' && context.appTalkId ? context.appTalkId : event.talkId;
+    const authorName = String(context.authorName || talk.authorName || 'Unknown');
+    const payload = {
+      roomId: typeof context.roomId === 'string' ? context.roomId : '',
+      broadcastAt: typeof context.broadcastAt === 'string' ? context.broadcastAt : new Date().toISOString(),
+      talkId: appTalkId,
+      authorId: event.from,
+      authorName,
+      title: String(talk.title || 'Talk'),
+      ...(typeof talk.type === 'string' ? { type: talk.type } : {}),
+      questionCount: Array.isArray(talk.questions) ? talk.questions.length : 0,
+      isAdult: talk.isAdult === true,
+      ...(typeof talk.language === 'string' ? { language: talk.language } : {}),
+      ...(Array.isArray(talk.tags) ? { tags: talk.tags } : {}),
+      talkData: { ...talk, id: appTalkId, authorId: event.from, authorName },
+    } as unknown as P2PMeshTalkBodyPayload;
+    // The same receipt record a Talk frame's announce leaves (e2e and diagnostics read it).
+    const diag = this.meshAnnounceDiagnostics;
+    if (!diag.received.some((r) => r.talkId === appTalkId && r.authorId === event.from)) diag.received.push({ talkId: appTalkId, authorId: event.from });
+    void this.handleMeshTalkBody(payload).catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
+  }
+
+  /** Someone answered my Talk over a graph link: the same ingest as a response frame's. */
+  private handleGraphAnswer(event: Extract<GraphEvent, { type: 'answer' }>): void {
+    const me = this.currentUser?.id;
+    const context = event.context ?? {};
+    if (!me || !event.answers) return;
+    const at = new Date(event.when ?? Date.now()).toISOString();
+    const payload = {
+      responseId: typeof context.responseId === 'string' ? context.responseId : event.eventId,
+      talkId: typeof context.appTalkId === 'string' ? context.appTalkId : event.talkId,
+      authorId: me,
+      responderId: event.from,
+      submittedAt: typeof context.submittedAt === 'string' ? context.submittedAt : at,
+      respondedAt: typeof context.respondedAt === 'string' ? context.respondedAt : at,
+      version: typeof context.version === 'number' ? context.version : 1,
+      encryption: 'sea-ecdh-v1',
+      payloadCiphertext: '',
+      transportMode: 'mesh-p2p',
+    } as P2PMeshTalkResponsePayload;
+    void this.handleMeshTalkResponse(payload, {
+      answers: event.answers,
+      responderName: String(context.responderName || event.from),
+      isChatbotResponse: context.isChatbotResponse === true || event.mode === 'chatbot',
+    }).catch((error) => console.warn('[graph-link] answer ingest failed:', error));
   }
 
   private async resolvePeerEpub(peerUserId: string, hint?: string): Promise<string> {
@@ -6806,8 +6878,20 @@ export class IinPublicApp {
 
     let announceCount = 0;
     const acceptedRecipientIds = new Set<string>();
-    // Deliver full-talk recipients in one broadcast (batched).
-    if (fullRecipients.length > 0) {
+    // Deliver full-talk recipients. OPEN-106 step 3: over graph links when they run — the Talk is
+    // written once as encrypted nodes, each recipient's offer waits in our pair log until they are
+    // connected (D2), and there is no JSON Talk frame; otherwise in one batched mesh broadcast.
+    const graphOffer = fullRecipients.length > 0 && this.coreRequest && this.graphLinks?.isRunning()
+      ? await this.coreRequest({
+        name: 'graph.offer', talkId, recipients: fullRecipients,
+        // What the receiver's intake checks besides the Talk: which broadcast this is.
+        context: { appTalkId: talkId, roomId: chatroomId ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+      }).then((result) => result.known).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return false; })
+      : false;
+    if (graphOffer) {
+      for (const recipientId of fullRecipients) acceptedRecipientIds.add(recipientId);
+      announceCount += fullRecipients.length;
+    } else if (fullRecipients.length > 0) {
       const acknowledged = await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
         recipientUserIds: fullRecipients,
         roomBroadcast: true,
@@ -6824,13 +6908,6 @@ export class IinPublicApp {
       });
       for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
       announceCount += 1;
-    }
-
-    // OPEN-106 step 3: the same recipients get the Talk over graph links too (partial tag bodies
-    // are not in the graph yet, so only whole-Talk recipients).
-    if (fullRecipients.length > 0 && this.coreRequest && this.graphLinks) {
-      void this.coreRequest({ name: 'graph.offer', talkId, recipients: fullRecipients })
-        .catch((error) => console.warn(`[graph-link] offer of ${talkId} failed:`, error));
     }
 
     // Record only delivery that the recipient accepted and acknowledged. Transport attempts
@@ -7244,7 +7321,22 @@ export class IinPublicApp {
       }
       const mesh = this.ensurePeerMeshService();
       let sent = false;
-      if (mesh) {
+      // OPEN-106 step 3: a Talk that came over a graph link is answered over it — an answer event
+      // in our pair log, read by the author when connected; no response frame or mailbox.
+      let viaGraph = false;
+      if (this.coreRequest && this.graphLinks?.isRunning()) {
+        viaGraph = await this.coreRequest({
+          name: 'graph.answer', appTalkId: targetTalkId,
+          answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
+          mode: params.isChatbotResponse ? 'chatbot' : 'manual',
+          context: {
+            responderName: this.currentUser!.stageName, isChatbotResponse: params.isChatbotResponse,
+            responseId: targetResponseId, version: targetVersion, submittedAt: meshPayload.submittedAt, respondedAt: meshPayload.respondedAt,
+          },
+        }).then((result) => result.sent).catch((error) => { console.warn('[graph-link] answer failed, using the response frame:', error); return false; });
+        sent = viaGraph;
+      }
+      if (mesh && !viaGraph) {
         try {
           sent = await mesh.sendTalkResponse(meshPayload);
         } catch (err) {
@@ -7272,7 +7364,7 @@ export class IinPublicApp {
       }
       // Delivery-matrix diagnostic: exactly one line per response send with every stage's
       // outcome — the silent-success pipeline made every saturation post-mortem archaeology.
-      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} mesh=${sent} mailbox=${mailboxPosted} queued=${queued}`);
+      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} graph=${viaGraph} mesh=${sent && !viaGraph} mailbox=${mailboxPosted} queued=${queued}`);
       sentResponseByAuthor.set(targetAuthorId, {
         talkId: targetTalkId,
         responseId: targetResponseId,

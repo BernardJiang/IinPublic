@@ -397,6 +397,11 @@ test.describe('Wire audit — talk content vs the hub', () => {
       .some((event: any) => event.type === 'talk' && event.from === authorId), tomId), {
       timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Jerry never received the Talk over the graph link',
     }).toBe(true);
+    // Jerry's answer went back over the same link, as an answer event in their pair log.
+    await expect.poll(() => pageTom!.evaluate((responderId) => ((window as any).__iinpublic_graph_events ?? [])
+      .some((event: any) => event.type === 'answer' && event.from === responderId && Array.isArray(event.answers) && event.answers.length > 0), jerryId), {
+      timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Tom never received Jerry’s answer over the graph link',
+    }).toBe(true);
     const graphOnHub = events.filter((event) => event.channel.startsWith('gun-ws-') && event.graphSoul);
     expect(graphOnHub.map((event) => `${event.who} ${event.channel}`), 'a device graph soul crossed the hub').toEqual([]);
   });
