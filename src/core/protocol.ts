@@ -13,6 +13,7 @@ import type { ExchangeRecord } from './exchanges';
 import type { LedgerCommand, LedgerCommandResult } from './talk-ledger-store';
 
 import type { MirrorStatus } from './device-graph/mirror';
+import type { GraphHostRequest, GraphHostStatus, GraphPull } from './device-graph/sync/graph-host';
 
 export const CORE_PROTOCOL_VERSION = 1;
 
@@ -33,7 +34,9 @@ export type CoreRequest =
   | { name: 'device.get'; path: string }
   | { name: 'device.put'; path: string; value: unknown }
   | { name: 'deviceGraph.status' }
-  | { name: 'deviceGraph.backfill' };
+  | { name: 'deviceGraph.backfill' }
+  | GraphHostRequest
+  | { name: 'graph.offer'; talkId: string; recipients: string[] };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends LedgerCommand ? LedgerCommandResult
@@ -51,4 +54,8 @@ export type CoreResponse<R extends CoreRequest> =
                         : R extends { name: 'private.put' | 'device.put' } ? { ok: true }
                           : R extends { name: 'deviceGraph.status' } ? (MirrorStatus & { enabled: boolean }) | null
                           : R extends { name: 'deviceGraph.backfill' } ? { queued: number }
+                          : R extends { name: 'graph.pull' } ? GraphPull
+                          : R extends { name: 'graph.status' } ? GraphHostStatus
+                          : R extends { name: 'graph.identity' | 'graph.open' | 'graph.close' | 'graph.hear' } ? { ok: true }
+                          : R extends { name: 'graph.offer' } ? { offered: number }
                             : never;

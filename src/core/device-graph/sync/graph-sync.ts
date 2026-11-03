@@ -375,6 +375,9 @@ export function createGraphSync(options: {
       return outbox.splice(0, outbox.length);
     },
 
+    /** End a waiting `pull` now (the host has events to hand over). */
+    wakePull(): void { wake?.(); },
+
     /**
      * Offer my Talk's latest version to these people. A person already offered this version is
      * skipped; an edit is a new version and is offered again (D14).

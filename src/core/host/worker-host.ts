@@ -12,6 +12,7 @@
 import { gunGraphStore } from '../graph-store';
 import { createCoreHandler } from '../core-handler';
 import { gunNodeStore } from '../device-graph/node-store';
+import { seaGraphCrypto } from '../device-graph/sync/sea-crypto';
 import type { CoreRequest } from '../protocol';
 import { closeGunRpcSession, createGunRpcSession, runGunRpc } from '../gun-rpc';
 import { cancelSharingRead } from '../sharing-interests';
@@ -151,6 +152,12 @@ function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<voi
           nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
           randomBytes: (length) => crypto.getRandomValues(new Uint8Array(length)),
           log: (message) => console.warn(message),
+          // The graph is the store from OPEN-106 step 3 on: every Talk write goes into it.
+          enabled: true,
+          // OPEN-106 step 3: direct links carry the graph through this Gun.
+          gun,
+          crypto: seaGraphCrypto((self as any).SEA || (Gun as any).SEA, (length) => crypto.getRandomValues(new Uint8Array(length))),
+          storageUsage: async () => (await (navigator as any).storage?.estimate?.())?.usage,
         },
       });
     });

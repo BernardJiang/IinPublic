@@ -11,6 +11,7 @@ import {
   isP2PMeshTalkResponsePayload,
   isP2PMeshTalkRetractedPayload,
   isP2PNearbyGossipPayload,
+  isP2PGraphGunPayload,
   isProtocolManifestControlKind,
   p2pMeshFrameSigningPayload,
   type P2PMeshFrame,
@@ -25,6 +26,7 @@ import {
   type P2PMeshTalkRetractedPayload,
   type P2PNearbyGossipPayload,
 } from '../shared/p2p-mesh-protocol';
+import { GRAPH_GUN_MAX_RAW } from '../shared/p2p-mesh-protocol';
 import type { ProtocolManifestCompatibility } from '../shared/protocol-manifest';
 import { ProtocolManifestController } from '../shared/protocol-manifest-controller';
 import type { Talk } from '../shared/types';
@@ -149,6 +151,10 @@ export type PeerMeshServiceOptions = {
   admitTalkOffer?: (authorUserId: string) => boolean;
   /** A Nearby v3 gossip message from a direct neighbor; the returned message is sent back. */
   onNearbyGossip?: (fromUserId: string, fromPub: string, message: Record<string, unknown>) => Promise<unknown>;
+  /** A device graph Gun message from a direct neighbor (`graph-gun` frame, one hop). */
+  onGraphGun?: (fromUserId: string, fromPub: string, raw: string) => void;
+  /** A direct link went down or was replaced (the graph link closes with it). */
+  onNeighborDisconnected?: (userId: string) => void;
 };
 
 type PeerMeshTransportMetrics = {
@@ -783,6 +789,36 @@ export class PeerMeshService {
     if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
   }
 
+  private notifyNeighborDisconnected(userId: string): void {
+    try {
+      this.opts.onNeighborDisconnected?.(userId);
+    } catch (error) {
+      console.warn('[mesh] neighbor-disconnected handler failed:', error);
+    }
+  }
+
+  /**
+   * Send one device graph Gun message to a direct neighbor (one hop). False when there is no live
+   * link to them: nothing is queued, because nothing is exchanged while two people are apart (D2).
+   */
+  async sendGraphGun(toUserId: string, raw: string): Promise<boolean> {
+    const neighbor = this.neighbors.get(toUserId);
+    if (!neighbor || !isNeighborLive(neighbor) || !raw || raw.length > GRAPH_GUN_MAX_RAW) return false;
+    const frame = await this.buildFrame('graph-gun', { raw }, { recipientUserId: toUserId, ttlHops: 1 });
+    this.rememberSeen(frame.msgId);
+    return this.sendFrameToNeighbor(neighbor, frame);
+  }
+
+  /** A direct neighbor's signing key, as its frames proved it. */
+  neighborPub(userId: string): string | undefined {
+    return this.neighbors.get(userId)?.pub || undefined;
+  }
+
+  /** Direct neighbors whose link is up and manifest-ready (graph links open for these). */
+  liveNeighborIds(): string[] {
+    return [...this.neighbors.values()].filter((n) => isNeighborLive(n) && this.manifestReadyPeerIds.has(n.userId)).map((n) => n.userId);
+  }
+
   private notifyNeighborConnected(userId: string): void {
     const roomId = this.currentRoomId;
     if (!roomId) return;
@@ -800,6 +836,7 @@ export class PeerMeshService {
 
   /** Close this peer's link and forget its session; a later reconcile starts a fresh one. */
   private dropNeighbor(userId: string): void {
+    if (this.neighbors.has(userId)) this.notifyNeighborDisconnected(userId);
     this.neighbors.get(userId)?.session.dispose?.();
     this.neighbors.delete(userId);
     this.manifestReadyPeerIds.delete(userId);
@@ -1629,6 +1666,13 @@ export class PeerMeshService {
     if (frame.kind === 'ack') {
       const acknowledgedMsgId = String((frame.payload as { msgId?: unknown }).msgId || '');
       if (acknowledgedMsgId) this.recordAck(acknowledgedMsgId, frame.originUserId);
+      return;
+    }
+
+    if (frame.kind === 'graph-gun' && isP2PGraphGunPayload(frame.payload)) {
+      // One hop only, between the two ends of a direct link.
+      if (frame.originUserId !== fromUserId || frame.recipientUserId !== this.opts.localUserId) return;
+      this.opts.onGraphGun?.(fromUserId, frame.originPub, frame.payload.raw);
       return;
     }
 

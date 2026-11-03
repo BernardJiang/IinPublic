@@ -13,12 +13,11 @@
  * derived from the author: the same old record always maps to the same event (spec §31.10).
  */
 import { portableSha256Hex } from '../../shared/portable-sha256';
-import { createAnswerGraph, type AnswerStep } from './answers';
-import { createArrivalGraph } from './arrivals';
-import { createEventIdSource, formatEventId } from './event-id';
+import type { AnswerStep } from './answers';
+import { createDeviceGraph, type DeviceGraph } from './device-graph';
+import { formatEventId } from './event-id';
 import { link, linkSoul, type NodeStore } from './node-store';
 import { canonicalJson } from './keys';
-import { createTalkGraph } from './talk-events';
 import { graphSouls, talkStructureKey, talkStructureOf } from './talk-structure';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -38,26 +37,12 @@ export type MirrorStatus = {
   maxMs?: number;
 };
 
-export function createGraphMirror(store: NodeStore, options: { randomBytes: (length: number) => Uint8Array; prefix?: string; now?: () => number; log?: (message: string) => void }) {
+export function createGraphMirror(store: NodeStore, options: { randomBytes: (length: number) => Uint8Array; prefix?: string; now?: () => number; log?: (message: string) => void; graph?: DeviceGraph }) {
   const prefix = options.prefix ?? 'local/';
   const souls = graphSouls(prefix);
-  const idsSoul = `${prefix}device-graph/ids`;
   const statusSoul = souls.index('mirror');
-  const ids = createEventIdSource({
-    randomBytes: options.randomBytes,
-    ...(options.now ? { now: options.now } : {}),
-    state: {
-      load: async () => {
-        const node = await store.get(idsSoul);
-        return { deviceId: typeof node?.deviceId === 'string' ? node.deviceId : undefined, counter: Number(node?.counter ?? 0) };
-      },
-      save: async (state) => { await store.put(idsSoul, state); },
-    },
-  });
-  const graphOptions = { prefix, ...(options.now ? { now: options.now } : {}) };
-  const talks = createTalkGraph(store, ids, graphOptions);
-  const arrivals = createArrivalGraph(store, ids, graphOptions);
-  const answers = createAnswerGraph(store, ids, graphOptions);
+  const graph = options.graph ?? createDeviceGraph(store, { randomBytes: options.randomBytes, prefix, ...(options.now ? { now: options.now } : {}) });
+  const { talks, arrivals, answers } = graph;
   let queue: Promise<unknown> = Promise.resolve();
 
   // Counts are added up in memory and written once per entry (each write costs a storage flush).
@@ -212,6 +197,12 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
       if (typeof node.lastMs === 'number') status.lastMs = node.lastMs;
       if (typeof node.maxMs === 'number') status.maxMs = node.maxMs;
       return status;
+    },
+
+    /** The graph Talk id of an app Talk id (`myTalks` key), once mirrored. */
+    async graphTalkId(oldTalkId: string): Promise<string | undefined> {
+      const legacy = await store.get(legacySoul(oldTalkId));
+      return (linkSoul(legacy?.talk) || '').slice(souls.event('').length) || undefined;
     },
 
     /** Wait for queued mirror writes (tests, and a host shutting down). */

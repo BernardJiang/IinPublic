@@ -11,21 +11,41 @@ import { CoreTalkLedger } from './talk-ledger-store';
 import type { CoreRequest } from './protocol';
 import { createGraphMirror } from './device-graph/mirror';
 import type { NodeStore } from './device-graph/node-store';
+import { createDeviceGraph } from './device-graph/device-graph';
+import { createStorageBudget } from './device-graph/storage-budget';
+import { createGraphHost } from './device-graph/sync/graph-host';
+import type { GraphCrypto } from './device-graph/sync/graph-sync';
 
 /**
  * OPEN-106 phase 4: the device graph mirror. `nodeStore` is the same Gun as `store`, written by
  * exact soul. It runs when `enabled` is true or the `deviceGraph` setting is "true" (checked at
  * most every 30 s), so it can be turned on on one phone or in one e2e run.
  */
-export type DeviceGraphOptions = { nodeStore: NodeStore; randomBytes: (length: number) => Uint8Array; enabled?: boolean; log?: (message: string) => void };
+export type DeviceGraphOptions = {
+  nodeStore: NodeStore;
+  randomBytes: (length: number) => Uint8Array;
+  enabled?: boolean;
+  log?: (message: string) => void;
+  /** The core's Gun and the host's crypto: with both, direct links carry the graph (`graph.*`). */
+  gun?: unknown;
+  crypto?: GraphCrypto;
+  /** Bytes the store uses (1 GB limit, `storage-budget.ts`). */
+  storageUsage?: () => Promise<number | undefined>;
+};
 
 function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefined) {
-  if (!options) return { mirror: undefined, enabled: async () => false, invalidate: () => {} };
-  const mirror = createGraphMirror(options.nodeStore, { randomBytes: options.randomBytes, ...(options.log ? { log: options.log } : {}) });
+  if (!options) return { mirror: undefined, host: undefined, enabled: async () => false, invalidate: () => {} };
+  const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
+  const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}) });
+  const mirror = createGraphMirror(options.nodeStore, { randomBytes: options.randomBytes, graph, ...(options.log ? { log: options.log } : {}) });
+  const host = options.gun && options.crypto
+    ? createGraphHost({ gun: options.gun, store: options.nodeStore, graph, crypto: options.crypto, ...(options.log ? { log: options.log } : {}) })
+    : undefined;
   let checkedAt = 0;
   let setting = false;
   return {
     mirror,
+    host,
     enabled: async (): Promise<boolean> => {
       if (options.enabled) return true;
       if (Date.now() - checkedAt > 30_000) {
@@ -107,6 +127,23 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       }
       case 'deviceGraph.status':
         return graph.mirror ? { enabled: await graph.enabled(), ...(await graph.mirror.status()) } : null;
+      case 'graph.offer': {
+        // My Talk as the app keys it (`myTalks`): the mirror wrote it into the graph first.
+        const sync = graph.host?.sync();
+        if (!sync || !graph.mirror) return { offered: 0 };
+        await graph.mirror.idle();
+        const talkId = await graph.mirror.graphTalkId(request.talkId);
+        if (!talkId) return { offered: 0 };
+        return { offered: await sync.offerTalk(talkId, request.recipients) };
+      }
+      case 'graph.identity':
+      case 'graph.open':
+      case 'graph.close':
+      case 'graph.hear':
+      case 'graph.pull':
+      case 'graph.status':
+        if (!graph.host) throw new Error('this core has no graph links');
+        return graph.host.handle(request);
       case 'collection.remove':
         return { removed: await collections.remove(request.collection, request.keys) };
       case 'private.get':

@@ -13,6 +13,8 @@ export const MESH_FRAME_INVENTORY: Readonly<Record<P2PMeshMessageKind, MeshFrame
   'protocol-manifest-request': 'retain-control',
   'protocol-manifest-chain': 'retain-control',
   'nearby-gossip': 'retain-control',
+  // The device graph's own Gun sync over the link (OPEN-106); it replaces the Talk frames.
+  'graph-gun': 'retain-control',
   ack: 'retain-control',
 };
 

@@ -261,6 +261,8 @@ import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../.
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
+import { GraphLinkBridge } from '../services/graph-link-bridge';
+import type { GraphEvent } from '../../core/device-graph/sync/graph-host';
 import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
@@ -436,6 +438,9 @@ export class IinPublicApp {
   private mailboxFallbackDisabledForE2e = false;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
+  /** OPEN-106 step 3: direct links carry the device graph's Gun (graph-link-bridge.ts). */
+  private graphLinks: GraphLinkBridge | null = null;
+  private readonly graphEventListeners = new Set<(event: GraphEvent) => void>();
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private nearbyOfflineService: NearbyOfflineService | null = null;
   /** The hub count revision the last stats poll saw (OPEN-86 E4). */
@@ -3303,7 +3308,10 @@ export class IinPublicApp {
         // Warm the block-status answer now, so this peer's first Talk does not wait ~1 s on the hub.
         void this.resolveBlockStatusEitherWay(userId).catch(() => undefined);
         this.catchUpPeerInActiveRoom(userId, roomId);
+        void this.graphLinks?.open(userId);
       },
+      onNeighborDisconnected: (userId) => this.graphLinks?.close(userId),
+      onGraphGun: (fromUserId, _fromPub, raw) => this.graphLinks?.hear(fromUserId, raw),
       knockPeer: async (peer) => { await this.nearbyV3?.knock(peer); },
       onNearbyGossip: async (fromUserId, fromPub, message) => this.nearbyV3?.handleGossip(fromUserId, fromPub, message) ?? null,
       personalConcurrency: () => {
@@ -3450,6 +3458,7 @@ export class IinPublicApp {
       onTalkRetracted: (payload) => this.handleMeshTalkRetracted(payload),
     });
     (this as any).peerMeshService = this.peerMeshService;
+    void this.startGraphLinks();
     return this.peerMeshService;
   }
 
@@ -6225,6 +6234,7 @@ export class IinPublicApp {
     }
     this.coreRequest = node ?? worker;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
+    if (this.peerMeshService) void this.startGraphLinks();
     // Diagnostics and e2e: the device graph mirror's counts (OPEN-106 phase 4), from either host.
     if (typeof window !== 'undefined') {
       (window as any).__iinpublic_device_graph_status = () => this.coreRequest?.({ name: 'deviceGraph.status' }) ?? null;
@@ -6445,6 +6455,43 @@ export class IinPublicApp {
         // of leaving received DMs as raw SEA ciphertext when the public-user lookup races.
         this.gunService.rememberRosterEpub(id, epub);
       }
+    }
+  }
+
+  /**
+   * OPEN-106 step 3: carry the device graph over direct links. Needs the device core, the mesh and
+   * my key pair; a later call (a new mesh, a new user) starts it again.
+   */
+  private async startGraphLinks(): Promise<void> {
+    const core = this.coreRequest;
+    const pair = this.gunService.getStoredPair() as { pub?: string; priv?: string; epub?: string; epriv?: string } | null;
+    const userId = this.currentUser?.id;
+    if (!core || !userId || !pair?.pub || !pair.priv || !pair.epub || !pair.epriv) return;
+    this.graphLinks ||= new GraphLinkBridge({
+      core,
+      mesh: () => this.peerMeshService,
+      keys: async (peerUserId) => {
+        const pub = this.peerMeshService?.neighborPub(peerUserId);
+        if (!pub) return null;
+        const epub = await this.resolvePeerEpub(peerUserId).catch(() => '');
+        return epub ? { pub, epub } : null;
+      },
+      onEvent: (event) => {
+        for (const listener of this.graphEventListeners) listener(event);
+        if (typeof window !== 'undefined') {
+          const page = window as any;
+          (page.__iinpublic_graph_events ||= []).push({ ...event, at: Date.now() });
+        }
+      },
+      log: (message) => console.warn(message),
+    });
+    try {
+      await this.graphLinks.start({ userId, pair: { pub: pair.pub, priv: pair.priv, epub: pair.epub, epriv: pair.epriv } });
+      if (typeof window !== 'undefined') {
+        (window as any).__iinpublic_graph_status = () => this.coreRequest?.({ name: 'graph.status' }) ?? null;
+      }
+    } catch (error) {
+      console.warn('[graph-link] could not start:', error);
     }
   }
 
@@ -6777,6 +6824,13 @@ export class IinPublicApp {
       });
       for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
       announceCount += 1;
+    }
+
+    // OPEN-106 step 3: the same recipients get the Talk over graph links too (partial tag bodies
+    // are not in the graph yet, so only whole-Talk recipients).
+    if (fullRecipients.length > 0 && this.coreRequest && this.graphLinks) {
+      void this.coreRequest({ name: 'graph.offer', talkId, recipients: fullRecipients })
+        .catch((error) => console.warn(`[graph-link] offer of ${talkId} failed:`, error));
     }
 
     // Record only delivery that the recipient accepted and acknowledged. Transport attempts

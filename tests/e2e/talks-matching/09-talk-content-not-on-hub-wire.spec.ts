@@ -46,6 +46,8 @@ type WireEvent = {
   privateSouls?: string[];
   probe?: boolean;
   pairProbe?: boolean;
+  /** The frame names a device graph soul (`g/…`, OPEN-106): those never go to the hub. */
+  graphSoul?: boolean;
 };
 
 /** Namespaces that never leave the device (src/core/sharing-policy.ts). */
@@ -109,6 +111,7 @@ function scan(who: string, channel: WireEvent['channel'], where: string, payload
     size: payload.length,
     ...(payload.includes(PROBE) ? { probe: true } : {}),
     ...(payload.includes('pair/wire-audit/encrypted') ? { pairProbe: true } : {}),
+    ...(/"g\/[0-9a-f]{32}\//.test(payload) ? { graphSoul: true } : {}),
     markers,
     ...(first >= 0 ? { excerpt: payload.slice(Math.max(0, first - 60), first + 100), souls: soulsCarryingMarkers(payload) } : {}),
   };
@@ -387,5 +390,14 @@ test.describe('Wire audit — talk content vs the hub', () => {
     // which skips the UI's save of the answered Talk, so there is nothing of Jerry's to mirror;
     // phone-path journey 02 covers the answering side.)
     await expectDeviceGraph(pageTom, 'Tom', { talks: 1 });
+
+    // OPEN-106 step 3: the Talk also reached Jerry as device-graph nodes over the direct link
+    // (Gun sync carried by graph-gun frames), and no graph soul (`g/…`) ever crossed the hub.
+    await expect.poll(() => pageJerry!.evaluate((authorId) => ((window as any).__iinpublic_graph_events ?? [])
+      .some((event: any) => event.type === 'talk' && event.from === authorId), tomId), {
+      timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Jerry never received the Talk over the graph link',
+    }).toBe(true);
+    const graphOnHub = events.filter((event) => event.channel.startsWith('gun-ws-') && event.graphSoul);
+    expect(graphOnHub.map((event) => `${event.who} ${event.channel}`), 'a device graph soul crossed the hub').toEqual([]);
   });
 });
