@@ -38,7 +38,15 @@ export function registerUserRoutes(
     try {
       const user = await userService.upsertPublicUser(req.body);
       if (hubRelayClient) {
-        void hubRelayClient.upsertPublicUser(user).catch(() => undefined);
+        // A phone must not acknowledge a public key before the hub has it. Peers on other
+        // phones resolve this record through the hub to establish their direct P2P channel.
+        // A 503 makes the browser's background publisher retry instead of silently losing it.
+        try {
+          await hubRelayClient.upsertPublicUser(user);
+        } catch {
+          res.status(503).json({ error: 'Could not publish public user to hub' });
+          return;
+        }
       }
       res.json(publicResponse(user));
     } catch (error) {

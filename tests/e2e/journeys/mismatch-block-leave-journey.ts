@@ -159,11 +159,20 @@ export async function blockJourney(alice: TestActor, bob: TestActor): Promise<vo
   // Bob opens Alice from the room's member list and blocks her (⋯ → Block User).
   await openCurrentRoom(bob.page);
   await memberItem(bob.page, aliceId).click();
-  await expect(bob.page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
+  const conversationDetail = bob.page.locator('#conversation-detail-overlay');
+  const peerDetail = bob.page.locator('#peer-detail-overlay');
+  await expect.poll(async () => (
+    await conversationDetail.isVisible().catch(() => false)
+    || await peerDetail.isVisible().catch(() => false)
+  ), { timeout: 15_000, message: 'Alice profile did not open from the room member list' }).toBe(true);
   await bob.page.waitForTimeout(3_000);
   expect(await matchCount(bob.page), 'opening Alice\'s profile made a match').toBe(0);
-  await bob.page.click('#back-from-conversation');
-  await expect(bob.page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 10_000 });
+  // Current room rows open the shared peer-detail layout directly. Keep the compatibility branch
+  // for builds that still route through a conversation detail before returning to the peer page.
+  if (await conversationDetail.isVisible().catch(() => false)) {
+    await bob.page.click('#back-from-conversation');
+  }
+  await expect(peerDetail).toBeVisible({ timeout: 10_000 });
   await bob.page.click('#peer-overflow-btn');
   await bob.page.locator('[data-testid="peer-block-user-btn"]').click();
   const skip = bob.page.locator('[data-testid="block-notify-skip"]');

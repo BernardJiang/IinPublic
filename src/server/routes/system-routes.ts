@@ -418,7 +418,9 @@ export function registerSystemRoutes(
     const query = req.query as Record<string, unknown>;
     const passthrough = new URLSearchParams(Object.entries(query)
       .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-    if (await relayToHub(res, `/api/active-rooms?${passthrough}`, 'GET')) return;
+    // A Place row needs its creator's current credit checked at the hub. The embedded
+    // node's generic 2.5 s relay budget expires before that read under phone-path load.
+    if (await relayToHub(res, `/api/active-rooms?${passthrough}`, 'GET', undefined, 15_000)) return;
     if (!activeRoomSource) {
       res.json({ totalOnline: 0, totalRooms: 0, rooms: [], hasMore: false });
       return;

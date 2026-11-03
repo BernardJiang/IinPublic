@@ -1,6 +1,29 @@
 # IinPublic Completed Work
 
-Last updated: 2026-10-31
+Last updated: 2026-11-02
+
+## 2026-11-02 — OPEN-94 canonical test gate restored
+
+- Cleared the backlog hidden by the month-long environment-key failure: one Jest failure and 34
+  E2E failures across light, stage5, mesh-isolated, find-similar, isolated, mass, and phone-path.
+  Repairs cover real regressions, load-sensitive persistence boundaries, and stale journeys; no
+  assertions were weakened to hide product failures.
+- Direct-message recovery now survives reloads: peer SEA epubs are validated, bounded, and cached
+  across page lifetimes; an incoming message reaches the UI only after its private-history write;
+  and the device worker does not acknowledge `putPrivate` until the underlying IndexedDB
+  transactions have actually drained. The alternating-message immediate-reload journey passed
+  five consecutive runs before the broad gate.
+- Repaired reconnect/session freshness, relay and HTTP publication waits, Place catalogue refresh
+  retries, and load-sensitive multi-user setup. Updated journeys now follow current navigation and
+  invoke bulk broadcasts once; synthetic history assertions are isolated from live subscriptions.
+  Focused unit, integration, and repeated browser runs cover each repaired boundary.
+- Final canonical `TEST_ALL_PORT_OFFSET=1000 npm run test:all` run
+  `run-20261102-184034-70876` passed in **44m03s**. Typecheck and lint passed; Jest reported
+  **3,600 passed / 15 skipped** across 389 passing suites; the merged Playwright report reported
+  **389 passed / 26 skipped / 0 unexpected / 0 flaky**. Every phase returned `rc=0`: light,
+  stage5, mesh-batch, mesh-isolated, find-similar, WebKit+Firefox smoke, isolated, heavy-staged,
+  mass, and all 16 physical C10 phone-path cases. The 12-blob merged report is in
+  `playwright-report/`.
 
 ## 2026-10-31 — OPEN-94a Settings startup test
 

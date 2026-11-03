@@ -53,7 +53,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        `E2E_GUN_MEMORY_ONLY=1 P2P_RATE_LIMIT_MAX_EVENTS=5000${hubDelay} ` +
+        `E2E_GUN_MEMORY_ONLY=1 P2P_RATE_LIMIT_MAX_EVENTS=5000 PLACE_CREATE_MIN_FRIEND_MARKS=0${hubDelay} ` +
         `PORT=${PHONE_PATH_PORTS.hub} node dist/server/server/index.js`,
       cwd: repoRoot,
       url: `http://127.0.0.1:${PHONE_PATH_PORTS.hub}/health`,

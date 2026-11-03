@@ -183,12 +183,27 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
 
   /** Authoritative room-creation credit: signed incoming Friend slots plus the received block count. */
   async getRoomCreationCredit(userId: string, creatorPub: string): Promise<RoomCreationCredit> {
-    const user = await this.getUser(userId);
-    if (!user.pub || user.pub !== creatorPub) {
+    // This endpoint gates Place creation, but it only needs the creator binding, reputation, and
+    // Friend count. Hydrating the complete public profile through getUser() stacks unrelated Gun
+    // reads (profile foundation, age verification, etc.) and made the phone relay miss its budget.
+    // Read the minimal identity record alongside the Friend slots; freshly published users take
+    // the in-memory path and avoid storage latency entirely.
+    const cached = this.recentPublicUsers.get(userId);
+    const [stored, friendMarks] = await Promise.all([
+      cached
+        ? Promise.resolve(cached)
+        : this.gunService.getOptional(`users/${userId}`, 500) as Promise<User | null>,
+      this.countFriendMarks(userId),
+    ]);
+    const user = stored;
+    if (!user?.pub || user.pub !== creatorPub) {
       throw new Error('room creator identity does not match the signed descriptor');
     }
-    const friendMarks = await this.countFriendMarks(userId);
-    return roomCreationCredit(user.reputation, friendMarks, {
+    const reputation = this.recentReputationWrites.get(userId)
+      ?? cached?.reputation
+      ?? user.reputation
+      ?? await this.readReputation(userId);
+    return roomCreationCredit(reputation, friendMarks, {
       minFriendMarks: CONFIG.PLACE_CREATE_MIN_FRIEND_MARKS,
       maxBlocksExclusive: CONFIG.PLACE_CREATE_MAX_BLOCKS_EXCLUSIVE,
     });

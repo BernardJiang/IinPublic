@@ -55,7 +55,7 @@ export async function createSimpleFlowTalk(
   title: string,
   matchAnswer = 'Yes',
   ignoreAnswer = 'No',
-  options?: { sendToChatroom?: boolean },
+  options?: { sendToChatroom?: boolean; timeoutMs?: number },
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await afterSync();
@@ -86,7 +86,7 @@ export async function createSimpleFlowTalk(
     await expect(sendToChatroomCheck).toBeChecked({ checked: wanted });
   }
 
-  await submitTalkEditorAndWaitForOut(page, title);
+  await submitTalkEditorAndWaitForOut(page, title, options?.timeoutMs);
 }
 
 export async function goToChatrooms(page: Page): Promise<void> {

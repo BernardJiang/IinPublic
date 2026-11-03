@@ -394,7 +394,7 @@ export class IinPublicApp {
   private activeRoomsTimer: ReturnType<typeof setInterval> | undefined;
   private activeRoomsLimit = ACTIVE_ROOMS_PAGE;
   /** Places seen in the room list that already triggered a catalogue refresh (one try each). */
-  private catalogueRefreshedForPlaces = new Set<string>();
+  private catalogueRefreshInFlightForPlaces = new Set<string>();
   private activeRoomsRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   /** Quiet places / schedule / "Quiet now" (shared/quiet-places.ts), re-checked every minute. */
   private quietState: QuietState = { active: false };
@@ -2094,12 +2094,19 @@ export class IinPublicApp {
       const unknownPlaces = placesMissingFromCatalogue(
         view.rooms.map((room) => room.roomId),
         new Set(this.uiManager.getCustomChatroomIds()),
-        this.catalogueRefreshedForPlaces,
+        this.catalogueRefreshInFlightForPlaces,
       );
       if (unknownPlaces.length > 0) {
-        if (await this.refreshCustomChatroomsFromServer()) {
-          unknownPlaces.forEach((roomId) => this.catalogueRefreshedForPlaces.add(roomId));
-          this.subscribeToAllChatroomMemberCounts();
+        unknownPlaces.forEach((roomId) => this.catalogueRefreshInFlightForPlaces.add(roomId));
+        try {
+          if (await this.refreshCustomChatroomsFromServer()) {
+            const received = new Set(this.uiManager.getCustomChatroomIds());
+            if (unknownPlaces.some((roomId) => received.has(roomId))) {
+              this.subscribeToAllChatroomMemberCounts();
+            }
+          }
+        } finally {
+          unknownPlaces.forEach((roomId) => this.catalogueRefreshInFlightForPlaces.delete(roomId));
         }
       }
     } catch (error) {
@@ -2212,7 +2219,13 @@ export class IinPublicApp {
       const base = this.getBackendApiBase();
       // Our own key keeps our expired Place listed for us.
       const creatorPub = this.gunService.getStoredPair()?.pub;
-      const res = await fetchWithTimeout(`${base}/api/chatrooms${creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : ''}`);
+      // Under a busy hub this endpoint checks creator credit for every Place before replying.
+      // The generic 5 s UI timeout repeatedly aborted discovery in the 20-person journey.
+      const res = await fetchWithTimeout(
+        `${base}/api/chatrooms${creatorPub ? `?creatorPub=${encodeURIComponent(creatorPub)}` : ''}`,
+        {},
+        30_000,
+      );
       if (!res.ok) return false;
       const rows = (await res.json()) as Array<{
         id: string;
@@ -6427,6 +6440,7 @@ export class IinPublicApp {
     const hinted = firstKeyHint(hint);
     if (hinted) {
       this.peerEpubByUserId.set(peerUserId, hinted);
+      this.gunService.rememberRosterEpub(peerUserId, hinted);
       return hinted;
     }
     const cached = this.peerEpubByUserId.get(peerUserId);

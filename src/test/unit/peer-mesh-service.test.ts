@@ -137,6 +137,43 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<v
 }
 
 describe('PeerMeshService', () => {
+  it('does not drop a personal neighbor when a superseded connect promise has a live replacement', async () => {
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const unreachable = jest.fn();
+    const service = new PeerMeshService(mockGunService(alicePair, { bob: { pub: bobPair.pub } }), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      personalRoster: true,
+      createSession: () => { throw new Error('not used'); },
+      onPersonalPeerUnreachable: unreachable,
+    });
+    const dispose = jest.fn();
+    const neighbor = {
+      userId: 'bob',
+      stageName: 'Bob',
+      pub: bobPair.pub,
+      connected: true,
+      session: {
+        ensureConnected: jest.fn().mockRejectedValue(new Error('WebRTC connection replaced')),
+        getState: jest.fn(() => 'connecting'),
+        sendMeshFrame: jest.fn(),
+        setOnRemoteMeshFrame: jest.fn(),
+        dispose,
+      },
+    };
+    (service as any).neighbors.set('bob', neighbor);
+
+    (service as any).connectNeighbor(neighbor);
+    (service as any).connectNeighbor(neighbor);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect((service as any).neighbors.get('bob')).toBe(neighbor);
+    expect((service as any).connectFailures.has('bob')).toBe(false);
+    expect(unreachable).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
   it('keeps a Talk in the durable outbox until a link to the receiver opens, and clears it only after durable ACK', async () => {
     const [alicePair, bobPair, carolPair] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
     const users = {

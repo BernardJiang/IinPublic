@@ -1,4 +1,7 @@
-import { WebGunService } from '../../web/services/web-gun-service';
+import {
+  PEER_EPUB_CACHE_STORAGE,
+  WebGunService,
+} from '../../web/services/web-gun-service';
 
 type PrivateServiceHarness = {
   putPrivate: WebGunService['putPrivate'];
@@ -11,6 +14,9 @@ type PrivateServiceHarness = {
   };
   privateWriteQueue: Promise<void>;
   getGun: jest.Mock;
+  rosterEpubByUserId: Map<string, string>;
+  rememberRosterEpub: WebGunService['rememberRosterEpub'];
+  getCachedRosterEpub: WebGunService['getCachedRosterEpub'];
 };
 
 function harness(): PrivateServiceHarness {
@@ -24,6 +30,7 @@ function harness(): PrivateServiceHarness {
   service.privateWriteQueue = Promise.resolve();
   // The peered control Gun must never be touched by owner-private reads or writes.
   service.getGun = jest.fn(() => { throw new Error('peered Gun used for private data'); });
+  service.rosterEpubByUserId = new Map();
   return service;
 }
 
@@ -73,5 +80,33 @@ describe('WebGunService private/control Gun boundary', () => {
       'Local private Gun store is unavailable',
     );
     expect(service.bridge.putPrivate).not.toHaveBeenCalled();
+  });
+
+  test('retains a learned peer encryption key across a page-service reload', () => {
+    localStorage.clear();
+    const firstPage = harness();
+    firstPage.rememberRosterEpub('peer-1', 'epub-peer-1');
+
+    expect(JSON.parse(localStorage.getItem(PEER_EPUB_CACHE_STORAGE) || '{}')).toEqual({
+      'peer-1': 'epub-peer-1',
+    });
+
+    const reloadedPage = harness();
+    expect(reloadedPage.getCachedRosterEpub('peer-1')).toBe('epub-peer-1');
+  });
+
+  test('ignores malformed and oversized persisted peer-key entries', () => {
+    localStorage.clear();
+    localStorage.setItem(PEER_EPUB_CACHE_STORAGE, JSON.stringify({
+      good: 'epub-good',
+      empty: '',
+      [String('x').repeat(257)]: 'epub-oversized-id',
+      oversizedKey: String('k').repeat(513),
+    }));
+    const service = harness();
+
+    expect(service.getCachedRosterEpub('good')).toBe('epub-good');
+    expect(service.getCachedRosterEpub('empty')).toBeUndefined();
+    expect(service.getCachedRosterEpub('oversizedKey')).toBeUndefined();
   });
 });

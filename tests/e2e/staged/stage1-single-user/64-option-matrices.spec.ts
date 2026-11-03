@@ -280,7 +280,12 @@ test.describe('Option matrices — talks/me filters, announcement, talk editor, 
     // Set a valid stage name first.
     await p.fill('#settings-stage-name-input', 'ValidName');
     await p.locator('#settings-stage-name-input').blur();
-    await afterSync();
+    // Saving a valid name rebuilds the Settings view after the local private write. Wait for
+    // that transaction before editing again; otherwise the late rebuild can replace the
+    // short-name error element immediately after the next blur under a busy full-shard run.
+    await expect.poll(() => p.evaluate(() =>
+      (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName,
+    )).toBe('ValidName');
 
     // Guard: stage name < 3 chars → inline error, value reverts to the valid one.
     await p.fill('#settings-stage-name-input', 'ab');

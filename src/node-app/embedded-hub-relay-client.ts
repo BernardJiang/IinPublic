@@ -301,7 +301,14 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
   }
 
   async getPublicUser(userId: string): Promise<Partial<User> | null> {
-    const response = await this.request(`/api/users/${encodeURIComponent(userId)}`);
+    // A hub public-user read overlays the live Gun node, profile foundation, reputation and age
+    // verification. On the phone route that regularly takes ~3.6 s, so the generic 2.5 s relay
+    // budget made every cross-phone key lookup abort before a direct P2P channel could start.
+    const response = await this.request(
+      `/api/users/${encodeURIComponent(userId)}`,
+      {},
+      ROOM_MEMBERSHIP_TIMEOUT_MS,
+    );
     return (await response.json()) as Partial<User>;
   }
 
@@ -310,7 +317,7 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(user),
-    });
+    }, ROOM_MEMBERSHIP_TIMEOUT_MS);
   }
 
   async listSupportMessages(conversationId: string): Promise<TechSupportStoredMessage[]> {
@@ -563,6 +570,8 @@ export class EmbeddedHubRelayClient implements EmbeddedHubRelayClientLike {
   async getRoomCreationCredit(userId: string, creatorPub: string): Promise<RoomCreationCredit> {
     const response = await this.request(
       `/api/users/${encodeURIComponent(userId)}/room-creation-credit?creatorPub=${encodeURIComponent(creatorPub)}`,
+      {},
+      ROOM_MEMBERSHIP_TIMEOUT_MS,
     );
     return await response.json() as RoomCreationCredit;
   }

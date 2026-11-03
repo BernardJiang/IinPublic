@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-10-31.
+Last reconciled: 2026-11-02.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -23,7 +23,7 @@ Run the Android availability preflight before physical-device work. When an issu
 move its outcome and verification evidence to `docs/completed.md`, remove it here, and do not reuse
 its ID.
 
-## Current status (2026-10-31)
+## Current status (2026-11-02)
 
 - The repository is at 1.0.207. The last documented production website deployment is 1.0.200;
   Android 1.0.205 responsiveness checks are documented on P30, PH-1, and FRD-L04. Do not infer
@@ -32,93 +32,18 @@ its ID.
   integration, browser, and physical-device coverage. Recent stalled-hub responsiveness tests
   passed 28/28 twice, and Android 1.0.205 measurements showed prompt tap reactions on three
   phones. This does not close the owner-reported two-phone offline discovery or DM journey.
-- The last canonical full gate is **red**: 3,713 Jest passes / 1 failure and 34 E2E failures
-  on 2026-10-30. Focused website reruns now pass the TechSupport trio, age-vouch/dating,
-  person/DM navigation, linked-device sync, cross-navigation, and both buy/sell cases after
-  fixes below. The isolated Jest failure is fixed and its 9-test suite passes. The first
-  six-worker light rerun finished **348 passed, 12 skipped, 2 failed**; both residual cases
-  passed targeted reruns after repair. A second full light rerun finished **347 passed,
-  12 skipped, 3 failed**: message history after reload (29), an incoming device handoff
-  card (74), and mutual deal confirmation (88). The handoff screen now rechecks for a late
-  archive and its spec passed 3 repeated browser runs. Conversation refresh now preserves and
-  merges deal confirmations; 88 passed 3 repeated browser runs after this fix. Message history
-  after reload (29), handoff (74), and deal confirmation (88) passed the next complete
-  six-worker light shard. That shard finished **349 passed, 12 skipped, 1 failed**: the master
-  showed a TechSupport delegate grant before Dana could receive it. Grant issuance now waits
-  for the server's verified storage response; the delegate case passes alone and the support
-  trio passes twice with six workers (6/6). A full light shard after this last change remains
-  pending.
-  `test:all` has not yet been rerun, so OPEN-94 remains open.
+- The canonical full gate is **green** as of 2026-11-02: typecheck and lint passed; Jest passed
+  3,600 tests with 15 intentional skips; and the merged Playwright run passed 389 cases with
+  26 intentional skips and no unexpected or flaky outcomes. All E2E phases returned `rc=0`:
+  light, stage5, mesh-batch, mesh-isolated, find-similar, cross-browser, isolated,
+  heavy-staged, mass, and the physical C10 phone path. OPEN-94 is complete; repair details and
+  the 44m03s canonical-run evidence are recorded in `docs/completed.md`.
 - The two UI size-budget suites mentioned in the earlier responsiveness audit now pass locally
   (4 tests on 2026-10-30); they are not current blockers.
 - Device-core privacy and host-command work has substantial focused validation, but OPEN-91
   remains incomplete. The walking/transit and unplugged battery gates are still unverified.
 
 ## Active maintenance queue — website and Android first
-
-- [ ] **OPEN-94 — `test:all` failure backlog surfaced 2026-10-30 (restored-gate fallout).**
-  The canonical gate was red 2026-10-01 → 10-30 because this worktree's `.env.local` held the
-  pre-rotation TechSupport key while the trust anchors rotated 2026-09-27 (commit b4b58d6c);
-  the fail-closed boot guard zeroed every E2E phase each night. The 2026-10-30 run used a
-  corrected key; `scripts/check-env-drift.js` (`npm run doctor:env`, wired as `pretest:all`,
-  commit 57cd0b87) now fails quickly on drift. **This checkout's current `.env.local` is
-  unconfigured again**; the configured key exists in the sibling `IinPublic.claude` worktree.
-  Focused TechSupport tests loaded that key only for their test process. Restore this checkout's
-  local configuration before a canonical `test:all` run.
-  The first full run after the fix (59m6s) booted all phases and exposed the backlog hidden
-  by the red month: jest 3713 pass / **1 fail**, E2E **34 failed tests** across 7 phases
-  (light 23, stage5 2, mesh-isolated 1, find-similar 1, isolated 1, mass 2, phone-path 4);
-  mesh-batch, heavy-staged and cross-browser passed. The list below records focused repairs;
-  remaining failures still need an isolated verdict without weakening assertions.
-  - [ ] **OPEN-94c — Stage2/3 two-party interaction cluster (light phase).**
-    Solo-rerun evidence 2026-10-30 (PW_WORKERS=6, no concurrent stage5, ports cleaned):
-    23 failed / 327 passed again. **20 tests reproduce in BOTH runs — genuine regressions,
-    not contention:** TechSupport trio (94b), 21c-reputation-vouch, 60/61 peer layout +
-    appbar, 74-talk-row-traceback ×3, 78-dm-inbox-affordance, 81-graph-traversal,
-    88-asymmetric-attachment, 89-buy-sell-cross-talk, 94/96 dating match, 95-device-sync,
-    00f-ux, 00g-age-gating, 09-cross-navigation, 79-dm-inbox-multi-sender. Cluster centres on
-    the two-party match → conversation → DM path; suspect window is the 10-26 → 10-29
-    OPEN-91 P5.4 host-command/ledger changes or the 1.0.201–203 navigation work (red month
-    hid the introducing commit. **Focused repair status (2026-10-31):** the TechSupport trio,
-    21c/94 age checks, 60/61/74/78/81 navigation, 88 attachment, 89 buy/sell (both cases),
-    95 device sync, 96 dating (both cases), 00f/00g/09/79 three-user journeys now pass in
-    targeted Chromium runs. Fixes cover explicit person→DM navigation, closing a long-press
-    popup, age-vouch read consistency, device-sync namespace sharing, live author-reply refresh,
-    and direct device-core Gun writes with explicit parent links. The latter removed strict local
-    storage-ack failures seen in 89/96; the exchange log survived a reload in stage1/94.
-    The first complete six-worker light rerun finished 348 passed / 12 skipped / 2 failed.
-    `21a-reputation-block-count` exposed an unnecessary fallback API block that raced the UI's
-    background publish; the UI-only assertion now passes solo and in the second full shard.
-    `28-stage-zero-n2n` exposed a profile-save completion overwriting a concurrent stage-name
-    change; the merge fix passes solo and in the second full shard. That second shard finished
-    347 passed / 12 skipped / 3 failed. The device-handoff screen's one-shot archive check
-    could miss a readable archive; it now rechecks while open, with 3 repeated browser passes
-    and 17/17 linked-dialog unit tests. The 88 failure also reproduced once in three isolated
-    repeats: a conversation refresh dropped `dealConfirmedByJson`, and a stale peer snapshot
-    could replace a local confirmation. Both paths now preserve/union confirmations; 88 passed
-    three repeated browser runs and focused unit checks. The next complete light shard passed
-    29, 74, and 88 under six workers, then failed only `00m-techsupport-delegate-answers`
-    (349 passed / 12 skipped / 1 failed). The master locally cached the signed delegate grant
-    before the remote storage path confirmed it; issuance now awaits the server's verified POST
-    before the master roster advances. The delegate case passes solo and the support trio passes
-    twice with six workers (6/6); its grant-cache unit suite passes 4/4. **Remaining:** a final
-    full light-shard run on this last fix, then the broader `test:all` gate. Triage the public
-    `user-tags` Gun ack timeout still seen in passing runs.
-    **Contention/order flakes (failed in only one of the two runs):** 54-chatroom-map,
-    82-list-pins, 13-me-filters (in-suite only); 64-option-matrices, 69-matched-talk-threads,
-    24-profile-privacy-visibility (solo only) — treat as flakiness backlog, not regressions.
-  - [ ] **OPEN-94d — Heavy/timing phases:** stage5 (starter-tags, 15-nearby-audience-shapes),
-    mesh-isolated (02-mesh-broadcast find-similar), find-similar (chatbot auto-matches),
-    isolated-02 mixed saturation, mass (05 layout tour, 06 map showcase), phone-path ×4
-    (02 talk-match-chat journey — 120s conversation predicate timeout; 04 mismatch-block;
-    07b reconnect — "WebRTC connection replaced" on 2 of 4 attempts; 09 tag-graph-tour).
-    Triage each: contention flake vs genuine regression (per skill: failing all retries =
-    genuine).
-  - [ ] **OPEN-94e — Remaining known test debt from the responsiveness audit.** Reconcile the
-    HEAD-reproducing E2E failures listed in `docs/testing/gui-responsiveness-audit.md`
-    (including contacts-to-DM navigation expectations) with 94b–d. The two UI size-budget
-    suites cited there now pass (4 tests, 2026-10-30). Update stale expectations only when the
-    intended product behavior is documented; fix genuine regressions without weakening assertions.
 
 - [ ] **OPEN-95 — Android `node-stdio.log` never rotates and can brick the app (found 2026-10-31,
   OPEN-81 walk).** `native-lib.cpp` sends embedded-node stdio to `files/node-data/node-stdio.log`

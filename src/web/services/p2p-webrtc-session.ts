@@ -435,7 +435,7 @@ export class P2PConversationSession {
   private readonly listeners = new Set<(messages: Message[]) => void>();
   private readonly lastSeenFromOther = new Map<string, string>();
   private connectPromise: Promise<void> | null = null;
-  private cancelConnectAttempt: (() => void) | null = null;
+  private cancelConnectAttempt: ((error?: Error) => void) | null = null;
   private hasStarted = false;
   private remoteDescriptionSet = false;
   private makingOffer = false;
@@ -550,11 +550,28 @@ export class P2PConversationSession {
    * An ICE restart on the live connection is not enough: Chrome keeps the working old pair selected
    * and never even checks the new lower-priority relay pairs (verified on Android WebView).
    */
-  reconnect(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS, options: { requestOffer?: boolean } = {}): Promise<void> {
+  async reconnect(timeoutMs = P2P_WEBRTC_CONNECT_TIMEOUT_MS, options: { requestOffer?: boolean } = {}): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
     this.closeTransport();
     this.connectPromise = null;
     this.setState('idle');
-    return this.ensureConnected(timeoutMs, { requestOffer: options.requestOffer !== false });
+    let remainingMs = deadline - Date.now();
+    while (remainingMs > 0) {
+      try {
+        await this.ensureConnected(remainingMs, { requestOffer: options.requestOffer !== false });
+        return;
+      } catch (error) {
+        // The peer can answer our reconnect with its own coordinated rebuild. That intentionally
+        // retires this exact attempt and starts the replacement on the same session; callers care
+        // that the fresh link connects, not which side's attempt won the race. Follow every live
+        // replacement within the original deadline (both signal transports can briefly race).
+        // Disposal uses a distinct error below and must still reject instead of resurrecting a
+        // session that its owner released.
+        if (!(error instanceof Error) || error.message !== 'WebRTC connection replaced') throw error;
+      }
+      remainingMs = deadline - Date.now();
+    }
+    throw new Error('WebRTC connection timeout');
   }
 
   /**
@@ -864,7 +881,7 @@ export class P2PConversationSession {
         if (error) reject(error);
         else resolve();
       };
-      const cancel = () => finish(new Error('WebRTC connection replaced'));
+      const cancel = (error = new Error('WebRTC connection replaced')) => finish(error);
       const timer = setTimeout(() => {
         if (this._state !== 'connected') {
           finish(new Error('WebRTC connection timeout'));
@@ -919,11 +936,11 @@ export class P2PConversationSession {
    * (find-similar: 10 browsers × 9 peers, with retries) failed sessions that don't close their
    * pc accumulate until "Cannot create so many PeerConnections", which then freezes the page.
    */
-  private closeTransport(): void {
+  private closeTransport(cancelError?: Error): void {
     this.transportGeneration += 1;
     // Nearby releases idle links and can immediately reopen the cached session. Retire both
     // timers with the old attempt: otherwise its timeout closes the replacement connection.
-    this.cancelConnectAttempt?.();
+    this.cancelConnectAttempt?.(cancelError);
     this.stopPolling?.();
     this.stopPolling = null;
     // Detach first: a discarded channel's onclose fires asynchronously and would otherwise mark
@@ -939,8 +956,8 @@ export class P2PConversationSession {
     this.currentOfferId = null;
   }
 
-  private resetTransport(): void {
-    this.closeTransport();
+  private resetTransport(cancelError?: Error): void {
+    this.closeTransport(cancelError);
     this.setState('idle');
   }
 
@@ -1672,7 +1689,7 @@ export class P2PConversationSession {
       this.reDigestTimer = null;
     }
     this.clearSecureHandshakeWatchdog();
-    this.resetTransport();
+    this.resetTransport(new Error('WebRTC session disposed'));
     this.connectPromise = null;
   }
 }

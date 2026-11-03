@@ -235,7 +235,32 @@ export function deriveGunHubUrlFromLocation(protocol: string, hostname: string, 
   return `${deriveBackendApiBaseFromLocation(protocol, hostname, port)}/gun`;
 }
 export const KEY_CUSTODY_DEVICE_SECRET_STORAGE = 'iinpublic_key_custody_device_secret_v1';
+export const PEER_EPUB_CACHE_STORAGE = 'iinpublic_peer_epub_cache_v1';
 const KEY_CUSTODY_ITERATIONS = 150_000;
+const MAX_PEER_EPUB_CACHE_ENTRIES = 256;
+
+function readPeerEpubCache(): Map<string, string> {
+  if (typeof localStorage === 'undefined') return new Map();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PEER_EPUB_CACHE_STORAGE) || '{}') as Record<string, unknown>;
+    const entries = Object.entries(parsed).filter(([userId, epub]) =>
+      userId.length > 0 && userId.length <= 256
+      && typeof epub === 'string' && epub.length > 0 && epub.length <= 512,
+    ) as Array<[string, string]>;
+    return new Map(entries.slice(-MAX_PEER_EPUB_CACHE_ENTRIES));
+  } catch {
+    return new Map();
+  }
+}
+
+function writePeerEpubCache(cache: Map<string, string>): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(PEER_EPUB_CACHE_STORAGE, JSON.stringify(Object.fromEntries(cache)));
+  } catch {
+    // A public-key cache is an optimization. Storage denial/full must not break messaging.
+  }
+}
 
 export class IdentityPasswordRequiredError extends Error {
   constructor(public readonly publicIdentity: SeaPublicIdentity) {
@@ -898,7 +923,10 @@ export class WebGunService extends EventEmitter {
         // Bounded: DM open/send wait on this (gui-responsiveness-audit.md F2).
         const response = await fetchWithTimeout(`${apiBase}/api/users/${encodeURIComponent(userId)}`, {
           cache: 'no-store',
-        }, 3_000);
+        // An embedded node may first miss locally and then ask its upstream hub. The hub's
+        // public-profile/reputation overlay takes ~3.6 s under phone-path load, so the previous
+        // 3 s browser budget always cancelled a valid cross-phone key lookup.
+        }, 8_000);
         if (response.ok) {
           const fromApi = (await response.json()) as Partial<User>;
           if (fromApi?.id) return fromApi;
@@ -917,17 +945,32 @@ export class WebGunService extends EventEmitter {
    * harvests those epubs here so getPublicUser can fill a missing epub from the roster instead
    * of leaving received DMs stuck as raw SEA ciphertext.
    */
-  private readonly rosterEpubByUserId = new Map<string, string>();
+  private readonly rosterEpubByUserId = readPeerEpubCache();
 
   rememberRosterEpub(userId: string, epub: string): void {
     const id = String(userId || '').trim();
     const key = String(epub || '').trim();
-    if (id && key) this.rosterEpubByUserId.set(id, key);
+    if (!id || id.length > 256 || !key || key.length > 512) return;
+    // Refresh insertion order so the bounded cache retains recently observed peers.
+    this.rosterEpubByUserId.delete(id);
+    this.rosterEpubByUserId.set(id, key);
+    while (this.rosterEpubByUserId.size > MAX_PEER_EPUB_CACHE_ENTRIES) {
+      const oldest = this.rosterEpubByUserId.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.rosterEpubByUserId.delete(oldest);
+    }
+    writePeerEpubCache(this.rosterEpubByUserId);
   }
 
   /** Fast path for an in-room peer's encryption key; never waits for the public-user API. */
   getCachedRosterEpub(userId: string): string | undefined {
-    return this.rosterEpubByUserId.get(String(userId || '').trim());
+    const id = String(userId || '').trim();
+    const cached = this.rosterEpubByUserId.get(id);
+    if (cached) return cached;
+    // Another tab may have learned the key since this service was constructed.
+    const persisted = readPeerEpubCache().get(id);
+    if (persisted) this.rosterEpubByUserId.set(id, persisted);
+    return persisted;
   }
 
   /** Read the public user graph record stored at `users/<id>`. */

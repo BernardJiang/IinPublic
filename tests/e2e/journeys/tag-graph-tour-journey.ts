@@ -170,7 +170,13 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
   const flowTitle = `Tour flow ${Date.now()}`;
   const yes = 'Yes, count me in';
   await goTo(a, 'talks');
-  await createSimpleFlowTalk(a, flowTitle, yes, 'Not this time', { sendToChatroom: false });
+  // This comes after the three-user place/tag traversal above. On phone nodes those queued graph
+  // writes can keep the asynchronous Talk save beyond the global 10 s fail-fast budget even
+  // though the editor submission succeeds; keep the larger allowance local to this heavy step.
+  await createSimpleFlowTalk(a, flowTitle, yes, 'Not this time', {
+    sendToChatroom: false,
+    timeoutMs: 30_000,
+  });
   await send(ann, [{ userId: cyId, stageName: cyName }]);
   const c = cy;
   await openIncomingTalkModal(c, flowTitle);
