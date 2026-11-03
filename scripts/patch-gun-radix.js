@@ -26,14 +26,12 @@
  *     (Windows/macOS) ships the unbundled dist/server tree and requires('gun') from here at
  *     real runtime, with IINPUBLIC_EMBEDDED_NODE=1 (real on-device radisk persistence) — so
  *     this copy is just as exposed to the corruption as the root copy.
- * The Android build does NOT need a separate call: its server code is esbuild-bundled from
- * the ROOT node_modules/gun straight into dist/embedded-mobile/server/node-app/embedded-node.js
- * (see scripts/build-embedded-mobile.js), so patching the root copy before that bundle step is
- * sufficient. platforms/mobile/nodejs-project's OWN node_modules/gun is a separate, unrelated
- * copy served as static browser assets only (the core worker's importScripts) to the
- * WebView's client-side Gun instance, which always runs radisk:false (browser origin) and
- * therefore never exercises the Radisk radix-tree code path this bug lives in — no patch
- * needed there.
+ *   - platforms/mobile/nodejs-project — the Android/iOS embedded Node. Since 2026-09-23
+ *     `gun`/`gun/sea` are left OUT of the esbuild bundle (scripts/build-embedded-mobile.js) and
+ *     the phone's Node requires them from this copy, so it needs the patch too. The android:*
+ *     build scripts in package.json patch it right after its `npm install` (found 2026-11-02:
+ *     phones up to 1.0.217 ran this copy unpatched). The same copy is also served to the core
+ *     worker (importScripts), which runs Radisk over IndexedDB without yson.
  *
  * Idempotent: safe to run against an already-patched file (checks for the marker comment
  * first). Target defaults to node_modules/gun relative to the repo root; pass a directory as
@@ -103,4 +101,48 @@ function main() {
   console.log('[patch-gun-radix] applied write-path and read-path fixes to', TARGET);
 }
 
+/**
+ * Root cause of the corruption above (found 2026-11-02): on Node, radisk.js loads Gun's own
+ * time-sliced JSON (lib/yson.js) and uses JSON.parseAsync to read every storage file.
+ * yson's parser loses its place when it pauses mid-object: e.g. a stored link
+ * `{"":{":":{"#":"ev/1"},">":1793…}}` comes back as `{"":{"#":"ev/1",">":1793…}}`, another
+ * entry lands under the key `""`, and a state key comes back as `"undefined"`. Radisk then
+ * writes the damaged tree back to disk. Gun's merge loop stops at the first entry with no
+ * state, so every later field of that node is dropped on each read (a 10,000-entry list read
+ * back as 2,539). Measured: 6 of 8,000 entries were damaged by one parse of an ~0.75 MB file.
+ * Fix: radisk uses the plain synchronous JSON.parse/stringify (what it already does in browsers,
+ * where yson is not loaded). A 1 MB file (opt.chunk) parses in a few milliseconds.
+ */
+const RADISK_TARGET = path.join(targetRoot, 'node_modules', 'gun', 'lib', 'radisk.js');
+const RADISK_MARKER = 'IinPublic patch (scripts/patch-gun-radix.js): sync JSON';
+
+function patchRadiskJson() {
+  if (!fs.existsSync(RADISK_TARGET)) {
+    console.warn(`[patch-gun-radix] ${RADISK_TARGET} not found — gun not installed yet? skipping.`);
+    return;
+  }
+  let source = fs.readFileSync(RADISK_TARGET, 'utf8');
+  if (source.includes(RADISK_MARKER)) {
+    console.log('[patch-gun-radix] radisk sync JSON already applied, skipping.');
+    return;
+  }
+  const find = `\t\tvar parse = JSON.parseAsync || function(t,cb,r){ var u; try{ cb(u, JSON.parse(t,r)) }catch(e){ cb(e) } }
+\t\tvar json = JSON.stringifyAsync || function(v,cb,r,s){ var u; try{ cb(u, JSON.stringify(v,r,s)) }catch(e){ cb(e) } }`;
+  const replace = `\t\t// ${RADISK_MARKER} — yson's JSON.parseAsync corrupts nested objects when it pauses
+\t\t// mid-object, and radisk writes the damage back to disk. Always use the synchronous JSON.
+\t\tvar parse = function(t,cb,r){ var u; try{ cb(u, JSON.parse(t,r)) }catch(e){ cb(e) } }
+\t\tvar json = function(v,cb,r,s){ var u; try{ cb(u, JSON.stringify(v,r,s)) }catch(e){ cb(e) } }`;
+  if (!source.includes(find)) {
+    throw new Error(
+      '[patch-gun-radix] radisk.js JSON anchor text not found — gun.js was likely updated and ' +
+        'this patch needs to be re-derived against the new source. Failing the install rather ' +
+        'than silently skipping a known data-loss fix.',
+    );
+  }
+  source = source.split(find).join(replace);
+  fs.writeFileSync(RADISK_TARGET, source);
+  console.log('[patch-gun-radix] applied radisk sync JSON fix to', RADISK_TARGET);
+}
+
 main();
+patchRadiskJson();

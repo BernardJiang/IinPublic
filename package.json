@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.217",
+  "version": "1.0.219",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -168,9 +168,9 @@
     "format": "prettier --write src/**/*.ts",
     "android:wrapper": "cd android && gradle wrapper --gradle-version 8.4",
     "android:clean": "cd android && { [ -x ./gradlew ] && ./gradlew clean || gradle clean; }",
-    "android:build": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
-    "android:build:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew assembleRelease || gradle assembleRelease; }",
-    "android:bundle:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew bundleRelease || gradle bundleRelease; }",
+    "android:build": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && node scripts/patch-gun-radix.js platforms/mobile/nodejs-project && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
+    "android:build:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && node scripts/patch-gun-radix.js platforms/mobile/nodejs-project && cd android && { [ -x ./gradlew ] && ./gradlew assembleRelease || gradle assembleRelease; }",
+    "android:bundle:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && node scripts/patch-gun-radix.js platforms/mobile/nodejs-project && cd android && { [ -x ./gradlew ] && ./gradlew bundleRelease || gradle bundleRelease; }",
     "android:install": "cd android && { [ -x ./gradlew ] && ./gradlew installDebug || gradle installDebug; }",
     "test:android:release-smoke": "node scripts/run-android-release-smoke.mjs",
     "test:android:coverage": "node scripts/android-test-coverage.mjs",

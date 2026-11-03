@@ -91,6 +91,29 @@ its ID.
     compare), start-up loads every entry with one Gun read each, the Me tab regroups by text on every
     render, and text is duplicated across collections.
 
+  **Size and speed benchmark, 2026-11-02** (1,000 contacts, 10,000 Talks × 5 questions, 50,000 Me
+  tab rows; Gun + Radisk file store; Mac, plus the phone stress route below).
+  - Mac: current design 159 MB written, 179 MB on disk, start-up 14 s and **946 MB heap** (every
+    collection loaded); spec §31 design 103 MB, 134 MB on disk, start-up 0.25 s, 17 MB heap. Writes:
+    396 s vs 487 s (2.5× more, smaller nodes). Cold reads cost 1.5–4 ms per node (Mac and phones).
+  - **Fixed: Radisk corrupted its own files on Node.** Gun's `lib/yson.js` `JSON.parseAsync` breaks
+    nested objects where it pauses; radisk wrote the damage back (a link's state key became
+    `"undefined"`), and Gun's merge loop then dropped the rest of that node (a 10,000-entry list read
+    back as 2,539). Radisk now uses plain JSON (`scripts/patch-gun-radix.js`; test
+    `gun-radisk-large-node.test.ts`). Likely the root cause of the 2026-09-04 radix crashes too.
+  - **Fixed: phones ran unpatched Gun.** Since 2026-09-23 the phone's Node loads Gun from
+    `platforms/mobile/nodejs-project/node_modules/gun`, which no build patched; the `android:*`
+    scripts now patch it (from 1.0.218).
+  - **Open: a node larger than one Radisk file (1 MB, about 7,000 links) is answered in parts.** Gun
+    answers after the first file; with the GraphStore's 30 ms wait a 10,000-entry list read 3,800
+    entries (all by 500 ms on the Mac; on the P30, 3,795 at 2.1 s, 3,903 at 2 s, all 10,000 by 5 s). Today `local/collections/answerPreferences` crosses this at about 1,400
+    answered Talks. §31.8 needs bucketed index nodes (for example by month, each well under 1 MB).
+  - **Open: Gun never evicts its memory graph** (every node read stays in `root.graph`), and Radisk
+    keeps every parsed file. A store larger than memory needs an LRU eviction of unsubscribed nodes.
+  - Gun treats `once(cb, { wait: 0 })` as 99 ms.
+  - Phone stress route (debug, loopback-only, own folder, no peers):
+    `POST /api/debug/storage-stress?talks=10000` then `GET /api/debug/storage-stress/<id>`.
+
   **Target design.** Everything stays under `local/`, so the sharing policy keeps it on the device.
   Hash keys use normalised text. Language is part of a question's key. A question has no choices and
   no answer of its own, because both vary by Talk and context.
@@ -265,7 +288,7 @@ its ID.
     suites cited there now pass (4 tests, 2026-10-30). Update stale expectations only when the
     intended product behavior is documented; fix genuine regressions without weakening assertions.
 
-- [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** Retest first on 1.0.210: the
+- [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** Retest first on the current build: the
   OPEN-100 memory crash may explain (a) and (b), but a clean rerun has not shown that. After that
   crash Android delayed the background service's restart by about 35 minutes, and "Stopping
   service due to app idle" followed, so a crash can also pause background delivery. (a) A late auto-answer was
@@ -277,12 +300,11 @@ its ID.
   timeouts, but the logs from that minute were overwritten. (c) The outing review reports
   0 pending although journey-bob's `walk-late` reply never arrived.
 
-- [ ] **OPEN-98 — Outing controls lost with `d3cecef7` (2026-10-23).** `reviewMatchCollection`
-  and `broadcastMatchCollection` still have handlers, but no UI emits them, so the G4/G5 review
-  cannot be opened on a device; it was reached over USB. Stopping now means unticking
+- [ ] **OPEN-98 — Outing controls lost with `d3cecef7` (2026-10-23).** Stopping now means unticking
   **Collect nearby matches**. Tag Talks are chips with no broadcast on/off control, so a disabled
-  one cannot be re-enabled on the phone. The review also labels results with raw Talk ids instead
-  of titles. `docs/guides/PHONE_FIELD_RUN_1.0.203.md` still describes the removed controls.
+  one cannot be re-enabled on the phone. `broadcastMatchCollection` still has a handler but no UI.
+  Fixed on 2026-11-01, not yet on a phone: Settings has **Review collection** for the latest
+  outing, the review shows Talk titles, and the field guide matches.
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no
@@ -341,7 +363,8 @@ its ID.
   sender had just used that key. It reached FRD only about 30 minutes later, after the direct link
   reconnected and the phones synced. The key is now passed through and posting retries 5 times, but
   this path has not been re-proven on phones. There is still no per-message delivered/failed state. (c) A received message can
-  render as raw `SEA{...}` ciphertext and never re-decrypt. (d) P30's app died 12 s after launch at
+  stay undecrypted. Since 2026-11-01 it shows "This message could not be decrypted." instead of raw
+  `SEA{...}` (not yet on a phone); why it never re-decrypts is still open. (d) P30's app died 12 s after launch at
   16:51:30 with no crash record, and a local `/health` once took about 3 s; causes unknown.
   (e) DM sessions report `WebRTC connection replaced` around start-up. (f) `getUserPub` gave up on
   the first missing peer record instead of retrying; fixed in 1.0.215 with a unit test.
@@ -484,7 +507,10 @@ active feature development.
     kept polling all night while PH-1 stayed asleep. How much of the FRD drain is the app is
     unproven: it needs a control night with the app stopped. Rerun on P30 with the schedule off,
     and on the FCP. Also seen: bursts of Gun `chain not yet supported` dumps in the Node log (about 5 to
-    7 MB on FRD and PH-1 at the 10:12 wake-up), and the delegate-invite lookup repeats a 404 about every 2 minutes.
+    7 MB on FRD and PH-1 at the 10:12 wake-up). Likely cause, not reproduced:
+    `sweepTransientSignalGraph` deletes `p2p-signal` parent nodes that open chains still hold, so
+    gun.js line 642 replays their links with no state. A delegate-invite lookup that finds nothing
+    now answers 204 instead of a logged 404.
   - [ ] **Owner daytime run, 2026-11-01 about 10:52 to 17:22 (6.5 h, 1.0.217): not a pass.** No
     active hour again (screen on 3 to 9 min), and the FRD app was not stopped, so no control. C10:
     63% to 55% (1.2% an hour), app alive until 17:23:06. P30: 89% to 82% (1.1% an hour), but the app

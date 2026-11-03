@@ -1,3 +1,4 @@
+import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import type express from 'express';
@@ -83,6 +84,7 @@ import { NearbyAttestor } from '../services/nearby-attestor';
 import { NearbyKnockMailbox } from '../services/nearby-knock-mailbox';
 import { hubNearbyV3Config, registerNearbyV3Routes } from './nearby-v3-routes';
 import { captureHeapGrowth, captureRuntimeWindow } from '../services/runtime-profiler';
+import { getStorageStress, startStorageStress } from '../services/storage-stress';
 import { isActiveRoomSort, summarizeActiveRooms } from '../../shared/active-rooms';
 import { isPlaceRoomId } from '../../shared/place-rooms';
 import {
@@ -651,7 +653,8 @@ export function registerSystemRoutes(
       );
     }
     if (!invite || invite.targetPub !== targetPub) {
-      res.status(404).json({ error: 'No invite for that identity' });
+      // Every ordinary user polls this; having no invite is the normal answer, not an error.
+      res.status(204).end();
       return;
     }
     res.json(invite);
@@ -1219,6 +1222,35 @@ export function registerSystemRoutes(
       void captureHeapGrowth(seconds)
         .then((report) => res.json(report))
         .catch((error) => res.status(500).json({ error: (error as Error).message }));
+    });
+
+    // OPEN-106: Gun + Radisk storage stress on this device's own disk, in a separate Gun instance
+    // and folder (never the user's graph; no peers). Loopback-only, for adb-forwarded use.
+    // POST starts a run (?talks=&people=&batch=), GET /:id returns its report.
+    app.post('/api/debug/storage-stress', (req, res) => {
+      const remoteAddress = String(req.socket.remoteAddress || '');
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remoteAddress)) {
+        res.status(403).json({ error: 'storage stress is loopback-only' });
+        return;
+      }
+      try {
+        const dataDir = process.env.IINPUBLIC_DATA_DIR || os.tmpdir();
+        res.json(startStorageStress(dataDir, {
+          talks: Number(req.query.talks), people: Number(req.query.people), batch: Number(req.query.batch),
+        }));
+      } catch (error) {
+        res.status(409).json({ error: (error as Error).message });
+      }
+    });
+    app.get('/api/debug/storage-stress/:id', (req, res) => {
+      const remoteAddress = String(req.socket.remoteAddress || '');
+      if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remoteAddress)) {
+        res.status(403).json({ error: 'storage stress is loopback-only' });
+        return;
+      }
+      const report = getStorageStress(req.params.id);
+      if (!report) { res.status(404).json({ error: 'no such run' }); return; }
+      res.json(report);
     });
 
     // P2P-V: abuse defense diagnostics (non-secret — no private keys or message bodies)
