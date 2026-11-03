@@ -5,6 +5,7 @@
  * Conversation → User layout → opener. The Contacts-tab row lands on the same User layout, and
  * both entry points resolve to the SAME pair thread (same conv_pair conversation id).
  */
+import { waitForPeerDmSent } from '../../helpers/conversation-e2e';
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
@@ -82,7 +83,7 @@ test.describe('Person-first entry (OPEN-94)', () => {
     const dmText = `entry dm ${Date.now()}`;
     await tom.locator('#peer-dm-input').fill(dmText);
     await tom.locator('#peer-dm-send-btn').click();
-    await expect(tom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
+    await waitForPeerDmSent(tom, 30_000);
     await tom.locator('[data-testid="dm-thread-entry"]').click({ timeout: 15_000 });
     await expect(tom.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
     await expect(tom.locator('#conversation-user-name')).toContainText('JerryEntry');

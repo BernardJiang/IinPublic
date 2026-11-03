@@ -63,6 +63,25 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     buildSpy.mockRestore();
   });
 
+  it('sends the message with the same time the sender already shows it with (both sides order by it)', async () => {
+    const buildSpy = jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
+    const putSpy = jest.spyOn(GunMessageStore.prototype, 'putMessageRecord').mockResolvedValue(undefined);
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      sendDm: jest.fn(async () => undefined), setLedgerHooks: jest.fn(), setOnRemoteDm: jest.fn(),
+    });
+    const shown = jest.spyOn(
+      transport as unknown as { pushLiveMessage: (conversationId: string, message: { timestamp: Date }) => void },
+      'pushLiveMessage',
+    );
+    await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
+    const sentAt = (buildSpy.mock.calls[0]![3] as { sentAt?: Date }).sentAt;
+    expect(sentAt).toBeInstanceOf(Date);
+    expect(shown.mock.calls[0]![1].timestamp).toBe(sentAt);
+    buildSpy.mockRestore();
+    putSpy.mockRestore();
+  });
+
   it('passes explicit messageId to Gun store for idempotent sends', async () => {
     const buildSpy = jest
       .spyOn(GunMessageStore.prototype, 'buildMessage')
@@ -357,7 +376,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     subSpy.mockRestore();
   });
 
-  it('publishes an inbound message only after its private-history write is durable', async () => {
+  it('starts the private-history write first, shows the message without waiting for it, and resolves once it is durable', async () => {
     let finishPersist!: () => void;
     const persisted = new Promise<void>((resolve) => { finishPersist = resolve; });
     const putSpy = jest
@@ -379,16 +398,21 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       }
     ).persistAndPublishRemoteMessage('conv1', 'bob', { ...wire, senderId: 'bob' });
 
-    await Promise.resolve();
+    let settled = false;
+    void receive.then(() => { settled = true; });
     expect(putSpy).toHaveBeenCalled();
-    expect(publishSpy).not.toHaveBeenCalled();
-
-    finishPersist();
-    await receive;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Shown while the write is still in flight (arrival must not wait for the core's write queue).
     expect(publishSpy).toHaveBeenCalledWith(
       'conv1',
       expect.objectContaining({ id: wire.id, senderId: 'bob', text: wire.text }),
     );
+    expect(putSpy.mock.invocationCallOrder[0]!).toBeLessThan(publishSpy.mock.invocationCallOrder[0]!);
+    expect(settled).toBe(false);
+
+    finishPersist();
+    await receive;
+    expect(settled).toBe(true);
     putSpy.mockRestore();
   });
 

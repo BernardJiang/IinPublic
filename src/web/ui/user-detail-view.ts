@@ -380,6 +380,8 @@ export function openPeerDetailView(
       if (inp) inp.value = '';
       try {
         await deps.sendDirectMessage(peerId, peerName, text);
+        // No visible "Sent" state any more (the text clears at once); e2e and diagnostics read this.
+        fresh.dataset.sentAt = String(Date.now());
       } catch {
         if (inp && !inp.value) inp.value = text;
       }

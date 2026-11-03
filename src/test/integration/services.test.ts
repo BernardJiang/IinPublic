@@ -180,7 +180,8 @@ describe('Service Integration Tests', () => {
       });
       expect(mockGetOptional).toHaveBeenCalledWith('users/user123', 500);
       expect(mockGetOptional).toHaveBeenCalledWith('user-public-profile/user123', 500);
-      expect(mockGetPath).toHaveBeenCalledWith(['user-age-verification', 'user123'], 300, 3000);
+      // A public profile read keeps age verification inside the phone relay's budget (1.0.217).
+      expect(mockGetPath).toHaveBeenCalledWith(['user-age-verification', 'user123'], 300, 500);
     });
 
     it('uses a cleared public headshot instead of a stale base-user photo', async () => {

@@ -27,7 +27,7 @@ import {
   resetTalksMatchingSession,
   pinStableE2eLocation,
 } from '../../helpers/talks-matching-flow';
-import { getConversationIdBetween, openConversationViaServer } from '../../helpers/conversation-e2e';
+import { getConversationIdBetween, openConversationViaServer, waitForPeerDmSent } from '../../helpers/conversation-e2e';
 import { waitForMessageVisible } from '../../helpers/fast-dm-setup';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
@@ -211,7 +211,7 @@ test.describe('Chatroom peer detail views', () => {
       const message = `Manual direct hello ${Date.now()}`;
       await pageTom.locator('#peer-dm-input').fill(message);
       await pageTom.locator('#peer-dm-send-btn').click();
-      await expect(pageTom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
+      await waitForPeerDmSent(pageTom, 30_000);
 
       const tomConversationId = await getConversationIdBetween(pageTom, tomId, jerryId);
       const jerryConversationId = await getConversationIdBetween(pageJerry, jerryId, tomId);
@@ -304,7 +304,7 @@ test.describe('Chatroom peer detail views', () => {
       const manualContinuation = `Matched talk manual continuation ${Date.now()}`;
       await pageTom.locator('#peer-dm-input').fill(manualContinuation);
       await pageTom.locator('#peer-dm-send-btn').click();
-      await expect(pageTom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
+      await waitForPeerDmSent(pageTom, 30_000);
       const afterDirectConversationId = await getConversationIdBetween(pageTom, tomId, jerryId);
       expect(afterDirectConversationId).toBe(matchedConversationId);
       await openConversationViaServer(pageJerry, jerryId, 'TomTH', tomId);

@@ -322,9 +322,12 @@ export class DirectP2PConversationTransport implements ConversationTransport {
   }
 
   /**
-   * Commit an inbound DM before publishing it to UI subscribers. Decryption and persistence
-   * still run in parallel, but a page reload immediately after the message becomes visible must
-   * not be able to cancel the worker write and lose the received half of the conversation.
+   * An inbound DM: its private-history write starts first, the message is shown as soon as it is
+   * decrypted, and this resolves only once the write is durable. Showing it only after the write
+   * (2026-11-02, OPEN-94) made arrival wait for the device core's private-write queue, about 8 s
+   * on the phone path against the 2 s arrival budget (journeys/dm-speed-journey.ts, the instant-DM
+   * fix of 1.0.216). The write is already under way when the message appears, and callers that
+   * need durability await this.
    */
   private async persistAndPublishRemoteMessage(
     conversationId: string,
@@ -344,7 +347,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       ...(wire.talkId ? { talkId: wire.talkId } : {}),
     }, { otherUserId });
     const decrypted = this.decryptWireText(wire, wire.senderId);
-    const [, text] = await Promise.all([persisted, decrypted]);
+    const text = await decrypted;
 
     this.pushLiveMessage(conversationId, {
       id: wire.id,
@@ -357,6 +360,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
       ...(wire.talkId ? { talkId: wire.talkId } : {}),
     });
+    await persisted;
   }
 
   /**
@@ -495,11 +499,12 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
     // Shown at once: saving and delivery happen behind it, and a slow one must not hold the
     // sender's own message back. A failed save takes it away again and reports to the caller.
+    const sentAt = new Date();
     this.pushLiveMessage(conversationId, {
       id: messageId,
       senderId,
       text,
-      timestamp: new Date(),
+      timestamp: sentAt,
       channel: (channel as Message['channel']) || 'public',
       readBy: [],
       isFromChatbot: !!opts?.isFromChatbot,
@@ -510,7 +515,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     let saved: Promise<void>;
     try {
       wire = await within(
-        this.gunStore.buildMessage(conversationId, senderId, text, { ...opts, messageId, transport: this.mode }),
+        this.gunStore.buildMessage(conversationId, senderId, text, { ...opts, messageId, transport: this.mode, sentAt }),
         DM_PREPARE_TIMEOUT_MS,
       );
       // Saved alongside delivery, not before it: private writes share one queue, which took

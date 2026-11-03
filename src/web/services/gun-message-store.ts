@@ -337,13 +337,19 @@ export class GunMessageStore {
     return wire;
   }
 
-  /** The encrypted message, ready to send. Saving it is separate: see `putMessageRecord`. */
+  /**
+   * The encrypted message, ready to send. Saving it is separate: see `putMessageRecord`.
+   * `sentAt` is the time the sender's screen already shows it with; both phones order a thread by
+   * this one time, so it must not be taken again after the awaits below (two people typing at
+   * once saw different orders, e2e stage2/29).
+   */
   async buildMessage(
     conversationId: string,
     senderId: string,
     text: string,
-    opts?: SendMessageOptions & { transport?: ConversationTransportMode },
+    opts?: SendMessageOptions & { transport?: ConversationTransportMode; sentAt?: Date },
   ): Promise<ConversationMessageWire> {
+    const sentAt = opts?.sentAt ?? new Date();
     const channel = opts?.channel ?? 'public';
     const transport = opts?.transport ?? this.mode;
     const messageId = String(opts?.messageId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
@@ -356,7 +362,7 @@ export class GunMessageStore {
       id: messageId,
       senderId,
       text: payloadText,
-      timestamp: new Date().toISOString(),
+      timestamp: sentAt.toISOString(),
       channel,
       transport,
       ...(opts?.isFromChatbot ? { isFromChatbot: true } : {}),

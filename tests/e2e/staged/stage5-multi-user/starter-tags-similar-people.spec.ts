@@ -16,6 +16,7 @@
  *
  * Companion doc: tests/e2e/staged/stage5-multi-user/starter-tags-similar-people.md
  */
+import { waitForPeerDmSent } from '../../helpers/conversation-e2e';
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage5Spec } from '../../helpers/e2e-stage-pipeline';
@@ -298,7 +299,7 @@ test.describe('Find similar people with starter tags', () => {
       await expect(page.locator('#contact-relationship-modal')).toBeHidden({ timeout: 10_000 });
       await page.locator('#peer-dm-input').fill(MESSAGE);
       await page.locator('#peer-dm-send-btn').click();
-      await expect(page.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 60_000 });
+      await waitForPeerDmSent(page, 60_000);
       console.log(`[${NAMES[index]}] marked ${NAMES[indexById.get(peerId)!]} a Friend and sent "${MESSAGE}"`);
       // Back on Contacts, the person now reads as a Friend.
       await backToContactsList(page);
