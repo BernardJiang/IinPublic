@@ -65,7 +65,12 @@ export type GraphSyncEvents = {
   onAnswerDeleted?: (talkId: string, fromUserId: string) => void;
 };
 
-export type GraphLinkStatus = { peerUserId: string; open: boolean; sentUpTo: number; appliedUpTo: number; broken?: string };
+export type GraphLinkStatus = {
+  peerUserId: string; open: boolean; sentUpTo: number; appliedUpTo: number; broken?: string; lastError?: string;
+  /** Diagnostics: the last entry their head names, as this device holds it, and the entries of
+   * their first log block it holds. */
+  theirHead?: number; theirBlock?: string[];
+};
 
 const entryHash = (entry: LogEntry) => portableSha256Hex(canonicalJson(entry));
 const signedPart = (entry: Omit<LogEntry, 'sig'>) => canonicalJson({ n: entry.n, prev: entry.prev, when: entry.when, by: entry.by, body: entry.body });
@@ -94,10 +99,20 @@ export function createGraphSync(options: {
   const audience = createGraphAudience(store, { me: me.userId, prefix });
   root.opt.graphAudience = audience;
   // Reads of the other person's souls go over the link, so they wait longer than local reads.
-  const remote = gunNodeStore(gun, { readWaitMs: options.remoteReadMs ?? 400, missWaitMs: options.remoteReadMs ?? 1500, getTimeoutMs: 10_000 });
+  // On a phone a read crosses page → frame → the other page → its core and back, often over 1.5 s.
+  const remote = gunNodeStore(gun, { readWaitMs: options.remoteReadMs ?? 400, missWaitMs: options.remoteReadMs ?? 4000, getTimeoutMs: 12_000 });
   const mine = graphWireSouls(me.userId);
 
-  type Link = { peer: any; keys: PeerKeys; secret: string; pairTag: string; off?: () => void; processing?: Promise<void> | undefined; again?: boolean };
+  type Link = {
+    peer: any; keys: PeerKeys; secret: string; pairTag: string; off?: () => void;
+    processing?: Promise<void> | undefined; again?: boolean;
+    /** A stalled log (an entry or its Talk not readable yet) is read again after this many ms. */
+    retryMs?: number | undefined; retryTimer?: ReturnType<typeof setTimeout> | undefined;
+    lastError?: string | undefined;
+    /** Log blocks with a live subscription: a once-read lease expires, and later writes to the
+     * same block would then be refused as unasked-for and never fetched again from the cache. */
+    watched?: Map<string, any>;
+  };
   const links = new Map<string, Link>();
   const secrets = new Map<string, { keys: PeerKeys; secret: string; pairTag: string }>();
   const outbox: Array<{ to: string; raw: string }> = [];
@@ -282,28 +297,50 @@ export function createGraphSync(options: {
     if (!link) return Promise.resolve();
     if (link.processing) { link.again = true; return link.processing; }
     link.processing = (async () => {
+      let stalled = false;
       do {
         link.again = false;
-        await readLog(peerUserId, link).catch((error) => options.log?.(`[graph-sync] ${peerUserId}: ${(error as Error).message}`));
+        stalled = await readLog(peerUserId, link).catch((error) => {
+          link.lastError = (error as Error).message;
+          options.log?.(`[graph-sync] ${peerUserId}: ${link.lastError}`);
+          return true;
+        });
       } while (link.again && links.get(peerUserId) === link);
+      if (link.retryTimer) { clearTimeout(link.retryTimer); link.retryTimer = undefined; }
+      if (stalled && links.get(peerUserId) === link) {
+        // Not waiting for their next write: try again, backing off up to 30 s while the link is up.
+        link.retryMs = Math.min(30_000, (link.retryMs ?? 500) * 2);
+        link.retryTimer = setTimeout(() => { link.retryTimer = undefined; void catchUp(peerUserId); }, link.retryMs);
+        (link.retryTimer as { unref?: () => void }).unref?.();
+      } else {
+        link.retryMs = undefined;
+      }
     })().finally(() => { link.processing = undefined; });
     return link.processing;
   }
 
-  async function readLog(peerUserId: string, link: Link): Promise<void> {
+  /** Returns true when the log is stalled: there is more to apply that could not be read yet. */
+  async function readLog(peerUserId: string, link: Link): Promise<boolean> {
     const theirs = graphWireSouls(peerUserId);
     const stateSoul = `${prefix}sync/in/${encodeURIComponent(peerUserId)}`;
     const headNode = await remote.get(theirs.head(link.pairTag));
     const head = await decryptJson<{ n: number; hash: string }>(headNode?.head, link.secret);
-    if (!head) return;
+    if (!head) return false;
     let state = await store.get(stateSoul);
-    if (typeof state?.broken === 'string') return;
+    if (typeof state?.broken === 'string') return false;
     let next = typeof state?.next === 'number' ? state.next : 0;
     let prev = typeof state?.hash === 'string' ? state.hash : '';
     while (next <= head.n) {
-      const block = await remote.get(theirs.logBlock(link.pairTag, Math.floor(next / LOG_BLOCK)));
+      const blockSoul = theirs.logBlock(link.pairTag, Math.floor(next / LOG_BLOCK));
+      link.watched ||= new Map();
+      if (!link.watched.has(blockSoul)) {
+        const chain = gun.get(blockSoul);
+        chain.on(() => { void catchUp(peerUserId); });
+        link.watched.set(blockSoul, chain);
+      }
+      const block = await remote.get(blockSoul);
       const entry = await decryptJson<LogEntry>(block?.[String(next)], link.secret);
-      if (!entry) return; // not arrived yet: the next head update tries again
+      if (!entry) return true; // not arrived yet: tried again shortly
       const broken = entry.n !== next ? `entry ${next} is numbered ${entry.n}`
         : entry.prev !== prev ? `entry ${next} does not follow entry ${next - 1}`
           : entry.by !== peerUserId ? `entry ${next} names another author`
@@ -312,7 +349,7 @@ export function createGraphSync(options: {
         // The timeline cannot be proven past this point: stop, keep what was applied, report.
         await store.put(stateSoul, { broken });
         options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
-        return;
+        return false;
       }
       await apply(peerUserId, link.keys, entry.body, 'webrtc');
       prev = entryHash(entry);
@@ -320,6 +357,7 @@ export function createGraphSync(options: {
       await store.put(stateSoul, { next, hash: prev });
       state = { next, hash: prev };
     }
+    return false;
   }
 
   // ---- links ---------------------------------------------------------------------------------
@@ -355,6 +393,8 @@ export function createGraphSync(options: {
       const link = links.get(peerUserId);
       if (!link) return;
       links.delete(peerUserId);
+      if (link.retryTimer) clearTimeout(link.retryTimer);
+      for (const chain of link.watched?.values() ?? []) chain.off();
       link.off?.();
       root.opt.mesh.bye(link.peer);
       delete root.opt.peers[link.peer.id];
@@ -460,6 +500,15 @@ export function createGraphSync(options: {
         appliedUpTo: typeof incoming?.next === 'number' ? incoming.next - 1 : -1,
       };
       if (typeof incoming?.broken === 'string') status.broken = incoming.broken;
+      const link = links.get(peerUserId);
+      if (link?.lastError) status.lastError = link.lastError;
+      if (link) {
+        const theirs = graphWireSouls(peerUserId);
+        const graphNode = (soul: string) => gun._.graph?.[soul];
+        const head = await decryptJson<{ n: number }>(graphNode(theirs.head(link.pairTag))?.head, link.secret).catch(() => undefined);
+        if (head) status.theirHead = head.n;
+        status.theirBlock = Object.keys(graphNode(theirs.logBlock(link.pairTag, 0)) || {}).filter((k) => k !== '_');
+      }
       return status;
     },
 

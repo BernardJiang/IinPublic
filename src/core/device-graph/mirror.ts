@@ -38,7 +38,10 @@ export type MirrorStatus = {
   maxMs?: number;
 };
 
-export function createGraphMirror(store: NodeStore, options: { randomBytes: (length: number) => Uint8Array; prefix?: string; now?: () => number; log?: (message: string) => void; graph?: DeviceGraph }) {
+export function createGraphMirror(store: NodeStore, options: { randomBytes: (length: number) => Uint8Array; prefix?: string; now?: () => number; log?: (message: string) => void; graph?: DeviceGraph;
+  /** Received Talks arrive over graph links under their real ids: mirror only my own Talks. */
+  ownTalksOnly?: boolean;
+}) {
   const prefix = options.prefix ?? 'local/';
   const souls = graphSouls(prefix);
   const statusSoul = souls.index('mirror');
@@ -148,7 +151,18 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
     }
   }
 
-  async function mirrorEntry(entry: any): Promise<void> {
+  // One write at a time per app Talk, whether from the queue or from `ensure`.
+  const inFlight = new Map<string, Promise<void>>();
+  function mirrorEntry(entry: any): Promise<void> {
+    const key = String(entry?.talkId ?? '');
+    const previous = inFlight.get(key) ?? Promise.resolve();
+    const run = previous.then(() => mirrorEntryNow(entry), () => mirrorEntryNow(entry));
+    inFlight.set(key, run.catch(() => undefined));
+    void run.finally(() => { if (inFlight.get(key) === run) inFlight.delete(key); }).catch(() => undefined);
+    return run;
+  }
+
+  async function mirrorEntryNow(entry: any): Promise<void> {
     if (!entry || typeof entry !== 'object' || !entry.talkId || !entry.fullTalk || !Array.isArray(entry.fullTalk.questions)) {
       await bump({ skipped: 1 });
       return;
@@ -156,7 +170,7 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
     // `copied` is someone else's Talk kept in my list (talk-completion.ts): received, not mine.
     // `ignored` is a list state, not an answer (nothing is mirrored for it).
     if (entry.role === 'created') await mirrorCreated(entry);
-    else if (entry.role === 'answered' || entry.role === 'copied') await mirrorReceived(entry);
+    else if ((entry.role === 'answered' || entry.role === 'copied') && !options.ownTalksOnly) await mirrorReceived(entry);
   }
 
   return {
@@ -205,6 +219,16 @@ export function createGraphMirror(store: NodeStore, options: { randomBytes: (len
     },
 
     graph,
+
+    /**
+     * Mirror this one app Talk now, ahead of the queue (an offer is waiting on it), and return its
+     * graph id. A write of the same Talk already running is waited for, never repeated.
+     */
+    async ensure(entry: any): Promise<string | undefined> {
+      try { await mirrorEntry(entry); } catch (error) { options.log?.(`[device-graph] mirror failed: ${(error as Error).message}`); }
+      const legacy = await store.get(legacySoul(String(entry?.talkId ?? '')));
+      return (linkSoul(legacy?.talk) || '').slice(souls.event('').length) || undefined;
+    },
 
     /** The graph Talk id of an app Talk id (`myTalks` key), once mirrored. */
     async graphTalkId(oldTalkId: string): Promise<string | undefined> {

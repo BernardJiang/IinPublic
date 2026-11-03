@@ -19,3 +19,14 @@ export async function expectDeviceGraph(page: Page, label: string, expected: Rec
   await expect.poll(() => deviceGraphStatus(page), { timeout: 20_000, message: `${label}: device graph mirror` })
     .toMatchObject({ enabled: true, ...expected, mismatches: 0, errors: 0 });
 }
+
+/**
+ * OPEN-106 step 3: a graph event of this kind reached the page over a graph link (a Talk from
+ * `from`, or an answer from `from`). Reads `window.__iinpublic_graph_events`.
+ */
+export async function expectGraphEvent(page: Page, label: string, type: 'talk' | 'answer' | 'talk-deleted', from?: string): Promise<void> {
+  await expect.poll(() => page.evaluate(({ type, from }) => ((window as any).__iinpublic_graph_events ?? [])
+    .some((event: any) => event.type === type && (!from || event.from === from)), { type, from }), {
+    timeout: 30_000, message: `${label}: no ${type} event over a graph link`,
+  }).toBe(true);
+}

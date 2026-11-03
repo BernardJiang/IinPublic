@@ -50,6 +50,14 @@ export class CollectionStore {
     return Object.fromEntries(entries.filter((entry): entry is readonly [string, unknown] => !!entry));
   }
 
+  /** One entry, or undefined. */
+  async get(name: string, key: string): Promise<unknown> {
+    assertCollection(name);
+    const node = await this.store.get(entryPath(name as CoreCollection, key));
+    if (!node || typeof node.json !== 'string') return undefined;
+    try { return JSON.parse(node.json); } catch { return undefined; }
+  }
+
   /** Writes each entry whole; the caller has already merged it with what it replaces. */
   async upsert(name: string, entries: Record<string, unknown>): Promise<number> {
     assertCollection(name);

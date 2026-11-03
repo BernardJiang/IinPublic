@@ -37,7 +37,10 @@ function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefi
   if (!options) return { mirror: undefined, host: undefined, enabled: async () => false, invalidate: () => {} };
   const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
   const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}) });
-  const mirror = createGraphMirror(options.nodeStore, { randomBytes: options.randomBytes, graph, ...(options.log ? { log: options.log } : {}) });
+  const mirror = createGraphMirror(options.nodeStore, {
+    randomBytes: options.randomBytes, graph, ...(options.log ? { log: options.log } : {}),
+    ownTalksOnly: !!(options.gun && options.crypto),
+  });
   // Exact GPS points older than 30 days are erased at start and once a day (spec §31.7).
   if (options.gun) {
     const sweep = () => { void graph.location.sweep().catch((error) => options.log?.(`[device-graph] GPS sweep failed: ${(error as Error).message}`)); };
@@ -138,8 +141,14 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         // My Talk as the app keys it (`myTalks`): the mirror wrote it into the graph first.
         const sync = graph.host?.sync();
         if (!sync || !graph.mirror) return { offered: 0, known: false };
-        await graph.mirror.idle();
-        const talkId = await graph.mirror.graphTalkId(request.talkId);
+        // Only this Talk needs to be in the graph: mirror it now rather than wait for the queue.
+        let talkId = await graph.mirror.graphTalkId(request.talkId);
+        if (!talkId) {
+          const entry = await collections.get('myTalks', request.talkId);
+          if (entry) talkId = await graph.mirror.ensure(entry);
+        }
+        // Only a Talk I wrote is offered over the graph; a copied or received one goes the old way.
+        if (talkId && !(await options.deviceGraph!.nodeStore.get(`local/mine/talk/${talkId}`))) talkId = undefined;
         // Not in the graph (never saved through the core): the caller sends it the old way.
         if (!talkId) return { offered: 0, known: false };
         return { offered: await sync.offerTalk(talkId, request.recipients, request.context), known: true };
