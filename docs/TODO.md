@@ -57,6 +57,27 @@ its ID.
   filter for English and Chinese (a received Talk with an error is ignored whole, no spelling
   correction). §31.12 lists the open issues to settle before coding.
 
+  **Progress 2026-11-03.**
+  - Done (`c9068ed8`): deletes as events that clear indexes and propagate; people as
+    `person/<userId>`; GPS points erased after 30 days (`location-graph.ts`); 1 GB limit refusing
+    what others send (`storage-budget.ts`); spec §31.6, §31.9 (REQ-GRAPH-34..36), §31.10.
+  - Done (`6f31d723`): Talk exchange by Gun sync (`device-graph/sync/`): Talk versions as encrypted
+    nodes, per-pair signed hash-chained log (offers, answers, deletions), catch-up on connect,
+    audience filter (no `g/` soul to the hub or a third person), forged writes refused.
+  - Done (`623ee88c`): in the app, a `graph-gun` mesh frame carries the core's Gun over each direct
+    link (`graph-link-bridge.ts`, core `graph.*` requests); the graph store is on by default; every
+    whole-Talk delivery is also offered over the graph. e2e `talks-matching/09` proves Jerry
+    receives Tom's Talk over the link and nothing graph-shaped reaches the hub.
+  - Next, in order: (1) the receiver's incoming list and chatbot read the graph
+    (`graph.incoming`, `answers.chatbot`), answers go back by `sendAnswer`; (2) the author's
+    match check from `ix/theirs` (talk-engine) opens the conversation; (3) Talk edit/delete and
+    answer delete from the UI through the graph; (4) Me tab from `answers.me()`; (5) remove the
+    JSON Talk frames, the mirror and `ix/legacy`, and erase the old collections (§31.10); (6) graph
+    suppression (`ix/exchanged`) and partial tag bodies, which the old path still does; (7) GPS
+    sweep and storage warning in the UI; (8) real-phone run.
+  - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)
+    fail on the baseline too, before these changes.
+
   **Owner decisions 2026-11-03 (spec §31.12):** shared data encrypted (receivers read it with keys
   wrapped for their public keys); website unencrypted; exact GPS 30 days; keep the `prev` timeline;
   people keep the user ID design (several IDs per person allowed, each with its public key; never the stage name); 1 GB database limit, trimming old
