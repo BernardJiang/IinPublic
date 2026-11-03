@@ -51,9 +51,9 @@ import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, pu
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
 import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
-import { getAnsweredTalkByContent, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
+import { getAnsweredTalkId, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
-import { getMyTalks, setMyTalks } from '../ui/my-talks-storage';
+import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
@@ -6041,7 +6041,7 @@ export class IinPublicApp {
       enabled: () => this.uiManager.getChatbotEnabled(),
       handled: () => this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData)),
       contentId: () => computeTalkIdFromTalkData(talkData),
-      answeredBefore: (contentId) => answeredBeforeFor(contentId, authorId, getAnsweredTalkByContent(), getMyTalks()),
+      answeredBefore: (contentId) => answeredBeforeFor(contentId, authorId, getAnsweredTalkId, getMyTalk),
       hasAnswers: (contentId) => this.chatbotHasAnswersFor(talkId, contentId, talkData),
       passedTag: () => isPassedTag(talkData, getExactChatbotMemory(), Date.now()),
     });

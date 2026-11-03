@@ -63,6 +63,8 @@ export type AnswerPreferenceStore = {
   getAnswerPreferences(): Record<string, AnswerPreferenceEntry>;
   setAnswerPreferences(map: Record<string, AnswerPreferenceEntry>): void;
   getFlattenedAnswerPreferences(): Record<string, AnswerPreferenceEntry>;
+  /** One entry without copying the whole map: the chatbot does this once per question. */
+  getFlattenedAnswerPreference(key: string): AnswerPreferenceEntry | undefined;
   setFlattenedAnswerPreferences(map: Record<string, AnswerPreferenceEntry>): void;
   getQuestionDefaultContracts(): QuestionDefaultContractMap;
   setQuestionDefaultContracts(map: QuestionDefaultContractMap): void;
@@ -129,6 +131,7 @@ export function createAnswerPreferenceEngine(store: AnswerPreferenceStore) {
   const {
     getAnswerPreferences,
     getExactChatbotMemory,
+    getFlattenedAnswerPreference,
     getFlattenedAnswerPreferences,
     getQuestionDefaultContracts,
     getTypedPreferenceState,
@@ -271,13 +274,12 @@ export function createAnswerPreferenceEngine(store: AnswerPreferenceStore) {
     // stored and resolved atomically. Never fall back to the old question-text-only history:
     // a partial remembered set or a changed choice frame must be returned to the user.
     if (isMultiSelect && currentQuestion.text && (currentQuestion.answers || []).length > 0) {
-      const flatMap = getFlattenedAnswerPreferences();
       const resolveMultiFlatKey = (
         flatKey: string,
         autoAnswerReason: 'KNOWN_CONTEXT_MATCH' | 'KNOWN_ROOT_CONTEXT_MATCH',
         responseContextHash = flatKey.replace(/^flat_v\d+_/, ''),
       ) => {
-        const flat = flatMap[flatKey];
+        const flat = getFlattenedAnswerPreference(flatKey);
         if (
           !flat
           || flat.contextVersion !== ANSWER_CONTEXT_VERSION
@@ -333,7 +335,6 @@ export function createAnswerPreferenceEngine(store: AnswerPreferenceStore) {
     // position. This is still exact matching: question text, complete order-independent choice
     // set, language, talk type, selection mode, and Pair-tag scope must all be identical.
     if (!isMultiSelect && currentQuestion.text && (currentQuestion.answers || []).length > 0) {
-      const flatMap = getFlattenedAnswerPreferences();
       // Spec §30.2/§KK zero-click follow-up: a matchThreshold route's direct-child specs are
       // independent and order-independent by construction (talk-engine.ts) — the accumulated
       // sibling-answer history that `previousQAPairs` would otherwise carry is irrelevant (and
@@ -346,7 +347,7 @@ export function createAnswerPreferenceEngine(store: AnswerPreferenceStore) {
         autoAnswerReason: 'KNOWN_CONTEXT_MATCH' | 'KNOWN_ROOT_CONTEXT_MATCH',
         responseContextHash = flatKey.replace(/^flat_v\d+_/, ''),
       ) => {
-        const flat = flatMap[flatKey];
+        const flat = getFlattenedAnswerPreference(flatKey);
         if (!flat || flat.contextVersion !== ANSWER_CONTEXT_VERSION || !flat.contextHash) return null;
         const matchingAnswer = (currentQuestion.answers || []).find(
           (answer: any) => normalizeIdentityText(answer?.text) === normalizeIdentityText(flat.answerText),

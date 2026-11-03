@@ -24,10 +24,11 @@ describe('talk rules', () => {
   });
 
   it('answered before: only for a sender my answered copy lists', () => {
-    const myTalks = { copy: { senders: ['ann'] } };
-    expect(answeredBeforeFor('cid', 'ann', { cid: 'copy' }, myTalks)).toBe(true);
-    expect(answeredBeforeFor('cid', 'bob', { cid: 'copy' }, myTalks)).toBe(false);
-    expect(answeredBeforeFor('', 'ann', { cid: 'copy' }, myTalks)).toBe(false);
+    const answered = (contentId: string) => (contentId === 'cid' ? 'copy' : undefined);
+    const myTalk = (talkId: string) => (talkId === 'copy' ? { senders: ['ann'] } : undefined);
+    expect(answeredBeforeFor('cid', 'ann', answered, myTalk)).toBe(true);
+    expect(answeredBeforeFor('cid', 'bob', answered, myTalk)).toBe(false);
+    expect(answeredBeforeFor('', 'ann', answered, myTalk)).toBe(false);
   });
 
   it('a one-keyword tag I passed is passed; one I did not is not', () => {

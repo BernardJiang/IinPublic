@@ -62,6 +62,19 @@ function isTransientSignalRadataFile(fileName: string): boolean {
 }
 
 /**
+ * Keep the error that is about to end Node. The stdio log drops the last lines when the process
+ * exits at once, and logcat rotates within hours, so a morning check found no cause.
+ */
+export function recordFatalError(dataDir: string, err: unknown): void {
+  try {
+    const detail = err instanceof Error ? err.stack || err.message : String(err);
+    fs.writeFileSync(path.join(dataDir, 'node-last-crash.log'), `${new Date().toISOString()}\n${detail}\n`);
+  } catch {
+    /* The crash itself still has to surface. */
+  }
+}
+
+/**
  * Older embedded builds allowed peer-originated Gun signaling frames to pass
  * around the server persistence wrapper and land in Radisk. Those frames are
  * ephemeral transport data, but an established Android profile can contain
@@ -327,6 +340,7 @@ function installRadiskCorruptionGuard(dataDir: string): void {
       quarantineRadiskRootIndex(dataDir);
       return;
     }
+    recordFatalError(dataDir, err);
     throw err;
   });
 

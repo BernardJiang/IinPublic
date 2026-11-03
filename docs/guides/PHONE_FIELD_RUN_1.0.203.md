@@ -64,8 +64,10 @@ summary and any failure is useful; redact private replies before sharing it.
    distance, indoor/outdoor segments, when a phone loses GPS, and when Nearby peers disappear and
    reappear. Broadcast the distinct `walk-return` Talk on the return. Verify the outing review has
    both encounters, rather than overwriting the first one, and that each Talk result appears once.
-4. For a late reply, broadcast another distinct Talk, immediately tap **Stop collecting**, then
-   allow the receiver's answer. Reopen the ended outing review after the reply. Record whether its
+4. For a late reply, broadcast another distinct Talk, immediately untick **Collect nearby matches**
+   in Settings (the old **Stop collecting** button is gone), then
+   allow the receiver's answer. Reopen the ended outing review after the reply, from **Review
+   collection** in Settings under that same option. Record whether its
    reached/pending/replied/matched counts change, and whether the late row appears exactly once.
    Restart the author app once and check that the ended outing and its rows remain.
 5. On a real transit/subway trip (or a genuine tunnel/indoor route with location loss, recorded as

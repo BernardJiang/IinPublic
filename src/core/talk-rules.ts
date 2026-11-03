@@ -63,11 +63,11 @@ export function matchScoreParamsFor(talkData: any, answers: any[]): { matchScore
 export function answeredBeforeFor(
   contentId: string,
   authorId: string,
-  answeredTalkByContent: Record<string, string>,
-  myTalks: Record<string, { senders?: string[] | undefined } | undefined>,
+  answeredTalkFor: (contentId: string) => string | undefined,
+  myTalkFor: (talkId: string) => { senders?: string[] | undefined } | undefined,
 ): boolean {
-  const answeredTalkId = contentId ? answeredTalkByContent[contentId] : undefined;
-  const answeredSenders = answeredTalkId ? myTalks[answeredTalkId]?.senders || [] : [];
+  const answeredTalkId = contentId ? answeredTalkFor(contentId) : undefined;
+  const answeredSenders = answeredTalkId ? myTalkFor(answeredTalkId)?.senders || [] : [];
   return answeredSenders.includes(authorId);
 }
 

@@ -375,7 +375,9 @@ export async function displayConversationMessages(
       // from senderId here so a user's own DMs render with the "message-own" style
       // instead of always falling through to "message-other".
       const isOwn = !!deps.currentUserId && String(msg.senderId || '') === deps.currentUserId;
-      const text = String(msg.text || '');
+      const rawText = String(msg.text || '');
+      // The store keeps ciphertext it could not decrypt so a later read can retry; never show it.
+      const text = rawText.startsWith('SEA{') ? deps.t('conversationMessageUnreadable') : rawText;
       // Matched-talk IPFS auto-share (L5): render the shared photo/file as an attachment
       // card (with an image preview once the decrypted bytes arrive) instead of raw JSON.
       const share = deps.parseIpfsSharePayload(text);

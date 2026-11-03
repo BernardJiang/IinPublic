@@ -18,7 +18,7 @@ export function normalizePreferenceMode(mode: string, contextVersion?: number): 
   return 'manual';
 }
 
-export type AnswerPreferenceMutationStore = Omit<AnswerPreferenceStore, 'getTypedPreferenceState' | 'getMyTalks' | 'getLocationAutoMatchConsent'>;
+export type AnswerPreferenceMutationStore = Omit<AnswerPreferenceStore, 'getFlattenedAnswerPreference' | 'getTypedPreferenceState' | 'getMyTalks' | 'getLocationAutoMatchConsent'>;
 
 export function createAnswerPreferenceMutations(store: AnswerPreferenceMutationStore) {
   const {

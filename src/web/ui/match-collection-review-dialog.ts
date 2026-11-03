@@ -119,9 +119,10 @@ export function showMatchCollectionReviewDialog(deps: MatchCollectionReviewDialo
       const reasons = person.reasons.map((reason) => format(deps.text(REASON_KEYS[reason]), {
         count: reason === 'breadth' ? person.matchedTalks : person.weightedMatches,
       }));
+      const myTalks = getMyTalks();
       const history = person.results.map((result) => {
         const late = session.endedAt && Date.parse(result.capturedAt) > Date.parse(session.endedAt);
-        return `<li>${escapeHtml(result.outcome)} · ${escapeHtml(result.talkId)}${late ? ` · ${escapeHtml(deps.text('matchCollectionLate'))}` : ''}</li>`;
+        return `<li>${escapeHtml(result.outcome)} · ${escapeHtml(myTalks[result.talkId]?.fullTalk?.title || result.talkId)}${late ? ` · ${escapeHtml(deps.text('matchCollectionLate'))}` : ''}</li>`;
       }).join('');
       return `<section data-testid="match-collection-person" data-peer-id="${escapeHtml(person.peerId)}" style="border:1px solid var(--border);border-radius:10px;padding:12px;${person.dismissed ? 'opacity:0.62;' : ''}">
         <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;">

@@ -71,6 +71,16 @@ export function setAnswerPreferences(map: AnswerPreferenceMap): void {
   stores.answerPreferences.set(map);
 }
 
+/** One entry without copying the map. The caller must not change it. */
+export function getFlattenedAnswerPreference(key: string): AnswerPreferenceEntry | undefined {
+  return flattenedAnswerPreferencesView.get(key) as AnswerPreferenceEntry | undefined;
+}
+
+/** The Talk answered for this content id, without copying the map. */
+export function getAnsweredTalkId(contentId: string): string | undefined {
+  return answeredTalkByContentView.get(contentId);
+}
+
 export function getFlattenedAnswerPreferences(): AnswerPreferenceMap {
   return stores.flattenedAnswerPreferences.get();
 }

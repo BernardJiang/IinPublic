@@ -6,6 +6,7 @@ import { createAnswerPreferenceEngine } from '../../core/answer-preference-engin
 import {
   getAnswerPreferences,
   getExactChatbotMemory,
+  getFlattenedAnswerPreference,
   getFlattenedAnswerPreferences,
   getQuestionDefaultContracts,
   getTypedPreferenceState,
@@ -22,6 +23,7 @@ export { myMostRecentLocationTalk } from '../../core/answer-preference-engine';
 const engine = createAnswerPreferenceEngine({
   getAnswerPreferences,
   getExactChatbotMemory,
+  getFlattenedAnswerPreference,
   getFlattenedAnswerPreferences,
   getQuestionDefaultContracts,
   getTypedPreferenceState,

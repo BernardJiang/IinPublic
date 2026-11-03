@@ -68,7 +68,9 @@ type AnswerVariant = {
    *  the actual grouping key (see AnswerQuestionGroup's doc comment). Absent for talks
    *  answered before this field existed. */
   questionContentId?: string;
-  contextKey: string; // '' = universal/context-free; else contextHash || contextLabel
+  // '' = universal/context-free; else the readable label. Not `contextHash`: that hashes only
+  // positional ids (q_0:a_0_0), so the same step of two unrelated Talks shares one hash.
+  contextKey: string;
   contextLabel: string;
   talkId: string;
   talkTitle: string;
@@ -255,8 +257,7 @@ export function buildAnswerItemModels(
     }, undefined);
     const contextPath = formatQuestionContext(talk, question);
     const contextLabel = contextPath.join(' · ');
-    const contextHash = String(question?.contextHashId || '').trim();
-    const contextKey = talkType === 'tag' || talkType === 'survey' ? '' : (contextHash || contextLabel);
+    const contextKey = talkType === 'tag' || talkType === 'survey' ? '' : contextLabel;
     const questionContentId = String(question?.cidId || '').trim();
     return {
       questionId: entry.questionId,
@@ -327,7 +328,7 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
           return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
         }, undefined);
         const contextLabel = deriveContextLabelFromFlatRecord(record, item, itemIndex, myTalks);
-        const contextKey = item.contextHash || contextLabel || '';
+        const contextKey = contextLabel || '';
         pushVariant(item.prompt, {
           questionId: item.questionId,
           ...(item.questionContentId ? { questionContentId: item.questionContentId } : {}),
@@ -397,12 +398,11 @@ function distinctContextKeys(group: AnswerQuestionGroup): string[] {
   return Array.from(keys);
 }
 
-/** One variant per distinct context key (most recent instance of each), for the detail
- *  popup's per-context breakdown. */
+/** One variant per distinct context key (most recent instance of each), for the row's
+ *  per-context lines. A context-free answer keeps its own line beside the others. */
 function contextVariantsFor(group: AnswerQuestionGroup): AnswerVariant[] {
   const seen = new Map<string, AnswerVariant>();
   group.variants.forEach((variant) => {
-    if (!variant.contextKey) return;
     if (!seen.has(variant.contextKey)) seen.set(variant.contextKey, variant);
   });
   return Array.from(seen.values());

@@ -374,6 +374,9 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
     setMatchCollectionEnabled(enabled);
     deps.emit('matchCollectionSettingChanged', { enabled });
   });
+  document.getElementById('settings-match-collection-review')?.addEventListener('click', (event) => {
+    deps.emit('reviewMatchCollection', { sessionId: (event.currentTarget as HTMLElement).dataset.sessionId });
+  });
   document.getElementById('settings-encounter-location-set')?.addEventListener('click', () => {
     const current = getEncounterLocation();
     showEncounterLocationPicker({

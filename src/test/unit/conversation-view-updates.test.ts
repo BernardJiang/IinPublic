@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { showConversationDetail, type ConversationDetailViewDeps } from '../../web/ui/conversation-detail-view';
+import { displayConversationMessages, showConversationDetail, type ConversationDetailViewDeps } from '../../web/ui/conversation-detail-view';
 import {
   addNewConversation,
   syncConversationMessageSummary,
@@ -48,6 +48,35 @@ describe('conversation view and list update extraction', () => {
 
     expect(warning).toHaveBeenCalledWith('showConversationDetail: conversation not found', 'missing');
     warning.mockRestore();
+  });
+
+  it('never shows ciphertext it could not decrypt', async () => {
+    document.body.innerHTML = '<div id="conversation-messages"></div>';
+    const deps = {
+      getCurrentConversationId: () => 'c1',
+      bindCapturedQuestionChipDelegation: jest.fn(),
+      getMyConversations: () => ({ c1: { conversationId: 'c1' } }),
+      messageInCurrentThread: () => true,
+      setLastConversationMessages: jest.fn(),
+      parseIpfsSharePayload: () => null,
+      shouldHideIncomingMessage: () => ({ passed: true }),
+      formatTalkRelativeTime: () => 'now',
+      showContentFilterToast: jest.fn(),
+      hydrateAttachmentImages: jest.fn(),
+      hiddenMessageToastIds: new Set(),
+      currentUserId: 'me',
+      t: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+    } as unknown as ConversationDetailViewDeps;
+
+    await displayConversationMessages('c1', [
+      { id: 'm1', senderId: 'peer', text: 'SEA{"ct":"abc","iv":"def","s":"ghi"}', timestamp: 1 },
+      { id: 'm2', senderId: 'peer', text: 'hello', timestamp: 2 },
+    ], deps);
+
+    const rendered = document.getElementById('conversation-messages')?.textContent ?? '';
+    expect(rendered).toContain('This message could not be decrypted.');
+    expect(rendered).toContain('hello');
+    expect(rendered).not.toContain('SEA{');
   });
 
   it('keeps a DM draft while persistence is pending and allows Back immediately', () => {
