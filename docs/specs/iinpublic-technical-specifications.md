@@ -7520,6 +7520,34 @@ are kept for the owner's own history but are not offered again until edited.
 Settled by the owner on 2026-11-02 and now in §31.3: the Talk key (none; the question is the key),
 full-length revision and context hashes, built-in values as choices, edits as events, exact text.
 
+Settled by the owner on 2026-11-03 (items 7–17 below are closed by this list and by #7):
+
+- **Shared records are encrypted** (#8). Only the people a record is shared with can read it: they
+  get the key from the author, which is wrapped for each receiver's public key.
+- **No encryption at rest on the website** (#9). The browser graph is stored unencrypted, as today's
+  `local/` collections are. Phones still encrypt at rest with an Android Keystore key.
+- **Exact GPS kept 30 days** (#10), then only the blurred cell remains.
+- **Keep the provable timeline** (#11): shared events carry a `prev` link to the author's previous
+  shared event, so order and completeness can be checked (§20.1 stays).
+- **People keep the user ID design** (#12, revised by the owner 2026-11-03): a person is
+  identified by user ID, as today, and one person may hold several user IDs (one per device, or one
+  used over Wi-Fi Direct), which is more flexible than one key per person. Each user ID carries its
+  public key, which signs that user's records and receives wrapped keys; the stage name is never a
+  key. Graph person records are `person/<userId>` with `pub` as a field.
+- **1 GB database limit** (#13), set by the owner. Trimming of old data comes later, as its own
+  piece of work; until then the app reports when the store nears the limit.
+- **Deletion propagates** (#14): deleting an answer or a Talk writes a delete event that is synced to
+  contacts like any other edit, and their devices remove their copies.
+- **No backward compatibility** (#15): the graph has not shipped, so there is no mixed-version
+  period, no migration of old records and no dual-format reads. `ix/legacy` and the mirror's
+  comparison with the old collections exist only for testing during development.
+- **Chat messages stay out of the first release** (#16): they keep their pair-encrypted store
+  (`gun-message-store.ts`) and become events in a later release.
+- **Old data is erased, not mapped** (#17): when the graph replaces the old collections, their records
+  (including `chatbotTemplates`, `typedPreferenceState`, `tagOppositePairRegistry`,
+  `dealTalkByConversation`, `needKeyByConversation`) are deleted from the device. Features that still
+  need any of this state get it as new graph records, starting empty.
+
 Defects in today's code, to fix with the graph or before it:
 
 1. **32-bit keys.** `qa_` Talk identity keys (about 20 source files), `rev_` revision hashes and
@@ -7541,7 +7569,7 @@ Decisions still needed:
 5. (merged into 4)
 6. (merged into 4)
 7. **Language in the key.** The same exact text in two languages ("Taxi?") is two questions.
-   Proposed: keep, as today.
+   Decided 2026-11-03: keep, as today.
 8. **Encrypted or public** shared records (open since 2026-11-01).
 9. **Encryption at rest** by a store adapter with an Android Keystore key, and the website without a
    keystore.

@@ -57,6 +57,14 @@ its ID.
   filter for English and Chinese (a received Talk with an error is ignored whole, no spelling
   correction). §31.12 lists the open issues to settle before coding.
 
+  **Owner decisions 2026-11-03 (spec §31.12):** shared data encrypted (receivers read it with keys
+  wrapped for their public keys); website unencrypted; exact GPS 30 days; keep the `prev` timeline;
+  people keep the user ID design (several IDs per person allowed, each with its public key; never the stage name); 1 GB database limit, trimming old
+  data is a later task; deleted answers and Talks propagate to contacts; **no backward
+  compatibility** (nothing shipped yet: no migration, no mixed versions, no dual-format reads).
+  Chat messages are not in the graph's first release. Old collections are erased when the graph
+  takes over, not mapped. Same text in two languages is two questions (§31.12 #7).
+
   **Full design:** `docs/design/device-graph.md` (draft). It widens this issue from questions to the
   one graph behind all four tabs: people, contacts, places, GPS, exchanges and reverse edges, plus how
   encryption and communication work with it. The sections below cover the question and Talk part.

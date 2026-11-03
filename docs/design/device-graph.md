@@ -530,6 +530,13 @@ copy the text again: on C10 one question's text was stored 10 times in 7 collect
 
 ## Decisions for the owner
 
+**Answered 2026-11-03** (see spec §31.12): shared data encrypted, readable by the receivers'
+public keys; no encryption on the website; exact GPS 30 days; keep the signed `prev` timeline;
+people keep the user ID design (several IDs per person, each with its public key); 1 GB database limit with trimming developed later; deletes of
+answers and Talks propagate to contacts; no backward compatibility. Items 1–4, 6 and 7 below are
+settled by this (4 as user ID, not `pub`); 5 stands as proposed.
+
+
 1. **Encryption at rest.** Chunk encryption with a Keystore key, replacing the encrypted Talk copy.
 2. **Website.** A browser has no Keystore. Options: leave the graph unencrypted as today's `local/`
    collections are, keep a key in the browser (weak), or ask for a passphrase at start.
