@@ -38,6 +38,13 @@ function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefi
   const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
   const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}) });
   const mirror = createGraphMirror(options.nodeStore, { randomBytes: options.randomBytes, graph, ...(options.log ? { log: options.log } : {}) });
+  // Exact GPS points older than 30 days are erased at start and once a day (spec §31.7).
+  if (options.gun) {
+    const sweep = () => { void graph.location.sweep().catch((error) => options.log?.(`[device-graph] GPS sweep failed: ${(error as Error).message}`)); };
+    setTimeout(sweep, 60_000);
+    const daily = setInterval(sweep, 86_400_000);
+    (daily as { unref?: () => void }).unref?.();
+  }
   const host = options.gun && options.crypto
     ? createGraphHost({ gun: options.gun, store: options.nodeStore, graph, crypto: options.crypto, ...(options.log ? { log: options.log } : {}) })
     : undefined;

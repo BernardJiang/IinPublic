@@ -6500,6 +6500,7 @@ export class IinPublicApp {
       if (typeof window !== 'undefined') {
         (window as any).__iinpublic_graph_status = () => this.coreRequest?.({ name: 'graph.status' }) ?? null;
       }
+      this.watchGraphStorage();
     } catch (error) {
       console.warn('[graph-link] could not start:', error);
     }
@@ -6540,6 +6541,27 @@ export class IinPublicApp {
     const diag = this.meshAnnounceDiagnostics;
     if (!diag.received.some((r) => r.talkId === appTalkId && r.authorId === event.from)) diag.received.push({ talkId: appTalkId, authorId: event.from });
     void this.handleMeshTalkBody(payload).catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
+  }
+
+  /**
+   * The device graph's 1 GB limit (owner decision 2026-11-03): warn once when the store is nearly
+   * full, and again when it is full and refuses what others send. Checked every 10 minutes.
+   */
+  private graphStorageWatch: ReturnType<typeof setInterval> | null = null;
+  private graphStorageWarned: string | null = null;
+  private watchGraphStorage(): void {
+    if (this.graphStorageWatch) return;
+    const check = async () => {
+      const status = await this.coreRequest?.({ name: 'graph.status' }).catch(() => null) as { storage?: { level?: string; usedBytes?: number } } | null;
+      const level = status?.storage?.level;
+      if ((level !== 'near' && level !== 'full') || this.graphStorageWarned === level) return;
+      this.graphStorageWarned = level;
+      const usedMb = Math.round((status?.storage?.usedBytes ?? 0) / 1_000_000);
+      const message = uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), level === 'full' ? 'graphStorageFull' : 'graphStorageNear').replace('{count}', String(usedMb));
+      this.uiManager.showNotification(message, 'warning');
+    };
+    void check();
+    this.graphStorageWatch = setInterval(() => { void check(); }, 600_000);
   }
 
   /** Someone answered my Talk over a graph link: the same ingest as a response frame's. */
