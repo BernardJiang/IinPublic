@@ -68,13 +68,20 @@ its ID.
     link (`graph-link-bridge.ts`, core `graph.*` requests); the graph store is on by default; every
     whole-Talk delivery is also offered over the graph. e2e `talks-matching/09` proves Jerry
     receives Tom's Talk over the link and nothing graph-shaped reaches the hub.
-  - Next, in order: (1) the receiver's incoming list and chatbot read the graph
-    (`graph.incoming`, `answers.chatbot`), answers go back by `sendAnswer`; (2) the author's
-    match check from `ix/theirs` (talk-engine) opens the conversation; (3) Talk edit/delete and
-    answer delete from the UI through the graph; (4) Me tab from `answers.me()`; (5) remove the
-    JSON Talk frames, the mirror and `ix/legacy`, and erase the old collections (§31.10); (6) graph
-    suppression (`ix/exchanged`) and partial tag bodies, which the old path still does; (7) GPS
-    sweep and storage warning in the UI; (8) real-phone run.
+  - Done (`ee5892f7`, `a1363d8f`, `336a8b11`): whole-Talk deliveries go over the graph instead of
+    Talk frames (frames remain for Talks not in the graph, copied templates and partial tag bodies);
+    the receiver feeds them into the existing intake, incoming list and chatbot; answers go back as
+    answer events with the app's response id and version, and the author's existing ingest decides
+    the match and opens the conversation; retractions are graph deletions. Grammar corrected on
+    write. GPS sweep daily; storage warning near/at 1 GB. Stalled logs retry; log blocks stay
+    subscribed. phone-path 15/16, talks-matching 13/15, unit all pass.
+  - Next, in order: (1) Me tab from `answers.me()` (the receiver's graph answers are written by
+    `graph.answer`); (2) remove the JSON Talk frames, mailbox fallback for Talks, the mirror and
+    `ix/legacy`, and key the app's Talks by graph ids; erase the old collections (§31.10);
+    (3) graph suppression (`ix/exchanged`) and partial tag bodies; (4) "delete my answer" in the UI
+    (no such control today); (5) real-phone run (native-app/37 now asserts graph events).
+  - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
+    adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)
     fail on the baseline too, before these changes.
 
