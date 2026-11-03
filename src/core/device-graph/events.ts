@@ -12,9 +12,11 @@
  *   gave                my answer                  → ix/ctx, ix/q/<key>/mine, ix/me, ix/typed, ix/answered, ix/talk, ix/person
  *   talk, re, no gave   an arrival                 → ix/received, ix/incoming, ix/person
  *   deleted, no by      I deleted my Talk (re → a version) or my answer (re → an answer event)
- *   deleted and by      the author deleted a Talk I received   → ix/deleted, off ix/incoming
+ *   gave and by         someone's answer to my Talk → ix/theirs, ix/q/<key>/theirs, ix/talk, ix/person
+ *   deleted and by      the author deleted a Talk I received   → ix/deleted, off ix/incoming;
+ *                       or (re → their answer) someone deleted their answer → off ix/theirs …
  */
-import { answerIndexClears } from './answers';
+import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
 import { addToIndex, bucketOf, readIndex } from './index-buckets';
 import { personIdOf } from './people-graph';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
@@ -67,7 +69,12 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
     if (event.deleted === true) {
       const target = linkSoul(event.re);
       const targetEvent = target ? await store.get(target) : null;
-      if (event.by && talkSoul) {
+      if (event.by && talkSoul && linkSoul(targetEvent?.gave) && target) {
+        // Someone deleted their answer to my Talk.
+        const talkId = idOf(talkSoul);
+        const byUser = personIdOf(prefix, linkSoul(event.by));
+        deletions.push((view) => theirAnswerClears(view, souls, talkId, byUser, idOf(target)));
+      } else if (event.by && talkSoul) {
         const talkId = idOf(talkSoul);
         await ensure(souls.index(`deleted/${talkId}`), { ev: link(souls.event(id)) });
         deletions.push(async (view) => {
@@ -94,6 +101,17 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
         }
       }
       if (!talkSoul) await ensureListed(souls.index('mine-talks'), talkId, souls.mine(`talk/${talkId}`), when);
+    } else if (linkSoul(event.gave) && talkSoul && event.by) {
+      // Someone else's answer to my Talk.
+      const talkId = idOf(talkSoul);
+      const byUser = personIdOf(prefix, linkSoul(event.by));
+      const questions = await store.get(theirQuestionsSoul(souls, id));
+      for (const questionKey of new Set(Object.values(questions || {}).filter((k): k is string => typeof k === 'string'))) {
+        await ensure(souls.index(`q/${questionKey}/theirs`), { [id]: link(souls.event(id)) });
+      }
+      await ensure(souls.index(`theirs/${talkId}`), { [byUser]: link(souls.event(id)) });
+      await ensureListed(souls.index(`talk/${talkId}/ev`), id, souls.event(id), when);
+      await ensureListed(souls.index(`person/${encodeURIComponent(byUser)}/ev`), id, souls.event(id), when);
     } else if (linkSoul(event.gave) && talkSoul) {
       const talkId = idOf(talkSoul);
       const questions = await store.get(answerQuestionsSoul(souls, id));

@@ -11,12 +11,17 @@
  *   ix/me                    bucketed: questionKey → ix/q/<questionKey>/mine
  *   ix/answered/<talkId>     { ev: →ev/… }                          "already answered"
  *   ev/<deleteId>            { v, when, device, with?, talk, re: →my answer, deleted: true }
+ *
+ * Someone else's answer to my Talk (received over the pair's link, `sync/graph-sync.ts`):
+ *   ev/<theirId>             { v, when, device, by: →person, talk, re?, gave: →s/…, mode }
+ *   ix/theirs/<talkId>       { <userId>: →ev/<theirId> }            their latest answer, per person
+ *   ix/q/<questionKey>/theirs { <theirId>: →ev/<theirId> }          Me → Contacts
  *   ix/talk/<talkId>/ev, ix/person/<userId>/ev   bucketed event lists
  *
  * Repeating the same answers writes one new answer event and no content (REQ-GRAPH-22).
  */
 import { answerQuestionsSoul, putEvent } from './events';
-import { personSoul } from './people-graph';
+import { personIdOf, personSoul, personWrites } from './people-graph';
 import { ageRangeMutuallyAcceptable, intervalsOverlap, quantitySufficient } from '../../shared/built-in-comparisons';
 import { pickBuiltInAnswer } from '../../shared/built-in-question-resolution';
 import { singleNonIgnoreAnswer } from '../../shared/talk-engine';
@@ -167,6 +172,77 @@ export async function answerIndexClears(store: Pick<NodeStore, 'get'>, souls: Re
   return out;
 }
 
+/** Which question each situation of someone else's answer belongs to (private, like mine). */
+export const theirQuestionsSoul = (souls: ReturnType<typeof graphSouls>, eventId: string) => `${souls.event(eventId)}/tq`;
+
+/**
+ * Every situation my Talk can be answered in, from the author's side, with the choice keys offered
+ * there. A route or flow is walked along every choice, so each reachable parent answer is covered;
+ * a multiple-choice question is entered with each single choice and with every subset seen in
+ * answers up to 2^6, beyond which only singles and the full set are covered.
+ */
+export function allSituations(structure: TalkStructure, perspective: Perspective): Array<{ contextHash: string; questionId: string; questionKey: string; choices: Set<string> }> {
+  const byId = new Map(structure.questions.map((q) => [q.id, q]));
+  const out = new Map<string, { contextHash: string; questionId: string; questionKey: string; choices: Set<string> }>();
+  const subsets = (ids: string[]): string[][] => {
+    if (ids.length > 6) return [...ids.map((id) => [id]), ids];
+    const all: string[][] = [];
+    for (let mask = 1; mask < 1 << ids.length; mask += 1) all.push(ids.filter((_, i) => mask & (1 << i)));
+    return all;
+  };
+  const visit = (steps: AnswerStep[], qid: string, depth: number) => {
+    const question = byId.get(qid);
+    if (!question || depth > structure.questions.length + 1 || steps.some((s) => s.questionId === qid)) return;
+    const [here] = situate(structure, [...steps, { questionId: qid, answerIds: [] }], perspective).slice(-1);
+    out.set(here!.contextHash, { contextHash: here!.contextHash, questionId: qid, questionKey: here!.questionKey, choices: new Set(question.answers.map((a) => answerKey(a.text))) });
+    if (structure.type === 'survey') return;
+    const ids = question.answers.map((a) => a.id);
+    for (const chosen of question.answerSelectionMode === 'multiple' ? subsets(ids) : ids.map((id) => [id])) {
+      const answers = question.answers.filter((a) => chosen.includes(a.id));
+      if (answers.some((a) => a.isTerminal || a.isIgnore)) continue;
+      const step = { questionId: qid, answerIds: chosen };
+      const next = answers.flatMap((a) => a.nextQuestionIds || (a.nextQuestionId ? [a.nextQuestionId] : []));
+      for (const branch of question.branchingLogic || []) if (chosen.includes(branch.answerId)) next.push(branch.nextQuestionId);
+      if (!next.length && question.nextQuestionId) next.push(question.nextQuestionId);
+      for (const nextId of new Set(next)) visit([...steps, step], nextId, depth + 1);
+    }
+  };
+  if (structure.type === 'survey') for (const q of structure.questions) visit([], q.id, 0);
+  else if (structure.type === 'route') {
+    // A route question's situation follows its context path, not the walk order.
+    for (const q of structure.questions) {
+      const path = q.contextPath || [];
+      const steps: AnswerStep[] = path.map((s) => ({ questionId: s.questionId, answerIds: [s.answerId] }));
+      try {
+        const [here] = situate(structure, [...steps, { questionId: q.id, answerIds: [] }], perspective).slice(-1);
+        out.set(here!.contextHash, { contextHash: here!.contextHash, questionId: q.id, questionKey: here!.questionKey, choices: new Set(q.answers.map((a) => answerKey(a.text))) });
+      } catch { /* a path through a missing step cannot be answered */ }
+    }
+    if (structure.questions[0]) visit([], structure.questions[0].id, 0);
+  } else if (structure.questions[0]) visit([], structure.questions[0].id, 0);
+  return [...out.values()];
+}
+
+/** The index writes that forget one person's answers to my Talk (their latest and those it replaced). */
+export async function theirAnswerClears(store: Pick<NodeStore, 'get'>, souls: ReturnType<typeof graphSouls>, talkId: string, byUser: string, answerEventId: string): Promise<Array<[string, GraphNode]>> {
+  const out: Array<[string, GraphNode]> = [];
+  const seen = new Set<string>();
+  let current: string | undefined = answerEventId;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const [event, questions]: [GraphNode | null, GraphNode | null] = await Promise.all([store.get(souls.event(current)), store.get(theirQuestionsSoul(souls, current))]);
+    for (const questionKey of new Set(Object.values(questions || {}).filter((k): k is string => typeof k === 'string'))) {
+      out.push([souls.index(`q/${questionKey}/theirs`), { [current]: null }]);
+    }
+    const when = Number(event?.when ?? 0);
+    if (when) out.push([`${souls.index(`talk/${talkId}/ev`)}/${new Date(when).toISOString().slice(0, 7)}`, { [current]: null }]);
+    current = (linkSoul(event?.replaces) || '').slice(souls.event('').length) || undefined;
+  }
+  const theirs = await store.get(souls.index(`theirs/${talkId}`));
+  if (seen.has((linkSoul(theirs?.[byUser]) || '').slice(souls.event('').length))) out.push([souls.index(`theirs/${talkId}`), { [byUser]: null }]);
+  return out;
+}
+
 export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number } = {}) {
   const souls = graphSouls(options.prefix);
   const now = options.now ?? Date.now;
@@ -269,6 +345,117 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       const clears = await answerIndexClears(store, souls, latest);
       await Promise.all([putEvent(store, souls, eventId, event), ...clears.map(([soul, node]) => store.put(soul, node))]);
       return eventId;
+    },
+
+    /**
+     * Someone answered my Talk. Their answer set is stored from keys only (every choice is one of
+     * my Talk's, whose text I hold), with their event, and indexed for the Talk, the person and the
+     * questions. A repeat of the same event writes nothing new. Returns false when an answer names
+     * a situation or choice my Talk does not have.
+     */
+    async receiveAnswer(params: {
+      talkId: string;
+      structure: TalkStructure;
+      eventId: string;
+      byUser: string;
+      when: number;
+      device: string;
+      mode: string;
+      set: Record<string, AnswerSetEntry>;
+      replaces?: string;
+    }): Promise<boolean> {
+      // My Talk's situations as the responder computed them (a Pair tag reads from their side), by
+      // walking every answer path it allows; indexed under my own key for each question.
+      const authorKeys = questionKeysOf(params.structure, 'author');
+      const known = new Map<string, { questionKey: string; choices: Set<string> }>();
+      for (const situated of allSituations(params.structure, 'responder')) {
+        known.set(situated.contextHash, { questionKey: authorKeys.get(situated.questionId)!, choices: situated.choices });
+      }
+      const entries = Object.entries(params.set);
+      if (!entries.length || entries.some(([context, entry]) => {
+        const at = known.get(context);
+        return !at || ('choices' in entry && entry.choices.some((c) => !at.choices.has(c)));
+      })) return false;
+      if (await store.get(souls.event(params.eventId))) return true;
+      const key = answerSetKey(params.set);
+      const nodes: Array<[string, GraphNode]> = entries.map(([context, entry]) => {
+        let node: GraphNode;
+        if ('typed' in entry) node = { ...entry.typed } as GraphNode;
+        else if (entry.choices.length === 1) node = { a: link(souls.answer(entry.choices[0]!)) };
+        else {
+          const sorted = [...new Set(entry.choices)].sort();
+          node = { n: sorted.length, ...Object.fromEntries(sorted.map((c, i) => [String(i), link(souls.answer(c))])) };
+        }
+        return [souls.answerSetEntry(key, context), node];
+      });
+      nodes.push([souls.answerSet(key), { v }]);
+      const exists = await Promise.all(nodes.map(([soul]) => store.get(soul)));
+      const prefix = options.prefix ?? 'local/';
+      const people = await personWrites(store, prefix, [{ userId: params.byUser }], now());
+      const event: GraphNode = {
+        v, when: params.when, device: params.device, by: link(personSoul(prefix, params.byUser)),
+        talk: link(souls.event(params.talkId)), gave: link(souls.answerSet(key)), mode: params.mode,
+      };
+      if (params.replaces) event.replaces = link(souls.event(params.replaces));
+      const at = link(souls.event(params.eventId));
+      const userKey = encodeURIComponent(params.byUser);
+      await Promise.all([
+        ...nodes.filter((_, i) => !exists[i]).map(([soul, node]) => store.put(soul, node)),
+        ...people.map(([soul, node]) => store.put(soul, node)),
+        store.put(theirQuestionsSoul(souls, params.eventId), Object.fromEntries(entries.map(([context]) => [context, known.get(context)!.questionKey]))),
+        putEvent(store, souls, params.eventId, event),
+        store.put(souls.index(`theirs/${params.talkId}`), { [params.byUser]: at }),
+        ...entries.map(([context]) => store.put(souls.index(`q/${known.get(context)!.questionKey}/theirs`), { [params.eventId]: at })),
+        addToIndex(store, souls.index(`talk/${params.talkId}/ev`), { key: params.eventId, target: souls.event(params.eventId), when: params.when }),
+        addToIndex(store, souls.index(`person/${userKey}/ev`), { key: params.eventId, target: souls.event(params.eventId), when: params.when }),
+      ]);
+      return true;
+    },
+
+    /**
+     * Someone deleted their answer to my Talk: their deletion event is kept, and their answers to
+     * it leave my indexes. Only the person who answered may delete it.
+     */
+    async receiveAnswerDeletion(params: { talkId: string; eventId: string; byUser: string; when: number; device: string; answerEventId: string }): Promise<boolean> {
+      const answer = await store.get(souls.event(params.answerEventId));
+      const prefix = options.prefix ?? 'local/';
+      if (!answer || personIdOf(prefix, linkSoul(answer.by)) !== params.byUser) return false;
+      const event: GraphNode = {
+        v, when: params.when, device: params.device, by: link(personSoul(prefix, params.byUser)),
+        talk: link(souls.event(params.talkId)), re: link(souls.event(params.answerEventId)), deleted: true,
+      };
+      const clears = await theirAnswerClears(store, souls, params.talkId, params.byUser, params.answerEventId);
+      await Promise.all([putEvent(store, souls, params.eventId, event), ...clears.map(([soul, node]) => store.put(soul, node))]);
+      return true;
+    },
+
+    /** Everyone's latest answer to my Talk: user ID → their answer event id. */
+    async theirs(talkId: string): Promise<Record<string, string>> {
+      const node = await store.get(souls.index(`theirs/${talkId}`));
+      const out: Record<string, string> = {};
+      for (const [userId, value] of Object.entries(node || {})) {
+        const soul = linkSoul(value);
+        if (soul) out[userId] = soul.slice(souls.event('').length);
+      }
+      return out;
+    },
+
+    /** The answer set of any answer event, as context hash → entry (keys only). */
+    async answerSet(eventId: string): Promise<Record<string, AnswerSetEntry> | undefined> {
+      const event = await store.get(souls.event(eventId));
+      const setSoul = linkSoul(event?.gave);
+      if (!setSoul) return undefined;
+      const sidecar = await store.get(event?.by ? theirQuestionsSoul(souls, eventId) : answerQuestionsSoul(souls, eventId));
+      const out: Record<string, AnswerSetEntry> = {};
+      for (const context of Object.keys(sidecar || {})) {
+        const entry = await store.get(`${setSoul}/${context}`);
+        if (!entry) continue;
+        if (typeof entry.kind === 'string') { out[context] = { typed: { ...entry } as unknown as BuiltInValues }; continue; }
+        const choices = [linkSoul(entry.a), ...Array.from({ length: Number(entry.n || 0) }, (_, i) => linkSoul(entry[String(i)]))]
+          .filter((soul): soul is string => !!soul).map((soul) => soul.slice(souls.answer('').length));
+        out[context] = { choices };
+      }
+      return out;
     },
 
     /** My latest answer event to a Talk, if any ("already answered", replaces `answeredTalkByContent`). */

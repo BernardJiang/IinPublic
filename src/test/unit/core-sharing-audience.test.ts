@@ -1,5 +1,5 @@
 import Gun from 'gun';
-import { filterPeerAudience, guardMeshSay, installSharingPolicy } from '../../core/sharing-policy';
+import { filterGraphAudience, filterPeerAudience, guardMeshSay, installSharingPolicy } from '../../core/sharing-policy';
 
 const cipher = 'SEA' + JSON.stringify({ ct: 'AAAAAAAAAAAAAAAAAAAAAA==', iv: 'AAAAAAAAAAAAAAAAAAAA', s: 'AAAAAAAAAAAA' });
 const node = (soul: string, value: unknown) => ({ _: { '#': soul, '>': { value: Date.now() } }, value });
@@ -74,5 +74,36 @@ describe('pair and room peer audiences', () => {
     expect(lanWire.join('')).not.toContain(cipher);
     expect(mesh.sharingPolicy.violations.audience).toBeGreaterThan(0);
     gun.off();
+  });
+});
+
+describe('device graph audience (REQ-GRAPH-32)', () => {
+  const mine = `g/${'a'.repeat(32)}/p/${'b'.repeat(32)}/head`;
+  const theirs = `g/${'e'.repeat(32)}/p/${'b'.repeat(32)}/head`;
+  const audience = {
+    mayReceive: (peer: string, soul: string) => peer === 'eve' && soul === mine,
+    mayAccept: (peer: string, soul: string) => peer === 'eve' && soul === theirs,
+  };
+  const put = (souls: string[]) => ({ '#': 'm', put: Object.fromEntries(souls.map((s) => [s, node(s, cipher)])) });
+
+  it('graph souls never reach a relay or an ordinary peer, in either direction', () => {
+    for (const peer of [{ id: 'hub', url: 'https://hub' }, { id: 'lan' }, undefined]) {
+      expect(filterGraphAudience(put([mine]), peer, true, audience)).toBeNull();
+      expect(filterGraphAudience(put([theirs]), peer, false, audience)).toBeNull();
+      expect(filterGraphAudience({ get: { '#': mine } }, peer, false, audience)).toBeNull();
+      expect(Object.keys(filterGraphAudience(put([mine, 'public/card']), peer, true, audience).put)).toEqual(['public/card']);
+    }
+  });
+
+  it('a graph link carries only its own person’s souls: mine to them, theirs from them', () => {
+    const eve = { id: 'graph:eve', graphUserId: 'eve' };
+    const carol = { id: 'graph:carol', graphUserId: 'carol' };
+    expect(Object.keys(filterGraphAudience(put([mine, theirs, 'public/card']), eve, true, audience).put)).toEqual([mine]);
+    expect(filterGraphAudience(put([mine]), carol, true, audience)).toBeNull();
+    expect(Object.keys(filterGraphAudience(put([mine, theirs]), eve, false, audience).put)).toEqual([theirs]);
+    expect(filterGraphAudience({ get: { '#': theirs } }, eve, true, audience)).not.toBeNull();
+    expect(filterGraphAudience({ get: { '#': mine } }, eve, false, audience)).not.toBeNull();
+    expect(filterGraphAudience({ get: { '#': 'public/card' } }, eve, true, audience)).toBeNull();
+    expect(filterGraphAudience({ '@': 'x', ok: 1 }, eve, true, audience)).not.toBeNull();
   });
 });
