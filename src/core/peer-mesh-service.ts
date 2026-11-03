@@ -820,7 +820,21 @@ export class PeerMeshService {
         if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
       })
       .catch(() => {
+        // A WebRTC reconnect can retire one promise while a coordinated replacement is already
+        // connecting on the same session. Treating that expected rejection as an unreachable
+        // personal peer twice dropped the neighbor and disposed the replacement underneath its
+        // caller. The transport state is authoritative here: only a genuinely failed/idle session
+        // should consume the personal-peer failure budget.
+        const replacementState = neighbor.session.getState?.();
+        if (replacementState === 'connected') {
+          neighbor.connected = true;
+          return;
+        }
         neighbor.connected = false;
+        if (replacementState === 'connecting') {
+          this.scheduleReconcile(500);
+          return;
+        }
         const inGrace = Date.now() - (this.personalLinkOpenedAt.get(neighbor.userId) ?? 0) < PERSONAL_CONNECT_GRACE_MS;
         if (this.isPersonal() && (inGrace || this.knockIsFresh(neighbor.userId))) {
           // Still waiting for the other side to answer our knock, or they just knocked us and are

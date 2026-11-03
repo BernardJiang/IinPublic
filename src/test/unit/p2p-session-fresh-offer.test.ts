@@ -222,6 +222,21 @@ describe('P2P session: a fresh offer from a rebuilt connection (OPEN-74)', () =>
     expect(bob.posted.some((post) => post.payload.type === 'restart')).toBe(false);
   });
 
+  it('reconnect follows a coordinated replacement attempt but does not revive a disposed one', async () => {
+    const bob = harness(bobPair, alicePair.pub, false);
+    const ensure = jest.spyOn(bob.session, 'ensureConnected')
+      .mockRejectedValueOnce(new Error('WebRTC connection replaced'))
+      .mockRejectedValueOnce(new Error('WebRTC connection replaced'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(bob.session.reconnect(1_000)).resolves.toBeUndefined();
+    expect(ensure).toHaveBeenCalledTimes(3);
+
+    ensure.mockReset().mockRejectedValueOnce(new Error('WebRTC session disposed'));
+    await expect(bob.session.reconnect(1_000)).rejects.toThrow('WebRTC session disposed');
+    expect(ensure).toHaveBeenCalledTimes(1);
+  });
+
   it('asks the initiator for a new offer when Nearby reopens a disposed answering session', async () => {
     const bob = harness(bobPair, alicePair.pub, false);
     void bob.session.ensureConnected(1_000).catch(() => undefined);

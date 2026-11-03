@@ -40,6 +40,8 @@ const SEA = scope.SEA;
 const IDB_NAME = 'gun-idb';
 const IDB_STORE = 'nodes';
 let database: IDBDatabase | null = null;
+let idbWritesInFlight = 0;
+let idbWriteGeneration = 0;
 
 function openDatabase(): Promise<IDBDatabase> {
   if (database) return Promise.resolve(database);
@@ -53,13 +55,23 @@ function openDatabase(): Promise<IDBDatabase> {
 
 const idbAdapter = {
   put(key: string, data: unknown, cb: (err: unknown, data?: unknown) => void): void {
+    idbWritesInFlight += 1;
+    idbWriteGeneration += 1;
+    let finished = false;
+    const finish = (err: unknown, value?: unknown): void => {
+      if (finished) return;
+      finished = true;
+      idbWritesInFlight = Math.max(0, idbWritesInFlight - 1);
+      cb(err, value);
+    };
     openDatabase().then((db) => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
       tx.objectStore(IDB_STORE).put(data, key);
       // `ok` is a flag: radisk passes it up into Gun's ack, which goes to the peer that wrote.
-      tx.oncomplete = () => cb(null, 1);
-      tx.onerror = () => cb(tx.error);
-    }).catch((err) => cb(err));
+      tx.oncomplete = () => finish(null, 1);
+      tx.onerror = () => finish(tx.error);
+      tx.onabort = () => finish(tx.error ?? new Error('IndexedDB write aborted'));
+    }).catch((err) => finish(err));
   },
   get(key: string, cb: (err: unknown, data?: unknown) => void): void {
     openDatabase().then((db) => {
@@ -69,6 +81,33 @@ const idbAdapter = {
     }).catch((err) => cb(err));
   },
 };
+
+/**
+ * Gun may acknowledge its in-memory graph update before store.js has scheduled (or completed)
+ * the corresponding IndexedDB transaction. A page reload can terminate this dedicated worker
+ * in that gap. Require two quiet tasks with no newly-started adapter write before telling the
+ * page that a private record is durable.
+ */
+function waitForIndexedDbWriteDrain(timeoutMs = 8000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    let quietGeneration = -1;
+    const check = (): void => {
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error('IndexedDB private write did not drain'));
+        return;
+      }
+      const generation = idbWriteGeneration;
+      if (idbWritesInFlight === 0 && quietGeneration === generation) {
+        resolve();
+        return;
+      }
+      quietGeneration = idbWritesInFlight === 0 ? generation : -1;
+      setTimeout(check, 0);
+    };
+    setTimeout(check, 0);
+  });
+}
 
 /* ── 3. The device's Gun ──────────────────────────────────────────────────────
  * Peered with the hub when the page asks (`init` with `peer`), peerless otherwise (on native, where
@@ -322,6 +361,7 @@ coordinateWorker(scope, { disconnect, async receive(clientId, message, emit) {
         const encrypted = await SEA.encrypt(JSON.stringify(payload.data), user.pair);
         if (client.currentUser !== user) throw new Error('Login cancelled');
         await gunPut(`users/${user.pair.pub}/private/${payload.key}`, encrypted);
+        await waitForIndexedDbWriteDrain();
         reply(id, null, { ok: true });
         break;
       }

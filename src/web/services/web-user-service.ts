@@ -288,7 +288,8 @@ export class WebUserService {
     if (!apiBase) return;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
+      // The phone node now waits for its hub publish before acknowledging the public key.
+      const timeout = setTimeout(() => controller.abort(), 10_000);
       try {
         const response = await fetch(`${apiBase}/api/users`, {
           method: 'POST',

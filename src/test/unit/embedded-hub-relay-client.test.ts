@@ -86,6 +86,48 @@ describe('EmbeddedHubRelayClient', () => {
     }
   });
 
+  it('waits longer than the default timeout for a hub public-user read', async () => {
+    jest.useFakeTimers();
+    try {
+      let aborted = false;
+      global.fetch = jest.fn((_url: string, init: RequestInit) => new Promise((resolve, reject) => {
+        init.signal?.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); });
+        setTimeout(() => resolve({
+          ok: true,
+          json: async () => ({ id: 'alice', pub: 'pub_alice', epub: 'epub_alice' }),
+        } as unknown as Response), 3_000);
+      })) as unknown as typeof fetch;
+      const client = new EmbeddedHubRelayClient({ upstreamHubBaseUrl: 'http://127.0.0.1:8080' });
+      const pending = client.getPublicUser('alice');
+      await jest.advanceTimersByTimeAsync(3_000);
+      await expect(pending).resolves.toMatchObject({ id: 'alice', pub: 'pub_alice' });
+      expect(aborted).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('waits longer than the default timeout for a room-creation credit read', async () => {
+    jest.useFakeTimers();
+    try {
+      let aborted = false;
+      global.fetch = jest.fn((_url: string, init: RequestInit) => new Promise((resolve, reject) => {
+        init.signal?.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); });
+        setTimeout(() => resolve({
+          ok: true,
+          json: async () => ({ friendMarks: 0, blockCount: 0, eligible: true }),
+        } as unknown as Response), 3_000);
+      })) as unknown as typeof fetch;
+      const client = new EmbeddedHubRelayClient({ upstreamHubBaseUrl: 'http://127.0.0.1:8080' });
+      const pending = client.getRoomCreationCredit('alice', 'pub_alice');
+      await jest.advanceTimersByTimeAsync(3_000);
+      await expect(pending).resolves.toMatchObject({ eligible: true });
+      expect(aborted).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('posts membership metadata to the hub route', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,

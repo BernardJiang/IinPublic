@@ -241,44 +241,52 @@ test.describe('Messaging semantics — concurrent order, read state, history ord
       ...bulkMessages,
     ];
 
-    await Promise.all(
-      [pageA, pageB].map((page) =>
-        page.evaluate(
-          ({ cid, messages }) => {
-            const app = (window as any).__iinpublic_app?.getApp?.();
-            app?.uiManager?.displayConversationMessages?.(
-              cid,
-              messages.map((message: any) => ({
-                ...message,
-                timestamp: new Date(message.timestamp),
-                channel: 'public',
-                readBy: [],
-              })),
-            );
-          },
-          { cid: conversationId, messages: deepHistoryMessages },
-        ),
-      ),
-    );
-
     const expectedTotalRows = 2 + MESSAGE_COUNT + BULK_MESSAGE_COUNT;
-    await expect
-      .poll(
-        async () => pageA.locator('#conversation-messages .message-text').count(),
-        { timeout: 20_000 },
-      )
-      .toBe(expectedTotalRows);
-    await expect
-      .poll(
-        async () => pageB.locator('#conversation-messages .message-text').count(),
-        { timeout: 20_000 },
-      )
-      .toBe(expectedTotalRows);
-
-    await messagesA.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-    await expect(messagesA.locator('.message-text').filter({ hasText: 'bulk-history-39' })).toBeVisible();
-    await messagesA.evaluate((el) => { el.scrollTop = 0; });
-    await expect(messagesA.locator('.message-text').filter({ hasText: 'warmup-A' })).toBeVisible();
+    const renderDeepHistory = (page: typeof pageA) => page.evaluate(
+      async ({ cid, messages }) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        await app?.uiManager?.displayConversationMessages?.(
+          cid,
+          messages.map((message: any) => ({
+            ...message,
+            timestamp: new Date(message.timestamp),
+            channel: 'public',
+            readBy: [],
+          })),
+        );
+        // Inspect in the same task as the awaited render. The real live subscription remains
+        // active and may legitimately restore the 14 durable messages on its next emission;
+        // letting that race this synthetic renderer check made the assertion load-dependent.
+        const container = document.getElementById('conversation-messages');
+        const texts = Array.from(container?.querySelectorAll('.message-text') || [])
+          .map((node) => node.textContent || '');
+        const maxScrollTop = container
+          ? Math.max(0, container.scrollHeight - container.clientHeight)
+          : 0;
+        const renderedAtBottom = !!container && Math.abs(container.scrollTop - maxScrollTop) <= 1;
+        if (container) container.scrollTop = 0;
+        return {
+          count: texts.length,
+          hasOldest: texts.includes('warmup-A'),
+          hasNewest: texts.includes('bulk-history-39'),
+          renderedAtBottom,
+          reachedTop: container?.scrollTop === 0,
+        };
+      },
+      { cid: conversationId, messages: deepHistoryMessages },
+    );
+    const [deepHistoryA, deepHistoryB] = await Promise.all([
+      renderDeepHistory(pageA),
+      renderDeepHistory(pageB),
+    ]);
+    expect(deepHistoryA).toEqual({
+      count: expectedTotalRows,
+      hasOldest: true,
+      hasNewest: true,
+      renderedAtBottom: true,
+      reachedTop: true,
+    });
+    expect(deepHistoryB).toEqual(deepHistoryA);
 
     // Conversation message edit/delete is intentionally unsupported right now: the overlay has
     // only navigation, share-media, deal-confirmation and send controls, and message rows

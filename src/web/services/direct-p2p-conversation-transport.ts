@@ -267,10 +267,13 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     for (let i = 0; i < attempts; i++) {
       const cached = this.peerKeysByUserId.get(userId)?.pub;
       if (cached) return cached;
-      // A record not synced yet throws: that is a reason to retry, not to give up on the link.
-      const { pub } = await this.lookupPeerKeys(userId).catch(() => ({ pub: undefined }));
-      if (pub) return pub;
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      try {
+        const { pub } = await this.lookupPeerKeys(userId);
+        if (pub) return pub;
+      } catch {
+        // The other phone may still be publishing this record to the hub.
+      }
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 400));
     }
     throw new Error(`User ${userId} has no pub`);
   }
@@ -316,6 +319,44 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     const remaining = bucket.filter((message) => message.id !== messageId);
     this.liveMessagesByConversation.set(conversationId, remaining);
     for (const listener of this.listenersByConversation.get(conversationId) ?? []) listener([...remaining]);
+  }
+
+  /**
+   * Commit an inbound DM before publishing it to UI subscribers. Decryption and persistence
+   * still run in parallel, but a page reload immediately after the message becomes visible must
+   * not be able to cancel the worker write and lose the received half of the conversation.
+   */
+  private async persistAndPublishRemoteMessage(
+    conversationId: string,
+    otherUserId: string,
+    wire: ConversationMessageWire,
+  ): Promise<void> {
+    const persisted = this.gunStore.putMessageRecord(conversationId, {
+      id: wire.id,
+      senderId: wire.senderId,
+      text: wire.text,
+      timestamp: wire.timestamp,
+      channel: wire.channel,
+      transport: wire.transport ?? this.mode,
+      ...(wire.encryption ? { encryption: wire.encryption } : {}),
+      ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+      ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
+      ...(wire.talkId ? { talkId: wire.talkId } : {}),
+    }, { otherUserId });
+    const decrypted = this.decryptWireText(wire, wire.senderId);
+    const [, text] = await Promise.all([persisted, decrypted]);
+
+    this.pushLiveMessage(conversationId, {
+      id: wire.id,
+      senderId: wire.senderId,
+      text,
+      timestamp: new Date(wire.timestamp),
+      channel: (wire.channel as Message['channel']) || 'public',
+      readBy: [],
+      isFromChatbot: !!wire.isFromChatbot,
+      ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+      ...(wire.talkId ? { talkId: wire.talkId } : {}),
+    });
   }
 
   /**
@@ -434,34 +475,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     session.setBuildTrustHooks(this.buildTrustHooks);
     session.setOnRemoteDm(async (wire) => {
       if (wire.senderId === localUserId) return;
-      // Persist and decrypt side by side: the local Gun write (~0.3 s on a phone) does not have
-      // to finish before the message is shown.
-      const persisted = this.gunStore.putMessageRecord(conversationId, {
-        id: wire.id,
-        senderId: wire.senderId,
-        text: wire.text,
-        timestamp: wire.timestamp,
-        channel: wire.channel,
-        transport: wire.transport ?? this.mode,
-        ...(wire.encryption ? { encryption: wire.encryption as 'sea-ecdh-v1' } : {}),
-        ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
-        ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
-        ...(wire.talkId ? { talkId: wire.talkId } : {}),
-      }, { otherUserId: otherId });
-      const shown = this.decryptWireText(wire, wire.senderId).then((text) => {
-        this.pushLiveMessage(conversationId, {
-          id: wire.id,
-          senderId: wire.senderId,
-          text,
-          timestamp: new Date(wire.timestamp),
-          channel: (wire.channel as Message['channel']) || 'public',
-          readBy: [],
-          isFromChatbot: !!wire.isFromChatbot,
-          ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
-          ...(wire.talkId ? { talkId: wire.talkId } : {}),
-        });
-      });
-      await Promise.all([persisted, shown]);
+      await this.persistAndPublishRemoteMessage(conversationId, otherId, wire);
     });
     return session;
   }

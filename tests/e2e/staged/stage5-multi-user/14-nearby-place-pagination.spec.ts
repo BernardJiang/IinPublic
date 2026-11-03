@@ -521,7 +521,13 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     // Someone outside the Place sees it on the map as one icon carrying its full occupancy (6),
     // never as six yellow person dots (OPEN-86 E3/E5).
     const outsider = pages[7]!;
-    await outsider.evaluate(async () => { await (window as any).__iinpublic_app?.getApp?.()?.refreshActiveRooms?.(); });
+    // The hub's Place count may arrive after the first room-list read, and Chromium throttles
+    // the outsider's background tab timer. Reissue the same app refresh until discovery settles.
+    await expect.poll(() => outsider.evaluate(async (id) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      await app?.refreshActiveRooms?.();
+      return app?.uiManager?.getCustomChatroomIds?.()?.includes(id);
+    }, placeId), { timeout: 60_000 }).toBe(true);
     await outsider.locator('[data-testid="chatroom-map-view-btn"]').click();
     await expect(outsider.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"] .chatroom-map-marker-count`))
       .toHaveText('6', { timeout: 60_000 });

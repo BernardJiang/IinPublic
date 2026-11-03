@@ -357,6 +357,41 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     subSpy.mockRestore();
   });
 
+  it('publishes an inbound message only after its private-history write is durable', async () => {
+    let finishPersist!: () => void;
+    const persisted = new Promise<void>((resolve) => { finishPersist = resolve; });
+    const putSpy = jest
+      .spyOn(GunMessageStore.prototype, 'putMessageRecord')
+      .mockReturnValue(persisted);
+    const transport = new DirectP2PConversationTransport(mockGun);
+    const publishSpy = jest.spyOn(
+      transport as unknown as { pushLiveMessage: (conversationId: string, message: unknown) => void },
+      'pushLiveMessage',
+    );
+
+    const receive = (
+      transport as unknown as {
+        persistAndPublishRemoteMessage: (
+          conversationId: string,
+          otherUserId: string,
+          remoteWire: typeof wire,
+        ) => Promise<void>;
+      }
+    ).persistAndPublishRemoteMessage('conv1', 'bob', { ...wire, senderId: 'bob' });
+
+    await Promise.resolve();
+    expect(putSpy).toHaveBeenCalled();
+    expect(publishSpy).not.toHaveBeenCalled();
+
+    finishPersist();
+    await receive;
+    expect(publishSpy).toHaveBeenCalledWith(
+      'conv1',
+      expect.objectContaining({ id: wire.id, senderId: 'bob', text: wire.text }),
+    );
+    putSpy.mockRestore();
+  });
+
   it('a record rewritten under the same id replaces the cached copy (renamed TechSupport welcome)', async () => {
     let emitGunSnapshot: ((messages: any[]) => void) | undefined;
     const subSpy = jest

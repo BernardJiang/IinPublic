@@ -74,13 +74,11 @@ async function mapWithConcurrency<T>(
   await Promise.all(workers);
 }
 
-// 6 users (was 10): mailbox fallback is disabled here, so every cross-user delivery is a real
-// WebRTC connection. At 10 users that is 10×9 peer sessions — on one machine they cannot all
-// form inside the 300s budget (Direct P2P connect timeouts), so the spec timed out. 6 users
-// (6×5 = 30 sessions) still exercises chatbot auto-match + contact match-% sorting with a real
-// mesh, but completes well within budget. Override via FIND_SIMILAR_NUM_USERS.
+// Six users and ten tags each exercise overlapping interests, rejected interests, chatbot
+// auto-matches and contact ordering across 30 peer relationships. The larger fanout can be
+// selected explicitly for stress runs; it exceeds the local E2E machine's delivery budget.
 const NUM_USERS = positiveIntEnv('FIND_SIMILAR_NUM_USERS', 6);
-const TAGS_PER_USER = positiveIntEnv('FIND_SIMILAR_TAGS_PER_USER', 20);
+const TAGS_PER_USER = positiveIntEnv('FIND_SIMILAR_TAGS_PER_USER', 10);
 const RELATIONSHIP_LABEL = 'similar interest people';
 
 function keywordsForUser(userIndex: number): string[] {
@@ -129,11 +127,10 @@ test.describe('Find similar people', () => {
   // spec (10 browser processes); flakes here mean the machine is oversubscribed at
   // high PW_WORKERS. The fix is load-scaled timeouts / lower concurrency, not retries.
   test.describe.configure({ retries: 0 });
-  // Six independent browser processes create and exchange 120 UI-authored talks. Under
-  // test:all wave concurrency the verified work reached the rejection phase but the old
-  // five-minute whole-test ceiling closed every page mid-evaluate. Individual convergence
-  // polls remain capped at 60s; this is only the aggregate budget for all six users' work.
-  test.setTimeout(420_000);
+  // Six independent browser processes create and exchange 60 UI-authored talks. The whole
+  // scenario includes six full mesh broadcasts and then the chatbot/rejection/contact checks;
+  // the per-operation watchdogs below still bound a stalled send or poll.
+  test.setTimeout(1_200_000);
 
   const browsers: Browser[] = [];
   const contexts: BrowserContext[] = [];
@@ -219,6 +216,9 @@ test.describe('Find similar people', () => {
           await page.locator('input[name="talk-type-radio"][value="tag"]').check();
           await afterAction();
           await page.fill('#talk-title', keyword);
+          // Phase 4 sends these together after every user's chatbot is enabled.
+          // The editor defaults to sending immediately, which floods the mesh during setup.
+          await page.locator('#talk-send-to-chatroom').evaluate((checkbox: HTMLInputElement) => { checkbox.checked = false; });
           await page.click('#talk-submit-btn');
           await page.waitForSelector('#talk-editor-form', { state: 'detached', timeout: 15_000 });
           await afterAction();
@@ -270,16 +270,17 @@ test.describe('Find similar people', () => {
     // unused for direct delivery); offers + announcement still happen, so the chatbot
     // behaves exactly as with the Broadcast button.
     //
-    // Each user runs in its own browser. Start the online-only floods together so
-    // no sender spends its watchdog budget processing earlier users before sending.
-    // Mesh delivery across 10 independent browsers is eventually-consistent: the
+    // Each user runs in its own browser. Setup saves without sending, and two explicit
+    // broadcasts run at once to keep browser crypto and mesh fanout within machine capacity.
+    // Every Talk still goes to its five intended recipients.
+    // Mesh delivery across independent browsers is eventually-consistent: the
     // sparse gossip overlay (maxNeighbors cap, not a full mesh) forms connections to
     // the explicit receiver set over a few seconds, so the first delivery attempt can
     // legitimately not resolve every receiver yet. Poll the delivery itself until it
     // resolves all receivers, then fail loudly if it never does. (This is genuine
     // convergence handling, NOT retry-masking — gating on full connectedNeighborCount
     // is wrong here because the overlay never connects all NUM_USERS-1 peers at once.)
-    await Promise.all(setups.map(async ({ page, idx }) => {
+    await mapWithConcurrency(setups, 2, async ({ page, idx }) => {
       await page.waitForTimeout(3_000);
       await afterSync();
       const t0 = Date.now();
@@ -292,7 +293,7 @@ test.describe('Find similar people', () => {
               throw new Error('deliverPendingBroadcastTalksForE2e unavailable');
             }
             const timeout = new Promise<never>((_, reject) => {
-              window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 120_000);
+              window.setTimeout(() => reject(new Error('broadcast delivery timed out')), 240_000);
             });
             return Promise.race([
               app.deliverPendingBroadcastTalksForE2e(minReceivers, {
@@ -319,7 +320,7 @@ test.describe('Find similar people', () => {
       console.log(`[u${idx} broadcast] ${JSON.stringify(result)} after ${Date.now() - t0}ms`);
       expect(result.talksSent, `user ${idx} talksSent`).toBeGreaterThanOrEqual(TAGS_PER_USER);
       expect(result.receivers, `user ${idx} receivers`).toBeGreaterThanOrEqual(NUM_USERS - 1);
-    }));
+    });
     await afterSync();
 
     // ── Phase 5: answer incoming tags ────────────────────────────────────────

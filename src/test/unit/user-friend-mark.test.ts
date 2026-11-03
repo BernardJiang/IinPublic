@@ -66,6 +66,19 @@ describe('UserService incoming Friend statistics', () => {
   beforeAll(() => { config.PLACE_CREATE_MIN_FRIEND_MARKS = ROOM_CREATE_MIN_FRIEND_MARKS; });
   afterAll(() => { config.PLACE_CREATE_MIN_FRIEND_MARKS = savedMinFriendMarks; });
 
+  it('checks creation credit without hydrating the full public profile', async () => {
+    const gun = new MemoryUserGun();
+    const service = new UserService(gun as unknown as GunService);
+    const targetPair = await SEA.pair();
+    await service.upsertPublicUser({ id: 'target-fast', pub: targetPair.pub, reputation: reputation(1) });
+    jest.spyOn(service, 'getUser').mockRejectedValue(new Error('full profile hydration is not needed'));
+
+    await expect(service.getRoomCreationCredit('target-fast', targetPair.pub)).resolves.toMatchObject({
+      friendMarks: 0,
+      blockCount: 1,
+    });
+  });
+
   it('counts each signed marker once, removes an unmark, and unlocks at 12', async () => {
     const gun = new MemoryUserGun();
     const service = new UserService(gun as unknown as GunService);

@@ -23,18 +23,16 @@ test.describe('M4 real mixed saturation', () => {
       const talks = ['flow','tag','survey','route'].map((type)=>({title:`m4${type}`,authorId:users[0].userId,type,language:'en',isAdult:false,tags:[],questions:[{id:`${type}q1`,text:`${type}q1`,answers:[{id:`${type}a11`,text:`${type}a11`,isMatch:true,isTerminal:true}]}]}));
       const created = await createTalksFromCompanyPage(pages[0], talks);
       const startedAt = Date.now();
-      const deliveries = await pages[0].evaluate(async ({ receiverUsers, count }) => {
+      const delivery = await pages[0].evaluate(async ({ receiverUsers }) => {
         const app = (window as any).__iinpublic_app.getApp();
-        return Promise.all(Array.from({ length: count }, (_, index) =>
-          app.deliverPendingBroadcastTalksForE2e(index, {
-            skipAudiencePreview: true,
-            receiverUsers,
-          }),
-        ));
-      }, { receiverUsers: users.slice(1), count: created.length });
-      expect(deliveries).toHaveLength(4);
-      expect(deliveries.every((delivery: any) => delivery.receivers === 5)).toBe(true);
-      expect(deliveries.reduce((total: number, delivery: any) => total + delivery.receivers, 0)).toBe(20);
+        return app.deliverPendingBroadcastTalksForE2e(5, {
+          skipAudiencePreview: true,
+          receiverUsers,
+        });
+      }, { receiverUsers: users.slice(1) });
+      expect(delivery.talksSent).toBe(created.length);
+      expect(delivery.receivers).toBe(5);
+      expect(delivery.talksSent * delivery.receivers).toBe(20);
       // A reliable 5-recipient send waits for encrypted mesh acknowledgements and
       // falls back to the mailbox when a direct channel is still forming.  This is
       // intentionally slower than the old fire-and-forget assertion, but bounded.

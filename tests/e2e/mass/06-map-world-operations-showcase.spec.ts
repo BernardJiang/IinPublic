@@ -231,17 +231,18 @@ async function assertNearbyBalance(users: DemoUser[], expectedGreen: number, exp
 
 async function assertMapZoomedToLocalCluster(users: DemoUser[]): Promise<void> {
   for (const user of users) {
-    const fixed = await user.page.evaluate(() => {
+    await expect.poll(() => user.page.evaluate(() => {
       const map = document.querySelector('.maplibregl-map') as any;
       if (!map) return { zoom: 0, center: null };
       const api = map.__iinpublicMap ?? map.__maplibreMap ?? map.maplibreglMap ?? map._map;
       const zoom = typeof api?.getZoom === 'function' ? api.getZoom() : 0;
       const center = typeof api?.getCenter === 'function' ? api.getCenter() : null;
       return { zoom, center: center ? { lng: center.lng, lat: center.lat } : null };
-    });
-    expect(fixed.zoom).toBeGreaterThanOrEqual(12);
-    expect(Math.abs((fixed.center?.lat ?? 0) - 32.7157)).toBeLessThan(2.5);
-    expect(Math.abs((fixed.center?.lng ?? 0) + 117.1611)).toBeLessThan(2.5);
+    }).then(({ zoom, center }) => ({
+      zoomed: zoom >= 12,
+      centered: Math.abs((center?.lat ?? 0) - 32.7157) < 2.5
+        && Math.abs((center?.lng ?? 0) + 117.1611) < 2.5,
+    })), { timeout: 10_000, intervals: [200, 500] }).toEqual({ zoomed: true, centered: true });
   }
 }
 

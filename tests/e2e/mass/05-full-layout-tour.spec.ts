@@ -129,10 +129,8 @@ test.describe('M5 full-layout screenshot tour', () => {
       if (await senderMember.count().then((c) => c > 0)) {
         await senderMember.click();
         await afterSync();
-        await shot(page, 'Chatrooms', 'chatrooms-member-dm', 'Tapping a chatroom member opens the DM conversation directly, with the shared ⟨User⟩ layout underneath.');
-        await page.click('#back-from-conversation');
-        await afterAction();
-        await shot(page, 'Chatrooms', 'chatrooms-member-peer-detail', 'Backing out of the DM lands on the shared peer-detail (⟨User⟩) layout.');
+        await expect(page.locator('#peer-detail-overlay')).toBeVisible();
+        await shot(page, 'Chatrooms', 'chatrooms-member-peer-detail', 'Tapping a chatroom member opens the shared peer-detail (⟨User⟩) layout.');
         await page.click('#back-from-peer-detail');
         await afterAction();
       }
@@ -272,12 +270,9 @@ test.describe('M5 full-layout screenshot tour', () => {
 
       const namedContact = page.locator('.contact-item:not([data-support-contact="true"])').first();
       await namedContact.locator('.contact-item-name').click();
-      await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
-      await shot(page, 'Contacts', 'contacts-dm-conversation', 'Tapping the underlined name opens the DM conversation directly.');
-      await page.click('#back-from-conversation');
-      await afterAction();
-      const backFromPeer = page.locator('#back-from-peer-detail');
-      if (await backFromPeer.isVisible().catch(() => false)) await backFromPeer.click();
+      await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+      await shot(page, 'Contacts', 'contacts-person-detail', 'Tapping the underlined name opens the shared peer-detail layout.');
+      await page.click('#back-from-peer-detail');
       await afterAction();
 
       const supportRow = page.locator(`.contact-item[data-support-contact="true"][data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);

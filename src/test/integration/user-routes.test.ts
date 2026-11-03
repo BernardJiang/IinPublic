@@ -29,6 +29,25 @@ function buildHubRelayClient(overrides: Partial<EmbeddedHubRelayClientLike> = {}
 }
 
 describe('user routes', () => {
+  it('acknowledges a phone public-key publish only after the hub accepts it', async () => {
+    const app = express();
+    app.use(express.json());
+    const user = { id: 'alice', stageName: 'Alice', pub: 'pub_alice', epub: 'epub_alice', profile: [] };
+    const upsertPublicUser = jest.fn().mockResolvedValue(user);
+    const hubPublish = jest.fn()
+      .mockRejectedValueOnce(new Error('hub unavailable'))
+      .mockResolvedValueOnce(undefined);
+    registerUserRoutes(app, {
+      userService: { upsertPublicUser } as any,
+      hubRelayClient: buildHubRelayClient({ upsertPublicUser: hubPublish }),
+    });
+
+    await request(app).post('/api/users').send(user).expect(503);
+    await request(app).post('/api/users').send(user).expect(200);
+    expect(hubPublish).toHaveBeenCalledTimes(2);
+    expect(hubPublish).toHaveBeenLastCalledWith(user);
+  });
+
   it('retires unauthenticated contact CRUD without touching the public graph', async () => {
     const app = express();
     app.use(express.json());
