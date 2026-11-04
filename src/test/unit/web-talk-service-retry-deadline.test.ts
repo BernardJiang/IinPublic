@@ -15,7 +15,7 @@ describe('WebTalkService.getTalkWithRetry deadline', () => {
       put: async () => undefined,
       get: () => new Promise(() => undefined), // a read that never answers
     } as unknown as WebGunService;
-    const svc = new WebTalkService(gun, undefined, { gunTalkRepository: false });
+    const svc = new WebTalkService(gun, undefined);
     const started = Date.now();
     await expect(svc.getTalkWithRetry('talk-missing', { attempts: 12, gapMs: 300, deadlineMs: 300 })).resolves.toBeNull();
     expect(Date.now() - started).toBeLessThan(1_000);
@@ -30,7 +30,7 @@ describe('WebTalkService.getTalkWithRetry deadline', () => {
       put: async () => undefined,
       get: async (key: string) => (key === 'talks/talk-1' ? { data: JSON.stringify(talk) } : null),
     } as unknown as WebGunService;
-    const svc = new WebTalkService(gun, undefined, { gunTalkRepository: false });
+    const svc = new WebTalkService(gun, undefined);
     await expect(svc.getTalkWithRetry('talk-1', { deadlineMs: 4_000 })).resolves.toMatchObject({ id: 'talk-1' });
   });
 });

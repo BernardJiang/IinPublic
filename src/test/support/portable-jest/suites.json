@@ -18,7 +18,6 @@
     "chatroom-hierarchy-runtime.test.ts",
     "chatroom-map-geojson.test.ts",
     "chatroom-map-locations.test.ts",
-    "client-incoming-talk-mirror.test.ts",
     "closest-match.test.ts",
     "connection-manager.test.ts",
     "connectivity-binding-store.test.ts",
@@ -50,7 +49,6 @@
     "graph-size-report.test.ts",
     "gun-chatbot-memory-repository.test.ts",
     "gun-message-store.test.ts",
-    "gun-talk-repository.test.ts",
     "handoff-protocol.test.ts",
     "identity-custody-store.test.ts",
     "intake-filter-reasons.test.ts",
@@ -113,7 +111,6 @@
     "talk-contact-policy.test.ts",
     "talk-content-id.test.ts",
     "talk-engine.test.ts",
-    "talk-history-restorer.test.ts",
     "talk-intake-filters.test.ts",
     "talk-list-metadata.test.ts",
     "talk-stats.test.ts",
@@ -834,7 +831,6 @@
       "reason": "uses jest.mock (module mocks stay host-only)"
     },
     {
-      "file": "web-talk-service-migration.test.ts",
       "reason": "uses the DOM or browser globals"
     },
     {

@@ -49,7 +49,6 @@ import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
-import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
 import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
 import { getAnsweredTalkId, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
 import { runAnswerContextMigration } from '../ui/answer-context-migration';
@@ -218,13 +217,7 @@ import {
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
-import {
-  collectLocalIncomingTalkClusters,
-  mirrorIncomingTalkClustersToLocalGun,
-  subscribeLocalIncomingTalkClusters,
-  upsertLocalIncomingTalkCluster,
-  upsertLocalIncomingTalkClusters,
-} from '../../core/client-incoming-talk-mirror';
+import { mergeIncomingTalkCluster, type IncomingTalkClusterWire } from '../../shared/peer-talk-delivery';
 import { getSEA, type GunPair } from '../sea-gun';
 import {
   applyTalkLedgerEvent,
@@ -275,6 +268,9 @@ import {
 } from '../../shared/talk-ledger';
 import { getMyConversations } from '../ui/my-conversations-storage';
 
+/** Private records that held Talk bodies before the device graph (erased, never read): the SEA
+ *  Talk copies (authored, received, their index) and the incoming rows envelope. */
+const OLD_TALK_COPY_KEY = /^(talks\/|receivedTalks\/|receivedTalkIndex$|incomingTalkClusters$)/;
 /** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
 const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
 
@@ -548,7 +544,10 @@ export class IinPublicApp {
   };
   private readonly e2eSeededIncomingClusters: any[] = [];
   private readonly e2eSeededTagTalks = new Map<string, any>();
-  private incomingTalkClusterUnsubscribe: (() => void) | null = null;
+  /** Incoming rows of Talks that did not come over a graph link (e2e seeds, native replays): memory only. */
+  private readonly localIncomingClusters = new Map<string, IncomingTalkClusterWire>();
+  /** The incoming list as last shown. */
+  private incomingRows: IncomingTalkClusterWire[] = [];
   private roomDiscoveryService: P2PRoomDiscoveryService | null = null;
   private readonly roomDiscoveredUserIds = new Map<string, Set<string>>();
   /** Room members already scheduled for receiver-scoped historical broadcast catch-up. */
@@ -1570,15 +1569,6 @@ export class IinPublicApp {
       void this.attestationService.ensureCredential(localPubForAttestation).catch(() => {});
     }
     void this.attestationService.ensureVerifierKeys().catch(() => {});
-    // Rebuilds previously-received Talk UI from a Gun read that, for a lone peer with nothing
-    // local to answer it, pays its own multi-second timeout before giving up (gun-talk-repository
-    // .ts's listReceived → WebGunService.get()). None of this gates whether the app is usable —
-    // it only back-fills a list the user can already see is there once it arrives. Fire-and-forget.
-    void restoreReceivedTalkHistory(
-      this.talkService,
-      (talk) => this.uiManager.displayIncomingTalk(talk),
-    ).catch(() => {});
-
     // Join appropriate chatroom
     await this.initializeChatrooms();
 
@@ -4202,7 +4192,7 @@ export class IinPublicApp {
 
   private async handleMeshTalkBody(
     payload: P2PMeshTalkBodyPayload,
-    options: { suppressAutoReply?: boolean } = {},
+    options: { suppressAutoReply?: boolean; graphArrival?: { omit?: string[] } } = {},
   ): Promise<boolean> {
     if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
     const activeRoom = this.activeExchangeRoomController?.getActiveRoom();
@@ -4249,14 +4239,14 @@ export class IinPublicApp {
       payload.authorId,
       payload.authorName || 'Unknown',
       talkData,
-      this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {},
+      {
+        ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
+        ...(options.graphArrival ? { graphArrival: options.graphArrival } : {}),
+      },
     );
     if (!accepted) return false;
     this.processedTalkResponseKeys.add(bodyDedupeKey);
     this.peerMeshService?.cacheTalkBody(payload.talkId, talkData);
-    // Delivery is ACK-eligible only after the receiver's local Gun commit and
-    // repository read-back verification complete.
-    await this.talkService.cacheReceivedTalk(payload.talkId, talkData);
     // OPEN-45: same content already answered from this author → refresh that copy in place.
     const silentUpdate = applyTalkRevisionToAnsweredCopy(talkData, payload.authorId);
     this.uiManager.displayIncomingTalk({
@@ -5820,7 +5810,7 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return [];
     // R-a step 7: syncRoomTalkBodyRendezvous removed (Gun p2pMeshTalkBodies/* path deleted).
     // Incoming clusters arrive exclusively via mesh DataChannel push or mailbox drain.
-    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
+    const gunClusters = await this.collectIncomingRows();
     const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
       ? (this.uiManager as any).incomingTalkClusters
       : [];
@@ -6179,8 +6169,11 @@ export class IinPublicApp {
       }
       // The Me tab reads my answers from the graph (OPEN-106 step 1 of the switch-over).
       setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
-      // New Talks are known by their graph id from the start (OPEN-106 step 2e).
+      // New Talks are known by their graph id from the start (OPEN-106 step 2e), and their bodies
+      // are read from the graph.
       this.talkService.setNewTalkIdSource(() => core({ name: 'graph.newTalkId' }));
+      this.talkService.setGraphTalkSource((talkId) => core({ name: 'graph.talkBody', talkId }));
+      void this.eraseOldTalkCopies(core).catch(() => undefined);
       this.watchGraphStorage();
     } catch (error) {
       console.warn('[graph-link] could not start:', error);
@@ -6196,7 +6189,8 @@ export class IinPublicApp {
     if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
     if (event.type === 'talk-deleted') {
       void this.handleMeshTalkRetracted({ talkId: event.talkId, authorId: event.from, retractedAt: event.when ?? Date.now() })
-        .catch((error) => console.warn('[graph-link] retraction failed:', error));
+        .catch((error) => console.warn('[graph-link] retraction failed:', error))
+        .finally(() => this.scheduleIncomingRefresh());
       return;
     }
     if (event.type !== 'talk' || !event.talk) return;
@@ -6230,7 +6224,8 @@ export class IinPublicApp {
     // The same receipt record a Talk frame's announce leaves (e2e and diagnostics read it).
     const diag = this.meshAnnounceDiagnostics;
     if (!diag.received.some((r) => r.talkId === appTalkId && r.authorId === event.from)) diag.received.push({ talkId: appTalkId, authorId: event.from });
-    void this.handleMeshTalkBody(payload).catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
+    const omit = Array.isArray(context.omit) ? context.omit.map(String) : [];
+    void this.handleMeshTalkBody(payload, { graphArrival: { omit } }).catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
   }
 
   /**
@@ -6715,7 +6710,7 @@ export class IinPublicApp {
     senderId: string,
     senderName: string,
     talkData: any,
-    opts: { deliveryChatroomId?: string } = {},
+    opts: { deliveryChatroomId?: string; graphArrival?: { omit?: string[] } } = {},
   ): Promise<boolean> {
     if (!this.currentUser) return false;
     if (
@@ -6728,18 +6723,18 @@ export class IinPublicApp {
       return false;
     }
 
-    const cluster = await upsertLocalIncomingTalkCluster(
-      this.gunService,
-      this.currentUser.id,
-      {
-        talkId,
-        talkData: talkData as Record<string, unknown>,
-        senderId,
-        senderName,
-      },
-      this.p2pRuntimeFlags,
-    );
-    this.mergeIncomingClusterIntoUi([cluster]);
+    const delivery = { talkId, talkData: talkData as Record<string, unknown>, senderId, senderName };
+    if (opts.graphArrival && this.coreRequest) {
+      // A graph arrival: the core lists it from the graph (OPEN-106 step 2e); the row is shown now
+      // and the list is read again shortly.
+      const omit = opts.graphArrival.omit;
+      await this.coreRequest({ name: 'graph.acceptArrival', talkId, from: senderId, senderName, ...(omit?.length ? { omit } : {}) });
+      const key = mergeIncomingTalkCluster(null, delivery).identityKey;
+      this.mergeIncomingClusterIntoUi([mergeIncomingTalkCluster(this.incomingRows.find((row) => row.identityKey === key), delivery)]);
+      this.scheduleIncomingRefresh();
+    } else {
+      this.mergeIncomingClusterIntoUi(this.mergeLocalIncoming([delivery]));
+    }
 
     // Step 9: write responder-side exchanged entry so change-of-mind fanout can
     // enumerate all senders of this identity.  Written here (on talk acceptance)
@@ -7256,8 +7251,7 @@ export class IinPublicApp {
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
-      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
-      if (!Array.isArray(clusters)) return null;
+      const clusters = await this.collectIncomingRows();
       const cluster = clusters.find(
         (c: any) =>
           c &&
@@ -7304,19 +7298,48 @@ export class IinPublicApp {
     if (!this.currentUser) return;
     console.log('👂 Subscribing to incoming talk clusters for:', this.currentUser.id);
 
-    this.incomingTalkClusterUnsubscribe?.();
-    this.incomingTalkClusterUnsubscribe = subscribeLocalIncomingTalkClusters(
-      this.gunService,
-      this.currentUser.id,
-      this.p2pRuntimeFlags,
-      (cluster: any, id: string) => {
-        if (!cluster || !id || id.startsWith('_')) return;
-        if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
-        this.incomingApiRefreshTimer = setTimeout(() => {
-          void this.refreshIncomingTalkClustersFromLocalGun();
-        }, 120);
-      },
-    );
+    // The list is built from graph arrivals (OPEN-106 step 2e): graph events refresh it.
+    void this.refreshIncomingTalkClustersFromLocalGun();
+  }
+
+  /**
+   * OPEN-106 step 2e: Talk bodies and the incoming list live in the device graph. What held them
+   * again before — the SEA Talk copies, the incoming rows envelope, the authored and received body
+   * caches — is erased once, not migrated (owner decision 2026-11-03).
+   */
+  private async eraseOldTalkCopies(core: CoreRequester): Promise<void> {
+    const keys = await core({ name: 'private.keys' }).catch(() => [] as string[]);
+    const old = keys.filter((key: string) => OLD_TALK_COPY_KEY.test(key));
+    for (const key of old) await core({ name: 'private.put', key, value: null }).catch(() => undefined);
+    for (const key of ['myAuthoredTalks', 'myReceivedTalks']) appStorage.removeItem(key);
+    if (old.length) console.log(`[graph-link] erased ${old.length} old Talk copies`);
+  }
+
+  /** Rows of Talks that did not come over a graph link, kept in memory. */
+  private mergeLocalIncoming(items: Array<{ talkId: string; talkData: Record<string, unknown>; senderId: string; senderName: string }>): IncomingTalkClusterWire[] {
+    return items.map((item) => {
+      const key = mergeIncomingTalkCluster(null, item).identityKey;
+      const cluster = mergeIncomingTalkCluster(this.localIncomingClusters.get(key), item);
+      this.localIncomingClusters.set(cluster.identityKey, cluster);
+      return cluster;
+    });
+  }
+
+  /** The incoming list: graph arrivals the app accepted, then the rows kept in memory. */
+  private async collectIncomingRows(): Promise<IncomingTalkClusterWire[]> {
+    const graphRows: IncomingTalkClusterWire[] = await this.coreRequest?.({ name: 'graph.incoming' }).catch(() => []) ?? [];
+    const byKey = new Map<string, IncomingTalkClusterWire>(graphRows.map((row) => [row.identityKey, row]));
+    for (const row of this.localIncomingClusters.values()) if (!byKey.has(row.identityKey)) byKey.set(row.identityKey, row);
+    return [...byKey.values()];
+  }
+
+  /** Read the list again shortly: a burst of arrivals reads it once. */
+  private scheduleIncomingRefresh(delayMs = 150): void {
+    if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
+    this.incomingApiRefreshTimer = setTimeout(() => {
+      this.incomingApiRefreshTimer = undefined;
+      void this.refreshIncomingTalkClustersFromLocalGun();
+    }, delayMs);
   }
 
   /**
@@ -7654,12 +7677,7 @@ export class IinPublicApp {
       this.e2eSeededTagTalks.set(keyword.toLowerCase(), talkData);
       return [{ talkId, talkData, senderId, senderName: params.senderName || senderId }];
     });
-    const clusters = await upsertLocalIncomingTalkClusters(
-      this.gunService,
-      this.currentUser.id,
-      items,
-      this.p2pRuntimeFlags,
-    );
+    const clusters = this.mergeLocalIncoming(items);
     this.e2eSeededIncomingClusters.push(...clusters);
     await this.refreshIncomingTalkClustersFromLocalGun();
     this.mergeIncomingClusterIntoUi(clusters);
@@ -7684,18 +7702,8 @@ export class IinPublicApp {
     if (!talkId || !senderId || senderId === this.currentUser.id) return;
     const talkData = { ...params.talkData, authorId: senderId, authorName: params.senderName || senderId };
     this.ensurePeerMeshService()?.cacheTalkBody?.(talkId, talkData);
-    const cluster = await upsertLocalIncomingTalkCluster(
-      this.gunService,
-      this.currentUser.id,
-      {
-        talkId,
-        talkData,
-        senderId,
-        senderName: params.senderName || senderId,
-      },
-      this.p2pRuntimeFlags,
-    );
-    this.e2eSeededIncomingClusters.push(cluster);
+    const [cluster] = this.mergeLocalIncoming([{ talkId, talkData, senderId, senderName: params.senderName || senderId }]);
+    this.e2eSeededIncomingClusters.push(cluster!);
     await this.refreshIncomingTalkClustersFromLocalGun();
     this.mergeIncomingClusterIntoUi([cluster]);
   }
@@ -7709,21 +7717,19 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
-    // Just read from local Gun: render only. Mirroring it straight back re-wrote the whole owner
-    // envelope once per cluster, which re-fired this refresh's own subscription — a feedback loop
-    // measured on hardware at >1 write/s (5.5 KB each, ~16 KB/s of Gun traffic sent to every
-    // connected peer, ~10 %/h battery on the Wi-Fi radio).
-    this.mergeIncomingClusterIntoUi(clusters, { persist: false });
+    // Read only: rows are never written back (that once made a write/refresh loop on phones).
+    this.applyIncomingTalkClusters(await this.collectIncomingRows());
   }
 
-  private mergeIncomingClusterIntoUi(clusters: any[], options: { persist?: boolean } = {}): void {
-    this.applyIncomingTalkClusters(clusters, options);
+  /** These rows replace the shown rows with the same content; the others stay. */
+  private mergeIncomingClusterIntoUi(clusters: any[]): void {
+    const next = new Map<string, any>(this.incomingRows.map((row) => [row.identityKey, row]));
+    for (const cluster of clusters) if (cluster?.identityKey) next.set(cluster.identityKey, cluster);
+    this.applyIncomingTalkClusters([...next.values()]);
   }
 
-  private applyIncomingTalkClusters(clusters: any[], options: { persist?: boolean } = {}): void {
-    // Replace the UI snapshot with the current local/direct or legacy server cluster list.
-    // Spreading incomingClustersMap left stale/non-identity entries and could prevent IN rows from matching.
+  /** Show exactly these rows (one per content). */
+  private applyIncomingTalkClusters(clusters: any[]): void {
     const next: Record<string, any> = {};
     for (const c of clusters) {
       if (c?.identityKey) {
@@ -7731,14 +7737,7 @@ export class IinPublicApp {
       }
     }
     const list = Object.values(next).filter((c: any) => c && c.identityKey);
-    if (this.currentUser?.id && options.persist !== false) {
-      mirrorIncomingTalkClustersToLocalGun(
-        this.gunService,
-        this.currentUser.id,
-        list,
-        this.p2pRuntimeFlags,
-      );
-    }
+    this.incomingRows = list;
     this.uiManager.setIncomingTalkClusters(list);
     this.uiManager.displayTalksList();
   }

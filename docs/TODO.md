@@ -111,8 +111,20 @@ its ID.
     sender's graph Talk gets its own answer, and removing it removes them all. The mirror,
     `ix/legacy`, `ix/app-talk`, `ix/graph-app`, the `deviceGraph` setting and the backfill route
     are gone; e2e specs that write My Talks directly take ids with `newGraphTalkId(page)`.
-    Remaining: (iv) My Talks and the answer history read from the graph; (v) erase the other old
-    collections one at a time (§31.10). `talkLedger` and `talkRevisionSent` go with step (3).
+    Done (iv, and the Talk copies of v): the graph keeps every Talk field the app reads (author key,
+    author, superseded link join `TALK_META_FIELDS`); a Talk I created is stored once, in the graph,
+    and its `myTalks` entry keeps only the fields that do not come back identical
+    (`sync/my-talks-bodies.ts`); the incoming list is built from graph arrivals the app accepted
+    (`sync/incoming-list.ts`, `graph.acceptArrival`/`graph.incoming`); Talk bodies are read from the
+    graph (`graph.talkBody`). Erased once, not migrated: the SEA Talk copies (`GunTalkRepository`),
+    the incoming rows envelope, `myAuthoredTalks`, `myReceivedTalks`.
+    Remaining (v): the chatbot onto the graph (owner 2026-11-04: port, then switch): add to the
+    graph chatbot what the answer engine does that it lacks (built-in location against my own
+    Talk's place and radius, the editor's per-question default contracts, passing again a tag I
+    passed), make the answer dialog's prefill read it, then erase `answerPreferences`,
+    `flattenedAnswerPreferences`, `exactChatbotMemory`, `questionDefaultContracts`,
+    `typedPreferenceState`, `tagOppositePairRegistry`, `myQuestionAnswers`, `answeredTalkByContent`
+    and `myAnswerHistory`. `talkLedger` and `talkRevisionSent` go with step (3).
   - Next, in order: (2e) the stages above; (3) graph suppression
     (`ix/exchanged`) in place of the sender's ledger; (4) "delete my answer" in the UI
     (no such control today); (5) real-phone run (native-app/37 now asserts graph events).

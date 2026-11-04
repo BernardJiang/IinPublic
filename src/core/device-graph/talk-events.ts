@@ -13,6 +13,7 @@
 import { putEvent } from './events';
 import { addToIndex, readIndex, removeFromIndex } from './index-buckets';
 import { parseEventId } from './event-id';
+import { personIdOf } from './people-graph';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { GRAPH_SCHEMA_VERSION, builtInValues, graphSouls, questionKeysOf, readTalkStructure, talkStructureOf, writeTalkStructure, type TalkStructure } from './talk-structure';
 
@@ -35,13 +36,18 @@ export type GraphTalk = TalkStructure & {
   isTemplate: boolean;
   /** The Talk's other fields the app shows (tags, attachments, author name), see `TALK_META_FIELDS`. */
   meta?: Record<string, unknown>;
+  /** Who wrote this version: the version's `by` (received Talks; my own carry none). */
+  authorId?: string;
 };
 
 /**
  * Talk fields that are neither structure nor delivery fields but that the app shows. They travel
  * with the version, encrypted, as one value (spec §31.12 #17: to become graph records later).
  */
-export const TALK_META_FIELDS = ['tags', 'ipfsAttachments', 'authorName', 'authorLocation', 'originalAuthorId', 'originalCreatedAt', 'originalAuthorLocation'] as const;
+export const TALK_META_FIELDS = [
+  'tags', 'ipfsAttachments', 'authorName', 'authorLocation', 'authorEpub',
+  'originalAuthorId', 'originalCreatedAt', 'originalAuthorLocation', 'supersedesTalkId',
+] as const;
 
 export function talkMetaOf(talk: any): Record<string, unknown> | undefined {
   const meta: Record<string, unknown> = {};
@@ -126,6 +132,8 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
       active: mine?.active !== false,
       isTemplate: mine?.isTemplate === true,
     };
+    const by = personIdOf(options.prefix ?? '', linkSoul(latest.by));
+    if (by) talk.authorId = by;
     if (typeof latest.meta === 'string') { try { talk.meta = JSON.parse(latest.meta); } catch { /* unreadable meta is left out */ } }
     if (typeof latest.expiresAt === 'number') talk.expiresAt = latest.expiresAt;
     if (typeof latest.locationRadiusMiles === 'number') talk.locationRadiusMiles = latest.locationRadiusMiles;

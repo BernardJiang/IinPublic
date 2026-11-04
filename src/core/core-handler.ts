@@ -12,9 +12,11 @@ import type { CoreRequest } from './protocol';
 import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
 import { createStorageBudget } from './device-graph/storage-budget';
-import { createGraphHost } from './device-graph/sync/graph-host';
+import { appTalkOf, createGraphHost } from './device-graph/sync/graph-host';
 import { createAppAnswers, type AppAnswers } from './device-graph/sync/app-answers';
 import { createOwnTalks } from './device-graph/sync/own-talks';
+import { createMyTalksBodies } from './device-graph/sync/my-talks-bodies';
+import { createIncomingList } from './device-graph/sync/incoming-list';
 import type { GraphCrypto } from './device-graph/sync/graph-sync';
 
 /**
@@ -67,6 +69,12 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
   const exchanges = new ExchangeStore(store);
   const delivery = new DeliveryStore(store);
   const collections = new CollectionStore(store);
+  // My created Talks' bodies are read from the graph, not kept twice (`my-talks-bodies.ts`).
+  const myTalks = graph.ownTalks && graph.graph
+    ? createMyTalksBodies({ collections, graph: graph.graph, ownTalks: graph.ownTalks, ...(options.deviceGraph?.log ? { log: options.deviceGraph.log } : {}) })
+    : undefined;
+  // The incoming list is built from graph arrivals (`incoming-list.ts`).
+  const incoming = graph.graph && options.deviceGraph ? createIncomingList({ store: options.deviceGraph.nodeStore, graph: graph.graph }) : undefined;
   const privates = new PrivateStore(store);
   const ledger = new CoreTalkLedger(store, options.allowTestOverrides);
   const execute = async (request: CoreRequest): Promise<unknown> => {
@@ -100,23 +108,25 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'delivery.get':
         return delivery.get(request.objectId, request.recipientId);
       case 'collection.snapshot':
-        return collections.all(request.collection);
+        return myTalks && request.collection === 'myTalks' ? myTalks.all() : collections.all(request.collection);
       case 'collection.upsert': {
-        const written = await collections.upsert(request.collection, request.entries);
-        // After the app's write, never before or instead of it; not awaited, so it adds no latency.
-        if (graph.ownTalks && request.collection === 'myTalks') void graph.ownTalks.onUpsert(request.entries);
+        // My Talks go into the graph after the app's write, never before or instead of it; not
+        // awaited, so it adds no latency.
+        const written = myTalks && request.collection === 'myTalks'
+          ? await myTalks.upsert(request.entries)
+          : await collections.upsert(request.collection, request.entries);
         if (graph.appAnswers && request.collection === 'myAnswerHistory') void graph.appAnswers.recordHistory(request.entries);
         return { written };
       }
       case 'deviceGraph.status':
-        return graph.ownTalks ? { enabled: true, ...(await graph.ownTalks.status()) } : null;
+        return graph.ownTalks ? { enabled: true, ...(await graph.ownTalks.status()), bodies: myTalks?.status() } : null;
       case 'graph.offer': {
         // My Talk as the app keys it (`myTalks`), written into the graph first if it is not yet.
         const sync = graph.host?.sync();
         if (!sync || !graph.ownTalks) return { offered: 0, known: false };
         // Whatever I send is my Talk: one I wrote, a copy I keep, or a body the app holds only in
         // memory. Each is written (or versioned) as my own graph Talk before it is offered.
-        const stored = await collections.get('myTalks', request.talkId) as Record<string, any> | undefined;
+        const stored = await (myTalks ? myTalks.get(request.talkId) : collections.get('myTalks', request.talkId)) as Record<string, any> | undefined;
         const body = stored?.fullTalk ?? request.talk;
         const entry = body && Array.isArray(body.questions)
           ? { ...(stored ?? {}), talkId: request.talkId, title: stored?.title ?? body.title, type: stored?.type ?? body.type, timestamp: stored?.timestamp ?? body.createdAt, fullTalk: body, role: 'created' }
@@ -156,9 +166,23 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
             forgotten.set(record.talkId, [...new Set([...(forgotten.get(record.talkId) ?? []), ...senders])]);
           }
         }
-        const removed = await collections.remove(request.collection, request.keys);
+        const removed = myTalks && request.collection === 'myTalks'
+          ? await myTalks.remove(request.keys)
+          : await collections.remove(request.collection, request.keys);
         for (const [talkId, senders] of forgotten) void graph.appAnswers!.forget(talkId, senders).catch(() => undefined);
         return { removed };
+      }
+      case 'graph.acceptArrival':
+        if (!incoming) return { ok: false };
+        await incoming.accept(request.talkId, request.from, request.senderName, request.omit);
+        return { ok: true };
+      case 'graph.incoming':
+        return incoming ? incoming.rows() : [];
+      case 'graph.talkBody': {
+        if (!graph.graph) return null;
+        const own = graph.ownTalks ? await graph.ownTalks.graphTalkId(request.talkId) : undefined;
+        const talk = own ? await graph.graph.talks.read(own) : await graph.graph.arrivals.read(request.talkId);
+        return talk ? { ...appTalkOf(talk), id: request.talkId } : null;
       }
       case 'graph.answerHistory':
         return graph.appAnswers ? graph.appAnswers.history(request.months ? { months: request.months } : {}) : [];

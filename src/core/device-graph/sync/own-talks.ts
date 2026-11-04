@@ -19,6 +19,7 @@ import type { DeviceGraph } from '../device-graph';
 import { parseEventId } from '../event-id';
 import { canonicalJson } from '../keys';
 import { link, linkSoul, type NodeStore } from '../node-store';
+import { talkMetaOf } from '../talk-events';
 import { graphSouls, talkStructureOf } from '../talk-structure';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -36,6 +37,7 @@ export function createOwnTalks(options: { store: NodeStore; graph: DeviceGraph; 
   const signatureOf = (talk: any) => portableSha256Hex(canonicalJson({
     structure: talkStructureOf(talk), title: String(talk.title ?? ''), isAdult: talk.isAdult === true,
     expiresAt: talk.expiresAt ?? null, locationRadiusMiles: talk.locationRadiusMiles ?? null,
+    meta: talkMetaOf(talk) ?? null,
   }));
 
   async function isOwnId(appId: string): Promise<boolean> {

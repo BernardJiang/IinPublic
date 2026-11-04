@@ -88,21 +88,19 @@ All persistence goes through [Gun.js](https://gun.eco/). The server has a `GunSe
 - `user-talk-filters/<id>` — serialized `TalkIntakeFilters`
 - `user-blocks/<blockerId>/<targetId>` / `user-blocked-by/<targetId>/<blockerId>` — block graph
 - `talks/<id>` — talk definition + responses + stats
-- `ownerIncomingTalkIndex/<userId>/<identityKey>` — incoming talk clusters, one shared body + a
-  `senders` map per cluster (`IncomingTalkClusterWire`, `src/shared/peer-talk-delivery.ts`);
-  client-side only, gated by `p2pClientTalkMirror`/`p2pDirectTalkDelivery`
+- Incoming talk rows (`IncomingTalkClusterWire`, `src/shared/peer-talk-delivery.ts`: one row per
+  Talk content with a `senders` map) are built from device-graph arrivals the app accepted
+  (`src/core/device-graph/sync/incoming-list.ts`, core request `graph.incoming`); nothing is stored
+  but `ix/shown/<talkId>` (OPEN-106 step 2e)
 - **Nearby is a personal list, not a room** (`docs/design/nearby-and-place-chatrooms.md` §3.7): each phone keeps the `C` people nearest to it (signed cards, `src/shared/nearby-v3-*.ts`), found through the hub's introductions (`POST /api/nearby/v3/introductions`, `NearbyV3Hub`) and card gossip over the mesh (`nearby-gossip` frames, `src/web/services/nearby-v3-*.ts`). Its scope id is `nearby-v3` (`NEARBY_V3_ROOM_ID`): no hub roster, no membership writes, no chat. `C` = `CONFIG.CHATROOM_MAX_CAPACITY` (498 release / 3 local debug, signed-manifest `chatroomCapacity` wins), also a Place's seat limit. E2E knob: `?e2e_capacity=`; `window.__test_location = 'none'` boots a GPS-less device
 - `conversations/<id>` / `users/<id>/conversations/<convId>` — conversation records
 - `talkAnswerTemplateByUser/<userId>/<identityKey>` — cached answer templates for chatbot auto-reply
 
 **Gun.js quirks to know:**
 - Gun cannot store nested arrays; use `questionsJson` (serialized) alongside `questions` arrays.
-- Incoming-talk clusters are P2P/mesh-delivered and mirrored straight into the receiver's own
-  local Gun graph (`client-incoming-talk-mirror.ts`) — there is no server-side authoritative map
-  and no `GET /api/incoming-talks` endpoint (removed with star-delivery, `src/shared/p2p-runtime.ts:12`).
-  Device-side, size-triggered pruning (oldest `updatedAt` first, mirroring the room-visit-counter
-  prune below) keeps this path bounded — see `planIncomingTalkClusterPrune` in
-  `src/shared/peer-talk-delivery.ts`.
+- Talks arrive over graph links into the receiver's device graph; there is no server-side map and
+  no `GET /api/incoming-talks` endpoint (removed with star-delivery, `src/shared/p2p-runtime.ts:12`).
+  The incoming list shows at most `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS` rows, newest first.
   **Wire audit** (`tests/e2e/talks-matching/09-talk-content-not-on-hub-wire.spec.ts`): owner Talk
   repositories and incoming clusters are owner-private records in the core worker's Gun, and the
   spec asserts no Talk plaintext reaches the hub, and no private soul (`local/`, `pairs/`,
@@ -229,9 +227,8 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 
 - **Match logic is in `src/shared/talk-engine.ts`** — never duplicate it in routes or UI.
 - **TechSupport is the built-in first user and counts as exactly 1 in every headcount** (status bar, room badges) — see spec `docs/specs/iinpublic-technical-specifications.md` §19.7.1 (merged from the former `docs/design/techsupport-bootstrap-contract.md`, now in `docs/archive/consolidated-2026-07-29/`).
-- **Incoming-talk clusters are client-side only, no server map** — mesh-delivered straight into
-  the receiver's own local Gun graph at `ownerIncomingTalkIndex/<userId>/<identityKey>`
-  (`client-incoming-talk-mirror.ts`); pruned device-side, oldest `updatedAt` first, once past
-  `DEFAULT_INCOMING_TALK_CLUSTER_MAX_SLOTS` (`src/shared/peer-talk-delivery.ts`).
+- **Incoming-talk rows are device-side only, no server map** — built from the receiver's device
+  graph arrivals (`src/core/device-graph/sync/incoming-list.ts`); Talk bodies are read from the
+  graph (`graph.talkBody`), never stored again.
 - **Private user data is SEA-encrypted** — `WebUserService.putPrivateUserData` writes `blockedUserIds`, `knownPeople`, `talkFilters` under the Gun user keypair. The server cannot read these; server-side user ops use Gun public paths only.
 - **`ContactsViewDeps`** must include every function deps object passed to contacts-view rendering; there are three call sites in `ui-manager.ts` (~lines 873, 890, 908).
