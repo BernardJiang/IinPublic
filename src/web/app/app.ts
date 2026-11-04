@@ -179,7 +179,6 @@ import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-t
 import { getChatbotTemplates, getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
 import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
-import { buildTalkWakePayload, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import {
   endMatchCollectionSession,
@@ -447,7 +446,6 @@ export class IinPublicApp {
   /** The hub count revision the last stats poll saw (OPEN-86 E4). */
   private nearbyCountRevisionSeen: number | null = null;
   private activeRoomRoster: { roomId: string; count: number; pubs: string[] } | null = null;
-  private readonly talkWakeThrottle = new TalkWakeThrottle();
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
   private protocolManifestController: ProtocolManifestController | null = null;
   private protocolActivationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3320,35 +3318,10 @@ export class IinPublicApp {
         return { initial: config.broadcastInitialConcurrency, max: config.broadcastMaxConcurrency };
       },
       onPersonalPeerUnreachable: (_userId, pub) => this.nearbyV3?.unreachable(pub),
-      admitTalkOffer: (authorUserId) => {
-        const contacts = this.currentUser?.knownPeople;
-        if (Array.isArray(contacts) && contacts.some((known) => known?.userId === authorUserId)) return true;
-        return this.incomingTalkBudget.tryAdmit(Date.now());
-      },
       ...(this.protocolManifestController
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
       authoritativeDirectTalkDelivery: this.p2pRuntimeFlags.p2pDirectTalkDelivery,
-      onTalkDeliveryAck: (payload, recipientUserId) => {
-        this.noteNearbyDelivery(payload.talkId, recipientUserId);
-        const deliveredTalk = payload.talkData as unknown as Talk;
-        const wholeIdentityKey = buildTalkIdentityKey(deliveredTalk);
-        const deliveredIdentityKeys = buildTagIdentityKeys(deliveredTalk, wholeIdentityKey);
-        const sentAt = new Date().toISOString();
-        for (const identityKey of deliveredIdentityKeys) {
-          void markTalkSentToPeer({
-            peerId: recipientUserId,
-            identityKey,
-            talkId: payload.talkId,
-            sentAt,
-          }).catch((error) => console.warn('[ledger] delivery acknowledgement commit failed:', error));
-        }
-        recordTalkRevisionSent(
-          recipientUserId,
-          payload.talkId,
-          computeTalkRevisionHash(deliveredTalk),
-        );
-      },
       onProtocolManifestCompatibility: async () => {
         await this.syncActiveRoomProtocolCheckpoint();
       },
@@ -3389,7 +3362,6 @@ export class IinPublicApp {
               }),
           }
         : {}),
-      onTalkBody: (payload) => this.handleMeshTalkBody(payload),
       onTalkResponse: (payload) => void this.handleMeshTalkResponse(payload).catch((err) => {
         // The mesh layer has already ACKed the frame by the time this runs — a swallowed
         // throw here is a silently lost response (observed: author-side decrypt failures
@@ -3406,55 +3378,6 @@ export class IinPublicApp {
         diag.lastPongFrom = fromUserId;
         if (!diag.pongedOrigins.includes(fromUserId)) diag.pongedOrigins.push(fromUserId);
       },
-      // Step 2: record announce receipt for durable E2E assertion (meshAnnounceDiagnostics).
-      // Fires before body pull, enabling the test to assert announce reachability without
-      // waiting for the full talk-body-request/talk-body round-trip.
-      onTalkAnnounce: async (payload, _frame) => {
-        const diag = this.meshAnnounceDiagnostics;
-        const alreadyRecorded = diag.received.some(
-          (r) => r.talkId === payload.talkId && r.authorId === payload.authorId,
-        );
-        if (!alreadyRecorded) {
-          diag.received.push({ talkId: payload.talkId, authorId: payload.authorId });
-        }
-        return this.shouldAcceptIncomingTalkAsync({
-          senderId: payload.authorId,
-          talkData: {
-            id: payload.talkId,
-            title: payload.title,
-            type: payload.type,
-            isAdult: payload.isAdult === true,
-            language: payload.language,
-            tags: payload.tags ?? [],
-            questions: [],
-          },
-          ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
-        });
-      },
-      // OPEN-38/G6: mailbox the encrypted body for every pending receiver and send a separate
-      // content-free wake only to peers that look asleep; the authoritative body stays queued.
-      ...(this.p2pRuntimeFlags.p2pDirectTalkDelivery
-        ? {
-            onDirectDeliveryPending: async (
-              payload: P2PMeshTalkBodyPayload,
-              recipientUserIds: string[],
-              wakeRecipientUserIds: string[],
-            ) => {
-              await Promise.all([
-                this.postTalkWakeToMailbox(wakeRecipientUserIds),
-                this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
-              ]);
-            },
-          }
-        : {}),
-      // Mixed-release escape hatch only. The authoritative direct scheduler retains ordinary
-      // Talk bodies in the author's encrypted local outbox until the end receiver ACKs.
-      ...(!this.p2pRuntimeFlags.p2pDirectTalkDelivery
-        ? {
-            onMailboxFallback: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) =>
-              this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
-          }
-        : {}),
       // Step 10: responder side — handle incoming retraction flood frames.
       onTalkRetracted: (payload) => this.handleMeshTalkRetracted(payload),
     });
@@ -3552,9 +3475,7 @@ export class IinPublicApp {
     const now = Date.now();
     if (!options.ignoreInterval && now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
     const broadcastHere = talksBroadcastInRoom(roomId);
-    // A Talk already queued for this peer is retried by the outbox itself (OPEN-51).
-    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) =>
-      broadcastHere.has(talkId) && !this.peerMeshService?.hasQueuedDirectTalk(peerId, talkId));
+    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) => broadcastHere.has(talkId));
     // A Talk still being broadcast is left to that broadcast; re-check this peer when it settles.
     if (candidates.some((talkId) => this.talkBroadcastsInFlight.has(talkId))) {
       this.catchUpDeferredByInFlight.set(peerId, { roomId, ...(stageName ? { stageName } : {}) });
@@ -3832,7 +3753,6 @@ export class IinPublicApp {
         }
         const payload = await mailbox.decryptEnvelope<
           | P2PMeshTalkResponsePayload
-          | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload
           | MailboxAttachmentSharePayload
           | MailboxConversationMessagePayload
           | MailboxSupportQuestionPayload
@@ -3863,7 +3783,7 @@ export class IinPublicApp {
             await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
             break;
           case 'talk-body':
-            await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
+            // Talks travel only over graph links now (OPEN-106): an old envelope is dropped.
             break;
           case 'talk-retraction':
             await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
@@ -3878,38 +3798,6 @@ export class IinPublicApp {
       } catch (err) {
         console.warn('[Mailbox] Failed to drain envelope', envelope.id, '— will retry on next connect:', err);
         // Leave envelope on server for re-delivery.
-      }
-    }
-  }
-
-  /**
-   * OPEN-38: wake receivers whose page is frozen asleep. One content-free encrypted envelope per
-   * receiver per 30 minutes; it reveals only that this sender has something for them.
-   */
-  private async postTalkWakeToMailbox(recipientUserIds: string[]): Promise<void> {
-    const me = this.currentUser?.id;
-    const pair = this.gunService.getStoredPair();
-    if (!me || !pair?.priv || this.mailboxFallbackDisabledForE2e) return;
-    const mailbox = this.ensureMailboxClient();
-    const nowMs = Date.now();
-    for (const recipientId of recipientUserIds) {
-      if (!recipientId || recipientId === me || !this.talkWakeThrottle.shouldWake(recipientId, nowMs)) continue;
-      try {
-        const recipientEpub = await this.resolvePeerEpub(recipientId);
-        if (!recipientEpub) continue;
-        const ciphertext = await mailbox.encryptForRecipient(
-          recipientEpub,
-          pair as import('../sea-gun').GunPair,
-          buildTalkWakePayload(me, new Date(nowMs)),
-        );
-        await mailbox.postEnvelope({
-          id: talkWakeEnvelopeId(me, recipientId, nowMs),
-          recipientId,
-          ciphertext,
-          ttlMs: TALK_WAKE_TTL_MS,
-        });
-      } catch (error) {
-        console.warn('[Mailbox] Failed to post Talk wake ping:', error);
       }
     }
   }
@@ -4343,74 +4231,6 @@ export class IinPublicApp {
     gun.get('techsupport-inbox').get(input.questionKey).put({ status: 'answered' });
     if (this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
     console.log('[Support] Answered and published', input.questionKey);
-  }
-
-  /**
-   * R-a step 7: mailbox fallback for talk-body delivery when DataChannel overlay cannot
-   * guarantee full room coverage. Posts an encrypted talk-body envelope per unreachable
-   * recipient. Recipients drain the mailbox on reconnect → flows through the same
-   * intake-filtered `handleMeshTalkBody` accept path.
-   * Best-effort: failures are logged but do not propagate.
-   */
-  private async postTalkBodyToMailboxForRecipients(
-    payload: import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload,
-    recipientUserIds: string[],
-  ): Promise<void> {
-    if (this.mailboxFallbackDisabledForE2e) return;
-    if (!this.currentUser?.id || recipientUserIds.length === 0) return;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
-    const recipients = [...new Set(recipientUserIds)].filter(
-      (recipientId) => recipientId && recipientId !== this.currentUser?.id,
-    );
-    // The body mailbox post is the delivery backstop when the mesh overlay can't reach a
-    // recipient. Under saturation (20-browser M4) a single epub read or POST can transiently
-    // fail; unlike talk *responses* there was no retry, so that recipient was permanently
-    // skipped and never received the talk. Retry per recipient with backoff. The envelope id is
-    // deterministic, so re-posting is idempotent (server dedupes; receiver dedupes on drain).
-    // This whole method is invoked fire-and-forget from the mesh fallback, so the retries never
-    // delay the broadcast's own completion. The budget must survive a saturation boot storm:
-    // with ~12 browsers starting at once (mass/ specs, busy real deployments), a receiver can
-    // take 20-30s to publish its SEA keys, and the old ~8s budget (6 attempts) gave up forever
-    // — receivers permanently missed the talk. ~45s of capped backoff rides out the storm.
-    const MAX_POST_ATTEMPTS = 12;
-    const concurrency = 5;
-    for (let i = 0; i < recipients.length; i += concurrency) {
-      await Promise.all(recipients.slice(i, i + concurrency).map(async (recipientId) => {
-        for (let attempt = 0; attempt < MAX_POST_ATTEMPTS; attempt += 1) {
-          try {
-            const recipientEpub = await this.resolvePeerEpub(recipientId);
-            if (recipientEpub) {
-              const ciphertext = await mailbox.encryptForRecipient(
-                recipientEpub,
-                pair as import('../sea-gun').GunPair,
-                payload,
-              );
-              const envelopeId = `mbx_body_${payload.talkId}_${this.currentUser?.id}_${recipientId}`;
-              const result = await mailbox.postEnvelope({
-                id: envelopeId,
-                recipientId,
-                ciphertext,
-              });
-              if (result.stored) {
-                console.log('[Mesh/Mailbox] Posted talk-body envelope for', recipientId);
-                return;
-              }
-              console.warn('[Mesh/Mailbox] Server rejected talk-body envelope for', recipientId, ':', result.error);
-            } else {
-              console.warn('[Mesh/Mailbox] epub not found for', recipientId, `(attempt ${attempt + 1})`);
-            }
-          } catch (err) {
-            console.warn('[Mesh/Mailbox] post talk-body failed for', recipientId, `(attempt ${attempt + 1}):`, err);
-          }
-          if (attempt < MAX_POST_ATTEMPTS - 1) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, 400 + attempt * 600)));
-          }
-        }
-        console.warn('[Mesh/Mailbox] gave up posting talk-body for', recipientId, `after ${MAX_POST_ATTEMPTS} attempts`);
-      }));
-    }
   }
 
   // ─── localStorage fallback queue (POST-to-mailbox failure only) ──────────
@@ -6538,6 +6358,9 @@ export class IinPublicApp {
       talk = trimmed.filtered as Record<string, any>;
     }
     const appTalkId = typeof context.appTalkId === 'string' && context.appTalkId ? context.appTalkId : event.talkId;
+    // Nearby receiving limit: Talks from strangers beyond the per-minute budget are not shown.
+    const contacts = this.currentUser?.knownPeople;
+    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) return;
     const authorName = String(context.authorName || talk.authorName || 'Unknown');
     const payload = {
       roomId: typeof context.roomId === 'string' ? context.roomId : '',
@@ -7689,6 +7512,30 @@ export class IinPublicApp {
     if (!progress?.talkIds.has(talkId) || progress.delivered.has(recipientUserId)) return;
     progress.delivered.add(recipientUserId);
     this.uiManager.setNearbyBroadcastProgress({ sent: Math.min(progress.delivered.size, progress.total), total: progress.total });
+  }
+
+  /**
+   * E2E: offer this Talk over graph links to these people (the room's members when none), as the
+   * raw Talk frame send used to: no ledger, suppression or audience checks. Returns who was offered.
+   */
+  public async offerTalkForE2e(talk: Record<string, any>, recipientUserIds?: string[]): Promise<string[]> {
+    const me = this.currentUser;
+    if (!me?.id) throw new Error('offerTalkForE2e: no user');
+    if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+    if (!this.coreRequest || !this.graphLinks?.isRunning()) throw new Error('offerTalkForE2e: graph links are not running');
+    const talkId = String(talk.id || '');
+    if (!talkId) throw new Error('offerTalkForE2e: the Talk needs an id');
+    const recipients = [...new Set(recipientUserIds?.length ? recipientUserIds : this.peerMeshService?.roomMemberIds() ?? [])]
+      .filter((id) => id && id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
+    const body = { ...talk, id: talkId, authorId: me.id };
+    // The author's own copy, read when answers come back.
+    this.peerMeshService?.cacheTalkBody(talkId, body);
+    const result = await this.coreRequest({
+      name: 'graph.offer', talkId, recipients, talk: body,
+      context: { appTalkId: talkId, roomId: this.chatroomService.getCurrentChatroomId() ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+    });
+    if (!result.known) throw new Error(`offerTalkForE2e: ${talkId} could not be written to the graph`);
+    return recipients;
   }
 
   public async deliverPendingBroadcastTalksForE2e(

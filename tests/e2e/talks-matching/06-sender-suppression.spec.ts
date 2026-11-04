@@ -204,7 +204,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
         const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
-        await mesh.broadcastTalk(tDef, { recipientUserIds: [authorId], roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, [authorId]);
       },
       { talkId: TEST_TALK_ID, authorId: tomId, tDef: talkDef },
     );
@@ -215,7 +215,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService not available on Tom');
-        await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
       },
       { tDef: talkDef, rIds: [jerryId, bobId] },
     );

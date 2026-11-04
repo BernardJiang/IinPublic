@@ -199,7 +199,7 @@ describe('Nearby v3 knocks back', () => {
 });
 
 describe('Nearby v3 broadcast loop', () => {
-  it('delivers a Talk to everyone on the list, opening links a few at a time, although nobody lists the sender', async () => {
+  it('opens a link to everyone the graph owes a Talk, a few at a time, although nobody lists the sender', async () => {
     const net = fakeNetwork();
     const names = ['adam', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6'];
     const pairs = Object.fromEntries(await Promise.all(names.map(async (name) => [name, await SEA.pair() as SeaSigningPair])));
@@ -211,6 +211,8 @@ describe('Nearby v3 broadcast loop', () => {
     const gates: Record<string, NearbyKnockGate> = {};
     const delivered: string[] = [];
     let mostLinks = 0;
+    // A person reads Adam's log once linked (OPEN-106): then the graph owes them nothing more.
+    const owed = new Set(names.slice(1));
     for (const name of names) {
       const pair = pairs[name]!;
       const gun = { getStoredPair: () => pair, getPublicUser: async () => undefined, ...privateStore() } as unknown as WebGunService;
@@ -225,7 +227,13 @@ describe('Nearby v3 broadcast loop', () => {
         knockPeer: async (peer) => {
           await gates[peer.userId]!.receive(await createNearbyKnock({ fromUserId: name, pair, toPub: peer.pub, card: null }));
         },
-        onTalkBody: (body) => { delivered.push(name); expect(body.talkId).toBe('loop-talk'); },
+        ...(name === 'adam' ? {
+          onNeighborConnected: (userId: string) => {
+            if (!owed.delete(userId)) return;
+            delivered.push(userId);
+            setTimeout(() => meshes.adam!.setGraphOwed([...owed]), 0);
+          },
+        } : {}),
       });
       gates[name] = new NearbyKnockGate({ localPub: () => pair.pub, mesh: meshes[name]!, incomingLimit: () => 8 });
     }
@@ -235,7 +243,7 @@ describe('Nearby v3 broadcast loop', () => {
     for (const name of names.slice(1)) await meshes[name]!.joinRoom('nearby-v3', [], { replace: true, personal: true });
     const watch = setInterval(() => { mostLinks = Math.max(mostLinks, meshes.adam!.getDiagnostics().neighborCount); }, 5);
 
-    await meshes.adam!.broadcastTalk({ id: 'loop-talk', authorId: 'adam', title: 'Loop', type: 'tag', questions: [] }, { roomBroadcast: true });
+    meshes.adam!.setGraphOwed([...owed]);
     const deadline = Date.now() + 10_000;
     while (delivered.length < 6 && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -288,9 +296,9 @@ describe('Nearby v3 broadcast loop', () => {
     for (const mesh of Object.values(meshes)) mesh.leaveRoom();
   }, 20_000);
 
-  it('reaches a chosen recipient who is not on the Nearby list (a contact group)', async () => {
+  it('opens a link to a chosen recipient who is not on the Nearby list (a contact group)', async () => {
     // Found by web e2e isolated-02: the loop opened links only to listed people, so a Talk for
-    // anyone else waited in the outbox for good.
+    // anyone else waited for good.
     const net = fakeNetwork();
     const pairs = { adam: await SEA.pair() as SeaSigningPair, carol: await SEA.pair() as SeaSigningPair };
     const delivered: string[] = [];
@@ -316,12 +324,12 @@ describe('Nearby v3 broadcast loop', () => {
         knockPeer: async (peer) => {
           await gates[peer.userId]!.receive(await createNearbyKnock({ fromUserId: name, pair, toPub: peer.pub, card: null }));
         },
-        onTalkBody: () => { delivered.push(name); },
+        ...(name === 'adam' ? { onNeighborConnected: (userId: string) => { delivered.push(userId); } } : {}),
       });
       gates[name] = new NearbyKnockGate({ localPub: () => pair.pub, mesh: meshes[name]!, incomingLimit: () => 8 });
       await meshes[name]!.joinRoom('nearby-v3', [], { replace: true, personal: true });
     }
-    await meshes.adam!.broadcastTalk({ id: 'contact-talk', authorId: 'adam', title: 'Friends', type: 'tag', questions: [] }, { recipientUserIds: ['carol'] });
+    meshes.adam!.setGraphOwed(['carol']);
     const deadline = Date.now() + 10_000;
     while (!delivered.includes('carol') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
     expect(delivered).toEqual(['carol']);

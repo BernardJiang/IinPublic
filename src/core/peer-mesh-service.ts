@@ -7,7 +7,6 @@ import {
   isP2PProtocolManifestChainPayload,
   isP2PProtocolManifestRequestPayload,
   isP2PProtocolManifestSummaryPayload,
-  isP2PMeshTalkBodyPayload,
   isP2PMeshTalkResponsePayload,
   isP2PMeshTalkRetractedPayload,
   isP2PNearbyGossipPayload,
@@ -19,9 +18,6 @@ import {
   type P2PProtocolManifestChainPayload,
   type P2PProtocolManifestRequestPayload,
   type P2PProtocolManifestSummaryPayload,
-  type P2PMeshTalkAnnouncePayload,
-  type P2PMeshTalkBodyPayload,
-  type P2PMeshTalkBodyRequestPayload,
   type P2PMeshTalkResponsePayload,
   type P2PMeshTalkRetractedPayload,
   type P2PNearbyGossipPayload,
@@ -29,8 +25,6 @@ import {
 import { GRAPH_GUN_MAX_RAW } from '../shared/p2p-mesh-protocol';
 import type { ProtocolManifestCompatibility } from '../shared/protocol-manifest';
 import { ProtocolManifestController } from '../shared/protocol-manifest-controller';
-import type { Talk } from '../shared/types';
-import { computeTalkRevisionHash } from '../shared/talk-revision';
 import type { MeshIdentity } from './ports';
 import { TECHSUPPORT_ROOT_USER_ID } from '../shared/techsupport';
 import {
@@ -38,11 +32,6 @@ import {
   type ForwardingContext,
   type ForwardingSettings,
 } from '../shared/mesh-forwarding-policy';
-import { configuredMeshSyncCapabilities } from '../shared/mesh-frame-policy';
-import {
-  DirectTalkDeliveryOutbox,
-  type DirectTalkDeliveryEntry,
-} from './direct-talk-delivery-outbox';
 
 type RoomMember = {
   userId: string;
@@ -81,9 +70,6 @@ export type PeerMeshServiceOptions = {
     isInitiator: boolean;
     onRemoteMeshFrame: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   }) => MeshSession;
-  // Returns false when the receiver rejected the talk (e.g. intake/age filtering) so the
-  // caller can leave it eligible for re-delivery; any other return is treated as accepted.
-  onTalkBody?: (payload: P2PMeshTalkBodyPayload) => boolean | void | Promise<boolean | void>;
   onTalkResponse?: (payload: P2PMeshTalkResponsePayload) => void | Promise<void>;
   /**
    * Step 10: fired when a `talk-retracted` flood frame arrives and passes:
@@ -95,30 +81,6 @@ export type PeerMeshServiceOptions = {
   onPing?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** R5: fired when a mesh-pong addressed to us arrives; enables durable E2E reachability assertion. */
   onPong?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
-  /**
-   * Step 2: fired when a `talk-announce` frame arrives addressed to this peer (or flood).
-   * Fires before the body request is scheduled, so callers can record receipt for E2E
-   * diagnostics without waiting for the full body pull to complete.
-   */
-  onTalkAnnounce?: (payload: P2PMeshTalkAnnouncePayload, frame: P2PMeshFrame) => boolean | void | Promise<boolean | void>;
-  /**
-   * R-a step 7: mailbox fallback for recipients unreachable over the DataChannel overlay.
-   * Called with the talk-body payload and the list of recipient user IDs that cannot be
-   * guaranteed delivery via DataChannel alone (coverage-gap or below-wanted-degree condition).
-   * The caller posts per-recipient encrypted envelopes via WebMailboxClient.
-   */
-  onMailboxFallback?: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) => void | Promise<void>;
-  /**
-   * OPEN-38/G6: authoritative direct delivery queued a Talk for receivers that have no fresh
-   * presence and/or no live direct link. The caller posts the pair-encrypted body mailbox fallback
-   * for every still-pending recipient, plus a content-free wake ping only for the likely-asleep
-   * subset. The body also stays in the outbox until the direct scheduler receives its ordinary ACK.
-   */
-  onDirectDeliveryPending?: (
-    payload: P2PMeshTalkBodyPayload,
-    recipientUserIds: string[],
-    wakeRecipientUserIds: string[],
-  ) => void | Promise<void>;
   forwardingSettings?: Partial<ForwardingSettings>;
   getForwardingContext?: (neighborUserId: string) => ForwardingContext;
   protocolManifestController?: ProtocolManifestController;
@@ -128,11 +90,9 @@ export type PeerMeshServiceOptions = {
   ) => void | Promise<void>;
   /** A direct link to a room neighbor just came up (WebRTC over LAN, Wi-Fi Direct or relay). */
   onNeighborConnected?: (userId: string, roomId: string) => void;
-  /** Keep Talk bodies in a local outbox until each recipient acknowledges them. */
+  /** A frame addressed to one person goes only over a direct link to them, never through others. */
   authoritativeDirectTalkDelivery?: boolean;
   now?: () => number;
-  /** Fires only after the receiver durably accepted the Talk body (or proved it already had it). */
-  onTalkDeliveryAck?: (payload: P2PMeshTalkBodyPayload, recipientUserId: string) => void | Promise<void>;
   /**
    * Nearby v3 (§3.7): the roster is this phone's own nearby list, not a shared room. Links open only
    * to pinned peers (a gossip partner, someone who knocked), never to a rotating K of the roster.
@@ -147,8 +107,6 @@ export type PeerMeshServiceOptions = {
   personalConcurrency?: () => { initial: number; max: number };
   /** Nearby v3: a link to this person could not be opened twice in a row; they leave the list. */
   onPersonalPeerUnreachable?: (userId: string, pub: string) => void;
-  /** Nearby v3 receiving limit: false leaves a new Talk offer unanswered (the sender retries). */
-  admitTalkOffer?: (authorUserId: string) => boolean;
   /** A Nearby v3 gossip message from a direct neighbor; the returned message is sent back. */
   onNearbyGossip?: (fromUserId: string, fromPub: string, message: Record<string, unknown>) => Promise<unknown>;
   /** A device graph Gun message from a direct neighbor (`graph-gun` frame, one hop). */
@@ -192,18 +150,10 @@ const DEFAULT_MESH_SEND_TIMEOUT_MS = 2_500;
 const DEFAULT_MESH_RETRY_TIMEOUT_MS = 10_000;
 const DEFAULT_MESH_ACK_TIMEOUT_MS = 3_000;
 /**
- * Room-broadcast flood attempts before falling back to the encrypted mailbox.
- * Re-flooding is idempotent (receivers dedup by msgId) and recovers recipients
- * whose DataChannel flapped during an earlier attempt.
- */
-const MESH_BROADCAST_FLOOD_ATTEMPTS = 3;
-/**
  * Outside a personal list (Contacts only: a DM warm-up, the recipients of a Talk) the mesh links to
  * the members it was given, at most this many at once.
  */
 const MAX_EXPLICIT_LINKS = 64;
-/** Outbox entries announced at once per flush. */
-const DIRECT_FLUSH_CONCURRENCY = 12;
 /** Nearby v3: a new link may fail to connect for this long while the other side answers the knock. */
 const PERSONAL_CONNECT_GRACE_MS = 8_000;
 /** A link opened for one reason (an answer, a direct send) stays this long; we wait this long for it. */
@@ -211,7 +161,6 @@ const PERSONAL_RESPONSE_PIN_MS = 60_000;
 const PERSONAL_RESPONSE_CONNECT_MS = 15_000;
 /** After giving up on a person, the broadcast loop leaves them to the mailbox for this long. */
 const PERSONAL_GAVE_UP_COOLDOWN_MS = 5 * 60_000;
-const DIRECT_DELIVERY_RETRY_INTERVAL_MS = 5_000;
 
 /**
  * R4: Bounded FIFO seen-set. Prevents unbounded memory growth in long sessions
@@ -264,40 +213,7 @@ function talkBodyDeliveryKey(talkId: string, authorId: string): string {
   return `${talkId}::${authorId}`;
 }
 
-/**
- * Delivery-tracking key for one REVISION of a talk. An author's in-place edit keeps the talkId,
- * so the announced content hash is part of the key — a revised body is a new delivery while
- * flood re-sends of the same revision still dedupe. Peers on builds that don't send
- * `contentHash` keep the old per-talk behavior.
- */
-function talkRevisionDeliveryKey(talkId: string, authorId: string, contentHash?: unknown): string {
-  const base = talkBodyDeliveryKey(talkId, authorId);
-  return typeof contentHash === 'string' && contentHash ? `${base}::${contentHash}` : base;
-}
 
-/** `{ contentHash }` for a talk body, or `{}` when it can't be identified. */
-function contentHashField(talk: unknown): { contentHash?: string } {
-  try {
-    // OPEN-45: the full revision, so a title/routing-only update is a new delivery too.
-    const contentHash = computeTalkRevisionHash(talk);
-    return contentHash ? { contentHash } : {};
-  } catch {
-    return {};
-  }
-}
-
-async function mapWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<void>,
-): Promise<void> {
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async (_, workerIndex) => {
-    for (let i = workerIndex; i < items.length; i += limit) {
-      await fn(items[i]);
-    }
-  });
-  await Promise.all(workers);
-}
 
 export class PeerMeshService {
   private currentRoomId: string | null = null;
@@ -313,10 +229,6 @@ export class PeerMeshService {
   /** Frames currently undergoing async signature verification; closes the direct/relay race. */
   private readonly verifyingFrameIds = new Set<string>();
   private readonly talkBodies = new Map<string, Record<string, unknown>>();
-  private readonly deliveredTalkBodyIds = new Set<string>();
-  private readonly rejectedTalkOfferIds = new Set<string>();
-  private readonly pendingTalkBodyRequestTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly bodyRequestWaiters = new Map<string, (payload: P2PMeshTalkBodyPayload) => void>();
   private readonly acknowledgements = new Map<string, Set<string>>();
   private readonly acknowledgementWaiters = new Map<string, Set<() => void>>();
   /** A neighbor may carry room traffic only after both sides report the same verified checkpoint. */
@@ -324,11 +236,6 @@ export class PeerMeshService {
   private readonly manifestRejectedPeerIds = new Set<string>();
   private readonly forwardingPolicy: MeshForwardingPolicy;
   private protocolManifestController: ProtocolManifestController | undefined;
-  private readonly directTalkOutbox: DirectTalkDeliveryOutbox | null;
-  private directOutboxFlush: Promise<Set<string>> | null = null;
-  private readonly directOfferMsgIds = new Map<string, string>();
-  /** `${recipientUserId}|${talkId}` still queued in the outbox for the current room (in-memory mirror). */
-  private readonly queuedDirectTalks = new Set<string>();
   /** Nearby v3: peers a link must open to now, until the given time. */
   private readonly pinnedPeers = new Map<string, { pub: string; until: number }>();
   private readonly gossipWaiters = new Map<string, (message: Record<string, unknown>) => void>();
@@ -359,14 +266,11 @@ export class PeerMeshService {
   };
 
   constructor(
-    private readonly gunService: MeshIdentity & ConstructorParameters<typeof DirectTalkDeliveryOutbox>[0],
+    private readonly gunService: MeshIdentity,
     private readonly opts: PeerMeshServiceOptions,
   ) {
     this.forwardingPolicy = new MeshForwardingPolicy(opts.forwardingSettings);
     this.protocolManifestController = opts.protocolManifestController;
-    this.directTalkOutbox = opts.authoritativeDirectTalkDelivery
-      ? new DirectTalkDeliveryOutbox(gunService)
-      : null;
   }
 
   setProtocolManifestController(controller: ProtocolManifestController): void {
@@ -463,11 +367,9 @@ export class PeerMeshService {
     void this.opts.knockPeer({ userId: neighbor.userId, pub: neighbor.pub }).catch(() => undefined);
   }
 
-  /** Talks queued per recipient: the outbox for the current room, and the device graph's log. */
+  /** People with Talks waiting for them: my device graph log entries they have not read. */
   private pendingRecipients(): Set<string> {
-    const pending = new Set<string>(this.graphOwed);
-    for (const key of this.queuedDirectTalks) pending.add(key.slice(0, key.indexOf('|')));
-    return pending;
+    return new Set<string>(this.graphOwed);
   }
 
   /**
@@ -477,9 +379,17 @@ export class PeerMeshService {
   private graphOwed = new Set<string>();
   setGraphOwed(userIds: string[]): void {
     const next = new Set(userIds.filter((id) => id && id !== this.opts.localUserId));
-    const added = [...next].some((id) => !this.graphOwed.has(id));
+    const added = [...next].filter((id) => !this.graphOwed.has(id));
+    const read = [...this.graphOwed].filter((id) => !next.has(id));
     this.graphOwed = next;
-    if (added && this.currentRoomId) void this.reconcileNeighbors().then(() => this.scheduleReconcile()).catch(() => undefined);
+    // Each person who read what I owed them is a delivered Talk: the Nearby loop may widen.
+    for (const _ of read) this.adjustPersonalConcurrency(true);
+    if ((added.length || read.length) && this.currentRoomId) void this.reconcileNeighbors().then(() => this.scheduleReconcile()).catch(() => undefined);
+  }
+
+  /** The current room's members (not me). */
+  roomMemberIds(): string[] {
+    return [...this.currentRoomMemberIds].filter((id) => id !== this.opts.localUserId);
   }
 
   /** How many people the Nearby v3 broadcast loop links to at once now. */
@@ -593,15 +503,6 @@ export class PeerMeshService {
       .slice(0, K);
   }
 
-  /**
-   * True while this Talk sits in the direct-delivery outbox for that peer in the current room. The
-   * outbox already retries it on its own schedule (and on every neighbor link), so room catch-up
-   * should not send it again (OPEN-51).
-   */
-  hasQueuedDirectTalk(recipientUserId: string, talkId: string): boolean {
-    return this.queuedDirectTalks.has(`${recipientUserId}|${talkId}`);
-  }
-
   async joinRoom(
     roomId: string,
     members: RoomMember[],
@@ -617,8 +518,7 @@ export class PeerMeshService {
       this.currentRoomMemberIds.clear();
       this.manifestReadyPeerIds.clear();
       this.manifestRejectedPeerIds.clear();
-      this.queuedDirectTalks.clear();
-      this.pinnedPeers.clear();
+        this.pinnedPeers.clear();
       this.knockedAt.clear();
       this.gaveUpAt.clear();
       this.connectFailures.clear();
@@ -784,7 +684,6 @@ export class PeerMeshService {
       this.knockIfPersonal(neighbor);
       this.connectNeighbor(neighbor);
     }));
-    if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
   }
 
   /**
@@ -798,7 +697,6 @@ export class PeerMeshService {
     const neighbor = this.neighbors.get(userId);
     if (!neighbor || !isNeighborLive(neighbor)) return;
     this.notifyNeighborConnected(userId);
-    if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
   }
 
   private notifyNeighborDisconnected(userId: string): void {
@@ -866,7 +764,6 @@ export class PeerMeshService {
         this.gaveUpAt.delete(neighbor.userId);
         void this.sendProtocolManifestSummary(neighbor);
         if (newlyConnected) this.notifyNeighborConnected(neighbor.userId);
-        if (this.directTalkOutbox) void this.flushDirectTalkOutbox().catch(() => undefined);
       })
       .catch(() => {
         // A WebRTC reconnect can retire one promise while a coordinated replacement is already
@@ -931,16 +828,10 @@ export class PeerMeshService {
     this.neighbors.clear();
     this.seen.clear();
     this.verifyingFrameIds.clear();
-    this.deliveredTalkBodyIds.clear();
-    for (const timer of this.pendingTalkBodyRequestTimers.values()) clearTimeout(timer);
-    this.pendingTalkBodyRequestTimers.clear();
-    this.bodyRequestWaiters.clear();
     this.acknowledgements.clear();
     this.acknowledgementWaiters.clear();
-    this.directOfferMsgIds.clear();
     this.manifestReadyPeerIds.clear();
     this.manifestRejectedPeerIds.clear();
-    this.queuedDirectTalks.clear();
     this.pinnedPeers.clear();
     this.knockedAt.clear();
     this.gaveUpAt.clear();
@@ -1010,196 +901,6 @@ export class PeerMeshService {
     const frame = await this.buildFrame('mesh-ping', { text }, { ttlHops: 8 });
     await this.rememberAndFanout(frame);
     return frame.msgId;
-  }
-
-  async broadcastTalk(
-    talk: Talk | Record<string, unknown>,
-    opts: { recipientUserIds?: string[]; roomBroadcast?: boolean; skipAcknowledgements?: boolean } = {},
-  ): Promise<Set<string>> {
-    const talkId = String((talk as { id?: unknown }).id || '');
-    if (!talkId) throw new Error('mesh broadcast requires talk.id');
-    const roomId = this.currentRoomId;
-    if (!roomId) throw new Error('mesh broadcast requires an active room');
-    const talkRecord = JSON.parse(JSON.stringify(talk || {})) as Record<string, unknown>;
-    this.cacheTalkBody(talkId, talkRecord);
-    const pair = this.gunService.getStoredPair();
-    const payload: P2PMeshTalkAnnouncePayload = {
-      roomId,
-      broadcastAt: new Date().toISOString(),
-      talkId,
-      authorId: this.opts.localUserId,
-      authorName: this.opts.localStageName,
-      ...(pair?.epub ? { authorEpub: String(pair.epub) } : {}),
-      title: String((talk as { title?: unknown }).title || 'Untitled Talk'),
-      ...(typeof (talk as { type?: unknown }).type === 'string'
-        ? { type: String((talk as { type?: unknown }).type) }
-        : {}),
-      questionCount: Array.isArray((talk as { questions?: unknown }).questions)
-        ? ((talk as { questions: unknown[] }).questions).length
-        : 0,
-      ...((talk as { isAdult?: unknown }).isAdult === true ? { isAdult: true } : {}),
-      ...(typeof (talk as { language?: unknown }).language === 'string' ? { language: String((talk as { language: string }).language) } : {}),
-      ...(Array.isArray((talk as { tags?: unknown }).tags) ? { tags: (talk as { tags: unknown[] }).tags.map(String).slice(0, 32) } : {}),
-      requestedAuthorization: 'accepted-talk-read',
-      syncCapabilities: configuredMeshSyncCapabilities(process.env.IINPUBLIC_MESH_SYNC_MODE),
-      ...contentHashField(talkRecord),
-    };
-    const bodyPayload: P2PMeshTalkBodyPayload = {
-      ...payload,
-      talkData: talkRecord,
-    };
-    if (this.directTalkOutbox && !opts.skipAcknowledgements) {
-      const recipients = [...new Set(
-        (opts.recipientUserIds?.length ? opts.recipientUserIds : [...this.currentRoomMemberIds])
-          .filter((userId) => !!userId && userId !== this.opts.localUserId),
-      )];
-      const queued = await Promise.all(recipients.map((recipientUserId) =>
-        this.directTalkOutbox!.enqueue(roomId, recipientUserId, bodyPayload)));
-      if (roomId === this.currentRoomId) {
-        for (const entry of queued) this.queuedDirectTalks.add(`${entry.recipientUserId}|${entry.talkId}`);
-      }
-      // Nearby v3: links open only for people with queued Talks, so open the loop's first batch.
-      if (this.isPersonal()) await this.reconcileNeighbors();
-      await this.flushDirectTalkOutbox();
-      const remaining = new Set((await this.directTalkOutbox.list(roomId)).map((entry) => entry.key));
-      if (this.opts.onDirectDeliveryPending) {
-        const pending = queued.filter((entry) => remaining.has(entry.key)).map((entry) => entry.recipientUserId);
-        const reachable = new Set(await this.activeExpectedRecipients(pending).catch(() => pending));
-        const asleep = [...new Set(pending.filter((userId) => {
-          const neighbor = this.neighbors.get(userId);
-          return !reachable.has(userId) && !(neighbor && isNeighborLive(neighbor));
-        }))];
-        if (pending.length > 0) {
-          void Promise.resolve(this.opts.onDirectDeliveryPending(bodyPayload, [...new Set(pending)], asleep)).catch(
-            (err) => console.warn('[Mesh] sleeping-recipient mailbox fallback failed:', err),
-          );
-        }
-      }
-      return new Set(queued.filter((entry) => !remaining.has(entry.key)).map((entry) => entry.recipientUserId));
-    }
-    if (opts.skipAcknowledgements) {
-      const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
-      const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
-      await this.rememberAndFanout(announceFrame);
-      await this.rememberAndFanout(bodyFrame);
-      return new Set();
-    }
-    const recipients = [...new Set(opts.recipientUserIds?.filter(Boolean) || [])];
-    const recipientSet = new Set(recipients);
-    const isWholeKnownRoom =
-      recipients.length > 0 &&
-      this.currentRoomMemberIds.size > 0 &&
-      [...this.currentRoomMemberIds].every((userId) => recipientSet.has(userId));
-    const isRoomBroadcast = recipients.length === 0
-      ? opts.roomBroadcast === true
-      : isWholeKnownRoom;
-    if (recipients.length > 0 && !isRoomBroadcast) {
-      const acceptedRecipients = new Set<string>();
-      await mapWithConcurrency(recipients, 3, async (recipientUserId) => {
-        const announceFrame = await this.buildFrame('talk-announce', payload, {
-          recipientUserId,
-          ttlHops: 8,
-        });
-        const bodyFrame = await this.buildFrame('talk-body', bodyPayload, {
-          recipientUserId,
-          ttlHops: 8,
-        });
-        await this.rememberAndFanout(announceFrame);
-        const acknowledged = await this.sendAndWaitForAcks(bodyFrame, [recipientUserId]);
-        if (acknowledged.has(recipientUserId)) acceptedRecipients.add(recipientUserId);
-        console.log(`[BODY-SEND] talk=${String(payload.talkId).slice(-8)} to=${recipientUserId.slice(0, 8)} acked=${acknowledged.has(recipientUserId)}`);
-        if (!acknowledged.has(recipientUserId) && this.opts.onMailboxFallback) {
-          void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, [recipientUserId])).catch(
-            (err) => console.warn('[Mesh] mailbox fallback failed:', err),
-          );
-        }
-      });
-      return acceptedRecipients;
-    }
-    const announceFrame = await this.buildFrame('talk-announce', payload, { ttlHops: 8 });
-    if (isRoomBroadcast) {
-      // Flood first, then use signed end-recipient ACKs to identify actual gaps.
-      // Overlay degree bounds direct links, not reachability; preemptively mailboxing
-      // every non-neighbor defeats gossip and overloads the encrypted fallback at scale.
-      const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
-      await this.rememberAndFanout(announceFrame);
-      // Two distinct recipient sets, deliberately decoupled:
-      //
-      //  • ackTargets — the peers we BLOCK the flood loop on, waiting for ACKs. This stays
-      //    the presence/neighbor-filtered set (activeExpectedRecipients) so a freshly-joined
-      //    or presence-lagged recipient does NOT stall the broadcast for the full ack budget
-      //    (3 × ackTimeout). Blocking on not-yet-reachable peers needlessly slowed small/fresh
-      //    rooms (e.g. a sender looping announceTalkToRoom over several talks would exceed its
-      //    test budget). Such peers are still guaranteed delivery by the mailbox fallback below.
-      //
-      //  • guaranteedRecipients — everyone delivery must reach. For an EXPLICIT recipient list
-      //    this is the full list, so a recipient whose presence-pub has not yet replicated (and
-      //    who is not a direct neighbor) is covered by the non-blocking mailbox fallback rather
-      //    than dropped to depend on lossy flood gossip — the saturation-delivery gap. The
-      //    implicit whole-room case stays presence-filtered (guards against mailboxing ghosts).
-      const ackTargets = await this.activeExpectedRecipients(recipients.length > 0
-        ? recipients
-        : [...this.currentRoomMemberIds]);
-      const guaranteedRecipients = recipients.length > 0
-        ? [...new Set(recipients.filter((userId) => userId && userId !== this.opts.localUserId))]
-        : ackTargets;
-      // A single flood is lossy when a neighbor link flaps at send time (the frame is
-      // dropped and seen-set dedup means nothing re-delivers it). Re-flood the SAME
-      // announce+body frames for un-ACKed recipients before mailbox fallback:
-      // receivers that already processed them dedup by msgId, stragglers whose links
-      // recovered get a fresh copy (announce included, so announce-level diagnostics
-      // and body-request scheduling still fire on their side).
-      this.rememberSeen(bodyFrame.msgId);
-      const ackTimeoutMs = this.opts.ackTimeoutMs ?? DEFAULT_MESH_ACK_TIMEOUT_MS;
-      let acknowledged = new Set<string>();
-      if (ackTargets.length === 0) {
-        // No prompt-ack peers (e.g. presence not yet replicated): flood once, give any
-        // already-connected neighbor a brief grace to ACK (so we don't redundantly mailbox
-        // a recipient the flood just reached), then let the fallback guarantee the rest.
-        this.acknowledgements.set(bodyFrame.msgId, acknowledged);
-        const forwarded = await this.forwardFrame(bodyFrame);
-        if (forwarded > 0) {
-          acknowledged = await this.waitForAcks(
-            bodyFrame.msgId,
-            guaranteedRecipients,
-            Math.min(ackTimeoutMs, 1_000),
-          );
-        } else {
-          this.acknowledgements.delete(bodyFrame.msgId);
-          this.acknowledgementWaiters.delete(bodyFrame.msgId);
-        }
-      } else {
-        for (let attempt = 0; attempt < MESH_BROADCAST_FLOOD_ATTEMPTS; attempt += 1) {
-          if (attempt > 0) {
-            await this.forwardFrame(announceFrame);
-          }
-          this.acknowledgements.set(bodyFrame.msgId, acknowledged);
-          const forwarded = await this.forwardFrame(bodyFrame);
-          if (forwarded === 0) {
-            // No neighbor accepted the frame — waiting for ACKs is pointless; clean up
-            // and let the mailbox fallback cover every missing recipient immediately.
-            this.acknowledgements.delete(bodyFrame.msgId);
-            this.acknowledgementWaiters.delete(bodyFrame.msgId);
-            break;
-          }
-          acknowledged = await this.waitForAcks(bodyFrame.msgId, ackTargets, ackTimeoutMs);
-          if (ackTargets.every((userId) => acknowledged.has(userId))) break;
-        }
-      }
-      if (this.opts.onMailboxFallback) {
-        const missingRecipients = guaranteedRecipients.filter((userId) => !acknowledged.has(userId));
-        if (missingRecipients.length > 0) {
-          void Promise.resolve(this.opts.onMailboxFallback(bodyPayload, missingRecipients)).catch(
-            (err) => console.warn('[Mesh] mailbox fallback failed:', err),
-          );
-        }
-      }
-      return acknowledged;
-    }
-    const bodyFrame = await this.buildFrame('talk-body', bodyPayload, { ttlHops: 8 });
-    await this.rememberAndFanout(announceFrame);
-    await this.rememberAndFanout(bodyFrame);
-    return new Set();
   }
 
   /** Nearby v3 gossip can be sent now: the mesh is in personal mode in a room. */
@@ -1317,18 +1018,6 @@ export class PeerMeshService {
       /* Gun fallback remains available for the bounded candidate set. */
     }
     return pubs;
-  }
-
-  private async activeExpectedRecipients(recipientIds: string[]): Promise<string[]> {
-    const unique = [...new Set(recipientIds.filter(
-      (userId) => userId && userId !== this.opts.localUserId,
-    ))];
-    if (unique.length === 0) return unique;
-    const presencePubs = await this.fetchPresencePubs();
-    if (presencePubs.size === 0) return unique;
-    return unique.filter((userId) =>
-      presencePubs.has(userId) || this.neighbors.get(userId)?.connected === true,
-    );
   }
 
   private async buildFrame(
@@ -1475,7 +1164,7 @@ export class PeerMeshService {
         || this.manifestReadyPeerIds.has(neighbor.userId));
     // Authoritative Talk delivery never exposes a recipient-addressed frame to other room peers.
     // The legacy/experimental mesh path retains its former direct-first fanout behavior.
-    const candidateTargets = this.directTalkOutbox && frame.recipientUserId
+    const candidateTargets = this.opts.authoritativeDirectTalkDelivery && frame.recipientUserId
       ? (directTarget && directTarget.userId !== exceptUserId ? [directTarget] : [])
       : directTarget && directTarget.userId !== exceptUserId
         ? [directTarget, ...available.filter((neighbor) => neighbor.userId !== directTarget.userId)]
@@ -1595,7 +1284,6 @@ export class PeerMeshService {
     this.transportMetrics.receivedBytes += new TextEncoder().encode(JSON.stringify(frame)).byteLength;
     if (this.seen.has(frame.msgId) || this.verifyingFrameIds.has(frame.msgId)) {
       this.transportMetrics.duplicateFramesReceived += 1;
-      if (frame.kind === 'talk-body') this.transportMetrics.duplicateTalkBodiesReceived += 1;
       return;
     }
     this.verifyingFrameIds.add(frame.msgId);
@@ -1692,87 +1380,6 @@ export class PeerMeshService {
       // One hop only, between the two ends of a direct link.
       if (frame.originUserId !== fromUserId || frame.recipientUserId !== this.opts.localUserId) return;
       await this.handleNearbyGossip(fromUserId, frame.originPub, frame.payload);
-      return;
-    }
-
-    if (frame.kind === 'talk-announce') {
-      const payload = frame.payload as P2PMeshTalkAnnouncePayload;
-      if (payload.authorId === this.opts.localUserId) return;
-      const offerKey = talkRevisionDeliveryKey(String(payload.talkId || ''), String(payload.authorId || ''), payload.contentHash);
-      if (this.deliveredTalkBodyIds.has(offerKey)) {
-        // This ACK is safe: the receiver already has a durable accepted copy. It lets an author
-        // recover when the earlier body ACK was lost before the local outbox could be cleared.
-        await this.acknowledge(frame);
-        return;
-      }
-      // Over the receiving limit (Talks from strangers per minute): leave the offer unanswered,
-      // not refused, so the sender's outbox offers it again later.
-      if (this.opts.admitTalkOffer && !this.opts.admitTalkOffer(String(payload.authorId || ''))) return;
-      // Step 2: fire announce callback before body pull so callers can record receipt
-      // for durable diagnostics (e.g. E2E meshAnnounceDiagnostics) without waiting for
-      // the talk-body-request/talk-body round-trip.
-      const accepted = await this.opts.onTalkAnnounce?.(payload, frame);
-      if (accepted === false) {
-        this.rejectedTalkOfferIds.add(offerKey);
-        return;
-      }
-      this.rejectedTalkOfferIds.delete(offerKey);
-      this.scheduleTalkBodyRequest(payload);
-      return;
-    }
-
-    if (frame.kind === 'talk-body-request') {
-      await this.handleTalkBodyRequest(frame, frame.payload as P2PMeshTalkBodyRequestPayload);
-      return;
-    }
-
-    if (frame.kind === 'talk-body' && isP2PMeshTalkBodyPayload(frame.payload)) {
-      const talkId = String(frame.payload.talkId || '');
-      const deliveryKey = talkRevisionDeliveryKey(talkId, String(frame.payload.authorId || ''), frame.payload.contentHash);
-      if (this.rejectedTalkOfferIds.has(deliveryKey)) return;
-      const pendingTimer = talkId ? this.pendingTalkBodyRequestTimers.get(deliveryKey) : undefined;
-      if (pendingTimer) {
-        clearTimeout(pendingTimer);
-        this.pendingTalkBodyRequestTimers.delete(deliveryKey);
-      }
-      if (frame.payload.requestId) {
-        const waiter = this.bodyRequestWaiters.get(frame.payload.requestId);
-        if (waiter) {
-          this.bodyRequestWaiters.delete(frame.payload.requestId);
-          waiter(frame.payload);
-        }
-      }
-      if (talkId && this.deliveredTalkBodyIds.has(deliveryKey)) {
-        this.transportMetrics.duplicateTalkBodiesReceived += 1;
-        console.log(`[BODY-RECV] talk=${talkId.slice(-8)} dup-ack (already delivered)`);
-        await this.acknowledge(frame);
-        return;
-      }
-      const accepted = await this.opts.onTalkBody?.(frame.payload);
-      console.log(`[BODY-RECV] talk=${talkId.slice(-8)} accepted=${accepted !== false}`);
-      if (accepted === false) {
-        // Receiver did NOT accept this body — e.g. a filter/membership read that timed out under
-        // saturation, or a receiver not yet fully bootstrapped. Do not acknowledge: an ACK tells
-        // the sender delivery succeeded and suppresses its flood-retry + mailbox fallback, which
-        // permanently drops the body (the sender reports "delivered to N" while the receiver never
-        // got it — the M4 saturation gap). Staying silent lets the sender re-deliver: bounded flood
-        // re-attempts, then a mailbox post the receiver drains. A transient reject thus gets another
-        // chance; a permanent reject (genuine filter) is simply re-offered a bounded number of times
-        // and still never stored, so filtered talks stay filtered.
-        return;
-      }
-      if (talkId) {
-        this.transportMetrics.logicalTalkBodiesAccepted += 1;
-        this.deliveredTalkBodyIds.add(deliveryKey);
-        this.cacheTalkBody(talkId, {
-          ...frame.payload.talkData,
-          id: talkId,
-          authorId: frame.payload.authorId,
-          authorName: frame.payload.authorName,
-          ...(frame.payload.authorEpub ? { authorEpub: frame.payload.authorEpub } : {}),
-        });
-      }
-      await this.acknowledge(frame);
       return;
     }
 
@@ -1930,173 +1537,4 @@ export class PeerMeshService {
     await Promise.all([...this.neighbors.values()].map((neighbor) => this.sendProtocolManifestSummary(neighbor)));
   }
 
-  private scheduleTalkBodyRequest(announce: P2PMeshTalkAnnouncePayload): void {
-    const talkId = String(announce.talkId || '');
-    const deliveryKey = talkRevisionDeliveryKey(talkId, String(announce.authorId || ''), announce.contentHash);
-    if (!talkId || this.deliveredTalkBodyIds.has(deliveryKey) || this.pendingTalkBodyRequestTimers.has(deliveryKey)) return;
-    const timer = setTimeout(() => {
-      this.pendingTalkBodyRequestTimers.delete(deliveryKey);
-      if (this.deliveredTalkBodyIds.has(deliveryKey)) return;
-      void this.requestTalkBody(announce);
-    }, 250);
-    this.pendingTalkBodyRequestTimers.set(deliveryKey, timer);
-  }
-
-  private async requestTalkBody(announce: P2PMeshTalkAnnouncePayload): Promise<void> {
-    const requestId = randomId('body_req');
-    const requestPayload: P2PMeshTalkBodyRequestPayload = {
-      requestId,
-      roomId: announce.roomId,
-      broadcastAt: announce.broadcastAt,
-      talkId: announce.talkId,
-      authorId: announce.authorId,
-      ...(announce.contentHash ? { contentHash: announce.contentHash } : {}),
-    };
-    const frame = await this.buildFrame('talk-body-request', requestPayload, {
-      recipientUserId: announce.authorId,
-      ttlHops: 8,
-    });
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        this.bodyRequestWaiters.delete(requestId);
-        resolve();
-      }, 8_000);
-      this.bodyRequestWaiters.set(requestId, () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      void this.rememberAndFanout(frame).catch(() => {
-        clearTimeout(timer);
-        this.bodyRequestWaiters.delete(requestId);
-        resolve();
-      });
-    });
-  }
-
-  private async handleTalkBodyRequest(
-    requestFrame: P2PMeshFrame,
-    request: P2PMeshTalkBodyRequestPayload,
-  ): Promise<void> {
-    if (request.authorId !== this.opts.localUserId) return;
-    if (this.directTalkOutbox) {
-      const entry = (await this.directTalkOutbox.list(request.roomId)).find((candidate) =>
-        candidate.recipientUserId === requestFrame.originUserId
-        && candidate.talkId === request.talkId
-        && (!request.contentHash || candidate.contentHash === request.contentHash));
-      if (!entry) return;
-      const bodyPayload: P2PMeshTalkBodyPayload = {
-        ...entry.payload,
-        requestId: request.requestId,
-      };
-      const frame = await this.buildFrame('talk-body', bodyPayload, {
-        recipientUserId: requestFrame.originUserId,
-        ttlHops: 1,
-      });
-      const acknowledged = await this.sendAndWaitForAcks(frame, [requestFrame.originUserId]);
-      if (acknowledged.has(requestFrame.originUserId)) {
-        await this.completeDirectTalkDelivery(bodyPayload, requestFrame.originUserId);
-      }
-      return;
-    }
-    // Serve the local user's OWN authored copy (talkId::localUserId). A remote author's
-    // identical-content body must never be served here under our authorId.
-    const talkData = this.getCachedTalkBody(request.talkId, this.opts.localUserId);
-    if (!talkData) return;
-    const pair = this.gunService.getStoredPair();
-    const bodyPayload: P2PMeshTalkBodyPayload = {
-      requestId: request.requestId,
-      roomId: request.roomId,
-      broadcastAt: request.broadcastAt,
-      talkId: request.talkId,
-      authorId: this.opts.localUserId,
-      authorName: this.opts.localStageName,
-      ...(pair?.epub ? { authorEpub: String(pair.epub) } : {}),
-      title: String(talkData.title || 'Untitled Talk'),
-      ...(typeof talkData.type === 'string' ? { type: String(talkData.type) } : {}),
-      questionCount: Array.isArray(talkData.questions) ? talkData.questions.length : 0,
-      ...contentHashField(talkData),
-      talkData,
-    };
-    const frame = await this.buildFrame('talk-body', bodyPayload, {
-      recipientUserId: requestFrame.originUserId,
-      ttlHops: 8,
-    });
-    await this.rememberAndFanout(frame);
-  }
-
-  private async flushDirectTalkOutbox(): Promise<Set<string>> {
-    if (!this.directTalkOutbox || !this.currentRoomId) return new Set();
-    if (this.directOutboxFlush) return this.directOutboxFlush;
-    const run = this.flushDirectTalkOutboxNow();
-    this.directOutboxFlush = run;
-    try {
-      return await run;
-    } finally {
-      if (this.directOutboxFlush === run) this.directOutboxFlush = null;
-    }
-  }
-
-  private async flushDirectTalkOutboxNow(): Promise<Set<string>> {
-    const outbox = this.directTalkOutbox;
-    const roomId = this.currentRoomId;
-    if (!outbox || !roomId) return new Set();
-    const now = this.opts.now?.() ?? Date.now();
-    const queuedEntries = await outbox.list(roomId);
-    if (roomId === this.currentRoomId) {
-      this.queuedDirectTalks.clear();
-      for (const entry of queuedEntries) this.queuedDirectTalks.add(`${entry.recipientUserId}|${entry.talkId}`);
-    }
-    const entries = queuedEntries.filter((entry) => {
-      const neighbor = this.neighbors.get(entry.recipientUserId);
-      if (!neighbor || !isNeighborLive(neighbor)) return false;
-      if (this.protocolManifestController && !this.manifestReadyPeerIds.has(entry.recipientUserId)) return false;
-      const lastAttemptAt = Date.parse(String(entry.lastAttemptAt || ''));
-      return !Number.isFinite(lastAttemptAt) || now - lastAttemptAt >= DIRECT_DELIVERY_RETRY_INTERVAL_MS;
-    }).slice(0, DIRECT_FLUSH_CONCURRENCY * 4);
-    const acknowledged = new Set<string>();
-    await mapWithConcurrency(entries, DIRECT_FLUSH_CONCURRENCY, async (entry) => {
-      try {
-        await outbox.markAttempt(entry.key);
-        const frame = await this.buildFrame('talk-announce', this.announceFromOutbox(entry), {
-          recipientUserId: entry.recipientUserId,
-          ttlHops: 1,
-        });
-        this.directOfferMsgIds.set(entry.key, frame.msgId);
-        const acks = await this.sendAndWaitForAcks(frame, [entry.recipientUserId]);
-        if (!acks.has(entry.recipientUserId)) return;
-        acknowledged.add(entry.recipientUserId);
-        this.adjustPersonalConcurrency(true);
-        await this.completeDirectTalkDelivery(entry.payload, entry.recipientUserId);
-      } catch (error) {
-        console.warn('[direct-talk] queued delivery attempt failed:', error);
-      } finally {
-        this.directOfferMsgIds.delete(entry.key);
-      }
-    });
-    return acknowledged;
-  }
-
-  private announceFromOutbox(entry: DirectTalkDeliveryEntry): P2PMeshTalkAnnouncePayload {
-    const { talkData: _talkData, requestId: _requestId, ...announce } = entry.payload;
-    return announce;
-  }
-
-  private async completeDirectTalkDelivery(
-    payload: P2PMeshTalkBodyPayload,
-    recipientUserId: string,
-  ): Promise<void> {
-    if (!this.directTalkOutbox) return;
-    const removed = await this.directTalkOutbox.acknowledge({
-      roomId: payload.roomId,
-      recipientUserId,
-      talkId: payload.talkId,
-      ...(payload.contentHash ? { contentHash: payload.contentHash } : {}),
-    });
-    for (const entry of removed) {
-      if (entry.roomId === this.currentRoomId) this.queuedDirectTalks.delete(`${entry.recipientUserId}|${entry.talkId}`);
-      const offerMsgId = this.directOfferMsgIds.get(entry.key);
-      if (offerMsgId) this.recordAck(offerMsgId, recipientUserId);
-      await this.opts.onTalkDeliveryAck?.(entry.payload, recipientUserId);
-    }
-  }
 }

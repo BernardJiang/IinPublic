@@ -187,7 +187,7 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
         const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
-        await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
       },
       { tDef: tomTalkDef, rIds: [jerryId, bobId] },
     );

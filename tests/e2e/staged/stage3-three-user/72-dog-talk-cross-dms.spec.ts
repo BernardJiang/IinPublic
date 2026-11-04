@@ -238,7 +238,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[def.id] = { role: 'created', title: def.title, fullTalk: def };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
-      await mesh.broadcastTalk(def, { roomBroadcast: true });
+      await (window as any).__iinpublic_app.getApp().offerTalkForE2e(def);
     }, { def: talkDef });
     await afterAction();
 
@@ -398,7 +398,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[talk.id] = { role: 'created', title: talk.title, fullTalk: talk };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
-      await a.peerMeshService.broadcastTalk(talk, { recipientUserIds: recipients, roomBroadcast: true });
+      await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talk, recipients);
     }, { talk: gsTalk, recipients: [bobId, carolId] });
 
     for (const [label, page] of [['Bob', pageBob], ['Carol', pageCarol]] as const) {

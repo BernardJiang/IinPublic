@@ -89,7 +89,7 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
       a.peerMeshService.cacheTalkBody(def.id, def);
       const mt = ((window as any).__iinpublic_collection?.('myTalks') ?? {}); mt[def.id] = { role: 'created', fullTalk: def };
       localStorage.setItem('myTalks', JSON.stringify(mt));
-      await a.peerMeshService.broadcastTalk(def, { roomBroadcast: true });
+      await (window as any).__iinpublic_app.getApp().offerTalkForE2e(def);
     }, { def: talkDef });
     await afterAction();
     await pageBob.evaluate(async ({ def }) => {

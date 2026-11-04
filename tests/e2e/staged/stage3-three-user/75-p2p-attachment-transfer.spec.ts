@@ -97,7 +97,7 @@ test.describe('Shared media bytes travel P2P over the DM DataChannel', () => {
       a.peerMeshService.cacheTalkBody(def.id, def);
       const mt = ((window as any).__iinpublic_collection?.('myTalks') ?? {}); mt[def.id] = { role: 'created', fullTalk: def };
       localStorage.setItem('myTalks', JSON.stringify(mt));
-      await a.peerMeshService.broadcastTalk(def, { roomBroadcast: true });
+      await (window as any).__iinpublic_app.getApp().offerTalkForE2e(def);
     }, { def: talkDef });
     await afterAction();
 

@@ -201,7 +201,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         // Broadcast via mesh
-        await mesh.broadcastTalk(talkDef, { roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talkDef);
       },
       { talkId: TEST_TALK_ID, authorId: tomId, title: TEST_TALK_TITLE },
     );

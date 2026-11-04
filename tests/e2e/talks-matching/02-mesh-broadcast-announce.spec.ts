@@ -218,7 +218,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
           type: 'tag',
           questions: [{ id: 'q1', text: 'Do you like mesh?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
         });
-        await mesh.broadcastTalk(
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(
           {
             id: talkId,
             authorId,
@@ -226,7 +226,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
             type: 'tag',
             questions: [{ id: 'q1', text: 'Do you like mesh?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
           },
-          { roomBroadcast: true },
+
         );
       },
       { talkId: TEST_TALK_ID, authorId: tomId },
@@ -421,10 +421,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
           questions: [{ id: 'q1', text: 'Do you want attachments?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
           ipfsAttachments: [attachment],
         };
-        await mesh.broadcastTalk(talk, {
-          recipientUserIds: recipientIds,
-          roomBroadcast: true,
-        });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talk, recipientIds);
       },
       {
         talkId: TEST_TALK_ID,

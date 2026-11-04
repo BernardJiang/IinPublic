@@ -87,7 +87,7 @@ test.describe('Multiple tag talks each record the right outcome', () => {
       for (const def of defs) {
         a.peerMeshService.cacheTalkBody(def.id, def);
         mt[def.id] = { role: 'created', fullTalk: def };
-        await a.peerMeshService.broadcastTalk(def, { roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(def);
       }
       localStorage.setItem('myTalks', JSON.stringify(mt));
     }, { defs: talks });

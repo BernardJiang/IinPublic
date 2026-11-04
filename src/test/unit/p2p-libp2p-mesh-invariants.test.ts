@@ -1,5 +1,5 @@
 import SEA from 'gun/sea';
-import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
+import type { P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { PeerMeshService } from '../../web/services/peer-mesh-service';
 import { getOrCreateLibp2pMeshSession } from '../../web/services/p2p-libp2p-mesh-session';
@@ -80,7 +80,7 @@ function mockGunService(params: {
 }
 
 describe('libp2p mesh invariants (unit)', () => {
-  test('ping, talk body delivery, and talk response routing hold over libp2p mesh sessions', async () => {
+  test('ping and talk response routing hold over libp2p mesh sessions', async () => {
     const [alicePair, bobPair] = (await Promise.all([SEA.pair(), SEA.pair()])) as SeaSigningPair[];
     const users = {
       alice: { pub: alicePair.pub },
@@ -92,7 +92,6 @@ describe('libp2p mesh invariants (unit)', () => {
     const aliceGun = mockGunService({ pair: alicePair, users, sharedBindings });
     const bobGun = mockGunService({ pair: bobPair, users, sharedBindings });
 
-    const bobBodies: P2PMeshTalkBodyPayload[] = [];
     const aliceResponses: P2PMeshTalkResponsePayload[] = [];
     const bobPings: string[] = [];
 
@@ -133,9 +132,6 @@ describe('libp2p mesh invariants (unit)', () => {
           ensureLibp2pNode: async () => nodes['peer-bob'],
           onRemoteMeshFrame: params.onRemoteMeshFrame,
         }),
-      onTalkBody: (payload) => {
-        bobBodies.push(payload);
-      },
       onPing: (fromUserId) => {
         bobPings.push(fromUserId);
       },
@@ -154,23 +150,6 @@ describe('libp2p mesh invariants (unit)', () => {
     await alice.sendPing('hello');
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(bobPings).toContain('alice');
-
-    await alice.broadcastTalk({
-      id: 'talk-libp2p-1',
-      authorId: 'alice',
-      title: 'Mesh Talk over libp2p',
-      type: 'flow',
-      questions: [{ id: 'q1', text: 'Ready?', answers: [] }],
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(bobBodies).toHaveLength(1);
-    expect(bobBodies[0]).toEqual(
-      expect.objectContaining({
-        talkId: 'talk-libp2p-1',
-        authorId: 'alice',
-      }),
-    );
 
     const responseAt = new Date().toISOString();
     await bob.sendTalkResponse({

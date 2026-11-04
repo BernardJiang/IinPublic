@@ -232,7 +232,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService not available on Tom');
-        await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
       },
       { tDef: tomTalkDef, rIds: [jerryId, bobId] },
     );
@@ -378,7 +378,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         if (typeof (app as any).deliverTalkToReceiversOverMesh === 'function') {
           await (app as any).deliverTalkToReceiversOverMesh(tDef.id, tDef, members);
         } else {
-          await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+          await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
         }
       },
       { tDef: jerryTalkDef, rIds: [tomId, bobId] },
@@ -522,7 +522,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         if (typeof (app as any).deliverTalkToReceiversOverMesh === 'function') {
           await (app as any).deliverTalkToReceiversOverMesh(tDef.id, tDef, members);
         } else {
-          await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+          await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
         }
       },
       { tDef: jerryTalkEditedDef, rIds: [tomId, bobId] },

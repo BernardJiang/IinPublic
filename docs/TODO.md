@@ -89,9 +89,17 @@ its ID.
     to Ann's Pizza tag to Cy (phone-path/09).
   - Known: `talks-matching/08` (relay restart) leaves the worker's hub down, so the next spec in
     that worker can fail with `8081/health not reachable`; those specs pass alone.
-  - Next, in order: (2) remove the JSON Talk frames, mailbox fallback for Talks, the mirror and
-    `ix/legacy`, and key the app's Talks by graph ids; erase the old collections (§31.10);
-    (3) graph suppression (`ix/exchanged`) and partial tag bodies; (4) "delete my answer" in the UI
+  - Done (step 2c): no Talk frames. `talk-announce`, `talk-body` and `talk-body-request` are gone
+    from the protocol, with the mesh's Talk outbox, flood/ACK retries, body requests and the
+    Talk-body mailbox (sender and receiver). A Talk goes over graph links or stays pending. Each
+    device writes `read` (encrypted) into its pair head when it applies the other's log; the sender
+    keeps `sync/owed` and the mesh opens Nearby links for owed people as it did for queued Talks,
+    widening the loop as they read. The receiving limit for strangers' Talks moved to the graph
+    intake. e2e specs that injected Talks with `mesh.broadcastTalk` use `app.offerTalkForE2e`.
+  - Next, in order: (2d) response and retraction frames and their mailbox fallbacks (answers and
+    deletions already travel as graph events); (2e) key the app's Talks by graph ids, remove the
+    mirror and `ix/legacy`, erase the old collections (§31.10); (3) graph suppression
+    (`ix/exchanged`) in place of the sender's ledger; (4) "delete my answer" in the UI
     (no such control today); (5) real-phone run (native-app/37 now asserts graph events).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.

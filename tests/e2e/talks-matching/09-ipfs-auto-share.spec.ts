@@ -236,10 +236,7 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[talk.id] = { role: 'created', fullTalk: talk };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
-      await app.peerMeshService.broadcastTalk(talk, {
-        recipientUserIds: recipients,
-        roomBroadcast: true,
-      });
+      await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talk, recipients);
     }, { talk: tomTalk, recipients: [jerryId, bobId] });
 
     for (const [label, page] of [['Jerry', pageJerry], ['Bob', pageBob]] as const) {

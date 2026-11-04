@@ -4,9 +4,6 @@ export type MeshFrameDisposition = 'retain-control' | 'adapt-to-gun-sync' | 'ret
 export const MESH_FRAME_INVENTORY: Readonly<Record<P2PMeshMessageKind, MeshFrameDisposition>> = {
   'mesh-ping': 'retain-control',
   'mesh-pong': 'retain-control',
-  'talk-announce': 'retain-control',
-  'talk-body-request': 'retain-compatibility',
-  'talk-body': 'adapt-to-gun-sync',
   'talk-response': 'adapt-to-gun-sync',
   'talk-retracted': 'retain-control',
   'protocol-manifest-summary': 'retain-control',

@@ -1,6 +1,6 @@
 import SEA from 'gun/sea';
 import { PeerMeshService } from '../../web/services/peer-mesh-service';
-import type { P2PMeshFrame, P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
+import type { P2PMeshFrame, P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
 import { p2pMeshFrameSigningPayload } from '../../shared/p2p-mesh-protocol';
 import { createSignedP2PEnvelopeProof } from '../../shared/p2p-runtime';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
@@ -68,19 +68,6 @@ function mockGunService(
   return {
     getStoredPair: () => pair,
     getPublicUser: async (userId: string) => users[userId],
-  } as unknown as WebGunService;
-}
-
-function mockPrivateGunService(
-  pair: SeaSigningPair,
-  users: Record<string, { pub: string }>,
-): WebGunService {
-  const privateValues = new Map<string, unknown>();
-  return {
-    getStoredPair: () => pair,
-    getPublicUser: async (userId: string) => users[userId],
-    getPrivate: async (key: string) => privateValues.get(key) ?? null,
-    putPrivate: async (key: string, value: unknown) => { privateValues.set(key, value); },
   } as unknown as WebGunService;
 }
 
@@ -172,100 +159,6 @@ describe('PeerMeshService', () => {
     expect((service as any).connectFailures.has('bob')).toBe(false);
     expect(unreachable).not.toHaveBeenCalled();
     expect(dispose).not.toHaveBeenCalled();
-  });
-
-  it('keeps a Talk in the durable outbox until a link to the receiver opens, and clears it only after durable ACK', async () => {
-    const [alicePair, bobPair, carolPair] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-      carol: { pub: carolPair.pub },
-    };
-    const network = createFakeNetwork();
-    const delivered: P2PMeshTalkBodyPayload[] = [];
-    const acknowledged: string[] = [];
-    const mailboxFallback = jest.fn();
-    const alice = new PeerMeshService(mockPrivateGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      ackTimeoutMs: 40,
-      authoritativeDirectTalkDelivery: true,
-      createSession: network.createSession,
-      onMailboxFallback: mailboxFallback,
-      onTalkDeliveryAck: (_payload, recipientUserId) => { acknowledged.push(recipientUserId); },
-    });
-    const carol = new PeerMeshService(mockPrivateGunService(carolPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'carol',
-      localStageName: 'Carol',
-      ackTimeoutMs: 40,
-      authoritativeDirectTalkDelivery: true,
-      createSession: network.createSession,
-      onTalkBody: (body) => { delivered.push(body); },
-    });
-    const member = (userId: string) => ({ userId, stageName: userId });
-    // Alice is given Bob only (a DM warm-up, say): no link to Carol yet.
-    await alice.joinRoom('nearby:test', [member('alice'), member('bob')]);
-    await carol.joinRoom('nearby:test', [member('alice'), member('carol')]);
-    expect([...(alice as any).neighbors.keys()]).not.toContain('carol');
-
-    const immediate = await alice.broadcastTalk({
-      id: 'durable-direct-talk',
-      authorId: 'alice',
-      title: 'Direct only',
-      type: 'tag',
-      questions: [],
-    }, { recipientUserIds: ['carol'], roomBroadcast: true });
-    expect(immediate.has('carol')).toBe(false);
-    expect(delivered).toHaveLength(0);
-    expect(mailboxFallback).not.toHaveBeenCalled();
-
-    await alice.joinRoom('nearby:test', [member('alice'), member('bob'), member('carol')]);
-    expect([...(alice as any).neighbors.keys()]).toContain('carol');
-    await (alice as unknown as { flushDirectTalkOutbox: () => Promise<Set<string>> }).flushDirectTalkOutbox();
-    await waitUntil(() => delivered.length === 1 && acknowledged.includes('carol'));
-
-    expect(delivered[0].talkId).toBe('durable-direct-talk');
-    expect(mailboxFallback).not.toHaveBeenCalled();
-    expect(await (alice as any).directTalkOutbox.list('nearby:test')).toEqual([]);
-    alice.leaveRoom();
-    carol.leaveRoom();
-  });
-
-  it('OPEN-38: queues a Talk for a receiver with no presence and no live link, and asks for one wake ping', async () => {
-    const [alicePair, carolPair, davePair] = await Promise.all([SEA.pair(), SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = { alice: { pub: alicePair.pub }, carol: { pub: carolPair.pub }, dave: { pub: davePair.pub } };
-    const network = createFakeNetwork();
-    const pending: Array<{ recipients: string[]; wake: string[] }> = [];
-    const alice = new PeerMeshService(mockPrivateGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      ackTimeoutMs: 40,
-      authoritativeDirectTalkDelivery: true,
-      createSession: network.createSession,
-      onDirectDeliveryPending: (payload, recipientUserIds, wakeRecipientUserIds) => {
-        expect(payload).toMatchObject({ talkId: 'wake-talk', talkData: { id: 'wake-talk' } });
-        pending.push({ recipients: recipientUserIds, wake: wakeRecipientUserIds });
-      },
-    });
-    // Dave still heartbeats presence (awake, just not scheduled this window); Carol's page is asleep.
-    (alice as any).fetchPresencePubs = async () => new Map([['dave', davePair.pub]]);
-    const members = Object.keys(users).map((userId) => ({ userId, stageName: userId }));
-    await alice.joinRoom('nearby:test', members);
-    for (const userId of ['carol', 'dave']) (alice as any).neighbors.delete(userId);
-    await alice.broadcastTalk({ id: 'wake-talk', authorId: 'alice', title: 'For later', type: 'tag', questions: [] }, {
-      recipientUserIds: ['carol', 'dave'],
-      roomBroadcast: true,
-    });
-    await waitUntil(() => pending.length === 1);
-    expect(pending).toEqual([{ recipients: ['carol', 'dave'], wake: ['carol'] }]);
-    // The callback can post the encrypted mailbox body, while the authoritative copy still stays
-    // queued until the ordinary direct-delivery ACK arrives.
-    const queued = await (alice as any).directTalkOutbox.list('nearby:test');
-    expect(queued.map((entry: { recipientUserId: string }) => entry.recipientUserId).sort()).toEqual(['carol', 'dave']);
-    alice.leaveRoom();
   });
 
   it('synchronizes a complete authenticated manifest chain before exchanging room traffic', async () => {
@@ -532,212 +425,6 @@ describe('PeerMeshService', () => {
     }
   });
 
-  it('gossips talk announcements, pulls bodies, and routes mesh responses', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-    };
-    const network = createFakeNetwork();
-    const bobBodies: P2PMeshTalkBodyPayload[] = [];
-    const aliceResponses: P2PMeshTalkResponsePayload[] = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-      onTalkResponse: (payload) => {
-        aliceResponses.push(payload);
-      },
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-      onTalkBody: (payload) => {
-        bobBodies.push(payload);
-      },
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-    ];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-
-    await alice.broadcastTalk({
-      id: 'talk-1',
-      authorId: 'alice',
-      title: 'Mesh Talk',
-      type: 'flow',
-      questions: [{ id: 'q1', text: 'Ready?', answers: [] }],
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(bobBodies).toHaveLength(1);
-    expect(bobBodies[0]).toEqual(expect.objectContaining({
-      talkId: 'talk-1',
-      authorId: 'alice',
-      title: 'Mesh Talk',
-    }));
-    expect(bobBodies[0].talkData).toEqual(expect.objectContaining({ id: 'talk-1' }));
-
-    const responseAt = new Date().toISOString();
-    await bob.sendTalkResponse({
-      responseId: 'resp-1',
-      talkId: 'talk-1',
-      authorId: 'alice',
-      responderId: 'bob',
-      submittedAt: responseAt,
-      respondedAt: responseAt,
-      version: 1,
-      encryption: 'sea-ecdh-v1',
-      payloadCiphertext: 'SEA{"ct":"ciphertext"}',
-      transportMode: 'mesh-p2p',
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(aliceResponses).toEqual([
-      expect.objectContaining({
-        responseId: 'resp-1',
-        talkId: 'talk-1',
-        responderId: 'bob',
-        transportMode: 'mesh-p2p',
-      }),
-    ]);
-  });
-
-  it('does not block room broadcasts on one slow neighbor send', async () => {
-    const [alicePair, bobPair, carolPair] = await Promise.all([
-      SEA.pair(),
-      SEA.pair(),
-      SEA.pair(),
-    ]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-      carol: { pub: carolPair.pub },
-    };
-    const network = createFakeNetwork({
-      hangSend: ({ localUserId, otherUserId }) => localUserId === 'alice' && otherUserId === 'carol',
-    });
-    const bobBodies: P2PMeshTalkBodyPayload[] = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-      sendTimeoutMs: 20,
-      retryTimeoutMs: 20,
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-      onTalkBody: (payload) => {
-        bobBodies.push(payload);
-      },
-    });
-    const carol = new PeerMeshService(mockGunService(carolPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'carol',
-      localStageName: 'Carol',
-      createSession: network.createSession,
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-      { userId: 'carol', stageName: 'Carol' },
-    ];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-    await carol.joinRoom('global', members);
-
-    const started = Date.now();
-    await alice.broadcastTalk({
-      id: 'talk-slow-peer',
-      authorId: 'alice',
-      title: 'Slow Peer',
-      questions: [],
-    });
-
-    expect(Date.now() - started).toBeLessThan(1_000);
-    expect(bobBodies).toHaveLength(1);
-    expect(bobBodies[0]).toEqual(expect.objectContaining({
-      talkId: 'talk-slow-peer',
-      authorId: 'alice',
-    }));
-  });
-
-  it('delivers same talk id from different authors independently', async () => {
-    const [alicePair, bobPair, carolPair] = await Promise.all([
-      SEA.pair(),
-      SEA.pair(),
-      SEA.pair(),
-    ]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-      carol: { pub: carolPair.pub },
-    };
-    const network = createFakeNetwork();
-    const bobBodies: P2PMeshTalkBodyPayload[] = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-      onTalkBody: (payload) => {
-        bobBodies.push(payload);
-      },
-    });
-    const carol = new PeerMeshService(mockGunService(carolPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'carol',
-      localStageName: 'Carol',
-      createSession: network.createSession,
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-      { userId: 'carol', stageName: 'Carol' },
-    ];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-    await carol.joinRoom('global', members);
-
-    await alice.broadcastTalk({
-      id: 'shared-content-id',
-      authorId: 'alice',
-      title: 'Shared Tag',
-      type: 'tag',
-      questions: [],
-    });
-    await carol.broadcastTalk({
-      id: 'shared-content-id',
-      authorId: 'carol',
-      title: 'Shared Tag',
-      type: 'tag',
-      questions: [],
-    });
-
-    expect(bobBodies.map((payload) => payload.authorId).sort()).toEqual(['alice', 'carol']);
-  });
-
   /**
    * Content-collision regression (find-similar-people 8/9): talk ids are content-addressed
    * (computeTalkCIDv1, no authorId), so two authors who create identical content share the
@@ -746,52 +433,6 @@ describe('PeerMeshService', () => {
    * otherwise the author-side response/match path (resolveMeshTalkData) and talk-body-request
    * serving would return the wrong author's definition.
    */
-  it('keeps the local author copy when a remote author broadcasts the same content id', async () => {
-    const [alicePair, carolPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = { alice: { pub: alicePair.pub }, carol: { pub: carolPair.pub } };
-    const network = createFakeNetwork();
-
-    const carolBodies: P2PMeshTalkBodyPayload[] = [];
-    const carol = new PeerMeshService(mockGunService(carolPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'carol',
-      localStageName: 'Carol',
-      createSession: network.createSession,
-      onTalkBody: (payload) => { carolBodies.push(payload); },
-    });
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-    });
-
-    const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'carol', stageName: 'Carol' }];
-    await carol.joinRoom('global', members);
-    await alice.joinRoom('global', members);
-
-    // Carol authored the SAME content id X and cached her own body.
-    carol.cacheTalkBody('X', { id: 'X', authorId: 'carol', title: 'hiking', type: 'tag' });
-    expect((carol.getCachedTalkBody('X') as any)?.authorId).toBe('carol');
-
-    // Alice broadcasts identical content (same talkId X, authorId alice) — reaches Carol.
-    await alice.broadcastTalk(
-      { id: 'X', authorId: 'alice', title: 'hiking', type: 'tag', questions: [] },
-      { roomBroadcast: true },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Carol received Alice's body with the correct (remote) author id...
-    expect(carolBodies.map((b) => b.authorId)).toEqual(['alice']);
-    // ...but Carol's OWN cached copy for talkId X is NOT clobbered (prefers localUserId).
-    expect((carol.getCachedTalkBody('X') as any)?.authorId).toBe('carol');
-
-    // When Carol later caches the remote author's body explicitly (as the app does on the
-    // rendezvous path), it is stored author-qualified and does not overwrite her own copy.
-    carol.cacheTalkBody('X', { id: 'X', authorId: 'alice', title: 'hiking', type: 'tag' });
-    expect((carol.getCachedTalkBody('X') as any)?.authorId).toBe('carol');
-    expect((carol.getCachedTalkBody('X', 'alice') as any)?.authorId).toBe('alice');
-  });
 
   /**
    * Content-collision regression: a talk-response must reach BOTH authors of identical
@@ -919,157 +560,6 @@ describe('PeerMeshService', () => {
    * which the original below-wanted-degree gate alone did not catch.
    * R-a step 7: asserts mailbox fallback (onMailboxFallback) fires instead of Gun rendezvous.
    */
-  it('ACK fallback mailboxes recipients that gossip does not reach', async () => {
-    const alicePair = (await SEA.pair()) as SeaSigningPair;
-    const peerIds = ['p1', 'p2', 'p3', 'p4', 'p5'];
-    const users: Record<string, { pub: string }> = { alice: { pub: alicePair.pub } };
-    for (const id of peerIds) users[id] = { pub: alicePair.pub };
-
-    const gunService = mockGunService(alicePair, users);
-
-    // Alice links to three of the five (the members she was given). All 3 connect via the fake
-    // network, so connectedCount === neighbors.size === 3 and the below-wanted-degree gate is FALSE.
-    const network = createFakeNetwork();
-    const mailboxCalls: Array<{ recipientUserIds: string[] }> = [];
-    const alice = new PeerMeshService(gunService, {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
-      ackTimeoutMs: 20,
-      createSession: network.createSession,
-      onMailboxFallback: async (_payload, recipientUserIds) => {
-        mailboxCalls.push({ recipientUserIds });
-      },
-    });
-
-    const members = [{ userId: 'alice' }, ...peerIds.slice(0, 3).map((userId) => ({ userId }))];
-    await alice.joinRoom('global', members);
-
-    // Prime the connected flag on the 3 selected neighbors via a throwaway broadcast.
-    await alice.broadcastTalk(
-      { id: 'prime', authorId: 'alice', title: 'p', type: 'tag', questions: [] },
-      { recipientUserIds: peerIds, roomBroadcast: true },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(alice.getDiagnostics().connectedNeighborCount).toBe(3);
-    expect(alice.getDiagnostics().neighborCount).toBe(3);
-
-    // Now broadcast to all 5 recipients. The fake sessions have no remote endpoints,
-    // so none can ACK and the encrypted mailbox fallback must cover the missed peers.
-    mailboxCalls.length = 0;
-    await alice.broadcastTalk(
-      { id: 'coverage-test', authorId: 'alice', title: 'c', type: 'tag', questions: [] },
-      { recipientUserIds: peerIds, roomBroadcast: true },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // Mailbox fallback must have fired (Gun p2pMeshTalkBodies/* path removed).
-    expect(mailboxCalls.length).toBeGreaterThanOrEqual(1);
-    // All 5 explicit recipients must be included in the fallback call.
-    const allFallbackRecipients = mailboxCalls.flatMap((c) => c.recipientUserIds);
-    for (const id of peerIds) {
-      expect(allFallbackRecipients).toContain(id);
-    }
-  });
-
-  it('leaves an offer over the receiving limit unanswered, and takes it when offered again', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
-    const network = createFakeNetwork();
-    let room = false; // bob's per-minute budget is full until this flips
-    const bobBodies: P2PMeshTalkBodyPayload[] = [];
-    const acknowledged: string[] = [];
-    const alice = new PeerMeshService(mockPrivateGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
-      createSession: network.createSession, ackTimeoutMs: 40, authoritativeDirectTalkDelivery: true,
-      onTalkDeliveryAck: (_payload, recipientUserId) => { acknowledged.push(recipientUserId); },
-    });
-    const bob = new PeerMeshService(mockPrivateGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
-      createSession: network.createSession, ackTimeoutMs: 40, authoritativeDirectTalkDelivery: true,
-      admitTalkOffer: () => room,
-      onTalkBody: (payload) => { bobBodies.push(payload); },
-    });
-    const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }];
-    await alice.joinRoom('nearby:test', members);
-    await bob.joinRoom('nearby:test', members);
-    const talk = { id: 'busy-1', authorId: 'alice', title: 'Busy', type: 'tag', questions: [] };
-
-    const first = await alice.broadcastTalk({ ...talk }, { recipientUserIds: ['bob'], roomBroadcast: true });
-    expect(first.has('bob')).toBe(false);
-    expect(bobBodies).toHaveLength(0);
-    // Not refused: still queued for Bob.
-    expect((await (alice as any).directTalkOutbox.list('nearby:test')).map((e: { recipientUserId: string }) => e.recipientUserId)).toEqual(['bob']);
-
-    room = true;
-    const flush = () => (alice as unknown as { flushDirectTalkOutbox: () => Promise<Set<string>> }).flushDirectTalkOutbox();
-    // The outbox offers it again on its retry schedule (every 5 s per entry).
-    for (let i = 0; i < 40 && !(bobBodies.length === 1 && acknowledged.includes('bob')); i += 1) {
-      await flush();
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-    expect(bobBodies).toHaveLength(1);
-    expect(acknowledged).toContain('bob');
-    alice.leaveRoom();
-    bob.leaveRoom();
-  }, 15_000);
-
-  it('re-delivers a talk body that the receiver rejected, then dedupes once accepted', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-    };
-    const network = createFakeNetwork();
-    let accept = false; // bob rejects until verified, then accepts
-    const bobBodies: P2PMeshTalkBodyPayload[] = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-      ackTimeoutMs: 10,
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-      // Return false while "unverified" so the talk stays eligible for re-delivery.
-      onTalkBody: (payload) => {
-        bobBodies.push(payload);
-        return accept;
-      },
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-    ];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-
-    const adultTalk = { id: 'adult-1', authorId: 'alice', title: 'Adult', type: 'flow', isAdult: true, questions: [] };
-    const deliveryOptions = { recipientUserIds: ['bob'], roomBroadcast: true };
-
-    // Rejected delivery: bob is called but does not mark the talk delivered.
-    const rejectedRecipients = await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
-    expect(bobBodies).toHaveLength(1);
-    expect(rejectedRecipients.has('bob')).toBe(false);
-
-    // Re-broadcast while still rejecting: must reach bob again (not deduped away).
-    await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
-    expect(bobBodies).toHaveLength(2);
-
-    // Bob crosses the threshold and now accepts; this delivery is recorded.
-    accept = true;
-    const acceptedRecipients = await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
-    expect(bobBodies).toHaveLength(3);
-    expect(acceptedRecipients.has('bob')).toBe(true);
-
-    // Further re-broadcasts are deduped now that the talk was accepted.
-    await alice.broadcastTalk({ ...adultTalk }, deliveryOptions);
-    expect(bobBodies).toHaveLength(3);
-  });
 
   /**
    * Regression: onPing/onPong must expose frame.originUserId (the cryptographically-verified
@@ -1250,108 +740,14 @@ describe('PeerMeshService', () => {
   // ── Step 2: announce frame / eligibility ───────────────────────────────────────
 
   /**
-   * P0 step 2 — onTalkAnnounce fires before body pull.
+   * Room-topology eligibility: a peer in a different room does NOT receive a room frame.
    *
-   * Alice broadcasts a talk; Bob must receive the talk-announce callback BEFORE (or
-   * simultaneously with) the talk-body callback, and must receive both in the same
-   * event loop turn.  The announce payload carries talkId + authorId so callers can
-   * record receipt for durable E2E diagnostics without waiting for the body.
-   */
-  it('step-2: onTalkAnnounce fires on talk-announce receipt, before body is delivered', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-    };
-    const network = createFakeNetwork();
-
-    const bobAnnounces: Array<{ talkId: string; authorId: string }> = [];
-    const bobBodies: P2PMeshTalkBodyPayload[] = [];
-    const announceCallOrder: string[] = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-      onTalkAnnounce: (payload) => {
-        bobAnnounces.push({ talkId: payload.talkId, authorId: payload.authorId });
-        announceCallOrder.push('announce');
-      },
-      onTalkBody: (payload) => {
-        bobBodies.push(payload);
-        announceCallOrder.push('body');
-      },
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-    ];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-
-    await alice.broadcastTalk({
-      id: 'announce-test-1',
-      authorId: 'alice',
-      title: 'Announce Test',
-      type: 'tag',
-      questions: [{ id: 'q1', text: 'Agree?', answers: [] }],
-    });
-
-    // Allow async propagation to settle
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Announce must have fired
-    expect(bobAnnounces).toHaveLength(1);
-    expect(bobAnnounces[0].talkId).toBe('announce-test-1');
-    expect(bobAnnounces[0].authorId).toBe('alice');
-
-    // Body must also have been delivered (room broadcast sends body alongside announce)
-    expect(bobBodies).toHaveLength(1);
-    expect(bobBodies[0].talkId).toBe('announce-test-1');
-
-    // Announce fires first (talk-announce frame precedes talk-body frame in send order)
-    expect(announceCallOrder[0]).toBe('announce');
-  });
-
-  it('rejects an offer before requesting or persisting the full body', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
-    const network = createFakeNetwork();
-    const bodies: P2PMeshTalkBodyPayload[] = [];
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice', createSession: network.createSession,
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob', createSession: network.createSession,
-      onTalkAnnounce: () => false,
-      onTalkBody: (payload) => { bodies.push(payload); return true; },
-    });
-    const members = [{ userId: 'alice' }, { userId: 'bob' }];
-    await alice.joinRoom('global', members); await bob.joinRoom('global', members);
-    await alice.broadcastTalk({ id: 'rejected-offer', authorId: 'alice', title: 'No', type: 'tag', questions: [] });
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    expect(bodies).toEqual([]);
-    expect(bob.getDiagnostics().cachedTalkBodies).toBe(0);
-  });
-
-  /**
-   * P0 step 2 — room-topology eligibility: peer in a different room does NOT receive
-   * the announce.
-   *
-   * Alice is in room 'room-A'; Bob is in room 'room-B'.  A talk-announce frame carries
-   * roomId='room-A', so Bob's handleRemoteFrame drops it (roomId mismatch guard at L577).
+   * Alice is in room 'room-A'; Bob is in room 'room-B'.  A talk-retracted frame carries
+   * roomId='room-A', so Bob's handleRemoteFrame drops it (roomId mismatch guard).
    * The test directly delivers a frame with a mismatched roomId to Bob's session hook and
-   * confirms onTalkAnnounce never fires.
+   * confirms onTalkRetracted never fires.
    */
-  it('step-2: peer in a different room does not receive announce (roomId guard)', async () => {
+  it('a peer in a different room does not receive a room frame (roomId guard)', async () => {
     const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
     const users = {
       alice: { pub: alicePair.pub },
@@ -1373,7 +769,7 @@ describe('PeerMeshService', () => {
         }),
         sendMeshFrame: jest.fn(async () => undefined),
       }),
-      onTalkAnnounce: (payload) => {
+      onTalkRetracted: (payload) => {
         bobAnnounces.push({ talkId: payload.talkId });
       },
     });
@@ -1387,22 +783,14 @@ describe('PeerMeshService', () => {
     // Build a valid talk-announce frame from Alice's room-A — different room than Bob's
     const announceFrame: P2PMeshFrame = {
       version: 1,
-      kind: 'talk-announce',
+      kind: 'talk-retracted',
       msgId: 'cross-room-announce-1',
       roomId: 'room-A',          // ← different room; Bob is in room-B
       originUserId: 'alice',
       originPub: alicePair.pub,
       createdAt: new Date().toISOString(),
       ttlHops: 6,
-      payload: {
-        roomId: 'room-A',
-        broadcastAt: new Date().toISOString(),
-        talkId: 'cross-room-talk',
-        authorId: 'alice',
-        authorName: 'Alice',
-        title: 'Cross-room Talk',
-        questionCount: 1,
-      },
+      payload: { talkId: 'cross-room-talk', authorId: 'alice', retractedAt: Date.now() },
     };
     const proof = await createSignedP2PEnvelopeProof({
       pair: alicePair as SeaSigningPair,
@@ -1424,10 +812,7 @@ describe('PeerMeshService', () => {
       ...announceFrame,
       msgId: 'no-active-room-announce-1',
       roomId: 'room-B',
-      payload: {
-        ...announceFrame.payload,
-        roomId: 'room-B',
-      },
+      payload: announceFrame.payload,
     };
     const noRoomProof = await createSignedP2PEnvelopeProof({
       pair: alicePair as SeaSigningPair,
@@ -1444,52 +829,6 @@ describe('PeerMeshService', () => {
    * to warm up the overlay), the talk-announce handler skips frames where
    * payload.authorId === localUserId, so Alice's own onTalkAnnounce never fires.
    */
-  it('step-2: author does not receive their own announce (not-self guard)', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-    };
-    const network = createFakeNetwork();
-
-    const aliceAnnounces: Array<{ talkId: string }> = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-      onTalkAnnounce: (payload) => {
-        aliceAnnounces.push({ talkId: payload.talkId });
-      },
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-    ];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-
-    await alice.broadcastTalk({
-      id: 'self-announce-test',
-      authorId: 'alice',
-      title: 'Self Test',
-      type: 'tag',
-      questions: [],
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Alice must NOT receive her own announce
-    expect(aliceAnnounces).toHaveLength(0);
-  });
 
   /**
    * P0 step 2 — conditional fallback: when the sender has zero connected neighbors,
@@ -1503,114 +842,6 @@ describe('PeerMeshService', () => {
    * Verification strategy: inject onMailboxFallback callback and confirm it fires when
    * zero neighbors are connected; confirm it does NOT fire when all neighbors are connected.
    */
-  it('step-2 fallback: mailbox fallback fires when overlay is below wanted degree (incl. zero connected)', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-    };
-
-    // Scenario A: zero connected neighbors (simulate callers like deliverTalkToReceiversOverMesh
-    // that call joinRoom then immediately broadcastTalk without waiting for WebRTC connection).
-    // We use a custom createSession that deliberately never sets neighbor.connected = true.
-    const mailboxCallsA: Array<{ recipientUserIds: string[] }> = [];
-    const aliceA = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: () => ({
-        ensureConnected: jest.fn(async () => { throw new Error('not connected'); }),
-        setOnRemoteMeshFrame: jest.fn(),
-        // Never actually delivers — simulates a DataChannel still connecting.
-        sendMeshFrame: jest.fn(async () => { throw new Error('not connected'); }),
-      }),
-      onMailboxFallback: async (_payload, recipientUserIds) => {
-        mailboxCallsA.push({ recipientUserIds });
-      },
-    });
-
-    await aliceA.joinRoom('global', [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-    ]);
-
-    // Verify no neighbors are connected before broadcast.
-    expect(aliceA.getDiagnostics().connectedNeighborCount).toBe(0);
-
-    await aliceA.broadcastTalk({
-      id: 'fallback-test-1',
-      authorId: 'alice',
-      title: 'Fallback Talk',
-      type: 'tag',
-      questions: [],
-    }, { roomBroadcast: true, recipientUserIds: ['alice', 'bob'] });
-
-    // Mailbox fallback must have fired (replaces Gun rendezvous path).
-    expect(mailboxCallsA.length).toBeGreaterThanOrEqual(1);
-    const fallbackRecipientsA = mailboxCallsA.flatMap((c) => c.recipientUserIds);
-    expect(fallbackRecipientsA).toContain('bob');
-
-    // Scenario B: fully connected wanted set (connected === neighbors.size) — fallback must NOT fire; primary
-    // DataChannel path is used.
-    const network = createFakeNetwork();
-    const mailboxCallsB: Array<{ recipientUserIds: string[] }> = [];
-    const aliceB = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-      onMailboxFallback: async (_payload, recipientUserIds) => {
-        mailboxCallsB.push({ recipientUserIds });
-      },
-    });
-    const bobB = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-    ];
-    await aliceB.joinRoom('global', members);
-    await bobB.joinRoom('global', members);
-
-    // Manually mark alice's neighbor as connected (simulating a completed WebRTC handshake).
-    const aliceDiag = aliceB.getDiagnostics();
-    expect(aliceDiag.neighborCount).toBeGreaterThan(0);
-    // Drive the connect so the neighbor record flips to connected:true.
-    // The fake network's ensureConnected resolves immediately, so calling broadcastTalk
-    // after joinRoom is sufficient (sendMeshFrame succeeds synchronously on the fake network,
-    // flipping neighbor.connected = true on first successful send).
-    // Prime alice's neighbor connected flag by broadcasting once (fake net delivers instantly).
-    await aliceB.broadcastTalk({
-      id: 'prime-connect',
-      authorId: 'alice',
-      title: 'Prime',
-      type: 'tag',
-      questions: [],
-    }, { roomBroadcast: true, recipientUserIds: ['alice', 'bob'] });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // After the first successful send, alice's neighbor is connected.
-    const connectedAfterPrime = aliceB.getDiagnostics().connectedNeighborCount;
-    expect(connectedAfterPrime).toBeGreaterThan(0);
-
-    mailboxCallsB.length = 0;
-    await aliceB.broadcastTalk({
-      id: 'primary-path-test',
-      authorId: 'alice',
-      title: 'Primary Path',
-      type: 'tag',
-      questions: [],
-    }, { roomBroadcast: true, recipientUserIds: ['alice', 'bob'] });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // No mailbox fallback must have fired — primary mesh path was used.
-    expect(mailboxCallsB.length).toBe(0);
-  });
 
   /**
    * P0 step 2 — mesh flood: announce from A reaches C via relay hop through B (K=1 path).
@@ -1620,67 +851,6 @@ describe('PeerMeshService', () => {
    * Carol's onTalkAnnounce must fire with Alice's authorId even though the frame
    * arrived via Bob (the relay hop).
    */
-  it('step-2: announce floods via relay hop to non-direct peer', async () => {
-    const [alicePair, bobPair, carolPair] = await Promise.all([
-      SEA.pair(), SEA.pair(), SEA.pair(),
-    ]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-      carol: { pub: carolPair.pub },
-    };
-    const network = createFakeNetwork();
-
-    const carolAnnounces: Array<{ talkId: string; authorId: string }> = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: network.createSession,
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'bob',
-      localStageName: 'Bob',
-      createSession: network.createSession,
-      forwardingSettings: { enabled: true, wifiForwarding: true },
-    });
-    const carol = new PeerMeshService(mockGunService(carolPair, users), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'carol',
-      localStageName: 'Carol',
-      createSession: network.createSession,
-      onTalkAnnounce: (payload) => {
-        carolAnnounces.push({ talkId: payload.talkId, authorId: payload.authorId });
-      },
-    });
-
-    const allMembers = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-      { userId: 'carol', stageName: 'Carol' },
-    ];
-    // Establish channels: bob↔carol first so the relay path is ready when Alice sends
-    await bob.joinRoom('global', allMembers);
-    await carol.joinRoom('global', allMembers);
-    await alice.joinRoom('global', allMembers);
-
-    await alice.broadcastTalk({
-      id: 'relay-announce-1',
-      authorId: 'alice',
-      title: 'Relay Announce',
-      type: 'tag',
-      questions: [],
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Carol must have received the announce via the Bob relay
-    expect(carolAnnounces.length).toBeGreaterThanOrEqual(1);
-    expect(carolAnnounces[0].authorId).toBe('alice');
-    expect(carolAnnounces[0].talkId).toBe('relay-announce-1');
-  });
 
   // ── Step 3: receiver-side intake filtering at the mesh choke point ────────────
 
@@ -1695,55 +865,6 @@ describe('PeerMeshService', () => {
    * This exercises the choke point at peer-mesh-service.ts lines 739-741 (DataChannel
    * path) for both the flood path and the re-delivery-after-rejection path.
    */
-  it('step-3: intake-rejected body is not cached; accepted body is deduped', async () => {
-    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
-    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
-    const network = createFakeNetwork();
-
-    let bobAccepts = false; // simulates age-gate: false until verified
-    const bobCallCount: Record<string, number> = {};
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
-      createSession: network.createSession,
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
-      createSession: network.createSession,
-      onTalkBody: (payload) => {
-        const key = `${payload.talkId}::${payload.authorId}`;
-        bobCallCount[key] = (bobCallCount[key] ?? 0) + 1;
-        return bobAccepts; // false = rejected (age_gate), true = accepted
-      },
-    });
-
-    const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-
-    const adultTalk = { id: 'adult-mesh', authorId: 'alice', title: 'Adult Talk', type: 'flow', isAdult: true, questions: [] as any[] };
-
-    // First broadcast: bob rejects (age_gate). onTalkBody called once, delivery NOT cached.
-    await alice.broadcastTalk({ ...adultTalk });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(bobCallCount['adult-mesh::alice']).toBe(1);
-
-    // Second broadcast while still rejecting: re-delivered (not deduped), onTalkBody called again.
-    await alice.broadcastTalk({ ...adultTalk });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(bobCallCount['adult-mesh::alice']).toBe(2);
-
-    // Bob crosses the age-verification threshold — now accepts.
-    bobAccepts = true;
-    await alice.broadcastTalk({ ...adultTalk });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(bobCallCount['adult-mesh::alice']).toBe(3);
-
-    // Fourth broadcast: talk was accepted, delivery key is cached → NOT re-delivered.
-    await alice.broadcastTalk({ ...adultTalk });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(bobCallCount['adult-mesh::alice']).toBe(3); // unchanged
-  });
 
   /**
    * Saturation gap (M4): a connected receiver that rejects a body (onTalkBody → false, e.g. a
@@ -1752,47 +873,6 @@ describe('PeerMeshService', () => {
    * even though the receiver never stored it. With the fix, the rejected recipient stays un-ACKed,
    * so the sender's mailbox fallback covers them and the talk can still be delivered (via drain).
    */
-  it('does not ACK a rejected body, so the sender mailbox-fallbacks the rejecting recipient', async () => {
-    const [alicePair, bobPair] = (await Promise.all([SEA.pair(), SEA.pair()])) as SeaSigningPair[];
-    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
-    const network = createFakeNetwork();
-
-    const mailboxCalls: Array<{ recipientUserIds: string[] }> = [];
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
-      ackTimeoutMs: 20,
-      createSession: network.createSession,
-      onMailboxFallback: async (_payload, recipientUserIds) => {
-        mailboxCalls.push({ recipientUserIds });
-      },
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
-      createSession: network.createSession,
-      onTalkBody: () => false, // bob rejects (e.g. transient intake failure under saturation)
-    });
-
-    const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }];
-    await alice.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-
-    // Prime the connected neighbor flag so bob is a real ack target (not just a mailbox target).
-    await alice.broadcastTalk(
-      { id: 'prime', authorId: 'alice', title: 'p', type: 'tag', questions: [] },
-      { recipientUserIds: ['bob'], roomBroadcast: true },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    mailboxCalls.length = 0;
-    await alice.broadcastTalk(
-      { id: 'm4-reject', authorId: 'alice', title: 'r', type: 'tag', questions: [] },
-      { recipientUserIds: ['bob'], roomBroadcast: true },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 30));
-
-    // Bob received the frame and rejected it; because he did not ACK, alice must mailbox him.
-    expect(mailboxCalls.flatMap((c) => c.recipientUserIds)).toContain('bob');
-  });
 
   /**
    * P0 step 3 — author-qualified delivery key: two talks with different authorIds but the
@@ -1802,76 +882,5 @@ describe('PeerMeshService', () => {
    * Uses two isolated 2-node networks to avoid gossip relay duplicates (which are expected
    * when onTalkBody returns false in a multi-hop overlay).
    */
-  it('step-3: different author copies of same talkId are filtered independently', async () => {
-    const [alicePair, bobPair, carolPair] = await Promise.all([
-      SEA.pair(), SEA.pair(), SEA.pair(),
-    ]) as SeaSigningPair[];
-    const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub }, carol: { pub: carolPair.pub } };
-
-    // Bob accepts alice's copy but rejects carol's copy.
-    const acceptByAuthor: Record<string, boolean> = { alice: true, carol: false };
-    const bobCallsByAuthor: Record<string, number> = {};
-
-    function makeBob(net: ReturnType<typeof createFakeNetwork>) {
-      return new PeerMeshService(mockGunService(bobPair, users), {
-        apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
-        createSession: net.createSession,
-        onTalkBody: (payload) => {
-          bobCallsByAuthor[payload.authorId] = (bobCallsByAuthor[payload.authorId] ?? 0) + 1;
-          return acceptByAuthor[payload.authorId] ?? true;
-        },
-      });
-    }
-
-    // ── Alice → Bob (2-node network, no relay) ──────────────────────────────────
-    {
-      const net = createFakeNetwork();
-      const alice = new PeerMeshService(mockGunService(alicePair, users), {
-        apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
-        createSession: net.createSession,
-      });
-      const bob = makeBob(net);
-      const members = [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }];
-      await alice.joinRoom('room-a', members);
-      await bob.joinRoom('room-a', members);
-
-      const sharedContent = { id: 'shared-id', title: 'Shared Talk', type: 'flow', questions: [] as any[] };
-
-      // First broadcast: accepted.
-      await alice.broadcastTalk({ ...sharedContent, authorId: 'alice' });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(bobCallsByAuthor['alice']).toBe(1);
-
-      // Second broadcast: already cached, deduped.
-      await alice.broadcastTalk({ ...sharedContent, authorId: 'alice' });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(bobCallsByAuthor['alice']).toBe(1); // unchanged
-    }
-
-    // ── Carol → Bob (separate 2-node network, no relay) ─────────────────────────
-    {
-      const net = createFakeNetwork();
-      const carol = new PeerMeshService(mockGunService(carolPair, users), {
-        apiBase: 'http://127.0.0.1:8080', localUserId: 'carol', localStageName: 'Carol',
-        createSession: net.createSession,
-      });
-      const bob = makeBob(net);
-      const members = [{ userId: 'carol', stageName: 'Carol' }, { userId: 'bob', stageName: 'Bob' }];
-      await carol.joinRoom('room-b', members);
-      await bob.joinRoom('room-b', members);
-
-      const sharedContent = { id: 'shared-id', title: 'Shared Talk', type: 'flow', questions: [] as any[] };
-
-      // First broadcast: rejected.
-      await carol.broadcastTalk({ ...sharedContent, authorId: 'carol' });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(bobCallsByAuthor['carol']).toBe(1);
-
-      // Second broadcast: still rejected → re-delivered (NOT deduped).
-      await carol.broadcastTalk({ ...sharedContent, authorId: 'carol' });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(bobCallsByAuthor['carol']).toBe(2);
-    }
-  });
 
 });
