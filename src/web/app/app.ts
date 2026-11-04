@@ -258,7 +258,7 @@ import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
-import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
+import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
 import { GraphLinkBridge } from '../services/graph-link-bridge';
@@ -2714,7 +2714,6 @@ export class IinPublicApp {
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
     void this.drainMailbox().catch(() => {});
     this.startMailboxPolling();
-    void this.retryFailedMailboxPosts().catch(() => {});
     this.resumeDeviceSyncForLinkedPeers();
     this.startDeviceSyncLoop();
   }
@@ -3362,12 +3361,6 @@ export class IinPublicApp {
               }),
           }
         : {}),
-      onTalkResponse: (payload) => void this.handleMeshTalkResponse(payload).catch((err) => {
-        // The mesh layer has already ACKed the frame by the time this runs — a swallowed
-        // throw here is a silently lost response (observed: author-side decrypt failures
-        // were invisible in every log). Never let ingest failures vanish.
-        console.warn('[MeshResponse] ingest failed for', payload?.responderId, err);
-      }),
       onPing: (fromUserId, _frame) => {
         const diag = this.meshPingDiagnostics;
         diag.lastPingFrom = fromUserId;
@@ -3378,8 +3371,6 @@ export class IinPublicApp {
         diag.lastPongFrom = fromUserId;
         if (!diag.pongedOrigins.includes(fromUserId)) diag.pongedOrigins.push(fromUserId);
       },
-      // Step 10: responder side — handle incoming retraction flood frames.
-      onTalkRetracted: (payload) => this.handleMeshTalkRetracted(payload),
     });
     (this as any).peerMeshService = this.peerMeshService;
     void this.startGraphLinks();
@@ -3548,7 +3539,6 @@ export class IinPublicApp {
     // may be a sender for whom we have queued envelopes in the mailbox).
     // Also retry failed mailbox POSTs now that network may be available.
     void this.drainMailbox().catch(() => {});
-    void this.retryFailedMailboxPosts().catch(() => {});
   }
 
   // ─── Encrypted offline mailbox — drain-on-connect (Step 6) ───────────────
@@ -3585,8 +3575,7 @@ export class IinPublicApp {
     }
     this.mailboxPollTimer = setInterval(throttleWhileHidden(() => {
       void this.drainMailbox().catch(() => {});
-      void this.retryFailedMailboxPosts().catch(() => {});
-    }, 60_000), native ? NATIVE_MAILBOX_SAFETY_DRAIN_MS : 3_000);
+      }, 60_000), native ? NATIVE_MAILBOX_SAFETY_DRAIN_MS : 3_000);
   }
 
   /**
@@ -3786,10 +3775,8 @@ export class IinPublicApp {
             // Talks travel only over graph links now (OPEN-106): an old envelope is dropped.
             break;
           case 'talk-retraction':
-            await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
-            break;
           case 'talk-response':
-            await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
+            // Answers and retractions travel only over graph links now (OPEN-106).
             break;
         }
         // Delete only after handler completes without throwing.
@@ -3799,47 +3786,6 @@ export class IinPublicApp {
         console.warn('[Mailbox] Failed to drain envelope', envelope.id, '— will retry on next connect:', err);
         // Leave envelope on server for re-delivery.
       }
-    }
-  }
-
-  /**
-   * Post a talk response to the mailbox as a ciphertext-only envelope.
-   * Falls back to localStorage queue only when the mailbox POST itself fails.
-   */
-  private async postToMailbox(payload: P2PMeshTalkResponsePayload): Promise<boolean> {
-    if (this.mailboxFallbackDisabledForE2e) return true;
-    if (!this.currentUser?.id) return false;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return false;
-
-    const authorEpub = await this.resolvePeerEpub(payload.authorId);
-    if (!authorEpub) {
-      console.warn('[Mailbox] Cannot post — author epub not found for', payload.authorId);
-      return false;
-    }
-
-    try {
-      const ciphertext = await mailbox.encryptForRecipient(
-        authorEpub,
-        pair as import('../sea-gun').GunPair,
-        payload,
-      );
-      const envelopeId = `mbx_${payload.responseId}`;
-      const result = await mailbox.postEnvelope({
-        id: envelopeId,
-        recipientId: payload.authorId,
-        ciphertext,
-      });
-      if (result.stored) {
-        console.log('[Mailbox] Posted envelope', envelopeId, 'for author', payload.authorId);
-        return true;
-      }
-      console.warn('[Mailbox] Server rejected envelope:', result.error);
-      return false;
-    } catch (err) {
-      console.warn('[Mailbox] postToMailbox failed:', err);
-      return false;
     }
   }
 
@@ -4231,51 +4177,6 @@ export class IinPublicApp {
     gun.get('techsupport-inbox').get(input.questionKey).put({ status: 'answered' });
     if (this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) this.refreshDelegateAdminPanel();
     console.log('[Support] Answered and published', input.questionKey);
-  }
-
-  // ─── localStorage fallback queue (POST-to-mailbox failure only) ──────────
-  //
-  // The STEP-6-REPLACE localStorage queue is now narrowed to a "mailbox POST
-  // itself failed" buffer only — it retries on the next roster-change drain
-  // via retryFailedMailboxPosts.  This covers transient network errors during the
-  // mailbox POST without requiring a new server endpoint or Gun path.
-
-  private static readonly PENDING_MESH_RESPONSES_KEY = 'pendingMeshTalkResponses';
-
-  private enqueueFailedMailboxPost(payload: P2PMeshTalkResponsePayload): void {
-    try {
-      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
-      const queue: Record<string, P2PMeshTalkResponsePayload> = raw ? JSON.parse(raw) : {};
-      const queueKey = `${payload.talkId}::${payload.authorId}::${payload.responseId}`;
-      queue[queueKey] = payload;
-      appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
-      console.log('[Mailbox] Queued failed-POST response for author', payload.authorId, 'key:', queueKey);
-    } catch (err) {
-      console.warn('[Mailbox] Failed to enqueue failed-POST response:', err);
-    }
-  }
-
-  /** Retry pending mailbox POSTs on roster change (transient network error recovery). */
-  private async retryFailedMailboxPosts(): Promise<void> {
-    let queue: Record<string, P2PMeshTalkResponsePayload>;
-    try {
-      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
-      if (!raw) return;
-      queue = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    const succeeded: string[] = [];
-    for (const [queueKey, payload] of Object.entries(queue)) {
-      const posted = await this.postToMailbox(payload);
-      if (posted) succeeded.push(queueKey);
-    }
-    if (succeeded.length > 0) {
-      for (const k of succeeded) delete queue[k];
-      try {
-        appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
-      } catch {/* ignore */}
-    }
   }
 
   private async resolveMeshTalkData(talkId: string): Promise<any | null> {
@@ -4709,9 +4610,8 @@ export class IinPublicApp {
    *
    * 1. Write local tombstone via applyEvent.
    * 2. Emit TALK_RETRACTED to the audit ledger.
-   * 3. Flood the `talk-retracted` mesh frame to all connected neighbors.
-   * 4. Mailbox-fanout to all known responders so offline holders are reached.
-   * 5. Tear down the author's own conversation view (if matched).
+   * 3. A deletion event to everyone who got the Talk over a graph link (OPEN-106).
+   * 4. Tear down the author's own conversation view (if matched).
    */
   private async handleRetractTalk(talkId: string, retractedAt: number): Promise<void> {
     if (!this.currentUser?.id) return;
@@ -4731,28 +4631,13 @@ export class IinPublicApp {
     // 2. Emit audit ledger event.
     this.ledgerEmit(InteractionKind.TALK_RETRACTED, { talkId, retractedAt });
 
-    // 3. Flood the mesh frame.
-    const mesh = this.ensurePeerMeshService();
-    if (mesh) {
-      const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
-      try {
-        await mesh.sendTalkRetraction(retractionPayload);
-      } catch (err) {
-        console.warn('[Retraction] Mesh flood failed (non-fatal):', err);
-      }
-    }
-
-    // 3b. OPEN-106: everyone who got this Talk over a graph link gets a deletion event.
+    // 3. OPEN-106: everyone who got this Talk over a graph link gets a deletion event.
+    if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
     if (this.coreRequest && this.graphLinks?.isRunning()) {
       void this.coreRequest({ name: 'graph.retract', talkId }).catch((err) => console.warn('[Retraction] graph deletion failed (non-fatal):', err));
     }
 
-    // 4. Mailbox fanout to known responders.
-    // The ledger already cleared outcomes, so we read from a pre-retraction snapshot:
-    // use the conversations store to enumerate responders.
-    void this.postRetractionToKnownResponders(talkId, authorId, retractedAt).catch(() => {});
-
-    // 5. Author side: tear down any conversations derived from this talkId.
+    // 4. Author side: tear down any conversations derived from this talkId.
     //
     // Skips a conversation whose deal is ALREADY mutually confirmed (§JJ): this same
     // retraction fires as a SIDE EFFECT of maybeFinalizeConfirmedDeal's fallback disabling
@@ -4835,43 +4720,6 @@ export class IinPublicApp {
     // retraction that produced it).
     if (receipt.withdraw) {
       this.uiManager.markConversationWithdrawn(payload.authorId, payload.talkId, payload.retractedAt);
-    }
-  }
-
-  /**
-   * Step 10: post encrypted retraction envelopes to known responders via the mailbox.
-   * Reads the myConversations store for talkId matches — these are the peers who need
-   * the tombstone but may be offline at the moment of retraction.
-   */
-  private async postRetractionToKnownResponders(
-    talkId: string,
-    authorId: string,
-    retractedAt: number,
-  ): Promise<void> {
-    if (!this.currentUser?.id) return;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
-
-    const responderIds = retractionRecipients(this.uiManager.getMyConversations() as Record<string, any>, talkId, authorId);
-    if (responderIds.length === 0) return;
-
-    const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
-    for (const responderId of responderIds) {
-      try {
-        const responderEpub = await this.resolvePeerEpub(responderId);
-        if (!responderEpub) continue;
-        const ciphertext = await mailbox.encryptForRecipient(
-          responderEpub,
-          pair as import('../sea-gun').GunPair,
-          retractionPayload,
-        );
-        const envelopeId = `mbx_retract_${talkId}_${authorId}_${responderId}`;
-        await mailbox.postEnvelope({ id: envelopeId, recipientId: responderId, ciphertext });
-        console.log('[Retraction] Posted mailbox envelope for responder', responderId);
-      } catch (err) {
-        console.warn('[Retraction] Failed to post mailbox envelope for', responderId, ':', err);
-      }
     }
   }
 
@@ -7169,13 +7017,12 @@ export class IinPublicApp {
         newVersion = targetVersion;
         isContentChange = committed.isContentChange;
       }
-      const mesh = this.ensurePeerMeshService();
-      let sent = false;
-      // OPEN-106 step 3: a Talk that came over a graph link is answered over it — an answer event
-      // in our pair log, read by the author when connected; no response frame or mailbox.
-      let viaGraph = false;
-      if (this.coreRequest && this.graphLinks?.isRunning()) {
-        viaGraph = await this.coreRequest({
+      // OPEN-106: an answer is an answer event in our pair log, read by the author when connected.
+      // There is no response frame or mailbox: a Talk that did not come over a graph link cannot be
+      // answered (every Talk does since the Talk frames were removed).
+      if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+      const sent = this.coreRequest && this.graphLinks?.isRunning()
+        ? await this.coreRequest({
           name: 'graph.answer', appTalkId: targetTalkId, authorId: targetAuthorId,
           answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
           mode: params.isChatbotResponse ? 'chatbot' : 'manual',
@@ -7183,28 +7030,9 @@ export class IinPublicApp {
             responderName: this.currentUser!.stageName, isChatbotResponse: params.isChatbotResponse,
             responseId: targetResponseId, version: targetVersion, submittedAt: meshPayload.submittedAt, respondedAt: meshPayload.respondedAt,
           },
-        }).then((result) => result.sent).catch((error) => { console.warn('[graph-link] answer failed, using the response frame:', error); return false; });
-        sent = viaGraph;
-      }
-      if (mesh && !viaGraph) {
-        try {
-          sent = await mesh.sendTalkResponse(meshPayload);
-        } catch (err) {
-          console.warn('[MeshResponse] sendTalkResponse failed, falling back to mailbox:', err);
-        }
-      }
-      // Step 6: when unicast cannot be delivered (author offline or send failed),
-      // post a ciphertext envelope to the server mailbox.
-      let mailboxPosted: boolean | null = null;
-      let queued = false;
-      if (!sent) {
-        mailboxPosted = await this.postToMailbox(meshPayload);
-        if (!mailboxPosted) {
-          this.enqueueFailedMailboxPost(meshPayload);
-          queued = true;
-        }
-      }
-      if (sent || mailboxPosted || queued) {
+        }).then((result) => result.sent).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
+        : false;
+      if (sent) {
         await this.coreDelivery({ name: 'delivery.record', input: {
           objectId: targetResponseId,
           recipientId: targetAuthorId,
@@ -7212,9 +7040,7 @@ export class IinPublicApp {
           state: 'sent',
         } });
       }
-      // Delivery-matrix diagnostic: exactly one line per response send with every stage's
-      // outcome — the silent-success pipeline made every saturation post-mortem archaeology.
-      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} graph=${viaGraph} mesh=${sent && !viaGraph} mailbox=${mailboxPosted} queued=${queued}`);
+      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} graph=${sent}`);
       sentResponseByAuthor.set(targetAuthorId, {
         talkId: targetTalkId,
         responseId: targetResponseId,
@@ -7527,7 +7353,12 @@ export class IinPublicApp {
     if (!talkId) throw new Error('offerTalkForE2e: the Talk needs an id');
     const recipients = [...new Set(recipientUserIds?.length ? recipientUserIds : this.peerMeshService?.roomMemberIds() ?? [])]
       .filter((id) => id && id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
-    const body = { ...talk, id: talkId, authorId: me.id };
+    // Every question and choice needs an id in the graph (a spec's hand-written Talk may omit them).
+    const questions = Array.isArray(talk.questions) ? talk.questions.map((q: any, qi: number) => ({
+      ...q, id: q?.id || `q_${qi}`,
+      answers: Array.isArray(q?.answers) ? q.answers.map((a: any, ai: number) => ({ ...a, id: a?.id || `a_${qi}_${ai}` })) : [],
+    })) : [];
+    const body = { ...talk, questions, id: talkId, authorId: me.id };
     // The author's own copy, read when answers come back.
     this.peerMeshService?.cacheTalkBody(talkId, body);
     const result = await this.coreRequest({
@@ -9774,8 +9605,7 @@ export class IinPublicApp {
           this.chatroomService.pullMembersFromPeers(this.currentChatroomId);
         }
         void this.drainMailbox().catch(() => {});
-        void this.retryFailedMailboxPosts().catch(() => {});
-        this.syncNativeBackgroundAgent();
+            this.syncNativeBackgroundAgent();
         void this.replayNativeBackgroundEvents();
       } finally {
         foregroundRecoveryRunning = false;

@@ -1,6 +1,6 @@
 import SEA from 'gun/sea';
 import { PeerMeshService } from '../../web/services/peer-mesh-service';
-import type { P2PMeshFrame, P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
+import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 import { p2pMeshFrameSigningPayload } from '../../shared/p2p-mesh-protocol';
 import { createSignedP2PEnvelopeProof } from '../../shared/p2p-runtime';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
@@ -439,118 +439,6 @@ describe('PeerMeshService', () => {
    * content independently. Bob answers content id X authored by both Alice and Carol;
    * each author must receive Bob's response addressed to them.
    */
-  it('routes a response to each author of identical content independently', async () => {
-    const [alicePair, bobPair, carolPair] = await Promise.all([
-      SEA.pair(), SEA.pair(), SEA.pair(),
-    ]) as SeaSigningPair[];
-    const users = {
-      alice: { pub: alicePair.pub },
-      bob: { pub: bobPair.pub },
-      carol: { pub: carolPair.pub },
-    };
-    const network = createFakeNetwork();
-    const aliceResponses: P2PMeshTalkResponsePayload[] = [];
-    const carolResponses: P2PMeshTalkResponsePayload[] = [];
-
-    const alice = new PeerMeshService(mockGunService(alicePair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'alice', localStageName: 'Alice',
-      createSession: network.createSession,
-      onTalkResponse: (p) => { aliceResponses.push(p); },
-    });
-    const carol = new PeerMeshService(mockGunService(carolPair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'carol', localStageName: 'Carol',
-      createSession: network.createSession,
-      onTalkResponse: (p) => { carolResponses.push(p); },
-    });
-    const bob = new PeerMeshService(mockGunService(bobPair, users), {
-      apiBase: 'http://127.0.0.1:8080', localUserId: 'bob', localStageName: 'Bob',
-      createSession: network.createSession,
-    });
-
-    const members = [
-      { userId: 'alice', stageName: 'Alice' },
-      { userId: 'bob', stageName: 'Bob' },
-      { userId: 'carol', stageName: 'Carol' },
-    ];
-    await alice.joinRoom('global', members);
-    await carol.joinRoom('global', members);
-    await bob.joinRoom('global', members);
-
-    // Bob answers the shared content id X for each author independently.
-    const now = new Date().toISOString();
-    await bob.sendTalkResponse({
-      responseId: 'resp-alice', talkId: 'X', authorId: 'alice', responderId: 'bob',
-      submittedAt: now, respondedAt: now, version: 1, encryption: 'sea-ecdh-v1',
-      payloadCiphertext: 'SEA{"ct":"a"}', transportMode: 'mesh-p2p',
-    });
-    await bob.sendTalkResponse({
-      responseId: 'resp-carol', talkId: 'X', authorId: 'carol', responderId: 'bob',
-      submittedAt: now, respondedAt: now, version: 1, encryption: 'sea-ecdh-v1',
-      payloadCiphertext: 'SEA{"ct":"c"}', transportMode: 'mesh-p2p',
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(aliceResponses.map((r) => r.responseId)).toEqual(['resp-alice']);
-    expect(carolResponses.map((r) => r.responseId)).toEqual(['resp-carol']);
-  });
-
-  it('processes one copy when direct and relayed frames arrive during signature verification', async () => {
-    const alicePair = await SEA.pair() as SeaSigningPair;
-    const responses: P2PMeshTalkResponsePayload[] = [];
-    const alice = new PeerMeshService(mockGunService(alicePair, { alice: { pub: alicePair.pub } }), {
-      apiBase: 'http://127.0.0.1:8080',
-      localUserId: 'alice',
-      localStageName: 'Alice',
-      createSession: createFakeNetwork().createSession,
-      onTalkResponse: (payload) => { responses.push(payload); },
-    });
-
-    let releaseVerification = (): void => {};
-    const verificationGate = new Promise<void>((resolve) => { releaseVerification = resolve; });
-    const verifyOrigin = jest
-      .spyOn(alice as any, 'verifyOrigin')
-      .mockImplementation(async () => {
-        await verificationGate;
-        return true;
-      });
-    await alice.joinRoom('global', [{ userId: 'alice', stageName: 'Alice' }]);
-    const now = new Date().toISOString();
-    const frame: P2PMeshFrame = {
-      version: 1,
-      kind: 'talk-response',
-      msgId: 'same-direct-and-relayed-frame',
-      roomId: 'global',
-      originUserId: 'bob',
-      originPub: 'bob-pub',
-      recipientUserId: 'alice',
-      createdAt: now,
-      ttlHops: 6,
-      payload: {
-        responseId: 'one-response',
-        talkId: 'talk-1',
-        authorId: 'alice',
-        responderId: 'bob',
-        submittedAt: now,
-        respondedAt: now,
-        version: 1,
-        encryption: 'sea-ecdh-v1',
-        payloadCiphertext: 'SEA{"ct":"ciphertext"}',
-        transportMode: 'mesh-p2p',
-      },
-    };
-
-    const direct = (alice as any).handleRemoteFrame('bob', frame);
-    const relayed = (alice as any).handleRemoteFrame('carol', frame);
-    releaseVerification();
-    await Promise.all([direct, relayed]);
-
-    expect(verifyOrigin).toHaveBeenCalledTimes(1);
-    expect(responses.map((response) => response.responseId)).toEqual(['one-response']);
-    expect(alice.getDiagnostics().transport).toMatchObject({
-      receivedFrames: 2,
-      duplicateFramesReceived: 1,
-    });
-  });
 
   /**
    * Coverage-gap fallback (find-similar-people root cause): when a room broadcast names more
@@ -739,13 +627,59 @@ describe('PeerMeshService', () => {
 
   // ── Step 2: announce frame / eligibility ───────────────────────────────────────
 
+  it('processes one copy when direct and relayed frames arrive during signature verification', async () => {
+    const alicePair = await SEA.pair() as SeaSigningPair;
+    const pings: string[] = [];
+    const alice = new PeerMeshService(mockGunService(alicePair, { alice: { pub: alicePair.pub } }), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      createSession: createFakeNetwork().createSession,
+      onPing: (_from, frame) => { pings.push(frame.msgId); },
+    });
+
+    let releaseVerification = (): void => {};
+    const verificationGate = new Promise<void>((resolve) => { releaseVerification = resolve; });
+    const verifyOrigin = jest
+      .spyOn(alice as any, 'verifyOrigin')
+      .mockImplementation(async () => {
+        await verificationGate;
+        return true;
+      });
+    await alice.joinRoom('global', [{ userId: 'alice', stageName: 'Alice' }]);
+    const frame: P2PMeshFrame = {
+      version: 1,
+      kind: 'mesh-ping',
+      msgId: 'same-direct-and-relayed-frame',
+      roomId: 'global',
+      originUserId: 'bob',
+      originPub: 'bob-pub',
+      recipientUserId: 'alice',
+      createdAt: new Date().toISOString(),
+      ttlHops: 6,
+      payload: { text: 'ping' },
+    };
+
+    const direct = (alice as any).handleRemoteFrame('bob', frame);
+    const relayed = (alice as any).handleRemoteFrame('carol', frame);
+    releaseVerification();
+    await Promise.all([direct, relayed]);
+
+    expect(verifyOrigin).toHaveBeenCalledTimes(1);
+    expect(pings).toEqual(['same-direct-and-relayed-frame']);
+    expect(alice.getDiagnostics().transport).toMatchObject({
+      receivedFrames: 2,
+      duplicateFramesReceived: 1,
+    });
+  });
+
   /**
    * Room-topology eligibility: a peer in a different room does NOT receive a room frame.
    *
-   * Alice is in room 'room-A'; Bob is in room 'room-B'.  A talk-retracted frame carries
+   * Alice is in room 'room-A'; Bob is in room 'room-B'.  A mesh-ping frame carries
    * roomId='room-A', so Bob's handleRemoteFrame drops it (roomId mismatch guard).
    * The test directly delivers a frame with a mismatched roomId to Bob's session hook and
-   * confirms onTalkRetracted never fires.
+   * confirms onPing never fires.
    */
   it('a peer in a different room does not receive a room frame (roomId guard)', async () => {
     const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
@@ -769,8 +703,8 @@ describe('PeerMeshService', () => {
         }),
         sendMeshFrame: jest.fn(async () => undefined),
       }),
-      onTalkRetracted: (payload) => {
-        bobAnnounces.push({ talkId: payload.talkId });
+      onPing: (_from, frame) => {
+        bobAnnounces.push({ talkId: frame.msgId });
       },
     });
 
@@ -783,14 +717,14 @@ describe('PeerMeshService', () => {
     // Build a valid talk-announce frame from Alice's room-A — different room than Bob's
     const announceFrame: P2PMeshFrame = {
       version: 1,
-      kind: 'talk-retracted',
+      kind: 'mesh-ping',
       msgId: 'cross-room-announce-1',
       roomId: 'room-A',          // ← different room; Bob is in room-B
       originUserId: 'alice',
       originPub: alicePair.pub,
       createdAt: new Date().toISOString(),
       ttlHops: 6,
-      payload: { talkId: 'cross-room-talk', authorId: 'alice', retractedAt: Date.now() },
+      payload: { text: 'ping' },
     };
     const proof = await createSignedP2PEnvelopeProof({
       pair: alicePair as SeaSigningPair,

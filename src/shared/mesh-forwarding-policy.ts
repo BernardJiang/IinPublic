@@ -92,6 +92,5 @@ export class MeshForwardingPolicy {
 export function classifyForwardingFrame(frame: P2PMeshFrame, localUserId: string): ForwardingFrameClass {
   if (frame.originUserId === localUserId) return 'locally-originated';
   if (frame.recipientUserId === localUserId) return 'locally-addressed';
-  if (!frame.recipientUserId && frame.kind === 'talk-retracted') return 'discovery-gossip';
   return 'third-party';
 }

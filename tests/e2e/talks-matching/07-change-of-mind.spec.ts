@@ -420,12 +420,12 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     expect(tomConvChangedAt, 'Tom: changedAt not set on ended conversation').not.toBeNull();
 
     // ---- 15. Shared-identity revert also reaches Bob ------------------------
-    const bobConvStatus = await pageBob.evaluate(({ jId }: { jId: string }) => {
+    // Bob's copy is a separate graph Talk: his answer event arrives on its own link.
+    await expect.poll(() => pageBob.evaluate(({ jId }: { jId: string }) => {
       const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
       return conv?.status ?? 'active';
-    }, { jId: jerryId });
-    expect(bobConvStatus, 'Bob: shared-identity revert should fan out').toBe('ignored');
+    }, { jId: jerryId }), { timeout: MESH_E2E_TIMEOUT_MS, message: 'Bob: shared-identity revert should fan out' }).toBe('ignored');
 
     // ---- 16. Inject stale older-version update -> rejected ------------------
     // Directly call handleMeshTalkResponse with an older version

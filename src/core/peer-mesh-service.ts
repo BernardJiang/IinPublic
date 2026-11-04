@@ -7,8 +7,6 @@ import {
   isP2PProtocolManifestChainPayload,
   isP2PProtocolManifestRequestPayload,
   isP2PProtocolManifestSummaryPayload,
-  isP2PMeshTalkResponsePayload,
-  isP2PMeshTalkRetractedPayload,
   isP2PNearbyGossipPayload,
   isP2PGraphGunPayload,
   isProtocolManifestControlKind,
@@ -18,8 +16,6 @@ import {
   type P2PProtocolManifestChainPayload,
   type P2PProtocolManifestRequestPayload,
   type P2PProtocolManifestSummaryPayload,
-  type P2PMeshTalkResponsePayload,
-  type P2PMeshTalkRetractedPayload,
   type P2PNearbyGossipPayload,
 } from '../shared/p2p-mesh-protocol';
 import { GRAPH_GUN_MAX_RAW } from '../shared/p2p-mesh-protocol';
@@ -59,7 +55,6 @@ export type PeerMeshServiceOptions = {
   localStageName: string;
   sendTimeoutMs?: number;
   retryTimeoutMs?: number;
-  ackTimeoutMs?: number;
   createSession?: (params: {
     conversationId: string;
     localUserId: string;
@@ -70,14 +65,6 @@ export type PeerMeshServiceOptions = {
     isInitiator: boolean;
     onRemoteMeshFrame: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   }) => MeshSession;
-  onTalkResponse?: (payload: P2PMeshTalkResponsePayload) => void | Promise<void>;
-  /**
-   * Step 10: fired when a `talk-retracted` flood frame arrives and passes:
-   *   - seen-set dedup (no duplicate delivery)
-   *   - signature verify (originUserId === frame.originUserId)
-   *   - only-author check: originUserId MUST equal payload.authorId (enforced here before firing)
-   */
-  onTalkRetracted?: (payload: P2PMeshTalkRetractedPayload) => void | Promise<void>;
   onPing?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
   /** R5: fired when a mesh-pong addressed to us arrives; enables durable E2E reachability assertion. */
   onPong?: (fromUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
@@ -148,7 +135,6 @@ function isNeighborLive(neighbor: Neighbor): boolean {
 
 const DEFAULT_MESH_SEND_TIMEOUT_MS = 2_500;
 const DEFAULT_MESH_RETRY_TIMEOUT_MS = 10_000;
-const DEFAULT_MESH_ACK_TIMEOUT_MS = 3_000;
 /**
  * Outside a personal list (Contacts only: a DM warm-up, the recipients of a Talk) the mesh links to
  * the members it was given, at most this many at once.
@@ -229,8 +215,6 @@ export class PeerMeshService {
   /** Frames currently undergoing async signature verification; closes the direct/relay race. */
   private readonly verifyingFrameIds = new Set<string>();
   private readonly talkBodies = new Map<string, Record<string, unknown>>();
-  private readonly acknowledgements = new Map<string, Set<string>>();
-  private readonly acknowledgementWaiters = new Map<string, Set<() => void>>();
   /** A neighbor may carry room traffic only after both sides report the same verified checkpoint. */
   private readonly manifestReadyPeerIds = new Set<string>();
   private readonly manifestRejectedPeerIds = new Set<string>();
@@ -828,8 +812,6 @@ export class PeerMeshService {
     this.neighbors.clear();
     this.seen.clear();
     this.verifyingFrameIds.clear();
-    this.acknowledgements.clear();
-    this.acknowledgementWaiters.clear();
     this.manifestReadyPeerIds.clear();
     this.manifestRejectedPeerIds.clear();
     this.pinnedPeers.clear();
@@ -918,27 +900,6 @@ export class PeerMeshService {
     if (!pub) return false;
     this.pinPeer(userId, pub, PERSONAL_RESPONSE_PIN_MS);
     return this.waitForConnectedNeighbor(userId, timeoutMs);
-  }
-
-  async sendTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<boolean> {
-    // An answer is a reason to open the author's link.
-    if (this.isPersonal()) await this.openPersonalLink(payload.authorId);
-    const frame = await this.buildFrame('talk-response', payload, {
-      recipientUserId: payload.authorId,
-      ttlHops: 8,
-    });
-    const acknowledged = await this.sendAndWaitForAcks(frame, [payload.authorId]);
-    return acknowledged.has(payload.authorId);
-  }
-
-  /**
-   * Step 10: flood a `talk-retracted` frame to all neighbors (no recipientUserId = gossip flood).
-   * TTL 8 ensures the frame reaches offline-adjacent nodes within a few hops.
-   * The author's signature on the frame body (verified at ingest) proves origin.
-   */
-  async sendTalkRetraction(payload: P2PMeshTalkRetractedPayload): Promise<void> {
-    const frame = await this.buildFrame('talk-retracted', payload, { ttlHops: 8 });
-    await this.rememberAndFanout(frame);
   }
 
   private localIdentity(): { pub: string; pair: SeaSigningPair } {
@@ -1079,78 +1040,6 @@ export class PeerMeshService {
   private async rememberAndFanout(frame: P2PMeshFrame, exceptUserId?: string): Promise<number> {
     this.rememberSeen(frame.msgId);
     return this.forwardFrame(frame, exceptUserId);
-  }
-
-  private async sendAndWaitForAcks(
-    frame: P2PMeshFrame,
-    expectedRecipientIds: string[],
-  ): Promise<Set<string>> {
-    const expected = [...new Set(expectedRecipientIds.filter(
-      (userId) => userId && userId !== this.opts.localUserId,
-    ))];
-    if (expected.length === 0) {
-      await this.rememberAndFanout(frame);
-      return new Set();
-    }
-
-    this.acknowledgements.set(frame.msgId, new Set());
-    const forwarded = await this.rememberAndFanout(frame);
-    if (forwarded === 0) {
-      this.acknowledgements.delete(frame.msgId);
-      return new Set();
-    }
-    return this.waitForAcks(
-      frame.msgId,
-      expected,
-      this.opts.ackTimeoutMs ?? DEFAULT_MESH_ACK_TIMEOUT_MS,
-    );
-  }
-
-  private async waitForAcks(
-    msgId: string,
-    expectedRecipientIds: string[],
-    timeoutMs: number,
-  ): Promise<Set<string>> {
-    const acknowledged = this.acknowledgements.get(msgId) ?? new Set<string>();
-    const isComplete = () => expectedRecipientIds.every((userId) => acknowledged.has(userId));
-    if (!isComplete()) {
-      await new Promise<void>((resolve) => {
-        // eslint-disable-next-line prefer-const -- assigned after `done`, which closes over it
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const done = (): void => {
-          if (!isComplete()) return;
-          if (timer !== undefined) clearTimeout(timer);
-          this.acknowledgementWaiters.get(msgId)?.delete(done);
-          resolve();
-        };
-        const waiters = this.acknowledgementWaiters.get(msgId) ?? new Set<() => void>();
-        waiters.add(done);
-        this.acknowledgementWaiters.set(msgId, waiters);
-        timer = setTimeout(() => {
-          waiters.delete(done);
-          resolve();
-        }, timeoutMs);
-      });
-    }
-    this.acknowledgementWaiters.delete(msgId);
-    this.acknowledgements.delete(msgId);
-    return new Set(acknowledged);
-  }
-
-  private recordAck(msgId: string, fromUserId: string): void {
-    const acknowledged = this.acknowledgements.get(msgId);
-    if (!acknowledged) return;
-    acknowledged.add(fromUserId);
-    for (const notify of this.acknowledgementWaiters.get(msgId) ?? []) notify();
-  }
-
-  private async acknowledge(frame: P2PMeshFrame): Promise<void> {
-    if (frame.originUserId === this.opts.localUserId) return;
-    const ack = await this.buildFrame('ack', { msgId: frame.msgId }, {
-      recipientUserId: frame.originUserId,
-      ttlHops: 8,
-    });
-    await this.rememberAndFanout(ack);
   }
 
   private async forwardFrame(frame: P2PMeshFrame, exceptUserId?: string): Promise<number> {
@@ -1363,12 +1252,6 @@ export class PeerMeshService {
       return;
     }
 
-    if (frame.kind === 'ack') {
-      const acknowledgedMsgId = String((frame.payload as { msgId?: unknown }).msgId || '');
-      if (acknowledgedMsgId) this.recordAck(acknowledgedMsgId, frame.originUserId);
-      return;
-    }
-
     if (frame.kind === 'graph-gun' && isP2PGraphGunPayload(frame.payload)) {
       // One hop only, between the two ends of a direct link.
       if (frame.originUserId !== fromUserId || frame.recipientUserId !== this.opts.localUserId) return;
@@ -1383,24 +1266,6 @@ export class PeerMeshService {
       return;
     }
 
-    if (frame.kind === 'talk-response' && isP2PMeshTalkResponsePayload(frame.payload)) {
-      await this.opts.onTalkResponse?.(frame.payload);
-      await this.acknowledge(frame);
-      return;
-    }
-
-    if (frame.kind === 'talk-retracted' && isP2PMeshTalkRetractedPayload(frame.payload)) {
-      // Step 10: only the talk's own author may retract it (guard against spoofing).
-      // The frame was already signature-verified in handleRemoteFrame; the extra check
-      // here ensures originUserId === authorId at the application layer.
-      if (frame.originUserId !== frame.payload.authorId) {
-        console.warn(
-          `[Retraction] Rejected frame from ${frame.originUserId}: authorId mismatch (${frame.payload.authorId})`,
-        );
-        return;
-      }
-      await this.opts.onTalkRetracted?.(frame.payload);
-    }
   }
 
   private async sendProtocolManifestSummary(neighbor: Neighbor): Promise<void> {

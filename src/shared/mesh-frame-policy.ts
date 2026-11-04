@@ -4,15 +4,12 @@ export type MeshFrameDisposition = 'retain-control' | 'adapt-to-gun-sync' | 'ret
 export const MESH_FRAME_INVENTORY: Readonly<Record<P2PMeshMessageKind, MeshFrameDisposition>> = {
   'mesh-ping': 'retain-control',
   'mesh-pong': 'retain-control',
-  'talk-response': 'adapt-to-gun-sync',
-  'talk-retracted': 'retain-control',
   'protocol-manifest-summary': 'retain-control',
   'protocol-manifest-request': 'retain-control',
   'protocol-manifest-chain': 'retain-control',
   'nearby-gossip': 'retain-control',
-  // The device graph's own Gun sync over the link (OPEN-106); it replaces the Talk frames.
+  // The device graph's own Gun sync over the link (OPEN-106): Talks, answers and deletions.
   'graph-gun': 'retain-control',
-  ack: 'retain-control',
 };
 
 export type MeshSyncCapabilities = {

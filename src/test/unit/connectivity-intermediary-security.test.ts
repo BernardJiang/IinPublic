@@ -6,7 +6,7 @@ describe('malicious intermediary security boundary', () => {
   test('a forwarder cannot alter original SEA-authored content', async () => {
     const alice = await SEA.pair();
     const unsigned: P2PMeshFrame = {
-      version: 1, kind: 'talk-retracted', msgId: 'talk-1', roomId: 'global',
+      version: 1, kind: 'mesh-ping', msgId: 'talk-1', roomId: 'global',
       originUserId: 'alice', originPub: alice.pub, recipientUserId: 'bob',
       createdAt: '2026-08-12T00:00:00.000Z', ttlHops: 3,
       payload: {

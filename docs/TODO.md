@@ -96,8 +96,13 @@ its ID.
     keeps `sync/owed` and the mesh opens Nearby links for owed people as it did for queued Talks,
     widening the loop as they read. The receiving limit for strangers' Talks moved to the graph
     intake. e2e specs that injected Talks with `mesh.broadcastTalk` use `app.offerTalkForE2e`.
-  - Next, in order: (2d) response and retraction frames and their mailbox fallbacks (answers and
-    deletions already travel as graph events); (2e) key the app's Talks by graph ids, remove the
+  - Done (step 2d): no response, retraction or ack frames. Answers go only as graph answer events
+    and retractions only as graph deletions (links are started if needed); the response mailbox,
+    its retry queue and the retraction mailbox fanout are gone, and the mailbox drain ignores old
+    Talk, response and retraction envelopes. The mesh carries pings, manifests, Nearby gossip and
+    `graph-gun`. e2e `talks-matching/05` now proves an answer waits in the responder's graph log
+    while the author is offline and is read on reconnect (no mailbox).
+  - Next, in order: (2e) key the app's Talks by graph ids, remove the
     mirror and `ix/legacy`, erase the old collections (§31.10); (3) graph suppression
     (`ix/exchanged`) in place of the sender's ledger; (4) "delete my answer" in the UI
     (no such control today); (5) real-phone run (native-app/37 now asserts graph events).

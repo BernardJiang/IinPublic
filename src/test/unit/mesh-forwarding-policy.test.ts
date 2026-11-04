@@ -2,7 +2,7 @@ import { DEFAULT_FORWARDING_SETTINGS, MeshForwardingPolicy, classifyForwardingFr
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
 
 function frame(overrides: Partial<P2PMeshFrame> = {}): P2PMeshFrame {
-  return { version: 1, kind: 'talk-response', msgId: 'm1', roomId: 'global', originUserId: 'alice', originPub: 'alice-pub', recipientUserId: 'bob', createdAt: new Date().toISOString(), ttlHops: 5, payload: { roomId: 'global', broadcastAt: new Date().toISOString(), talkId: 't', authorId: 'alice', authorName: 'Alice', title: 'T', questionCount: 1, talkData: {} }, ...overrides };
+  return { version: 1, kind: 'mesh-ping', msgId: 'm1', roomId: 'global', originUserId: 'alice', originPub: 'alice-pub', recipientUserId: 'bob', createdAt: new Date().toISOString(), ttlHops: 5, payload: { roomId: 'global', broadcastAt: new Date().toISOString(), talkId: 't', authorId: 'alice', authorName: 'Alice', title: 'T', questionCount: 1, talkData: {} }, ...overrides };
 }
 
 describe('configurable mesh forwarding policy', () => {
@@ -48,10 +48,10 @@ describe('configurable mesh forwarding policy', () => {
     expect(policy.diagnostics().abuseDrops).toBe(1);
   });
 
-  test('classifies discovery gossip separately and preserves original authorship', () => {
-    const { recipientUserId: _recipient, ...withoutRecipient } = frame({ kind: 'talk-retracted' });
+  test('a frame for someone else is third-party, and forwarding preserves original authorship', () => {
+    const { recipientUserId: _recipient, ...withoutRecipient } = frame({ kind: 'mesh-ping' });
     const original = withoutRecipient as P2PMeshFrame;
-    expect(classifyForwardingFrame(original, 'carol')).toBe('discovery-gossip');
+    expect(classifyForwardingFrame(original, 'carol')).toBe('third-party');
     const forwarded = { ...original, ttlHops: original.ttlHops - 1 };
     expect(forwarded).toMatchObject({ originUserId: 'alice', originPub: 'alice-pub', msgId: original.msgId });
   });

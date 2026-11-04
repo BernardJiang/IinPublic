@@ -220,7 +220,6 @@ describe('Nearby v3 broadcast loop', () => {
         apiBase: 'http://127.0.0.1:1',
         localUserId: name,
         localStageName: name,
-        ackTimeoutMs: 2_000,
         authoritativeDirectTalkDelivery: true,
         personalConcurrency: () => ({ initial: 2, max: 3 }),
         createSession: net.createSession as never,
@@ -255,9 +254,9 @@ describe('Nearby v3 broadcast loop', () => {
     for (const mesh of Object.values(meshes)) mesh.leaveRoom();
   }, 20_000);
 
-  it('opens the author\'s link to send an answer, though the author is not on the list', async () => {
+  it('opens the author\'s link when the graph owes them an answer, though the author is not on the list', async () => {
     // Found by web e2e find-similar (mailbox off): an answer went only over links already open,
-    // and in personal mode none was open to the author.
+    // and in personal mode none was open to the author. Answers are graph log entries now.
     const net = fakeNetwork();
     const pairs = { adam: await SEA.pair() as SeaSigningPair, carol: await SEA.pair() as SeaSigningPair };
     const answers: string[] = [];
@@ -276,23 +275,19 @@ describe('Nearby v3 broadcast loop', () => {
         apiBase: 'http://127.0.0.1:1',
         localUserId: name,
         localStageName: name,
-        ackTimeoutMs: 2_000,
         createSession: net.createSession as never,
         knockPeer: async (peer) => {
           await gates[peer.userId]!.receive(await createNearbyKnock({ fromUserId: name, pair, toPub: peer.pub, card: null }));
         },
-        onTalkResponse: (payload) => { answers.push(`${payload.responderId}->${name}`); },
+        ...(name === 'carol' ? { onNeighborConnected: (userId: string) => { answers.push(`carol->${userId}`); } } : {}),
       });
       gates[name] = new NearbyKnockGate({ localPub: () => pair.pub, mesh: meshes[name]!, incomingLimit: () => 8 });
       await meshes[name]!.joinRoom('nearby-v3', [], { replace: true, personal: true });
     }
-    const at = new Date().toISOString();
-    const acknowledged = await meshes.carol!.sendTalkResponse({
-      responseId: 'r1', talkId: 't1', authorId: 'adam', responderId: 'carol', submittedAt: at, respondedAt: at,
-      version: 1, encryption: 'sea-ecdh-v1', payloadCiphertext: 'x', transportMode: 'mesh-p2p',
-    } as never);
+    meshes.carol!.setGraphOwed(['adam']);
+    const deadline = Date.now() + 10_000;
+    while (!answers.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
     expect(answers).toEqual(['carol->adam']);
-    expect(acknowledged).toBe(true);
     for (const mesh of Object.values(meshes)) mesh.leaveRoom();
   }, 20_000);
 
@@ -318,7 +313,6 @@ describe('Nearby v3 broadcast loop', () => {
         apiBase: 'http://127.0.0.1:1',
         localUserId: name,
         localStageName: name,
-        ackTimeoutMs: 2_000,
         authoritativeDirectTalkDelivery: true,
         createSession: net.createSession as never,
         knockPeer: async (peer) => {

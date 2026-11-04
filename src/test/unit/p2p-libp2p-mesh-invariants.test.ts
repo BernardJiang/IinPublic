@@ -1,5 +1,4 @@
 import SEA from 'gun/sea';
-import type { P2PMeshTalkResponsePayload } from '../../shared/p2p-mesh-protocol';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { PeerMeshService } from '../../web/services/peer-mesh-service';
 import { getOrCreateLibp2pMeshSession } from '../../web/services/p2p-libp2p-mesh-session';
@@ -80,7 +79,7 @@ function mockGunService(params: {
 }
 
 describe('libp2p mesh invariants (unit)', () => {
-  test('ping and talk response routing hold over libp2p mesh sessions', async () => {
+  test('ping holds over libp2p mesh sessions', async () => {
     const [alicePair, bobPair] = (await Promise.all([SEA.pair(), SEA.pair()])) as SeaSigningPair[];
     const users = {
       alice: { pub: alicePair.pub },
@@ -92,7 +91,6 @@ describe('libp2p mesh invariants (unit)', () => {
     const aliceGun = mockGunService({ pair: alicePair, users, sharedBindings });
     const bobGun = mockGunService({ pair: bobPair, users, sharedBindings });
 
-    const aliceResponses: P2PMeshTalkResponsePayload[] = [];
     const bobPings: string[] = [];
 
     const alice = new PeerMeshService(aliceGun, {
@@ -111,9 +109,6 @@ describe('libp2p mesh invariants (unit)', () => {
           ensureLibp2pNode: async () => nodes['peer-alice'],
           onRemoteMeshFrame: params.onRemoteMeshFrame,
         }),
-      onTalkResponse: (payload) => {
-        aliceResponses.push(payload);
-      },
     });
 
     const bob = new PeerMeshService(bobGun, {
@@ -150,29 +145,6 @@ describe('libp2p mesh invariants (unit)', () => {
     await alice.sendPing('hello');
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(bobPings).toContain('alice');
-
-    const responseAt = new Date().toISOString();
-    await bob.sendTalkResponse({
-      responseId: 'resp-libp2p-1',
-      talkId: 'talk-libp2p-1',
-      authorId: 'alice',
-      responderId: 'bob',
-      submittedAt: responseAt,
-      respondedAt: responseAt,
-      version: 1,
-      encryption: 'sea-ecdh-v1',
-      payloadCiphertext: 'SEA{"ct":"ciphertext"}',
-      transportMode: 'mesh-p2p',
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(aliceResponses).toEqual([
-      expect.objectContaining({
-        responseId: 'resp-libp2p-1',
-        talkId: 'talk-libp2p-1',
-        responderId: 'bob',
-      }),
-    ]);
 
     alice.leaveRoom();
     bob.leaveRoom();
