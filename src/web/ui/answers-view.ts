@@ -13,6 +13,7 @@ import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { createRowSelection, type RowSelection } from './list-row-selection';
 import { bindGraphLinks, clearMeFocus, getMeFocus, openContactsTopic, peopleForTopic, peopleLinkHtml, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
+import { mergeGraphAnswerHistory, refreshGraphAnswerHistory } from './graph-answer-history';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
 const ANSWERS_FIRST_CHUNK_SIZE = 25;
@@ -295,7 +296,8 @@ export function answerTalkMatchesQuery(model: { searchText: string }, rawQuery: 
  *  ever answered it (any talk type, any sender) into that group's `variants`. */
 function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
   const myTalks = deps.getMyTalks();
-  const flatHistory = deps.getFlatAnswerHistory?.() || {};
+  // OPEN-106: each Talk the device graph has comes from the graph (graph-answer-history.ts).
+  const flatHistory = mergeGraphAnswerHistory(deps.getFlatAnswerHistory?.() || {});
   const exactMemory = deps.getExactChatbotMemory?.();
   const groups = new Map<string, AnswerQuestionGroup>();
 
@@ -497,6 +499,10 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   const container = document.getElementById('answers-content');
   if (!container) return;
   const renderSeq = ++answersRenderSeq;
+  // The graph's answers are read after drawing; a change draws the list again.
+  void refreshGraphAnswerHistory().then((changed) => {
+    if (changed && renderSeq === answersRenderSeq && document.getElementById('answers-content')) displayAnswersList(deps);
+  }, () => undefined);
 
   // docs/TODO.md §LL.2 follow-up: delegated on document.body (not #answers-content) so `deps`
   // stashed on the container and read at click time (not closed over at bind time) always

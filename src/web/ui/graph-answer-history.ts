@@ -1,0 +1,84 @@
+/**
+ * The Me tab's answers from the device graph (OPEN-106): the core lists every Talk I answered with
+ * my latest answers (`graph.answerHistory`), and each becomes the same record the app's own history
+ * keeps. A Talk the graph has replaces the app's record of it; Talks still sent as frames keep the
+ * app's record until those frames are removed.
+ */
+import { checkIfMatch } from '../../shared/talk-engine';
+import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryMap, type FlatAnswerHistoryRecord } from './answer-history-storage';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+type GraphAnswerRecord = {
+  appTalkId: string;
+  when: number;
+  mode: string;
+  mine: boolean;
+  withUser?: string;
+  talk: Record<string, any>;
+  answers: Array<{ questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string }>;
+};
+
+let requester: (() => Promise<unknown>) | null = null;
+let byTalk = new Map<string, FlatAnswerHistoryRecord>();
+let signature = '';
+
+/** Set by the app once the core can answer `graph.answerHistory`; null turns the graph source off. */
+export function setGraphAnswerHistorySource(request: (() => Promise<unknown>) | null): void {
+  requester = request;
+  if (!request) { byTalk = new Map(); signature = ''; }
+}
+
+/** One graph answer record as the app's history record. */
+export function graphRecordToFlat(record: GraphAnswerRecord): FlatAnswerHistoryRecord {
+  const talk = { ...record.talk, id: record.appTalkId };
+  const outcome = record.mine
+    ? (record.answers.some((a) => a.isMatch) ? 'match' : 'mismatch')
+    : (checkIfMatch(talk, record.answers) ? 'match' : 'mismatch');
+  return buildFlatAnswerHistoryRecord(
+    record.appTalkId, talk,
+    record.answers.map((a) => ({ questionId: a.questionId, answerId: a.answerId, answerText: a.answerText, ...(a.mode ? { mode: a.mode } : {}) })),
+    outcome, record.withUser ? [record.withUser] : [],
+    { ...(record.mode === 'chatbot' ? { answeredBy: 'chatbot' as const } : {}), answeredAt: record.when },
+  );
+}
+
+/** Ask the core again; true when the records changed (the caller then redraws). */
+export async function refreshGraphAnswerHistory(): Promise<boolean> {
+  if (!requester) return false;
+  const records = await requester();
+  if (!Array.isArray(records)) return false;
+  const next = new Map<string, FlatAnswerHistoryRecord>();
+  for (const record of records as GraphAnswerRecord[]) {
+    if (!record?.appTalkId || !record.talk || !Array.isArray(record.answers) || !record.answers.length) continue;
+    try { next.set(record.appTalkId, graphRecordToFlat(record)); } catch { /* a Talk the app cannot show */ }
+  }
+  const nextSignature = JSON.stringify([...next.values()].map((r) => [r.id, r.answeredAt, r.items.map((i) => i.answerId)]));
+  if (nextSignature === signature) return false;
+  signature = nextSignature;
+  byTalk = next;
+  return true;
+}
+
+/**
+ * The app's history with each Talk the graph has taken from the graph. An app record newer than
+ * the graph's (an answer the core is still writing) wins until the next refresh.
+ */
+export function mergeGraphAnswerHistory(flat: FlatAnswerHistoryMap): FlatAnswerHistoryMap {
+  if (!byTalk.size) return flat;
+  const out: FlatAnswerHistoryMap = {};
+  const newerInApp = new Set<string>();
+  for (const [key, record] of Object.entries(flat)) {
+    const graph = byTalk.get(record.talkId);
+    if (graph && Date.parse(graph.answeredAt) >= Date.parse(record.answeredAt) - 1000) continue;
+    if (graph) newerInApp.add(record.talkId);
+    out[key] = record;
+  }
+  for (const record of byTalk.values()) if (!newerInApp.has(record.talkId)) out[record.id] = record;
+  return out;
+}
+
+/** Diagnostics for e2e specs: the Talks whose Me tab answers come from the graph. */
+export function graphAnswerHistoryTalkIds(): string[] {
+  return [...byTalk.keys()];
+}

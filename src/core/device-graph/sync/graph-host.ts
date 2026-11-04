@@ -9,7 +9,7 @@ import type { NodeStore } from '../node-store';
 import { personSoul } from '../people-graph';
 import { allSituations } from '../answers';
 import { answerKey, type AnswerSetEntry } from '../keys';
-import type { TalkStructure } from '../talk-structure';
+import type { Perspective, TalkStructure } from '../talk-structure';
 import { createGraphSync, type GraphCrypto, type GraphLinkStatus, type PeerKeys, type SeaPair } from './graph-sync';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,8 +41,8 @@ const appTalkSoul = (prefix: string, appTalkId: string) => `${prefix}ix/app-talk
 const graphAppSoul = (prefix: string, talkId: string) => `${prefix}ix/graph-app/${talkId}`;
 
 /** An answer set on my Talk as the app's answers: each situation's question, each chosen choice. */
-export function appAnswersOf(talk: TalkStructure, set: Record<string, AnswerSetEntry>, mode: string): AppAnswer[] {
-  const situations = new Map(allSituations(talk, 'responder').map((s) => [s.contextHash, s.questionId]));
+export function appAnswersOf(talk: TalkStructure, set: Record<string, AnswerSetEntry>, mode: string, perspective: Perspective = 'responder'): AppAnswer[] {
+  const situations = new Map(allSituations(talk, perspective).map((s) => [s.contextHash, s.questionId]));
   const out: AppAnswer[] = [];
   for (const [context, entry] of Object.entries(set)) {
     const question = talk.questions.find((q) => q.id === situations.get(context));
@@ -61,7 +61,10 @@ export function appTalkOf(talk: Record<string, any>): Record<string, unknown> {
   return { ...rest, ...(meta && typeof meta === 'object' ? meta : {}), graphTalkId: talk.id, graphVersionId: versionId, createdAt: new Date(Number(createdAt) || Date.now()).toISOString(), updatedAt };
 }
 
-export function createGraphHost(options: { gun: any; store: NodeStore; graph: DeviceGraph; crypto: GraphCrypto; log?: (message: string) => void }) {
+export function createGraphHost(options: { gun: any; store: NodeStore; graph: DeviceGraph; crypto: GraphCrypto; log?: (message: string) => void;
+  /** Where answers are written and sent (`app-answers.ts`, which needs this host's sync). */
+  appAnswers?: () => import('./app-answers').AppAnswers;
+}) {
   const { store, graph } = options;
   let sync: ReturnType<typeof createGraphSync> | undefined;
   let userId: string | undefined;
@@ -150,25 +153,10 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           const out = await sync.pull(wait);
           return { out, events: events.splice(0, events.length) } satisfies GraphPull;
         }
-        case 'graph.answer': {
-          // I answered a Talk that came over a graph link: an answer event, sent to its author.
-          const mapped = await store.get(appTalkSoul(graph.prefix, request.appTalkId));
-          const talkId = typeof mapped?.talk === 'string' ? mapped.talk : '';
-          const talk = talkId ? await graph.arrivals.read(talkId) : undefined;
-          if (!talk || !sync) return { sent: false };
-          const steps: Array<{ questionId: string; answerIds: string[] }> = [];
-          for (const answer of request.answers) {
-            const step = steps.find((s) => s.questionId === answer.questionId);
-            if (step) step.answerIds.push(answer.answerId); else steps.push({ questionId: answer.questionId, answerIds: [answer.answerId] });
-          }
-          const previous = await graph.answers.answered(talkId);
-          const eventId = await graph.answers.answer({
-            talkId, structure: talk, steps, mode: request.mode, withUser: String(mapped!.author),
-            ...(previous ? { replaces: previous } : {}),
-          });
-          await sync.sendAnswer(eventId, { ...(request.context ?? {}), appTalkId: request.appTalkId });
-          return { sent: true, eventId };
-        }
+        case 'graph.answer':
+          // I answered a Talk that came over a graph link: one answer event, sent to its author.
+          if (!options.appAnswers) return { sent: false };
+          return options.appAnswers().answerAndSend(request.appTalkId, request.answers, request.mode, request.context);
         case 'graph.status': {
           const status: GraphHostStatus = { links: sync ? await Promise.all(sync.openLinks().map((peer) => sync!.status(peer))) : [] };
           if (userId) status.userId = userId;

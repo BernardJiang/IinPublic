@@ -98,6 +98,7 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
+import { graphAnswerHistoryTalkIds, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
 import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
@@ -6499,7 +6500,11 @@ export class IinPublicApp {
       await this.graphLinks.start({ userId, pair: { pub: pair.pub, priv: pair.priv, epub: pair.epub, epriv: pair.epriv } });
       if (typeof window !== 'undefined') {
         (window as any).__iinpublic_graph_status = () => this.coreRequest?.({ name: 'graph.status' }) ?? null;
+        (window as any).__iinpublic_graph_answer_history = () => this.coreRequest?.({ name: 'graph.answerHistory' }) ?? [];
+        (window as any).__iinpublic_graph_me_talks = () => graphAnswerHistoryTalkIds();
       }
+      // The Me tab reads my answers from the graph (OPEN-106 step 1 of the switch-over).
+      setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
       this.watchGraphStorage();
     } catch (error) {
       console.warn('[graph-link] could not start:', error);

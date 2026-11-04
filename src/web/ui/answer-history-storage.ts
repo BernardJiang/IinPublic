@@ -119,6 +119,24 @@ export function saveFlatAnswerHistoryRecord(
   senders: string[],
   opts: { answeredBy?: 'chatbot' } = {},
 ): void {
+  upsertFlatAnswerHistory(buildFlatAnswerHistoryRecord(talkId, talk, completedAnswers, outcome, senders, opts));
+}
+
+/** The Me tab's record of one answered Talk (no storage): also built from the device graph. */
+export function buildFlatAnswerHistoryRecord(
+  talkId: string,
+  talk: any,
+  completedAnswers: Array<{
+    questionId: string;
+    answerId: string;
+    answerText?: string;
+    mode?: string;
+    typedValue?: TypedAnswerValue;
+  }>,
+  outcome: 'match' | 'mismatch',
+  senders: string[],
+  opts: { answeredBy?: 'chatbot'; answeredAt?: number } = {},
+): FlatAnswerHistoryRecord {
   const questions = Array.isArray(talk?.questions) ? talk.questions : [];
   const talkType = String(talk?.type || '').toLowerCase();
   const items: FlatAnswerHistoryItem[] = completedAnswers.map((entry, index) => {
@@ -199,17 +217,17 @@ export function saveFlatAnswerHistoryRecord(
       ...(entry.typedValue ? { typedValue: entry.typedValue } : {}),
     };
   });
-  upsertFlatAnswerHistory({
+  return {
     id: `${getTalkContentKey(talk)}:${talkId}`,
     talkId,
     title: String(talk?.title || 'Answered Talk'),
     type: String(talk?.type || 'flow'),
     language: String(talk?.language || 'en').toLowerCase(),
     outcome,
-    answeredAt: new Date().toISOString(),
+    answeredAt: new Date(opts.answeredAt ?? Date.now()).toISOString(),
     senderIds: [...new Set(senders.filter(Boolean))],
     ...(talk?.locationRadiusMiles != null ? { locationRadiusMiles: talk.locationRadiusMiles } : {}),
     ...(opts.answeredBy ? { answeredBy: opts.answeredBy } : {}),
     items,
-  });
+  };
 }

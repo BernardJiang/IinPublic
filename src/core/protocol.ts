@@ -14,6 +14,7 @@ import type { LedgerCommand, LedgerCommandResult } from './talk-ledger-store';
 
 import type { MirrorStatus } from './device-graph/mirror';
 import type { GraphHostRequest, GraphHostStatus, GraphPull } from './device-graph/sync/graph-host';
+import type { AppAnswerRecord } from './device-graph/sync/app-answers';
 
 export const CORE_PROTOCOL_VERSION = 1;
 
@@ -37,7 +38,8 @@ export type CoreRequest =
   | { name: 'deviceGraph.backfill' }
   | GraphHostRequest
   | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown> }
-  | { name: 'graph.retract'; talkId: string };
+  | { name: 'graph.retract'; talkId: string }
+  | { name: 'graph.answerHistory'; months?: number };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends LedgerCommand ? LedgerCommandResult
@@ -61,4 +63,5 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.offer' } ? { offered: number; known: boolean }
                           : R extends { name: 'graph.answer' } ? { sent: boolean; eventId?: string }
                           : R extends { name: 'graph.retract' } ? { sent: number }
+                          : R extends { name: 'graph.answerHistory' } ? AppAnswerRecord[]
                             : never;

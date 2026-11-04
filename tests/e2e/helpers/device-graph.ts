@@ -30,3 +30,14 @@ export async function expectGraphEvent(page: Page, label: string, type: 'talk' |
     timeout: 30_000, message: `${label}: no ${type} event over a graph link`,
   }).toBe(true);
 }
+
+/**
+ * OPEN-106: my answer to `authorId`'s Talk is in my device graph, where the Me tab reads it
+ * (`graph.answerHistory`), with at least one answer.
+ */
+export async function expectGraphAnswerHistory(page: Page, label: string, authorId?: string): Promise<void> {
+  await expect.poll(() => page.evaluate(async (author) => {
+    const records = await ((window as any).__iinpublic_graph_answer_history?.() ?? []);
+    return (records as any[]).some((record) => !record.mine && (!author || record.withUser === author) && record.answers?.length > 0);
+  }, authorId ?? ''), { timeout: 30_000, message: `${label}: no answer to ${authorId || 'a received'} Talk in the device graph` }).toBe(true);
+}

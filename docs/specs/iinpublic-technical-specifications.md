@@ -7448,6 +7448,8 @@ All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen re
 | `ix/answered/<talkId>` | `→ev` my latest answer | "already answered" | `answeredTalkByContent` |
 | `ix/exchanged/<peerPub>/<contextHash>` | `→ev` | REQ-LEDGER-16 suppression: a Talk is not sent to a peer who already exchanged every situation in it | exchange set |
 | `ix/person/<pub>/ev/<eventId>` | `→ev` | Contacts history | copied names in logs |
+| `ix/app-answer/<appTalkId>` | `{ sig, ev, sent }` the app's answers last written | switch-over only: one event per saved answer, sent once | — |
+| `ix/graph-app/<talkId>` / `ix/app-talk/<appTalkId>` | the app's Talk id ↔ the graph's | switch-over only, until the app keys Talks by graph ids | — |
 | `ix/cell/<region>/ev/<eventId>` | `→ev` | Chatrooms, map | — |
 | `ix/day/<yyyy-mm-dd>/<eventId>` | `→ev` | time-range reads, retention | — |
 | `ix/conv/<id>/<eventId>` | `→ev` | conversation view | `myConversations` message lists |

@@ -75,8 +75,13 @@ its ID.
     the match and opens the conversation; retractions are graph deletions. Grammar corrected on
     write. GPS sweep daily; storage warning near/at 1 GB. Stalled logs retry; log blocks stay
     subscribed. phone-path 15/16, talks-matching 13/15, unit all pass.
-  - Next, in order: (1) Me tab from `answers.me()` (the receiver's graph answers are written by
-    `graph.answer`); (2) remove the JSON Talk frames, mailbox fallback for Talks, the mirror and
+  - Done (step 1 of the switch-over): every answer the app saves (`myAnswerHistory`: by hand, by
+    the chatbot, my own tags) is also one answer event in the graph (`sync/app-answers.ts`), written
+    once and sent once (`graph.answer` reuses it); removing it is a deletion event, sent to the author
+    when the Talk came over a link. The Me tab reads `graph.answerHistory` and takes each Talk the
+    graph has from it; Talks still on frames, and built-in (typed) answers, keep the app's record.
+    e2e `talks-matching/09` and `phone-path/02` assert the responder's answer is in their graph.
+  - Next, in order: (2) remove the JSON Talk frames, mailbox fallback for Talks, the mirror and
     `ix/legacy`, and key the app's Talks by graph ids; erase the old collections (§31.10);
     (3) graph suppression (`ix/exchanged`) and partial tag bodies; (4) "delete my answer" in the UI
     (no such control today); (5) real-phone run (native-app/37 now asserts graph events).

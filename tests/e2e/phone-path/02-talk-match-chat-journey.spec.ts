@@ -8,7 +8,7 @@
  * embedded node → hub relay), which no browser spec covers.
  */
 import { test } from '@playwright/test';
-import { enableDeviceGraph, expectDeviceGraph, expectGraphEvent } from '../helpers/device-graph';
+import { enableDeviceGraph, expectDeviceGraph, expectGraphAnswerHistory, expectGraphEvent } from '../helpers/device-graph';
 import { talkMatchChatJourney } from '../journeys/talk-match-chat-journey';
 import { closeUsers, openUser, resetPhonePath, type JourneyUser } from './phone-path-helpers';
 
@@ -39,5 +39,7 @@ test.describe('Talk journey: phone A broadcasts, phone B answers, they match and
     // The Talk reached the responder over a graph link, and the answer came back over it.
     await expectGraphEvent(bob.page, 'Bob', 'talk');
     await expectGraphEvent(alice.page, 'Alice', 'answer');
+    // Bob's Me tab reads that answer from Bob's device graph.
+    await expectGraphAnswerHistory(bob.page, 'Bob');
   });
 });

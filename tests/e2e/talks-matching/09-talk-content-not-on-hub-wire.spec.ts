@@ -17,7 +17,7 @@ import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync } from '../helpers/timing';
 import { bootstrapUser, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
-import { enableDeviceGraph, expectDeviceGraph } from '../helpers/device-graph';
+import { enableDeviceGraph, expectDeviceGraph, expectGraphAnswerHistory } from '../helpers/device-graph';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
@@ -402,6 +402,8 @@ test.describe('Wire audit — talk content vs the hub', () => {
       .some((event: any) => event.type === 'answer' && event.from === responderId && Array.isArray(event.answers) && event.answers.length > 0), jerryId), {
       timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Tom never received Jerry’s answer over the graph link',
     }).toBe(true);
+    // Jerry's Me tab reads that answer from Jerry's own device graph.
+    await expectGraphAnswerHistory(pageJerry, 'Jerry', tomId);
     const graphOnHub = events.filter((event) => event.channel.startsWith('gun-ws-') && event.graphSoul);
     expect(graphOnHub.map((event) => `${event.who} ${event.channel}`), 'a device graph soul crossed the hub').toEqual([]);
   });

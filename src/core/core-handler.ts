@@ -14,6 +14,7 @@ import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
 import { createStorageBudget } from './device-graph/storage-budget';
 import { createGraphHost } from './device-graph/sync/graph-host';
+import { createAppAnswers, type AppAnswers } from './device-graph/sync/app-answers';
 import type { GraphCrypto } from './device-graph/sync/graph-sync';
 
 /**
@@ -34,7 +35,7 @@ export type DeviceGraphOptions = {
 };
 
 function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefined) {
-  if (!options) return { mirror: undefined, host: undefined, enabled: async () => false, invalidate: () => {} };
+  if (!options) return { mirror: undefined, host: undefined, appAnswers: undefined, enabled: async () => false, invalidate: () => {} };
   const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
   const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}) });
   const mirror = createGraphMirror(options.nodeStore, {
@@ -48,14 +49,23 @@ function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefi
     const daily = setInterval(sweep, 86_400_000);
     (daily as { unref?: () => void }).unref?.();
   }
+  let appAnswers: AppAnswers | undefined;
   const host = options.gun && options.crypto
-    ? createGraphHost({ gun: options.gun, store: options.nodeStore, graph, crypto: options.crypto, ...(options.log ? { log: options.log } : {}) })
+    ? createGraphHost({ gun: options.gun, store: options.nodeStore, graph, crypto: options.crypto, ...(options.log ? { log: options.log } : {}), appAnswers: () => appAnswers! })
     : undefined;
+  // The app's answers go into the graph only where Talks travel over graph links.
+  if (host) {
+    appAnswers = createAppAnswers({
+      store: options.nodeStore, graph, sync: () => host.sync(), ...(options.log ? { log: options.log } : {}),
+      ownTalkId: async (appTalkId) => { await mirror.idle(); return mirror.graphTalkId(appTalkId); },
+    });
+  }
   let checkedAt = 0;
   let setting = false;
   return {
     mirror,
     host,
+    appAnswers,
     enabled: async (): Promise<boolean> => {
       if (options.enabled) return true;
       if (Date.now() - checkedAt > 30_000) {
@@ -123,6 +133,7 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         if (request.collection === 'settings' && 'deviceGraph' in request.entries) graph.invalidate();
         // After the app's write, never before or instead of it; not awaited, so it adds no latency.
         if (graph.mirror && request.collection === 'myTalks' && await graph.enabled()) void graph.mirror.onCollectionUpsert(request.collection, request.entries);
+        if (graph.appAnswers && request.collection === 'myAnswerHistory') void graph.appAnswers.recordHistory(request.entries);
         return { written };
       }
       case 'deviceGraph.backfill': {
@@ -172,8 +183,17 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.answer':
         if (!graph.host) throw new Error('this core has no graph links');
         return graph.host.handle(request);
-      case 'collection.remove':
-        return { removed: await collections.remove(request.collection, request.keys) };
+      case 'collection.remove': {
+        // My answers to a Talk left the app's history: they leave the graph too (and its author's).
+        const forgotten = graph.appAnswers && request.collection === 'myAnswerHistory'
+          ? (await Promise.all(request.keys.map((key) => collections.get('myAnswerHistory', key)))).map((record) => (record as { talkId?: unknown } | undefined)?.talkId).filter((id): id is string => typeof id === 'string')
+          : [];
+        const removed = await collections.remove(request.collection, request.keys);
+        for (const talkId of new Set(forgotten)) void graph.appAnswers!.forget(talkId).catch(() => undefined);
+        return { removed };
+      }
+      case 'graph.answerHistory':
+        return graph.appAnswers ? graph.appAnswers.history(request.months ? { months: request.months } : {}) : [];
       case 'private.get':
         return privates.getPrivate(request.key);
       case 'private.put':
