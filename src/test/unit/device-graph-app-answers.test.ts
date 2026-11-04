@@ -29,17 +29,18 @@ function setup() {
     graphTalkId: async (id: string) => own.get(id),
     appTalkId: async (talkId: string) => [...own].find(([, graphId]) => graphId === talkId)?.[0] ?? talkId,
   };
-  const app = createAppAnswers({ store, graph, ownTalks, sync: () => sync as any });
-  return { store, graph, own, sync, app };
+  const localBodies = new Map<string, any>();
+  const app = createAppAnswers({ store, graph, ownTalks, sync: () => sync as any, localTalk: async (id) => localBodies.get(id) });
+  return { store, graph, own, sync, app, localBodies };
 }
 
 let counter = 1;
 /** A Talk received over a graph link: the app knows it by its graph id. */
-async function received(d: ReturnType<typeof setup>, author = 'adam') {
+async function received(d: ReturnType<typeof setup>, author = 'adam', talk: any = tennis()) {
   const when = Date.now() - 1000;
   const device = (author.charCodeAt(0) % 16).toString(16).repeat(32);
   const talkId = formatEventId({ when, deviceId: device, counter: counter++ });
-  await d.graph.arrivals.receive({ talkId, versionId: talkId, authorId: author, when, device, talk: tennis() }, { userId: author });
+  await d.graph.arrivals.receive({ talkId, versionId: talkId, authorId: author, when, device, talk }, { userId: author });
   return talkId;
 }
 
@@ -109,5 +110,76 @@ describe('app answers in the device graph', () => {
     // The Me tab keeps one answer per question and situation: one row for the tag.
     expect(await d.app.history()).toHaveLength(1);
     expect(await d.app.forget(fromAnn, ['ann', 'cy'])).toEqual({ deleted: 2, sent: 2 });
+  });
+
+  it('the dialog\'s Just once and Whenever offered reach the chatbot', async () => {
+    const d = setup();
+    const once = await received(d, 'adam');
+    await d.app.recordHistory(record(once, weekly.map((a) => ({ ...a, mode: 'manual' })), { senderIds: ['adam'] }));
+    const again = await received(d, 'bea');
+    const talk = (await d.graph.arrivals.read(again))!;
+    expect((await d.graph.answers.chatbot(talk)).pending).toBe('q_0');
+
+    const offered = await received(d, 'carl');
+    await d.app.recordHistory(record(offered, weekly.map((a) => ({ ...a, mode: 'whenever' })), { senderIds: ['carl'] }));
+    expect((await d.graph.answers.chatbot(talk)).answers).toEqual([
+      { questionId: 'q_0', answerIds: ['a_0_0'], reason: 'whenever-offered' },
+      { questionId: 'q_1', answerIds: ['a_1_0'], reason: 'whenever-offered' },
+    ]);
+  });
+
+  it('my own Talk\'s built-in value is part of my answer: the questions after it are reused', async () => {
+    const d = setup();
+    const priced = (priceRange: { min: number; max: number }) => ({
+      title: 'Bike', type: 'flow', language: 'en', isAdult: false,
+      questions: [
+        { id: 'q_0', text: 'Price range', builtIn: { kind: 'priceRange', priceRange }, answers: [
+          { id: 'q_0_compatible', text: 'Compatible', nextQuestionId: 'q_1' },
+          { id: 'q_0_incompatible', text: 'Not compatible', isIgnore: true, isTerminal: true },
+        ] },
+        { id: 'q_1', text: 'Colour?', answers: [{ id: 'a_1_0', text: 'Red', isMatch: true, isTerminal: true }, { id: 'a_1_1', text: 'Blue', isIgnore: true, isTerminal: true }] },
+      ],
+    });
+    const mine = await d.graph.talks.create(priced({ min: 100, max: 200 }));
+    d.own.set('app-bike', mine);
+    // The app lists built-in values last; my self-answer to the colour comes first.
+    await d.app.recordHistory(record('app-bike', [
+      { questionId: 'q_1', answerId: 'a_1_0', mode: 'manual' },
+      { questionId: 'q_0', answerId: 'typed:priceRange', typedValue: { kind: 'priceRange', priceRange: { min: 100, max: 200 } }, mode: 'typed' },
+    ]));
+    expect(await d.graph.answers.answered(mine)).toBeTruthy();
+
+    const when = Date.now() - 500;
+    const theirs = formatEventId({ when, deviceId: 'd'.repeat(32), counter: counter++ });
+    await d.graph.arrivals.receive({ talkId: theirs, versionId: theirs, authorId: 'dan', when, device: 'd'.repeat(32), talk: priced({ min: 150, max: 300 }) }, { userId: 'dan' });
+    expect((await d.graph.answers.chatbot((await d.graph.arrivals.read(theirs))!)).answers).toEqual([
+      { questionId: 'q_0', answerIds: ['q_0_compatible'], typed: { kind: 'priceRange', min: 100, max: 200 }, reason: 'built-in' },
+      { questionId: 'q_1', answerIds: ['a_1_0'], reason: 'same-context' },
+    ]);
+  });
+
+  it('a Talk only the app has (a starter tag) still teaches the chatbot', async () => {
+    const d = setup();
+    d.localBodies.set('starter-tennis', { ...tennis(), id: 'starter-tennis' });
+    await d.app.recordHistory(record('starter-tennis', weekly.map((a) => ({ ...a, mode: 'auto' })), { senderIds: ['starter'] }));
+    expect(await d.graph.answers.answered('starter-tennis')).toBeTruthy();
+    const later = await received(d, 'bea');
+    expect((await d.graph.answers.chatbot((await d.graph.arrivals.read(later))!)).complete).toBe(true);
+    expect(d.sync.sendAnswer).not.toHaveBeenCalled();
+  });
+
+  it('a history item names its choices by text: ids from another sender\'s copy do not mislead', async () => {
+    const d = setup();
+    const fromAdam = await received(d, 'adam');
+    // Answered on a copy listing "Daily" first: its ids are a_1_0 = Daily, a_1_1 = Weekly.
+    const items = [
+      { questionId: 'q_0', answerId: 'a_0_0', prompt: 'Do you play tennis?', choice: 'Yes', kind: 'question' },
+      { questionId: 'q_1', answerId: 'a_1_1', prompt: 'How often do you play?', choice: 'Weekly', kind: 'question' },
+    ];
+    await d.app.recordHistory(record(fromAdam, items, { senderIds: ['adam'] }));
+    const event = (await d.graph.answers.answered(fromAdam))!;
+    const set = (await d.graph.answers.answerSet(event))!;
+    const texts = await Promise.all(Object.keys(set).map((context) => d.graph.answers.gaveTexts(event, context)));
+    expect(texts.flat().sort()).toEqual(['Weekly', 'Yes']);
   });
 });

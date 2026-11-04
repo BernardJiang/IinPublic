@@ -618,29 +618,6 @@ test.describe('UI navigation and settings shell', () => {
           }],
         },
       }));
-      localStorage.setItem('answerPreferences', JSON.stringify({
-        localized_preference: {
-          answerId: 'a1',
-          answerText: 'Yes',
-          mode: 'manual',
-          contextVersion: 2,
-          language: 'en',
-          questionText: 'Coffee?',
-          flatKey: 'flat_localized_preference',
-          timestamp: new Date().toISOString(),
-        },
-      }));
-      localStorage.setItem('flattenedAnswerPreferences', JSON.stringify({
-        flat_localized_preference: {
-          answerId: 'a1',
-          answerText: 'Yes',
-          mode: 'manual',
-          language: 'en',
-          questionText: 'Coffee?',
-          flatKey: 'flat_localized_preference',
-          timestamp: new Date().toISOString(),
-        },
-      }));
       localStorage.setItem('myTalks', JSON.stringify({
         localized_history: {
           talkId: 'localized_history',
@@ -661,14 +638,23 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#answers-content [data-testid="answer-tag-mark"]').first()).toHaveText('♡');
     await expect(p.locator('#answers-content [data-testid="answer-tag-mark"]').first()).toHaveAttribute('aria-label', '喜欢');
     await expect(p.locator('#answers-content')).not.toContainText('Welcome to IinPublic');
+    // A Just once (manual) answer the chatbot remembers in the device graph (OPEN-106).
+    await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkResponseDialog?.({
+      id: 'localized_preference_talk', talkId: 'localized_preference_talk', title: 'Coffee', authorId: 'e2e-pref-author',
+      type: 'flow', language: 'en', isAdult: false, tags: [], createdAt: new Date().toISOString(), isTemplate: false, usageCount: 0,
+      questions: [{ id: 'q1', text: 'Coffee?', answers: [
+        { id: 'a_yes', text: 'Yes', isMatch: true, isTerminal: true },
+        { id: 'a_no', text: 'No', isIgnore: true, isTerminal: true },
+      ] }],
+    }));
+    await p.locator('#talk-response-modal input.choice-radio[data-answer-id="a_yes"][data-mode="manual"]').click({ noWaitAfter: true });
+    await expect(p.locator('#talk-response-modal')).toHaveCount(0, { timeout: 10_000 });
+    await expect.poll(() => p.evaluate(async () => ((await (window as any).__iinpublic_graph_remembered?.()) ?? []).length)).toBe(1);
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showPreferencesDialog());
     await expect(p.locator('#preferences-modal')).toContainText('我的回答');
     await expect(p.locator('#preferences-modal')).toContainText('最近回答：');
-    // Answer modes were simplified to Auto / Manual (03b1afe6): legacy non-v2 records normalize
-    // to Manual; Auto applies the single scope chosen in Settings (default: same context).
+    // Answer modes are Auto / Manual (03b1afe6); a Just once answer is Manual.
     await expect(p.locator('#preferences-modal .mode-select')).toHaveValue('manual');
-    // A completed tag is stored under both a context-aware key and a legacy fallback key.
-    // They are one logical answer and must never render as two cards.
     await expect(p.locator('#preferences-modal .preference-item')).toHaveCount(1);
     await expect(p.locator('#preferences-modal .mode-select option')).toHaveText(['自动', '手动']);
     // Auto's scope defaults to "whenever offered"; pin the same-context scope so this keeps
@@ -677,11 +663,8 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#preferences-modal .mode-select').selectOption('auto');
     await expect(p.locator('.notification').filter({ hasText: '仅在上下文和选项相同时重复此选择' })).toBeVisible();
     await expect
-      .poll(() => p.evaluate(() => {
-        const state = ((window as any).__iinpublic_collection?.('flattenedAnswerPreferences') ?? {});
-        return state.flat_localized_preference?.mode || '';
-      }))
-      .toBe('temporary');
+      .poll(() => p.evaluate(async () => ((await (window as any).__iinpublic_graph_remembered?.()) ?? [])[0]?.reuse || ''))
+      .toBe('auto');
     await p.locator('#close-preferences-modal').click();
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showMyTalksDialog());
     await expect(p.locator('#my-talks-modal')).toContainText('我的话题');
@@ -692,8 +675,6 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#close-my-talks-modal').click();
     await p.evaluate(() => {
       (window as any).__iinpublic_collection_edit?.('myAnswerHistory', { clear: true });
-      (window as any).__iinpublic_collection_edit?.('answerPreferences', { clear: true });
-      (window as any).__iinpublic_collection_edit?.('flattenedAnswerPreferences', { clear: true });
       (window as any).__iinpublic_collection_edit?.('myTalks', { clear: true });
     });
     await p.locator('.nav-btn[data-view="settings"]').click();

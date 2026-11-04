@@ -47,7 +47,6 @@
     "flattened-answer-keys.test.ts",
     "flow-capture.test.ts",
     "graph-size-report.test.ts",
-    "gun-chatbot-memory-repository.test.ts",
     "gun-message-store.test.ts",
     "handoff-protocol.test.ts",
     "identity-custody-store.test.ts",
@@ -155,24 +154,8 @@
       "reason": "fails under the portable runtime in host Node as embedded Node 18: Android framework nearby adapter › starts vendor-independent sources and emits unauthenticated upgrade candidates: rejects.toThrow: expected the rejection ReferenceError: crypto is not defined to match \"not ready\""
     },
     {
-      "file": "answer-context-migration.test.ts",
-      "reason": "needs a DOM test environment"
-    },
-    {
       "file": "answer-history-storage.test.ts",
       "reason": "fails under the portable runtime in host Node as embedded Node 18: getTalkContentKey › is stable for the same question/answer content regardless of unrelated fields: localStorage is not defined"
-    },
-    {
-      "file": "answer-preference-mutations.test.ts",
-      "reason": "uses jest.mock (module mocks stay host-only)"
-    },
-    {
-      "file": "answer-preference-resolution-characterization.test.ts",
-      "reason": "needs a DOM test environment"
-    },
-    {
-      "file": "answer-preferences-storage.test.ts",
-      "reason": "needs a DOM test environment"
     },
     {
       "file": "answers-view.test.ts",

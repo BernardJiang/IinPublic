@@ -2,7 +2,6 @@
  * Small Talk rules the delivery, chatbot and deal code share (OPEN-91 P4), moved out of `app.ts`.
  */
 import { buildTalkIdentityKey } from '../shared/cid';
-import { findAutoAnswer, LOCAL_EXACT_CHATBOT_USER_ID, type ExactChatbotMemoryState } from '../shared/exact-chatbot-memory';
 import { buildTagIdentityKeys } from '../shared/talk-ledger';
 import { computeRouteMatchScore } from '../shared/talk-engine';
 import { computeTalkRevisionHash } from '../shared/talk-revision';
@@ -69,14 +68,4 @@ export function answeredBeforeFor(
   const answeredTalkId = contentId ? answeredTalkFor(contentId) : undefined;
   const answeredSenders = answeredTalkId ? myTalkFor(answeredTalkId)?.senders || [] : [];
   return answeredSenders.includes(authorId);
-}
-
-/** A one-keyword tag whose keyword I passed (a suppressed question in exact memory). */
-export function isPassedTag(talkData: any, memory: ExactChatbotMemoryState, nowMs: number): boolean {
-  const questions = Array.isArray(talkData?.questions) ? talkData.questions : [];
-  if (String(talkData?.type || '').toLowerCase() !== 'tag' || questions.length !== 1 || !questions[0]?.text) return false;
-  const options = (questions[0].answers || []).map((answer: any) => String(answer?.text || ''));
-  return findAutoAnswer(memory, LOCAL_EXACT_CHATBOT_USER_ID, String(questions[0].text), options, nowMs, {
-    language: String(talkData?.language || 'en').toLowerCase(),
-  }).reason === 'QUESTION_SUPPRESSED';
 }

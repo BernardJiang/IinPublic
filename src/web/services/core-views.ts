@@ -33,17 +33,8 @@ export const dealTalkByConversationView = new CoreCollectionView<string>('dealTa
 /** The content-hash "need" each deal-eligible conversation formed through. Old key: `conversationNeedKeyByConversation`. */
 export const needKeyByConversationView = new CoreCollectionView<string>('needKeyByConversation', 'conversationNeedKeyByConversation');
 
-// Answer preferences and chatbot memory (answer-preferences-storage.ts), same names as the old keys.
+// "Already answered" by Talk content (answer-preferences-storage.ts), same name as the old key.
 export const answeredTalkByContentView = new CoreCollectionView<string>('answeredTalkByContent', 'answeredTalkByContent');
-export const answerPreferencesView = new CoreCollectionView<unknown>('answerPreferences', 'answerPreferences');
-export const flattenedAnswerPreferencesView = new CoreCollectionView<unknown>('flattenedAnswerPreferences', 'flattenedAnswerPreferences');
-export const questionDefaultContractsView = new CoreCollectionView<unknown>('questionDefaultContracts', 'questionDefaultContracts');
-export const myQuestionAnswersView = new CoreCollectionView<unknown>('myQuestionAnswers', 'myQuestionAnswers');
-export const EXACT_CHATBOT_MEMORY_SECTIONS = ['users', 'questions', 'answers'] as const;
-export const exactChatbotMemoryView = new CoreCollectionView<unknown>('exactChatbotMemory', 'exactChatbotMemory',
-  (parsed) => sectionEntries(EXACT_CHATBOT_MEMORY_SECTIONS, parsed));
-export const typedPreferenceStateView = new CoreCollectionView<unknown>('typedPreferenceState', 'typedPreferenceState',
-  (parsed) => sectionEntries(['users'], parsed));
 export const tagOppositePairRegistryView = new CoreCollectionView<unknown>('tagOppositePairRegistry', 'tagOppositePairRegistry',
   (parsed) => sectionEntries(['pairs'], parsed));
 
@@ -62,8 +53,7 @@ export const settingsView = new CoreCollectionView<string>('settings', 'iinpubli
 const VIEWS: Array<CoreCollectionView<unknown>> = [
   chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView,
   dealTalkByConversationView, needKeyByConversationView,
-  answeredTalkByContentView, answerPreferencesView, flattenedAnswerPreferencesView, questionDefaultContractsView,
-  myQuestionAnswersView, exactChatbotMemoryView, typedPreferenceStateView, tagOppositePairRegistryView,
+  answeredTalkByContentView, tagOppositePairRegistryView,
   talkRevisionSentView, appDataView, settingsView,
 ] as Array<CoreCollectionView<unknown>>;
 

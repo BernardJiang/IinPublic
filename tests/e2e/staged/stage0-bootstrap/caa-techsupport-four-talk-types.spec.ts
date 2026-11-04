@@ -217,11 +217,11 @@ test.describe('Stage 0 — TechSupport creates four talk types', () => {
     await expect
       .poll(
         () =>
-          page.evaluate(() => {
-            const records = ((window as any).__iinpublic_collection?.('myQuestionAnswers') ?? {});
-            return Object.values(records).filter((record: any) =>
-              String(record?.questionText || '').startsWith('TechSupport '),
-            ).length;
+          page.evaluate(async () => {
+            // The questions the chatbot remembers an answer to (the device graph, OPEN-106).
+            const remembered = (await (window as any).__iinpublic_graph_remembered?.()) ?? [];
+            return new Set(remembered.map((item: any) => String(item?.questionText || ''))
+              .filter((text: string) => text.startsWith('TechSupport '))).size;
           }),
         { timeout: 15_000 },
       )

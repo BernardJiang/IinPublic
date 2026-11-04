@@ -9,7 +9,7 @@ export const RELATIONSHIP_LABELS = [
   'friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom',
 ] as const;
 
-/** Seeds myTalks (OUT, all 4 types) + myQuestionAnswers/myAnswerHistory directly into localStorage. */
+/** Seeds myTalks (OUT, all 4 types) + myAnswerHistory directly into localStorage. */
 export async function seedLocalData(page: Page, userId: string): Promise<void> {
   await page.evaluate(
     ({ answersCount, authorId, talksPerType }) => {
@@ -95,7 +95,6 @@ export async function seedLocalData(page: Page, userId: string): Promise<void> {
       }
 
       localStorage.setItem('myTalks', JSON.stringify(talks));
-      localStorage.setItem('myQuestionAnswers', JSON.stringify(questionAnswers));
       localStorage.setItem('myAnswerHistory', JSON.stringify(answerHistory));
     },
     { answersCount: NUM_ANSWERS, authorId: userId, talksPerType: NUM_TALKS_PER_TYPE },

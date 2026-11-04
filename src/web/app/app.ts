@@ -1,5 +1,4 @@
 import { User, GPSCoordinate, Talk, type Tag, type KnownPerson, type IpfsAttachment, InteractionKind } from '../../shared/types';
-import { backgroundAnswerRulesFromPreferences } from '../../shared/background-talk-agent';
 import {
   BLOCK_SIGNAL_PAYLOAD_KIND,
   recordBlockSignal,
@@ -49,9 +48,10 @@ import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
-import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
-import { getAnsweredTalkId, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
-import { runAnswerContextMigration } from '../ui/answer-context-migration';
+import { getAnsweredTalkId } from '../ui/answer-preferences-storage';
+import { createEmptyExactChatbotMemoryState } from '../../shared/exact-chatbot-memory';
+import { setGraphChatbotSource } from '../ui/graph-chatbot';
+import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
 import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { computeTalkRevisionHash } from '../../shared/talk-revision';
@@ -249,7 +249,7 @@ import { authorLedgerWritesFor, exchangeRecordFor } from '../../core/exchange-re
 import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
+import { answeredBeforeFor, isDealEligibleTalk, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
 import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
@@ -1342,14 +1342,6 @@ export class IinPublicApp {
       applyPublicChatroomHierarchy(raw);
     });
     void this.identityLinkService.flushPendingRevocations().catch(() => {});
-    // getPrivate() (used by loadState()) has a hardcoded 4s wait for a lone peer with nothing to
-    // answer it locally — this was blocking every single boot for 4s to restore an auto-reply
-    // memory that has no bearing on whether the app can be used yet. Fire-and-forget: arrives
-    // like email whenever (if) it lands, and updates chatbot memory in place at that point.
-    const durableChatbotMemory = new GunChatbotMemoryRepository(this.gunService);
-    void durableChatbotMemory.loadState().then((restored) => {
-      if (restored) setExactChatbotMemory(restored);
-    }).catch(() => {});
     // Not awaited: one hung request here used to keep boot (and every handler registered after
     // it) from ever finishing (docs/testing/gui-responsiveness-audit.md F1).
     void this.syncConversationTransportFromServer();
@@ -1441,7 +1433,6 @@ export class IinPublicApp {
           }
         }],
         ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
-        ['answerPreferences', () => { sources.answerPreferences = getExactChatbotMemory() as any; }],
         ['myTalks', () => { sources.myTalks = getMyTalks(); }],
         ['conversations', () => { sources.conversations = getMyConversations(); }],
       ];
@@ -1504,7 +1495,7 @@ export class IinPublicApp {
         const merged = mergeHandoffArchive(archive as any, {
           contacts: (this.currentUser.knownPeople as any) || [],
           talkFilters: this.currentUser.talkFilters as any,
-          answerPreferences: getExactChatbotMemory() as any,
+          answerPreferences: createEmptyExactChatbotMemoryState() as any,
           myTalks: getMyTalks(),
         });
         this.currentUser.knownPeople = merged.contacts as any;
@@ -1514,7 +1505,6 @@ export class IinPublicApp {
           knownPeople: merged.contacts as any,
           talkFilters: merged.talkFilters as any,
         });
-        setExactChatbotMemory(merged.answerPreferences as any);
         setMyTalks(merged.myTalks as any);
         // Imported thread history is read-only (spec §11.2) — never merged into the
         // live conversation store, kept under its own key, additive across imports
@@ -1545,20 +1535,6 @@ export class IinPublicApp {
       await navigator.locks.request('iinpublic-device-user-initialization', () => this.initializeUser());
     } else {
       await this.initializeUser();
-    }
-    // Contextual chatbot memory (docs/design/contextual-chatbot-memory.md): one-time, no-
-    // user-interaction resync of the chatbot's answer memory whenever ANSWER_CONTEXT_VERSION
-    // bumps — see answer-context-migration.ts's own header for why this is a full rebuild from
-    // myTalks history rather than an in-place hash conversion. Purely local/synchronous (no Gun
-    // dependency), so it runs right after currentUser is known and before anything reads
-    // flattenedAnswerPreferences; no-ops instantly once the version marker is current.
-    try {
-      const { migratedTalks } = runAnswerContextMigration(this.currentUser?.id);
-      if (migratedTalks > 0) {
-        console.log(`🔄 Chatbot answer memory resynced for ${migratedTalks} saved talk(s) after an answer-context version upgrade.`);
-      }
-    } catch (error) {
-      console.warn('Answer-context migration failed (non-fatal — chatbot will re-ask as needed):', error);
     }
     // Scenario 2 (§16): kick off this device's build-attestation credential + the verifier's
     // published keys, both fire-and-forget — WebAttestationService's own doc comment explains
@@ -3605,8 +3581,9 @@ export class IinPublicApp {
     }).IinPublicBackground;
     if (typeof bridge?.configure !== 'function') return;
     this.nativeBackgroundSyncRunning = true;
-    const flattened = getFlattenedAnswerPreferences();
-    const answerRules = backgroundAnswerRulesFromPreferences(flattened);
+    // The chatbot answers from the device graph now (OPEN-106); the background mailbox agent
+    // is given no rules of its own.
+    const answerRules = {};
     const settings = loadConnectivitySettings();
     const myTalks = getMyTalks();
     const authoredTalks = Object.fromEntries(Object.entries(myTalks)
@@ -4249,9 +4226,10 @@ export class IinPublicApp {
     this.peerMeshService?.cacheTalkBody(payload.talkId, talkData);
     // OPEN-45: same content already answered from this author → refresh that copy in place.
     const silentUpdate = applyTalkRevisionToAnsweredCopy(talkData, payload.authorId);
+    const chatbotDecision = silentUpdate ? undefined : await this.chatbotReplyDecision(payload.talkId, talkData, payload.authorId);
     this.uiManager.displayIncomingTalk({
       silentUpdate,
-      autoAnsweredByChatbot: !silentUpdate && this.chatbotWillAnswer(payload.talkId, talkData, payload.authorId),
+      autoAnsweredByChatbot: !!chatbotDecision && chatbotWillAct(chatbotDecision),
       id: payload.talkId,
       title: String(payload.title || (talkData as any).title || 'Talk'),
       authorName: payload.authorName || 'Unknown',
@@ -4262,11 +4240,12 @@ export class IinPublicApp {
       fullTalk: talkData,
     });
     if (!options.suppressAutoReply) {
-      this.maybeAutoChatbotReplyToAnnouncer(
+      void this.maybeAutoChatbotReplyToAnnouncer(
         payload.talkId,
         talkData,
         payload.authorId,
         payload.authorName || 'Unknown',
+        chatbotDecision,
       );
     }
     return true;
@@ -5715,44 +5694,74 @@ export class IinPublicApp {
     );
   }
 
-  private chatbotHasAnswersFor(talkId: string, contentId: string, talkData: any): boolean {
-    return !!this.uiManager.getChatbotTemplate(talkId)
-      || (!!contentId && contentId !== talkId && !!this.uiManager.getChatbotTemplate(contentId))
-      || !!this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+  /**
+   * A reply template saved for this Talk (or its content), if any. A template saved from another
+   * sender's copy of the same content may list the choices in another order: its answers are
+   * carried over by question and choice text, never by id.
+   */
+  private chatbotTemplateFor(talkId: string, talkData: any): { answers: any[]; talkData: any } | null {
+    let saved = this.uiManager.getChatbotTemplate(talkId);
+    if (!saved && talkData) {
+      try {
+        const contentId = computeTalkIdFromTalkData(talkData);
+        saved = contentId && contentId !== talkId ? this.uiManager.getChatbotTemplate(contentId) : null;
+      } catch {
+        saved = null;
+      }
+    }
+    if (!saved || !talkData || !Array.isArray(saved.talkData?.questions)) return saved;
+    const answers: any[] = [];
+    for (const answer of saved.answers || []) {
+      const fromQuestion = saved.talkData.questions.find((q: any) => q?.id === answer?.questionId);
+      const toQuestion = (talkData.questions || []).find((q: any) => String(q?.text || '').trim() === String(fromQuestion?.text || '').trim());
+      const text = String((fromQuestion?.answers || []).find((a: any) => a?.id === answer?.answerId)?.text || '').trim();
+      const match = (toQuestion?.answers || []).find((a: any) => String(a?.text || '').trim() === text);
+      if (!toQuestion || !match) return null; // the template does not fit this Talk
+      const idOf = (id: unknown) => {
+        const choice = String((fromQuestion?.answers || []).find((a: any) => a?.id === id)?.text || '').trim();
+        return (toQuestion.answers || []).find((a: any) => String(a?.text || '').trim() === choice)?.id;
+      };
+      const answerIds = Array.isArray(answer.answerIds) ? answer.answerIds.map(idOf) : undefined;
+      if (answerIds?.some((id: unknown) => !id)) return null;
+      answers.push({ ...answer, questionId: toQuestion.id, answerId: match.id, answerText: match.text, ...(answerIds ? { answerIds } : {}) });
+    }
+    return { answers, talkData };
   }
 
   /**
-   * OPEN-42: true when the chatbot is about to answer this talk on its own, so the user is told
-   * "answered automatically" instead of a "New talk" notice that implies they must act.
+   * The core's rule (src/core/chatbot-reply.ts) over this app's chatbot state: what the graph
+   * chatbot answers (`graph.chatbot`, asked only when the chatbot is on and the Talk is not mine).
    */
-  private chatbotWillAnswer(talkId: string, talkData: any, authorId: string): boolean {
-    return chatbotWillAct(this.chatbotReplyDecision(talkId, talkData, authorId));
-  }
-
-  /** The core's rule (src/core/chatbot-reply.ts) over this app's chatbot state. */
-  private chatbotReplyDecision(talkId: string, talkData: any, authorId: string): ChatbotReplyDecision {
-    return decideChatbotReply(authorId, this.currentUser?.id, {
+  private async chatbotReplyDecision(talkId: string, talkData: any, authorId: string): Promise<ChatbotReplyDecision & { answers?: any[] | null }> {
+    const asks = !!authorId && authorId !== this.currentUser?.id && this.uiManager.getChatbotEnabled()
+      && !this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData));
+    const graph = asks ? await this.uiManager.chatbotAnswersFor(talkData, talkId) : { answers: null, passed: false, answered: false };
+    const decision = decideChatbotReply(authorId, this.currentUser?.id, {
       enabled: () => this.uiManager.getChatbotEnabled(),
       handled: () => this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData)),
       contentId: () => computeTalkIdFromTalkData(talkData),
-      answeredBefore: (contentId) => answeredBeforeFor(contentId, authorId, getAnsweredTalkId, getMyTalk),
-      hasAnswers: (contentId) => this.chatbotHasAnswersFor(talkId, contentId, talkData),
-      passedTag: () => isPassedTag(talkData, getExactChatbotMemory(), Date.now()),
+      // This version answered already (the graph; an edit is a new version), or this content
+      // for this sender (the app's map).
+      answeredBefore: (contentId) => graph.answered || answeredBeforeFor(contentId, authorId, getAnsweredTalkId, getMyTalk),
+      hasAnswers: () => !!this.chatbotTemplateFor(talkId, talkData) || !!graph.answers?.length,
+      passedTag: () => graph.passed,
     });
+    return { ...decision, answers: graph.answers };
   }
 
   /**
    * When chatbot is on and we have a saved template for this talk, reply once per announcer
    * (e.g. Bob re-broadcasts the same talk Tom created — Jerry auto-replies on first receipt, not only on Gun replay).
    */
-  private maybeAutoChatbotReplyToAnnouncer(
+  private async maybeAutoChatbotReplyToAnnouncer(
     talkId: string,
     talkData: any,
     authorId: string,
     authorName: string,
-  ): void {
+    known?: ChatbotReplyDecision & { answers?: any[] | null },
+  ): Promise<void> {
     const pairKey = talkRevisionPairKey(talkId, authorId, talkData);
-    const decision = this.chatbotReplyDecision(talkId, talkData, authorId);
+    const decision = known ?? await this.chatbotReplyDecision(talkId, talkData, authorId);
     if (decision.act === 'skip') {
       if (decision.reason !== 'self') console.log(`🤖 Chatbot auto-reply skipped: ${decision.reason}`, { talkId, authorId });
       return;
@@ -5774,11 +5783,13 @@ export class IinPublicApp {
     }
     if (decision.act === 'wait') {
       const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
-      if (retries < 6) {
+      // My own answers reach the device graph a moment after they are saved (a Talk I just made
+      // writes its self-answers after the Talk itself): ask again for about ten seconds.
+      if (retries < 20) {
         this.chatbotAutoReplyRetryCountByPair.set(pairKey, retries + 1);
         setTimeout(() => {
-          this.maybeAutoChatbotReplyToAnnouncer(talkId, talkData, authorId, authorName);
-        }, 250);
+          void this.maybeAutoChatbotReplyToAnnouncer(talkId, talkData, authorId, authorName);
+        }, 500);
       } else {
         this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
         console.log('🤖 Chatbot auto-reply skipped: no reusable template', {
@@ -5794,7 +5805,7 @@ export class IinPublicApp {
     this.chatbotAutoReplySentForPair.add(pairKey);
 
     console.log('🤖 Chatbot auto-reply triggered', { talkId, contentId, authorId, authorName });
-    this.tryChatbotReply(talkId, talkData, authorId, authorName);
+    await this.tryChatbotReply(talkId, talkData, authorId, authorName, decision.answers ?? null);
   }
 
   /** Load full talk for an incoming mesh/local announcement. */
@@ -5902,6 +5913,16 @@ export class IinPublicApp {
     }
     this.coreRequest = node ?? worker;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
+    // The chatbot and the Preferences dialog read the device graph (OPEN-106 step 2e v).
+    const chatbotCore = this.coreRequest;
+    setGraphChatbotSource(chatbotCore ? (request) => chatbotCore(request) : null);
+    setRememberedAnswersSource(chatbotCore ? (request) => chatbotCore(request) : null);
+    if (chatbotCore) void this.eraseOldChatbotCopies(chatbotCore).catch(() => undefined);
+    // e2e: what the chatbot remembers, read from the graph (the Preferences dialog's list).
+    if (typeof window !== 'undefined') {
+      (window as any).__iinpublic_graph_remembered = () => chatbotCore?.({ name: 'graph.remembered' }) ?? [];
+      (window as any).__iinpublic_graph_chatbot_view = (talk: Record<string, unknown>, mine = false) => chatbotCore?.({ name: 'graph.chatbotView', talk, mine }) ?? null;
+    }
     if (this.peerMeshService) void this.startGraphLinks();
     // Diagnostics and e2e: counts of my Talks written into the device graph (OPEN-106), from either host.
     if (typeof window !== 'undefined') {
@@ -6374,21 +6395,16 @@ export class IinPublicApp {
    * Auto-reply to a talk using saved template (chatbot). Puts response to Gun and creates
    * responder's conversation so the author will receive the match and see bot icon.
    */
-  private tryChatbotReply(
+  private async tryChatbotReply(
     talkId: string,
     talkData: any,
     authorId: string,
     authorName: string,
-  ): void {
-    let template = this.uiManager.getChatbotTemplate(talkId);
+    graphAnswers: any[] | null = null,
+  ): Promise<void> {
+    let template = this.chatbotTemplateFor(talkId, talkData);
     if (!template && talkData) {
-      const cid = computeTalkIdFromTalkData(talkData);
-      if (cid && cid !== talkId) {
-        template = this.uiManager.getChatbotTemplate(cid);
-      }
-    }
-    if (!template && talkData) {
-      const built = this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+      const built = graphAnswers ?? (await this.uiManager.chatbotAnswersFor(talkData, talkId)).answers;
       if (built && built.length > 0) {
         template = { answers: built, talkData };
       }
@@ -6416,7 +6432,7 @@ export class IinPublicApp {
     const outcome = checkIfMatch(
       talkData,
       template.answers,
-      this.resolveResponderSelfTagForAnswers(talkData, template.answers),
+      await this.resolveResponderSelfTagForAnswers(talkData, template.answers),
     ) ? 'match' : 'mismatch';
     this.uiManager.recordChatbotAnsweredTalk({ ...talkData, id: talkId, authorId }, template.answers, outcome);
   }
@@ -6793,7 +6809,7 @@ export class IinPublicApp {
     const isChatbot = !!data.isChatbotResponse;
     const locallyLooksLikeMatch =
       !!data.talkData &&
-      checkIfMatch(data.talkData, data.answers, this.resolveResponderSelfTagForAnswers(data.talkData, data.answers));
+      checkIfMatch(data.talkData, data.answers, await this.resolveResponderSelfTagForAnswers(data.talkData, data.answers));
     const isE2eLocalOnlyReject =
       data.talkData?.e2eLocalOnlyReject === true &&
       !locallyLooksLikeMatch &&
@@ -6828,7 +6844,7 @@ export class IinPublicApp {
           await this.userService.syncQuestionAnswersFromTalkCompletion(
             data.talkData,
             data.answers,
-            this.uiManager.getAnswerPreferencesSnapshot(),
+            {},
             pair,
           );
         } catch (syncErr) {
@@ -6905,19 +6921,6 @@ export class IinPublicApp {
       this.currentUser.knownPeople,
       this.roomTravelerIds,
     )) return;
-    // Persist exact-answer memory and provenance privately before any chatbot/manual
-    // response can leave this device. Public offers never subscribe to this path.
-    try {
-      await new GunChatbotMemoryRepository(this.gunService).saveState(
-        getExactChatbotMemory(),
-        params.isChatbotResponse ? 'chatbot-reuse' : 'human',
-      );
-    } catch (error) {
-      // Exact-answer memory is already durable in the device-local store. A transient SEA
-      // conflict while backing it up to the private Gun namespace must not suppress the talk
-      // response itself; a later completion rewrites both per-question state and the snapshot.
-      console.warn('Private chatbot-memory backup failed (non-fatal):', error);
-    }
     // docs/TODO.md §W Gap 2 completeness note: a survey response that hasn't answered every
     // question is not yet "done" on the responder's side — the sender must not receive it and
     // must go on treating it as not-yet-answered (no ledger write, no mesh send). This is the
@@ -6939,7 +6942,7 @@ export class IinPublicApp {
     const isMatch = checkIfMatch(
       params.talkData,
       params.answers,
-      this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
+      await this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
     );
     const isIgnore = isIgnoreAnswerSet(params.answers);
     // R-1: CIDv1 response id — REQ-LEDGER-04/12 (replaces resp_<ts>_<rand> non-deterministic id)
@@ -7005,7 +7008,7 @@ export class IinPublicApp {
         authorId: targetAuthorId, authorName: targetAuthorName, authorEpub,
         responderId: this.currentUser!.id, responderEpub: this.gunService.getStoredPair()?.epub,
         payloadCiphertext, submittedAt,
-        selfTag: this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
+        selfTag: await this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
       });
       const meshPayload = committed.payload;
       const targetResponseId = meshPayload.responseId;
@@ -7188,7 +7191,7 @@ export class IinPublicApp {
     // the OTHER side's talk, not mine — recordMyDealTalkForConversation needs my own talkId,
     // resolved from chatbot memory rather than known directly the way the author-side call
     // sites above already know it from payload.talkId.
-    const responderSourceTalkId = this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers);
+    const responderSourceTalkId = await this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers);
     if (responderSourceTalkId) {
       this.recordMyDealTalkForConversation(conversationId, responderSourceTalkId, params.talkData);
     }
@@ -7221,7 +7224,7 @@ export class IinPublicApp {
    * Undefined (no veto) if I have no self-tag history for this question or the talk declares no
    * qualifying Pair-tag ancestor.
    */
-  private resolveResponderSelfTagForAnswers(talkData: any, answers: any[]): string | undefined {
+  private async resolveResponderSelfTagForAnswers(talkData: any, answers: any[]): Promise<string | undefined> {
     const lastAnswer = answers?.[answers.length - 1];
     const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
     if (!question?.text) return undefined;
@@ -7240,7 +7243,7 @@ export class IinPublicApp {
    * question text), in which case `maybeFinalizeConfirmedDeal` keeps its existing "disable every
    * active listing" fallback.
    */
-  private resolveResponderSourceTalkIdForAnswers(talkData: any, answers: any[]): string | undefined {
+  private async resolveResponderSourceTalkIdForAnswers(talkData: any, answers: any[]): Promise<string | undefined> {
     const lastAnswer = answers?.[answers.length - 1];
     const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
     if (!question?.text) return undefined;
@@ -7307,6 +7310,21 @@ export class IinPublicApp {
    * again before — the SEA Talk copies, the incoming rows envelope, the authored and received body
    * caches — is erased once, not migrated (owner decision 2026-11-03).
    */
+  /**
+   * OPEN-106 step 2e v: the old chatbot's copies of my answers (core collections, the private Gun
+   * backup and their old localStorage keys) are erased, not migrated; the graph has the answers.
+   */
+  private async eraseOldChatbotCopies(core: CoreRequester): Promise<void> {
+    const { erased } = await core({ name: 'collection.eraseRetired' });
+    const keys = await core({ name: 'private.keys' }).catch(() => [] as string[]);
+    const backup = keys.filter((key: string) => key.startsWith('chatbotMemory/'));
+    for (const key of backup) await core({ name: 'private.put', key, value: null }).catch(() => undefined);
+    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState']) {
+      try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+    }
+    if (erased || backup.length) console.log(`[chatbot] erased ${erased} old answer record(s) and ${backup.length} backup record(s)`);
+  }
+
   private async eraseOldTalkCopies(core: CoreRequester): Promise<void> {
     const keys = await core({ name: 'private.keys' }).catch(() => [] as string[]);
     const old = keys.filter((key: string) => OLD_TALK_COPY_KEY.test(key));

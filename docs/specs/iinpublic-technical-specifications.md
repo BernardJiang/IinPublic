@@ -7438,8 +7438,10 @@ All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen re
 
 | Index | Value | Used by | Replaces |
 |---|---|---|---|
-| `ix/ctx/<contextHash>` | `{ a or set, mode, ev: →ev }` latest reusable answer | chatbot Same context | `flattenedAnswerPreferences`, `exactChatbotMemory` |
-| `ix/whenever/<questionKey>` | `{ 0: →a/<hash>, 1: … }` priority order | chatbot Whenever offered | `questionDefaultContracts` |
+| `ix/ctx/<contextHash>` | `{ entry: →s/…/<context>, mode, reuse, ev: →ev }` my latest answer there; `reuse` `auto` (the chatbot answers it), `once` (Just once: shown, never answered by itself) | chatbot Same context; a question's first-asked situation is my default later in a flow | `flattenedAnswerPreferences`, `exactChatbotMemory` |
+| `ix/whenever/<questionKey>` | `{ n, 0: →a/<hash>, 1: … }` priority order; an answer chosen Whenever offered goes first | chatbot Whenever offered | `questionDefaultContracts` |
+| `ix/typed/<typedKey>` | `{ kind, …values, ev }` my declared built-in values; `typedKey` = question key, Talk title and route branch | chatbot built-in comparison | `typedPreferenceState` |
+| `ix/passed/<questionKey>` | `{ passed: true, when }` a one-keyword tag I passed | the chatbot passes it again; answering it takes the pass back | suppressed questions in `exactChatbotMemory` |
 | `ix/q/<questionKey>/mine/<contextHash>` | `→ev` my latest answer event | Me tab | `answerPreferences`, `myQuestionAnswers`, `myAnswerHistory` |
 | `ix/q/<questionKey>/talks/<talkId>` | `true` | Me → Talks | — |
 | `ix/q/<questionKey>/theirs/<eventId>` | `→ev` | Me → Contacts | parts of `talkLedger` |
@@ -7509,6 +7511,13 @@ SEA Talk copies, the incoming rows envelope (`incomingTalkClusters`) and the aut
 body caches are erased: a Talk's body is read from the graph, a created Talk's `myTalks` entry keeps
 only what the graph does not give back identical, and the incoming list is built from the arrivals
 the app accepted (`ix/shown/<talkId>`, with each sender's name and the tags left out).
+The chatbot's collections (`answerPreferences`, `flattenedAnswerPreferences`,
+`questionDefaultContracts`, `typedPreferenceState`, `exactChatbotMemory`, `myQuestionAnswers`) and
+its private `chatbotMemory/` backup are erased at start (OPEN-106 step 2e v): the chatbot answers
+from §31.8's `ix/ctx`, `ix/whenever`, `ix/typed` and `ix/passed`, and how each answer may be reused
+is kept in a private sidecar of my answer event (`ev/<id>/x`), so the crash rebuild restores them.
+A built-in question's situation names its kind, not the values it compares. `answeredTalkByContent`
+and `myAnswerHistory` are still kept, for a later step.
 
 ### 31.11 Conflicts with earlier sections
 

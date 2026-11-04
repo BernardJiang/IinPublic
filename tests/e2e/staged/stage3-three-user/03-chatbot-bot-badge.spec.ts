@@ -223,13 +223,13 @@ test.describe('Talks matching — chatbot + bot badge', () => {
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await afterSync();
-    // Same content-hash id as Tom's talk — one logical talk; Bob re-broadcasts it as a second announcer (no separate OUT row required).
+    // Tom's Talk id is its graph id (OPEN-106 step 2e): `<when>-<device>-<counter>`.
     const talkId = await pageTom
       .locator('.talk-list-item[data-role="created"]')
       .filter({ hasText: CHATBOT_TALK_TITLE })
       .first()
       .getAttribute('data-talk-id');
-    expect(talkId).toMatch(/^(qa_[0-9a-f]{8}|b[a-z2-7]{58,})$/i);
+    expect(talkId).toMatch(/^\d{13}-[0-9a-f]{32}-[0-9a-z]+$/);
     await expect
       .poll(() => pageJerry!.evaluate((id: string) => {
         const app = (window as any).__iinpublic_app?.getApp?.();

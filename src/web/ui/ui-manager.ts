@@ -39,7 +39,6 @@ import { bindSettingsControls as bindSettingsControlsImpl } from './settings-con
 import { showContentFilterToast as showContentFilterToastImpl } from './content-filter-toast';
 import { applySettingsSectionView as applySettingsSectionViewImpl } from './settings-section-view';
 import { parseIpfsSharePayload as parseIpfsSharePayloadImpl } from './attachment-metadata';
-import { type QAPair } from '../../shared/flattened-answer-keys';
 import { SORT_STRATEGIES } from '../../shared/find-similar';
 import { tileIdAt } from '../../shared/room-tiles';
 import { LocationPrivacy } from '../../shared/location';
@@ -83,16 +82,6 @@ import {
   type ConversationDetailViewDeps,
 } from './conversation-detail-view';
 import { connectivityDiagnosticsText, type ConnectivityDiagnostics } from './connectivity-settings';
-import {
-  getAnswerPreferences,
-  getExactChatbotMemory,
-  saveQuestionAnswersFromCompletion as saveQuestionAnswersFromCompletionStorage,
-} from './answer-preferences-storage';
-import {
-  getSelfTagForQuestionText,
-  getSourceTalkIdForQuestionText,
-  LOCAL_EXACT_CHATBOT_USER_ID,
-} from '../../shared/exact-chatbot-memory';
 import {
   clearMyTalks,
   getMyTalks,
@@ -177,10 +166,13 @@ import { showEditProfileDialog as openEditProfileDialog } from './edit-profile-d
 import { showEditStageNameDialog as openEditStageNameDialog } from './edit-stage-name-dialog';
 import { refreshStorageInspector as renderStorageInspector } from './storage-inspector';
 import {
-  resolveAnswerPreferenceForTalkQuestion as resolveStoredAnswerPreference,
-  saveAnswerPreference as persistAnswerPreference,
-  tryBuildChatbotAnswersFromFlattened as buildChatbotAnswersFromPreferences,
-} from './answer-preference-resolution';
+  graphChatbotAnswers,
+  graphPassTag,
+  graphQuestionMemory,
+  loadChatbotView,
+  resolveFromView,
+} from './graph-chatbot';
+import type { ChatbotView } from '../../core/device-graph/answers';
 import { applyAppShellTranslations, renderAppShell } from './app-shell';
 import { bindAppShellControls, showSettingsPanelIfReady, type AppShellControlsDeps } from './app-shell-controls';
 import { PeerHeadshotCache } from './peer-headshot-cache';
@@ -1348,7 +1340,6 @@ export class UIManager extends EventEmitter {
           ? { stageName: this.currentUser.stageName, ...(this.currentUser.headshot ? { headshot: this.currentUser.headshot } : {}) }
           : null,
       getMyTalks: this.getMyTalks.bind(this),
-      getExactChatbotMemory,
       escapeHtml: escapeHtml,
       getFlatAnswerHistory,
       showTalkDetail: this.showTalkDetailAsAnswer.bind(this),
@@ -2333,7 +2324,30 @@ export class UIManager extends EventEmitter {
     });
   }
 
+  /** The open answer dialog's Talk and its chatbot lookups (`graph-chatbot.ts`). */
+  private dialogChatbot: { talk: any; mine: boolean; view: ChatbotView | null } | null = null;
+
+  /**
+   * The answer dialog, opened once the chatbot's lookups for this Talk are read from the graph
+   * (one core call), so each question is pre-filled without waiting.
+   */
   showTalkResponseDialog(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string; targetQuestionId?: string }): void {
+    const mine = !!talk?.authorId && String(talk.authorId) === String(this.currentUser?.id || '');
+    const opening = { talk, mine, view: null as ChatbotView | null };
+    this.dialogChatbot = opening;
+    // One answer dialog at a time: a previous one goes now, not when this one has its lookups.
+    document.querySelectorAll('#talk-response-modal').forEach((el) => el.remove());
+    // The lookups are one core read; the dialog never waits more than a moment for them (a busy
+    // core leaves it without pre-filled answers rather than slow to open).
+    const lookups = loadChatbotView(talk, mine);
+    void Promise.race([lookups, new Promise<null>((resolve) => setTimeout(() => resolve(null), 300))]).then((view) => {
+      if (this.dialogChatbot !== opening) return; // another dialog was opened meanwhile
+      opening.view = view;
+      this.openTalkResponseDialogNow(talk, options);
+    });
+  }
+
+  private openTalkResponseDialogNow(talk: any, options?: { skipAutoAnswer?: boolean; isTalkSuperseded?: boolean; senderName?: string; targetQuestionId?: string }): void {
     const talkId = String(talk?.id || '');
     openTalkResponseDialog({
       talk,
@@ -2394,97 +2408,41 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  /**
-   * Prefer a choice saved under the identical rolling context, then an unconditional ROOT
-   * default for the identical complete question frame. Changed frames and legacy contextless
-   * records return null so the user answers for themselves.
-   */
+  /** The open dialog's pre-filled answer for a question, from the graph (`resolveFromView`). */
   private resolveAnswerPreferenceForTalkQuestion(
     talk: any,
-    questionIndex: number,
-    previousQAPairs: QAPair[],
-    currentQuestion: {
-      id: string;
-      text?: string;
-      answers?: any[];
-      answerSelectionMode?: string;
-      builtIn?: any;
-      contextPath?: Array<{ questionId: string; answerId: string }>;
-      reciprocalTagContext?: boolean;
-    },
-    talkInstanceId: string,
-  ): {
-    answerId: string;
-    answerText: string;
-    mode: string;
-    questionText?: string;
-    allAnswers?: any[];
-    autoAnswerAction?: string;
-    autoAnswerReason?: string;
-    contextHash?: string;
-    /** Spec §3.4 FR-QA-15/16, §30.8: present only when `currentQuestion.answerSelectionMode ===
-     *  'multiple'` and the chatbot resolved a non-empty checked set. `answerId` above is always
-     *  `answerIds[0]`, kept for callers that only look at the single-value shape. */
-    answerIds?: string[];
-  } | null {
-    return resolveStoredAnswerPreference(
-      this.currentUser?.id,
-      talk,
-      questionIndex,
-      previousQAPairs,
-      currentQuestion,
-      talkInstanceId,
-    );
+    _questionIndex: number,
+    _previousQAPairs: unknown,
+    currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string },
+    _talkInstanceId: string,
+    sessionAnswers: Array<{ questionId: string; answerId?: string; answerIds?: string[] }> = [],
+  ): ReturnType<typeof resolveFromView> {
+    const open = this.dialogChatbot;
+    if (!open || (open.talk !== talk && String(open.talk?.id ?? '') !== String(talk?.id ?? ''))) return null;
+    return resolveFromView(open.view, talk, open.mine, currentQuestion, sessionAnswers);
   }
 
+  /**
+   * An answer the user gave teaches the chatbot through the answer itself (its history record goes
+   * into the graph with each answer's mode, `app-answers.ts`). Only a pass is kept apart: the
+   * chatbot passes that tag again.
+   */
   private saveAnswerPreference(
     talk: any,
-    talkInstanceId: string,
-    currentQuestion: { id: string; text?: string; answers?: any[]; contextPath?: Array<{ questionId: string; answerId: string }> },
-    answerId: string,
-    answerText: string,
-    fullSessionAnswersIncludingCurrent: Array<{ questionId: string; answerId?: string; answerText?: string; contextHash?: string }>,
+    _talkInstanceId: string,
+    _currentQuestion: unknown,
+    _answerId: string,
+    _answerText: string,
+    _fullSessionAnswersIncludingCurrent: unknown,
     mode: 'auto' | 'manual' | 'whenever' | 'permanent' | 'suppressed' = 'auto',
   ): string {
-    return persistAnswerPreference(
-      this.currentUser?.id,
-      talk,
-      talkInstanceId,
-      currentQuestion,
-      answerId,
-      answerText,
-      fullSessionAnswersIncludingCurrent,
-      mode,
-    );
+    if (mode === 'suppressed') graphPassTag(talk, true);
+    return '';
   }
 
-  getAnswerPreferencesSnapshot(): Record<
-    string,
-    {
-      answerId: string;
-      answerText: string;
-      mode: string;
-      talkId?: string;
-      questionText?: string;
-      allAnswers?: any[];
-      timestamp?: string;
-    }
-  > {
-    return getAnswerPreferences();
-  }
-
-  tryBuildChatbotAnswersFromFlattened(
-    talkData: any,
-  ): Array<{ questionId: string; answerId: string; answerText: string; mode?: string; answerIds?: string[] }> | null {
-    return buildChatbotAnswersFromPreferences(this.currentUser?.id, talkData);
-  }
-
-  saveQuestionAnswersFromCompletion(
-    talkData: { questions?: Array<{ id: string; text?: string }> },
-    answers: Array<{ questionId: string; answerId: string; answerText?: string }>,
-    location?: { latitude: number; longitude: number },
-  ): void {
-    saveQuestionAnswersFromCompletionStorage(talkData, answers, location, () => this.displayAnswersList());
+  /** What the chatbot answers for this Talk by itself, from the graph. */
+  async chatbotAnswersFor(talkData: any, talkId?: string): Promise<{ answers: Array<{ questionId: string; answerId: string; answerText: string; mode?: string; answerIds?: string[] }> | null; passed: boolean; answered: boolean }> {
+    return graphChatbotAnswers(talkData, talkId);
   }
 
   showFirstRunWalkthroughIfNeeded(): void { showFirstRunIfNeeded(this.firstRunDeps()); }
@@ -2555,9 +2513,6 @@ export class UIManager extends EventEmitter {
     this.revealCreatedTalk(talk.type);
     saveCreatedTalkImpl(talk, options, {
       currentUserId: this.currentUser?.id,
-      saveAnswerPreference: (talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode) =>
-        this.saveAnswerPreference(talkArg, talkInstanceId, currentQuestion, answerId, answerText, fullSessionAnswers, mode),
-      saveQuestionAnswersFromCompletion: (talkData, answers) => this.saveQuestionAnswersFromCompletion(talkData, answers),
       saveFlatAnswerHistoryRecord: (talkId, talkArg, completedAnswers, outcome, senders) =>
         saveFlatAnswerHistoryRecord(talkId, talkArg, completedAnswers, outcome, senders),
       refreshTalksListIfActive: () => this.displayTalksList(),
@@ -2579,31 +2534,19 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * My own self-tag (see `ChatbotQuestionSummary.selfTag`, exact-chatbot-memory.ts) recorded
-   * for this exact question text, if any — lets app.ts resolve `responderSelfTag` for
-   * `checkIfMatch`'s Pair-tag-ancestor veto on the manual answering path (the chatbot's own
-   * auto-reply path already vetoes internally via findAutoAnswer, see
-   * resolveAnswerPreferenceForTalkQuestion above).
+   * My Pair-tag side when I last answered a question with this text (`graph.questionMemory`) — the
+   * match veto for a manual answer (`checkIfMatch`'s `responderSelfTag`).
    */
-  getMySelfTagForQuestionText(questionText: string, language?: string): string | undefined {
-    if (!questionText) return undefined;
-    return getSelfTagForQuestionText(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, questionText, {
-      language: String(language || 'en').toLowerCase(),
-    });
+  async getMySelfTagForQuestionText(questionText: string, language?: string): Promise<string | undefined> {
+    return (await graphQuestionMemory(questionText, language)).selfTag;
   }
 
   /**
-   * docs/TODO.md §JJ residual gap: the talkId of MY OWN talk that taught the stored answer for
-   * this exact question text (`ChatbotQuestionSummary.sourceTalkId`), if any — lets app.ts's
-   * `resolveResponderSourceTalkIdForAnswers` trace a match formed through the chatbot's
-   * auto-reply back to a specific one of the responder's own deal-eligible talks, mirroring
-   * `getMySelfTagForQuestionText` above exactly.
+   * docs/TODO.md §JJ residual gap: the most recent of MY OWN Talks I answered a question with this
+   * text on, if any — which of my listings a match I formed as a responder came through.
    */
-  getMySourceTalkIdForQuestionText(questionText: string, language?: string): string | undefined {
-    if (!questionText) return undefined;
-    return getSourceTalkIdForQuestionText(getExactChatbotMemory(), LOCAL_EXACT_CHATBOT_USER_ID, questionText, {
-      language: String(language || 'en').toLowerCase(),
-    });
+  async getMySourceTalkIdForQuestionText(questionText: string, language?: string): Promise<string | undefined> {
+    return (await graphQuestionMemory(questionText, language)).sourceTalkId;
   }
 
   saveChatbotTemplate(talkId: string, data: { answers: any[]; talkData: any }): void {

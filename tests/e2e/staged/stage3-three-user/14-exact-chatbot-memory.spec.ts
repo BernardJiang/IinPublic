@@ -213,20 +213,13 @@ async function waitForRecordedResponse(page: Page, talkId: string): Promise<void
     .toBeGreaterThanOrEqual(1);
 }
 
+/** The chatbot remembers this answer for reuse (the device graph's `ix/ctx`, OPEN-106). */
 async function waitForContextualMemoryAnswer(page: Page, answerText: string): Promise<void> {
   await expect
     .poll(
-      () => page.evaluate((expected) => {
-        try {
-          const parsed = ((window as any).__iinpublic_collection?.('flattenedAnswerPreferences') ?? {});
-          return Object.entries(parsed).some(([key, value]: [string, any]) =>
-            key.startsWith('flat_v2_')
-            && value?.contextVersion === 2
-            && value?.answerText === expected,
-          );
-        } catch {
-          return false;
-        }
+      () => page.evaluate(async (expected) => {
+        const remembered = (await (window as any).__iinpublic_graph_remembered?.()) ?? [];
+        return remembered.some((item: any) => item.reuse === 'auto' && item.answerTexts?.includes(expected));
       }, answerText),
       { timeout: 30_000, intervals: [300, 600, 1000] },
     )

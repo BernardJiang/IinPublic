@@ -15,7 +15,7 @@ import { addToIndex, readIndex, removeFromIndex } from './index-buckets';
 import { parseEventId } from './event-id';
 import { personIdOf } from './people-graph';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
-import { GRAPH_SCHEMA_VERSION, builtInValues, graphSouls, questionKeysOf, readTalkStructure, talkStructureOf, writeTalkStructure, type TalkStructure } from './talk-structure';
+import { GRAPH_SCHEMA_VERSION, builtInValues, graphSouls, questionKeysOf, readTalkStructure, talkStructureOf, typedIndexKey, writeTalkStructure, type TalkStructure } from './talk-structure';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -81,7 +81,7 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
     const keys = questionKeysOf(structure, 'author');
     await Promise.all(structure.questions.map(async (question) => {
       const values = builtInValues(question.builtIn);
-      if (values) await store.put(souls.index(`typed/${keys.get(question.id)!}`), { ...values, ev: link(souls.event(eventId)), when } as GraphNode);
+      if (values) await store.put(souls.index(`typed/${typedIndexKey(structure, question, keys.get(question.id)!, talk?.title)}`), { ...values, ev: link(souls.event(eventId)), when } as GraphNode);
     }));
   }
 

@@ -17,6 +17,7 @@ import { createAppAnswers, type AppAnswers } from './device-graph/sync/app-answe
 import { createOwnTalks } from './device-graph/sync/own-talks';
 import { createMyTalksBodies } from './device-graph/sync/my-talks-bodies';
 import { createIncomingList } from './device-graph/sync/incoming-list';
+import { createAppChatbot } from './device-graph/sync/app-chatbot';
 import type { GraphCrypto } from './device-graph/sync/graph-sync';
 
 /**
@@ -35,7 +36,7 @@ export type DeviceGraphOptions = {
   storageUsage?: () => Promise<number | undefined>;
 };
 
-function deviceGraphGate(options: DeviceGraphOptions | undefined) {
+function deviceGraphGate(options: DeviceGraphOptions | undefined, localTalk?: (appTalkId: string) => Promise<Record<string, any> | undefined>) {
   if (!options) return { graph: undefined, ownTalks: undefined, host: undefined, appAnswers: undefined };
   const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
   const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}) });
@@ -53,7 +54,11 @@ function deviceGraphGate(options: DeviceGraphOptions | undefined) {
     gun: options.gun, store: options.nodeStore, graph, crypto: options.crypto, ...(options.log ? { log: options.log } : {}),
     appAnswers: () => appAnswers!, appTalkId: (talkId) => ownTalks.appTalkId(talkId),
   });
-  appAnswers = createAppAnswers({ store: options.nodeStore, graph, sync: () => host.sync(), ownTalks, ...(options.log ? { log: options.log } : {}) });
+  appAnswers = createAppAnswers({
+    store: options.nodeStore, graph, sync: () => host.sync(), ownTalks,
+    ...(localTalk ? { localTalk } : {}),
+    ...(options.log ? { log: options.log } : {}),
+  });
   return { graph, ownTalks, host, appAnswers };
 }
 
@@ -64,7 +69,11 @@ function deviceGraphGate(options: DeviceGraphOptions | undefined) {
  * boot by 1.5 s or more under load (e2e stage2/95, stage2/37).
  */
 export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean; deviceGraph?: DeviceGraphOptions } = {}): (request: CoreRequest) => Promise<unknown> {
-  const graph = deviceGraphGate(options.deviceGraph);
+  // A Talk only the app has is answered from the body its `myTalks` entry keeps (`app-answers.ts`).
+  const graph = deviceGraphGate(options.deviceGraph, async (appTalkId) => {
+    const entry = await collections.get('myTalks', appTalkId) as { fullTalk?: Record<string, any> } | undefined;
+    return entry?.fullTalk;
+  });
   let fresh = options.freshDevice === true;
   const exchanges = new ExchangeStore(store);
   const delivery = new DeliveryStore(store);
@@ -75,6 +84,14 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
     : undefined;
   // The incoming list is built from graph arrivals (`incoming-list.ts`).
   const incoming = graph.graph && options.deviceGraph ? createIncomingList({ store: options.deviceGraph.nodeStore, graph: graph.graph }) : undefined;
+  // The chatbot answers from the graph (`app-chatbot.ts`).
+  const chatbot = graph.graph
+    ? createAppChatbot({
+      graph: graph.graph,
+      myTalks: () => (myTalks ? myTalks.all() : collections.all('myTalks')),
+      userId: () => graph.host?.userId(),
+    })
+    : undefined;
   const privates = new PrivateStore(store);
   const ledger = new CoreTalkLedger(store, options.allowTestOverrides);
   const execute = async (request: CoreRequest): Promise<unknown> => {
@@ -172,6 +189,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         for (const [talkId, senders] of forgotten) void graph.appAnswers!.forget(talkId, senders).catch(() => undefined);
         return { removed };
       }
+      case 'collection.eraseRetired':
+        return { erased: await collections.eraseRetired() };
       case 'graph.acceptArrival':
         if (!incoming) return { ok: false };
         await incoming.accept(request.talkId, request.from, request.senderName, request.omit);
@@ -184,6 +203,27 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const talk = own ? await graph.graph.talks.read(own) : await graph.graph.arrivals.read(request.talkId);
         return talk ? { ...appTalkOf(talk), id: request.talkId } : null;
       }
+      case 'graph.chatbotView':
+        return chatbot ? chatbot.view(request.talk, { mine: request.mine === true, locationConsent: request.locationConsent === true }) : null;
+      case 'graph.chatbot':
+        return chatbot
+          ? chatbot.answer(request.talk, { mine: request.mine === true, locationConsent: request.locationConsent === true, ...(request.talkId ? { talkId: request.talkId } : {}) })
+          : { answers: null, passed: false, answered: false };
+      case 'graph.questionMemory':
+        return graph.appAnswers ? graph.appAnswers.questionMemory(request.text, request.language) : {};
+      case 'graph.remembered':
+        return graph.graph ? graph.graph.answers.remembered() : [];
+      case 'graph.changeRemembered': {
+        if (!graph.graph) return { ok: false };
+        const answers = graph.graph.answers;
+        if (request.key === '*' && 'forget' in request.change) {
+          for (const item of await answers.remembered()) await answers.changeRemembered(item.key, { forget: true });
+          return { ok: true };
+        }
+        return { ok: await answers.changeRemembered(request.key, request.change) };
+      }
+      case 'graph.pass':
+        return { ok: chatbot ? await chatbot.pass(request.talk, request.passed) : false };
       case 'graph.answerHistory':
         return graph.appAnswers ? graph.appAnswers.history(request.months ? { months: request.months } : {}) : [];
       case 'private.get':

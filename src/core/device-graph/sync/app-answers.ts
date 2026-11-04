@@ -13,12 +13,13 @@
  * frames) are left to the app's own history.
  */
 import { portableSha256Hex } from '../../../shared/portable-sha256';
+import type { BuiltInQuestionSpec } from '../../../shared/types';
 import type { DeviceGraph } from '../device-graph';
 import { canonicalJson } from '../keys';
 import { linkSoul, type NodeStore } from '../node-store';
 import { personIdOf } from '../people-graph';
-import type { AnswerStep } from '../answers';
-import { talkStructureKey, talkStructureOf, type Perspective, type TalkStructure } from '../talk-structure';
+import type { AnswerStep, Reuse } from '../answers';
+import { builtInValues, talkStructureKey, talkStructureOf, type Perspective, type TalkStructure } from '../talk-structure';
 import { appAnswersOf, appTalkOf, type AppAnswer } from './graph-host';
 import type { createGraphSync } from './graph-sync';
 
@@ -26,7 +27,13 @@ import type { createGraphSync } from './graph-sync';
 
 const appAnswerSoul = (prefix: string, talkId: string) => `${prefix}ix/app-answer/${talkId}`;
 
-type AppAnswerInput = { questionId: string; answerId: string; typedValue?: unknown };
+/** `mode`: the answer dialog's choice for this answer (`auto`, `manual` = Just once, `whenever`). */
+type AppAnswerInput = {
+  questionId: string; answerId: string; typedValue?: unknown; mode?: string;
+  /** A history item's question and chosen texts (`FlatAnswerHistoryItem`): the ids are those of
+   *  the Talk the app showed, which may be another sender's copy of the record's Talk. */
+  prompt?: string; choice?: string; kind?: string;
+};
 
 /** One answered Talk as the Me tab needs it: the Talk in the app's shape and my latest answers. */
 export type AppAnswerRecord = {
@@ -41,13 +48,54 @@ export type AppAnswerRecord = {
   answers: AppAnswer[];
 };
 
-function stepsOf(answers: AppAnswerInput[]): AnswerStep[] {
-  const steps: Array<{ questionId: string; answerIds: string[] }> = [];
+const reuseOf = (mode: unknown): Reuse => (mode === 'manual' ? 'once' : mode === 'whenever' ? 'whenever' : 'auto');
+const isTyped = (answer: AppAnswerInput) => answer.typedValue !== undefined || String(answer.answerId).startsWith('typed:');
+
+/**
+ * The app's answers as graph steps, in answering order. My own Talk's answers are my declarations
+ * (always reused); a built-in value I declared on it is that question answered Compatible, as my
+ * own values are, so the questions after it are in the same situations as when I answer someone's
+ * Talk asking it. Someone else's Talk's built-in values are compared each time, not answered.
+ */
+function stepsOf(answers: AppAnswerInput[], structure: TalkStructure, perspective: Perspective): AnswerStep[] {
+  const steps: AnswerStep[] = [];
   for (const answer of answers) {
-    const step = steps.find((s) => s.questionId === answer.questionId);
-    if (step) step.answerIds.push(String(answer.answerId)); else steps.push({ questionId: String(answer.questionId), answerIds: [String(answer.answerId)] });
+    const questionId = String(answer.questionId);
+    if (isTyped(answer)) {
+      const question = structure.questions.find((q) => q.id === questionId);
+      const compatible = question?.answers.find((a) => a.id === `${questionId}_compatible`);
+      if (perspective !== 'author' || !question?.builtIn || !compatible || steps.some((s) => s.questionId === questionId)) continue;
+      // The app's value, not the graph Talk's: an edit's new version may not be written yet.
+      const typed = builtInValues((answer.typedValue as BuiltInQuestionSpec | undefined) ?? question.builtIn);
+      if (!typed) continue;
+      steps.push({ questionId, answerIds: [compatible.id], typed, reuse: 'auto' });
+      continue;
+    }
+    const reuse = perspective === 'author' ? 'auto' : reuseOf(answer.mode);
+    const step = steps.find((s) => s.questionId === questionId);
+    if (step) step.answerIds!.push(String(answer.answerId)); else steps.push({ questionId, answerIds: [String(answer.answerId)], reuse });
+  }
+  // My own Talk's declarations are in the Talk's order (the app lists built-in values last).
+  if (perspective === 'author') {
+    const order = new Map(structure.questions.map((q, i) => [q.id, i]));
+    steps.sort((a, b) => (order.get(a.questionId) ?? 0) - (order.get(b.questionId) ?? 0));
   }
   return steps;
+}
+
+/**
+ * The app's answers as this Talk's choices: a history item names its question and choice by text
+ * (the same content from another sender may order its choices, and so its ids, differently); an
+ * answer without them is taken by id.
+ */
+function answersIn(talk: TalkStructure, answers: AppAnswerInput[]): AppAnswerInput[] {
+  return answers.flatMap((answer) => {
+    if (isTyped(answer) || answer.kind !== 'question' || !answer.prompt || !answer.choice) return [answer];
+    const prompt = answer.prompt.trim();
+    const question = talk.questions.find((q) => q.text.trim() === prompt);
+    const match = question?.answers.find((a) => a.text.trim() === answer.choice!.trim());
+    return match && question ? [{ ...answer, questionId: question.id, answerId: match.id }] : [answer];
+  });
 }
 
 const signatureOf = (steps: AnswerStep[], mode: string) => portableSha256Hex(canonicalJson({ steps, mode }));
@@ -56,15 +104,31 @@ export function createAppAnswers(options: {
   store: NodeStore;
   graph: DeviceGraph;
   /** My own Talks: the graph id of an app id, and back. */
-  ownTalks: { graphTalkId(appId: string): Promise<string | undefined>; appTalkId(talkId: string): Promise<string> };
+  ownTalks: { graphTalkId(appId: string): Promise<string | undefined>; appTalkId(talkId: string): Promise<string>; idle?(): Promise<void> };
   sync: () => ReturnType<typeof createGraphSync> | undefined;
+  /**
+   * The body the app keeps for a Talk that is not in the graph (a starter tag, a Talk shown only
+   * on this device): answering it still teaches the chatbot (`myTalks`' `fullTalk`).
+   */
+  localTalk?: (appTalkId: string) => Promise<Record<string, any> | undefined>;
   log?: (message: string) => void;
 }) {
   const { store, graph } = options;
   const prefix = graph.prefix;
   const event = (id: string) => `${prefix}ev/${id}`;
 
-  type Target = { talkId: string; talk: TalkStructure & Record<string, any>; perspective: Perspective; author?: string };
+  type Target = { talkId: string; talk: TalkStructure & Record<string, any>; perspective: Perspective; author?: string; local?: true };
+
+  /** A Talk only the app has: answered under its app id, never sent. */
+  async function local(appTalkId: string): Promise<Target | undefined> {
+    const body = await options.localTalk?.(appTalkId).catch(() => undefined);
+    if (!body || !Array.isArray(body.questions)) return undefined;
+    try {
+      return { talkId: appTalkId, talk: { ...talkStructureOf(body), title: String(body.title ?? '') } as any, perspective: 'responder', local: true };
+    } catch {
+      return undefined;
+    }
+  }
 
   /** A received Talk, from this author (any sender when none is given). */
   async function received(talkId: string, author?: string): Promise<Target | undefined> {
@@ -93,7 +157,9 @@ export function createAppAnswers(options: {
     const base = await received(appTalkId);
     if (!base) {
       const own = await ownTalk(appTalkId);
-      return own ? [own] : [];
+      if (own) return [own];
+      const only = await local(appTalkId);
+      return only ? [only] : [];
     }
     const out = [base];
     const others = new Set(authors.filter((author) => author !== base.author));
@@ -124,13 +190,14 @@ export function createAppAnswers(options: {
 
   /** Write these answers unless they are already my latest answer event; returns its id. */
   async function write(target: Target, answers: AppAnswerInput[], mode: 'manual' | 'chatbot'): Promise<{ eventId: string; sent: boolean }> {
-    const steps = stepsOf(answers);
+    const steps = stepsOf(answers, target.talk, target.perspective);
+    if (!steps.length) return { eventId: '', sent: false };
     const sig = signatureOf(steps, mode);
     const known = await store.get(appAnswerSoul(prefix, target.talkId));
     const latest = await graph.answers.answered(target.talkId);
     if (known?.sig === sig && typeof known.ev === 'string' && known.ev === latest) return { eventId: known.ev, sent: known.sent === true };
     const eventId = await graph.answers.answer({
-      talkId: target.talkId, structure: target.talk, steps, mode, perspective: target.perspective,
+      talkId: target.talkId, structure: target.talk, steps, mode, perspective: target.perspective, title: String(target.talk.title ?? ''),
       ...(target.author ? { withUser: target.author } : {}),
       ...(latest ? { replaces: latest } : {}),
     });
@@ -138,8 +205,8 @@ export function createAppAnswers(options: {
     return { eventId, sent: false };
   }
 
-  // A built-in (typed) answer stays in the app's history until typed values are mapped.
-  const writable = (answers: AppAnswerInput[]) => answers.length > 0 && !answers.some((a) => a.typedValue !== undefined || String(a.answerId).startsWith('typed:'));
+  // A built-in value is part of an answer (`stepsOf`); an answer of built-in values only is not one.
+  const writable = (answers: AppAnswerInput[]) => answers.some((a) => !isTyped(a));
 
   return {
     /** The app saved its answer history (`answerHistory` records): each answer into the graph. */
@@ -152,7 +219,15 @@ export function createAppAnswers(options: {
         const senders = Array.isArray(record.senderIds) ? record.senderIds.map(String) : [];
         try {
           await locked(record.talkId, async () => {
-            for (const target of await targets(record.talkId, senders)) await write(target, record.items, mode);
+            // My new Talk's history (or a local Talk's) can arrive before the Talk itself is
+            // written (two app writes, handled side by side): wait for it a little.
+            let found = await targets(record.talkId, senders);
+            for (let tries = 0; !found.length && tries < 5; tries += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 200));
+              await options.ownTalks.idle?.();
+              found = await targets(record.talkId, senders);
+            }
+            for (const target of found) await write(target, answersIn(target.talk, record.items), mode);
           });
         } catch (error) {
           options.log?.(`[app-answers] ${record.talkId}: ${(error as Error).message}`);
@@ -167,6 +242,7 @@ export function createAppAnswers(options: {
         const target = sync && writable(answers) ? await received(talkId, authorId) : undefined;
         if (!sync || !target) return { sent: false };
         const written = await write(target, answers, mode);
+        if (!written.eventId) return { sent: false };
         await sync.sendAnswer(written.eventId, context ?? {});
         await store.put(appAnswerSoul(prefix, target.talkId), { sent: true });
         return { sent: true, eventId: written.eventId };
@@ -195,6 +271,35 @@ export function createAppAnswers(options: {
         }
         return { deleted, sent };
       });
+    },
+
+    /**
+     * What I last answered a question with this text with: the Pair-tag side I was on (the match
+     * veto, `checkIfMatch`'s `responderSelfTag`), and the most recent of my own Talks I answered
+     * it on (which of my listings a match came through, docs/TODO.md §JJ).
+     */
+    async questionMemory(text: string, language = 'en'): Promise<{ selfTag?: string; sourceTalkId?: string }> {
+      const norm = (value: unknown) => String(value ?? '').trim().toLowerCase();
+      const out: { selfTag?: string; sourceTalkId?: string } = {};
+      let sideFound = false;
+      for (const row of await graph.answers.me()) {
+        if (norm(row.text) !== norm(text)) continue;
+        const question = await store.get(`${prefix}q/${row.questionKey}`);
+        if (norm(question?.language || 'en') !== norm(language)) continue;
+        if (!sideFound) {
+          sideFound = true;
+          if (typeof question?.selfTag === 'string' && question.selfTag) out.selfTag = question.selfTag;
+        }
+        for (const { eventId } of row.contexts) {
+          if (out.sourceTalkId) break;
+          const talkSoul = linkSoul((await store.get(event(eventId)))?.talk);
+          const talkId = talkSoul ? talkSoul.slice(event('').length) : '';
+          const mine = talkId ? await store.get(`${prefix}mine/talk/${talkId}`) : null;
+          if (mine && mine.deleted !== true) out.sourceTalkId = await options.ownTalks.appTalkId(talkId);
+        }
+        if (out.sourceTalkId) break;
+      }
+      return out;
     },
 
     /** Every Talk I answered, with my latest answers, newest first (the Me tab). */

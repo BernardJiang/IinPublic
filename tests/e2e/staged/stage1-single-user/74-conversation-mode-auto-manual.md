@@ -6,14 +6,13 @@ Spec §7.6 rule: "Even in Auto mode the chatbot never repeats manual answers."
 
 Single user drives `showTalkResponseDialog` directly with synthetic flow talks:
 
-1. Answering with the **manual** radio must keep the question OUT of exact chatbot
-   memory, and a later talk with the same question text must render the question
-   (no auto-completion).
-2. Answering with the **auto** radio must record the question in exact chatbot
-   memory, and a later talk with the same question must auto-complete without
-   showing the dialog.
-3. Answering Apple with **Whenever offered** creates one broad question contract rather than
-   subset hashes. It pre-fills Apple for Carol's Banana/Apple set and for a four-choice set.
+1. Answering with the **manual** radio keeps the answer out of what the chatbot reuses (the
+   device graph remembers it as Just once), and a later talk with the same question text must
+   render the question (no auto-completion).
+2. Answering with the **auto** radio makes it an answer the chatbot reuses, and a later talk with
+   the same question opens pre-filled for one Confirm.
+3. Answering Apple with **Whenever offered** puts Apple on the question's Whenever offered list
+   (`ix/whenever`) rather than remembering one choice set. It pre-fills Apple for Carol's Banana/Apple set and for a four-choice set.
 4. Changing the broad choice to Kiwi stores the deterministic priority `[Kiwi, Apple]`: Kiwi is
    used whenever available, Apple remains the fallback, and an unrelated set still asks the user.
 

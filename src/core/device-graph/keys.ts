@@ -36,14 +36,17 @@ export function languageCode(language: string | undefined): string {
   return String(language || 'en').trim().toLowerCase();
 }
 
+/** A Pair-tag side as a word: "Sell" on one Talk is "sell" on its counterpart. */
+const tagWord = (tag: string | undefined): string => String(tag || '').trim().toLowerCase();
+
 /** `q/<key>`: exact question text, language, selection mode and Pair-tag scope. No choices. */
 export function questionKey(params: { text: string; language?: string | undefined; selection?: string | undefined } & TagScope): string {
   return hash(QUESTION_KEY_DOMAIN, {
     text: params.text,
     language: languageCode(params.language),
     selection: params.selection || 'single',
-    selfTag: params.selfTag || '',
-    counterpartTag: params.counterpartTag || '',
+    selfTag: tagWord(params.selfTag),
+    counterpartTag: tagWord(params.counterpartTag),
   });
 }
 
@@ -90,8 +93,8 @@ export function contextHash(params: {
     choices: [...new Set(params.choices)].sort(),
     builtIn: params.builtIn || null,
     selection: params.selection || 'single',
-    selfTag: params.selfTag || '',
-    counterpartTag: params.counterpartTag || '',
+    selfTag: tagWord(params.selfTag),
+    counterpartTag: tagWord(params.counterpartTag),
   });
 }
 

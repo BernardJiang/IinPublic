@@ -31,7 +31,6 @@ import {
   type ColorScheme,
   type AutoAnswerScope,
 } from './ui-settings-storage';
-import { applyAutoAnswerScopeToStoredPreferences } from './answer-preference-mutations';
 import {
   setTalkIntakeFilters,
   setTalkIntakeFiltersOwner,
@@ -407,8 +406,8 @@ export function bindSettingsControls(deps: SettingsControlsDeps): void {
   });
   document.getElementById('settings-auto-answer-scope')?.addEventListener('change', (event) => {
     const scope = (event.currentTarget as HTMLSelectElement).value as AutoAnswerScope;
+    // The scope applies to answers given from now on (each answer's mode goes into the graph).
     setAutoAnswerScope(scope);
-    applyAutoAnswerScopeToStoredPreferences(scope);
   });
   document
     .getElementById('settings-location-auto-match-consent')

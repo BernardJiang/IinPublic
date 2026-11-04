@@ -118,14 +118,30 @@ its ID.
     (`sync/incoming-list.ts`, `graph.acceptArrival`/`graph.incoming`); Talk bodies are read from the
     graph (`graph.talkBody`). Erased once, not migrated: the SEA Talk copies (`GunTalkRepository`),
     the incoming rows envelope, `myAuthoredTalks`, `myReceivedTalks`.
-    Remaining (v): the chatbot onto the graph (owner 2026-11-04: port, then switch): add to the
-    graph chatbot what the answer engine does that it lacks (built-in location against my own
-    Talk's place and radius, the editor's per-question default contracts, passing again a tag I
-    passed), make the answer dialog's prefill read it, then erase `answerPreferences`,
-    `flattenedAnswerPreferences`, `exactChatbotMemory`, `questionDefaultContracts`,
-    `typedPreferenceState`, `tagOppositePairRegistry`, `myQuestionAnswers`, `answeredTalkByContent`
-    and `myAnswerHistory`. `talkLedger` and `talkRevisionSent` go with step (3).
-  - Next, in order: (2e) the stages above; (3) graph suppression
+    Done (v): the chatbot answers from the graph (owner 2026-11-04: port, then switch). Ported
+    into `answers.ts`: each answer's reuse from the dialog (`ix/ctx` `reuse`: `auto`, `once` = Just
+    once, shown only; `whenever` goes to `ix/whenever`, chosen first), my default where a question is
+    asked first (root situation), built-in values per Talk title and branch (`typedIndexKey`), a
+    location question against my most recent own Talk's place (with consent), and a tag I passed
+    (`ix/passed`, `graph.pass`). A built-in question's situation names its kind, not its values. One
+    pure resolver (`resolveChatbotQuestion`/`walkChatbot`) over one read per Talk (`chatbotView`)
+    serves the chatbot's replies (`graph.chatbot`) and the answer dialog, which opens once the
+    Talk's lookups are read (`graph-chatbot.ts`). The Preferences dialog lists and edits the graph's
+    remembered answers (`graph.remembered`/`graph.changeRemembered`); my side and source Talk for a
+    question text come from my latest answer (`graph.questionMemory`). The answer engine and its
+    mutations are removed; `answerPreferences`, `flattenedAnswerPreferences`,
+    `questionDefaultContracts`, `typedPreferenceState`, `exactChatbotMemory`, `myQuestionAnswers`
+    and the private `chatbotMemory/` backup are erased at start (`collection.eraseRetired`).
+    Still kept, for a later step: `answeredTalkByContent` (the Talks list and completion read it
+    beside the graph's `ix/answered`) and `myAnswerHistory` (how the app's answers reach the graph,
+    `recordHistory`). `tagOppositePairRegistry` is the editor's own list, not a copy; it stays.
+    Known gaps: the crash rebuild does not restore `ix/whenever` lists; a device handoff no longer
+    carries chatbot answers; the Android background mailbox agent gets no answer rules (it has no
+    Talks to answer since the mailbox went). `talkLedger` and `talkRevisionSent` go with step (3).
+    Found by e2e `stage2/88` (from stages i–iii, not v): the tag graph (`src/core/tag-graph.ts`)
+    keys a tag by Talk id, so my starter tag (`qa_…`) and a peer's copy of it (a graph id) show as
+    two chips for one keyword in a person's tags.
+  - Next, in order: (3) graph suppression
     (`ix/exchanged`) in place of the sender's ledger; (4) "delete my answer" in the UI
     (no such control today); (5) real-phone run (native-app/37 now asserts graph events).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an

@@ -8,8 +8,10 @@
  */
 import { findTagPairAncestor } from '../../shared/talk-engine';
 import { grammarVersionFor } from '../../shared/grammar-filter';
+import { portableSha256Hex } from '../../shared/portable-sha256';
+import { typedPreferenceQuestionContext } from '../../shared/typed-preference-store';
 import type { BuiltInQuestionSpec } from '../../shared/types';
-import { answerKey, languageCode, questionKey, structureKey, type BuiltInValues, type TagScope } from './keys';
+import { answerKey, canonicalJson, languageCode, questionKey, structureKey, type BuiltInValues, type TagScope } from './keys';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 
 export const GRAPH_SCHEMA_VERSION = 1;
@@ -166,6 +168,20 @@ export function questionKeysOf(structure: TalkStructure, perspective: Perspectiv
     selection: question.answerSelectionMode || 'single',
     ...tagScopeFor(structure, question, perspective),
   })]));
+}
+
+/**
+ * Where my declared values for a built-in question are kept (`ix/typed/<key>`): the question (its
+ * text, language and Pair-tag side), the Talk's title and the route branch it is on. The same
+ * person may want $300–500 for a notebook and $10–20 for a book under the same "buy" tag (spec
+ * §30.2, as `makeTypedPreferenceScopeKey`).
+ */
+export function typedIndexKey(structure: TalkStructure, question: StructureQuestion, questionKeyOfIt: string, title: string | undefined): string {
+  return portableSha256Hex(canonicalJson({
+    question: questionKeyOfIt,
+    title: String(title ?? '').trim().toLowerCase(),
+    branch: typedPreferenceQuestionContext(structure, question).trim().toLowerCase(),
+  }));
 }
 
 /** Soul names. Authored ids are encoded, since they are keys inside a soul. */

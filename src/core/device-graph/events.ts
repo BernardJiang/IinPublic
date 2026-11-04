@@ -20,7 +20,7 @@ import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answ
 import { addToIndex, bucketOf, readIndex } from './index-buckets';
 import { personIdOf } from './people-graph';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
-import { builtInValues, graphSouls, questionKeysOf, readTalkStructure } from './talk-structure';
+import { builtInValues, graphSouls, questionKeysOf, readTalkStructure, typedIndexKey } from './talk-structure';
 
 type Souls = ReturnType<typeof graphSouls>;
 
@@ -37,6 +37,23 @@ export async function putEvent(store: NodeStore, souls: Souls, eventId: string, 
  * index can be rebuilt. It never leaves the device (question keys are guessable hashes, REQ-GRAPH-33).
  */
 export const answerQuestionsSoul = (souls: Souls, eventId: string) => `${souls.event(eventId)}/q`;
+
+/**
+ * The other private sidecar of my answer event: how the chatbot may reuse each situation's answer
+ * and, for a built-in value, where it is my declaration. `{ <context>: '{"reuse":"once","typed":"<key>"}' }`,
+ * situations reused as usual (`auto`, no declaration) left out. Never sent either.
+ */
+export const answerExtrasSoul = (souls: Souls, eventId: string) => `${souls.event(eventId)}/x`;
+
+export type AnswerExtras = { reuse?: 'once' | 'whenever'; typed?: string };
+
+export function parseAnswerExtras(raw: unknown): AnswerExtras {
+  if (typeof raw !== 'string') return {};
+  try {
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' ? value : {};
+  } catch { return {}; }
+}
 
 export async function rebuildIndexes(store: NodeStore, options: { prefix?: string; fromDay?: string } = {}): Promise<{ events: number; repaired: number }> {
   const souls = graphSouls(options.prefix);
@@ -97,7 +114,7 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
         const keys = questionKeysOf(structure, 'author');
         for (const question of structure.questions) {
           const values = builtInValues(question.builtIn);
-          if (values) await ensure(souls.index(`typed/${keys.get(question.id)!}`), { ...values, ev: link(souls.event(id)), when } as GraphNode);
+          if (values) await ensure(souls.index(`typed/${typedIndexKey(structure, question, keys.get(question.id)!, String(event.title ?? ''))}`), { ...values, ev: link(souls.event(id)), when } as GraphNode);
         }
       }
       if (!talkSoul) await ensureListed(souls.index('mine-talks'), talkId, souls.mine(`talk/${talkId}`), when);
@@ -114,14 +131,18 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       await ensureListed(souls.index(`person/${encodeURIComponent(byUser)}/ev`), id, souls.event(id), when);
     } else if (linkSoul(event.gave) && talkSoul) {
       const talkId = idOf(talkSoul);
-      const questions = await store.get(answerQuestionsSoul(souls, id));
+      const [questions, extrasNode] = await Promise.all([store.get(answerQuestionsSoul(souls, id)), store.get(answerExtrasSoul(souls, id))]);
       for (const [context, questionKey] of Object.entries(questions || {})) {
         if (typeof questionKey !== 'string') continue;
-        await ensure(souls.index(`ctx/${context}`), { entry: link(`${linkSoul(event.gave)}/${context}`), mode: String(event.mode ?? ''), ev: link(souls.event(id)), when });
+        const extras = parseAnswerExtras(extrasNode?.[context]);
+        // A Whenever offered answer is kept in `ix/whenever`, not as this situation's answer.
+        if (extras.reuse !== 'whenever') {
+          await ensure(souls.index(`ctx/${context}`), { entry: link(`${linkSoul(event.gave)}/${context}`), mode: String(event.mode ?? ''), reuse: extras.reuse ?? 'auto', ev: link(souls.event(id)), when });
+        }
         await ensure(souls.index(`q/${questionKey}/mine`), { [context]: link(souls.event(id)) });
         await ensureListed(souls.index('me'), questionKey, souls.index(`q/${questionKey}/mine`), when);
         const entry = await store.get(`${linkSoul(event.gave)}/${context}`);
-        if (typeof entry?.kind === 'string') await ensure(souls.index(`typed/${questionKey}`), { ...entry, ev: link(souls.event(id)), when });
+        if (typeof entry?.kind === 'string' && extras.typed) await ensure(souls.index(`typed/${extras.typed}`), { ...entry, ev: link(souls.event(id)), when });
       }
       await ensure(souls.index(`answered/${talkId}`), { ev: link(souls.event(id)), when });
       await ensureListed(souls.index(`talk/${talkId}/ev`), id, souls.event(id), when);

@@ -11,11 +11,19 @@ import type { GraphStore } from './graph-store';
 export const CORE_COLLECTIONS = [
   'chatbotTemplates', 'myTalks', 'myConversations', 'talkLedger', 'myAnswerHistory',
   'dealTalkByConversation', 'needKeyByConversation',
-  'answeredTalkByContent', 'answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts',
-  'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'tagOppositePairRegistry',
+  'answeredTalkByContent', 'tagOppositePairRegistry',
   'talkRevisionSent', 'appData', 'settings',
 ] as const;
 export type CoreCollection = typeof CORE_COLLECTIONS[number];
+
+/**
+ * Collections no longer kept: the old chatbot's copies of my answers, replaced by the device graph
+ * (OPEN-106 step 2e v). Erased, not migrated (owner decision); only `eraseRetired` touches them.
+ */
+export const RETIRED_COLLECTIONS = [
+  'answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts',
+  'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState',
+] as const;
 
 export const COLLECTIONS_PATH = 'local/collections';
 
@@ -69,5 +77,19 @@ export class CollectionStore {
     assertCollection(name);
     await Promise.all(keys.map((key) => this.store.put(entryPath(name, key), null)));
     return keys.length;
+  }
+
+  /** Erase every entry of the retired collections; returns how many there were. */
+  async eraseRetired(): Promise<number> {
+    const written = await this.store.childKeys(COLLECTIONS_PATH);
+    let erased = 0;
+    for (const name of RETIRED_COLLECTIONS) {
+      if (!written.includes(name)) continue;
+      const path = `${COLLECTIONS_PATH}/${name}`;
+      const keys = await this.store.childKeys(path);
+      await Promise.all(keys.map((encoded) => this.store.put(`${path}/${encoded}`, null)));
+      erased += keys.length;
+    }
+    return erased;
   }
 }

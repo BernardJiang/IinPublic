@@ -2,14 +2,7 @@
 
 import { deleteMyTalk, restoreIgnoredTalk, type TalkDeletionDeps } from '../../web/ui/talk-deletion';
 import { getMyTalks, setMyTalks } from '../../web/ui/my-talks-storage';
-import {
-  getAnsweredTalkByContent,
-  getAnswerPreferences,
-  getFlattenedAnswerPreferences,
-  setAnsweredTalkByContent,
-  setAnswerPreferences,
-  setFlattenedAnswerPreferences,
-} from '../../web/ui/answer-preferences-storage';
+import { getAnsweredTalkByContent, setAnsweredTalkByContent } from '../../web/ui/answer-preferences-storage';
 import { getFlatAnswerHistory, setFlatAnswerHistory } from '../../web/ui/answer-history-storage';
 
 function deps(overrides: Partial<TalkDeletionDeps> = {}): TalkDeletionDeps {
@@ -161,22 +154,5 @@ describe('deleteMyTalk', () => {
     expect(getFlatAnswerHistory()).toEqual({});
     expect(d.emit).not.toHaveBeenCalledWith('withdrawTalk', expect.anything());
     expect(d.emit).not.toHaveBeenCalledWith('retractTalk', expect.anything());
-  });
-
-  it('removes temporary answer-preference aliases learned from the unchecked tag', () => {
-    setMyTalks({ t1: { talkId: 't1', title: 'T', type: 'tag', timestamp: '', role: 'copied' } });
-    setAnswerPreferences({
-      regular: { answerId: 'yes', answerText: 'Yes', mode: 'temporary', talkId: 't1', flatKey: 'flat_t1' },
-      keep: { answerId: 'yes', answerText: 'Yes', mode: 'temporary', talkId: 't2' },
-    });
-    setFlattenedAnswerPreferences({
-      flat_t1: { answerId: 'yes', answerText: 'Yes', mode: 'temporary', talkId: 't1', flatKey: 'flat_t1' },
-    });
-
-    deleteMyTalk('t1', deps());
-
-    expect(getAnswerPreferences().regular).toBeUndefined();
-    expect(getAnswerPreferences().keep).toBeDefined();
-    expect(getFlattenedAnswerPreferences().flat_t1).toBeUndefined();
   });
 });

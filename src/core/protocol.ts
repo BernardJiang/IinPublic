@@ -17,6 +17,8 @@ import type { IncomingTalkClusterWire } from '../shared/peer-talk-delivery';
 import type { MyTalksBodiesStatus } from './device-graph/sync/my-talks-bodies';
 import type { GraphHostRequest, GraphHostStatus, GraphPull } from './device-graph/sync/graph-host';
 import type { AppAnswerRecord } from './device-graph/sync/app-answers';
+import type { AppChatbotAnswer } from './device-graph/sync/app-chatbot';
+import type { ChatbotView, RememberedAnswer } from './device-graph/answers';
 
 export const CORE_PROTOCOL_VERSION = 1;
 
@@ -31,6 +33,8 @@ export type CoreRequest =
   | { name: 'collection.snapshot'; collection: string }
   | { name: 'collection.upsert'; collection: string; entries: Record<string, unknown> }
   | { name: 'collection.remove'; collection: string; keys: string[] }
+  /** Erase the retired collections (the old chatbot's copies, OPEN-106 step 2e v). */
+  | { name: 'collection.eraseRetired' }
   | { name: 'private.get'; key: string }
   | { name: 'private.put'; key: string; value: string | null }
   | { name: 'private.keys' }
@@ -49,7 +53,19 @@ export type CoreRequest =
   /** A Talk's body from the graph: mine (by the app's id) or one I received. */
   | { name: 'graph.talkBody'; talkId: string }
   /** A new Talk id from the graph (an event id of this device), for a Talk about to be saved. */
-  | { name: 'graph.newTalkId' };
+  | { name: 'graph.newTalkId' }
+  /** The chatbot's lookups for a Talk (the answer dialog resolves its questions from them). */
+  | { name: 'graph.chatbotView'; talk: Record<string, unknown>; mine?: boolean; locationConsent?: boolean }
+  /** What the chatbot answers for a Talk by itself; whether it is a tag I passed; answered already. */
+  | { name: 'graph.chatbot'; talk: Record<string, unknown>; talkId?: string; mine?: boolean; locationConsent?: boolean }
+  /** I passed a one-keyword tag (the chatbot passes it again), or take that back. */
+  | { name: 'graph.pass'; talk: Record<string, unknown>; passed: boolean }
+  /** My Pair-tag side and source Talk for my latest answer to a question with this text. */
+  | { name: 'graph.questionMemory'; text: string; language?: string }
+  /** What the chatbot remembers (the Preferences dialog). */
+  | { name: 'graph.remembered' }
+  /** Change one remembered answer, or forget it; `key: '*'` with `forget` forgets everything. */
+  | { name: 'graph.changeRemembered'; key: string; change: { reuse?: 'auto' | 'once' } | { answerText: string } | { forget: true } };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends LedgerCommand ? LedgerCommandResult
@@ -77,4 +93,11 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.acceptArrival' } ? { ok: boolean }
                           : R extends { name: 'graph.incoming' } ? IncomingTalkClusterWire[]
                           : R extends { name: 'graph.talkBody' } ? Record<string, unknown> | null
+                          : R extends { name: 'graph.chatbotView' } ? ChatbotView | null
+                          : R extends { name: 'graph.chatbot' } ? { answers: AppChatbotAnswer[] | null; passed: boolean; answered: boolean }
+                          : R extends { name: 'graph.pass' } ? { ok: boolean }
+                          : R extends { name: 'collection.eraseRetired' } ? { erased: number }
+                          : R extends { name: 'graph.questionMemory' } ? { selfTag?: string; sourceTalkId?: string }
+                          : R extends { name: 'graph.remembered' } ? RememberedAnswer[]
+                          : R extends { name: 'graph.changeRemembered' } ? { ok: boolean }
                             : never;

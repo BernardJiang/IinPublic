@@ -1,6 +1,5 @@
 import { planTalkRemoval, restoredFromIgnored } from '../../core/my-talk-rules';
 import { deleteFlatAnswerHistoryForTalk } from './answer-history-storage';
-import { deleteAnswerPreferencesForTalk } from './answer-preference-mutations';
 import { deleteMyTalkEntry, getMyTalks, setMyTalks } from './my-talks-storage';
 import { getAnsweredTalkByContent, setAnsweredTalkByContent } from './answer-preferences-storage';
 import type { UiTranslationKey } from './ui-translations';
@@ -17,7 +16,6 @@ export type TalkDeletionDeps = {
 export function removeLocalTalkState(talkId: string): void {
   deleteMyTalkEntry(talkId);
   deleteFlatAnswerHistoryForTalk(talkId);
-  deleteAnswerPreferencesForTalk(talkId);
   const answeredByContent = getAnsweredTalkByContent();
   let answeredContentChanged = false;
   for (const [key, id] of Object.entries(answeredByContent)) {

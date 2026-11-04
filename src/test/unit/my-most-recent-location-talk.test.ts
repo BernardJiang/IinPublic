@@ -1,4 +1,4 @@
-import { myMostRecentLocationTalk } from '../../web/ui/answer-preference-resolution';
+import { myMostRecentLocationTalk } from '../../core/device-graph/sync/app-chatbot';
 import type { MyTalkMap } from '../../web/ui/my-talks-storage';
 
 const userId = 'local';

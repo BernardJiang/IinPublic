@@ -2,16 +2,15 @@
  * Conversation modes — auto vs manual answer reuse (spec §7.6).
  *
  * The rule under test: "Even in Auto mode the chatbot never repeats manual answers."
- * Implementation: saveAnswerPreference() writes 'auto' answers into exact chatbot
- * memory (saveTemporaryAnswer) but deliberately never writes 'manual' answers there;
- * the response dialog only auto-applies resolved preferences with mode 'auto'
- * (talk-response-dialog: `savedPreference.mode === 'auto'`).
+ * Implementation (OPEN-106): each answer's mode goes into the device graph with it; a manual
+ * (Just once) answer is remembered there as a suggestion only (`ix/ctx` reuse `once`), and the
+ * response dialog only auto-applies answers the chatbot may reuse.
  *
  * Single user, synthetic talks driven straight through showTalkResponseDialog:
- *  - answer Q1 with the MANUAL radio → exact memory must NOT contain Q1; a second
- *    talk with the same question text renders the question instead of auto-completing;
- *  - answer Q2 with the AUTO radio → exact memory contains Q2; a second talk with the
- *    same question auto-completes without showing the dialog.
+ *  - answer Q1 with the MANUAL radio → the chatbot does not reuse it; a second talk with the
+ *    same question text renders the question instead of auto-completing;
+ *  - answer Q2 with the AUTO radio → the chatbot reuses it; a second talk with the same
+ *    question auto-completes after one Confirm.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -78,11 +77,19 @@ async function openResponseDialog(page: Page, talk: unknown): Promise<void> {
   }, talk);
 }
 
-async function readExactMemory(page: Page): Promise<string> {
-  // Kept in the device core (OPEN-91 P3): one entry per section record; empty means no memory.
-  return page.evaluate(() => {
-    const entries = (window as any).__iinpublic_collection?.('exactChatbotMemory') ?? {};
-    return Object.keys(entries).length ? JSON.stringify(entries) : '';
+/** The answers the chatbot reuses, from the device graph (OPEN-106): Just once ones are left out. */
+async function readReusedMemory(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const remembered = (await (window as any).__iinpublic_graph_remembered?.()) ?? [];
+    return JSON.stringify(remembered.filter((r: any) => r.reuse !== 'once').map((r: any) => [r.questionText, r.answerTexts])).toLowerCase();
+  });
+}
+
+/** The question's Whenever offered answers, highest priority first. */
+async function readWheneverOffered(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const remembered = (await (window as any).__iinpublic_graph_remembered?.()) ?? [];
+    return remembered.filter((r: any) => r.reuse === 'whenever').map((r: any) => r.answerTexts[0]);
   });
 }
 
@@ -117,10 +124,8 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
     await afterSync();
 
-    // §7.6: the manual answer must NOT enter exact chatbot memory. The store keeps
-    // NORMALIZED text (lowercased, punctuation stripped), so assert on a normalized
-    // fragment rather than the raw question string.
-    expect(await readExactMemory(p)).not.toContain('salsa dancing on tuesdays');
+    // §7.6: the manual (Just once) answer is never reused by the chatbot.
+    expect(await readReusedMemory(p)).not.toContain('salsa dancing on tuesdays');
 
     // A different talk with the SAME question (auto-answer allowed) must render the
     // bare question for the user — no review screen, no pre-filled choice — instead
@@ -149,8 +154,8 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
     await afterSync();
 
-    // The auto answer is recorded in exact chatbot memory (normalized text form).
-    expect(await readExactMemory(p)).toContain('midnight astronomy walk');
+    // The auto answer is one the chatbot reuses.
+    await expect.poll(() => readReusedMemory(p)).toContain('midnight astronomy walk');
 
     // A different talk with the same question auto-applies: the dialog opens in the
     // REVIEW state with the remembered answer pre-filled (rather than asking the
@@ -185,11 +190,7 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await modal.locator('input.choice-radio[data-answer-text="Apple"][data-mode="whenever"]').click();
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
 
-    const firstDefaults = await p.evaluate(() => ((window as any).__iinpublic_collection?.('questionDefaultContracts') ?? {}));
-    expect(Object.values(firstDefaults)[0]).toMatchObject({
-      version: 1,
-      answers: [{ answerText: 'Apple' }],
-    });
+    await expect.poll(() => readWheneverOffered(p)).toEqual(['Apple']);
 
     // Carol offers only Banana/Apple. The broad contract pre-fills Apple even though this exact
     // choice frame has never been saved. Exit through Edit so this check creates no exact rule.
@@ -208,9 +209,7 @@ test.describe('Conversation modes — manual answers are never auto-reused (spec
     await modal.locator('#review-submit-btn').click();
     await expect(modal).toHaveCount(0, { timeout: 10_000 });
 
-    const reorderedDefaults = await p.evaluate(() => ((window as any).__iinpublic_collection?.('questionDefaultContracts') ?? {}));
-    expect((Object.values(reorderedDefaults)[0] as any).answers.map((answer: any) => answer.answerText))
-      .toEqual(['Kiwi', 'Apple']);
+    await expect.poll(() => readWheneverOffered(p)).toEqual(['Kiwi', 'Apple']);
 
     await openResponseDialog(p, syntheticFruitTalk('kiwi-priority', ['Mango', 'Apple', 'Kiwi']));
     await expect(modal.locator('input[data-answer-text="Kiwi"]')).toBeChecked();

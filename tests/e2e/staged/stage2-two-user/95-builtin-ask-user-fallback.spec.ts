@@ -162,7 +162,7 @@ async function hasConversationWith(page: Page, otherUserId: string): Promise<boo
  *  flow-talk walk (a flow question auto-advances to the next one on radio selection — no
  *  separate "Continue" button, unlike a route talk's branch preview). */
 async function answerPairTagThenBuiltIn(page: Page): Promise<void> {
-  await page.locator('input.choice-radio[data-answer-text="sell"][data-mode="manual"]').first().click();
+  await page.locator('input.choice-radio[data-answer-text="sell" i][data-mode="manual"]').first().click();
   await page
     .locator('input.choice-radio[data-answer-text="Compatible"][data-mode="manual"]')
     .first()

@@ -7,7 +7,7 @@ function openEditor(existingTalk?: any): void {
     existingTalk,
     currentUserId: 'self',
     escapeHtml: (value) => value,
-    getAnswerPreferences: () => ({}),
+    getSelfAnswer: () => undefined,
     addQuestionToForm: (_index, container) => {
       const row = document.createElement('div');
       row.className = 'question-item';
