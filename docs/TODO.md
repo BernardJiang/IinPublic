@@ -81,6 +81,14 @@ its ID.
     when the Talk came over a link. The Me tab reads `graph.answerHistory` and takes each Talk the
     graph has from it; Talks still on frames, and built-in (typed) answers, keep the app's record.
     e2e `talks-matching/09` and `phone-path/02` assert the responder's answer is in their graph.
+  - Done (step 2a/2b): every Talk the app sends goes over graph links when they run: copied
+    Talks and bodies the core never saved are written as my Talk at offer time, and a recipient who
+    already exchanged some tags gets `omit` (their app trims those tags, REQ-LEDGER-16). Received
+    Talks are mapped by app id *and author* (`ix/app-talk/<appTalkId>` = { <author>: talkId }):
+    starter tags share one app id on every device, and the old one-author map sent Ben's answer
+    to Ann's Pizza tag to Cy (phone-path/09).
+  - Known: `talks-matching/08` (relay restart) leaves the worker's hub down, so the next spec in
+    that worker can fail with `8081/health not reachable`; those specs pass alone.
   - Next, in order: (2) remove the JSON Talk frames, mailbox fallback for Talks, the mirror and
     `ix/legacy`, and key the app's Talks by graph ids; erase the old collections (§31.10);
     (3) graph suppression (`ix/exchanged`) and partial tag bodies; (4) "delete my answer" in the UI

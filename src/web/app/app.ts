@@ -6525,7 +6525,13 @@ export class IinPublicApp {
     }
     if (event.type !== 'talk' || !event.talk) return;
     const context = event.context ?? {};
-    const talk = event.talk as Record<string, any>;
+    let talk = event.talk as Record<string, any>;
+    // Tags I already exchanged with the author are left out of what I am asked (REQ-LEDGER-16).
+    if (Array.isArray(context.omit) && context.omit.length) {
+      const trimmed = filterTalkForRecipient(talk, new Set(context.omit.map(String)));
+      if (!trimmed) return;
+      talk = trimmed.filtered as Record<string, any>;
+    }
     const appTalkId = typeof context.appTalkId === 'string' && context.appTalkId ? context.appTalkId : event.talkId;
     const authorName = String(context.authorName || talk.authorName || 'Unknown');
     const payload = {
@@ -6824,7 +6830,7 @@ export class IinPublicApp {
     // recipient (identityKeys minus whatever was suppressed), recorded to the ledger's
     // `sent` set once the send actually happens below, so a future send suppresses on our
     // own outbound record, not just on the recipient's answer coming back.
-    type DeliveryPlan = { recipientId: string; talkPayload: typeof talk; sentIdentityKeys: string[] };
+    type DeliveryPlan = { recipientId: string; talkPayload: typeof talk; sentIdentityKeys: string[]; omit?: string[] };
     const plans: DeliveryPlan[] = [];
 
     for (const recipientId of receiverIds) {
@@ -6867,7 +6873,7 @@ export class IinPublicApp {
           continue;
         }
         const filteredTalk = { ...filterResult.filtered, id: talkId, authorId: me.id } as typeof talk;
-        plans.push({ recipientId, talkPayload: filteredTalk, sentIdentityKeys });
+        plans.push({ recipientId, talkPayload: filteredTalk, sentIdentityKeys, omit: [...suppressedSet].sort() });
         console.debug(`[Ledger] Partial tag suppression for ${recipientId}: delivering ${(filteredTalk.questions ?? []).length > 0 ? ((filteredTalk.questions as any[])[0]?.answers?.length ?? '?') : '?'} of ${identityKeys.length} tags`);
       } else {
         // No suppression (or non-tag talk with no suppression): deliver unmodified.
@@ -6905,36 +6911,48 @@ export class IinPublicApp {
 
     let announceCount = 0;
     const acceptedRecipientIds = new Set<string>();
-    // Deliver full-talk recipients. OPEN-106 step 3: over graph links when they run — the Talk is
-    // written once as encrypted nodes, each recipient's offer waits in our pair log until they are
-    // connected (D2), and there is no JSON Talk frame; otherwise in one batched mesh broadcast.
-    const graphOffer = fullRecipients.length > 0 && this.coreRequest && this.graphLinks?.isRunning()
-      ? await this.coreRequest({
-        name: 'graph.offer', talkId, recipients: fullRecipients,
-        // What the receiver's intake checks besides the Talk: which broadcast this is.
-        context: { appTalkId: talkId, roomId: chatroomId ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
-      }).then((result) => result.known).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return false; })
-      : false;
-    if (graphOffer) {
-      for (const recipientId of fullRecipients) acceptedRecipientIds.add(recipientId);
-      announceCount += fullRecipients.length;
-    } else if (fullRecipients.length > 0) {
-      const acknowledged = await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
-        recipientUserIds: fullRecipients,
-        roomBroadcast: true,
-        ...(deliveryOptions.skipAcknowledgements ? { skipAcknowledgements: true } : {}),
-      });
-      for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
-      announceCount += fullRecipients.length;
-    }
-    // Deliver per-recipient filtered talk (directed sends, one per distinct filtered body).
-    for (const plan of filteredPlans) {
-      const acknowledged = await mesh.broadcastTalk(plan.talkPayload, {
-        recipientUserIds: [plan.recipientId],
-        roomBroadcast: false,
-      });
-      for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
-      announceCount += 1;
+    // OPEN-106: over graph links when they run. The Talk is written once as encrypted nodes and
+    // each recipient's offer waits in our pair log until they are connected (D2); a recipient who
+    // already exchanged some tags is told which to leave out (`omit`), and their app trims them.
+    if (this.coreRequest && this.graphLinks?.isRunning()) {
+      const groups = new Map<string, { omit: string[]; recipients: string[] }>();
+      for (const plan of plans) {
+        const omit = plan.omit ?? [];
+        const key = omit.join(',');
+        const group = groups.get(key) ?? { omit, recipients: [] };
+        group.recipients.push(plan.recipientId);
+        groups.set(key, group);
+      }
+      const broadcastAt = new Date().toISOString();
+      for (const { omit, recipients } of groups.values()) {
+        const known = await this.coreRequest({
+          name: 'graph.offer', talkId, recipients, talk: { ...talk, id: talkId, authorId: me.id } as Record<string, unknown>,
+          // What the receiver's intake checks besides the Talk: which broadcast this is.
+          context: { appTalkId: talkId, roomId: chatroomId ?? null, broadcastAt, authorName: me.stageName || me.id, ...(omit.length ? { omit } : {}) },
+        }).then((result) => result.known).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return false; });
+        if (!known) continue;
+        for (const recipientId of recipients) acceptedRecipientIds.add(recipientId);
+        announceCount += recipients.length;
+      }
+    } else {
+      if (fullRecipients.length > 0) {
+        const acknowledged = await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
+          recipientUserIds: fullRecipients,
+          roomBroadcast: true,
+          ...(deliveryOptions.skipAcknowledgements ? { skipAcknowledgements: true } : {}),
+        });
+        for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
+        announceCount += fullRecipients.length;
+      }
+      // Per-recipient filtered talk (directed sends, one per distinct filtered body).
+      for (const plan of filteredPlans) {
+        const acknowledged = await mesh.broadcastTalk(plan.talkPayload, {
+          recipientUserIds: [plan.recipientId],
+          roomBroadcast: false,
+        });
+        for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
+        announceCount += 1;
+      }
     }
 
     // Record only delivery that the recipient accepted and acknowledged. Transport attempts
@@ -7353,7 +7371,7 @@ export class IinPublicApp {
       let viaGraph = false;
       if (this.coreRequest && this.graphLinks?.isRunning()) {
         viaGraph = await this.coreRequest({
-          name: 'graph.answer', appTalkId: targetTalkId,
+          name: 'graph.answer', appTalkId: targetTalkId, authorId: targetAuthorId,
           answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
           mode: params.isChatbotResponse ? 'chatbot' : 'manual',
           context: {

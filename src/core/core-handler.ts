@@ -153,14 +153,15 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const sync = graph.host?.sync();
         if (!sync || !graph.mirror) return { offered: 0, known: false };
         // Only this Talk needs to be in the graph: mirror it now rather than wait for the queue.
-        let talkId = await graph.mirror.graphTalkId(request.talkId);
-        if (!talkId) {
-          const entry = await collections.get('myTalks', request.talkId);
-          if (entry) talkId = await graph.mirror.ensure(entry);
-        }
-        // Only a Talk I wrote is offered over the graph; a copied or received one goes the old way.
+        // Whatever I send is my Talk: one I wrote, a copy I keep, or a body the app holds only in
+        // memory. Each is written (or versioned) as my own graph Talk before it is offered.
+        const stored = await collections.get('myTalks', request.talkId) as Record<string, any> | undefined;
+        const body = stored?.fullTalk ?? request.talk;
+        const entry = body && Array.isArray(body.questions)
+          ? { ...(stored ?? {}), talkId: request.talkId, title: stored?.title ?? body.title, type: stored?.type ?? body.type, timestamp: stored?.timestamp ?? body.createdAt, fullTalk: body, role: 'created' }
+          : undefined;
+        let talkId = entry ? await graph.mirror.ensure(entry) : await graph.mirror.graphTalkId(request.talkId);
         if (talkId && !(await options.deviceGraph!.nodeStore.get(`local/mine/talk/${talkId}`))) talkId = undefined;
-        // Not in the graph (never saved through the core): the caller sends it the old way.
         if (!talkId) return { offered: 0, known: false };
         return { offered: await sync.offerTalk(talkId, request.recipients, request.context), known: true };
       }

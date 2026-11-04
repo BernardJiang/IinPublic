@@ -37,7 +37,8 @@ export type CoreRequest =
   | { name: 'deviceGraph.status' }
   | { name: 'deviceGraph.backfill' }
   | GraphHostRequest
-  | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown> }
+  /** `talk`: the body the app is sending, written as my Talk when the core has no record of it. */
+  | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown>; talk?: Record<string, unknown> }
   | { name: 'graph.retract'; talkId: string }
   | { name: 'graph.answerHistory'; months?: number };
 

@@ -27,7 +27,7 @@ export type GraphHostRequest =
   | { name: 'graph.hear'; peerUserId: string; raws: string[] }
   | { name: 'graph.pull'; waitMs?: number }
   | { name: 'graph.status' }
-  | { name: 'graph.answer'; appTalkId: string; answers: Array<{ questionId: string; answerId: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
+  | { name: 'graph.answer'; appTalkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
 /** One answer as the app's response carries it. */
 export type AppAnswer = { questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string };
@@ -103,7 +103,7 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
               onTalk: (talkId, from, context) => {
                 // The app's own id for this Talk (until the app keys Talks by graph ids).
                 if (typeof context?.appTalkId === 'string' && context.appTalkId) {
-                  void store.put(appTalkSoul(graph.prefix, context.appTalkId), { talk: talkId, author: from });
+                  void store.put(appTalkSoul(graph.prefix, context.appTalkId), { [from]: talkId });
                   void store.put(graphAppSoul(graph.prefix, talkId), { app: context.appTalkId });
                 }
                 // The page gets the Talk in the app's shape with the event: one read here, none there.
@@ -156,7 +156,7 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
         case 'graph.answer':
           // I answered a Talk that came over a graph link: one answer event, sent to its author.
           if (!options.appAnswers) return { sent: false };
-          return options.appAnswers().answerAndSend(request.appTalkId, request.answers, request.mode, request.context);
+          return options.appAnswers().answerAndSend(request.appTalkId, request.authorId, request.answers, request.mode, request.context);
         case 'graph.status': {
           const status: GraphHostStatus = { links: sync ? await Promise.all(sync.openLinks().map((peer) => sync!.status(peer))) : [] };
           if (userId) status.userId = userId;
