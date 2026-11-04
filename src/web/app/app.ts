@@ -6472,7 +6472,11 @@ export class IinPublicApp {
    * OPEN-106 step 3: carry the device graph over direct links. Needs the device core, the mesh and
    * my key pair; a later call (a new mesh, a new user) starts it again.
    */
+  /** Who my device graph log owes entries to (the latest `owed` event), kept for a new mesh. */
+  private graphOwedPeers: string[] = [];
+
   private async startGraphLinks(): Promise<void> {
+    this.peerMeshService?.setGraphOwed(this.graphOwedPeers);
     const core = this.coreRequest;
     const pair = this.gunService.getStoredPair() as { pub?: string; priv?: string; epub?: string; epriv?: string } | null;
     const userId = this.currentUser?.id;
@@ -6517,6 +6521,7 @@ export class IinPublicApp {
    * (`appTalkId`) until its own records move onto graph ids.
    */
   private handleGraphEvent(event: GraphEvent): void {
+    if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.peerMeshService?.setGraphOwed(event.peers); return; }
     if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
     if (event.type === 'talk-deleted') {
       void this.handleMeshTalkRetracted({ talkId: event.appTalkId ?? event.talkId, authorId: event.from, retractedAt: event.when ?? Date.now() })
@@ -6787,7 +6792,6 @@ export class IinPublicApp {
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
     eligibleReceiverIds?: string[],
-    deliveryOptions: { skipAcknowledgements?: boolean } = {},
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
@@ -6900,21 +6904,18 @@ export class IinPublicApp {
     // Cache the full (unfiltered) talk body so body-request fallbacks get the complete talk.
     mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
 
-    // Group plans by talkPayload identity to minimise frame count:
-    //   - Recipients that get the full unfiltered talk can share one broadcast call.
-    //   - Recipients that get different filtered versions each need a directed send.
-    const fullTalkPayload = JSON.stringify({ ...talk, id: talkId, authorId: me.id });
-    const fullRecipients = plans
-      .filter((p) => JSON.stringify(p.talkPayload) === fullTalkPayload)
-      .map((p) => p.recipientId);
-    const filteredPlans = plans.filter((p) => JSON.stringify(p.talkPayload) !== fullTalkPayload);
-
     let announceCount = 0;
     const acceptedRecipientIds = new Set<string>();
     // OPEN-106: over graph links when they run. The Talk is written once as encrypted nodes and
     // each recipient's offer waits in our pair log until they are connected (D2); a recipient who
     // already exchanged some tags is told which to leave out (`omit`), and their app trims them.
-    if (this.coreRequest && this.graphLinks?.isRunning()) {
+    // There are no Talk frames: a Talk goes over graph links or not at all (it stays pending).
+    if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+    if (!this.coreRequest || !this.graphLinks?.isRunning()) {
+      console.warn(`[graph-link] links are not running: ${talkId} stays pending`);
+      return false;
+    }
+    {
       const groups = new Map<string, { omit: string[]; recipients: string[] }>();
       for (const plan of plans) {
         const omit = plan.omit ?? [];
@@ -6934,25 +6935,6 @@ export class IinPublicApp {
         for (const recipientId of recipients) acceptedRecipientIds.add(recipientId);
         announceCount += recipients.length;
       }
-    } else {
-      if (fullRecipients.length > 0) {
-        const acknowledged = await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
-          recipientUserIds: fullRecipients,
-          roomBroadcast: true,
-          ...(deliveryOptions.skipAcknowledgements ? { skipAcknowledgements: true } : {}),
-        });
-        for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
-        announceCount += fullRecipients.length;
-      }
-      // Per-recipient filtered talk (directed sends, one per distinct filtered body).
-      for (const plan of filteredPlans) {
-        const acknowledged = await mesh.broadcastTalk(plan.talkPayload, {
-          recipientUserIds: [plan.recipientId],
-          roomBroadcast: false,
-        });
-        for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
-        announceCount += 1;
-      }
     }
 
     // Record only delivery that the recipient accepted and acknowledged. Transport attempts
@@ -6970,7 +6952,7 @@ export class IinPublicApp {
     }
 
     const suppressedCount = receiverIds.length - plans.length;
-    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${announceCount} (suppressed=${suppressedCount}, partialFiltered=${filteredPlans.length})`);
+    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${announceCount} (suppressed=${suppressedCount}, partialFiltered=${plans.filter((p) => p.omit?.length).length})`);
     return true;
   }
 
@@ -7798,7 +7780,6 @@ export class IinPublicApp {
               talk,
               receivers,
               eligibleIds,
-              { skipAcknowledgements: opts.skipDeliveryAcks === true },
             );
           }),
         );

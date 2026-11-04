@@ -63,6 +63,8 @@ export type GraphSyncEvents = {
   /** Someone answered (or changed their answer to) my Talk. */
   onAnswer?: (talkId: string, fromUserId: string, eventId: string, context?: Record<string, unknown>) => void;
   onAnswerDeleted?: (talkId: string, fromUserId: string) => void;
+  /** The people my log has entries for that they have not read changed (`owed()`). */
+  onOwedChange?: (owed: string[]) => void;
 };
 
 export type GraphLinkStatus = {
@@ -70,6 +72,8 @@ export type GraphLinkStatus = {
   /** Diagnostics: the last entry their head names, as this device holds it, and the entries of
    * their first log block it holds. */
   theirHead?: number; theirBlock?: string[];
+  /** How far into my log they say they have applied (their head's `read`). */
+  theirRead?: number;
 };
 
 const entryHash = (entry: LogEntry) => portableSha256Hex(canonicalJson(entry));
@@ -98,6 +102,13 @@ export function createGraphSync(options: {
   const root = gun._;
   const audience = createGraphAudience(store, { me: me.userId, prefix });
   root.opt.graphAudience = audience;
+  /**
+   * Delivery receipts: the last entry I wrote to each person's log until they say (their head's
+   * `read`) they applied it. The page keeps a link wanted while someone is owed (as the Talk
+   * outbox did for frames).
+   */
+  const owedSoul = `${prefix}sync/owed`;
+  const owed = new Map<string, number>();
   // Reads of the other person's souls go over the link, so they wait longer than local reads.
   // On a phone a read crosses page → frame → the other page → its core and back, often over 1.5 s.
   const remote = gunNodeStore(gun, { readWaitMs: options.remoteReadMs ?? 400, missWaitMs: options.remoteReadMs ?? 4000, getTimeoutMs: 12_000 });
@@ -109,6 +120,8 @@ export function createGraphSync(options: {
     /** A stalled log (an entry or its Talk not readable yet) is read again after this many ms. */
     retryMs?: number | undefined; retryTimer?: ReturnType<typeof setTimeout> | undefined;
     lastError?: string | undefined;
+    /** The `read` value last written to my head for this pair. */
+    readMarked?: number;
     /** Log blocks with a live subscription: a once-read lease expires, and later writes to the
      * same block would then be refused as unasked-for and never fetched again from the cache. */
     watched?: Map<string, any>;
@@ -163,7 +176,10 @@ export function createGraphSync(options: {
         store.put(mine.logBlock(pairTag, Math.floor(n / LOG_BLOCK)), { [String(n)]: cipher }),
         store.put(mine.head(pairTag), { head }),
         store.put(stateSoul, { n, hash }),
+        store.put(owedSoul, { [peerUserId]: n }),
       ]);
+      owed.set(peerUserId, n);
+      options.events?.onOwedChange?.([...owed.keys()]);
       return n;
     });
   }
@@ -306,6 +322,7 @@ export function createGraphSync(options: {
           return true;
         });
       } while (link.again && links.get(peerUserId) === link);
+      await checkRead(peerUserId, link).catch(() => undefined);
       if (link.retryTimer) { clearTimeout(link.retryTimer); link.retryTimer = undefined; }
       if (stalled && links.get(peerUserId) === link) {
         // Not waiting for their next write: try again, backing off up to 30 s while the link is up.
@@ -330,7 +347,14 @@ export function createGraphSync(options: {
     if (typeof state?.broken === 'string') return false;
     let next = typeof state?.next === 'number' ? state.next : 0;
     let prev = typeof state?.hash === 'string' ? state.hash : '';
-    while (next <= head.n) {
+    try {
+      return await readEntries();
+    } finally {
+      // My head says how far I applied their log: their device stops wanting a link for it.
+      await markRead(link, next - 1).catch(() => undefined);
+    }
+    async function readEntries(): Promise<boolean> {
+    while (next <= head!.n) {
       const blockSoul = theirs.logBlock(link.pairTag, Math.floor(next / LOG_BLOCK));
       link.watched ||= new Map();
       if (!link.watched.has(blockSoul)) {
@@ -358,6 +382,26 @@ export function createGraphSync(options: {
       state = { next, hash: prev };
     }
     return false;
+    }
+  }
+
+  /** Write `read` into my head for this pair, once per new value. */
+  async function markRead(link: Link, n: number): Promise<void> {
+    if (n < 0 || link.readMarked === n) return;
+    link.readMarked = n;
+    await store.put(mine.head(link.pairTag), { read: await encryptJson({ n }, link.secret) });
+  }
+
+  /** Their head says how far they applied my log: clear what they owe me nothing more for. */
+  async function checkRead(peerUserId: string, link: Link): Promise<void> {
+    const want = owed.get(peerUserId);
+    if (want === undefined) return;
+    const node = gun._.graph?.[graphWireSouls(peerUserId).head(link.pairTag)];
+    const read = await decryptJson<{ n: number }>(node?.read, link.secret).catch(() => undefined);
+    if (typeof read?.n !== 'number' || read.n < want || owed.get(peerUserId) !== want) return;
+    owed.delete(peerUserId);
+    await store.put(owedSoul, { [peerUserId]: null });
+    options.events?.onOwedChange?.([...owed.keys()]);
   }
 
   // ---- links ---------------------------------------------------------------------------------
@@ -366,7 +410,13 @@ export function createGraphSync(options: {
     audience,
 
     /** Load the grants. Call once before opening links. */
-    async start(): Promise<void> { await audience.load(); },
+    async start(): Promise<void> {
+      await audience.load();
+      for (const [peer, n] of Object.entries((await store.get(owedSoul)) || {})) if (peer !== '_' && typeof n === 'number') owed.set(peer, n);
+    },
+
+    /** People my log has entries for that they have not read yet. */
+    owed: (): string[] => [...owed.keys()],
 
     /** A direct link to this person is up: make it a Gun peer and catch up on their log. */
     async open(peerUserId: string): Promise<void> {
@@ -507,6 +557,8 @@ export function createGraphSync(options: {
         const graphNode = (soul: string) => gun._.graph?.[soul];
         const head = await decryptJson<{ n: number }>(graphNode(theirs.head(link.pairTag))?.head, link.secret).catch(() => undefined);
         if (head) status.theirHead = head.n;
+        const read = await decryptJson<{ n: number }>(graphNode(theirs.head(link.pairTag))?.read, link.secret).catch(() => undefined);
+        if (read) status.theirRead = read.n;
         status.theirBlock = Object.keys(graphNode(theirs.logBlock(link.pairTag, 0)) || {}).filter((k) => k !== '_');
       }
       return status;

@@ -159,10 +159,15 @@ describe('Talk exchange by Gun sync', () => {
     await until(async () => (await adam.graph.answers.theirs(talkId)).eve === answerId);
     expect(await adam.graph.answers.answerSet(answerId)).toEqual(await eve.graph.answers.answerSet(answerId));
 
-    // Carol was offered the Talk but had no link: nothing reached her. On connect she catches up.
+    // Eve's head says she read Adam's log, so Adam owes her nothing more (no link is wanted).
+    await until(() => !adam.sync.owed().includes('eve'));
+    // Carol was offered the Talk but had no link: nothing reached her, and Adam still owes her.
     expect(await carol.graph.arrivals.read(talkId)).toBeUndefined();
+    expect(adam.sync.owed()).toContain('carol');
     await Promise.all([adam.sync.open('carol'), carol.sync.open('adam')]);
     await until(async () => !!(await carol.graph.arrivals.read(talkId)));
+    await until(() => !adam.sync.owed().includes('carol'));
+    expect((await adam.sync.status('carol')).theirRead).toBe((await adam.sync.status('carol')).sentUpTo);
 
     // An edit is a new version, offered again.
     await adam.graph.talks.edit(talkId, tennis('Tennis buddy'));

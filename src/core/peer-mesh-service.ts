@@ -463,11 +463,23 @@ export class PeerMeshService {
     void this.opts.knockPeer({ userId: neighbor.userId, pub: neighbor.pub }).catch(() => undefined);
   }
 
-  /** Talks queued in the outbox per recipient for the current room. */
+  /** Talks queued per recipient: the outbox for the current room, and the device graph's log. */
   private pendingRecipients(): Set<string> {
-    const pending = new Set<string>();
+    const pending = new Set<string>(this.graphOwed);
     for (const key of this.queuedDirectTalks) pending.add(key.slice(0, key.indexOf('|')));
     return pending;
+  }
+
+  /**
+   * OPEN-106: the people my device graph log has entries for that they have not read. Like Talks
+   * in the outbox, each is a reason to open a link (Nearby v3 opens links only for a reason).
+   */
+  private graphOwed = new Set<string>();
+  setGraphOwed(userIds: string[]): void {
+    const next = new Set(userIds.filter((id) => id && id !== this.opts.localUserId));
+    const added = [...next].some((id) => !this.graphOwed.has(id));
+    this.graphOwed = next;
+    if (added && this.currentRoomId) void this.reconcileNeighbors().then(() => this.scheduleReconcile()).catch(() => undefined);
   }
 
   /** How many people the Nearby v3 broadcast loop links to at once now. */

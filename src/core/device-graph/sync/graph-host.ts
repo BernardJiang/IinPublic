@@ -18,7 +18,9 @@ export type GraphEvent =
   | { type: 'talk'; talkId: string; from: string; context?: Record<string, unknown>; talk?: Record<string, unknown> }
   | { type: 'talk-deleted'; talkId: string; from: string; appTalkId?: string; when?: number }
   | { type: 'answer'; talkId: string; from: string; eventId: string; when?: number; mode?: string; context?: Record<string, unknown>; answers?: AppAnswer[] }
-  | { type: 'answer-deleted'; talkId: string; from: string };
+  | { type: 'answer-deleted'; talkId: string; from: string }
+  /** The people my log has entries for that they have not read yet: the page keeps links wanted. */
+  | { type: 'owed'; peers: string[] };
 
 export type GraphHostRequest =
   | { name: 'graph.identity'; userId: string; pair: SeaPair }
@@ -127,9 +129,11 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
                 })().catch(() => push({ type: 'answer', talkId, from, eventId }));
               },
               onAnswerDeleted: (talkId, from) => push({ type: 'answer-deleted', talkId, from }),
+              onOwedChange: (peers) => push({ type: 'owed', peers }),
             },
           });
           await sync.start();
+          push({ type: 'owed', peers: sync.owed() });
           return { ok: true };
         }
         case 'graph.open': {
