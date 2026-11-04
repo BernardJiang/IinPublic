@@ -5913,9 +5913,11 @@ export class IinPublicApp {
     this.coreRequest = node ?? worker;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
     if (this.peerMeshService) void this.startGraphLinks();
-    // Diagnostics and e2e: the device graph mirror's counts (OPEN-106 phase 4), from either host.
+    // Diagnostics and e2e: counts of my Talks written into the device graph (OPEN-106), from either host.
     if (typeof window !== 'undefined') {
       (window as any).__iinpublic_device_graph_status = () => this.coreRequest?.({ name: 'deviceGraph.status' }) ?? null;
+      // E2E fixtures that write my Talks directly take a graph id for them (OPEN-106 step 2e).
+      (window as any).__iinpublic_new_talk_id = () => this.coreRequest?.({ name: 'graph.newTalkId' }) ?? null;
     }
   }
 
@@ -6177,6 +6179,8 @@ export class IinPublicApp {
       }
       // The Me tab reads my answers from the graph (OPEN-106 step 1 of the switch-over).
       setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
+      // New Talks are known by their graph id from the start (OPEN-106 step 2e).
+      this.talkService.setNewTalkIdSource(() => core({ name: 'graph.newTalkId' }));
       this.watchGraphStorage();
     } catch (error) {
       console.warn('[graph-link] could not start:', error);
@@ -6185,14 +6189,13 @@ export class IinPublicApp {
 
   /**
    * OPEN-106 step 3: a Talk that arrived over a graph link goes through the same intake, incoming
-   * list and chatbot as one that arrived in a Talk frame. The app keeps the author's Talk id
-   * (`appTalkId`) until its own records move onto graph ids.
+   * list and chatbot as one that arrived in a Talk frame, under its graph id (OPEN-106 step 2e).
    */
   private handleGraphEvent(event: GraphEvent): void {
     if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.peerMeshService?.setGraphOwed(event.peers); return; }
     if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
     if (event.type === 'talk-deleted') {
-      void this.handleMeshTalkRetracted({ talkId: event.appTalkId ?? event.talkId, authorId: event.from, retractedAt: event.when ?? Date.now() })
+      void this.handleMeshTalkRetracted({ talkId: event.talkId, authorId: event.from, retractedAt: event.when ?? Date.now() })
         .catch((error) => console.warn('[graph-link] retraction failed:', error));
       return;
     }
@@ -6205,7 +6208,7 @@ export class IinPublicApp {
       if (!trimmed) return;
       talk = trimmed.filtered as Record<string, any>;
     }
-    const appTalkId = typeof context.appTalkId === 'string' && context.appTalkId ? context.appTalkId : event.talkId;
+    const appTalkId = event.talkId;
     // Nearby receiving limit: Talks from strangers beyond the per-minute budget are not shown.
     const contacts = this.currentUser?.knownPeople;
     if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) return;
@@ -6259,7 +6262,7 @@ export class IinPublicApp {
     const at = new Date(event.when ?? Date.now()).toISOString();
     const payload = {
       responseId: typeof context.responseId === 'string' ? context.responseId : event.eventId,
-      talkId: typeof context.appTalkId === 'string' ? context.appTalkId : event.talkId,
+      talkId: event.appTalkId ?? event.talkId,
       authorId: me,
       responderId: event.from,
       submittedAt: typeof context.submittedAt === 'string' ? context.submittedAt : at,
@@ -6600,7 +6603,7 @@ export class IinPublicApp {
         const known = await this.coreRequest({
           name: 'graph.offer', talkId, recipients, talk: { ...talk, id: talkId, authorId: me.id } as Record<string, unknown>,
           // What the receiver's intake checks besides the Talk: which broadcast this is.
-          context: { appTalkId: talkId, roomId: chatroomId ?? null, broadcastAt, authorName: me.stageName || me.id, ...(omit.length ? { omit } : {}) },
+          context: { roomId: chatroomId ?? null, broadcastAt, authorName: me.stageName || me.id, ...(omit.length ? { omit } : {}) },
         }).then((result) => result.known).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return false; });
         if (!known) continue;
         for (const recipientId of recipients) acceptedRecipientIds.add(recipientId);
@@ -7023,7 +7026,7 @@ export class IinPublicApp {
       if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
       const sent = this.coreRequest && this.graphLinks?.isRunning()
         ? await this.coreRequest({
-          name: 'graph.answer', appTalkId: targetTalkId, authorId: targetAuthorId,
+          name: 'graph.answer', talkId: targetTalkId, authorId: targetAuthorId,
           answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
           mode: params.isChatbotResponse ? 'chatbot' : 'manual',
           context: {
@@ -7363,7 +7366,7 @@ export class IinPublicApp {
     this.peerMeshService?.cacheTalkBody(talkId, body);
     const result = await this.coreRequest({
       name: 'graph.offer', talkId, recipients, talk: body,
-      context: { appTalkId: talkId, roomId: this.chatroomService.getCurrentChatroomId() ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+      context: { roomId: this.chatroomService.getCurrentChatroomId() ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
     });
     if (!result.known) throw new Error(`offerTalkForE2e: ${talkId} could not be written to the graph`);
     return recipients;

@@ -33,6 +33,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom, gunBaseURL } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -141,7 +142,7 @@ test.describe('Offline answer — two browsers, graph log catch-up', () => {
     }
 
     // ── 4. Tom creates + broadcasts a tag talk ───────────────────────────────
-    const TEST_TALK_ID = `mailbox-e2e-${Date.now()}`;
+    const TEST_TALK_ID = await newGraphTalkId(pageTom);
     const TEST_TALK_TITLE = 'Mailbox E2E Offline Talk';
 
     // Capture Tom's epub for later use in Jerry's encryption

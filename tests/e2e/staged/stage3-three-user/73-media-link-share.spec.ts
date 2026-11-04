@@ -17,6 +17,7 @@ import { afterLoad, afterSync, afterAction } from '../../helpers/timing';
 import { bootstrapUser, ensureMeshNeighbors } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../../helpers/ports';
+import { newGraphTalkId } from '../../helpers/device-graph';
 
 const E2E_TIMEOUT_MS = 30_000;
 
@@ -75,7 +76,7 @@ test.describe('Multimedia link sharing (composer + talk editor)', () => {
     ]);
 
     // Adam broadcasts a tag talk; Bob matches → pair conversation exists both sides.
-    const talkId = `media-share-e2e-${Date.now()}`;
+    const talkId = await newGraphTalkId(pageAdam);
     const adamEpub = await pageAdam.evaluate(() =>
       String((window as any).__iinpublic_app.getApp().gunService.getStoredPair()?.epub || ''));
     const talkDef = {

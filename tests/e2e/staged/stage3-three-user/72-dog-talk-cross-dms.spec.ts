@@ -36,6 +36,7 @@ import {
 } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../../helpers/ports';
+import { newGraphTalkId } from '../../helpers/device-graph';
 
 /** WebRTC overlay + DM delivery budget under parallel-suite load. */
 const DM_E2E_TIMEOUT_MS = 30_000;
@@ -208,7 +209,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
     ]);
 
     // ── 4. Adam creates and broadcasts a `dog` tag talk ─────────────────────
-    const TALK_ID = `dog-tag-e2e-${Date.now()}`;
+    const TALK_ID = await newGraphTalkId(pageAdam);
     const TALK_TITLE = 'dog';
     const adamEpub = await pageAdam.evaluate(() =>
       (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.epub ?? '');
@@ -336,7 +337,7 @@ test.describe('Three-user dog talk + full DM mesh (both ends)', () => {
     //        to the matcher only. Bob likes German Shepherds → MATCH → receives the
     //        ipfs:// link in the Adam↔Bob thread. Carol answers No → IGNORE → her
     //        Adam thread never gets the share.
-    const GS_TALK_ID = `gs-dog-photo-e2e-${Date.now()}`;
+    const GS_TALK_ID = await newGraphTalkId(pageAdam);
     const dogPhotoBytes = `fake-dog-photo-bytes ${Date.now()}`;
     const bobEpub = await pageBob.evaluate(() =>
       String((window as any).__iinpublic_app.getApp().gunService.getStoredPair()?.epub || ''));

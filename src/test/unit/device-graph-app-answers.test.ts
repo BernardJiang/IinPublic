@@ -7,7 +7,7 @@
 import { memoryNodeStore } from '../../core/device-graph/node-store';
 import { createDeviceGraph } from '../../core/device-graph/device-graph';
 import { formatEventId } from '../../core/device-graph/event-id';
-import { appTalkSoul, createAppAnswers } from '../../core/device-graph/sync/app-answers';
+import { createAppAnswers } from '../../core/device-graph/sync/app-answers';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -25,17 +25,21 @@ function setup() {
   const graph = createDeviceGraph(store, { randomBytes: (n) => Uint8Array.from({ length: n }, () => (seed++ * 37) % 256) });
   const own = new Map<string, string>();
   const sync = { sendAnswer: jest.fn(async () => undefined), sendAnswerDeletion: jest.fn(async () => undefined) };
-  const app = createAppAnswers({ store, graph, ownTalkId: async (id) => own.get(id), sync: () => sync as any });
+  const ownTalks = {
+    graphTalkId: async (id: string) => own.get(id),
+    appTalkId: async (talkId: string) => [...own].find(([, graphId]) => graphId === talkId)?.[0] ?? talkId,
+  };
+  const app = createAppAnswers({ store, graph, ownTalks, sync: () => sync as any });
   return { store, graph, own, sync, app };
 }
 
 let counter = 1;
-async function received(d: ReturnType<typeof setup>, appTalkId: string, author = 'adam') {
+/** A Talk received over a graph link: the app knows it by its graph id. */
+async function received(d: ReturnType<typeof setup>, author = 'adam') {
   const when = Date.now() - 1000;
   const device = (author.charCodeAt(0) % 16).toString(16).repeat(32);
   const talkId = formatEventId({ when, deviceId: device, counter: counter++ });
   await d.graph.arrivals.receive({ talkId, versionId: talkId, authorId: author, when, device, talk: tennis() }, { userId: author });
-  await d.store.put(appTalkSoul(d.graph.prefix, appTalkId), { [author]: talkId });
   return talkId;
 }
 
@@ -45,33 +49,33 @@ const weekly = [{ questionId: 'q_0', answerId: 'a_0_0' }, { questionId: 'q_1', a
 describe('app answers in the device graph', () => {
   it('a received Talk: saved once, sent once, listed for the Me tab, deleted with a notice to its author', async () => {
     const d = setup();
-    const talkId = await received(d, 'app-1');
-    await d.app.recordHistory(record('app-1', weekly, { senderIds: ['adam'] }));
+    const talkId = await received(d);
+    await d.app.recordHistory(record(talkId, weekly, { senderIds: ['adam'] }));
     const first = await d.graph.answers.answered(talkId);
     expect(first).toBeTruthy();
     // The app saves its history often: the same answers are not written again.
-    await d.app.recordHistory(record('app-1', weekly, { senderIds: ['adam'] }));
+    await d.app.recordHistory(record(talkId, weekly, { senderIds: ['adam'] }));
     expect(await d.graph.answers.answered(talkId)).toBe(first);
     // Sending reuses the event already written.
-    expect(await d.app.answerAndSend('app-1', 'adam', weekly, 'manual', { responseId: 'r1' })).toEqual({ sent: true, eventId: first });
-    expect(d.sync.sendAnswer).toHaveBeenCalledWith(first, { responseId: 'r1', appTalkId: 'app-1' });
+    expect(await d.app.answerAndSend(talkId, 'adam', weekly, 'manual', { responseId: 'r1' })).toEqual({ sent: true, eventId: first });
+    expect(d.sync.sendAnswer).toHaveBeenCalledWith(first, { responseId: 'r1' });
 
     const history = await d.app.history();
     expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({ appTalkId: 'app-1', graphTalkId: talkId, eventId: first, mine: false, withUser: 'adam', mode: 'manual' });
+    expect(history[0]).toMatchObject({ appTalkId: talkId, graphTalkId: talkId, eventId: first, mine: false, withUser: 'adam', mode: 'manual' });
     expect(history[0]!.talk).toMatchObject({ title: 'Tennis partner' });
     expect(history[0]!.answers.map((a) => [a.questionId, a.answerId, a.answerText])).toEqual([['q_0', 'a_0_0', 'Yes'], ['q_1', 'a_1_0', 'Weekly']]);
 
     // A changed answer (the chatbot's this time) replaces it.
-    await d.app.recordHistory(record('app-1', [{ questionId: 'q_0', answerId: 'a_0_1' }], { answeredBy: 'chatbot', senderIds: ['adam'] }));
+    await d.app.recordHistory(record(talkId, [{ questionId: 'q_0', answerId: 'a_0_1' }], { answeredBy: 'chatbot', senderIds: ['adam'] }));
     const [changed] = await d.app.history();
     expect(changed!.eventId).not.toBe(first);
     expect(changed).toMatchObject({ mode: 'chatbot' });
     expect(changed!.answers.map((a) => a.answerId)).toEqual(['a_0_1']);
 
     // Removed: a deletion event; the author was sent an answer, so they are told.
-    await d.app.answerAndSend('app-1', 'adam', [{ questionId: 'q_0', answerId: 'a_0_1' }], 'chatbot');
-    expect(await d.app.forget('app-1')).toEqual({ deleted: 1, sent: 1 });
+    await d.app.answerAndSend(talkId, 'adam', [{ questionId: 'q_0', answerId: 'a_0_1' }], 'chatbot');
+    expect(await d.app.forget(talkId)).toEqual({ deleted: 1, sent: 1 });
     expect(d.sync.sendAnswerDeletion).toHaveBeenCalledTimes(1);
     expect(await d.app.history()).toEqual([]);
   });
@@ -90,18 +94,20 @@ describe('app answers in the device graph', () => {
     expect(d.sync.sendAnswerDeletion).not.toHaveBeenCalled();
   });
 
-  it('two authors sending under one app id (starter tags) are two Talks: each answer goes to its own author', async () => {
+  it('the same Talk from two authors (starter tags) is answered once in the app: each author gets their own answer', async () => {
     const d = setup();
-    const fromAnn = await received(d, 'starter-pizza', 'ann');
-    const fromCy = await received(d, 'starter-pizza', 'cy');
-    // One answer to the cluster both sent; each author gets their own answer event.
-    await d.app.recordHistory(record('starter-pizza', weekly, { senderIds: ['ann', 'cy'] }));
+    const fromAnn = await received(d, 'ann');
+    const fromCy = await received(d, 'cy');
+    // The app's one row for both is keyed by Ann's Talk and names both senders.
+    await d.app.recordHistory(record(fromAnn, weekly, { senderIds: ['ann', 'cy'] }));
     const [annEvent, cyEvent] = [await d.graph.answers.answered(fromAnn), await d.graph.answers.answered(fromCy)];
     expect(annEvent && cyEvent && annEvent !== cyEvent).toBe(true);
-    expect(await d.app.answerAndSend('starter-pizza', 'ann', weekly, 'manual')).toEqual({ sent: true, eventId: annEvent });
-    expect(await d.app.answerAndSend('starter-pizza', 'cy', weekly, 'manual')).toEqual({ sent: true, eventId: cyEvent });
+    expect(await d.app.answerAndSend(fromAnn, 'ann', weekly, 'manual')).toEqual({ sent: true, eventId: annEvent });
+    expect(await d.app.answerAndSend(fromCy, 'cy', weekly, 'manual')).toEqual({ sent: true, eventId: cyEvent });
+    // Not to the wrong author.
+    expect(await d.app.answerAndSend(fromAnn, 'cy', weekly, 'manual')).toEqual({ sent: false });
     // The Me tab keeps one answer per question and situation: one row for the tag.
-    expect((await d.app.history()).map((h) => h.appTalkId)).toEqual(['starter-pizza']);
-    expect(await d.app.forget('starter-pizza')).toEqual({ deleted: 2, sent: 2 });
+    expect(await d.app.history()).toHaveLength(1);
+    expect(await d.app.forget(fromAnn, ['ann', 'cy'])).toEqual({ deleted: 2, sent: 2 });
   });
 });

@@ -1,13 +1,19 @@
 /**
- * The device graph mirror (OPEN-106 phase 4) in e2e: turn it on for a user, and check its counts.
+ * The device graph (OPEN-106) in e2e: the counts of my Talks written into it, Talk ids from it.
  * It runs in whichever core the page uses (the web worker, or a phone's embedded node).
  */
 import { expect, type Page } from '@playwright/test';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export async function enableDeviceGraph(page: Page): Promise<void> {
-  await page.evaluate(() => (window as any).__iinpublic_collection_edit('settings', { set: { deviceGraph: 'true' } }));
+/**
+ * A new Talk id from this page's device graph (OPEN-106 step 2e): a Talk the spec writes into the
+ * author's My Talks and sends over graph links must be known by its graph id on both sides.
+ */
+export async function newGraphTalkId(page: Page): Promise<string> {
+  const id = await page.evaluate(() => (window as any).__iinpublic_new_talk_id?.() ?? null);
+  if (typeof id !== 'string' || !id) throw new Error('this page has no device graph to take a Talk id from');
+  return id;
 }
 
 export function deviceGraphStatus(page: Page): Promise<any> {
@@ -16,8 +22,8 @@ export function deviceGraphStatus(page: Page): Promise<any> {
 
 /** Waits until the counts include `expected`, with no read-back mismatch and no error. */
 export async function expectDeviceGraph(page: Page, label: string, expected: Record<string, number>): Promise<void> {
-  await expect.poll(() => deviceGraphStatus(page), { timeout: 20_000, message: `${label}: device graph mirror` })
-    .toMatchObject({ enabled: true, ...expected, mismatches: 0, errors: 0 });
+  await expect.poll(() => deviceGraphStatus(page), { timeout: 20_000, message: `${label}: my Talks in the device graph` })
+    .toMatchObject({ enabled: true, ...expected, errors: 0 });
 }
 
 /**

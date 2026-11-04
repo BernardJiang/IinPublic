@@ -37,6 +37,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -195,7 +196,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
     }
 
     // ---- 5. Tom broadcasts a tag talk (tennis + chess) to Jerry and Bob --------
-    const TOM_TALK_ID = `exchsup-tom-${Date.now()}`;
+    const TOM_TALK_ID = await newGraphTalkId(pageTom);
 
     const tomTalkDef = {
       id: TOM_TALK_ID,
@@ -323,7 +324,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
     expect(tomExchangedTennis, 'Tom: exchanged[jerry::tennis] should exist after Jerry answered Tom').not.toBeNull();
 
     // ---- 11. Jerry broadcasts his own talk with tennis + chess to Tom and Bob --
-    const JERRY_TALK_ID = `exchsup-jerry-${Date.now()}`;
+    const JERRY_TALK_ID = await newGraphTalkId(pageJerry);
     const jerryEpub = await pageJerry.evaluate(() => {
       const pair = (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.();
       return pair?.epub ?? '';
@@ -476,7 +477,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
 
     // ---- 14. Part C: Jerry edits tennis (new text → new identity key) ---------
     // After edit, Tom should receive the new tennis' once.
-    const JERRY_TALK_EDITED_ID = `exchsup-jerry-v2-${Date.now()}`;
+    const JERRY_TALK_EDITED_ID = await newGraphTalkId(pageJerry);
     const jerryTalkEditedDef = {
       id: JERRY_TALK_EDITED_ID,
       authorId: jerryId,

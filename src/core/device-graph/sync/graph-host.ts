@@ -16,8 +16,9 @@ import { createGraphSync, type GraphCrypto, type GraphLinkStatus, type PeerKeys,
 
 export type GraphEvent =
   | { type: 'talk'; talkId: string; from: string; context?: Record<string, unknown>; talk?: Record<string, unknown> }
-  | { type: 'talk-deleted'; talkId: string; from: string; appTalkId?: string; when?: number }
-  | { type: 'answer'; talkId: string; from: string; eventId: string; when?: number; mode?: string; context?: Record<string, unknown>; answers?: AppAnswer[] }
+  | { type: 'talk-deleted'; talkId: string; from: string; when?: number }
+  /** `appTalkId`: the app's id for my Talk when it is a copy (`own-talks.ts`), else the graph id. */
+  | { type: 'answer'; talkId: string; appTalkId?: string; from: string; eventId: string; when?: number; mode?: string; context?: Record<string, unknown>; answers?: AppAnswer[] }
   | { type: 'answer-deleted'; talkId: string; from: string }
   /** The people my log has entries for that they have not read yet: the page keeps links wanted. */
   | { type: 'owed'; peers: string[] };
@@ -29,7 +30,7 @@ export type GraphHostRequest =
   | { name: 'graph.hear'; peerUserId: string; raws: string[] }
   | { name: 'graph.pull'; waitMs?: number }
   | { name: 'graph.status' }
-  | { name: 'graph.answer'; appTalkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
+  | { name: 'graph.answer'; talkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
 /** One answer as the app's response carries it. */
 export type AppAnswer = { questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string };
@@ -38,9 +39,6 @@ export type GraphPull = { out: Array<{ to: string; raw: string }>; events: Graph
 export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown };
 
 const MAX_PULL_WAIT_MS = 25_000;
-
-const appTalkSoul = (prefix: string, appTalkId: string) => `${prefix}ix/app-talk/${encodeURIComponent(appTalkId)}`;
-const graphAppSoul = (prefix: string, talkId: string) => `${prefix}ix/graph-app/${talkId}`;
 
 /** An answer set on my Talk as the app's answers: each situation's question, each chosen choice. */
 export function appAnswersOf(talk: TalkStructure, set: Record<string, AnswerSetEntry>, mode: string, perspective: Perspective = 'responder'): AppAnswer[] {
@@ -66,6 +64,8 @@ export function appTalkOf(talk: Record<string, any>): Record<string, unknown> {
 export function createGraphHost(options: { gun: any; store: NodeStore; graph: DeviceGraph; crypto: GraphCrypto; log?: (message: string) => void;
   /** Where answers are written and sent (`app-answers.ts`, which needs this host's sync). */
   appAnswers?: () => import('./app-answers').AppAnswers;
+  /** The app's id for my graph Talk (`own-talks.ts`). */
+  appTalkId?: (talkId: string) => Promise<string>;
 }) {
   const { store, graph } = options;
   let sync: ReturnType<typeof createGraphSync> | undefined;
@@ -103,21 +103,12 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
             peerKeys, graph, ...(options.log ? { log: options.log } : {}),
             events: {
               onTalk: (talkId, from, context) => {
-                // The app's own id for this Talk (until the app keys Talks by graph ids).
-                if (typeof context?.appTalkId === 'string' && context.appTalkId) {
-                  void store.put(appTalkSoul(graph.prefix, context.appTalkId), { [from]: talkId });
-                  void store.put(graphAppSoul(graph.prefix, talkId), { app: context.appTalkId });
-                }
                 // The page gets the Talk in the app's shape with the event: one read here, none there.
                 void graph.arrivals.read(talkId).then((talk) => {
                   push({ type: 'talk', talkId, from, ...(context ? { context } : {}), ...(talk ? { talk: appTalkOf(talk) } : {}) });
                 }).catch(() => push({ type: 'talk', talkId, from, ...(context ? { context } : {}) }));
               },
-              onTalkDeleted: (talkId, from) => {
-                void store.get(graphAppSoul(graph.prefix, talkId)).then((node) => {
-                  push({ type: 'talk-deleted', talkId, from, when: Date.now(), ...(typeof node?.app === 'string' ? { appTalkId: node.app } : {}) });
-                }).catch(() => push({ type: 'talk-deleted', talkId, from }));
-              },
+              onTalkDeleted: (talkId, from) => push({ type: 'talk-deleted', talkId, from, when: Date.now() }),
               onAnswer: (talkId, from, eventId, context) => {
                 void (async () => {
                   const event = await store.get(`${graph.prefix}ev/${eventId}`);
@@ -125,7 +116,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
                   const set = await graph.answers.answerSet(eventId);
                   const mode = typeof event?.mode === 'string' ? event.mode : 'manual';
                   const answers = talk && set ? appAnswersOf(talk, set, mode) : undefined;
-                  push({ type: 'answer', talkId, from, eventId, mode, ...(typeof event?.when === 'number' ? { when: event.when } : {}), ...(context ? { context } : {}), ...(answers ? { answers } : {}) });
+                  const appTalkId = options.appTalkId ? await options.appTalkId(talkId) : talkId;
+                  push({ type: 'answer', talkId, ...(appTalkId !== talkId ? { appTalkId } : {}), from, eventId, mode, ...(typeof event?.when === 'number' ? { when: event.when } : {}), ...(context ? { context } : {}), ...(answers ? { answers } : {}) });
                 })().catch(() => push({ type: 'answer', talkId, from, eventId }));
               },
               onAnswerDeleted: (talkId, from) => push({ type: 'answer-deleted', talkId, from }),
@@ -160,7 +152,7 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
         case 'graph.answer':
           // I answered a Talk that came over a graph link: one answer event, sent to its author.
           if (!options.appAnswers) return { sent: false };
-          return options.appAnswers().answerAndSend(request.appTalkId, request.authorId, request.answers, request.mode, request.context);
+          return options.appAnswers().answerAndSend(request.talkId, request.authorId, request.answers, request.mode, request.context);
         case 'graph.status': {
           const status: GraphHostStatus = { links: sync ? await Promise.all(sync.openLinks().map((peer) => sync!.status(peer))) : [] };
           if (userId) status.userId = userId;

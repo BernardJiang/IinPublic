@@ -31,6 +31,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -175,7 +176,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
     }
 
     // ── 5. Tom creates and broadcasts a tag talk ──────────────────────────────
-    const TEST_TALK_ID = `suppress-e2e-${Date.now()}`;
+    const TEST_TALK_ID = await newGraphTalkId(pageTom);
     const TEST_TALK_TITLE = 'Suppression E2E Tennis';
 
     const talkDef = {

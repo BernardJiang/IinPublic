@@ -12,7 +12,7 @@ import type { ExchangeRecord } from './exchanges';
 
 import type { LedgerCommand, LedgerCommandResult } from './talk-ledger-store';
 
-import type { MirrorStatus } from './device-graph/mirror';
+import type { OwnTalksStatus } from './device-graph/sync/own-talks';
 import type { GraphHostRequest, GraphHostStatus, GraphPull } from './device-graph/sync/graph-host';
 import type { AppAnswerRecord } from './device-graph/sync/app-answers';
 
@@ -35,12 +35,13 @@ export type CoreRequest =
   | { name: 'device.get'; path: string }
   | { name: 'device.put'; path: string; value: unknown }
   | { name: 'deviceGraph.status' }
-  | { name: 'deviceGraph.backfill' }
   | GraphHostRequest
   /** `talk`: the body the app is sending, written as my Talk when the core has no record of it. */
   | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown>; talk?: Record<string, unknown> }
   | { name: 'graph.retract'; talkId: string }
-  | { name: 'graph.answerHistory'; months?: number };
+  | { name: 'graph.answerHistory'; months?: number }
+  /** A new Talk id from the graph (an event id of this device), for a Talk about to be saved. */
+  | { name: 'graph.newTalkId' };
 
 export type CoreResponse<R extends CoreRequest> =
   R extends LedgerCommand ? LedgerCommandResult
@@ -56,8 +57,7 @@ export type CoreResponse<R extends CoreRequest> =
                     : R extends { name: 'private.keys' } ? string[]
                       : R extends { name: 'device.get' } ? unknown
                         : R extends { name: 'private.put' | 'device.put' } ? { ok: true }
-                          : R extends { name: 'deviceGraph.status' } ? (MirrorStatus & { enabled: boolean }) | null
-                          : R extends { name: 'deviceGraph.backfill' } ? { queued: number }
+                          : R extends { name: 'deviceGraph.status' } ? (OwnTalksStatus & { enabled: boolean }) | null
                           : R extends { name: 'graph.pull' } ? GraphPull
                           : R extends { name: 'graph.status' } ? GraphHostStatus
                           : R extends { name: 'graph.identity' | 'graph.open' | 'graph.close' | 'graph.hear' } ? { ok: true }
@@ -65,4 +65,5 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.answer' } ? { sent: boolean; eventId?: string }
                           : R extends { name: 'graph.retract' } ? { sent: number }
                           : R extends { name: 'graph.answerHistory' } ? AppAnswerRecord[]
+                          : R extends { name: 'graph.newTalkId' } ? string | null
                             : never;

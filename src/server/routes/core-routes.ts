@@ -63,14 +63,11 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
   const store = () => gunGraphStore(gun, { missWaitMs: 0 });
   const allowTestOverrides = process.env.E2E_GUN_MEMORY_ONLY === '1';
-  // OPEN-106 phase 4: on when the `deviceGraph` setting is "true", or IINPUBLIC_DEVICE_GRAPH=1.
   const randomBytes = (length: number) => new Uint8Array(crypto.randomBytes(length));
   const radata = path.join(dataDir, 'radata');
   const deviceGraph = () => ({
     nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
     randomBytes,
-    // The graph is the store from OPEN-106 step 3 on (IINPUBLIC_DEVICE_GRAPH=0 turns it off).
-    enabled: process.env.IINPUBLIC_DEVICE_GRAPH !== '0',
     log: (message: string) => console.warn(message),
     // OPEN-106 step 3: direct links carry the graph through this Gun.
     gun,
@@ -92,17 +89,13 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
     }
   });
 
-  // OPEN-106 phase 4 on a phone (adb forward, loopback only, not in production builds):
-  // GET the device graph mirror's counts; POST /backfill turns it on and mirrors the existing Talks.
+  // OPEN-106 on a phone (adb forward, loopback only, not in production builds): GET the counts of
+  // my Talks written into the device graph.
   if (process.env.NODE_ENV !== 'production') {
     const loopback = (req: express.Request) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(String(req.socket.remoteAddress || ''));
     app.get('/api/debug/device-graph', async (req, res) => {
       if (!loopback(req)) { res.status(403).end(); return; }
       res.json(await handle({ name: 'deviceGraph.status' }));
-    });
-    app.post('/api/debug/device-graph/backfill', async (req, res) => {
-      if (!loopback(req)) { res.status(403).end(); return; }
-      try { res.json(await handle({ name: 'deviceGraph.backfill' })); } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
   }
 

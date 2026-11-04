@@ -89,9 +89,10 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
     when: number,
     previous: { talkId: string; versionId: string } | undefined,
     alongside: (eventId: string) => Array<Promise<unknown>>,
+    reservedId?: string,
   ): Promise<string> {
     const { soulKey } = await writeTalkStructure(store, talk, { perspective: 'author', prefix: options.prefix, now: when });
-    const eventId = await ids.next(when);
+    const eventId = reservedId ?? await ids.next(when);
     const event: GraphNode = {
       v: GRAPH_SCHEMA_VERSION,
       when,
@@ -132,14 +133,20 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
   }
 
   return {
-    /** I wrote a Talk. Returns its id (the id of this first event). */
-    async create(talk: any, state: { active?: boolean; isTemplate?: boolean } = {}, alongside: (talkId: string) => Array<Promise<unknown>> = () => []): Promise<string> {
-      const when = now();
+    /**
+     * I wrote a Talk. Returns its id (the id of this first event). `reservedId` is an id the app
+     * took earlier from `ids.next` (`graph.newTalkId`), so the app's Talk is known by it from the
+     * start; its time is the event's time.
+     */
+    async create(talk: any, state: { active?: boolean; isTemplate?: boolean } = {}, alongside: (talkId: string) => Array<Promise<unknown>> = () => [], reservedId?: string): Promise<string> {
+      const reserved = reservedId ? parseEventId(reservedId) : undefined;
+      if (reservedId && (!reserved || reserved.deviceId !== await ids.deviceId())) throw new Error(`not an id of this device: ${reservedId}`);
+      const when = reserved?.when ?? now();
       return writeVersion(talk, when, undefined, (talkId) => [
         store.put(souls.mine(`talk/${talkId}`), { latest: link(souls.event(talkId)), active: state.active ?? true, isTemplate: !!state.isTemplate }),
         addToIndex(store, talksList, { key: talkId, target: souls.mine(`talk/${talkId}`), when }),
         ...alongside(talkId),
-      ]);
+      ], reservedId);
     },
 
     /**

@@ -100,6 +100,16 @@ export class WebTalkService {
     this.talkRepository = new GunTalkRepository(gunService);
   }
 
+  /**
+   * Where a new Talk's id comes from once the device graph carries Talks (OPEN-106, spec §31.10):
+   * the graph's own event id, so the app and the graph know the Talk by one id. Without it (no
+   * graph links, unit tests) the id stays the content hash.
+   */
+  private newTalkId: (() => Promise<string | null>) | null = null;
+  setNewTalkIdSource(source: (() => Promise<string | null>) | null): void {
+    this.newTalkId = source;
+  }
+
   private repositoryEnabled(): boolean {
     return this.opts?.gunTalkRepository !== false;
   }
@@ -232,7 +242,7 @@ export class WebTalkService {
     // Stamp each question with a CIDv1 content hash (excludes routing fields)
     talk.questions = await this.stampQuestionCids(talk.questions);
 
-    talk.id = talkData.id || await computeTalkCIDv1(talk);
+    talk.id = talkData.id || await this.newTalkId?.().catch(() => null) || await computeTalkCIDv1(talk);
 
     // AFTER the content hash: attach the author's public encryption key so every delivery
     // path hands responders the key material to pair-encrypt their responses without a

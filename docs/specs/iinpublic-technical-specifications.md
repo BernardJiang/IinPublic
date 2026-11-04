@@ -7503,7 +7503,8 @@ mixed-version period and no reading of both formats. When the graph takes over, 
 `typedPreferenceState`, `tagOppositePairRegistry`, `dealTalkByConversation`,
 `needKeyByConversation`, and the SEA Talk copies under `local/private/talks%2F…`) are deleted from
 the device. Conversations and chat messages stay where they are: they join the graph in a later
-release (§31.12 #16). The phase-4 mirror and `ix/legacy/` exist only for testing during development.
+release (§31.12 #16). The phase-4 mirror and `ix/legacy/` were removed (OPEN-106 step 2e): the app
+knows each Talk by its graph id, and a copy I send is my own graph Talk with the copied id as `source`.
 
 ### 31.11 Conflicts with earlier sections
 

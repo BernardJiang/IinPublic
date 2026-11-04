@@ -3,12 +3,10 @@
  * saves (`answerHistory`) becomes an answer event, whichever way it was given (by hand, by the
  * chatbot, a tag I answered myself), and the Me tab reads them back from the graph.
  *
- *   ix/app-talk/<appTalkId>    { <authorId>: graphTalkId }  received Talks the app knows by this id
  *   ix/app-answer/<graphTalkId> { sig, ev, sent? }  the app answers last written for this Talk
- *   ix/graph-app/<graphTalkId> { app }              the app's id for a graph Talk
  *
- * The app's ids are not unique across authors (starter tags share one on every device), so a
- * received Talk is found by its app id and its author.
+ * The app knows a received Talk by its graph id (step 2e), and my own Talks through `own-talks.ts`
+ * (a copy I sent is my graph Talk with the copied id as its `source`).
  *
  * An answer to a Talk that came over a graph link is sent to its author (`answerAndSend`); the
  * same answers saved again are not written twice. Talks the graph does not have (still sent as
@@ -20,14 +18,12 @@ import { canonicalJson } from '../keys';
 import { linkSoul, type NodeStore } from '../node-store';
 import { personIdOf } from '../people-graph';
 import type { AnswerStep } from '../answers';
-import type { Perspective, TalkStructure } from '../talk-structure';
+import { talkStructureKey, talkStructureOf, type Perspective, type TalkStructure } from '../talk-structure';
 import { appAnswersOf, appTalkOf, type AppAnswer } from './graph-host';
 import type { createGraphSync } from './graph-sync';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export const appTalkSoul = (prefix: string, appTalkId: string) => `${prefix}ix/app-talk/${encodeURIComponent(appTalkId)}`;
-export const graphAppSoul = (prefix: string, talkId: string) => `${prefix}ix/graph-app/${talkId}`;
 const appAnswerSoul = (prefix: string, talkId: string) => `${prefix}ix/app-answer/${talkId}`;
 
 type AppAnswerInput = { questionId: string; answerId: string; typedValue?: unknown };
@@ -59,8 +55,8 @@ const signatureOf = (steps: AnswerStep[], mode: string) => portableSha256Hex(can
 export function createAppAnswers(options: {
   store: NodeStore;
   graph: DeviceGraph;
-  /** The graph id of my own Talk, by its app id (the mirror's map). */
-  ownTalkId: (appTalkId: string) => Promise<string | undefined>;
+  /** My own Talks: the graph id of an app id, and back. */
+  ownTalks: { graphTalkId(appId: string): Promise<string | undefined>; appTalkId(talkId: string): Promise<string> };
   sync: () => ReturnType<typeof createGraphSync> | undefined;
   log?: (message: string) => void;
 }) {
@@ -70,17 +66,17 @@ export function createAppAnswers(options: {
 
   type Target = { talkId: string; talk: TalkStructure & Record<string, any>; perspective: Perspective; author?: string };
 
-  /** A received Talk the app knows by this id, from this author. */
-  async function receivedFrom(appTalkId: string, author: string): Promise<Target | undefined> {
-    const mapped = await store.get(appTalkSoul(prefix, appTalkId));
-    const talkId = mapped?.[author];
-    if (typeof talkId !== 'string' || !talkId) return undefined;
+  /** A received Talk, from this author (any sender when none is given). */
+  async function received(talkId: string, author?: string): Promise<Target | undefined> {
     const talk = await graph.arrivals.read(talkId);
-    return talk ? { talkId, talk: talk as any, perspective: 'responder', author } : undefined;
+    if (!talk) return undefined;
+    const from = author ?? talk.senders[0];
+    if (!from || !talk.senders.includes(from)) return undefined;
+    return { talkId, talk: talk as any, perspective: 'responder', author: from };
   }
 
   async function ownTalk(appTalkId: string): Promise<Target | undefined> {
-    const own = await options.ownTalkId(appTalkId);
+    const own = await options.ownTalks.graphTalkId(appTalkId);
     if (!own) return undefined;
     const state = await store.get(`${prefix}mine/talk/${own}`);
     if (!state || state.deleted === true) return undefined;
@@ -88,15 +84,29 @@ export function createAppAnswers(options: {
     return talk ? { talkId: own, talk: talk as any, perspective: 'author' } : undefined;
   }
 
-  /** Every graph Talk this app id stands for: from these authors (all when none given), else mine. */
-  async function targets(appTalkId: string, authors?: string[]): Promise<Target[]> {
-    const mapped = await store.get(appTalkSoul(prefix, appTalkId));
-    const known = Object.keys(mapped || {}).filter((key) => key !== '_' && typeof mapped![key] === 'string');
-    const wanted = authors?.length ? authors.filter((a) => known.includes(a)) : (authors ? [] : known);
-    const out = (await Promise.all(wanted.map((author) => receivedFrom(appTalkId, author)))).filter((t): t is Target => !!t);
-    if (!authors?.length) {
+  /**
+   * The graph Talks this app id stands for: the one I received, and the same Talk (same structure)
+   * received from the other senders named — the app shows a Talk several people sent me as one row,
+   * answered once (starter tags have the same content on every device). Else my own Talk.
+   */
+  async function targets(appTalkId: string, authors: string[] = []): Promise<Target[]> {
+    const base = await received(appTalkId);
+    if (!base) {
       const own = await ownTalk(appTalkId);
-      if (own) out.push(own);
+      return own ? [own] : [];
+    }
+    const out = [base];
+    const others = new Set(authors.filter((author) => author !== base.author));
+    if (!others.size) return out;
+    const key = talkStructureKey(talkStructureOf(base.talk));
+    for (const talkId of await graph.arrivals.incoming()) {
+      if (!others.size) break;
+      if (talkId === base.talkId) continue;
+      const talk = await graph.arrivals.read(talkId);
+      const author = talk?.senders.find((sender) => others.has(sender));
+      if (!talk || !author || talkStructureKey(talkStructureOf(talk)) !== key) continue;
+      others.delete(author);
+      out.push({ talkId, talk: talk as any, perspective: 'responder', author });
     }
     return out;
   }
@@ -113,7 +123,7 @@ export function createAppAnswers(options: {
   }
 
   /** Write these answers unless they are already my latest answer event; returns its id. */
-  async function write(appTalkId: string, target: Target, answers: AppAnswerInput[], mode: 'manual' | 'chatbot'): Promise<{ eventId: string; sent: boolean }> {
+  async function write(target: Target, answers: AppAnswerInput[], mode: 'manual' | 'chatbot'): Promise<{ eventId: string; sent: boolean }> {
     const steps = stepsOf(answers);
     const sig = signatureOf(steps, mode);
     const known = await store.get(appAnswerSoul(prefix, target.talkId));
@@ -124,10 +134,7 @@ export function createAppAnswers(options: {
       ...(target.author ? { withUser: target.author } : {}),
       ...(latest ? { replaces: latest } : {}),
     });
-    await Promise.all([
-      store.put(appAnswerSoul(prefix, target.talkId), { sig, ev: eventId, sent: false }),
-      store.put(graphAppSoul(prefix, target.talkId), { app: appTalkId }),
-    ]);
+    await store.put(appAnswerSoul(prefix, target.talkId), { sig, ev: eventId, sent: false });
     return { eventId, sent: false };
   }
 
@@ -145,7 +152,7 @@ export function createAppAnswers(options: {
         const senders = Array.isArray(record.senderIds) ? record.senderIds.map(String) : [];
         try {
           await locked(record.talkId, async () => {
-            for (const target of await targets(record.talkId, senders)) await write(record.talkId, target, record.items, mode);
+            for (const target of await targets(record.talkId, senders)) await write(target, record.items, mode);
           });
         } catch (error) {
           options.log?.(`[app-answers] ${record.talkId}: ${(error as Error).message}`);
@@ -154,13 +161,13 @@ export function createAppAnswers(options: {
     },
 
     /** I answered a Talk that came over a graph link: write it once and send it to its author. */
-    answerAndSend(appTalkId: string, authorId: string, answers: AppAnswerInput[], mode: 'manual' | 'chatbot', context?: Record<string, unknown>): Promise<{ sent: boolean; eventId?: string }> {
-      return locked(appTalkId, async () => {
+    answerAndSend(talkId: string, authorId: string, answers: AppAnswerInput[], mode: 'manual' | 'chatbot', context?: Record<string, unknown>): Promise<{ sent: boolean; eventId?: string }> {
+      return locked(talkId, async () => {
         const sync = options.sync();
-        const target = sync && writable(answers) ? await receivedFrom(appTalkId, authorId) : undefined;
+        const target = sync && writable(answers) ? await received(talkId, authorId) : undefined;
         if (!sync || !target) return { sent: false };
-        const written = await write(appTalkId, target, answers, mode);
-        await sync.sendAnswer(written.eventId, { ...(context ?? {}), appTalkId });
+        const written = await write(target, answers, mode);
+        await sync.sendAnswer(written.eventId, context ?? {});
         await store.put(appAnswerSoul(prefix, target.talkId), { sent: true });
         return { sent: true, eventId: written.eventId };
       });
@@ -170,11 +177,11 @@ export function createAppAnswers(options: {
      * The app removed my answers to a Talk (I removed it, or passed after a like): a deletion
      * event, sent to the author when the Talk came over a graph link (owner decision 7).
      */
-    forget(appTalkId: string): Promise<{ deleted: number; sent: number }> {
+    forget(appTalkId: string, senders: string[] = []): Promise<{ deleted: number; sent: number }> {
       return locked(appTalkId, async () => {
         let deleted = 0;
         let sent = 0;
-        for (const target of await targets(appTalkId)) {
+        for (const target of await targets(appTalkId, senders)) {
           if (!(await graph.answers.answered(target.talkId))) continue;
           const known = await store.get(appAnswerSoul(prefix, target.talkId));
           const deletionId = await graph.answers.remove(target.talkId);
@@ -204,16 +211,17 @@ export function createAppAnswers(options: {
       for (const talkId of new Set(talkOfEvent.values())) {
         const eventId = await graph.answers.answered(talkId);
         if (!eventId) continue;
-        const [node, appNode, mineState] = await Promise.all([store.get(event(eventId)), store.get(graphAppSoul(prefix, talkId)), store.get(`${prefix}mine/talk/${talkId}`)]);
-        if (typeof appNode?.app !== 'string' || !node) continue;
+        const [node, mineState] = await Promise.all([store.get(event(eventId)), store.get(`${prefix}mine/talk/${talkId}`)]);
+        if (!node) continue;
         const mine = !!mineState;
+        const appTalkId = mine ? await options.ownTalks.appTalkId(talkId) : talkId;
         const talk = mine ? await graph.talks.read(talkId) : await graph.arrivals.read(talkId);
         const set = await graph.answers.answerSet(eventId);
         if (!talk || !set) continue;
         const mode = typeof node.mode === 'string' ? node.mode : 'manual';
         const withUser = personIdOf(prefix, linkSoul(node.with));
         out.push({
-          appTalkId: appNode.app, graphTalkId: talkId, eventId, when: Number(node.when) || 0, mode, mine,
+          appTalkId, graphTalkId: talkId, eventId, when: Number(node.when) || 0, mode, mine,
           ...(withUser ? { withUser } : {}),
           talk: appTalkOf(talk as any),
           answers: appAnswersOf(talk as any, set, mode, mine ? 'author' : 'responder'),

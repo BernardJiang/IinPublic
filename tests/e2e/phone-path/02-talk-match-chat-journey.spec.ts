@@ -8,7 +8,7 @@
  * embedded node → hub relay), which no browser spec covers.
  */
 import { test } from '@playwright/test';
-import { enableDeviceGraph, expectDeviceGraph, expectGraphAnswerHistory, expectGraphEvent } from '../helpers/device-graph';
+import { expectDeviceGraph, expectGraphAnswerHistory, expectGraphEvent } from '../helpers/device-graph';
 import { talkMatchChatJourney } from '../journeys/talk-match-chat-journey';
 import { closeUsers, openUser, resetPhonePath, type JourneyUser } from './phone-path-helpers';
 
@@ -29,12 +29,11 @@ test.describe('Talk journey: phone A broadcasts, phone B answers, they match and
     test.setTimeout(300_000);
     alice = await openUser(browser, 'Alice', 'phoneA');
     bob = await openUser(browser, 'Bob', 'phoneB');
-    // OPEN-106 phase 4: both phones also write Talks and answers to the device graph.
-    for (const user of [alice, bob]) await enableDeviceGraph(user.page);
+    // OPEN-106: both phones write their Talks and answers into the device graph.
     // The journey body is shared with native-app/37 (real phones): tests/e2e/journeys/.
     await talkMatchChatJourney({ id: 'Alice', runtime: 'browser', page: alice.page }, { id: 'Bob', runtime: 'browser', page: bob.page });
 
-    // The device graph holds Alice's Talk and Bob's answer, each read back equal to what was written.
+    // The device graph holds Alice's Talk.
     await expectDeviceGraph(alice.page, 'Alice', { talks: 1 });
     // The Talk reached the responder over a graph link, and the answer came back over it.
     await expectGraphEvent(bob.page, 'Bob', 'talk');

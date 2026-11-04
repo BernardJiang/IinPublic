@@ -13,7 +13,7 @@ import * as os from 'os';
 import { bootstrapNativeWindow } from './helpers/native-app';
 import { closeAndroidUser, isAndroidDeviceReady, launchAndroidUserViaAdb, resetAndroidAppData, type AndroidUser } from './helpers/native-app-android';
 import { talkMatchChatJourney } from '../journeys/talk-match-chat-journey';
-import { deviceGraphStatus, enableDeviceGraph, expectDeviceGraph, expectGraphEvent } from '../helpers/device-graph';
+import { deviceGraphStatus, expectDeviceGraph, expectGraphEvent } from '../helpers/device-graph';
 
 const RUN = process.env.E2E_REAL_ANDROID_JOURNEYS === '1';
 const SERIALS = String(process.env.NATIVE_APP_ANDROID_SERIALS || '').split(',').map((serial) => serial.trim()).filter(Boolean);
@@ -49,8 +49,7 @@ test.describe('Two real phones: talk → answer → match → P2P chat', () => {
       await bootstrapNativeWindow(user.window, `journey-${name.toLowerCase()}`, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000 });
       actors.push({ id: `${name} (${serial})`, runtime: 'android-webview' as const, page: user.window });
     }
-    // OPEN-106 phase 4: both phones also write Talks and answers to the device graph.
-    for (const actor of actors) await enableDeviceGraph(actor.page);
+    // OPEN-106: both phones write their Talks and answers into the device graph.
     const { timings } = await talkMatchChatJourney(actors[0]!, actors[1]!);
     await expectDeviceGraph(actors[0]!.page, actors[0]!.id, { talks: 1 });
     // The Talk reached the responder over a graph link, and the answer came back over it.

@@ -9,23 +9,22 @@ import { PrivateStore } from './private-store';
 import { ExchangeStore } from './exchanges';
 import { CoreTalkLedger } from './talk-ledger-store';
 import type { CoreRequest } from './protocol';
-import { createGraphMirror } from './device-graph/mirror';
 import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
 import { createStorageBudget } from './device-graph/storage-budget';
 import { createGraphHost } from './device-graph/sync/graph-host';
 import { createAppAnswers, type AppAnswers } from './device-graph/sync/app-answers';
+import { createOwnTalks } from './device-graph/sync/own-talks';
 import type { GraphCrypto } from './device-graph/sync/graph-sync';
 
 /**
- * OPEN-106 phase 4: the device graph mirror. `nodeStore` is the same Gun as `store`, written by
- * exact soul. It runs when `enabled` is true or the `deviceGraph` setting is "true" (checked at
- * most every 30 s), so it can be turned on on one phone or in one e2e run.
+ * OPEN-106: the device graph. `nodeStore` is the same Gun as `store`, written by exact soul. With
+ * the core's Gun and crypto, direct links carry it (`graph.*`), my Talks are written into it as the
+ * app saves them (`own-talks.ts`), and so are my answers (`app-answers.ts`).
  */
 export type DeviceGraphOptions = {
   nodeStore: NodeStore;
   randomBytes: (length: number) => Uint8Array;
-  enabled?: boolean;
   log?: (message: string) => void;
   /** The core's Gun and the host's crypto: with both, direct links carry the graph (`graph.*`). */
   gun?: unknown;
@@ -34,14 +33,10 @@ export type DeviceGraphOptions = {
   storageUsage?: () => Promise<number | undefined>;
 };
 
-function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefined) {
-  if (!options) return { mirror: undefined, host: undefined, appAnswers: undefined, enabled: async () => false, invalidate: () => {} };
+function deviceGraphGate(options: DeviceGraphOptions | undefined) {
+  if (!options) return { graph: undefined, ownTalks: undefined, host: undefined, appAnswers: undefined };
   const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
   const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}) });
-  const mirror = createGraphMirror(options.nodeStore, {
-    randomBytes: options.randomBytes, graph, ...(options.log ? { log: options.log } : {}),
-    ownTalksOnly: !!(options.gun && options.crypto),
-  });
   // Exact GPS points older than 30 days are erased at start and once a day (spec §31.7).
   if (options.gun) {
     const sweep = () => { void graph.location.sweep().catch((error) => options.log?.(`[device-graph] GPS sweep failed: ${(error as Error).message}`)); };
@@ -49,37 +44,15 @@ function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefi
     const daily = setInterval(sweep, 86_400_000);
     (daily as { unref?: () => void }).unref?.();
   }
+  if (!options.gun || !options.crypto) return { graph, ownTalks: undefined, host: undefined, appAnswers: undefined };
+  const ownTalks = createOwnTalks({ store: options.nodeStore, graph, ...(options.log ? { log: options.log } : {}) });
   let appAnswers: AppAnswers | undefined;
-  const host = options.gun && options.crypto
-    ? createGraphHost({ gun: options.gun, store: options.nodeStore, graph, crypto: options.crypto, ...(options.log ? { log: options.log } : {}), appAnswers: () => appAnswers! })
-    : undefined;
-  // The app's answers go into the graph only where Talks travel over graph links.
-  if (host) {
-    appAnswers = createAppAnswers({
-      store: options.nodeStore, graph, sync: () => host.sync(), ...(options.log ? { log: options.log } : {}),
-      ownTalkId: async (appTalkId) => { await mirror.idle(); return mirror.graphTalkId(appTalkId); },
-    });
-  }
-  let checkedAt = 0;
-  let setting = false;
-  return {
-    mirror,
-    host,
-    appAnswers,
-    enabled: async (): Promise<boolean> => {
-      if (options.enabled) return true;
-      if (Date.now() - checkedAt > 30_000) {
-        checkedAt = Date.now();
-        try {
-          const node = await store.get('local/collections/settings/deviceGraph');
-          setting = typeof node?.json === 'string' && ['"true"', '"1"', 'true'].includes(node.json);
-        } catch { setting = false; }
-      }
-      return setting;
-    },
-    /** The setting was just written: check it again on the next write. */
-    invalidate: () => { checkedAt = 0; },
-  };
+  const host = createGraphHost({
+    gun: options.gun, store: options.nodeStore, graph, crypto: options.crypto, ...(options.log ? { log: options.log } : {}),
+    appAnswers: () => appAnswers!, appTalkId: (talkId) => ownTalks.appTalkId(talkId),
+  });
+  appAnswers = createAppAnswers({ store: options.nodeStore, graph, sync: () => host.sync(), ownTalks, ...(options.log ? { log: options.log } : {}) });
+  return { graph, ownTalks, host, appAnswers };
 }
 
 /**
@@ -89,7 +62,7 @@ function deviceGraphGate(store: GraphStore, options: DeviceGraphOptions | undefi
  * boot by 1.5 s or more under load (e2e stage2/95, stage2/37).
  */
 export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean; deviceGraph?: DeviceGraphOptions } = {}): (request: CoreRequest) => Promise<unknown> {
-  const graph = deviceGraphGate(store, options.deviceGraph);
+  const graph = deviceGraphGate(options.deviceGraph);
   let fresh = options.freshDevice === true;
   const exchanges = new ExchangeStore(store);
   const delivery = new DeliveryStore(store);
@@ -130,29 +103,17 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         return collections.all(request.collection);
       case 'collection.upsert': {
         const written = await collections.upsert(request.collection, request.entries);
-        if (request.collection === 'settings' && 'deviceGraph' in request.entries) graph.invalidate();
         // After the app's write, never before or instead of it; not awaited, so it adds no latency.
-        if (graph.mirror && request.collection === 'myTalks' && await graph.enabled()) void graph.mirror.onCollectionUpsert(request.collection, request.entries);
+        if (graph.ownTalks && request.collection === 'myTalks') void graph.ownTalks.onUpsert(request.entries);
         if (graph.appAnswers && request.collection === 'myAnswerHistory') void graph.appAnswers.recordHistory(request.entries);
         return { written };
       }
-      case 'deviceGraph.backfill': {
-        // Turn the mirror on and mirror every Talk already in `myTalks` (a test of phase 4 on a
-        // device's real data; phase 7's migration will do this for everyone). Repeat-safe.
-        if (!graph.mirror) return { queued: 0 };
-        await collections.upsert('settings', { deviceGraph: 'true' });
-        graph.invalidate();
-        const all = await collections.all('myTalks');
-        void graph.mirror.onCollectionUpsert('myTalks', all);
-        return { queued: Object.keys(all).length };
-      }
       case 'deviceGraph.status':
-        return graph.mirror ? { enabled: await graph.enabled(), ...(await graph.mirror.status()) } : null;
+        return graph.ownTalks ? { enabled: true, ...(await graph.ownTalks.status()) } : null;
       case 'graph.offer': {
-        // My Talk as the app keys it (`myTalks`): the mirror wrote it into the graph first.
+        // My Talk as the app keys it (`myTalks`), written into the graph first if it is not yet.
         const sync = graph.host?.sync();
-        if (!sync || !graph.mirror) return { offered: 0, known: false };
-        // Only this Talk needs to be in the graph: mirror it now rather than wait for the queue.
+        if (!sync || !graph.ownTalks) return { offered: 0, known: false };
         // Whatever I send is my Talk: one I wrote, a copy I keep, or a body the app holds only in
         // memory. Each is written (or versioned) as my own graph Talk before it is offered.
         const stored = await collections.get('myTalks', request.talkId) as Record<string, any> | undefined;
@@ -160,18 +121,19 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const entry = body && Array.isArray(body.questions)
           ? { ...(stored ?? {}), talkId: request.talkId, title: stored?.title ?? body.title, type: stored?.type ?? body.type, timestamp: stored?.timestamp ?? body.createdAt, fullTalk: body, role: 'created' }
           : undefined;
-        let talkId = entry ? await graph.mirror.ensure(entry) : await graph.mirror.graphTalkId(request.talkId);
-        if (talkId && !(await options.deviceGraph!.nodeStore.get(`local/mine/talk/${talkId}`))) talkId = undefined;
+        const talkId = entry ? await graph.ownTalks.ensure(entry) : await graph.ownTalks.graphTalkId(request.talkId);
         if (!talkId) return { offered: 0, known: false };
         return { offered: await sync.offerTalk(talkId, request.recipients, request.context), known: true };
       }
+      case 'graph.newTalkId':
+        // Only where Talks travel over graph links: elsewhere the app keeps content-hash ids.
+        return graph.ownTalks && graph.graph ? graph.graph.ids.next(Date.now()) : null;
       case 'graph.retract': {
         // I retracted (deleted or turned off) my Talk: a deletion event to everyone who has it.
         const sync = graph.host?.sync();
-        if (!graph.mirror) return { sent: 0 };
-        await graph.mirror.idle();
-        const talkId = await graph.mirror.graphTalkId(request.talkId);
-        const deletionId = talkId ? await graph.mirror.graph.talks.remove(talkId) : undefined;
+        if (!graph.ownTalks || !graph.graph) return { sent: 0 };
+        const talkId = await graph.ownTalks.graphTalkId(request.talkId);
+        const deletionId = talkId ? await graph.graph.talks.remove(talkId) : undefined;
         if (!talkId || !deletionId || !sync) return { sent: 0 };
         return { sent: await sync.sendTalkDeletion(talkId, deletionId) };
       }
@@ -186,11 +148,16 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         return graph.host.handle(request);
       case 'collection.remove': {
         // My answers to a Talk left the app's history: they leave the graph too (and its author's).
-        const forgotten = graph.appAnswers && request.collection === 'myAnswerHistory'
-          ? (await Promise.all(request.keys.map((key) => collections.get('myAnswerHistory', key)))).map((record) => (record as { talkId?: unknown } | undefined)?.talkId).filter((id): id is string => typeof id === 'string')
-          : [];
+        const forgotten = new Map<string, string[]>();
+        if (graph.appAnswers && request.collection === 'myAnswerHistory') {
+          for (const record of await Promise.all(request.keys.map((key) => collections.get('myAnswerHistory', key))) as Array<{ talkId?: unknown; senderIds?: unknown } | undefined>) {
+            if (typeof record?.talkId !== 'string') continue;
+            const senders = Array.isArray(record.senderIds) ? record.senderIds.map(String) : [];
+            forgotten.set(record.talkId, [...new Set([...(forgotten.get(record.talkId) ?? []), ...senders])]);
+          }
+        }
         const removed = await collections.remove(request.collection, request.keys);
-        for (const talkId of new Set(forgotten)) void graph.appAnswers!.forget(talkId).catch(() => undefined);
+        for (const [talkId, senders] of forgotten) void graph.appAnswers!.forget(talkId, senders).catch(() => undefined);
         return { removed };
       }
       case 'graph.answerHistory':

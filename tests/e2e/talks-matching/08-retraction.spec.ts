@@ -38,6 +38,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -151,7 +152,7 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     ]);
 
     // ---- 5. Tom broadcasts a tag talk to Jerry and Bob --------------------
-    const TOM_TALK_ID = `ret-tom-${Date.now()}`;
+    const TOM_TALK_ID = await newGraphTalkId(pageTom);
     const TOM_TALK_TITLE = 'Ret Tennis Tom';
 
     const tomEpub = await pageTom.evaluate(() => {

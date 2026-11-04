@@ -102,8 +102,18 @@ its ID.
     Talk, response and retraction envelopes. The mesh carries pings, manifests, Nearby gossip and
     `graph-gun`. e2e `talks-matching/05` now proves an answer waits in the responder's graph log
     while the author is offline and is read on reconnect (no mailbox).
-  - Next, in order: (2e) key the app's Talks by graph ids, remove the
-    mirror and `ix/legacy`, erase the old collections (§31.10); (3) graph suppression
+  - Step 2e, in stages. Done (i–iii): new Talks take their id from the graph (`graph.newTalkId`,
+    an event id of this device), so the app and the graph know them by one id; received Talks are
+    keyed by their graph id (the offer no longer carries an app id), and answers and deletions go
+    by it. A Talk I send that the app knows by another id (a copy, a liked starter tag, a deleted
+    Talk turned on again) is my own new graph Talk with `source` = that id (`sync/own-talks.ts`,
+    `ix/copy/<appId>`). The same Talk from several senders stays one row answered once: each
+    sender's graph Talk gets its own answer, and removing it removes them all. The mirror,
+    `ix/legacy`, `ix/app-talk`, `ix/graph-app`, the `deviceGraph` setting and the backfill route
+    are gone; e2e specs that write My Talks directly take ids with `newGraphTalkId(page)`.
+    Remaining: (iv) My Talks and the answer history read from the graph; (v) erase the other old
+    collections one at a time (§31.10). `talkLedger` and `talkRevisionSent` go with step (3).
+  - Next, in order: (2e) the stages above; (3) graph suppression
     (`ix/exchanged`) in place of the sender's ledger; (4) "delete my answer" in the UI
     (no such control today); (5) real-phone run (native-app/37 now asserts graph events).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an

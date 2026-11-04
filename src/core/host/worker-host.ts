@@ -146,14 +146,12 @@ function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<voi
       handleCore = createCoreHandler(gunGraphStore(gun), {
         freshDevice,
         allowTestOverrides: process.env.DISABLE_HMR === 'true',
-        // OPEN-106 phase 4, on when the `deviceGraph` setting is "true". A miss there is final:
-        // a false miss only rewrites identical content.
+        // OPEN-106: the device graph. A miss there is final: a false miss only rewrites identical
+        // content.
         deviceGraph: {
           nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
           randomBytes: (length) => crypto.getRandomValues(new Uint8Array(length)),
           log: (message) => console.warn(message),
-          // The graph is the store from OPEN-106 step 3 on: every Talk write goes into it.
-          enabled: true,
           // OPEN-106 step 3: direct links carry the graph through this Gun.
           gun,
           crypto: seaGraphCrypto((self as any).SEA || (Gun as any).SEA, (length) => crypto.getRandomValues(new Uint8Array(length))),

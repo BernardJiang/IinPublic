@@ -34,6 +34,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -164,8 +165,8 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
       ],
     };
 
-    const TOM_TALK_ID = `com-tom-${Date.now()}`;
-    const BOB_TALK_ID = `com-bob-${Date.now() + 1}`;
+    const TOM_TALK_ID = await newGraphTalkId(pageTom);
+    const BOB_TALK_ID = await newGraphTalkId(pageBob);
     const TOM_TALK_TITLE = 'CoM Tennis';
     const BOB_TALK_TITLE = 'CoM Tennis';
 
