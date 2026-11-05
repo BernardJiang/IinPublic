@@ -17,6 +17,8 @@ type GraphAnswerRecord = {
   withUser?: string;
   talk: Record<string, any>;
   answers: Array<{ questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string; typedValue?: TypedAnswerValue }>;
+  /** How my answer came out when I sent it (the graph's `ix/responded`). */
+  outcome?: 'match' | 'mismatch';
 };
 
 let requester: (() => Promise<unknown>) | null = null;
@@ -35,9 +37,10 @@ export function setGraphAnswerHistorySource(request: (() => Promise<unknown>) | 
 /** One graph answer record as the app's history record. */
 export function graphRecordToFlat(record: GraphAnswerRecord): FlatAnswerHistoryRecord {
   const talk = { ...record.talk, id: record.appTalkId };
-  const outcome = record.mine
-    ? (record.answers.some((a) => a.isMatch && !a.typedValue) ? 'match' : 'mismatch')
-    : (checkIfMatch(talk, record.answers) ? 'match' : 'mismatch');
+  const outcome = record.outcome
+    ?? (record.mine
+      ? (record.answers.some((a) => a.isMatch && !a.typedValue) ? 'match' : 'mismatch')
+      : (checkIfMatch(talk, record.answers) ? 'match' : 'mismatch'));
   return buildFlatAnswerHistoryRecord(
     record.appTalkId, talk,
     record.answers.map((a) => ({

@@ -6225,7 +6225,10 @@ export class IinPublicApp {
     const appTalkId = event.talkId;
     // Nearby receiving limit: Talks from strangers beyond the per-minute budget are not shown.
     const contacts = this.currentUser?.knownPeople;
-    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) return;
+    // A Talk my intake refuses is declined to its author (their record of passing it to me goes,
+    // so it can come again once my filters or my age verification allow it).
+    const decline = () => { void this.coreRequest?.({ name: 'graph.declineArrival', talkId: event.talkId, from: event.from }).catch(() => undefined); };
+    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) { decline(); return; }
     const authorName = String(context.authorName || talk.authorName || 'Unknown');
     const payload = {
       roomId: typeof context.roomId === 'string' ? context.roomId : '',
@@ -6245,7 +6248,9 @@ export class IinPublicApp {
     const diag = this.meshAnnounceDiagnostics;
     if (!diag.received.some((r) => r.talkId === appTalkId && r.authorId === event.from)) diag.received.push({ talkId: appTalkId, authorId: event.from });
     const omit = Array.isArray(context.omit) ? context.omit.map(String) : [];
-    void this.handleMeshTalkBody(payload, { graphArrival: { omit } }).catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
+    void this.handleMeshTalkBody(payload, { graphArrival: { omit } })
+      .then((accepted) => { if (!accepted) decline(); })
+      .catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
   }
 
   /**

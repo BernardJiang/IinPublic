@@ -53,7 +53,9 @@ export type LogBody =
   | { offer: { talkId: string; versionId: string; talkTag: string; key: string; context?: Record<string, unknown> } }
   | { answer: { talkId: string; versionId?: string; eventId: string; when: number; device: string; mode: string; set: Record<string, AnswerSetEntry>; replaces?: string; context?: Record<string, unknown> } }
   | { deleted: { talkId: string; eventId: string; when: number; device: string; versionId?: string } }
-  | { deletedAnswer: { talkId: string; eventId: string; answerEventId: string; when: number; device: string } };
+  | { deletedAnswer: { talkId: string; eventId: string; answerEventId: string; when: number; device: string } }
+  /** My intake refused their Talk (its age gate, language, the receiving limit): it is not mine. */
+  | { declined: { talkId: string; versionId?: string; when: number } };
 
 type LogEntry = { n: number; prev: string; when: number; by: string; body: LogBody; sig: string };
 
@@ -64,6 +66,8 @@ export type GraphSyncEvents = {
   /** Someone answered (or changed their answer to) my Talk. */
   onAnswer?: (talkId: string, fromUserId: string, eventId: string, context?: Record<string, unknown>) => void;
   onAnswerDeleted?: (talkId: string, fromUserId: string) => void;
+  /** They refused my Talk at intake: it did not pass to them, and may be offered again later. */
+  onDeclined?: (talkId: string, fromUserId: string) => void;
   /** The people my log has entries for that they have not read changed (`owed()`). */
   onOwedChange?: (owed: string[]) => void;
 };
@@ -300,6 +304,8 @@ export function createGraphSync(options: {
       if (await graph.arrivals.receiveDeletion({ talkId: d.talkId, eventId: d.eventId, authorId: fromUserId, when: d.when, device: d.device, ...(d.versionId ? { versionId: d.versionId } : {}) })) {
         options.events?.onTalkDeleted?.(d.talkId, fromUserId);
       }
+    } else if ('declined' in body) {
+      options.events?.onDeclined?.(body.declined.talkId, fromUserId);
     } else if ('deletedAnswer' in body) {
       const d = body.deletedAnswer;
       if (await graph.answers.receiveAnswerDeletion({ talkId: d.talkId, eventId: d.eventId, byUser: fromUserId, when: d.when, device: d.device, answerEventId: d.answerEventId })) {
@@ -536,6 +542,14 @@ export function createGraphSync(options: {
       const author = personIdOf(prefix, linkSoul(first?.by));
       if (!author) throw new Error(`Talk ${talkId} has no author on this device`);
       await append(author, { deletedAnswer: { talkId, eventId: deletionEventId, answerEventId, when: Number(event.when), device: String(event.device ?? '') } });
+    },
+
+    /**
+     * Tell the author my intake refused their Talk, so their record of having passed it to me goes
+     * (a refused Talk stays eligible once my filters or my age verification allow it).
+     */
+    async sendDecline(authorUserId: string, talkId: string, versionId?: string): Promise<void> {
+      await append(authorUserId, { declined: { talkId, ...(versionId ? { versionId } : {}), when: now() } });
     },
 
     /** Read their log again (a test, or after a missed head update). */

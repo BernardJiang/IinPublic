@@ -69,6 +69,7 @@ async function device(userId: string) {
       onAnswer: (talkId, from) => events.push(['answer', talkId, from]),
       onTalkDeleted: (talkId, from) => events.push(['talk-deleted', talkId, from]),
       onAnswerDeleted: (talkId, from) => events.push(['answer-deleted', talkId, from]),
+      onDeclined: (talkId, from) => events.push(['declined', talkId, from]),
     },
   });
   await sync.start();
@@ -136,6 +137,7 @@ beforeAll(() => { installSharingPolicy(Gun); installMemoryStore(Gun); });
 afterAll(() => { pumping = false; for (const d of devices) d.gun.off?.(); });
 
 describe('Talk exchange by Gun sync', () => {
+
   it('carries a Talk, the answer, an edit and both deletions; the hub and a third person see nothing of it', async () => {
     const [adam, eve, carol] = [await device('adam'), await device('eve'), await device('carol')];
     void pump();
@@ -216,5 +218,16 @@ describe('Talk exchange by Gun sync', () => {
     await until(async () => !!(await dan.sync.status('bob')).broken);
     expect((await dan.sync.status('bob')).broken).toMatch(/does not follow/);
     expect(await dan.graph.arrivals.read(second)).toBeUndefined();
+  });
+
+  it('a Talk the receiver\'s intake refused is declined back to its author', async () => {
+    const [ann, ben] = [await device('ann-d'), await device('ben-d')];
+    void pump();
+    const talkId = await ann.graph.talks.create(tennis('Adult tennis'));
+    await Promise.all([ann.sync.open('ben-d'), ben.sync.open('ann-d')]);
+    expect(await ann.sync.offerTalk(talkId, ['ben-d'])).toBe(1);
+    await until(async () => !!(await ben.graph.arrivals.read(talkId)));
+    await ben.sync.sendDecline('ann-d', talkId, (await ben.graph.arrivals.read(talkId))!.versionId);
+    await until(() => ann.events.some((e) => e[0] === 'declined' && e[1] === talkId && e[2] === 'ben-d'));
   });
 });

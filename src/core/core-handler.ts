@@ -282,6 +282,13 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
           if (arrived) await graph.graph!.exchange.recordArrival(request.from, arrived.versionId, exchangeAtoms(appTalkOf(arrived as Record<string, any>)));
         }
         return { ok: true };
+      case 'graph.declineArrival': {
+        const sync = graph.host?.sync();
+        if (!sync || !graph.graph) return { ok: false };
+        const arrived = await graph.graph.arrivals.read(request.talkId);
+        await sync.sendDecline(request.from, request.talkId, arrived?.versionId);
+        return { ok: true };
+      }
       case 'graph.incoming':
         return incoming ? incoming.rows() : [];
       case 'graph.talkBody': {

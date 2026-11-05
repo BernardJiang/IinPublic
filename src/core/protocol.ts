@@ -74,6 +74,8 @@ export type CoreRequest =
   | { name: 'graph.answerHistory'; months?: number }
   /** The app accepted a Talk that arrived over a graph link: it goes on the incoming list. */
   | { name: 'graph.acceptArrival'; talkId: string; from: string; senderName: string; omit?: string[] }
+  /** My intake refused a Talk that arrived over a graph link: tell its author (`declined`). */
+  | { name: 'graph.declineArrival'; talkId: string; from: string }
   /** The incoming list, built from graph arrivals. */
   | { name: 'graph.incoming' }
   /** A Talk's body from the graph: mine (by the app's id) or one I received. */
@@ -128,7 +130,7 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.retract' } ? { sent: number }
                           : R extends { name: 'graph.answerHistory' } ? AppAnswerRecord[]
                           : R extends { name: 'graph.newTalkId' } ? string | null
-                          : R extends { name: 'graph.acceptArrival' } ? { ok: boolean }
+                          : R extends { name: 'graph.acceptArrival' | 'graph.declineArrival' } ? { ok: boolean }
                           : R extends { name: 'graph.incoming' } ? IncomingTalkClusterWire[]
                           : R extends { name: 'graph.talkBody' } ? Record<string, unknown> | null
                           : R extends { name: 'graph.chatbotView' } ? ChatbotView | null

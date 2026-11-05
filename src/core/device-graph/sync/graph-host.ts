@@ -10,6 +10,7 @@ import { personSoul } from '../people-graph';
 import { allSituations } from '../answers';
 import { answerKey, type AnswerSetEntry } from '../keys';
 import { answeredAtoms } from '../exchanged';
+import { putKeyed } from '../keyed-buckets';
 import { builtInFromValues, type Perspective, type TalkStructure } from '../talk-structure';
 import type { GraphNode } from '../node-store';
 import { formatTypedAnswerValue, typedAnswerValueFromBuiltIn, type TypedAnswerValue } from '../../../shared/typed-preference-store';
@@ -138,6 +139,13 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
                   const appTalkId = options.appTalkId ? await options.appTalkId(talkId) : talkId;
                   push({ type: 'answer', talkId, ...(appTalkId !== talkId ? { appTalkId } : {}), from, eventId, mode, ...(typeof event?.when === 'number' ? { when: event.when } : {}), ...(context ? { context } : {}), ...(answers ? { answers } : {}) });
                 })().catch(() => push({ type: 'answer', talkId, from, eventId }));
+              },
+              onDeclined: (talkId, from) => {
+                // Not passed to them after all: forget it, and offer it again when asked to.
+                void Promise.all([
+                  graph.exchange.forgetTalk(talkId, [from]),
+                  putKeyed(store, `${graph.prefix}sync/sent/${talkId}`, { [from]: null }),
+                ]).catch(() => undefined);
               },
               onAnswerDeleted: (talkId, from) => {
                 // Their answer no longer counts: how I decided it and what it passed go.

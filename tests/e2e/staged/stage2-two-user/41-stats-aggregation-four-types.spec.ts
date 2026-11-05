@@ -200,6 +200,28 @@ test.describe('Stats aggregation across all four talk types (flow, tag, survey, 
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
     }, talks.map((t) => t.def));
 
+    // ── 3b. A sends the four Talks to B over the graph (OPEN-106: an answer goes only to a Talk
+    // that arrived); B finds each under the id it arrived with. ───────────────
+    await pageA.evaluate(async ({ defs, to }) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      for (const def of defs) await app.offerTalkForE2e(def, [to]);
+    }, { defs: talks.map((t) => t.def), to: userIdB });
+    const arrived: Record<string, { talkId: string; talkData: any }> = {};
+    for (const t of talks) {
+      await expect.poll(() => pageB!.evaluate(async (title: string) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        const rows = (await app.getLocalIncomingClustersForE2e?.()) ?? [];
+        return rows.find((r: any) => r.title === title)?.latestTalkId ?? '';
+      }, t.def.title), { timeout: FLOW_TIMEOUT_MS, intervals: [500, 1000] }).not.toBe('');
+      const talkId = await pageB.evaluate(async (title: string) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        return ((await app.getLocalIncomingClustersForE2e?.()) ?? []).find((r: any) => r.title === title).latestTalkId as string;
+      }, t.def.title);
+      const talkData = await pageB.evaluate(async (id: string) =>
+        (window as any).__iinpublic_app?.getApp?.()?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }), talkId);
+      arrived[t.def.id] = { talkId, talkData: { ...talkData, authorId: userIdA, authorEpub } };
+    }
+
     // ── 4. B answers each talk with its designated outcome (pair-direct submit) ─
     for (const t of talks) {
       await pageB.evaluate(
@@ -216,7 +238,7 @@ test.describe('Stats aggregation across all four talk types (flow, tag, survey, 
             isAutoResponse: false,
           });
         },
-        { def: t.def, answers: t.answers, authorId: userIdA, authorName: 'StatsA' },
+        { def: { ...arrived[t.def.id]!.talkData, id: arrived[t.def.id]!.talkId }, answers: t.answers, authorId: userIdA, authorName: 'StatsA' },
       );
     }
 

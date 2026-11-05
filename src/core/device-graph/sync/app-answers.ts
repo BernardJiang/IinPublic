@@ -46,6 +46,8 @@ export type AppAnswerRecord = {
   withUser?: string;
   talk: Record<string, unknown>;
   answers: AppAnswer[];
+  /** How my answer to someone's Talk came out when I sent it, if I sent it. */
+  outcome?: 'match' | 'mismatch';
 };
 
 const reuseOf = (mode: unknown): Reuse => (mode === 'manual' ? 'once' : mode === 'whenever' ? 'whenever' : 'auto');
@@ -331,9 +333,12 @@ export function createAppAnswers(options: {
         if (!talk || !set) continue;
         const mode = typeof node.mode === 'string' ? node.mode : 'manual';
         const withUser = personIdOf(prefix, linkSoul(node.with));
+        // How my answer came out when I sent it (`response.commit`, with my Pair-tag side).
+        const responded = withUser ? await graph.exchange.responded(talkId, withUser) : undefined;
         out.push({
           appTalkId, graphTalkId: talkId, eventId, when: Number(node.when) || 0, mode, mine,
           ...(withUser ? { withUser } : {}),
+          ...(responded ? { outcome: responded.outcome === 'matched' ? 'match' as const : 'mismatch' as const } : {}),
           talk: appTalkOf(talk as any),
           answers: appAnswersOf(talk as any, set, mode, mine ? 'author' : 'responder'),
         });
