@@ -195,7 +195,16 @@ its ID.
     (a Talk the receiver's age gate refused is still recorded as sent, so later Talks of the same
     content skip them: a product bug), 41 (answers Talks never received over a link), 67,
     74 (both), 76, 80, 81, 88-starter-interest-tags, 88-asymmetric, 93; stage3/00, 00aa, 00ab
-    (answer before arrival), 04. To fix next.
+    (answer before arrival), 04. All fixed 2026-11-05 (`81786abb`, `14027a88`, `26904d83`,
+    `1f7e2b70` and the next commit). Product bugs among them: a Talk the receiver's intake refused
+    stayed "sent" (now a `declined` log entry, 21c/00e); the author scored a graph answer in
+    context-hash order, so a Pair-tag flow match counted as a mismatch (88-asymmetric:
+    `appAnswersOf` now returns question order); late data did not redraw the Talks and Me
+    screens; the editor opened the graph's older version (05). The rest were specs answering
+    Talks that never arrived or under the wrong id, ignoring the grammar filter's capitals,
+    answering past a flow's match, or racing a redraw or a toast.
+    Re-run 2026-11-05: 347 passed, 3 failed (stage1/95 screenshot of a redrawn row and stage2/08
+    match toast over the filter bar, both fixed in the spec; stage3/14 passes alone).
   - Next: (5) real-phone run (native-app/37 now asserts graph events).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
