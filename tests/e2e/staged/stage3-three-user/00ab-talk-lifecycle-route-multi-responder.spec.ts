@@ -126,11 +126,9 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
     // --- Creator sees both peer-signed responses in its local ledger ---
     await expect
       .poll(
-        () => pageTom.evaluate((talkId) => {
-          const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-          return Object.values(doc?.outcomes || {}).filter(
-            (entry: any) => String(entry?.talkId || '') === talkId,
-          ).length;
+        () => pageTom.evaluate(async (talkId) => {
+          const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+          return Object.keys(doc?.outcomes?.[talkId] || {}).length;
         }, created.talkId),
         { timeout: 30_000, message: 'Expected both route responses in the creator local ledger' },
       )

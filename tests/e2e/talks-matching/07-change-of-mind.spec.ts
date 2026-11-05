@@ -11,7 +11,7 @@
  * Assertions (durable, not toast-only):
  *   - conversation-list-item data-conversation-status + data-change-of-mind-at
  *   - myConversations in localStorage
- *   - talkLedger.outcomes version monotonicity
+ *   - the graph's outcome version (`ix/outcome`) is monotonic
  *
  * See companion 07-change-of-mind.md for plain-English description.
  *
@@ -351,12 +351,9 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
 
     // ---- 11. Verify Tom ledger shows Jerry matched with version >= 2 --------
     const tomJerryEntry = await pageTom.evaluate(
-      ({ jId, tId }: { jId: string; tId: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        if (!doc) return null;
-        return Object.values(doc.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === jId && e.talkId === tId,
-        ) ?? null;
+      async ({ jId, tId }: { jId: string; tId: string }) => {
+        const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([tId]);
+        return doc?.outcomes?.[tId]?.[jId] ?? null;
       },
       { jId: jerryId, tId: TOM_TALK_ID },
     );
@@ -435,12 +432,9 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         if (!app) return 'no-app';
 
-        // Read current entry for Jerry in Tom's ledger
-        const doc = app.getTalkLedgerDocForE2e?.();
-        if (!doc) return 'no-ledger';
-        const entry = Object.values(doc.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === jId && e.talkId === tId,
-        );
+        // Read how Tom decided Jerry's answer (the graph's `ix/outcome`)
+        const doc = await app.getExchangesForE2e?.([tId]);
+        const entry = doc?.outcomes?.[tId]?.[jId];
         if (!entry) return 'no-entry';
         const beforeVersion = entry.version;
 
@@ -465,10 +459,8 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
           // Expected to return early or throw
         }
 
-        const docAfter = app.getTalkLedgerDocForE2e?.();
-        const entryAfter = Object.values(docAfter.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === jId && e.talkId === tId,
-        );
+        const docAfter = await app.getExchangesForE2e?.([tId]);
+        const entryAfter = docAfter?.outcomes?.[tId]?.[jId];
         return entryAfter?.version === beforeVersion ? 'rejected' : 'accepted';
       },
       { jId: jerryId, tId: TOM_TALK_ID, version: 1 },

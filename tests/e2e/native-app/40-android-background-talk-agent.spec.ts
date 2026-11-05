@@ -19,8 +19,6 @@ import {
 } from './helpers/native-app-android';
 import { createTagTalk, everyoneListsEveryone, type NearbyParticipant } from '../journeys/nearby-ring-journey';
 import type { TestActor } from '../helpers/test-actor';
-import { buildTalkIdentityKey } from '../../../src/shared/cid';
-import { selectedTalkIdentityKeys } from '../../../src/core/talk-rules';
 
 const execFileAsync = promisify(execFile);
 const RUN = process.env.E2E_REAL_ANDROID_BACKGROUND_AGENT === '1';
@@ -163,12 +161,7 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
     const talk = await createTagTalk(participant('G7 Author', author, authorId).actor, title);
     const approvedQuestion = talk.talkData.questions[0];
     const approvedAnswer = approvedQuestion.answers.find((answer: any) => answer.id === 'a_0_match');
-    const expectedIdentityKeys = [...new Set([
-      buildTalkIdentityKey(talk.talkData),
-      ...selectedTalkIdentityKeys(talk.talkData, [{
-        questionId: approvedQuestion.id, answerId: approvedAnswer.id, answerText: approvedAnswer.text,
-      }]),
-    ])].sort();
+    void approvedAnswer;
     await configureAlwaysExactAnswer(receiver, talk.talkData);
     console.log(`[background-agent] ${RECEIVER_SERIAL} provisioned; testing screen-off process recovery`);
     await author.window.evaluate(() => {
@@ -224,10 +217,9 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
       return !store.activeSessionId && endedAt.length > 0;
     }, collectionSessionId), { timeout: 30_000 }).toBe(true);
 
-    await expect.poll(() => author!.window.evaluate(({ talkId, responderId }) => {
-      const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-      return Object.values(doc?.outcomes || {}).filter((row: any) =>
-        row?.talkId === talkId && row?.responderId === responderId && row?.outcome === 'matched').length;
+    await expect.poll(() => author!.window.evaluate(async ({ talkId, responderId }) => {
+      const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+      return doc?.outcomes?.[talkId]?.[responderId]?.outcome === 'matched' ? 1 : 0;
     }, { talkId: talk.talkId, responderId: receiverId }), {
       timeout: 240_000,
       intervals: [2_000, 3_000, 5_000],
@@ -257,16 +249,12 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
     receiver = await launchAndroidUserViaAdb({ deviceSerial: RECEIVER_SERIAL, hubGunUrl, disableLanDiscovery: true });
     await expect.poll(() => receiver!.window.evaluate(() => Boolean((window as any).__iinpublic_app?.getApp?.()?.currentUser?.id)), { timeout: 90_000 }).toBe(true);
 
-    // A tag response records both the whole Talk and the selected tag's suppression identity.
-    // These are aliases of one exchange, not duplicate outcomes; require each exactly once.
-    await expect.poll(() => receiver!.window.evaluate((talkId) => {
-      const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-      return Object.values(doc?.exchanged || {})
-        .filter((row: any) => row?.role === 'responder' && row?.talkId === talkId)
-        .map((row: any) => ({ identityKey: row.identityKey, peerId: row.peerId, version: row.version }))
-        .sort((a, b) => a.identityKey.localeCompare(b.identityKey));
+    // One answer, recorded once: my answer to the author's Talk at version 1 (`ix/responded`).
+    await expect.poll(() => receiver!.window.evaluate(async (talkId) => {
+      const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+      return Object.entries(doc?.responded?.[talkId] || {}).map(([peerId, row]: [string, any]) => ({ peerId, version: row.version }));
     }, talk.talkId), { timeout: 120_000, intervals: [1_000, 2_000, 3_000] })
-      .toEqual(expectedIdentityKeys.map((identityKey) => ({ identityKey, peerId: authorId, version: 1 })));
+      .toEqual([{ peerId: authorId, version: 1 }]);
     await expect.poll(() => receiver!.window.evaluate(() => {
       const raw = (window as any).IinPublicBackground?.status?.();
       try { return JSON.parse(raw || '{}').pendingEvents ?? -1; } catch { return -1; }
@@ -285,8 +273,6 @@ test.describe('Native app: unattended encrypted Talk exchange (OPEN-81 G7)', () 
       backgroundServicePid,
       processPidAfterActivityRelaunch: (await adb(RECEIVER_SERIAL, 'pidof', PACKAGE)).trim(),
       logicalResponderExchanges: 1,
-      exactResponderLedgerRows: expectedIdentityKeys.length,
-      responderIdentityKeys: expectedIdentityKeys,
     };
     const evidencePath = testInfo.outputPath('g7-background-agent-evidence.json');
     fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));

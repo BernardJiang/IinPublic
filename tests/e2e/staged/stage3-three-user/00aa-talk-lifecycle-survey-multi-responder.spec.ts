@@ -123,11 +123,9 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
     // --- Creator ledger records both peer-signed responses locally ---
     await expect
       .poll(
-        () => pageTom!.evaluate((talkId) => {
-          const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-          return Object.values(doc?.outcomes || {}).filter(
-            (entry: any) => String(entry?.talkId || '') === talkId,
-          ).length;
+        () => pageTom!.evaluate(async (talkId) => {
+          const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+          return Object.keys(doc?.outcomes?.[talkId] || {}).length;
         }, created.talkId),
         { timeout: 30_000, message: 'Expected both survey responses in the creator local ledger' },
       )

@@ -11,12 +11,11 @@ with Jerry (matched). Bob has no conversation (ignored/no-reply).
 
 Tom then retracts the talk (simulating a tag-uncheck or delete action).
 This triggers `handleRetractTalk` which:
-- Writes a tombstone `retracted[talkId::tomId]` to Tom's local ledger.
-- Floods a `talk-retracted` mesh frame to all neighbors (Jerry, Bob).
-- Posts mailbox envelopes to known responders (Jerry).
+- Writes a deletion event in Tom's device graph (`graph.retract`).
+- Puts it in Tom's graph log for everyone the Talk was sent to (Jerry, Bob).
 
-Jerry and Bob receive the retraction frame. Each:
-- Writes the tombstone to their own local ledger (dead-inbox).
+Jerry and Bob read the deletion from Tom's log. Each:
+- Keeps the deletion event in their own graph (`ix/deleted/<talkId>`, the dead inbox).
 - Updates any conversation with Tom that references this talkId to `status:'withdrawn'`.
 - Shows a "match gone" notice with the retractedAt timestamp.
 
@@ -28,14 +27,14 @@ Tom's own conversation with Jerry also moves to `status:'withdrawn'`.
 ## Dead-inbox assertion
 
 Jerry then attempts a change-of-mind answer (submits a new response for Tom's
-retracted talk). The `submitTalkResponsePairDirect` path checks the local
-`retracted[talkId::authorId]` tombstone and short-circuits delivery before
-the mesh send. Tom's ledger and conversation are unchanged after this attempt.
+retracted talk). The `submitTalkResponsePairDirect` path finds the
+deletion in Jerry's graph (`graph.deletedAt`) and sends nothing. Tom's recorded
+outcomes and conversation are unchanged after this attempt.
 
 ## Key invariants verified
 
-1. Tombstone keyed `talkId::authorId` (author-scoped — Bob's identical-content
-   talk would have a different authorId and its own tombstone).
+1. The deletion is of one Talk by its graph id (author-scoped: Bob's identical-content
+   Talk is another Talk with its own id).
 2. Conversation status `'withdrawn'` on both sides (Tom and Jerry).
 3. `retractedAt` ISO timestamp on the conversation record (distinct from
    step-9 `changedAt` which uses `status:'ignored'`).

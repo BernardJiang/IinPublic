@@ -646,10 +646,6 @@
       "reason": "needs a DOM test environment"
     },
     {
-      "file": "talk-ledger.test.ts",
-      "reason": "uses the DOM or browser globals"
-    },
-    {
       "file": "talk-peer-registration.test.ts",
       "reason": "needs a DOM test environment"
     },

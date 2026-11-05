@@ -10,7 +10,8 @@ import type { P2PMeshTalkResponsePayload } from '../shared/p2p-mesh-protocol';
 import type { DeliveryInput, DeliveryJournalRecord } from './delivery';
 import type { ExchangeRecord } from './exchanges';
 
-import type { LedgerCommand, LedgerCommandResult } from './talk-ledger-store';
+import type { CommittedResponse, ResponseCommitInput } from './response-commit';
+import type { Outcome, OutcomeRecord } from './device-graph/exchanged';
 
 import type { OwnTalksStatus } from './device-graph/sync/own-talks';
 import type { IncomingTalkClusterWire } from '../shared/peer-talk-delivery';
@@ -22,8 +23,18 @@ import type { ChatbotView, RememberedAnswer } from './device-graph/answers';
 
 export const CORE_PROTOCOL_VERSION = 1;
 
+/**
+ * Who I exchanged what with (`ix/exchanged`, `ix/co`) and, for each of my Talks by the app's id,
+ * its latest version and the version each person was last sent (OPEN-106 step 3).
+ */
+export type ExchangeStateSnapshot = {
+  peers: Record<string, { exchanged: string[]; answered: string[] }>;
+  talks: Record<string, { versionId: string; sent: Record<string, string> }>;
+};
+
 export type CoreRequest =
-  | LedgerCommand
+  /** My answer, committed (its version and records) before it is sent. */
+  | { name: 'response.commit'; input: ResponseCommitInput }
   | { name: 'exchanges.snapshot' }
   | { name: 'exchanges.upsert'; records: ExchangeRecord[] }
   | { name: 'exchanges.removePeers'; peerIds: string[] }
@@ -43,7 +54,22 @@ export type CoreRequest =
   | { name: 'deviceGraph.status' }
   | GraphHostRequest
   /** `talk`: the body the app is sending, written as my Talk when the core has no record of it. */
-  | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown>; talk?: Record<string, unknown> }
+  /**
+   * Offer my Talk. Each recipient who already has it (this version, or every part of it) is
+   * skipped, a tag Talk leaves out the tags they have, and the send limit applies (REQ-LEDGER-16).
+   * `suppress: false` and `unlimitedForTesting` are test overrides.
+   */
+  | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown>; talk?: Record<string, unknown>; suppress?: boolean; unlimitedForTesting?: boolean }
+  | { name: 'graph.exchangeState' }
+  /** How I decided someone's answer to my Talk. */
+  | { name: 'graph.recordOutcome'; talkId: string; responderId: string; record: OutcomeRecord }
+  | { name: 'graph.outcome'; talkId: string; responderId: string }
+  /** Each answer to these Talks of mine: responder → outcome. */
+  | { name: 'graph.outcomes'; talkIds: string[] }
+  /** My latest answer to this Talk, per author who sent it. */
+  | { name: 'graph.respondedTo'; talkId: string }
+  /** When a Talk was deleted (mine, or one I received), if it was. */
+  | { name: 'graph.deletedAt'; talkId: string }
   | { name: 'graph.retract'; talkId: string }
   | { name: 'graph.answerHistory'; months?: number }
   /** The app accepted a Talk that arrived over a graph link: it goes on the incoming list. */
@@ -68,7 +94,7 @@ export type CoreRequest =
   | { name: 'graph.changeRemembered'; key: string; change: { reuse?: 'auto' | 'once' } | { answerText: string } | { forget: true } };
 
 export type CoreResponse<R extends CoreRequest> =
-  R extends LedgerCommand ? LedgerCommandResult
+  R extends { name: 'response.commit' } ? CommittedResponse
     : R extends { name: 'exchanges.snapshot' } ? ExchangeRecord[]
     : R extends { name: 'exchanges.upsert' } ? { written: number }
       : R extends { name: 'exchanges.removePeers' } ? { removed: number }
@@ -85,7 +111,13 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.pull' } ? GraphPull
                           : R extends { name: 'graph.status' } ? GraphHostStatus
                           : R extends { name: 'graph.identity' | 'graph.open' | 'graph.close' | 'graph.hear' } ? { ok: true }
-                          : R extends { name: 'graph.offer' } ? { offered: number; known: boolean }
+                          : R extends { name: 'graph.offer' } ? { offered: number; known: boolean; sent: string[]; skipped: Record<string, string>; omitted: Record<string, string[]> }
+                          : R extends { name: 'graph.exchangeState' } ? ExchangeStateSnapshot
+                          : R extends { name: 'graph.recordOutcome' } ? { ok: boolean }
+                          : R extends { name: 'graph.outcome' } ? OutcomeRecord | null
+                          : R extends { name: 'graph.outcomes' } ? Record<string, Record<string, Outcome>>
+                          : R extends { name: 'graph.respondedTo' } ? Record<string, OutcomeRecord>
+                          : R extends { name: 'graph.deletedAt' } ? number | null
                           : R extends { name: 'graph.answer' } ? { sent: boolean; eventId?: string }
                           : R extends { name: 'graph.retract' } ? { sent: number }
                           : R extends { name: 'graph.answerHistory' } ? AppAnswerRecord[]

@@ -1,9 +1,8 @@
 /**
  * Talk retractions (OPEN-91 P4), moved out of `app.ts`: which conversations a retraction touches,
- * who must hear of mine, and what one I receive changes. Pure; the caller writes the ledger,
- * notifies and marks conversations.
+ * who must hear of mine, and what one I receive changes. Pure; the caller notifies and marks
+ * conversations. A retraction is a graph deletion event, applied once from the author's log.
  */
-import { retractedKey, type TalkLedgerDoc } from '../shared/talk-ledger';
 
 /** The conversation formed through this Talk — directly, or as one of its related Talks. */
 export function conversationReferencesTalk(conversation: any, talkId: string): boolean {
@@ -43,30 +42,24 @@ export function retractionRecipients(conversations: Record<string, any>, talkId:
 }
 
 export type RetractionReceipt = {
-  /** Not seen before (mesh and mailbox replay the same frame): tell the user once. */
-  isNew: boolean;
   /** Withdraw my conversation with the author through this Talk — never a confirmed deal. */
   withdraw: boolean;
 };
 
 export function planRetractionReceipt(input: {
-  ledger: TalkLedgerDoc;
   talkId: string;
   authorId: string;
-  retractedAt: number;
   myId: string;
   conversations: Record<string, any>;
   /** Deals this session saw confirmed (a guard against a stale record). */
   confirmedThisSession: ReadonlySet<string>;
 }): RetractionReceipt {
-  const existing = input.ledger.retracted[retractedKey(input.talkId, input.authorId)];
-  const isNew = !existing || input.retractedAt > existing.retractedAt;
   // The first conversation with the author through this Talk decides; a finalized deal is a
   // successful outcome, never undone by the retraction that followed it.
   for (const [conversationId, conversation] of Object.entries(input.conversations)) {
     if (!conversationReferencesTalk(conversation, input.talkId) || conversation?.otherUserId !== input.authorId) continue;
     const confirmed = input.confirmedThisSession.has(conversationId) || isDealMutuallyConfirmed(conversation, input.myId, input.authorId);
-    return { isNew, withdraw: !confirmed };
+    return { withdraw: !confirmed };
   }
-  return { isNew, withdraw: false };
+  return { withdraw: false };
 }

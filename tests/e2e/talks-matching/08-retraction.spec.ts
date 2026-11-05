@@ -14,7 +14,7 @@
  * Assertions (durable, not toast-only):
  *   - myConversations status === 'withdrawn' both sides (Tom, Jerry)
  *   - retractedAt set on conversation record
- *   - talkLedger.retracted tombstone on Tom, Jerry, Bob
+ *   - the deletion event in the graph on Tom, Jerry, Bob (`graph.deletedAt`)
  *   - no second delivery on Tom after Jerry's post-retraction answer attempt
  *
  * See companion 08-retraction.md for plain-English description.
@@ -294,16 +294,14 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     await afterAction();
     await afterSync();
 
-    // ---- 10. Tom's own ledger has the tombstone ----------------------------
-    const tomTombstone = await pageTom.evaluate(
-      ({ tId, aId }: { tId: string; aId: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        return doc?.retracted?.[`${tId}::${aId}`] ?? null;
+    // ---- 10. Tom's graph has the deletion event -----------------------------
+    await expect.poll(() => pageTom.evaluate(
+      async ({ tId }: { tId: string }) => {
+        const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([tId]);
+        return doc?.deleted?.[tId] ?? null;
       },
-      { tId: TOM_TALK_ID, aId: tomId },
-    );
-    expect(tomTombstone, 'Tom: tombstone not written').not.toBeNull();
-    expect(tomTombstone.retractedAt).toBeGreaterThan(0);
+      { tId: TOM_TALK_ID },
+    ), { timeout: MESH_E2E_TIMEOUT_MS, message: 'Tom: deletion event not written' }).toBeGreaterThan(0);
 
     // ---- 11. Tom's conversation with Jerry is now withdrawn ----------------
     const tomConvStatus = await pageTom.evaluate(({ jId }: { jId: string }) => {
@@ -317,11 +315,11 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     await expect
       .poll(
         () => pageJerry.evaluate(
-          ({ tId, aId }: { tId: string; aId: string }) => {
-            const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-            return !!doc?.retracted?.[`${tId}::${aId}`];
+          async ({ tId }: { tId: string }) => {
+            const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([tId]);
+            return !!doc?.deleted?.[tId];
           },
-          { tId: TOM_TALK_ID, aId: tomId },
+          { tId: TOM_TALK_ID },
         ),
         { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: retraction tombstone not received' },
       )
@@ -350,11 +348,11 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     await expect
       .poll(
         () => pageBob.evaluate(
-          ({ tId, aId }: { tId: string; aId: string }) => {
-            const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-            return !!doc?.retracted?.[`${tId}::${aId}`];
+          async ({ tId }: { tId: string }) => {
+            const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([tId]);
+            return !!doc?.deleted?.[tId];
           },
-          { tId: TOM_TALK_ID, aId: tomId },
+          { tId: TOM_TALK_ID },
         ),
         { timeout: MESH_E2E_TIMEOUT_MS, message: 'Bob: retraction tombstone not received' },
       )
@@ -379,15 +377,12 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
     // ---- 15. Jerry attempts a post-retraction change-of-mind ---------------
     // Capture Tom's ledger state before the stale answer attempt.
     const tomLedgerBefore = await pageTom.evaluate(
-      ({ jId, tId, aId }: { jId: string; tId: string; aId: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        const outcomes = doc?.outcomes ?? {};
-        const entry = Object.values(outcomes as Record<string, any>).find(
-          (e: any) => e?.responderId === jId && e?.talkId === tId,
-        );
-        return { outcomeCount: Object.keys(outcomes).length, entry: entry ?? null, tombstone: doc?.retracted?.[`${tId}::${aId}`] };
+      async ({ jId, tId }: { jId: string; tId: string }) => {
+        const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([tId]);
+        const outcomes = doc?.outcomes?.[tId] ?? {};
+        return { outcomeCount: Object.keys(outcomes).length, entry: outcomes[jId] ?? null, tombstone: doc?.deleted?.[tId] ?? null };
       },
-      { jId: jerryId, tId: TOM_TALK_ID, aId: tomId },
+      { jId: jerryId, tId: TOM_TALK_ID },
     );
 
     // Jerry tries to submit another answer (change-of-mind) for Tom's retracted talk.
@@ -417,15 +412,12 @@ test.describe('Retraction -- step 10 (three browsers)', () => {
 
     // ---- 16. Tom's ledger must be unchanged after Jerry's stale answer ------
     const tomLedgerAfter = await pageTom.evaluate(
-      ({ jId, tId, aId }: { jId: string; tId: string; aId: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        const outcomes = doc?.outcomes ?? {};
-        const entry = Object.values(outcomes as Record<string, any>).find(
-          (e: any) => e?.responderId === jId && e?.talkId === tId,
-        );
-        return { outcomeCount: Object.keys(outcomes).length, entry: entry ?? null, tombstone: doc?.retracted?.[`${tId}::${aId}`] };
+      async ({ jId, tId }: { jId: string; tId: string }) => {
+        const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([tId]);
+        const outcomes = doc?.outcomes?.[tId] ?? {};
+        return { outcomeCount: Object.keys(outcomes).length, entry: outcomes[jId] ?? null, tombstone: doc?.deleted?.[tId] ?? null };
       },
-      { jId: jerryId, tId: TOM_TALK_ID, aId: tomId },
+      { jId: jerryId, tId: TOM_TALK_ID },
     );
 
     // Tombstone must still be present (retraction is permanent)

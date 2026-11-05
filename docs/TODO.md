@@ -137,13 +137,28 @@ its ID.
     `recordHistory`). `tagOppositePairRegistry` is the editor's own list, not a copy; it stays.
     Known gaps: the crash rebuild does not restore `ix/whenever` lists; a device handoff no longer
     carries chatbot answers; the Android background mailbox agent gets no answer rules (it has no
-    Talks to answer since the mailbox went). `talkLedger` and `talkRevisionSent` go with step (3).
+    Talks to answer since the mailbox went).
     Found by e2e `stage2/88` (from stages i–iii, not v): the tag graph (`src/core/tag-graph.ts`)
     keys a tag by Talk id, so my starter tag (`qa_…`) and a peer's copy of it (a graph id) show as
     two chips for one keyword in a person's tags.
-  - Next, in order: (3) graph suppression
-    (`ix/exchanged`) in place of the sender's ledger; (4) "delete my answer" in the UI
-    (no such control today); (5) real-phone run (native-app/37 now asserts graph events).
+  - Done (step 3): the talk ledger and the revisions sent are gone; the device graph keeps what
+    they did (`src/core/device-graph/exchanged.ts`, spec §31.8). What passed between me and a
+    person is `ix/exchanged/<peer>`: each situation's context hash, or a tag Talk's tag word (the
+    same tag in anyone's Talk), from my offer, their Talk I accepted (a tag Talk's tags only once
+    answered), or an answer. `graph.offer` decides per recipient: one who has this version
+    (`sync/sent`) or every part of it is skipped, a tag Talk leaves out the tags they have (`omit`),
+    and the send limit (10 distinct Talks a day, 50 a week per person) is `ix/sent-day`. How I
+    decided each answer to my Talk is `ix/outcome` (statistics, change of mind, stale answers), my
+    own answer's version is `ix/responded` (`response.commit`), and a retraction is the graph's
+    deletion event (`graph.deletedAt`), whose Talk's parts leave the index. The screens read a copy
+    in memory (`src/web/services/exchange-state.ts`: still owed, "also exchanged with"). e2e specs
+    read it all with `getExchangesForE2e`. Change of mind goes to the other senders on the Talk's
+    incoming row. Found failing on the baseline before step 3 (from step 2e): `stage2/80` (Jerry
+    cannot read Tom's Talk by the app id it was created with: a Talk sent under a non-graph id
+    arrives under its new graph id) and `stage3/00aa` (the creator records no answers); `00ab`
+    fails the same way (not run on the baseline).
+  - Next, in order: (4) "delete my answer" in the UI (no such control today); (5) real-phone run
+    (native-app/37 now asserts graph events).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)

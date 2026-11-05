@@ -1,18 +1,14 @@
 /**
  * Who is still owed which of my Talks (OPEN-91 P4), moved out of `src/web/ui/`: the broadcast's
- * target selection. Pure over the lookups it is given (My Talks, the delivery ledger's
- * suppression, the revision each peer last took); the GUI module supplies its own.
+ * target selection. Pure over the lookups it is given (My Talks, and whether a Talk is owed to a
+ * person, from the device graph's exchange index); the GUI module supplies its own.
  */
-import { computeTalkIdFromTalkData } from '../shared/cid';
-import { computeTalkRevisionHash } from '../shared/talk-revision';
-import { buildTagIdentityKeys } from '../shared/talk-ledger';
 
 export type BroadcastDeliverySelectionDeps = {
   getMyTalks: () => Record<string, any>;
   getBroadcastableTalkIds: () => string[];
-  shouldSuppressForPeer: (receiverId: string, identityKey: string) => boolean;
-  /** OPEN-45: peer has this content but an older title/routing revision (read-only check). */
-  revisionOwedToPeer?: (receiverId: string, talkId: string, revision: string) => boolean;
+  /** A version of the Talk they do not have, or parts of it that never passed between us. */
+  owedTo: (receiverId: string, talkId: string, talk: any) => boolean;
 };
 
 export function resolveExpiresAtMs(value: unknown): number {
@@ -34,20 +30,15 @@ export function broadcastableTalkIds(myTalks: Record<string, any>, nowMs: number
 }
 
 /**
- * True when this talk's current content identity is still owed to the receiver.
- * Suppression is peer+identity scoped, not room-scoped: delivery in one room suppresses the
- * same content in another, while a genuine content edit produces a new identity and remains
- * eligible. Tag talks use the same per-tag identities as the delivery ledger, and remain owed
- * while any independently deliverable tag has not been sent.
+ * True when this Talk is still owed to the receiver. What was exchanged is per person, not per
+ * room: delivery in one room suppresses the same content in another, while an edit (a new
+ * version) is owed again. A tag Talk stays owed while any of its tags has not passed between us.
  */
 export function isBroadcastUnsentForReceiver(receiverId: string, talkId: string, deps: BroadcastDeliverySelectionDeps): boolean {
   const talk = deps.getMyTalks()[talkId];
   const fullTalk = talk?.fullTalk || talk;
   if (!fullTalk) return true;
-  const wholeTalkIdentityKey = computeTalkIdFromTalkData(fullTalk);
-  const identityKeys = buildTagIdentityKeys(fullTalk, wholeTalkIdentityKey);
-  if (identityKeys.some((identityKey) => !deps.shouldSuppressForPeer(receiverId, identityKey))) return true;
-  return deps.revisionOwedToPeer?.(receiverId, talkId, computeTalkRevisionHash(fullTalk)) ?? false;
+  return deps.owedTo(receiverId, talkId, fullTalk);
 }
 
 /** Broadcastable talk ids still owed to at least one receiver. */

@@ -16,7 +16,7 @@ import {
   mergeIncomingTalkCluster,
   type IncomingTalkClusterWire,
 } from '../../../shared/peer-talk-delivery';
-import { filterTalkForRecipient } from '../../../shared/talk-ledger';
+import { filterTalkForRecipient } from '../../../shared/tag-identity';
 import type { DeviceGraph } from '../device-graph';
 import { linkSoul, type NodeStore } from '../node-store';
 import { graphSouls } from '../talk-structure';

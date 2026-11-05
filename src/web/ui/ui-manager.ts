@@ -200,7 +200,7 @@ import {
 import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-gestures';
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
-import { getTalkLedgerDoc } from '../services/web-talk-ledger-store';
+import { coExchangedPeers } from '../services/exchange-state';
 import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
 import { getMyConversations, setMyConversations } from './my-conversations-storage';
 import { settingsStorage } from '../services/core-storage';
@@ -1067,31 +1067,16 @@ export class UIManager extends EventEmitter {
 
   /**
    * TODO §Q "Talk -> people I've separately exchanged this with" edge (build-order item 17).
-   * Privacy-scoped by construction: reads only the local talkLedger (`web-talk-ledger-store.ts`),
-   * this device's own record of talks *I* personally authored or answered — never a mesh-wide
-   * identityKey query. Combines both ledger roles for the given identityKey:
-   *   - role:'author' entries — responders who answered a talk *I created* with this content
-   *     (possibly via a different talkId than the one currently in view, e.g. a separate
-   *     broadcast round or a re-created copy).
-   *   - role:'responder' entries — authors whose talk *I answered* with this same content
-   *     (excludes version:0 "received but not yet answered" seed rows — only real exchanges).
-   * `excludePeerIds` drops people already shown by the row's own N3 matched-names/sender-name
-   * line, so this surfaces only *additional* co-exchangers, not a duplicate listing.
+   * Privacy-scoped by construction: reads only this device's own graph (`exchange-state.ts`), the
+   * people an answer on this content passed with — I answered theirs, or they answered mine
+   * (possibly through another Talk id, e.g. a separate broadcast round or a re-created copy).
+   * `excludePeerIds` drops people already shown by the row's own matched-names/sender-name line.
    */
-  private getCoExchangedPeople(
-    identityKey: string,
-    excludePeerIds: Set<string>,
-  ): Array<{ id: string; name: string }> {
-    if (!identityKey) return [];
-    const doc = getTalkLedgerDoc();
-    const resolved = new Map<string, string>();
-    for (const entry of Object.values(doc.exchanged)) {
-      if (entry.identityKey !== identityKey) continue;
-      if (entry.role === 'responder' && entry.outcome === 'no-reply') continue;
-      if (excludePeerIds.has(entry.peerId) || resolved.has(entry.peerId)) continue;
-      resolved.set(entry.peerId, this.getPeerName(entry.peerId, entry.peerName));
-    }
-    return Array.from(resolved, ([id, name]) => ({ id, name }));
+  private getCoExchangedPeople(talk: any, excludePeerIds: Set<string>): Array<{ id: string; name: string }> {
+    if (!talk) return [];
+    return coExchangedPeers(talk)
+      .filter((peerId) => !excludePeerIds.has(peerId))
+      .map((id) => ({ id, name: this.getPeerName(id) }));
   }
 
   // Kept public because focused E2E invokes this historical handler dynamically.
@@ -1184,7 +1169,7 @@ export class UIManager extends EventEmitter {
       getMyConversations: () => this.getMyConversations(),
       formatReasonCounts: (counts) => this.formatReasonCounts(counts),
       displayContextualStatistics: (elementId, prefix) => this.displayContextualStatistics(elementId, prefix),
-      getCoExchangedPeople: (identityKey, excluded) => this.getCoExchangedPeople(identityKey, excluded),
+      getCoExchangedPeople: (talk, excluded) => this.getCoExchangedPeople(talk, excluded),
       formatTalkDistanceFromAuthor: (location) => this.formatTalkDistanceFromAuthor(location),
       formatTalkExpiration: (expiresAt) => this.formatTalkExpiration(expiresAt),
       formatTalkLanguage: (code) => this.formatTalkLanguage(code),

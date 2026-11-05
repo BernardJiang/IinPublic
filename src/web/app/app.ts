@@ -54,8 +54,6 @@ import { setGraphChatbotSource } from '../ui/graph-chatbot';
 import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
 import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
-import { computeTalkRevisionHash } from '../../shared/talk-revision';
-import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
@@ -219,20 +217,7 @@ import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
 import { mergeIncomingTalkCluster, type IncomingTalkClusterWire } from '../../shared/peer-talk-delivery';
 import { getSEA, type GunPair } from '../sea-gun';
-import {
-  applyTalkLedgerEvent,
-  applyEdgeGateForPeer,
-  shouldSuppressForPeer,
-  getTalkLedgerDoc,
-  connectTalkLedgerCore,
-  commitTalkResponse,
-  recordAuthorAnswer,
-  getResponderVersionForTalk,
-  writeResponderExchangedEntry,
-  getResponderTargetsForIdentity,
-  getResponderLastResponseId,
-  markTalkSentToPeer,
-} from '../services/web-talk-ledger-store';
+import { connectExchangeState, exchangeStateSnapshot, markExchangedForTesting, refreshExchangeState } from '../services/exchange-state';
 import { buildTalkIdentityKey } from '../../shared/cid';
 import { applyContactsPrune, getContactsCap, planContactsPrune, unprunePeer } from '../services/contacts-prune';
 import { sharedTagCounter } from '../ui/tag-graph-view';
@@ -245,12 +230,12 @@ import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { classifyMailboxPayload, mailboxSenderId } from '../../core/mailbox-envelope';
-import { authorLedgerWritesFor, exchangeRecordFor } from '../../core/exchange-recording';
+import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
 import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import { answeredBeforeFor, isDealEligibleTalk, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
-import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
+import { answeredBeforeFor, isDealEligibleTalk, matchScoreParamsFor, talkRevisionPairKey } from '../../core/talk-rules';
+import { isIgnoreAnswerSet, isResponseComplete } from '../../core/response-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
@@ -260,12 +245,8 @@ import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
-import {
-  buildTagIdentityKeys,
-  filterTalkForRecipient,
-  setTalkLedgerQuotaUnlimited,
-  retractedKey as ledgerRetractedKey,
-} from '../../shared/talk-ledger';
+import { filterTalkForRecipient } from '../../shared/tag-identity';
+import { tagAtom } from '../../core/device-graph/exchanged';
 import { getMyConversations } from '../ui/my-conversations-storage';
 
 /** Private records that held Talk bodies before the device graph (erased, never read): the SEA
@@ -431,6 +412,7 @@ export class IinPublicApp {
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
+  private talkSendQuotaUnlimitedForE2e = false;
   private mailboxFallbackDisabledForE2e = false;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
@@ -4271,11 +4253,17 @@ export class IinPublicApp {
     const decrypted = readable ?? await this.decryptPairTalkResponsePayload(payload);
 
     // The decision is the core's (src/core/response-ingest.ts); this method carries it out.
+    const [prior, retractedAt] = this.coreRequest
+      ? await Promise.all([
+        this.coreRequest({ name: 'graph.outcome', talkId: payload.talkId, responderId: payload.responderId }).catch(() => null),
+        this.coreRequest({ name: 'graph.deletedAt', talkId: payload.talkId }).catch(() => null),
+      ])
+      : [null, null];
     const decision = decideResponseIngest({
       talkData,
       answers: decrypted.answers,
-      ledger: getTalkLedgerDoc(),
-      identityKey: buildTalkIdentityKey(talkData),
+      ...(prior ? { prior } : {}),
+      ...(retractedAt !== null ? { retractedAt } : {}),
       responderId: payload.responderId,
       authorId: this.currentUser.id,
       talkId: payload.talkId,
@@ -4283,7 +4271,6 @@ export class IinPublicApp {
       ...(payload.version !== undefined ? { version: payload.version } : {}),
       ...(payload.respondedAt ? { respondedAt: payload.respondedAt } : {}),
       submittedAt: payload.submittedAt,
-      now: new Date().toISOString(),
     });
     if (decision.kind === 'reject') {
       console.debug(`[RESP-INGEST] discarded (${decision.reason}) from ${payload.responderId} v=${payload.version ?? 1}`);
@@ -4577,10 +4564,10 @@ export class IinPublicApp {
   /**
    * Step 10 (author side): hard retraction on delete or tag-uncheck.
    *
-   * 1. Write local tombstone via applyEvent.
-   * 2. Emit TALK_RETRACTED to the audit ledger.
-   * 3. A deletion event to everyone who got the Talk over a graph link (OPEN-106).
-   * 4. Tear down the author's own conversation view (if matched).
+   * 1. Emit TALK_RETRACTED to the audit ledger.
+   * 2. A deletion event, kept in my graph and sent to everyone who got the Talk over a graph link
+   *    (OPEN-106); answers given before it are discarded.
+   * 3. Tear down the author's own conversation view (if matched).
    */
   private async handleRetractTalk(talkId: string, retractedAt: number): Promise<void> {
     if (!this.currentUser?.id) return;
@@ -4589,24 +4576,18 @@ export class IinPublicApp {
     const attachments = this.getTalkAttachmentsForShare(talkData);
     this.contentNodeService.unpinTalkAttachments(talkId);
 
-    // 1. Write local tombstone (clears outcomes + exchanged for this talkId::authorId).
-    await applyTalkLedgerEvent({
-      kind: 'TALK_RETRACTED',
-      talkId,
-      authorId,
-      retractedAt,
-    });
-
-    // 2. Emit audit ledger event.
+    // 1. Emit audit ledger event.
     this.ledgerEmit(InteractionKind.TALK_RETRACTED, { talkId, retractedAt });
 
-    // 3. OPEN-106: everyone who got this Talk over a graph link gets a deletion event.
+    // 2. OPEN-106: the deletion event, in my graph and to everyone who got this Talk over a link.
     if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
-    if (this.coreRequest && this.graphLinks?.isRunning()) {
-      void this.coreRequest({ name: 'graph.retract', talkId }).catch((err) => console.warn('[Retraction] graph deletion failed (non-fatal):', err));
+    if (this.coreRequest) {
+      void this.coreRequest({ name: 'graph.retract', talkId })
+        .then(() => refreshExchangeState())
+        .catch((err) => console.warn('[Retraction] graph deletion failed (non-fatal):', err));
     }
 
-    // 4. Author side: tear down any conversations derived from this talkId.
+    // 3. Author side: tear down any conversations derived from this talkId.
     //
     // Skips a conversation whose deal is ALREADY mutually confirmed (§JJ): this same
     // retraction fires as a SIDE EFFECT of maybeFinalizeConfirmedDeal's fallback disabling
@@ -4644,11 +4625,11 @@ export class IinPublicApp {
   }
 
   /**
-   * Step 10 (responder side): handle an incoming `talk-retracted` mesh frame.
+   * Step 10 (responder side): the author deleted a Talk I had (a graph deletion event, applied once
+   * from their log; the graph keeps it, `ix/deleted`).
    *
-   * 1. Write tombstone to local ledger.
-   * 2. Surface "match gone" notice to UI.
-   * 3. Mark any conversations for this talkId::authorId as withdrawn.
+   * 1. Surface "match gone" notice to UI.
+   * 2. Mark any conversations for this talkId::authorId as withdrawn.
    */
   private async handleMeshTalkRetracted(payload: P2PMeshTalkRetractedPayload): Promise<void> {
     if (!this.currentUser?.id) return;
@@ -4656,34 +4637,22 @@ export class IinPublicApp {
 
     // What it changes is the core's (src/core/retraction.ts); read before the tombstone is written.
     const receipt = planRetractionReceipt({
-      ledger: getTalkLedgerDoc(),
       talkId: payload.talkId,
       authorId: payload.authorId,
-      retractedAt: payload.retractedAt,
       myId: this.currentUser.id,
       conversations: this.uiManager.getMyConversations() as Record<string, any>,
       confirmedThisSession: this.mutuallyConfirmedConversationIds,
     });
+    void refreshExchangeState();
 
-    // 1. Write tombstone to local ledger.
-    await applyTalkLedgerEvent({
-      kind: 'TALK_RETRACTED',
-      talkId: payload.talkId,
-      authorId: payload.authorId,
-      retractedAt: payload.retractedAt,
-    });
+    // 1. Surface the retraction (a log entry is applied once).
+    this.uiManager.showNotification(
+      `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
+      'info',
+    );
+    this.contentNodeService.unpinTalkAttachments(payload.talkId);
 
-    // 2. Surface each semantic retraction once. Mesh and mailbox delivery can replay the same
-    // frame; the durable ledger timestamp is the idempotency boundary across reloads too.
-    if (receipt.isNew) {
-      this.uiManager.showNotification(
-        `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
-        'info',
-      );
-      this.contentNodeService.unpinTalkAttachments(payload.talkId);
-    }
-
-    // 3. Mark any conversation involving this talkId as withdrawn — unless our own deal on it
+    // 2. Mark any conversation involving this talkId as withdrawn — unless our own deal on it
     // is already mutually confirmed (see handleRetractTalk's matching guard/comment: a
     // finalized match is a successful outcome, never retroactively invalidated by the
     // retraction that produced it).
@@ -5988,7 +5957,8 @@ export class IinPublicApp {
         try {
           const bridge = this.gunService.isNativeNode() ? undefined : this.gunService.getBridge();
           await Promise.all([connectExchangeCore(link), connectCoreCollections(collections, bridge)]);
-          connectTalkLedgerCore(core, bridge);
+          // Who I already exchanged what with, from the device graph (OPEN-106 step 3).
+          void connectExchangeState(() => core({ name: 'graph.exchangeState' }), bridge);
           return;
         } catch (error) {
           if (attempt >= 6) {
@@ -6047,14 +6017,12 @@ export class IinPublicApp {
     };
     upsertExchange(exchangeRecordFor(input));
     void this.uiManager.refreshCreatorReplies();
-    const ledger = authorLedgerWritesFor(input, this.currentUser.id);
-    if (!ledger) return;
-    try {
-      void recordAuthorAnswer(ledger.event, ledger.exchanged)
-        .catch((error) => console.warn('[ledger] exchange commit failed:', error));
-    } catch {
-      // Ledger write failures are non-fatal — suppression misses cost one redundant send.
-    }
+    // How I decided an answer to my Talk (the next one from them is compared with it).
+    const decided = authorOutcomeFor(input);
+    if (!decided || !this.coreRequest) return;
+    void this.coreRequest({ name: 'graph.recordOutcome', ...decided })
+      .then(() => refreshExchangeState())
+      .catch((error) => console.warn('[exchange] outcome record failed:', error));
   }
 
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
@@ -6499,82 +6467,6 @@ export class IinPublicApp {
     );
     if (receiverIds.length === 0) return false;
 
-    // Step 8.2 / Step 11.3: sender-side per-identity suppression.
-    // For tag talks: compute suppressed identity keys per recipient and deliver a
-    // filtered talk body (only non-exchanged answers). For flow/survey/route: whole-talk
-    // suppression unchanged (no independent atoms).
-    // NOTE: flood frames reach everyone by design; suppression applies only to the
-    // directed recipientUserIds list used for announce/body delivery.
-    const wholeTalkIdentityKey = buildTalkIdentityKey(talk);
-    const identityKeys = buildTagIdentityKeys(talk, wholeTalkIdentityKey);
-    const isTagTalk = talk.type === 'tag' && identityKeys.length > 1;
-    const nowMs = Date.now();
-    const talkRevision = computeTalkRevisionHash(talk);
-
-    // Build per-recipient delivery plan:
-    //   null    → skip entirely (all identities suppressed or edge gated)
-    //   talk    → deliver unmodified talk (no suppression)
-    //   filtered → deliver tag-filtered version (partial suppression)
-    // docs/TODO.md §W Gap 2 — `sentIdentityKeys` is the set actually delivered to this
-    // recipient (identityKeys minus whatever was suppressed), recorded to the ledger's
-    // `sent` set once the send actually happens below, so a future send suppresses on our
-    // own outbound record, not just on the recipient's answer coming back.
-    type DeliveryPlan = { recipientId: string; talkPayload: typeof talk; sentIdentityKeys: string[]; omit?: string[] };
-    const plans: DeliveryPlan[] = [];
-
-    for (const recipientId of receiverIds) {
-      // Compute which identity keys are suppressed for this recipient.
-      const suppressedSet = new Set<string>();
-      if (!this.talkLedgerSuppressionDisabledForE2e) {
-        for (const ik of identityKeys) {
-          if (shouldSuppressForPeer(recipientId, ik)) suppressedSet.add(ik);
-        }
-      }
-
-      // If ALL identity keys suppressed → skip recipient entirely — unless the peer holds an older
-      // revision of the same content (title/routing edit, OPEN-45): then re-send it whole as an
-      // in-place update.
-      let revisionUpdate = false;
-      if (suppressedSet.size === identityKeys.length) {
-        if (!talkRevisionOwedToPeer(recipientId, talkId, talkRevision, { baselineIfUnknown: true })) {
-          console.debug(`[Ledger] Suppressing talk deliver to ${recipientId} for all identityKey(s) ${identityKeys.join(',')} — already exchanged`);
-          continue;
-        }
-        revisionUpdate = true;
-        console.debug(`[Ledger] Re-sending ${talkId} to ${recipientId} — title/routing updated in place`);
-      }
-
-      // Step 8.3: client per-edge cooldown/quota gate.
-      const gate = await applyEdgeGateForPeer(recipientId, nowMs, talkId);
-      if (!gate.ok) {
-        console.debug(`[Ledger] Edge gate rejected deliver to ${recipientId}: ${gate.rejectedBy.join(',')}`);
-        continue;
-      }
-
-      const sentIdentityKeys = revisionUpdate ? identityKeys : identityKeys.filter((ik) => !suppressedSet.has(ik));
-
-      if (isTagTalk && suppressedSet.size > 0 && !revisionUpdate) {
-        // Partial suppression for tag talk: deliver filtered body.
-        const filterResult = filterTalkForRecipient(talk, suppressedSet);
-        if (!filterResult) {
-          // filterTalkForRecipient returns null when all remaining are also suppressed (edge case).
-          console.debug(`[Ledger] filterTalkForRecipient returned null for ${recipientId} — skipping`);
-          continue;
-        }
-        const filteredTalk = { ...filterResult.filtered, id: talkId, authorId: me.id } as typeof talk;
-        plans.push({ recipientId, talkPayload: filteredTalk, sentIdentityKeys, omit: [...suppressedSet].sort() });
-        console.debug(`[Ledger] Partial tag suppression for ${recipientId}: delivering ${(filteredTalk.questions ?? []).length > 0 ? ((filteredTalk.questions as any[])[0]?.answers?.length ?? '?') : '?'} of ${identityKeys.length} tags`);
-      } else {
-        // No suppression (or non-tag talk with no suppression): deliver unmodified.
-        plans.push({ recipientId, talkPayload: { ...talk, id: talkId, authorId: me.id }, sentIdentityKeys });
-      }
-    }
-
-    if (plans.length === 0) {
-      console.debug(`[Ledger] All recipients suppressed or gated for talkId=${talkId}, skipping broadcastTalk`);
-      return true; // return true so the caller counts this as "sent" (suppression is silent)
-    }
-
     const mesh = this.ensurePeerMeshService();
     if (!mesh) return false;
     const chatroomId = this.chatroomService.getCurrentChatroomId();
@@ -6586,58 +6478,31 @@ export class IinPublicApp {
       ]);
     }
     // R-f step 7: author-side Gun talks/* mirror removed; body cached in PeerMeshService directly.
-    // Cache the full (unfiltered) talk body so body-request fallbacks get the complete talk.
     mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
 
-    let announceCount = 0;
-    const acceptedRecipientIds = new Set<string>();
     // OPEN-106: over graph links when they run. The Talk is written once as encrypted nodes and
-    // each recipient's offer waits in our pair log until they are connected (D2); a recipient who
-    // already exchanged some tags is told which to leave out (`omit`), and their app trims them.
-    // There are no Talk frames: a Talk goes over graph links or not at all (it stays pending).
+    // each recipient's offer waits in our pair log until they are connected (D2). The core decides
+    // per recipient (REQ-LEDGER-16, step 3): someone who has this version, or every part of it, is
+    // skipped; a tag Talk leaves out the tags they have (`omit`, their app trims them); the daily
+    // and weekly send limits apply. There are no Talk frames: it goes over links or stays pending.
     if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
     if (!this.coreRequest || !this.graphLinks?.isRunning()) {
       console.warn(`[graph-link] links are not running: ${talkId} stays pending`);
       return false;
     }
-    {
-      const groups = new Map<string, { omit: string[]; recipients: string[] }>();
-      for (const plan of plans) {
-        const omit = plan.omit ?? [];
-        const key = omit.join(',');
-        const group = groups.get(key) ?? { omit, recipients: [] };
-        group.recipients.push(plan.recipientId);
-        groups.set(key, group);
-      }
-      const broadcastAt = new Date().toISOString();
-      for (const { omit, recipients } of groups.values()) {
-        const known = await this.coreRequest({
-          name: 'graph.offer', talkId, recipients, talk: { ...talk, id: talkId, authorId: me.id } as Record<string, unknown>,
-          // What the receiver's intake checks besides the Talk: which broadcast this is.
-          context: { roomId: chatroomId ?? null, broadcastAt, authorName: me.stageName || me.id, ...(omit.length ? { omit } : {}) },
-        }).then((result) => result.known).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return false; });
-        if (!known) continue;
-        for (const recipientId of recipients) acceptedRecipientIds.add(recipientId);
-        announceCount += recipients.length;
-      }
-    }
-
-    // Record only delivery that the recipient accepted and acknowledged. Transport attempts
-    // rejected by intake policy (for example, an adult talk before age verification) deliberately
-    // receive no ACK and must remain eligible after that policy changes. The accepted-delivery
-    // record still suppresses repeats before an answer comes back.
-    const sentAtIso = new Date(nowMs).toISOString();
-    for (const plan of plans) {
-      if (!acceptedRecipientIds.has(plan.recipientId)) continue;
-      this.noteNearbyDelivery(talkId, plan.recipientId);
-      for (const ik of plan.sentIdentityKeys) {
-        await markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
-      }
-      recordTalkRevisionSent(plan.recipientId, talkId, talkRevision);
-    }
-
-    const suppressedCount = receiverIds.length - plans.length;
-    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${announceCount} (suppressed=${suppressedCount}, partialFiltered=${plans.filter((p) => p.omit?.length).length})`);
+    const offer = await this.coreRequest({
+      name: 'graph.offer', talkId, recipients: receiverIds, talk: { ...talk, id: talkId, authorId: me.id } as Record<string, unknown>,
+      // What the receiver's intake checks besides the Talk: which broadcast this is.
+      context: { roomId: chatroomId ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+      ...(this.talkLedgerSuppressionDisabledForE2e ? { suppress: false } : {}),
+      ...(this.talkSendQuotaUnlimitedForE2e ? { unlimitedForTesting: true } : {}),
+    }).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
+    if (!offer?.known) return false;
+    for (const recipientId of offer.sent) this.noteNearbyDelivery(talkId, recipientId);
+    void refreshExchangeState();
+    const skipped = Object.entries(offer.skipped);
+    if (skipped.length) console.debug(`[exchange] ${talkId} not sent to ${skipped.map(([peer, reason]) => `${peer} (${reason})`).join(', ')}`);
+    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${offer.sent.length} (suppressed=${skipped.length}, partialFiltered=${Object.keys(offer.omitted).length})`);
     return true;
   }
 
@@ -6750,32 +6615,6 @@ export class IinPublicApp {
       this.scheduleIncomingRefresh();
     } else {
       this.mergeIncomingClusterIntoUi(this.mergeLocalIncoming([delivery]));
-    }
-
-    // Step 9: write responder-side exchanged entry so change-of-mind fanout can
-    // enumerate all senders of this identity.  Written here (on talk acceptance)
-    // so the sender list is populated before any submitTalkResponsePairDirect call.
-    // role:'responder' + version:0 means "received but not yet answered".
-    // submitTalkResponsePairDirect will overwrite with the actual version on answer.
-    try {
-      const identityKey = buildTalkIdentityKey(talkData);
-      const existingVersion = getResponderVersionForTalk(identityKey, senderId);
-      if (existingVersion === 0) {
-        // Only seed the sender record if not yet answered (version 0 = no prior answer)
-        await writeResponderExchangedEntry({
-          authorId: senderId,
-          identityKey,
-          talkId,
-          authorName: senderName,
-          authorEpub: String(talkData?.authorEpub || talkData?.senderEpub || ''),
-          outcome: 'no-reply',
-          version: 0,
-          responseId: '',
-          respondedAt: new Date().toISOString(),
-        });
-      }
-    } catch {
-      // Non-fatal: fanout may miss this sender on first change-of-mind attempt
     }
 
     return true;
@@ -6905,6 +6744,16 @@ export class IinPublicApp {
     // If no authorId (e.g. self-test or malformed talk), no-op: mesh delivery requires an author.
   }
 
+  /** Everyone else who sent me this Talk's content: the other senders on its incoming row. */
+  private otherSendersOf(talkId: string, authorId: string): Array<{ senderId: string; senderName: string; talkId: string }> {
+    const row = this.incomingRows.find((r) => r.latestTalkId === talkId || Object.values(r.talkIds ?? {}).includes(talkId)
+      || Object.values(r.senders ?? {}).some((sender) => sender.lastTalkId === talkId));
+    if (!row) return [];
+    return Object.values(row.senders ?? {})
+      .filter((sender) => sender.senderId && sender.senderId !== authorId && sender.senderId !== this.currentUser?.id)
+      .map((sender) => ({ senderId: sender.senderId, senderName: sender.senderName, talkId: sender.lastTalkId || talkId }));
+  }
+
   private async submitTalkResponsePairDirect(params: {
     talkId: string;
     talkData: any;
@@ -6954,15 +6803,11 @@ export class IinPublicApp {
     });
     const submittedAt = new Date().toISOString();
 
-    // Step 9: monotonic version bump (REQ-LEDGER-04).
-    // The identityKey is the content-hash of the talk (same for all senders of identical content).
-    // We look up the prior version we sent for this (identityKey, authorId) pair.
-    const wholeTalkIdentityKey = buildTalkIdentityKey(params.talkData);
-    const priorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, params.authorId);
-    const priorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, params.authorId);
-    let isContentChange = priorResponseId !== null && priorResponseId !== responseId;
-    let newVersion = nextResponseVersion(priorResponseId, priorVersion, responseId);
-    const respondedAt = submittedAt; // first answer: respondedAt == submittedAt; supersession: now
+    // Step 9: monotonic version bump (REQ-LEDGER-04). The core commits each answer against my
+    // last answer to that author's Talk (`response.commit`, `ix/responded`); the primary author's
+    // commit sets these.
+    let isContentChange = false;
+    let newVersion = 1;
 
     const skipE2eLocalOnlyReject =
       process.env.DISABLE_HMR === 'true' &&
@@ -7003,13 +6848,13 @@ export class IinPublicApp {
         console.warn(`[Step9] Failed to encrypt response for ${targetAuthorId}:`, err);
         return;
       }
-      const committed = await commitTalkResponse({
+      const committed = await this.coreRequest!({ name: 'response.commit', input: {
         talkId: targetTalkId, talkData: params.talkData, answers: params.answers,
         authorId: targetAuthorId, authorName: targetAuthorName, authorEpub,
         responderId: this.currentUser!.id, responderEpub: this.gunService.getStoredPair()?.epub,
         payloadCiphertext, submittedAt,
         selfTag: await this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
-      });
+      } });
       const meshPayload = committed.payload;
       const targetResponseId = meshPayload.responseId;
       const targetVersion = meshPayload.version!;
@@ -7050,107 +6895,35 @@ export class IinPublicApp {
     };
 
     if (!skipE2eLocalOnlyReject) {
-      // Step 10: check dead inbox — if the talk has been retracted by the author, skip delivery.
-      const ledgerDocForPrimary = getTalkLedgerDoc();
-      const primaryRetractKey = ledgerRetractedKey(params.talkId, params.authorId);
-      const talkRetractedForPrimary = !!ledgerDocForPrimary.retracted[primaryRetractKey];
-      if (talkRetractedForPrimary) {
+      // Step 10: a Talk its author deleted is not answered (dead inbox).
+      const deleted = async (talkId: string) => this.coreRequest
+        ? (await this.coreRequest({ name: 'graph.deletedAt', talkId }).catch(() => null)) !== null
+        : false;
+      if (await deleted(params.talkId)) {
         console.debug(`[Step10] Skipping response send — talk ${params.talkId} retracted by ${params.authorId}`);
       } else {
         // Send to the primary author
         await sendToAuthor(params.authorId, params.authorName);
       }
 
-      // Step 9.1: change-of-mind fanout — if this is a version bump (content change),
-      // propagate to ALL original senders of this identity (not just the current author).
-      // The responder's exchanged section records every author who sent them this identity.
+      // Step 9.1: change-of-mind fanout — a different answer than last time also goes to everyone
+      // else who sent me this content (the other senders on its incoming row).
       if (isContentChange) {
-        const allSenders = getResponderTargetsForIdentity(wholeTalkIdentityKey);
-        const ledgerDocForFanout = getTalkLedgerDoc();
-        for (const sender of allSenders) {
-          const senderId = sender.peerId;
-          if (senderId === params.authorId) continue; // already sent above
-          // Step 10: skip senders whose talk has been retracted (dead inbox).
-          const rKey = ledgerRetractedKey(params.talkId, senderId);
-          if (ledgerDocForFanout.retracted[rKey]) {
-            console.debug(`[Step10] Skipping fanout to retracted-talk sender ${senderId}`);
+        for (const sender of this.otherSendersOf(params.talkId, params.authorId)) {
+          if (await deleted(sender.talkId)) {
+            console.debug(`[Step10] Skipping fanout to retracted-talk sender ${sender.senderId}`);
             continue;
           }
-          console.log(`[Step9] Change-of-mind fanout to additional sender ${senderId}`);
+          console.log(`[Step9] Change-of-mind fanout to additional sender ${sender.senderId}`);
           try {
-            await sendToAuthor(
-              senderId,
-              sender.peerName || 'Unknown',
-              sender.peerEpub,
-              sender.talkId || params.talkId,
-            );
+            await sendToAuthor(sender.senderId, sender.senderName || 'Unknown', undefined, sender.talkId);
           } catch (err) {
-            console.warn(`[Step9] Fanout to ${senderId} failed:`, err);
+            console.warn(`[Step9] Fanout to ${sender.senderId} failed:`, err);
           }
         }
       }
     }
-
-    // Write/update the responder-side exchanged entry to track this response.
-    // This persists version + responseId for future version-bump decisions.
-    try {
-      const ledgerOutcomeVal = isMatch ? 'matched' as const : 'ignored' as const;
-      await writeResponderExchangedEntry({
-        authorId: params.authorId,
-        identityKey: wholeTalkIdentityKey,
-        talkId: params.talkId,
-        authorName: params.authorName,
-        authorEpub: String(params.talkData?.authorEpub || params.talkData?.senderEpub || ''),
-        outcome: ledgerOutcomeVal,
-        version: newVersion,
-        responseId,
-        respondedAt,
-      });
-      for (const identityKey of selectedTalkIdentityKeys(params.talkData, params.answers)) {
-        if (identityKey === wholeTalkIdentityKey) continue;
-        await writeResponderExchangedEntry({
-          authorId: params.authorId,
-          identityKey,
-          talkId: params.talkId,
-          authorName: params.authorName,
-          authorEpub: String(params.talkData?.authorEpub || params.talkData?.senderEpub || ''),
-          outcome: ledgerOutcomeVal,
-          version: newVersion,
-          responseId,
-          respondedAt,
-        });
-      }
-      // Also update for any other senders of the same identity (fanout case)
-      if (isContentChange) {
-        const allSenders = getResponderTargetsForIdentity(wholeTalkIdentityKey);
-        for (const sender of allSenders) {
-          const senderId = sender.peerId;
-          if (senderId === params.authorId) continue;
-          if (!talkContactPolicyAllowsPeer(
-            senderId,
-            getTalkIntakeFilters(),
-            this.currentUser.knownPeople,
-            this.roomTravelerIds,
-          )) continue;
-          const sentResponse = sentResponseByAuthor.get(senderId);
-          await writeResponderExchangedEntry({
-            authorId: senderId,
-            identityKey: wholeTalkIdentityKey,
-            ...(sentResponse?.talkId || sender.talkId
-              ? { talkId: sentResponse?.talkId || sender.talkId }
-              : {}),
-            ...(sender.peerName ? { authorName: sender.peerName } : {}),
-            ...(sender.peerEpub ? { authorEpub: sender.peerEpub } : {}),
-            outcome: ledgerOutcomeVal,
-            version: sentResponse?.version ?? sender.version,
-            responseId: sentResponse?.responseId || String((sender as any).responseId || ''),
-            respondedAt,
-          });
-        }
-      }
-    } catch {
-      // Non-fatal
-    }
+    void refreshExchangeState();
 
     // Step 7: client-side stats POST removed (server route dies in phase B).
     this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
@@ -7168,7 +6941,7 @@ export class IinPublicApp {
       {
         responseId,
         version: newVersion,
-        respondedAt,
+        respondedAt: submittedAt,
         answers: params.answers,
         direction: 'received',
       },
@@ -7319,10 +7092,11 @@ export class IinPublicApp {
     const keys = await core({ name: 'private.keys' }).catch(() => [] as string[]);
     const backup = keys.filter((key: string) => key.startsWith('chatbotMemory/'));
     for (const key of backup) await core({ name: 'private.put', key, value: null }).catch(() => undefined);
-    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState']) {
+    // The old chatbot's copies (OPEN-106 step 2e v), the talk ledger and the revisions sent (step 3).
+    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'talkLedger', 'iinpublic_talk_revision_sent_v1']) {
       try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
     }
-    if (erased || backup.length) console.log(`[chatbot] erased ${erased} old answer record(s) and ${backup.length} backup record(s)`);
+    if (erased || backup.length) console.log(`[core] erased ${erased} old record(s) (chatbot copies, talk ledger) and ${backup.length} backup record(s)`);
   }
 
   private async eraseOldTalkCopies(core: CoreRequester): Promise<void> {
@@ -7408,6 +7182,8 @@ export class IinPublicApp {
     const result = await this.coreRequest({
       name: 'graph.offer', talkId, recipients, talk: body,
       context: { roomId: this.chatroomService.getCurrentChatroomId() ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+      // An injection: no exchange suppression or send limit (the version rule still holds).
+      suppress: false, unlimitedForTesting: true,
     });
     if (!result.known) throw new Error(`offerTalkForE2e: ${talkId} could not be written to the graph`);
     return recipients;
@@ -7536,7 +7312,7 @@ export class IinPublicApp {
    * Step 8 E2E hook: set quota unlimited for high-fanout rebroadcast specs.
    */
   public setTalkLedgerQuotaUnlimitedForE2e(unlimited: boolean): void {
-    setTalkLedgerQuotaUnlimited(unlimited === true);
+    this.talkSendQuotaUnlimitedForE2e = unlimited === true;
   }
 
   public setTalkLedgerSuppressionDisabledForE2e(disabled: boolean): void {
@@ -7553,25 +7329,45 @@ export class IinPublicApp {
   }
 
   /**
-   * Step 8 E2E read helper: return the current talkLedger doc for assertions.
+   * E2E read helper (OPEN-106 step 3): who I exchanged what with (`peers`: atoms passed and
+   * answered), my Talks' versions and who was sent which (`talks`), how I decided each answer to
+   * the Talks given (`outcomes[talkId][responderId]`), my own answer to each per author
+   * (`responded[talkId][authorId]`) and when each was deleted (`deleted`), all from the device graph.
    */
-  public getTalkLedgerDocForE2e(): unknown {
-    return getTalkLedgerDoc();
+  public async getExchangesForE2e(talkIds: string[] = []): Promise<unknown> {
+    await refreshExchangeState();
+    const core = this.coreRequest;
+    const outcomes: Record<string, Record<string, unknown>> = {};
+    const deleted: Record<string, number | null> = {};
+    const responded: Record<string, unknown> = {};
+    if (core) {
+      for (const talkId of talkIds) {
+        deleted[talkId] = await core({ name: 'graph.deletedAt', talkId });
+        responded[talkId] = await core({ name: 'graph.respondedTo', talkId });
+      }
+      const ids = talkIds.length ? talkIds : Object.keys(exchangeStateSnapshot().talks);
+      const decided = await core({ name: 'graph.outcomes', talkIds: ids });
+      for (const [talkId, responders] of Object.entries(decided as Record<string, Record<string, string>>)) {
+        outcomes[talkId] = {};
+        for (const responderId of Object.keys(responders)) {
+          outcomes[talkId]![responderId] = await core({ name: 'graph.outcome', talkId, responderId });
+        }
+      }
+    }
+    return { ...exchangeStateSnapshot(), outcomes, deleted, responded };
+  }
+
+  /** E2E: the atom a tag word is exchanged as (`ix/exchanged/<peer>`), whoever's Talk it is in. */
+  public exchangeTagAtomForE2e(word: string): string {
+    return tagAtom(word);
   }
 
   /**
-   * docs/TODO.md §W Gap 2 E2E hook: write a `sent` ledger entry directly, for tests that need
-   * to simulate "a send already happened" without driving a full mesh delivery. Computes the
-   * identityKey the same way `deliverTalkToReceiversOverMesh` does (`buildTalkIdentityKey`) so
-   * a test-written entry suppresses exactly what a real send would.
+   * docs/TODO.md §W Gap 2 E2E hook: the screens' view counts this Talk as already passed to the
+   * peer, for tests of what the screens offer (no real send, so the core is not changed).
    */
   public async markTalkSentToPeerForE2e(params: { peerId: string; talkId: string; talkData: unknown; sentAt?: string }): Promise<void> {
-    await markTalkSentToPeer({
-      peerId: params.peerId,
-      talkId: params.talkId,
-      identityKey: buildTalkIdentityKey(params.talkData),
-      ...(params.sentAt ? { sentAt: params.sentAt } : {}),
-    });
+    markExchangedForTesting(params.peerId, params.talkData);
   }
 
   /**
@@ -8918,15 +8714,16 @@ export class IinPublicApp {
         return;
       }
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
-      const outcomes = Object.values(getTalkLedgerDoc().outcomes);
+      // Each answer to my Talks as I decided it, from the device graph (`ix/outcome`).
+      const outcomes = this.coreRequest
+        ? await this.coreRequest({ name: 'graph.outcomes', talkIds: data.talkIds }).catch(() => ({} as Record<string, Record<string, string>>))
+        : {};
       for (const talkId of data.talkIds) {
-        const rows = outcomes.filter(
-          (entry) => entry.talkId === talkId && entry.authorId === this.currentUser?.id,
-        );
+        const rows = Object.values(outcomes[talkId] ?? {});
         statsMap[talkId] = {
           responses: rows.length,
-          matches: rows.filter((entry) => entry.outcome === 'matched').length,
-          ignores: rows.filter((entry) => entry.outcome === 'ignored').length,
+          matches: rows.filter((outcome) => outcome === 'matched').length,
+          ignores: rows.filter((outcome) => outcome === 'ignored').length,
         };
       }
       this.uiManager.setTalkStats(statsMap);

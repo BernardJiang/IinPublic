@@ -19,13 +19,13 @@
  * explicit id, but *identical* question/answer content, so the same identityKey — and broadcasts
  * it to Tom only; Tom answers it. From Talk X's details popup, Tom should see Sam listed as a
  * co-exchanger: someone he separately exchanged the identical content with, joined purely by
- * identityKey in his own local ledger (Jerry is excluded there since he's already shown by the
- * row's own matched-names line).
+ * content in his own device graph (`ix/co/<peer>`; Jerry is excluded there since he's already
+ * shown by the row's own matched-names line).
  *
  * This also demonstrates the privacy boundary by construction: co-exchangers is read from Tom's
- * own local talkLedger only (never a mesh-wide identityKey query), so it can only ever list
- * people Tom personally exchanged with — nobody who received the same content through a
- * broadcast Tom wasn't part of could ever appear, since no such entry would exist in his ledger.
+ * own graph only (never a mesh-wide query), so it can only ever list people Tom personally
+ * exchanged answers with — nobody who received the same content through a broadcast Tom wasn't
+ * part of could ever appear, since no such record would exist on his device.
  */
 import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';

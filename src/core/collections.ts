@@ -9,20 +9,22 @@ import type { GraphStore } from './graph-store';
 
 /** Every collection the core keeps. A name not listed is refused, so a typo cannot start a new log. */
 export const CORE_COLLECTIONS = [
-  'chatbotTemplates', 'myTalks', 'myConversations', 'talkLedger', 'myAnswerHistory',
+  'chatbotTemplates', 'myTalks', 'myConversations', 'myAnswerHistory',
   'dealTalkByConversation', 'needKeyByConversation',
   'answeredTalkByContent', 'tagOppositePairRegistry',
-  'talkRevisionSent', 'appData', 'settings',
+  'appData', 'settings',
 ] as const;
 export type CoreCollection = typeof CORE_COLLECTIONS[number];
 
 /**
- * Collections no longer kept: the old chatbot's copies of my answers, replaced by the device graph
- * (OPEN-106 step 2e v). Erased, not migrated (owner decision); only `eraseRetired` touches them.
+ * Collections no longer kept, replaced by the device graph: the old chatbot's copies of my answers
+ * (OPEN-106 step 2e v), and the talk ledger and the revisions sent (step 3, `exchanged.ts`).
+ * Erased, not migrated (owner decision); only `eraseRetired` touches them.
  */
 export const RETIRED_COLLECTIONS = [
   'answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts',
   'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState',
+  'talkLedger', 'talkRevisionSent',
 ] as const;
 
 export const COLLECTIONS_PATH = 'local/collections';

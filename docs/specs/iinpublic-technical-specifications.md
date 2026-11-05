@@ -7448,7 +7448,11 @@ All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen re
 | `ix/talk/<talkId>/ev/<eventId>` | `→ev` | Talks → Contacts, statistics | `talkLedger` exchange records |
 | `ix/received/<talkId>/<senderPub>` | `→ev` latest arrival | incoming list, delivery dedupe | `ownerIncomingTalkIndex` cluster `senders` |
 | `ix/answered/<talkId>` | `→ev` my latest answer | "already answered" | `answeredTalkByContent` |
-| `ix/exchanged/<peerPub>/<contextHash>` | `→ev` | REQ-LEDGER-16 suppression: a Talk is not sent to a peer who already exchanged every situation in it | exchange set |
+| `ix/exchanged/<peer>` | `{ <atom>: →ev }` an atom is a situation's context hash, or a tag Talk's tag word (the same tag in anyone's Talk); it passed between us: my offer, their Talk I accepted (a tag Talk's tags only once answered), or an answer either way | REQ-LEDGER-16 suppression (`exchanged.ts`): a Talk is not sent to a person who has this version or every atom of it; a tag Talk leaves out the tags they have (`omit`) | `talkLedger` exchanged and sent sets |
+| `ix/co/<peer>` | `{ <atom>: →ev }` an answer passed on it | the Talks list's "also exchanged with" | `talkLedger` exchanged entries with an answer |
+| `ix/sent-day/<peer>/<yyyy-mm-dd>` | `{ <talkId>: true }` | the send limit: 10 distinct Talks per person per UTC day, 50 per week | `talkLedger` edge counters |
+| `ix/outcome/<talkId>` and `/<responder>` | `{ <responder>: 'matched' \| 'ignored' }`; `{ outcome, version, responseId, respondedAt }` | how I decided each answer to my Talk: statistics, the change-of-mind and stale-answer rule | `talkLedger` outcomes |
+| `ix/responded/<talkId>/<author>` | `{ outcome, version, responseId, respondedAt }` | my answer's version (REQ-LEDGER-04) | `talkLedger` responder entries |
 | `ix/person/<pub>/ev/<eventId>` | `→ev` | Contacts history | copied names in logs |
 | `ix/app-answer/<appTalkId>` | `{ sig, ev, sent }` the app's answers last written | switch-over only: one event per saved answer, sent once | — |
 | `ix/graph-app/<talkId>` / `ix/app-talk/<appTalkId>` | the app's Talk id ↔ the graph's | switch-over only, until the app keys Talks by graph ids | — |
@@ -7456,7 +7460,7 @@ All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen re
 | `ix/day/<yyyy-mm-dd>/<eventId>` | `→ev` | time-range reads, retention | — |
 | `ix/conv/<id>/<eventId>` | `→ev` | conversation view | `myConversations` message lists |
 | `mine/talk/<talkId>` | `{ latest: →ev, active, checked, isTemplate }` | Talks tab | `myTalks` |
-| `ix/sent/<talkId>/<peerPub>` | `→ev` latest version sent | re-send on edit (D14) | `talkRevisionSent` |
+| `sync/sent/<talkId>` | `{ <peer>: <versionId> }` latest version sent | re-send on edit (D14) | `talkRevisionSent` |
 | `ix/legacy/<oldTalkId>` | `→ev` | migration: old `qa_`/CID ids to Talk events | — |
 
 A list that grows with history (`mine/talks`, `ix/person/<pub>/ev`, `ix/talk/<talkId>/ev`,
@@ -7511,6 +7515,10 @@ SEA Talk copies, the incoming rows envelope (`incomingTalkClusters`) and the aut
 body caches are erased: a Talk's body is read from the graph, a created Talk's `myTalks` entry keeps
 only what the graph does not give back identical, and the incoming list is built from the arrivals
 the app accepted (`ix/shown/<talkId>`, with each sender's name and the tags left out).
+The talk ledger (`talkLedger`) and the revisions sent (`talkRevisionSent`) are erased (OPEN-106
+step 3): what passed between two people, the send limit, and how each answer was decided are the
+indexes of §31.8 (`ix/exchanged`, `ix/co`, `ix/sent-day`, `ix/outcome`, `ix/responded`); a
+retraction is the graph's deletion event.
 The chatbot's collections (`answerPreferences`, `flattenedAnswerPreferences`,
 `questionDefaultContracts`, `typedPreferenceState`, `exactChatbotMemory`, `myQuestionAnswers`) and
 its private `chatbotMemory/` backup are erased at start (OPEN-106 step 2e v): the chatbot answers
@@ -7530,7 +7538,7 @@ and `myAnswerHistory` are still kept, for a later step.
 | REQ-LEDGER-09 (`ledger/<userId>/index/…`) | | §31.8 indexes. |
 | REQ-LEDGER-12 (CIDv1 for `talkId` and all content addresses) | D16: a Talk is an event | Talk ids are event ids; content keys are SHA-256 hex. |
 | REQ-LEDGER-14 (`questionId` includes options) | D11: the question is the key, choices are not | `q/<key>`; choices are in the context hash. `Question.cidId` is retired. |
-| REQ-LEDGER-16 (suppression by Talk identity) | No Talk content key | By context hash (`ix/exchanged`). |
+| REQ-LEDGER-16 (suppression by Talk identity) | No Talk content key | By context hash, or a tag's word (`ix/exchanged`). |
 | `normalizeIdentityText` case folding in every key | D15: exact text | Grammar filter instead (§31.3a); new key versions. |
 | §20.8 `talkAnswerTemplateByUser/…` | | `ix/ctx/`, `ix/whenever/`. |
 

@@ -4,8 +4,7 @@
  */
 import * as core from '../../core/broadcast-selection';
 import type { BroadcastDeliverySelectionDeps } from '../../core/broadcast-selection';
-import { talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
-import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
+import { talkOwedToPeer } from '../services/exchange-state';
 import { getBroadcastableTalkIds } from './broadcast-audience-preview';
 import { getMyTalks } from './my-talks-storage';
 
@@ -14,8 +13,7 @@ export type { BroadcastDeliverySelectionDeps } from '../../core/broadcast-select
 const defaultDeps: BroadcastDeliverySelectionDeps = {
   getMyTalks,
   getBroadcastableTalkIds,
-  shouldSuppressForPeer,
-  revisionOwedToPeer: (receiverId, talkId, revision) => talkRevisionOwedToPeer(receiverId, talkId, revision),
+  owedTo: talkOwedToPeer,
 };
 
 export function isBroadcastUnsentForReceiver(receiverId: string, talkId: string, deps: BroadcastDeliverySelectionDeps = defaultDeps): boolean {

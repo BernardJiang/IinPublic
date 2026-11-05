@@ -25,6 +25,6 @@ Durable assertions:
 - myConversations[*].changeOfMindAt present after ignore→match
 - myConversations[*].status = 'ignored' after match→ignore revert
 - myConversations[*].changedAt present after revert
-- talkLedger.outcomes[*].version >= 2 after change
+- the graph's outcome for Jerry (`ix/outcome`, `getExchangesForE2e`) has version >= 2 after change
 - Bob conversation not ended after Jerry reverted only Tom
 - Zero POST to /api/talks/*/response

@@ -8,7 +8,7 @@ import { memoryNodeStore } from '../../core/device-graph/node-store';
 import { createDeviceGraph } from '../../core/device-graph/device-graph';
 import { formatEventId } from '../../core/device-graph/event-id';
 import { createIncomingList } from '../../core/device-graph/sync/incoming-list';
-import { buildTagIdentityKeys } from '../../shared/talk-ledger';
+import { buildTagIdentityKeys } from '../../shared/tag-identity';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

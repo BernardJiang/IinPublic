@@ -6,6 +6,7 @@
 import { createAnswerGraph } from './answers';
 import { createArrivalGraph } from './arrivals';
 import { createEventIdSource } from './event-id';
+import { createExchangeIndex } from './exchanged';
 import { createLocationGraph } from './location-graph';
 import type { NodeStore } from './node-store';
 import type { StorageBudget } from './storage-budget';
@@ -39,6 +40,8 @@ export function createDeviceGraph(store: NodeStore, options: {
     arrivals: createArrivalGraph(store, ids, { ...graphOptions, ...(options.budget ? { budget: options.budget } : {}) }),
     answers: createAnswerGraph(store, ids, graphOptions),
     location: createLocationGraph(store, graphOptions),
+    /** Who I already exchanged what with (REQ-LEDGER-16). */
+    exchange: createExchangeIndex(store, graphOptions),
     budget: options.budget,
   };
 }

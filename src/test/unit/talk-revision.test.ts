@@ -1,8 +1,6 @@
 /** @jest-environment jsdom */
 import { computeTalkRevisionHash } from '../../shared/talk-revision';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
-import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../../web/services/talk-revision-sent-store';
-import { isBroadcastUnsentForReceiver } from '../../web/ui/broadcast-delivery-selection';
 import { applyTalkRevisionToAnsweredCopy } from '../../web/ui/talk-completion';
 import { getMyTalks, setMyTalks } from '../../web/ui/my-talks-storage';
 import { setAnsweredTalkByContent } from '../../web/ui/answer-preferences-storage';
@@ -38,35 +36,6 @@ describe('computeTalkRevisionHash (OPEN-45)', () => {
   it('ignores survey counters and other non-authored fields', () => {
     const counted = flow({ createdAt: 'x', questions: [{ ...flow().questions[0], answers: flow().questions[0].answers.map((a) => ({ ...a, counter: 7 })) }] });
     expect(computeTalkRevisionHash(counted)).toBe(computeTalkRevisionHash(flow()));
-  });
-});
-
-describe('talk revision sent store', () => {
-  it('owes nothing for an unknown peer/talk, but takes a baseline when asked', () => {
-    expect(talkRevisionOwedToPeer('peer', 't1', 'rev_a')).toBe(false);
-    expect(talkRevisionOwedToPeer('peer', 't1', 'rev_a', { baselineIfUnknown: true })).toBe(false);
-    expect(talkRevisionOwedToPeer('peer', 't1', 'rev_b')).toBe(true);
-  });
-
-  it('owes the update until the new revision is recorded as sent', () => {
-    recordTalkRevisionSent('peer', 't1', 'rev_a');
-    expect(talkRevisionOwedToPeer('peer', 't1', 'rev_b')).toBe(true);
-    recordTalkRevisionSent('peer', 't1', 'rev_b');
-    expect(talkRevisionOwedToPeer('peer', 't1', 'rev_b')).toBe(false);
-  });
-});
-
-describe('broadcast selection includes revision updates', () => {
-  it('re-offers a talk whose content was exchanged but whose revision changed', () => {
-    const deps = {
-      getMyTalks: () => ({ t1: { fullTalk: flow({ title: 'New title' }) } }),
-      getBroadcastableTalkIds: () => ['t1'],
-      shouldSuppressForPeer: () => true,
-      revisionOwedToPeer: jest.fn(() => true),
-    };
-    expect(isBroadcastUnsentForReceiver('peer', 't1', deps)).toBe(true);
-    deps.revisionOwedToPeer.mockReturnValue(false);
-    expect(isBroadcastUnsentForReceiver('peer', 't1', deps)).toBe(false);
   });
 });
 

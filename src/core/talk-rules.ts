@@ -2,7 +2,7 @@
  * Small Talk rules the delivery, chatbot and deal code share (OPEN-91 P4), moved out of `app.ts`.
  */
 import { buildTalkIdentityKey } from '../shared/cid';
-import { buildTagIdentityKeys } from '../shared/talk-ledger';
+import { buildTagIdentityKeys } from '../shared/tag-identity';
 import { computeRouteMatchScore } from '../shared/talk-engine';
 import { computeTalkRevisionHash } from '../shared/talk-revision';
 

@@ -1,5 +1,4 @@
-import { computeTalkIdFromTalkData } from '../../shared/cid';
-import { buildTagIdentityKeys } from '../../shared/talk-ledger';
+/** Which of my Talks each person is still owed (the broadcast's target selection). */
 import {
   type BroadcastDeliverySelectionDeps,
   getUnsentBroadcastTalkIds,
@@ -19,103 +18,39 @@ function makeDeps(overrides: Partial<BroadcastDeliverySelectionDeps> = {}): Broa
   return {
     getMyTalks: () => ({
       'flow-1': { role: 'created', fullTalk: flowTalk },
-      'flow-2': {
-        role: 'created',
-        fullTalk: {
-          ...flowTalk,
-          id: 'flow-2',
-          title: 'Flow 2',
-          questions: [{ id: 'q1', text: 'Ready again?', answers: [{ id: 'yes', text: 'Yes' }] }],
-        },
-      },
+      'flow-2': { role: 'created', fullTalk: { ...flowTalk, id: 'flow-2', questions: [{ id: 'q1', text: 'Ready again?', answers: [{ id: 'yes', text: 'Yes' }] }] } },
     }),
     getBroadcastableTalkIds: () => ['flow-1', 'flow-2'],
-    shouldSuppressForPeer: () => false,
+    owedTo: () => true,
     ...overrides,
   };
 }
 
 describe('broadcast delivery selection', () => {
-  it('treats a missing local talk as unsent without consulting the ledger', () => {
-    const shouldSuppressForPeer = jest.fn(() => true);
-    expect(isBroadcastUnsentForReceiver('peer-1', 'missing', makeDeps({ shouldSuppressForPeer })))
-      .toBe(true);
-    expect(shouldSuppressForPeer).not.toHaveBeenCalled();
+  it('treats a missing local talk as unsent without asking', () => {
+    const owedTo = jest.fn(() => false);
+    expect(isBroadcastUnsentForReceiver('peer-1', 'missing', makeDeps({ owedTo }))).toBe(true);
+    expect(owedTo).not.toHaveBeenCalled();
   });
 
-  it('checks a non-tag talk by its whole-content identity', () => {
-    const shouldSuppressForPeer = jest.fn(() => true);
-    expect(isBroadcastUnsentForReceiver('peer-1', 'flow-1', makeDeps({ shouldSuppressForPeer })))
-      .toBe(false);
-    expect(shouldSuppressForPeer).toHaveBeenCalledWith(
-      'peer-1',
-      computeTalkIdFromTalkData(flowTalk),
-    );
+  it('asks with the stored body, wrapped or bare', () => {
+    const owedTo = jest.fn(() => false);
+    expect(isBroadcastUnsentForReceiver('peer-1', 'flow-1', makeDeps({ owedTo }))).toBe(false);
+    expect(owedTo).toHaveBeenCalledWith('peer-1', 'flow-1', flowTalk);
+    const bare = { ...flowTalk, id: 'bare' };
+    isBroadcastUnsentForReceiver('peer-1', 'bare', makeDeps({ owedTo, getMyTalks: () => ({ bare }) }));
+    expect(owedTo).toHaveBeenLastCalledWith('peer-1', 'bare', bare);
   });
 
-  it('uses a bare stored talk when no fullTalk wrapper is present', () => {
-    const bareTalk = { ...flowTalk, id: 'bare' };
-    const shouldSuppressForPeer = jest.fn(() => false);
-    const deps = makeDeps({ getMyTalks: () => ({ bare: bareTalk }), shouldSuppressForPeer });
-    expect(isBroadcastUnsentForReceiver('peer-1', 'bare', deps)).toBe(true);
-    expect(shouldSuppressForPeer).toHaveBeenCalledWith(
-      'peer-1',
-      computeTalkIdFromTalkData(bareTalk),
-    );
-  });
-
-  it('keeps a multi-option tag talk unsent while any tag identity is still owed', () => {
-    const tagTalk = {
-      id: 'tag-1',
-      type: 'tag',
-      questions: [{ text: 'Pick one', answers: [{ text: 'Tennis' }, { text: 'Chess' }] }],
-    };
-    const keys = buildTagIdentityKeys(tagTalk, computeTalkIdFromTalkData(tagTalk));
-    const shouldSuppressForPeer = jest.fn((_peerId: string, key: string) => key === keys[0]);
-    const deps = makeDeps({
-      getMyTalks: () => ({ 'tag-1': { fullTalk: tagTalk } }),
-      shouldSuppressForPeer,
-    });
-    expect(isBroadcastUnsentForReceiver('peer-1', 'tag-1', deps)).toBe(true);
-    expect(shouldSuppressForPeer.mock.calls.map(([, key]) => key)).toEqual(keys);
-  });
-
-  it('suppresses a multi-option tag talk only when every tag identity was sent', () => {
-    const tagTalk = {
-      id: 'tag-1',
-      type: 'tag',
-      questions: [{ text: 'Pick one', answers: [{ text: 'Tennis' }, { text: 'Chess' }] }],
-    };
-    const deps = makeDeps({
-      getMyTalks: () => ({ 'tag-1': { fullTalk: tagTalk } }),
-      shouldSuppressForPeer: () => true,
-    });
-    expect(isBroadcastUnsentForReceiver('peer-1', 'tag-1', deps)).toBe(false);
-  });
-
-  it('selects broadcastable talks owed to at least one receiver', () => {
-    const deps = makeDeps({
-      shouldSuppressForPeer: (receiverId, identityKey) =>
-        receiverId === 'peer-1' || identityKey === computeTalkIdFromTalkData(flowTalk),
-    });
-    expect(getUnsentBroadcastTalkIds(['peer-1', 'peer-2'], deps)).toEqual(['flow-2']);
-  });
-
-  it('selects broadcastable talks for one receiver', () => {
-    const flow1Key = computeTalkIdFromTalkData(flowTalk);
-    const deps = makeDeps({ shouldSuppressForPeer: (_receiverId, key) => key === flow1Key });
+  it('selects talks owed to at least one receiver, to one receiver, and per talk', () => {
+    const owedTo = (receiverId: string, talkId: string) => !(receiverId === 'peer-1' && talkId === 'flow-1');
+    const deps = makeDeps({ owedTo });
+    expect(getUnsentBroadcastTalkIds(['peer-1'], deps)).toEqual(['flow-2']);
+    expect(getUnsentBroadcastTalkIds(['peer-1', 'peer-2'], deps)).toEqual(['flow-1', 'flow-2']);
     expect(getUnsentBroadcastTalkIdsForReceiver('peer-1', deps)).toEqual(['flow-2']);
-  });
-
-  it('builds an independent receiver list for every requested talk', () => {
-    const flow1Key = computeTalkIdFromTalkData(flowTalk);
-    const deps = makeDeps({
-      shouldSuppressForPeer: (receiverId, key) => receiverId === 'peer-1' && key === flow1Key,
+    expect(getUnsentBroadcastTalkReceiverIds(['flow-1', 'flow-2'], ['peer-1', 'peer-2'], deps)).toEqual({
+      'flow-1': ['peer-2'],
+      'flow-2': ['peer-1', 'peer-2'],
     });
-    expect(getUnsentBroadcastTalkReceiverIds(['flow-1', 'flow-2'], ['peer-1', 'peer-2'], deps))
-      .toEqual({
-        'flow-1': ['peer-2'],
-        'flow-2': ['peer-1', 'peer-2'],
-      });
   });
 });

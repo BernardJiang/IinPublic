@@ -9,6 +9,7 @@ import type { NodeStore } from '../node-store';
 import { personSoul } from '../people-graph';
 import { allSituations } from '../answers';
 import { answerKey, type AnswerSetEntry } from '../keys';
+import { answeredAtoms } from '../exchanged';
 import type { Perspective, TalkStructure } from '../talk-structure';
 import { createGraphSync, type GraphCrypto, type GraphLinkStatus, type PeerKeys, type SeaPair } from './graph-sync';
 
@@ -109,7 +110,11 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
                   push({ type: 'talk', talkId, from, ...(context ? { context } : {}), ...(talk ? { talk: appTalkOf(talk) } : {}) });
                 }).catch(() => push({ type: 'talk', talkId, from, ...(context ? { context } : {}) }));
               },
-              onTalkDeleted: (talkId, from) => push({ type: 'talk-deleted', talkId, from, when: Date.now() }),
+              onTalkDeleted: (talkId, from) => {
+                // What it passed between us leaves the exchange index: it may be exchanged again.
+                void graph.exchange.forgetTalk(talkId, [from]).catch(() => undefined);
+                push({ type: 'talk-deleted', talkId, from, when: Date.now() });
+              },
               onAnswer: (talkId, from, eventId, context) => {
                 void (async () => {
                   const event = await store.get(`${graph.prefix}ev/${eventId}`);
@@ -117,6 +122,7 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
                   const set = await graph.answers.answerSet(eventId);
                   const mode = typeof event?.mode === 'string' ? event.mode : 'manual';
                   const answers = talk && set ? appAnswersOf(talk, set, mode) : undefined;
+                  if (talk && answers) await graph.exchange.recordAnswer(from, eventId, answeredAtoms(appTalkOf(talk), answers.map((a) => a.answerId))).catch(() => undefined);
                   const appTalkId = options.appTalkId ? await options.appTalkId(talkId) : talkId;
                   push({ type: 'answer', talkId, ...(appTalkId !== talkId ? { appTalkId } : {}), from, eventId, mode, ...(typeof event?.when === 'number' ? { when: event.when } : {}), ...(context ? { context } : {}), ...(answers ? { answers } : {}) });
                 })().catch(() => push({ type: 'answer', talkId, from, eventId }));
@@ -153,7 +159,12 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
         case 'graph.answer':
           // I answered a Talk that came over a graph link: one answer event, sent to its author.
           if (!options.appAnswers) return { sent: false };
-          return options.appAnswers().answerAndSend(request.talkId, request.authorId, request.answers, request.mode, request.context);
+          {
+            const result = await options.appAnswers().answerAndSend(request.talkId, request.authorId, request.answers, request.mode, request.context);
+            const talk = result.eventId ? await graph.arrivals.read(request.talkId) : undefined;
+            if (talk && result.eventId) await graph.exchange.recordAnswer(request.authorId, result.eventId, answeredAtoms(appTalkOf(talk), request.answers.map((a) => a.answerId))).catch(() => undefined);
+            return result;
+          }
         case 'graph.status': {
           const status: GraphHostStatus = { links: sync ? await Promise.all(sync.openLinks().map((peer) => sync!.status(peer))) : [] };
           if (userId) status.userId = userId;

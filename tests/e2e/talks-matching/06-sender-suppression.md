@@ -7,7 +7,7 @@ Three browsers: **Tom** (talk author), **Jerry** (ignores), **Bob** (matches).
 1. Tom creates a tag talk with two tags: "Tennis" and "Chess".
 2. Tom broadcasts to Jerry and Bob.
 3. Jerry receives the talk and answers **IGNORE**; Bob answers **MATCH**.
-4. Tom's `talkLedger.outcomes` must record:
+4. Tom's graph outcomes (`ix/outcome`, read with `getExchangesForE2e`) must record:
    - `Jerry → ignored` with `version=1` and a `respondedAt` timestamp.
    - `Bob → matched` with `version=1` and a `respondedAt` timestamp.
 5. **Tom rebroadcasts the same talk.**

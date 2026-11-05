@@ -7,7 +7,7 @@ import { CollectionStore } from './collections';
 import { DeliveryStore } from './delivery';
 import { PrivateStore } from './private-store';
 import { ExchangeStore } from './exchanges';
-import { CoreTalkLedger } from './talk-ledger-store';
+import { commitResponse } from './response-commit';
 import type { CoreRequest } from './protocol';
 import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
@@ -19,6 +19,9 @@ import { createMyTalksBodies } from './device-graph/sync/my-talks-bodies';
 import { createIncomingList } from './device-graph/sync/incoming-list';
 import { createAppChatbot } from './device-graph/sync/app-chatbot';
 import type { GraphCrypto } from './device-graph/sync/graph-sync';
+import { exchangeAtoms, planOffer, type OfferPlan } from './device-graph/exchanged';
+import { linkSoul } from './device-graph/node-store';
+import { graphSouls } from './device-graph/talk-structure';
 
 /**
  * OPEN-106: the device graph. `nodeStore` is the same Gun as `store`, written by exact soul. With
@@ -93,7 +96,21 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
     })
     : undefined;
   const privates = new PrivateStore(store);
-  const ledger = new CoreTalkLedger(store, options.allowTestOverrides);
+  const nodeStore = options.deviceGraph?.nodeStore;
+  const souls = graphSouls(graph.graph?.prefix);
+  const sentSoul = (talkId: string) => `${graph.graph?.prefix ?? 'local/'}sync/sent/${talkId}`;
+  /** My graph Talk for an app id, or the id itself (a graph id the app already knows it by). */
+  const ownGraphId = async (appId: string) => (graph.ownTalks ? await graph.ownTalks.graphTalkId(appId) : undefined) ?? appId;
+  /** When a Talk was deleted: mine (by its deletion event) or one I received (the author's). */
+  async function deletedAt(talkId: string): Promise<number | null> {
+    if (!nodeStore || !graph.graph) return null;
+    const mine = await nodeStore.get(souls.mine(`talk/${await ownGraphId(talkId)}`));
+    const own = mine?.deleted === true ? linkSoul(mine.deletedBy) : undefined;
+    const theirs = own ? undefined : linkSoul((await nodeStore.get(souls.index(`deleted/${talkId}`)))?.ev);
+    const soul = own ?? theirs;
+    if (!soul) return null;
+    return Number((await nodeStore.get(soul))?.when ?? 0) || Date.now();
+  }
   const execute = async (request: CoreRequest): Promise<unknown> => {
     if (fresh) {
       if (request.name === 'exchanges.snapshot') return [];
@@ -104,12 +121,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
     }
     switch (request.name) {
       case 'response.commit':
-      case 'ledger.apply':
-      case 'ledger.gate':
-      case 'ledger.responder':
-      case 'ledger.author':
-      case 'ledger.authorAnswer':
-        return ledger.execute(request);
+        if (!graph.graph) throw new Error('this core has no device graph');
+        return commitResponse(request.input, { delivery, exchange: graph.graph.exchange, retracted: async (talkId) => (await deletedAt(talkId)) !== null });
       case 'exchanges.snapshot':
         return exchanges.all();
       case 'exchanges.upsert':
@@ -140,7 +153,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.offer': {
         // My Talk as the app keys it (`myTalks`), written into the graph first if it is not yet.
         const sync = graph.host?.sync();
-        if (!sync || !graph.ownTalks) return { offered: 0, known: false };
+        const none = { offered: 0, known: false, sent: [], skipped: {}, omitted: {} };
+        if (!sync || !graph.ownTalks) return none;
         // Whatever I send is my Talk: one I wrote, a copy I keep, or a body the app holds only in
         // memory. Each is written (or versioned) as my own graph Talk before it is offered.
         const stored = await (myTalks ? myTalks.get(request.talkId) : collections.get('myTalks', request.talkId)) as Record<string, any> | undefined;
@@ -149,9 +163,74 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
           ? { ...(stored ?? {}), talkId: request.talkId, title: stored?.title ?? body.title, type: stored?.type ?? body.type, timestamp: stored?.timestamp ?? body.createdAt, fullTalk: body, role: 'created' }
           : undefined;
         const talkId = entry ? await graph.ownTalks.ensure(entry) : await graph.ownTalks.graphTalkId(request.talkId);
-        if (!talkId) return { offered: 0, known: false };
-        return { offered: await sync.offerTalk(talkId, request.recipients, request.context), known: true };
+        const current = talkId && graph.graph ? await graph.graph.talks.read(talkId) : undefined;
+        if (!talkId || !current || !nodeStore || !graph.graph) return none;
+        // Who already has it (REQ-LEDGER-16): this version, or every part of it. A tag Talk leaves
+        // out the tags they have; the send limit counts distinct Talks per person.
+        const exchange = graph.graph.exchange;
+        const atoms = exchangeAtoms(appTalkOf(current as Record<string, any>));
+        const sentTo = (await nodeStore.get(sentSoul(talkId))) ?? {};
+        const suppress = !(options.allowTestOverrides === true && request.suppress === false);
+        const unlimited = options.allowTestOverrides === true && request.unlimitedForTesting === true;
+        const skipped: Record<string, string> = {};
+        const groups = new Map<string, { omit: string[]; recipients: string[] }>();
+        for (const recipient of new Set(request.recipients)) {
+          const had = suppress ? await exchange.exchanged(recipient) : {};
+          const sentVersion = typeof sentTo[recipient] === 'string' ? sentTo[recipient] as string : undefined;
+          let plan: OfferPlan = planOffer({ versionId: current.versionId, sentVersion, atoms, has: (atom) => atom in had });
+          if (plan.send) {
+            const limit = await exchange.withinLimit(recipient, talkId, unlimited);
+            if (!limit.send) plan = limit;
+          }
+          if (!plan.send) { skipped[recipient] = plan.reason; continue; }
+          const omit = plan.omit ?? [];
+          const group = groups.get(omit.join(',')) ?? { omit, recipients: [] };
+          group.recipients.push(recipient);
+          groups.set(omit.join(','), group);
+        }
+        let offered = 0;
+        const sent: string[] = [];
+        const omitted: Record<string, string[]> = {};
+        for (const { omit, recipients } of groups.values()) {
+          offered += await sync.offerTalk(talkId, recipients, { ...(request.context ?? {}), ...(omit.length ? { omit } : {}) });
+          for (const recipient of recipients) {
+            await exchange.recordOffer(recipient, talkId, current.versionId, atoms, omit);
+            sent.push(recipient);
+            if (omit.length) omitted[recipient] = omit;
+          }
+        }
+        return { offered, known: true, sent, skipped, omitted };
       }
+      case 'graph.exchangeState': {
+        if (!graph.graph || !nodeStore) return { peers: {}, talks: {} };
+        const talks: Record<string, { versionId: string; sent: Record<string, string> }> = {};
+        await Promise.all((await graph.graph.talks.list()).map(async (talkId) => {
+          const [mine, sentTo] = await Promise.all([nodeStore.get(souls.mine(`talk/${talkId}`)), nodeStore.get(sentSoul(talkId))]);
+          const latest = linkSoul(mine?.latest);
+          if (!latest || mine?.deleted === true) return;
+          const appId = graph.ownTalks ? await graph.ownTalks.appTalkId(talkId) : talkId;
+          talks[appId] = {
+            versionId: latest.slice(souls.event('').length),
+            sent: Object.fromEntries(Object.entries(sentTo ?? {}).filter((pair): pair is [string, string] => typeof pair[1] === 'string')),
+          };
+        }));
+        return { peers: await graph.graph.exchange.state(), talks };
+      }
+      case 'graph.recordOutcome':
+        if (!graph.graph) return { ok: false };
+        await graph.graph.exchange.setOutcome(request.talkId, request.responderId, request.record);
+        return { ok: true };
+      case 'graph.outcome':
+        return graph.graph ? (await graph.graph.exchange.outcome(request.talkId, request.responderId)) ?? null : null;
+      case 'graph.outcomes': {
+        if (!graph.graph) return {};
+        const exchange = graph.graph.exchange;
+        return Object.fromEntries(await Promise.all(request.talkIds.map(async (talkId) => [talkId, await exchange.outcomes(talkId)] as const)));
+      }
+      case 'graph.respondedTo':
+        return graph.graph ? graph.graph.exchange.respondedTo(request.talkId) : {};
+      case 'graph.deletedAt':
+        return deletedAt(request.talkId);
       case 'graph.newTalkId':
         // Only where Talks travel over graph links: elsewhere the app keeps content-hash ids.
         return graph.ownTalks && graph.graph ? graph.graph.ids.next(Date.now()) : null;
@@ -161,7 +240,11 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         if (!graph.ownTalks || !graph.graph) return { sent: 0 };
         const talkId = await graph.ownTalks.graphTalkId(request.talkId);
         const deletionId = talkId ? await graph.graph.talks.remove(talkId) : undefined;
-        if (!talkId || !deletionId || !sync) return { sent: 0 };
+        if (!talkId || !deletionId) return { sent: 0 };
+        // What it passed to people leaves the exchange index: it may be sent again (as a new Talk).
+        const sentTo = nodeStore ? await nodeStore.get(sentSoul(talkId)) : null;
+        await graph.graph.exchange.forgetTalk(talkId, Object.keys(sentTo ?? {}).filter((peer) => typeof sentTo![peer] === 'string'));
+        if (!sync) return { sent: 0 };
         return { sent: await sync.sendTalkDeletion(talkId, deletionId) };
       }
       case 'graph.identity':
@@ -194,6 +277,11 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.acceptArrival':
         if (!incoming) return { ok: false };
         await incoming.accept(request.talkId, request.from, request.senderName, request.omit);
+        {
+          // What passed between us: I have their Talk now (less the tags left out).
+          const arrived = await graph.graph!.arrivals.read(request.talkId);
+          if (arrived) await graph.graph!.exchange.recordArrival(request.from, arrived.versionId, exchangeAtoms(appTalkOf(arrived as Record<string, any>)));
+        }
         return { ok: true };
       case 'graph.incoming':
         return incoming ? incoming.rows() : [];
@@ -242,15 +330,15 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         throw new Error(`Unknown core request: ${(request as { name?: string }).name}`);
     }
   };
-  // Ledger commands and legacy collection migration share this queue. Other independent
-  // collections keep their existing concurrency; no network/transport work holds this lock.
-  let ledgerQueue: Promise<unknown> = Promise.resolve();
+  // Answer commits and outcome records go one at a time: a stale tab cannot overwrite a newer one.
+  // Other requests keep their concurrency; no network/transport work holds this lock.
+  let answerQueue: Promise<unknown> = Promise.resolve();
   return (request) => {
-    const touchesLedger = request.name === 'response.commit' || request.name.startsWith('ledger.') || ('collection' in request && request.collection === 'talkLedger')
+    const serial = request.name === 'response.commit' || request.name === 'graph.recordOutcome'
       || (request.name === 'delivery.record' && request.input.objectKind === 'talk-response');
-    if (!touchesLedger) return execute(request);
-    const result = ledgerQueue.then(() => execute(request));
-    ledgerQueue = result.catch(() => undefined);
+    if (!serial) return execute(request);
+    const result = answerQueue.then(() => execute(request));
+    answerQueue = result.catch(() => undefined);
     return result;
   };
 }

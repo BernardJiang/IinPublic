@@ -8,8 +8,7 @@ import {
   localTalkHistoryForPeer,
 } from '../services/local-peer-derivation';
 import { matchScore } from '../../shared/talk-engine';
-import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
-import { buildTalkIdentityKey } from '../../shared/cid';
+import { talkOwedToPeer } from '../services/exchange-state';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
 import { meetsBlockSignalThreshold, type ReceivedBlockSignals } from '../../shared/block-signal';
@@ -109,11 +108,9 @@ function omitReasonLabel(deps: UserDetailViewDeps, reason: PeerSendOmitReason): 
 }
 
 /**
- * docs/TODO.md §W Gap 2 — the "already sent" check is now the same ledger `shouldSuppressForPeer`
- * every other send path (room broadcast, contact-group broadcast) uses, not a separate
- * `localTalkExchanges`-derived set scoped only to this peer-detail view. This is what actually
- * closes the gap: a talk this peer already got via a room broadcast is now correctly hidden
- * here too, not just talks previously sent through this exact button.
+ * docs/TODO.md §W Gap 2 — the "already sent" check is the same one every send path uses (the
+ * device graph's exchange index, `talkOwedToPeer`): a Talk this person already got through a room
+ * broadcast is hidden here too, not just Talks sent through this button.
  */
 function classifyPeerSendTalks(
   myTalks: Record<string, any>,
@@ -130,7 +127,7 @@ function classifyPeerSendTalks(
     const expiresAtMs = resolveExpiresAtMs(expiresAt);
     if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omitReasons.push('talk_expired');
     const fullTalk = talk?.fullTalk || talk;
-    if (fullTalk && shouldSuppressForPeer(peerId, buildTalkIdentityKey(fullTalk))) {
+    if (fullTalk && !talkOwedToPeer(peerId, talkId, fullTalk)) {
       omitReasons.push('peer_already_sent');
     }
     const entry: ClassifiedPeerTalk = { talkId, talk, eligible: omitReasons.length === 0, omitReasons };

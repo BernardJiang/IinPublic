@@ -172,6 +172,8 @@ type Client = {
   emit: (message: any) => void;
 };
 const clients = new Map<string, Client>();
+/** Requests that change who I exchanged what with (`graph.exchangeState`, OPEN-106 step 3). */
+const EXCHANGE_STATE_WRITES = new Set<string>(['response.commit', 'graph.offer', 'graph.acceptArrival', 'graph.recordOutcome', 'graph.retract', 'graph.answer']);
 let ownerPub: string | null = null;
 let authenticating = false;
 let authQueue: Promise<unknown> = Promise.resolve();
@@ -300,13 +302,9 @@ coordinateWorker(scope, { disconnect, async receive(clientId, message, emit) {
         {
           const result = await handleCore(payload as CoreRequest);
           const request = payload as CoreRequest;
-          const unchangedGate = request.name === 'ledger.gate'
-            && (result as { gate?: { ok?: boolean } }).gate?.ok === false;
-          if (!unchangedGate && (request.name === 'response.commit' || request.name.startsWith('ledger.')
-            || (('collection' in request) && request.collection === 'talkLedger' && request.name !== 'collection.snapshot'))) {
-            for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: 'talkLedger' });
-          } else if ((request.name === 'collection.upsert' || request.name === 'collection.remove')
-            && request.collection !== 'talkLedger') {
+          if (EXCHANGE_STATE_WRITES.has(request.name)) {
+            for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: 'exchangeState' });
+          } else if (request.name === 'collection.upsert' || request.name === 'collection.remove') {
             for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: request.collection });
           }
           reply(id, null, result);

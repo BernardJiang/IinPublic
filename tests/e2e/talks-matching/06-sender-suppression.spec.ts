@@ -5,7 +5,7 @@
  * Tom rebroadcasts the same talk.
  *
  * Assertions:
- *  - Tom's talkLedger.outcomes records Jerry=ignored + Bob=matched with
+ *  - Tom's graph outcomes (`ix/outcome`) record Jerry=ignored + Bob=matched with
  *    version=1 and respondedAt set.
  *  - After rebroadcast, Jerry's incoming cluster count for that talk identity
  *    is unchanged (never re-prompted).
@@ -92,7 +92,7 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
     await clearGunForStage3Spec();
   });
 
-  test('Jerry ignores → Tom rebroadcasts → Jerry never re-prompted; talkLedger records Jerry=ignored Bob=matched', async () => {
+  test('Jerry ignores → Tom rebroadcasts → Jerry never re-prompted; the graph records Jerry=ignored Bob=matched', async () => {
     test.setTimeout(300_000);
 
     // ── 1. Bootstrap all three users ───────────────────────────────────────────
@@ -321,13 +321,9 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
     // ── 9. Wait for Tom to receive both responses ──────────────────────────────
     await expect
       .poll(
-        () => pageTom.evaluate(({ jId, talkId }: { jId: string; talkId: string }) => {
-          const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-          if (!doc) return null;
-          // Find any outcome row with responderId === jId for this talk
-          return Object.values(doc.outcomes as Record<string, any>).find(
-            (e: any) => e.responderId === jId && e.talkId === talkId,
-          ) ?? null;
+        () => pageTom.evaluate(async ({ jId, talkId }: { jId: string; talkId: string }) => {
+          const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+          return doc?.outcomes?.[talkId]?.[jId] ?? null;
         }, { jId: jerryId, talkId: TEST_TALK_ID }),
         { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 600], message: "Tom: did not receive Jerry's response in ledger" },
       )
@@ -335,12 +331,9 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
 
     await expect
       .poll(
-        () => pageTom.evaluate(({ bId, talkId }: { bId: string; talkId: string }) => {
-          const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-          if (!doc) return null;
-          return Object.values(doc.outcomes as Record<string, any>).find(
-            (e: any) => e.responderId === bId && e.talkId === talkId,
-          ) ?? null;
+        () => pageTom.evaluate(async ({ bId, talkId }: { bId: string; talkId: string }) => {
+          const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+          return doc?.outcomes?.[talkId]?.[bId] ?? null;
         }, { bId: bobId, talkId: TEST_TALK_ID }),
         { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 600], message: "Tom: did not receive Bob's response in ledger" },
       )
@@ -348,12 +341,9 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
 
     // ── 10. Assert ledger state on Tom ─────────────────────────────────────────
     const jerryLedgerEntry = await pageTom.evaluate(
-      ({ jId, talkId }: { jId: string; talkId: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        if (!doc) return null;
-        return Object.values(doc.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === jId && e.talkId === talkId,
-        ) ?? null;
+      async ({ jId, talkId }: { jId: string; talkId: string }) => {
+        const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+        return doc?.outcomes?.[talkId]?.[jId] ?? null;
       },
       { jId: jerryId, talkId: TEST_TALK_ID },
     );
@@ -364,12 +354,9 @@ test.describe('Sender-side suppression — step 8 (three browsers)', () => {
     expect(jerryLedgerEntry.respondedAt, 'Tom ledger: Jerry respondedAt must be set').toBeTruthy();
 
     const bobLedgerEntry = await pageTom.evaluate(
-      ({ bId, talkId }: { bId: string; talkId: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        if (!doc) return null;
-        return Object.values(doc.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === bId && e.talkId === talkId,
-        ) ?? null;
+      async ({ bId, talkId }: { bId: string; talkId: string }) => {
+        const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+        return doc?.outcomes?.[talkId]?.[bId] ?? null;
       },
       { bId: bobId, talkId: TEST_TALK_ID },
     );

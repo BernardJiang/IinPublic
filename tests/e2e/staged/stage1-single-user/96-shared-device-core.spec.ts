@@ -43,11 +43,13 @@ for (const dedicated of [false, true]) {
       })));
       for (const page of [a, b, c]) await expect.poll(() => snapshot(page)).toEqual(expected);
 
-      // The quota is decided and committed by the shared host, never by stale per-tab views.
-      const quotas = await Promise.all(Array.from({ length: 18 }, (_, i) => core([a, b, c][i % 3], {
-        name: 'ledger.gate', peerId: 'quota-peer', nowMs: Date.now(), talkId: `quota-talk-${i}`,
+      // Answer records written from every tab at once all land in the one shared host's graph.
+      const outcomes = (page: Page) => core(page, { name: 'graph.outcomes', talkIds: ['quota-talk'] }).then((r: any) => Object.keys(r['quota-talk'] ?? {}).length);
+      await Promise.all(Array.from({ length: 18 }, (_, i) => core([a, b, c][i % 3], {
+        name: 'graph.recordOutcome', talkId: 'quota-talk', responderId: `peer-${i}`,
+        record: { outcome: 'matched', version: 1, responseId: `r-${i}`, respondedAt: new Date().toISOString() },
       })));
-      expect(quotas.filter((result) => result.gate.ok)).toHaveLength(10);
+      for (const page of [a, b, c]) await expect.poll(() => outcomes(page)).toBe(18);
 
       // Every bridge allocates sub_1: sessions must not replace/unsubscribe another tab's listener.
       for (const page of [a, b, c]) await page.evaluate(() => {
@@ -92,7 +94,7 @@ for (const dedicated of [false, true]) {
       await Promise.all([b.close(), c.close()]);
       const reloaded = await client(context, baseURL!, dedicated);
       await expect.poll(() => snapshot(reloaded)).toEqual(expected);
-      expect(await core(reloaded, { name: 'ledger.gate', peerId: 'quota-peer', nowMs: Date.now(), talkId: 'quota-overflow' })).toMatchObject({ gate: { ok: false } });
+      await expect.poll(() => outcomes(reloaded)).toBe(18);
     } finally { await context.close(); }
   });
 }
@@ -112,19 +114,18 @@ test('two app tabs keep the same identity and both confirmed edits after the fir
     await expect.poll(read).toMatchObject({ 'core-tab-0': 'saved-0', 'core-tab-1': 'saved-1' });
     await expect.poll(() => b.evaluate(() => (window as any).__iinpublic_collection('appData')))
       .toMatchObject({ 'core-tab-0': 'saved-0', 'core-tab-1': 'saved-1' });
-    // The other tab's synchronous ledger view must follow host commits without a reload.
-    const liveLedger = () => b.evaluate(() => (window as any).__iinpublic_collection('talkLedger')['sent::peer-live::identity-live']);
-    await core(a, { name: 'ledger.apply', event: {
-      kind: 'TALK_SENT', peerId: 'peer-live', identityKey: 'identity-live', talkId: 'talk-live', sentAt: '2026-10-29T12:00:00.000Z',
-    } });
-    await expect.poll(liveLedger).toMatchObject({ talkId: 'talk-live' });
+    // The other tab reads what this tab's commits wrote, from the one device core.
+    const outcome = (talkId: string) => b.evaluate(async (id) => {
+      const doc = await (window as any).__iinpublic_app.getApp().getExchangesForE2e([id]);
+      return doc?.outcomes?.[id]?.['peer-live'] ?? null;
+    }, talkId);
+    const record = { outcome: 'matched', version: 1, responseId: 'r-live', respondedAt: '2026-10-29T12:00:00.000Z' };
+    await core(a, { name: 'graph.recordOutcome', talkId: 'talk-live', responderId: 'peer-live', record });
+    await expect.poll(() => outcome('talk-live')).toMatchObject({ responseId: 'r-live' });
     await a.close();
     await expect.poll(() => read().catch(() => null)).toMatchObject({ 'core-tab-0': 'saved-0', 'core-tab-1': 'saved-1' });
-    await core(b, { name: 'ledger.apply', event: {
-      kind: 'TALK_SENT', peerId: 'peer-live', identityKey: 'identity-after-close', talkId: 'talk-after-close', sentAt: '2026-10-29T12:01:00.000Z',
-    } });
-    await expect.poll(() => b.evaluate(() => (window as any).__iinpublic_collection('talkLedger')['sent::peer-live::identity-after-close']))
-      .toMatchObject({ talkId: 'talk-after-close' });
+    await core(b, { name: 'graph.recordOutcome', talkId: 'talk-after-close', responderId: 'peer-live', record: { ...record, responseId: 'r-after-close' } });
+    await expect.poll(() => outcome('talk-after-close')).toMatchObject({ responseId: 'r-after-close' });
     await expect.poll(() => b.evaluate(() => (window as any).bridge.putPrivate('core-tab-probe', { saved: true }).then(() => (window as any).bridge.getPrivate('core-tab-probe')).catch(() => null)), { timeout: 20_000 }).toEqual({ saved: true });
   } finally { await context.close(); }
 });

@@ -18,12 +18,6 @@ export const myTalksView = new CoreCollectionView<MyTalkEntry>('myTalks', 'myTal
 /** My Conversations, by conversation id. Old key: `myConversations`. */
 export const myConversationsView = new CoreCollectionView<Record<string, unknown>>('myConversations', 'myConversations');
 
-/** Sections of the old talk ledger document, each entry kept as `<section>::<key>`. */
-export const TALK_LEDGER_SECTIONS = ['outcomes', 'exchanged', 'edges', 'retracted', 'sent'] as const;
-
-/** The talk ledger (outcomes, exchanged, edge counters, retractions, sent), one entry per record. Old key: `talkLedger`. */
-export const talkLedgerView = new CoreCollectionView<unknown>('talkLedger', 'talkLedger', (parsed) => sectionEntries(TALK_LEDGER_SECTIONS, parsed));
-
 /** The Me tab's answer history, by record id. Old key: `myAnswerHistory`. */
 export const answerHistoryView = new CoreCollectionView<FlatAnswerHistoryRecord>('myAnswerHistory', 'myAnswerHistory');
 
@@ -38,9 +32,6 @@ export const answeredTalkByContentView = new CoreCollectionView<string>('answere
 export const tagOppositePairRegistryView = new CoreCollectionView<unknown>('tagOppositePairRegistry', 'tagOppositePairRegistry',
   (parsed) => sectionEntries(['pairs'], parsed));
 
-/** OPEN-45: the revision of each authored Talk each peer last took, by `<peer>::<talk>`. Old key: `iinpublic_talk_revision_sent_v1`. */
-export const talkRevisionSentView = new CoreCollectionView<{ revision: string; at: number }>('talkRevisionSent', 'iinpublic_talk_revision_sent_v1');
-
 /**
  * Smaller app data, one entry per former localStorage key, its value the same string
  * (`core-storage.ts`). No blob of its own to import: each key migrates when first read.
@@ -51,10 +42,10 @@ export const appDataView = new CoreCollectionView<string>('appData', 'iinpublic_
 export const settingsView = new CoreCollectionView<string>('settings', 'iinpublic_core_settings_no_legacy_blob');
 
 const VIEWS: Array<CoreCollectionView<unknown>> = [
-  chatbotTemplatesView, myTalksView, myConversationsView, talkLedgerView, answerHistoryView,
+  chatbotTemplatesView, myTalksView, myConversationsView, answerHistoryView,
   dealTalkByConversationView, needKeyByConversationView,
   answeredTalkByContentView, tagOppositePairRegistryView,
-  talkRevisionSentView, appDataView, settingsView,
+  appDataView, settingsView,
 ] as Array<CoreCollectionView<unknown>>;
 
 let stopChanges: (() => void) | null = null;
@@ -66,7 +57,7 @@ export async function connectCoreCollections(link: CollectionCoreLink, bridge?: 
   stopChanges?.();
   stopChanges = bridge?.onCoreCollectionChanged((collection) => {
     for (const view of VIEWS) {
-      if (view.collection === 'talkLedger' || (collection !== '*' && collection !== view.collection)) continue;
+      if (collection !== '*' && collection !== view.collection) continue;
       const name = view.collection;
       changeGeneration.set(name, (changeGeneration.get(name) ?? 0) + 1);
       if (refreshing.has(name)) continue;

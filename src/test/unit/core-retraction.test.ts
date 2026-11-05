@@ -1,6 +1,5 @@
 /** OPEN-91 P4: what a Talk retraction touches. */
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
-import { emptyTalkLedgerDoc, retractedKey } from '../../shared/talk-ledger';
 
 const conversations = {
   c1: { otherUserId: 'ann', talkId: 't1' },
@@ -21,17 +20,13 @@ describe('retractions', () => {
     expect(retractionRecipients({ ...conversations, c4: { otherUserId: 'me', talkId: 't1' } }, 't1', 'me').sort()).toEqual(['ann', 'bob']);
   });
 
-  it('a received retraction is new once, and withdraws the conversation unless the deal was confirmed', () => {
-    const base = { talkId: 't1', authorId: 'ann', retractedAt: 100, myId: 'me', conversations, confirmedThisSession: new Set<string>() };
-    expect(planRetractionReceipt({ ...base, ledger: emptyTalkLedgerDoc() })).toEqual({ isNew: true, withdraw: true });
-    const seen = emptyTalkLedgerDoc();
-    seen.retracted[retractedKey('t1', 'ann')] = { retractedAt: 100 } as never;
-    expect(planRetractionReceipt({ ...base, ledger: seen }).isNew).toBe(false);
-    expect(planRetractionReceipt({ ...base, ledger: seen, retractedAt: 200 }).isNew).toBe(true);
-    expect(planRetractionReceipt({ ...base, ledger: seen, confirmedThisSession: new Set(['c1']) }).withdraw).toBe(false);
+  it('a received retraction withdraws the conversation unless the deal was confirmed', () => {
+    const base = { talkId: 't1', authorId: 'ann', myId: 'me', conversations, confirmedThisSession: new Set<string>() };
+    expect(planRetractionReceipt(base)).toEqual({ withdraw: true });
+    expect(planRetractionReceipt({ ...base, confirmedThisSession: new Set(['c1']) }).withdraw).toBe(false);
     const confirmed = { c1: { ...conversations.c1, dealConfirmedByJson: JSON.stringify(['me', 'ann']) } };
-    expect(planRetractionReceipt({ ...base, ledger: seen, conversations: confirmed }).withdraw).toBe(false);
-    expect(planRetractionReceipt({ ...base, ledger: seen, authorId: 'zed' }).withdraw).toBe(false);
+    expect(planRetractionReceipt({ ...base, conversations: confirmed }).withdraw).toBe(false);
+    expect(planRetractionReceipt({ ...base, authorId: 'zed' }).withdraw).toBe(false);
   });
 
   it('a deal is confirmed only when both have confirmed', () => {

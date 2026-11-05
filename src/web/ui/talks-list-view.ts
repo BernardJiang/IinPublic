@@ -88,7 +88,8 @@ export type DisplayTalksListDeps = {
   getMyConversations: () => Record<string, any>;
   formatReasonCounts: (counts: Record<string, number>) => string;
   displayContextualStatistics: (elementId: string, prefix?: string) => void;
-  getCoExchangedPeople: (identityKey: string, excludePeerIds: Set<string>) => Array<{ id: string; name: string }>;
+  /** People I exchanged answers on this Talk's content with (the device graph's exchange index). */
+  getCoExchangedPeople: (talk: any, excludePeerIds: Set<string>) => Array<{ id: string; name: string }>;
   formatTalkDistanceFromAuthor: (location: { latitude?: number; longitude?: number } | null | undefined) => string;
   formatTalkExpiration: (expiresAt: number | null | undefined) => string;
   formatTalkLanguage: (code: string) => string;
@@ -502,14 +503,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                     ? `<div class="talk-item-matched talk-matched-people" data-matched-people="${escapeHtml(JSON.stringify(matchedPeople))}" style="font-size: 0.85em; color: var(--success-text); margin-top: 4px; cursor: pointer;">${deps.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
                     : '';
                 // TODO §Q build-order item 17: "people I've separately exchanged this same
-                // content with" — a different talkId sharing the same identityKey (e.g. a
-                // separate broadcast round), scoped to this device's own talkLedger only.
-                // Excludes people already shown by matchedLine above (this row's own partners).
+                // content with" (e.g. a separate broadcast round), from this device's own graph
+                // only. Excludes people already shown by matchedLine above (this row's own partners).
                 const coExchangedPeople = talk.fullTalk
-                  ? deps.getCoExchangedPeople(
-                      computeTalkIdFromTalkData(talk.fullTalk),
-                      new Set(matchedPeople.map((p) => p.id)),
-                    )
+                  ? deps.getCoExchangedPeople(talk.fullTalk, new Set(matchedPeople.map((p) => p.id)))
                   : [];
                 const coExchangedLine =
                   coExchangedPeople.length > 0
@@ -633,10 +630,13 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               const identityKey = String(cluster?.identityKey || '');
               const pinKey = incomingPinKey(cluster, talkId);
               // TODO §Q build-order item 17: other people I've separately exchanged this same
-              // content with (e.g. a different sender who sent me the identical talk), scoped
-              // to this device's own talkLedger only. Excludes this cluster's own sender(s).
-              const coExchangedPeople = identityKey
-                ? deps.getCoExchangedPeople(identityKey, new Set(senderPeople.map((p) => p.id)))
+              // content with (e.g. a different sender who sent me the identical talk), from this
+              // device's own graph only. Excludes this cluster's own sender(s).
+              const clusterTalk = (() => {
+                try { return { type: cluster?.type, questions: JSON.parse(String(cluster?.questionsJson || '[]')) }; } catch { return null; }
+              })();
+              const coExchangedPeople = clusterTalk && clusterTalk.questions.length
+                ? deps.getCoExchangedPeople(clusterTalk, new Set(senderPeople.map((p) => p.id)))
                 : [];
               const coExchangedLine =
                 coExchangedPeople.length > 0

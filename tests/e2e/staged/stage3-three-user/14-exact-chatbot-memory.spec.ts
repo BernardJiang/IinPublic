@@ -202,11 +202,9 @@ async function deliverTalkToReceiver(
 async function waitForRecordedResponse(page: Page, talkId: string): Promise<void> {
   await expect
     .poll(
-      () => page.evaluate((id) => {
-        const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        return Object.values(doc?.exchanged || {}).filter((row: any) =>
-          row?.role === 'responder' && row?.talkId === id && Number(row?.version || 0) >= 1,
-        ).length;
+      () => page.evaluate(async (id) => {
+        const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([id]);
+        return Object.values(doc?.responded?.[id] || {}).filter((row: any) => Number(row?.version || 0) >= 1).length;
       }, talkId),
       { timeout: 30_000, intervals: [300, 600, 1000] },
     )
