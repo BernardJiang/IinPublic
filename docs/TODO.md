@@ -184,6 +184,18 @@ its ID.
     author's side the deletion clears `ix/outcome` for that person and withdraws a conversation
     that came through the Talk, unless our deal was confirmed by both. Still to add: an e2e
     journey (delete on one side, the other side's outcome and conversation follow).
+  - e2e verification 2026-11-05 (full web suite, 6 workers, heavy specs skipped; phone-path).
+    Regressions from 2026-11-04's steps found and fixed (`1052421e`, `8267f1b6`): own-Talk
+    declarations remembered as Just once (stage2/85, 89, 90, 96, stage3/14), the answer dialog
+    late on a phone with a hung hub (phone-path/10, collection reads now cached), starter-tag
+    answers dropping off Me after the copy was sent (phone-path/09). Phone-path 15/16 (03 is the
+    adb clash). Web: 327 passed, 23 failed; stage1/37, stage2/08, stage3/00l and stage3/14 pass
+    alone (load). The other 19 fail on `72d4dfa1` too (before 2026-11-04), from the earlier graph
+    steps: stage1/05, 82-list-pins; stage2/00e, 00i (reads the erased incoming envelope), 21c
+    (a Talk the receiver's age gate refused is still recorded as sent, so later Talks of the same
+    content skip them: a product bug), 41 (answers Talks never received over a link), 67,
+    74 (both), 76, 80, 81, 88-starter-interest-tags, 88-asymmetric, 93; stage3/00, 00aa, 00ab
+    (answer before arrival), 04. To fix next.
   - Next: (5) real-phone run (native-app/37 now asserts graph events).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
