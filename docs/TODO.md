@@ -132,9 +132,13 @@ its ID.
     mutations are removed; `answerPreferences`, `flattenedAnswerPreferences`,
     `questionDefaultContracts`, `typedPreferenceState`, `exactChatbotMemory`, `myQuestionAnswers`
     and the private `chatbotMemory/` backup are erased at start (`collection.eraseRetired`).
-    Still kept, for a later step: `answeredTalkByContent` (the Talks list and completion read it
-    beside the graph's `ix/answered`) and `myAnswerHistory` (how the app's answers reach the graph,
-    `recordHistory`). `tagOppositePairRegistry` is the editor's own list, not a copy; it stays.
+    `answeredTalkByContent` is erased (2026-11-04): "already answered" by content is derived
+    (`src/web/ui/answered-talks.ts`) from My Talks entries with `completedAnswers`, then from the
+    Talks the graph's answer history says I answered (so a removed answered copy stays answered).
+    Still kept: `myAnswerHistory` (how the app's answers reach the graph, `recordHistory`). In the
+    way of removing it: an answer of built-in values only (`app-answers.ts` `writable`) is never
+    written to the graph, so such a Me-tab row would be lost on reload, and the author's side
+    drops built-in values from a received answer (`appAnswersOf` reads choices only). `tagOppositePairRegistry` is the editor's own list, not a copy; it stays.
     Closed 2026-11-04: the crash rebuild restores `ix/whenever` lists and Preferences changes
     (each change is a private event, `pref: 'whenever' | 'ctx'`, replayed in time order with the
     answer events); a device handoff carries what the chatbot remembers (`graph.remembered` in the

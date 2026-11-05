@@ -7525,7 +7525,8 @@ its private `chatbotMemory/` backup are erased at start (OPEN-106 step 2e v): th
 from §31.8's `ix/ctx`, `ix/whenever`, `ix/typed` and `ix/passed`, and how each answer may be reused
 is kept in a private sidecar of my answer event (`ev/<id>/x`), so the crash rebuild restores them.
 A built-in question's situation names its kind, not the values it compares. `answeredTalkByContent`
-and `myAnswerHistory` are still kept, for a later step.
+is erased: "already answered" is derived from My Talks and the graph's answer history.
+`myAnswerHistory` is still kept, for a later step.
 
 ### 31.11 Conflicts with earlier sections
 

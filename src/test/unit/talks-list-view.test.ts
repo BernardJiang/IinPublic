@@ -380,10 +380,10 @@ describe('displayTalksList', () => {
       ignored: {
         talkId: 'ignored', title: 'Ignored content', type: 'flow', role: 'ignored',
         lastInteraction: '2026-09-12T00:00:00.000Z', senders: ['alice'],
+        completedAnswers: [{ questionId: 'q', answerId: 'ignore' }],
         fullTalk: { id: 'ignored', title: 'Ignored content', type: 'flow', questions: [] },
       },
     }));
-    localStorage.setItem('answeredTalkByContent', JSON.stringify({ 'same-flow': 'ignored' }));
     installTalksDom();
     renderFresh(makeDeps({
       incomingTalkClusters: [{

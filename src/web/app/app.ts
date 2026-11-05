@@ -48,7 +48,7 @@ import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
-import { getAnsweredTalkId } from '../ui/answer-preferences-storage';
+import { getAnsweredTalkId } from '../ui/answered-talks';
 import { setGraphChatbotSource } from '../ui/graph-chatbot';
 import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
 import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
@@ -7125,7 +7125,7 @@ export class IinPublicApp {
     const backup = keys.filter((key: string) => key.startsWith('chatbotMemory/'));
     for (const key of backup) await core({ name: 'private.put', key, value: null }).catch(() => undefined);
     // The old chatbot's copies (OPEN-106 step 2e v), the talk ledger and the revisions sent (step 3).
-    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'talkLedger', 'iinpublic_talk_revision_sent_v1']) {
+    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'talkLedger', 'iinpublic_talk_revision_sent_v1', 'answeredTalkByContent']) {
       try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
     }
     if (erased || backup.length) console.log(`[core] erased ${erased} old record(s) (chatbot copies, talk ledger) and ${backup.length} backup record(s)`);

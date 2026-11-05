@@ -21,12 +21,15 @@ type GraphAnswerRecord = {
 
 let requester: (() => Promise<unknown>) | null = null;
 let byTalk = new Map<string, FlatAnswerHistoryRecord>();
+/** Each answered Talk's body, by app id: "already answered" by content (`answered-talks.ts`). */
+let bodies = new Map<string, Record<string, any>>();
 let signature = '';
+let revision = 0;
 
 /** Set by the app once the core can answer `graph.answerHistory`; null turns the graph source off. */
 export function setGraphAnswerHistorySource(request: (() => Promise<unknown>) | null): void {
   requester = request;
-  if (!request) { byTalk = new Map(); signature = ''; }
+  if (!request) { byTalk = new Map(); bodies = new Map(); signature = ''; revision += 1; }
 }
 
 /** One graph answer record as the app's history record. */
@@ -49,14 +52,20 @@ export async function refreshGraphAnswerHistory(): Promise<boolean> {
   const records = await requester();
   if (!Array.isArray(records)) return false;
   const next = new Map<string, FlatAnswerHistoryRecord>();
+  const nextBodies = new Map<string, Record<string, any>>();
   for (const record of records as GraphAnswerRecord[]) {
     if (!record?.appTalkId || !record.talk || !Array.isArray(record.answers) || !record.answers.length) continue;
-    try { next.set(record.appTalkId, graphRecordToFlat(record)); } catch { /* a Talk the app cannot show */ }
+    try {
+      next.set(record.appTalkId, graphRecordToFlat(record));
+      nextBodies.set(record.appTalkId, { ...record.talk, id: record.appTalkId });
+    } catch { /* a Talk the app cannot show */ }
   }
   const nextSignature = JSON.stringify([...next.values()].map((r) => [r.id, r.answeredAt, r.items.map((i) => i.answerId)]));
   if (nextSignature === signature) return false;
   signature = nextSignature;
   byTalk = next;
+  bodies = nextBodies;
+  revision += 1;
   return true;
 }
 
@@ -76,6 +85,11 @@ export function mergeGraphAnswerHistory(flat: FlatAnswerHistoryMap): FlatAnswerH
   }
   for (const record of byTalk.values()) if (!newerInApp.has(record.talkId)) out[record.id] = record;
   return out;
+}
+
+/** The bodies of the Talks the graph says I answered, by app id, and a counter of their changes. */
+export function graphAnsweredBodies(): { revision: number; bodies: ReadonlyMap<string, Record<string, any>> } {
+  return { revision, bodies };
 }
 
 /** Diagnostics for e2e specs: the Talks whose Me tab answers come from the graph. */

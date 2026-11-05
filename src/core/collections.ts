@@ -11,20 +11,21 @@ import type { GraphStore } from './graph-store';
 export const CORE_COLLECTIONS = [
   'chatbotTemplates', 'myTalks', 'myConversations', 'myAnswerHistory',
   'dealTalkByConversation', 'needKeyByConversation',
-  'answeredTalkByContent', 'tagOppositePairRegistry',
+  'tagOppositePairRegistry',
   'appData', 'settings',
 ] as const;
 export type CoreCollection = typeof CORE_COLLECTIONS[number];
 
 /**
  * Collections no longer kept, replaced by the device graph: the old chatbot's copies of my answers
- * (OPEN-106 step 2e v), and the talk ledger and the revisions sent (step 3, `exchanged.ts`).
+ * (OPEN-106 step 2e v), the talk ledger and the revisions sent (step 3, `exchanged.ts`), and
+ * "already answered" by content (derived from My Talks, `answered-talks.ts`).
  * Erased, not migrated (owner decision); only `eraseRetired` touches them.
  */
 export const RETIRED_COLLECTIONS = [
   'answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts',
   'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState',
-  'talkLedger', 'talkRevisionSent',
+  'talkLedger', 'talkRevisionSent', 'answeredTalkByContent',
 ] as const;
 
 export const COLLECTIONS_PATH = 'local/collections';

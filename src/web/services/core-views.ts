@@ -27,8 +27,6 @@ export const dealTalkByConversationView = new CoreCollectionView<string>('dealTa
 /** The content-hash "need" each deal-eligible conversation formed through. Old key: `conversationNeedKeyByConversation`. */
 export const needKeyByConversationView = new CoreCollectionView<string>('needKeyByConversation', 'conversationNeedKeyByConversation');
 
-// "Already answered" by Talk content (answer-preferences-storage.ts), same name as the old key.
-export const answeredTalkByContentView = new CoreCollectionView<string>('answeredTalkByContent', 'answeredTalkByContent');
 export const tagOppositePairRegistryView = new CoreCollectionView<unknown>('tagOppositePairRegistry', 'tagOppositePairRegistry',
   (parsed) => sectionEntries(['pairs'], parsed));
 
@@ -44,7 +42,7 @@ export const settingsView = new CoreCollectionView<string>('settings', 'iinpubli
 const VIEWS: Array<CoreCollectionView<unknown>> = [
   chatbotTemplatesView, myTalksView, myConversationsView, answerHistoryView,
   dealTalkByConversationView, needKeyByConversationView,
-  answeredTalkByContentView, tagOppositePairRegistryView,
+  tagOppositePairRegistryView,
   appDataView, settingsView,
 ] as Array<CoreCollectionView<unknown>>;
 

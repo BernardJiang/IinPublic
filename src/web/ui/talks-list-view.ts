@@ -1,6 +1,6 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import type { GPSCoordinate, User } from '../../shared/types';
-import { getAnsweredTalkByContent } from './answer-preferences-storage';
+import { answeredTalkIdsByContent } from './answered-talks';
 import { getFlatAnswerHistory, getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
@@ -311,7 +311,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
   );
   const incomingFilterResult = { ...filteredIncoming, visible: [...rawIncomingEntries.filter(isStarter), ...filteredIncoming.visible] };
   const hiddenReasonsText = deps.formatReasonCounts(incomingFilterResult.hiddenByReason);
-  const answeredByContent = getAnsweredTalkByContent();
+  const answeredByContent = answeredTalkIdsByContent();
   const backendInEntries = incomingFilterResult.visible.filter((cluster: any) => {
     if (cluster?.isAnswered) return false;
     const identityKey = String(cluster?.identityKey || '');

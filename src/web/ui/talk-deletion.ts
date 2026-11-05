@@ -1,7 +1,6 @@
 import { planTalkRemoval, restoredFromIgnored } from '../../core/my-talk-rules';
 import { deleteFlatAnswerHistoryForTalk } from './answer-history-storage';
 import { deleteMyTalkEntry, getMyTalks, setMyTalks } from './my-talks-storage';
-import { getAnsweredTalkByContent, setAnsweredTalkByContent } from './answer-preferences-storage';
 import type { UiTranslationKey } from './ui-translations';
 
 export type TalkDeletionDeps = {
@@ -14,19 +13,11 @@ export type TalkDeletionDeps = {
 
 /**
  * My answers to a Talk leave this device: the Me tab's records (the core deletes the answer event
- * and tells the author, `app-answers.ts` `forget`) and "already answered".
+ * and tells the author, `app-answers.ts` `forget`). "Already answered" follows My Talks
+ * (`answered-talks.ts`): the caller removes the entry or its `completedAnswers`.
  */
 function forgetMyAnswers(talkId: string): void {
   deleteFlatAnswerHistoryForTalk(talkId);
-  const answeredByContent = getAnsweredTalkByContent();
-  let answeredContentChanged = false;
-  for (const [key, id] of Object.entries(answeredByContent)) {
-    if (id === talkId) {
-      delete answeredByContent[key];
-      answeredContentChanged = true;
-    }
-  }
-  if (answeredContentChanged) setAnsweredTalkByContent(answeredByContent);
 }
 
 /** The rules (what removal keeps, who is told) are the device core's (src/core/my-talk-rules.ts). */
