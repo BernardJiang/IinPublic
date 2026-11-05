@@ -90,6 +90,10 @@ export type CoreRequest =
   | { name: 'graph.questionMemory'; text: string; language?: string }
   /** What the chatbot remembers (the Preferences dialog). */
   | { name: 'graph.remembered' }
+  /** My answers the app saved, by record id (the Me tab's records): each into the graph. */
+  | { name: 'graph.recordAnswers'; records: Record<string, unknown> }
+  /** Remove my answers to this Talk (and its other senders' copies): deletion events. */
+  | { name: 'graph.forgetAnswers'; talkId: string; senders?: string[] }
   /** What the chatbot remembered on another device of mine (a device handoff). */
   | { name: 'graph.importRemembered'; rows: RememberedAnswer[] }
   /** Change one remembered answer, or forget it; `key: '*'` with `forget` forgets everything. */
@@ -134,5 +138,7 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.questionMemory' } ? { selfTag?: string; sourceTalkId?: string }
                           : R extends { name: 'graph.remembered' } ? RememberedAnswer[]
                           : R extends { name: 'graph.importRemembered' } ? { imported: number }
+                          : R extends { name: 'graph.recordAnswers' } ? { ok: boolean }
+                          : R extends { name: 'graph.forgetAnswers' } ? { deleted: number; sent: number }
                           : R extends { name: 'graph.changeRemembered' } ? { ok: boolean }
                             : never;

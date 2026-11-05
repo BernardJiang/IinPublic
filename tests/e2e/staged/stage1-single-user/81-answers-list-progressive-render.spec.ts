@@ -58,7 +58,7 @@ test.describe('Me tab: progressive render for long answer lists (R3)', () => {
           }],
         };
       }
-      localStorage.setItem('myAnswerHistory', JSON.stringify(history));
+      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, history);
     }, count);
   }
 

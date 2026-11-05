@@ -7526,7 +7526,8 @@ from §31.8's `ix/ctx`, `ix/whenever`, `ix/typed` and `ix/passed`, and how each 
 is kept in a private sidecar of my answer event (`ev/<id>/x`), so the crash rebuild restores them.
 A built-in question's situation names its kind, not the values it compares. `answeredTalkByContent`
 is erased: "already answered" is derived from My Talks and the graph's answer history.
-`myAnswerHistory` is still kept, for a later step.
+`myAnswerHistory` is erased: the Me tab reads the graph's answer history, and the app saves and
+removes my answers with core requests (`graph.recordAnswers`, `graph.forgetAnswers`).
 
 ### 31.11 Conflicts with earlier sections
 

@@ -173,7 +173,7 @@ type Client = {
 };
 const clients = new Map<string, Client>();
 /** Requests that change who I exchanged what with (`graph.exchangeState`, OPEN-106 step 3). */
-const EXCHANGE_STATE_WRITES = new Set<string>(['response.commit', 'graph.offer', 'graph.acceptArrival', 'graph.recordOutcome', 'graph.retract', 'graph.answer']);
+const EXCHANGE_STATE_WRITES = new Set<string>(['response.commit', 'graph.offer', 'graph.acceptArrival', 'graph.recordOutcome', 'graph.retract', 'graph.answer', 'graph.recordAnswers', 'graph.forgetAnswers']);
 let ownerPub: string | null = null;
 let authenticating = false;
 let authQueue: Promise<unknown> = Promise.resolve();

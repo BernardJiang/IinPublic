@@ -22,10 +22,10 @@ test('four tabs traverse people, non-tag Talks, answers and historical Places wi
         [flow.id]: { title: flow.title, type: flow.type, role: 'created', timestamp: at, fullTalk: flow },
         [tag.id]: { title: tag.title, type: tag.type, role: 'created', timestamp: at, fullTalk: tag },
       } });
-      (window as any).__iinpublic_collection_edit('myAnswerHistory', { set: {
+      (window as any).__iinpublic_answer_history_seed({
         [flow.id]: { id: flow.id, talkId: flow.id, title: flow.title, type: 'flow', outcome: 'match', answeredAt: at, senderIds: ['graph-eve'], items: [{ questionId: 'q', answerId: 'yes', prompt: 'Coffee tomorrow?', choice: 'Yes', kind: 'question', contextPath: [] }] },
         [tag.id]: { id: tag.id, talkId: tag.id, title: tag.title, type: 'tag', outcome: 'match', answeredAt: at, senderIds: ['graph-bob'], items: [{ questionId: 'q', answerId: 'yes', prompt: 'Graph hiking', choice: 'Checked', kind: 'tag', booleanTag: true, contextPath: [] }] },
-      } });
+      });
       app.recordLocalTalkExchange('graph-eve', 'Eve', flow.id, flow, 'match');
       app.recordLocalTalkExchange('graph-bob', 'Bob', tag.id, tag, 'match');
       const room = app.currentChatroomId;

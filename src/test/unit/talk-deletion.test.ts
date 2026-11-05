@@ -1,4 +1,5 @@
 /** @jest-environment jsdom */
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 import { answerTalksToDelete, deleteMyAnswers, deleteMyTalk, restoreIgnoredTalk, type TalkDeletionDeps } from '../../web/ui/talk-deletion';
 import { getMyTalks, setMyTalks } from '../../web/ui/my-talks-storage';
@@ -19,7 +20,7 @@ function deps(overrides: Partial<TalkDeletionDeps> = {}): TalkDeletionDeps {
 }
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.clear(); resetAnswerHistoryForTests();
 });
 
 describe('restoreIgnoredTalk', () => {

@@ -1,4 +1,5 @@
 /** @jest-environment jsdom */
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 import { showTalkResponseDialog } from '../../web/ui/talk-response-dialog';
 
@@ -36,7 +37,7 @@ function deps(overrides: Record<string, unknown> = {}) {
 describe('talk response dialog answer controls', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    localStorage.clear();
+    localStorage.clear(); resetAnswerHistoryForTests();
   });
 
   it('shows only Auto and Manual for each answer and separates receiver Ignore', () => {

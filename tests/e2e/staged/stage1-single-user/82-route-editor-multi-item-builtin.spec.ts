@@ -102,7 +102,7 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     // chatbot's own declarations in the device graph (`ix/typed`, OPEN-106). Identical question text on two route
     // branches stays isolated by context and both declarations surface in Me.
     const typedAnswerRecord = await page.evaluate((talkTitle) => {
-      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
+      const history = ((window as any).__iinpublic_answer_history?.() ?? {});
       return Object.values(history).find((record: any) => record.title === talkTitle) as any;
     }, title);
     expect(typedAnswerRecord.items).toEqual(expect.arrayContaining([
@@ -158,7 +158,7 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     await page.locator('.route-builtin-quantity-input[data-qid="q_1"]').fill('7');
     await submitTalkEditorAndWaitForOut(page, title);
     const readAfterEdit = () => page.evaluate(async (talkTitle) => {
-      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
+      const history = ((window as any).__iinpublic_answer_history?.() ?? {});
       const record = Object.values(history).find((candidate: any) => candidate.title === talkTitle) as any;
       // My declarations for this Talk, as the graph chatbot reads them (one per branch).
       const entry = Object.values((window as any).__iinpublic_collection?.('myTalks') ?? {}).find((candidate: any) => candidate.title === talkTitle) as any;

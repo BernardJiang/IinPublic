@@ -91,7 +91,7 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
           contextLabel: '', contextPath: [], contextHash: '',
         }],
       });
-      localStorage.setItem('myAnswerHistory', JSON.stringify({
+      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, {
         'pin-answer-new-history': makeHistory(
           'pin-answer-new-history', 'pin-answer-new-talk', 'pin-answer-new',
           'Newer question?', 'Newer answer', newest,
@@ -100,7 +100,7 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
           'pin-answer-old-history', 'pin-answer-old-talk', 'pin-answer-old',
           'Older question?', 'Older answer', oldest,
         ),
-      }));
+      });
     });
   }
 

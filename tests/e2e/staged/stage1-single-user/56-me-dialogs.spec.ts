@@ -43,7 +43,7 @@ test.describe('Me tab — answer history and dialogs (merged)', () => {
         ],
       };
       try {
-        localStorage.setItem('myAnswerHistory', JSON.stringify({ 'ah-1': record }));
+        ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, { 'ah-1': record });
       } catch {
         /* ignore */
       }

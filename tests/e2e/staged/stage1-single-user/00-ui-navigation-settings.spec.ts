@@ -574,7 +574,7 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#answers-content')).toContainText('你收到并回答的话题会显示在这里');
     await p.evaluate(() => {
-      localStorage.setItem('myAnswerHistory', JSON.stringify({
+      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, {
         support_message_leak: {
           id: 'support_message_leak',
           talkId: 'support_message_leak',
@@ -617,7 +617,7 @@ test.describe('UI navigation and settings shell', () => {
             mode: 'manual',
           }],
         },
-      }));
+      });
       localStorage.setItem('myTalks', JSON.stringify({
         localized_history: {
           talkId: 'localized_history',
@@ -674,7 +674,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#my-talks-modal')).toContainText('广播开启');
     await p.locator('#close-my-talks-modal').click();
     await p.evaluate(() => {
-      (window as any).__iinpublic_collection_edit?.('myAnswerHistory', { clear: true });
+      (window as any).__iinpublic_answer_history_clear?.();
       (window as any).__iinpublic_collection_edit?.('myTalks', { clear: true });
     });
     await p.locator('.nav-btn[data-view="settings"]').click();
@@ -884,7 +884,7 @@ test.describe('UI navigation and settings shell', () => {
       };
       ui.completeTalk(talk, [{ questionId: 'q1', answerId: 'a1', answerText: 'Tacos', mode: 'manual' }], 'match');
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
-      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
+      const history = ((window as any).__iinpublic_answer_history?.() ?? {});
       const record = Object.values(history)[0] as any;
       return {
         role: myTalks.incoming_flat_history_1?.role,
@@ -931,7 +931,7 @@ test.describe('UI navigation and settings shell', () => {
       };
       ui.completeTalk(talk, [{ questionId: 'q2', answerId: 'a2', answerText: talkTitle, mode: 'manual' }], 'match');
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
-      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
+      const history = ((window as any).__iinpublic_answer_history?.() ?? {});
       return {
         copiedRole: myTalks[talkId]?.role,
         historyTitles: Object.values(history).map((record: any) => record.title),
@@ -956,7 +956,7 @@ test.describe('UI navigation and settings shell', () => {
     await p.evaluate(() => {
       const app = (window as any).__iinpublic_app.getApp();
       const ui = app.uiManager as any;
-      localStorage.setItem('myAnswerHistory', JSON.stringify({
+      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, {
         oldMismatch: {
           id: 'oldMismatch', talkId: 'answered-old', title: 'Older mismatch', type: 'flow', language: 'en',
           outcome: 'mismatch', answeredAt: '2026-01-02T12:00:00.000Z', senderIds: ['sender-a'],
@@ -967,7 +967,7 @@ test.describe('UI navigation and settings shell', () => {
           outcome: 'match', answeredAt: '2026-02-02T12:00:00.000Z', senderIds: ['sender-b'],
           items: [{ questionId: 'q2', answerId: 'a2', prompt: 'New question?', choice: 'Yes', kind: 'question', contextPath: [] }],
         },
-      }));
+      });
       localStorage.setItem('myTalks', JSON.stringify({
         'answered-old': {
           talkId: 'answered-old', title: 'Older mismatch', type: 'flow', role: 'answered',

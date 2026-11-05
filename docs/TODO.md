@@ -135,14 +135,16 @@ its ID.
     `answeredTalkByContent` is erased (2026-11-04): "already answered" by content is derived
     (`src/web/ui/answered-talks.ts`) from My Talks entries with `completedAnswers`, then from the
     Talks the graph's answer history says I answered (so a removed answered copy stays answered).
-    Still kept: `myAnswerHistory` (how the app's answers reach the graph, `recordHistory`). Made
-    ready to go (2026-11-04): my own Talk's built-in values reach the graph even with no other
-    self-answer, and the graph's answer history gives them back as the Me tab's `typed:<kind>` rows
-    (`appAnswersOf`, author side). A responder answers a built-in with its Compatible choice, so
-    nothing typed crosses to an author. Left: the Me tab reading the graph alone (writes and
-    removals as core requests), and 12 e2e specs that seed `myAnswerHistory` directly
-    (stage1/00, 29, 35, 56, 81, 82-list-pins, 82-route-editor, 95, stage3/00l, stage5/00d,
-    helpers/heavy-user-seed, native helper) moving to the graph. `tagOppositePairRegistry` is the editor's own list, not a copy; it stays.
+    `myAnswerHistory` is erased too (2026-11-04, unit-tested; e2e not run): the Me tab reads the
+    graph's answer history (`graph-answer-history.ts`) plus what this page saved and the graph has
+    not given back yet (`answer-history-storage.ts`); saving and removing are core requests
+    (`graph.recordAnswers`, `graph.forgetAnswers`). My own Talk's built-in values reach the graph
+    with no other self-answer and come back as `typed:<kind>` rows. e2e specs seed and read the
+    history with `__iinpublic_answer_history_seed` / `__iinpublic_answer_history` /
+    `__iinpublic_answer_history_clear` (an init-script seed waits in
+    `__iinpublic_pending_answer_history`); stage1/00, 29, 35, 56, 81, 82-list-pins,
+    82-route-editor, 95, stage3/00l, stage5/00d and the heavy-user and native helpers were moved
+    without being run. A seeded row for a Talk the graph does not hold lasts only for the page. `tagOppositePairRegistry` is the editor's own list, not a copy; it stays.
     Closed 2026-11-04: the crash rebuild restores `ix/whenever` lists and Preferences changes
     (each change is a private event, `pref: 'whenever' | 'ctx'`, replayed in time order with the
     answer events); a device handoff carries what the chatbot remembers (`graph.remembered` in the

@@ -94,7 +94,8 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
-import { graphAnswerHistoryTalkIds, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
+import { graphAnswerHistoryTalkIds, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
+import { getFlatAnswerHistory, setAnswerHistoryCore, setFlatAnswerHistory, upsertFlatAnswerHistory } from '../ui/answer-history-storage';
 import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
@@ -5969,6 +5970,25 @@ export class IinPublicApp {
           await Promise.all([connectExchangeCore(link), connectCoreCollections(collections, bridge)]);
           // Who I already exchanged what with, from the device graph (OPEN-106 step 3).
           void connectExchangeState(() => core({ name: 'graph.exchangeState' }), bridge);
+          // The Me tab's answers are the graph's; saving and removing them are core requests.
+          setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
+          setAnswerHistoryCore((request) => core(request));
+          if (typeof window !== 'undefined') {
+            // e2e: the Me tab's history (the graph's, with what this page saved), and seeding it
+            // as the app saves an answer (`answer-history-storage.ts`).
+            (window as any).__iinpublic_answer_history = () => getFlatAnswerHistory();
+            (window as any).__iinpublic_answer_history_seed = (records: Record<string, any>) => {
+              for (const record of Object.values(records)) upsertFlatAnswerHistory(record);
+            };
+            (window as any).__iinpublic_answer_history_clear = () => setFlatAnswerHistory({});
+            // Seeded by a spec's init script before the app was up.
+            const early = (window as any).__iinpublic_pending_answer_history;
+            if (early && typeof early === 'object') {
+              delete (window as any).__iinpublic_pending_answer_history;
+              (window as any).__iinpublic_answer_history_seed(early);
+            }
+          }
+          void refreshGraphAnswerHistory().then((changed) => { if (changed) this.uiManager.displayAnswersList(); }).catch(() => undefined);
           return;
         } catch (error) {
           if (attempt >= 6) {
@@ -7125,7 +7145,7 @@ export class IinPublicApp {
     const backup = keys.filter((key: string) => key.startsWith('chatbotMemory/'));
     for (const key of backup) await core({ name: 'private.put', key, value: null }).catch(() => undefined);
     // The old chatbot's copies (OPEN-106 step 2e v), the talk ledger and the revisions sent (step 3).
-    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'talkLedger', 'iinpublic_talk_revision_sent_v1', 'answeredTalkByContent']) {
+    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'talkLedger', 'iinpublic_talk_revision_sent_v1', 'answeredTalkByContent', 'myAnswerHistory']) {
       try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
     }
     if (erased || backup.length) console.log(`[core] erased ${erased} old record(s) (chatbot copies, talk ledger) and ${backup.length} backup record(s)`);

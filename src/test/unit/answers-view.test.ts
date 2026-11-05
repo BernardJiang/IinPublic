@@ -1,6 +1,7 @@
 /**
  * @jest-environment jsdom
  */
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 import { answerTalkMatchesQuery, applyMeAnswerFilter, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
 import { longPress } from './helpers/long-press';
@@ -578,7 +579,7 @@ describe('answers view models', () => {
 
     beforeEach(() => {
       document.body.innerHTML = '<div id="answers-content"></div>';
-      localStorage.clear();
+      localStorage.clear(); resetAnswerHistoryForTests();
     });
 
     it('pins an older question above the newest-first answer order and toggles it off', () => {
@@ -1016,7 +1017,7 @@ describe('Me rows lead through the graph (owner design 2026-10-25)', () => {
 
   beforeEach(() => {
     document.body.innerHTML = '<div id="answers-content"></div><button class="nav-btn" data-view="contacts"></button><input id="contacts-filter-topic"><button id="me-like-btn" disabled></button><button id="me-pass-btn" disabled></button>';
-    localStorage.clear();
+    localStorage.clear(); resetAnswerHistoryForTests();
   });
 
   it('a liked tag shows ♡ and its keyword only, and leads to the people who like it, the latest first', () => {

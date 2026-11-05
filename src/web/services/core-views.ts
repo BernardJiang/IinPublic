@@ -2,7 +2,6 @@
  * The GUI's views of the device core's collections (OPEN-91 P3), one per log that left
  * localStorage. `connectCoreCollections` loads them all once the core is up.
  */
-import type { FlatAnswerHistoryRecord } from '../ui/answer-history-storage';
 import type { MyTalkEntry } from '../ui/my-talks-storage';
 import type { ChatbotTemplate } from '../ui/ui-settings-storage';
 import { CoreCollectionView, sectionEntries, type CollectionCoreLink } from './core-collection-view';
@@ -18,8 +17,6 @@ export const myTalksView = new CoreCollectionView<MyTalkEntry>('myTalks', 'myTal
 /** My Conversations, by conversation id. Old key: `myConversations`. */
 export const myConversationsView = new CoreCollectionView<Record<string, unknown>>('myConversations', 'myConversations');
 
-/** The Me tab's answer history, by record id. Old key: `myAnswerHistory`. */
-export const answerHistoryView = new CoreCollectionView<FlatAnswerHistoryRecord>('myAnswerHistory', 'myAnswerHistory');
 
 /** The deal-eligible Talk of mine each conversation formed through. Old key: `myDealTalkByConversation`. */
 export const dealTalkByConversationView = new CoreCollectionView<string>('dealTalkByConversation', 'myDealTalkByConversation');
@@ -40,7 +37,7 @@ export const appDataView = new CoreCollectionView<string>('appData', 'iinpublic_
 export const settingsView = new CoreCollectionView<string>('settings', 'iinpublic_core_settings_no_legacy_blob');
 
 const VIEWS: Array<CoreCollectionView<unknown>> = [
-  chatbotTemplatesView, myTalksView, myConversationsView, answerHistoryView,
+  chatbotTemplatesView, myTalksView, myConversationsView,
   dealTalkByConversationView, needKeyByConversationView,
   tagOppositePairRegistryView,
   appDataView, settingsView,

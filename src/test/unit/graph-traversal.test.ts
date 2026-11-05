@@ -1,4 +1,5 @@
 /** @jest-environment jsdom */
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 import {
   bindGraphLinks, getContactsFocus, getMeFocus, getTalksFocus, goBackAlongGraph,
   openContactsTopic, openMapPerson, openMeFocus, openPeerTalks, openPlace, openTalksFocus,
@@ -17,7 +18,7 @@ const tab = (view: string) => document.querySelector<HTMLButtonElement>(`[data-v
 const click = (testId: string) => document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!.click();
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.clear(); resetAnswerHistoryForTests();
   document.body.innerHTML = ['chatrooms', 'contacts', 'talks', 'me'].map((view) => `<button class="nav-btn" data-view="${view}">${view}</button>`).join('')
     + '<button id="graph-back-btn" hidden></button><input id="contacts-filter-topic"><div id="chatrooms-view"><div id="chatroom-list-container"></div><div id="chatroom-detail-container" style="display:none"></div></div><section id="peer"></section>';
   const tabs = document.querySelectorAll<HTMLButtonElement>('.nav-btn');

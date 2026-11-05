@@ -1,12 +1,11 @@
 /**
  * The Me tab's answers from the device graph (OPEN-106): the core lists every Talk I answered with
- * my latest answers (`graph.answerHistory`), and each becomes the same record the app's own history
- * keeps. A Talk the graph has replaces the app's record of it; Talks still sent as frames keep the
- * app's record until those frames are removed.
+ * my latest answers (`graph.answerHistory`), and each becomes the Me tab's record of it
+ * (`answer-history-storage.ts` reads them, with what this page saved and the graph has not yet).
  */
 import { checkIfMatch } from '../../shared/talk-engine';
 import type { TypedAnswerValue } from '../../shared/typed-preference-store';
-import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryMap, type FlatAnswerHistoryRecord } from './answer-history-storage';
+import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryMap, type FlatAnswerHistoryRecord } from './answer-history-records';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -89,6 +88,11 @@ export function mergeGraphAnswerHistory(flat: FlatAnswerHistoryMap): FlatAnswerH
   }
   for (const record of byTalk.values()) if (!newerInApp.has(record.talkId)) out[record.id] = record;
   return out;
+}
+
+/** The graph's records, one per Talk (the Me tab's history, `answer-history-storage.ts`). */
+export function graphHistoryRecords(): FlatAnswerHistoryRecord[] {
+  return [...byTalk.values()];
 }
 
 /** The bodies of the Talks the graph says I answered, by app id, and a counter of their changes. */

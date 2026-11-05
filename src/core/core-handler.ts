@@ -145,7 +145,6 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const written = myTalks && request.collection === 'myTalks'
           ? await myTalks.upsert(request.entries)
           : await collections.upsert(request.collection, request.entries);
-        if (graph.appAnswers && request.collection === 'myAnswerHistory') void graph.appAnswers.recordHistory(request.entries);
         return { written };
       }
       case 'deviceGraph.status':
@@ -257,21 +256,18 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         if (!graph.host) throw new Error('this core has no graph links');
         return graph.host.handle(request);
       case 'collection.remove': {
-        // My answers to a Talk left the app's history: they leave the graph too (and its author's).
-        const forgotten = new Map<string, string[]>();
-        if (graph.appAnswers && request.collection === 'myAnswerHistory') {
-          for (const record of await Promise.all(request.keys.map((key) => collections.get('myAnswerHistory', key))) as Array<{ talkId?: unknown; senderIds?: unknown } | undefined>) {
-            if (typeof record?.talkId !== 'string') continue;
-            const senders = Array.isArray(record.senderIds) ? record.senderIds.map(String) : [];
-            forgotten.set(record.talkId, [...new Set([...(forgotten.get(record.talkId) ?? []), ...senders])]);
-          }
-        }
         const removed = myTalks && request.collection === 'myTalks'
           ? await myTalks.remove(request.keys)
           : await collections.remove(request.collection, request.keys);
-        for (const [talkId, senders] of forgotten) void graph.appAnswers!.forget(talkId, senders).catch(() => undefined);
         return { removed };
       }
+      case 'graph.recordAnswers':
+        // My answers the app saved (the Me tab's records): each into the graph (`app-answers.ts`).
+        if (graph.appAnswers) await graph.appAnswers.recordHistory(request.records);
+        return { ok: !!graph.appAnswers };
+      case 'graph.forgetAnswers':
+        // My answers to a Talk are removed: a deletion event, sent to its author when it was sent.
+        return graph.appAnswers ? graph.appAnswers.forget(request.talkId, request.senders ?? []) : { deleted: 0, sent: 0 };
       case 'collection.eraseRetired':
         return { erased: await collections.eraseRetired() };
       case 'graph.acceptArrival':

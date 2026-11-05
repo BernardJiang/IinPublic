@@ -2,6 +2,7 @@
 
 import { saveCreatedTalk } from '../../web/ui/talk-creation-storage';
 import { getMyTalks } from '../../web/ui/my-talks-storage';
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 function deps(overrides: Partial<Parameters<typeof saveCreatedTalk>[2]> = {}) {
   return {
@@ -23,7 +24,7 @@ function talk(overrides: Partial<Parameters<typeof saveCreatedTalk>[0]> = {}) {
 }
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.clear(); resetAnswerHistoryForTests();
   document.body.innerHTML = '<div id="talks-view" class="active"></div>';
 });
 

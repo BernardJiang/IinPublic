@@ -1,4 +1,5 @@
 /** @jest-environment jsdom */
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 import { completeTalk, saveMyTalk, type TalkCompletionDeps } from '../../web/ui/talk-completion';
 import { getMyTalks } from '../../web/ui/my-talks-storage';
@@ -29,7 +30,7 @@ function talk(overrides: Record<string, any> = {}): any {
 }
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.clear(); resetAnswerHistoryForTests();
   document.body.innerHTML = '';
 });
 

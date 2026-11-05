@@ -458,7 +458,8 @@ export async function clearAndroidE2ETestProjections(user: AndroidUser): Promise
     for (const key of volatileKeys) localStorage.removeItem(key);
     // These live in the device core now (OPEN-91): cleared through the app, as it would.
     const page = window as any;
-    for (const collection of ['myTalks', 'myConversations', 'myAnswerHistory']) page.__iinpublic_collection_edit?.(collection, { clear: true });
+    for (const collection of ['myTalks', 'myConversations']) page.__iinpublic_collection_edit?.(collection, { clear: true });
+    page.__iinpublic_answer_history_clear?.();
     page.__iinpublic_exchanges_clear?.();
   }), 3_000);
 }
