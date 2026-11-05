@@ -3,7 +3,7 @@
  * a `myTalks` entry per Talk with the whole Talk in `fullTalk`; once a Talk I created is written
  * into the graph, its entry stops holding the body twice:
  *
- *   local/collections/myTalks/<appId>  { …entry, graphTalk: <talkId>, graphVersion: <versionId>,
+ *   local/collections/myTalks/bucket-<h>/<appId>  { …entry, graphTalk: <talkId>, graphVersion: <versionId>,
  *                                        fullTalkRest: {…}, fullTalkDrop: [...] }
  *
  * The body is read back from that exact version (an immutable event, so a later edit or deletion

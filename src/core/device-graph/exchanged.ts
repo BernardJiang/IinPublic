@@ -3,6 +3,8 @@
  * the sender's talk ledger (OPEN-106 step 3): what a person already has is not sent to them again,
  * the daily and weekly send limits, and how each answer to my Talk was decided.
  *
+ * Each map keyed by an atom or a person is in keyed buckets (`keyed-buckets.ts`).
+ *
  *   ix/exchanged/<peer>              { <atom>: →ev }  this passed between us: my offer, their Talk
  *                                    I accepted (a tag Talk's tags only once answered), or an answer
  *   ix/exchanged-with                { <peer>: true }
@@ -10,8 +12,8 @@
  *                                    exchanged with")
  *   ix/sent-day/<peer>/<yyyy-mm-dd>  { <talkId>: true }  Talks I sent them that UTC day
  *   ix/outcome/<talkId>              { <responder>: 'matched' | 'ignored' }  each answer to my Talk
- *   ix/outcome/<talkId>/<responder>  { outcome, version, responseId, respondedAt }
- *   ix/responded/<talkId>/<author>   { outcome, version, responseId, respondedAt }  my answer to it
+ *   ix/outcome/<talkId>/by/<responder>  { outcome, version, responseId, respondedAt }
+ *   ix/responded/<talkId>/by/<author>   { outcome, version, responseId, respondedAt }  my answer to it
  *   ix/responded/<talkId>            { <author>: true }
  *
  * The version I last sent each person is `sync/sent/<talkId>` (`graph-sync.ts`, D14: an edit is
@@ -22,6 +24,7 @@
 import { portableSha256Hex } from '../../shared/portable-sha256';
 import { buildTagIdentityKeys } from '../../shared/tag-identity';
 import { allSituations } from './answers';
+import { getKeyedMany, putKeyed, readKeyed } from './keyed-buckets';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { graphSouls, talkStructureOf } from './talk-structure';
 
@@ -106,6 +109,9 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
   const exchangedSoul = (peer: string) => souls.index(`exchanged/${key(peer)}`);
   const coSoul = (peer: string) => souls.index(`co/${key(peer)}`);
   const sentDaySoul = (peer: string, day: string) => souls.index(`sent-day/${key(peer)}/${day}`);
+  // One person's record of a Talk, beside the Talk's keyed map (`outcome/<talkId>/<bucket>`).
+  const outcomeSoul = (talkId: string, responder: string) => souls.index(`outcome/${talkId}/by/${key(responder)}`);
+  const respondedSoul = (talkId: string, author: string) => souls.index(`responded/${talkId}/by/${key(author)}`);
   const eventIdOf = (soul: string | undefined) => (soul ? soul.slice(souls.event('').length) : '');
 
   /** The Talk an event belongs to: a Talk version, an arrival of one, or an answer to one. */
@@ -127,9 +133,9 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
     const at = link(souls.event(eventId));
     const node: GraphNode = Object.fromEntries(atoms.map((a) => [a.atom, at]));
     await Promise.all([
-      store.put(exchangedSoul(peer), node),
-      store.put(souls.index('exchanged-with'), { [key(peer)]: true }),
-      ...(answered ? [store.put(coSoul(peer), node)] : []),
+      putKeyed(store, exchangedSoul(peer), node),
+      putKeyed(store, souls.index('exchanged-with'), { [key(peer)]: true }),
+      ...(answered ? [putKeyed(store, coSoul(peer), node)] : []),
     ]);
   }
 
@@ -140,20 +146,26 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
   return {
     /** Their atoms (any passing). */
     async exchanged(peer: string): Promise<Record<string, string>> {
-      const node = await store.get(exchangedSoul(peer));
-      return Object.fromEntries(Object.entries(node || {}).flatMap(([atom, value]) => {
+      const node = await readKeyed(store, exchangedSoul(peer));
+      return Object.fromEntries(Object.entries(node).flatMap(([atom, value]) => {
         const soul = linkSoul(value);
         return soul ? [[atom, eventIdOf(soul)]] : [];
       }));
     },
 
+    /** Which of these atoms passed between me and this person (reads only their buckets). */
+    async has(peer: string, atoms: string[]): Promise<Set<string>> {
+      const found = await getKeyedMany(store, exchangedSoul(peer), atoms);
+      return new Set(Object.keys(found).filter((atom) => !!linkSoul(found[atom])));
+    },
+
     /** Everyone I exchanged with: user ID → atoms passed, and atoms answered. */
     async state(): Promise<Record<string, { exchanged: string[]; answered: string[] }>> {
-      const peers = Object.entries((await store.get(souls.index('exchanged-with'))) || {}).filter(([, v]) => v === true).map(([k]) => decodeURIComponent(k));
+      const peers = Object.entries(await readKeyed(store, souls.index('exchanged-with'))).filter(([, v]) => v === true).map(([k]) => decodeURIComponent(k));
       const out: Record<string, { exchanged: string[]; answered: string[] }> = {};
       await Promise.all(peers.map(async (peer) => {
-        const [passed, co] = await Promise.all([store.get(exchangedSoul(peer)), store.get(coSoul(peer))]);
-        const live = (node: GraphNode | null) => Object.entries(node || {}).filter(([, v]) => !!linkSoul(v)).map(([atom]) => atom);
+        const [passed, co] = await Promise.all([readKeyed(store, exchangedSoul(peer)), readKeyed(store, coSoul(peer))]);
+        const live = (node: Record<string, unknown>) => Object.entries(node).filter(([, v]) => !!linkSoul(v)).map(([atom]) => atom);
         out[peer] = { exchanged: live(passed), answered: live(co) };
       }));
       return out;
@@ -189,13 +201,13 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
       const cache = new Map<string, string>();
       await Promise.all([...new Set(peers)].map(async (peer) => {
         for (const soul of [exchangedSoul(peer), coSoul(peer)]) {
-          const node = await store.get(soul);
+          const node = await readKeyed(store, soul);
           const clear: GraphNode = {};
-          for (const [atom, value] of Object.entries(node || {})) {
+          for (const [atom, value] of Object.entries(node)) {
             const eventId = eventIdOf(linkSoul(value));
             if (eventId && await talkOfEvent(eventId, cache) === talkId) clear[atom] = null;
           }
-          if (Object.keys(clear).length) await store.put(soul, clear);
+          if (Object.keys(clear).length) await putKeyed(store, soul, clear);
         }
       }));
     },
@@ -206,20 +218,20 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
      */
     async forgetAnswer(peer: string, talkId: string): Promise<void> {
       const cache = new Map<string, string>();
-      const node = await store.get(coSoul(peer));
+      const node = await readKeyed(store, coSoul(peer));
       const clear: GraphNode = {};
-      for (const [atom, value] of Object.entries(node || {})) {
+      for (const [atom, value] of Object.entries(node)) {
         const eventId = eventIdOf(linkSoul(value));
         if (eventId && await talkOfEvent(eventId, cache) === talkId) clear[atom] = null;
       }
-      if (Object.keys(clear).length) await store.put(coSoul(peer), clear);
+      if (Object.keys(clear).length) await putKeyed(store, coSoul(peer), clear);
     },
 
     /** They deleted their answer to my Talk: how I decided it goes too. */
     async clearOutcome(talkId: string, responder: string): Promise<void> {
       await Promise.all([
-        store.put(souls.index(`outcome/${talkId}/${key(responder)}`), { outcome: null, version: null, responseId: null, respondedAt: null }),
-        store.put(souls.index(`outcome/${talkId}`), { [key(responder)]: null }),
+        store.put(outcomeSoul(talkId, responder), { outcome: null, version: null, responseId: null, respondedAt: null }),
+        putKeyed(store, souls.index(`outcome/${talkId}`), { [key(responder)]: null }),
       ]);
     },
 
@@ -238,40 +250,40 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
 
     /** How I decided someone's answer to my Talk. */
     async outcome(talkId: string, responder: string): Promise<OutcomeRecord | undefined> {
-      return readRecord(souls.index(`outcome/${talkId}/${key(responder)}`));
+      return readRecord(outcomeSoul(talkId, responder));
     },
 
     async setOutcome(talkId: string, responder: string, record: OutcomeRecord): Promise<void> {
       await Promise.all([
-        store.put(souls.index(`outcome/${talkId}/${key(responder)}`), { ...record }),
-        store.put(souls.index(`outcome/${talkId}`), { [key(responder)]: record.outcome }),
+        store.put(outcomeSoul(talkId, responder), { ...record }),
+        putKeyed(store, souls.index(`outcome/${talkId}`), { [key(responder)]: record.outcome }),
       ]);
     },
 
     /** Each answer to my Talk: responder → outcome. */
     async outcomes(talkId: string): Promise<Record<string, Outcome>> {
-      const node = await store.get(souls.index(`outcome/${talkId}`));
-      return Object.fromEntries(Object.entries(node || {}).filter(([, v]) => v === 'matched' || v === 'ignored').map(([k, v]) => [decodeURIComponent(k), v as Outcome]));
+      const node = await readKeyed(store, souls.index(`outcome/${talkId}`));
+      return Object.fromEntries(Object.entries(node).filter(([, v]) => v === 'matched' || v === 'ignored').map(([k, v]) => [decodeURIComponent(k), v as Outcome]));
     },
 
     /** My latest answer to their Talk. */
     async responded(talkId: string, author: string): Promise<OutcomeRecord | undefined> {
-      return readRecord(souls.index(`responded/${talkId}/${key(author)}`));
+      return readRecord(respondedSoul(talkId, author));
     },
 
     async setResponded(talkId: string, author: string, record: OutcomeRecord): Promise<void> {
       await Promise.all([
-        store.put(souls.index(`responded/${talkId}/${key(author)}`), { ...record }),
-        store.put(souls.index(`responded/${talkId}`), { [key(author)]: true }),
+        store.put(respondedSoul(talkId, author), { ...record }),
+        putKeyed(store, souls.index(`responded/${talkId}`), { [key(author)]: true }),
       ]);
     },
 
     /** My latest answer to this Talk from each author who sent it. */
     async respondedTo(talkId: string): Promise<Record<string, OutcomeRecord>> {
-      const node = await store.get(souls.index(`responded/${talkId}`));
+      const node = await readKeyed(store, souls.index(`responded/${talkId}`));
       const out: Record<string, OutcomeRecord> = {};
-      for (const author of Object.keys(node || {}).filter((k) => node![k] === true)) {
-        const record = await readRecord(souls.index(`responded/${talkId}/${author}`));
+      for (const author of Object.keys(node).filter((k) => node[k] === true)) {
+        const record = await readRecord(respondedSoul(talkId, decodeURIComponent(author)));
         if (record) out[decodeURIComponent(author)] = record;
       }
       return out;

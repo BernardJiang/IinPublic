@@ -6,6 +6,7 @@
  * (src/web/services/core-collection-view.ts).
  */
 import type { GraphStore } from './graph-store';
+import { keyBucket } from './device-graph/keyed-buckets';
 
 /** Every collection the core keeps. A name not listed is refused, so a typo cannot start a new log. */
 export const CORE_COLLECTIONS = [
@@ -36,8 +37,16 @@ function assertCollection(name: string): asserts name is CoreCollection {
 }
 
 const collectionPath = (name: CoreCollection): string => `${COLLECTIONS_PATH}/${name}`;
-// Keys are app ids (Talk CIDs, conversation ids); encoded so a `/` cannot split the path.
-const entryPath = (name: CoreCollection, key: string): string => `${collectionPath(name)}/${encodeURIComponent(key)}`;
+/**
+ * Entries are spread over 16 bucket nodes (`bucket-<hex>`, by a hash of the key), so no node lists
+ * more than a few thousand links: Gun answers a node larger than one Radisk file (about 7,000
+ * links) in parts (spec §31.8, OPEN-106). Keys are app ids (Talk ids, conversation ids), encoded so
+ * a `/` cannot split the path.
+ */
+const BUCKET_PREFIX = 'bucket-';
+const isBucket = (segment: string) => /^bucket-[0-9a-f]$/.test(segment);
+const bucketOf = (key: string): string => `${BUCKET_PREFIX}${keyBucket(key)}`;
+const entryPath = (name: CoreCollection, key: string): string => `${collectionPath(name)}/${bucketOf(key)}/${encodeURIComponent(key)}`;
 
 export class CollectionStore {
   constructor(private readonly store: GraphStore) {}
@@ -49,9 +58,11 @@ export class CollectionStore {
     // more under load (e2e stage2/95, stage2/37). Their parent lists every collection ever written
     // (and exists once one was), so one read of it answers for all the empty ones.
     if (!(await this.store.childKeys(COLLECTIONS_PATH)).includes(name)) return {};
-    const keys = await this.store.childKeys(collectionPath(name));
-    const entries = await Promise.all(keys.map(async (encoded) => {
-      const node = await this.store.get(`${collectionPath(name)}/${encoded}`);
+    const buckets = (await this.store.childKeys(collectionPath(name))).filter(isBucket);
+    const paths = (await Promise.all(buckets.map(async (bucket) =>
+      (await this.store.childKeys(`${collectionPath(name)}/${bucket}`)).map((encoded) => `${collectionPath(name)}/${bucket}/${encoded}`)))).flat();
+    const entries = await Promise.all(paths.map(async (path) => {
+      const node = await this.store.get(path);
       if (!node || typeof node.json !== 'string' || typeof node.key !== 'string') return null;
       try {
         return [node.key, JSON.parse(node.json)] as const;
@@ -83,10 +94,19 @@ export class CollectionStore {
     return keys.length;
   }
 
-  /** Erase every entry of the retired collections; returns how many there were. */
+  /**
+   * Erase every entry of the retired collections, and every entry of a live collection still in
+   * the layout before buckets (owner decision 2026-11-04: erased, not moved); returns how many.
+   */
   async eraseRetired(): Promise<number> {
     const written = await this.store.childKeys(COLLECTIONS_PATH);
     let erased = 0;
+    for (const name of CORE_COLLECTIONS) {
+      if (!written.includes(name)) continue;
+      const flat = (await this.store.childKeys(collectionPath(name))).filter((segment) => !isBucket(segment));
+      await Promise.all(flat.map((encoded) => this.store.put(`${collectionPath(name)}/${encoded}`, null)));
+      erased += flat.length;
+    }
     for (const name of RETIRED_COLLECTIONS) {
       if (!written.includes(name)) continue;
       const path = `${COLLECTIONS_PATH}/${name}`;

@@ -21,6 +21,7 @@ import { createAppChatbot } from './device-graph/sync/app-chatbot';
 import type { GraphCrypto } from './device-graph/sync/graph-sync';
 import { exchangeAtoms, planOffer, type OfferPlan } from './device-graph/exchanged';
 import { linkSoul } from './device-graph/node-store';
+import { getKeyedMany, readKeyed } from './device-graph/keyed-buckets';
 import { graphSouls } from './device-graph/talk-structure';
 
 /**
@@ -168,15 +169,15 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         // out the tags they have; the send limit counts distinct Talks per person.
         const exchange = graph.graph.exchange;
         const atoms = exchangeAtoms(appTalkOf(current as Record<string, any>));
-        const sentTo = (await nodeStore.get(sentSoul(talkId))) ?? {};
+        const sentTo = await getKeyedMany(nodeStore, sentSoul(talkId), request.recipients);
         const suppress = !(options.allowTestOverrides === true && request.suppress === false);
         const unlimited = options.allowTestOverrides === true && request.unlimitedForTesting === true;
         const skipped: Record<string, string> = {};
         const groups = new Map<string, { omit: string[]; recipients: string[] }>();
         for (const recipient of new Set(request.recipients)) {
-          const had = suppress ? await exchange.exchanged(recipient) : {};
+          const had = suppress ? await exchange.has(recipient, atoms.map((a) => a.atom)) : new Set<string>();
           const sentVersion = typeof sentTo[recipient] === 'string' ? sentTo[recipient] as string : undefined;
-          let plan: OfferPlan = planOffer({ versionId: current.versionId, sentVersion, atoms, has: (atom) => atom in had });
+          let plan: OfferPlan = planOffer({ versionId: current.versionId, sentVersion, atoms, has: (atom) => had.has(atom) });
           if (plan.send) {
             const limit = await exchange.withinLimit(recipient, talkId, unlimited);
             if (!limit.send) plan = limit;
@@ -204,13 +205,13 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         if (!graph.graph || !nodeStore) return { peers: {}, talks: {} };
         const talks: Record<string, { versionId: string; sent: Record<string, string> }> = {};
         await Promise.all((await graph.graph.talks.list()).map(async (talkId) => {
-          const [mine, sentTo] = await Promise.all([nodeStore.get(souls.mine(`talk/${talkId}`)), nodeStore.get(sentSoul(talkId))]);
+          const [mine, sentTo] = await Promise.all([nodeStore.get(souls.mine(`talk/${talkId}`)), readKeyed(nodeStore, sentSoul(talkId))]);
           const latest = linkSoul(mine?.latest);
           if (!latest || mine?.deleted === true) return;
           const appId = graph.ownTalks ? await graph.ownTalks.appTalkId(talkId) : talkId;
           talks[appId] = {
             versionId: latest.slice(souls.event('').length),
-            sent: Object.fromEntries(Object.entries(sentTo ?? {}).filter((pair): pair is [string, string] => typeof pair[1] === 'string')),
+            sent: Object.fromEntries(Object.entries(sentTo).filter((pair): pair is [string, string] => typeof pair[1] === 'string')),
           };
         }));
         return { peers: await graph.graph.exchange.state(), talks };
@@ -241,8 +242,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const deletionId = talkId ? await graph.graph.talks.remove(talkId) : undefined;
         if (!talkId || !deletionId) return { sent: 0 };
         // What it passed to people leaves the exchange index: it may be sent again (as a new Talk).
-        const sentTo = nodeStore ? await nodeStore.get(sentSoul(talkId)) : null;
-        await graph.graph.exchange.forgetTalk(talkId, Object.keys(sentTo ?? {}).filter((peer) => typeof sentTo![peer] === 'string'));
+        const sentTo = nodeStore ? await readKeyed(nodeStore, sentSoul(talkId)) : {};
+        await graph.graph.exchange.forgetTalk(talkId, Object.keys(sentTo).filter((peer) => typeof sentTo[peer] === 'string'));
         if (!sync) return { sent: 0 };
         return { sent: await sync.sendTalkDeletion(talkId, deletionId) };
       }

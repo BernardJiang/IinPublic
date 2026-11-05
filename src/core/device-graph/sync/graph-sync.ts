@@ -17,6 +17,7 @@
  * The outgoing audience filter (`sharing-policy.ts`, `audience.ts`) keeps every soul on its pair's
  * link (REQ-GRAPH-32).
  */
+import { getKeyedMany, putKeyed, readKeyed } from '../keyed-buckets';
 import { portableSha256Hex } from '../../../shared/portable-sha256';
 import { talkGrammarErrors } from '../../../shared/grammar-filter';
 import type { AnswerSetEntry } from '../keys';
@@ -478,13 +479,14 @@ export function createGraphSync(options: {
       const talk = await graph.talks.read(talkId);
       if (!talk) throw new Error(`no Talk ${talkId}`);
       const { talkTag, key } = await publishVersion(talkId, talk.versionId);
+      // The version each person was last sent, in keyed buckets (`keyed-buckets.ts`).
       const sentSoul = `${prefix}sync/sent/${talkId}`;
-      const sent = await store.get(sentSoul);
-      const fresh = [...new Set(recipients)].filter((id) => id !== me.userId && sent?.[id] !== talk.versionId);
+      const sent = await getKeyedMany(store, sentSoul, recipients);
+      const fresh = [...new Set(recipients)].filter((id) => id !== me.userId && sent[id] !== talk.versionId);
       await audience.grant(talkTag, fresh, now());
       for (const peerUserId of fresh) {
         await append(peerUserId, { offer: { talkId, versionId: talk.versionId, talkTag, key, ...(context ? { context } : {}) } });
-        await store.put(sentSoul, { [peerUserId]: talk.versionId });
+        await putKeyed(store, sentSoul, { [peerUserId]: talk.versionId });
       }
       return fresh.length;
     },
@@ -516,8 +518,8 @@ export function createGraphSync(options: {
     async sendTalkDeletion(talkId: string, deletionEventId: string): Promise<number> {
       const event = await store.get(souls.event(deletionEventId));
       if (!event?.deleted) throw new Error(`no deletion event ${deletionEventId}`);
-      const sent = await store.get(`${prefix}sync/sent/${talkId}`);
-      const recipients = Object.keys(sent || {}).filter((id) => typeof sent![id] === 'string');
+      const sent = await readKeyed(store, `${prefix}sync/sent/${talkId}`);
+      const recipients = Object.keys(sent).filter((id) => typeof sent[id] === 'string');
       const versionId = (linkSoul(event.re) || '').slice(souls.event('').length);
       for (const peerUserId of recipients) {
         await append(peerUserId, { deleted: { talkId, eventId: deletionEventId, when: Number(event.when), device: String(event.device ?? ''), ...(versionId ? { versionId } : {}) } });

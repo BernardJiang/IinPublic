@@ -234,7 +234,12 @@ its ID.
   - **Fixed: phones ran unpatched Gun.** Since 2026-09-23 the phone's Node loads Gun from
     `platforms/mobile/nodejs-project/node_modules/gun`, which no build patched; the `android:*`
     scripts now patch it (from 1.0.218).
-  - **Open: a node larger than one Radisk file (1 MB, about 7,000 links) is answered in parts.** Gun
+  - **Fixed 2026-11-04 (unit-tested, e2e not run): a node larger than one Radisk file (1 MB, about
+    7,000 links) is answered in parts.** Every list and map that grows with use is now bucketed
+    (spec §31.8): time buckets for event lists (`ix/day` by hour, `ix/incoming` by day, the rest by
+    month), 16 keyed buckets for maps keyed by a person or an atom (`keyed-buckets.ts`), and
+    `bucket-<hex>` nodes for the core's collections (entries in the old flat layout are erased at
+    start, owner decision). Earlier finding, kept for the record: Gun
     answers after the first file; with the GraphStore's 30 ms wait a 10,000-entry list read 3,800
     entries (all by 500 ms on the Mac; on the P30, 3,795 at 2.1 s, 3,903 at 2 s, all 10,000 by 5 s). Today `local/collections/answerPreferences` crosses this at about 1,400
     answered Talks. §31.8 needs bucketed index nodes (for example by month, each well under 1 MB).

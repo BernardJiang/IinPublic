@@ -12,12 +12,13 @@
  *   gave                my answer                  → ix/ctx, ix/q/<key>/mine, ix/me, ix/typed, ix/answered, ix/talk, ix/person
  *   talk, re, no gave   an arrival                 → ix/received, ix/incoming, ix/person
  *   deleted, no by      I deleted my Talk (re → a version) or my answer (re → an answer event)
- *   gave and by         someone's answer to my Talk → ix/theirs, ix/q/<key>/theirs, ix/talk, ix/person
+ *   gave and by         someone's answer to my Talk → ix/theirs (keyed buckets), ix/q/<key>/theirs, ix/talk, ix/person
  *   deleted and by      the author deleted a Talk I received   → ix/deleted, off ix/incoming;
  *                       or (re → their answer) someone deleted their answer → off ix/theirs …
  */
+import { keyBucket, keyedBucketSoul } from './keyed-buckets';
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
-import { addToIndex, bucketOf, readIndex } from './index-buckets';
+import { addToIndex, bucketOf, readIndex, type BucketSize } from './index-buckets';
 import { personIdOf } from './people-graph';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { builtInValues, graphSouls, questionKeysOf, readTalkStructure, typedIndexKey } from './talk-structure';
@@ -28,7 +29,7 @@ type Souls = ReturnType<typeof graphSouls>;
 export async function putEvent(store: NodeStore, souls: Souls, eventId: string, event: GraphNode): Promise<void> {
   await Promise.all([
     store.put(souls.event(eventId), event),
-    addToIndex(store, souls.index('day'), { key: eventId, target: souls.event(eventId), when: Number(event.when) }, 'day'),
+    addToIndex(store, souls.index('day'), { key: eventId, target: souls.event(eventId), when: Number(event.when) }, 'hour'),
   ]);
 }
 
@@ -70,9 +71,9 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
   // The replay computes the final value of every index node first, then writes only what differs,
   // so a second run writes nothing.
   const desired = new Map<string, GraphNode>();
-  const listed: Array<{ listSoul: string; key: string; target: string; when: number; size: 'month' | 'day' }> = [];
+  const listed: Array<{ listSoul: string; key: string; target: string; when: number; size: BucketSize }> = [];
   const ensure = async (soul: string, value: GraphNode) => { desired.set(soul, { ...(desired.get(soul) ?? {}), ...value }); };
-  const ensureListed = async (listSoul: string, key: string, target: string, when: number, size: 'month' | 'day' = 'month') => {
+  const ensureListed = async (listSoul: string, key: string, target: string, when: number, size: BucketSize = 'month') => {
     listed.push({ listSoul, key, target, when, size });
   };
   // Deletions are applied after the replay, so they win over the entries the replay put back.
@@ -138,9 +139,11 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       const byUser = personIdOf(prefix, linkSoul(event.by));
       const questions = await store.get(theirQuestionsSoul(souls, id));
       for (const questionKey of new Set(Object.values(questions || {}).filter((k): k is string => typeof k === 'string'))) {
-        await ensure(souls.index(`q/${questionKey}/theirs`), { [id]: link(souls.event(id)) });
+        await ensureListed(souls.index(`q/${questionKey}/theirs`), id, souls.event(id), when);
       }
-      await ensure(souls.index(`theirs/${talkId}`), { [byUser]: link(souls.event(id)) });
+      const theirsSoul = souls.index(`theirs/${talkId}`);
+      await ensure(keyedBucketSoul(theirsSoul, byUser), { [byUser]: link(souls.event(id)) });
+      await ensure(theirsSoul, { [keyBucket(byUser)]: link(keyedBucketSoul(theirsSoul, byUser)) });
       await ensureListed(souls.index(`talk/${talkId}/ev`), id, souls.event(id), when);
       await ensureListed(souls.index(`person/${encodeURIComponent(byUser)}/ev`), id, souls.event(id), when);
     } else if (linkSoul(event.gave) && talkSoul) {
@@ -171,8 +174,8 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       // As `receive`: an arrival after the author deleted the Talk lists nothing but the person.
       if (event.ignored !== 'deleted') {
         await ensure(souls.index(`received/${talkId}`), { [withUser]: link(souls.event(id)) });
-        await ensureListed(souls.index('incoming'), talkId, souls.index(`received/${talkId}`), when);
-        await ensure(souls.index(`incoming-at/${talkId}`), { [bucketOf(when, 'month')]: true });
+        await ensureListed(souls.index('incoming'), talkId, souls.index(`received/${talkId}`), when, 'day');
+        await ensure(souls.index(`incoming-at/${talkId}`), { [bucketOf(when, 'day')]: true });
       }
       await ensureListed(souls.index(`person/${withKey}/ev`), id, souls.event(id), when);
     }
@@ -223,9 +226,9 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
     repaired += 1;
   }
   for (const entry of listed) {
-    const bucketSoul = `${entry.listSoul}/${new Date(entry.when).toISOString().slice(0, entry.size === 'day' ? 10 : 7)}`;
+    const bucketSoul = `${entry.listSoul}/${bucketOf(entry.when, entry.size)}`;
     if (removed.has(`${bucketSoul}\u0000${entry.key}`)) continue;
-    const bucket = new Date(entry.when).toISOString().slice(0, entry.size === 'day' ? 10 : 7);
+    const bucket = bucketOf(entry.when, entry.size);
     const [node, directory] = await Promise.all([store.get(`${entry.listSoul}/${bucket}`), store.get(entry.listSoul)]);
     if (linkSoul(node?.[entry.key]) === entry.target && linkSoul(directory?.[bucket])) continue;
     await addToIndex(store, entry.listSoul, entry, entry.size);

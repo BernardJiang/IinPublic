@@ -16,8 +16,8 @@
  *
  * Someone else's answer to my Talk (received over the pair's link, `sync/graph-sync.ts`):
  *   ev/<theirId>             { v, when, device, by: →person, talk, re?, gave: →s/…, mode }
- *   ix/theirs/<talkId>       { <userId>: →ev/<theirId> }            their latest answer, per person
- *   ix/q/<questionKey>/theirs { <theirId>: →ev/<theirId> }          Me → Contacts
+ *   ix/theirs/<talkId>       keyed buckets: <userId> → ev/<theirId>   their latest answer, per person
+ *   ix/q/<questionKey>/theirs bucketed by month: <theirId> → ev       Me → Contacts
  *   ix/talk/<talkId>/ev, ix/person/<userId>/ev   bucketed event lists
  *
  * Repeating the same answers writes one new answer event and no content (REQ-GRAPH-22).
@@ -27,7 +27,8 @@ import { personIdOf, personSoul, personWrites } from './people-graph';
 import { ageRangeMutuallyAcceptable, intervalsOverlap, quantitySufficient } from '../../shared/built-in-comparisons';
 import { pickBuiltInAnswer } from '../../shared/built-in-question-resolution';
 import { getRouteRootChildQuestionIds, singleNonIgnoreAnswer } from '../../shared/talk-engine';
-import { addToIndex, readIndex } from './index-buckets';
+import { addToIndex, bucketOf, readIndex } from './index-buckets';
+import { keyedBucketSoul, putKeyed, readKeyed } from './keyed-buckets';
 import { answerKey, answerSetKey, contextHash, type AnswerSetEntry, type BuiltInValues } from './keys';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import {
@@ -420,15 +421,16 @@ export async function theirAnswerClears(store: Pick<NodeStore, 'get'>, souls: Re
   while (current && !seen.has(current)) {
     seen.add(current);
     const [event, questions]: [GraphNode | null, GraphNode | null] = await Promise.all([store.get(souls.event(current)), store.get(theirQuestionsSoul(souls, current))]);
-    for (const questionKey of new Set(Object.values(questions || {}).filter((k): k is string => typeof k === 'string'))) {
-      out.push([souls.index(`q/${questionKey}/theirs`), { [current]: null }]);
-    }
     const when = Number(event?.when ?? 0);
-    if (when) out.push([`${souls.index(`talk/${talkId}/ev`)}/${new Date(when).toISOString().slice(0, 7)}`, { [current]: null }]);
+    for (const questionKey of new Set(Object.values(questions || {}).filter((k): k is string => typeof k === 'string'))) {
+      if (when) out.push([`${souls.index(`q/${questionKey}/theirs`)}/${bucketOf(when, 'month')}`, { [current]: null }]);
+    }
+    if (when) out.push([`${souls.index(`talk/${talkId}/ev`)}/${bucketOf(when, 'month')}`, { [current]: null }]);
     current = (linkSoul(event?.replaces) || '').slice(souls.event('').length) || undefined;
   }
-  const theirs = await store.get(souls.index(`theirs/${talkId}`));
-  if (seen.has((linkSoul(theirs?.[byUser]) || '').slice(souls.event('').length))) out.push([souls.index(`theirs/${talkId}`), { [byUser]: null }]);
+  const bucket = keyedBucketSoul(souls.index(`theirs/${talkId}`), byUser);
+  const theirs = await store.get(bucket);
+  if (seen.has((linkSoul(theirs?.[byUser]) || '').slice(souls.event('').length))) out.push([bucket, { [byUser]: null }]);
   return out;
 }
 
@@ -660,8 +662,9 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
         ...people.map(([soul, node]) => store.put(soul, node)),
         store.put(theirQuestionsSoul(souls, params.eventId), Object.fromEntries(entries.map(([context]) => [context, known.get(context)!.questionKey]))),
         putEvent(store, souls, params.eventId, event),
-        store.put(souls.index(`theirs/${params.talkId}`), { [params.byUser]: at }),
-        ...entries.map(([context]) => store.put(souls.index(`q/${known.get(context)!.questionKey}/theirs`), { [params.eventId]: at })),
+        putKeyed(store, souls.index(`theirs/${params.talkId}`), { [params.byUser]: at }),
+        ...[...new Set(entries.map(([context]) => known.get(context)!.questionKey))].map((questionKey) =>
+          addToIndex(store, souls.index(`q/${questionKey}/theirs`), { key: params.eventId, target: souls.event(params.eventId), when: params.when })),
         addToIndex(store, souls.index(`talk/${params.talkId}/ev`), { key: params.eventId, target: souls.event(params.eventId), when: params.when }),
         addToIndex(store, souls.index(`person/${userKey}/ev`), { key: params.eventId, target: souls.event(params.eventId), when: params.when }),
       ]);
@@ -687,9 +690,9 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
 
     /** Everyone's latest answer to my Talk: user ID → their answer event id. */
     async theirs(talkId: string): Promise<Record<string, string>> {
-      const node = await store.get(souls.index(`theirs/${talkId}`));
+      const node = await readKeyed(store, souls.index(`theirs/${talkId}`));
       const out: Record<string, string> = {};
-      for (const [userId, value] of Object.entries(node || {})) {
+      for (const [userId, value] of Object.entries(node)) {
         const soul = linkSoul(value);
         if (soul) out[userId] = soul.slice(souls.event('').length);
       }

@@ -95,8 +95,8 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
         putEvent(store, souls, arrivalId, arrival),
         ...(deleted ? [] : [
           store.put(souls.index(`received/${incoming.talkId}`), { [from.userId]: link(souls.event(arrivalId)) }),
-          addToIndex(store, souls.index('incoming'), { key: incoming.talkId, target: souls.index(`received/${incoming.talkId}`), when }),
-          store.put(souls.index(`incoming-at/${incoming.talkId}`), { [bucketOf(when, 'month')]: true }),
+          addToIndex(store, souls.index('incoming'), { key: incoming.talkId, target: souls.index(`received/${incoming.talkId}`), when }, 'day'),
+          store.put(souls.index(`incoming-at/${incoming.talkId}`), { [bucketOf(when, 'day')]: true }),
         ]),
         addToIndex(store, souls.index(`person/${encodeURIComponent(from.userId)}/ev`), { key: arrivalId, target: souls.event(arrivalId), when }),
       ]);
@@ -160,9 +160,10 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
       return talk ? { ...talk, senders: senders.sort(), latestArrival: best.arrivalId } : undefined;
     },
 
-    /** Received Talk ids: the latest month of arrivals first, newest Talk first within a month. */
+    /** Received Talk ids, newest arrival day first (`months`: only that many recent months). */
     async incoming(options: { months?: number } = {}): Promise<string[]> {
-      const entries = await readIndex(store, souls.index('incoming'), options.months ? { limitBuckets: options.months } : {});
+      const from = options.months ? bucketOf(now() - options.months * 31 * 86_400_000, 'day') : undefined;
+      const entries = await readIndex(store, souls.index('incoming'), from ? { from } : {});
       return [...new Set(entries.map((e) => e.key))];
     },
   };

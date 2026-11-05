@@ -12,11 +12,12 @@
  */
 import { link, linkSoul, type NodeStore } from './node-store';
 
-export type BucketSize = 'month' | 'day';
+/** `hour` for the busiest list (every event, `ix/day`), `day` for arrivals, `month` otherwise. */
+export type BucketSize = 'month' | 'day' | 'hour';
 
 export function bucketOf(when: number, size: BucketSize): string {
   const iso = new Date(when).toISOString();
-  return size === 'day' ? iso.slice(0, 10) : iso.slice(0, 7);
+  return size === 'hour' ? iso.slice(0, 13) : size === 'day' ? iso.slice(0, 10) : iso.slice(0, 7);
 }
 
 /** Add `key → target` to the list, in the bucket of `when`. Repeating it changes nothing. */

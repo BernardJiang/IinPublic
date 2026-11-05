@@ -20,10 +20,32 @@ describe('collections in the device core', () => {
     const collections = new CollectionStore(store);
     await collections.upsert('chatbotTemplates', { 'talk/1': { answers: [1] }, t2: { answers: [] } });
     expect(await collections.all('chatbotTemplates')).toEqual({ 'talk/1': { answers: [1] }, t2: { answers: [] } });
-    expect(await store.childKeys('local/collections/chatbotTemplates')).toHaveLength(2);
+    // Entries sit in bucket nodes, never all in the collection's own node.
+    const buckets = await store.childKeys('local/collections/chatbotTemplates');
+    expect(buckets.every((b) => /^bucket-[0-9a-f]$/.test(b))).toBe(true);
     await collections.remove('chatbotTemplates', ['talk/1']);
     expect(Object.keys(await collections.all('chatbotTemplates'))).toEqual(['t2']);
     await expect(collections.all('typo')).rejects.toThrow('Unknown core collection');
+  });
+
+  it('no node lists more than a few thousand entries, however many a collection holds', async () => {
+    const store = memoryGraphStore();
+    const collections = new CollectionStore(store);
+    await collections.upsert('myTalks', Object.fromEntries(Array.from({ length: 20_000 }, (_, i) => [`talk-${i}`, { i }])));
+    const buckets = await store.childKeys('local/collections/myTalks');
+    expect(buckets.length).toBeLessThanOrEqual(16);
+    for (const bucket of buckets) expect((await store.childKeys(`local/collections/myTalks/${bucket}`)).length).toBeLessThan(2_000);
+    expect(Object.keys(await collections.all('myTalks'))).toHaveLength(20_000);
+  });
+
+  it('erases entries left in the layout before buckets, and keeps the bucketed ones', async () => {
+    const store = memoryGraphStore();
+    const collections = new CollectionStore(store);
+    await collections.upsert('settings', { theme: 'dark' });
+    await store.put('local/collections/settings/old-flat-key', { key: 'old-flat-key', json: '"x"' });
+    expect(await collections.eraseRetired()).toBe(1);
+    expect(await collections.all('settings')).toEqual({ theme: 'dark' });
+    expect(await store.childKeys('local/collections/settings')).not.toContain('old-flat-key');
   });
 });
 

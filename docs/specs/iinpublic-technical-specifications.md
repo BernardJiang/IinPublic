@@ -7464,9 +7464,16 @@ All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen re
 | `ix/legacy/<oldTalkId>` | `→ev` | migration: old `qa_`/CID ids to Talk events | — |
 
 A list that grows with history (`mine/talks`, `ix/person/<pub>/ev`, `ix/talk/<talkId>/ev`,
-`ix/day`) is split into buckets, `ix/<name>/<yyyy-mm>` (or `<yyyy-mm-dd>` for busy lists), with a
-directory node `ix/<name>` of bucket links (`index-buckets.ts`). No node may hold more than about
-5,000 links: Gun answers a node larger than one Radisk file (1 MB) in parts (OPEN-106 benchmark).
+`ix/q/<key>/theirs`, `ix/me`) is split into time buckets, `ix/<name>/<yyyy-mm>`, with a directory
+node `ix/<name>` of bucket links (`index-buckets.ts`); the busiest are smaller: every event
+`ix/day/<yyyy-mm-ddThh>` by hour, arrivals `ix/incoming/<yyyy-mm-dd>` by day. A map keyed by a
+person or an atom (`ix/theirs/<talkId>`, `ix/exchanged/<peer>`, `ix/co/<peer>`,
+`ix/exchanged-with`, `ix/outcome/<talkId>`, `ix/responded/<talkId>`, `sync/sent/<talkId>`) is
+spread over 16 nodes by one hex digit of a SHA-256 of the key, `<map>/<hex>`, with a directory node
+(`keyed-buckets.ts`). The core's collections do the same: `local/collections/<name>/bucket-<hex>/
+<key>` (entries in the layout before buckets are erased at start, not moved). No node may hold more
+than about 5,000 links: Gun answers a node larger than one Radisk file (1 MB) in parts (OPEN-106
+benchmark).
 Content and event souls are written by exact soul only and are never linked into a parent node
 (`local/q`, `local/ev`), which would hold every record.
 
