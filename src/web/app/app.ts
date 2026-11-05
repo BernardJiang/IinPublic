@@ -49,7 +49,6 @@ import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
 import { getAnsweredTalkId } from '../ui/answer-preferences-storage';
-import { createEmptyExactChatbotMemoryState } from '../../shared/exact-chatbot-memory';
 import { setGraphChatbotSource } from '../ui/graph-chatbot';
 import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
 import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
@@ -1397,7 +1396,7 @@ export class IinPublicApp {
       const { buildHandoffArchive } = await import('../../shared/device-handoff');
       const pair = this.gunService.getStoredPair?.();
       const sources: Parameters<typeof buildHandoffArchive>[0] = { fromPub: String(pair?.pub || '') };
-      const collect: Array<[import('../../shared/device-handoff').HandoffCategory, () => void]> = [
+      const collect: Array<[import('../../shared/device-handoff').HandoffCategory, () => void | Promise<void>]> = [
         ['profile', () => {
           if (this.currentUser) {
             sources.profile = {
@@ -1416,11 +1415,16 @@ export class IinPublicApp {
         }],
         ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
         ['myTalks', () => { sources.myTalks = getMyTalks(); }],
+        // What the chatbot remembers, from the device graph (OPEN-106 step 2e v), by key.
+        ['answerPreferences', async () => {
+          const rows = this.coreRequest ? await this.coreRequest({ name: 'graph.remembered' }) as Array<{ key: string }> : [];
+          if (rows.length) sources.answerPreferences = Object.fromEntries(rows.map((row) => [row.key, row]));
+        }],
         ['conversations', () => { sources.conversations = getMyConversations(); }],
       ];
       for (const [category, fill] of collect) {
         try {
-          fill();
+          await fill();
         } catch {
           /* category unavailable locally — still counts as collected */
         }
@@ -1477,7 +1481,7 @@ export class IinPublicApp {
         const merged = mergeHandoffArchive(archive as any, {
           contacts: (this.currentUser.knownPeople as any) || [],
           talkFilters: this.currentUser.talkFilters as any,
-          answerPreferences: createEmptyExactChatbotMemoryState() as any,
+          answerPreferences: {},
           myTalks: getMyTalks(),
         });
         this.currentUser.knownPeople = merged.contacts as any;
@@ -1488,6 +1492,12 @@ export class IinPublicApp {
           talkFilters: merged.talkFilters as any,
         });
         setMyTalks(merged.myTalks as any);
+        // The chatbot's answers from the other device go into this device's graph (this one's win).
+        const remembered = Object.values(merged.answerPreferences ?? {}).filter((row: any) => row && typeof row.key === 'string' && Array.isArray(row.answerTexts));
+        if (remembered.length && this.coreRequest) {
+          await this.coreRequest({ name: 'graph.importRemembered', rows: remembered as any })
+            .catch((error) => console.warn('[handoff] chatbot answers not imported:', error));
+        }
         // Imported thread history is read-only (spec §11.2) — never merged into the
         // live conversation store, kept under its own key, additive across imports
         // rather than clobbering a prior import from a different linked device.

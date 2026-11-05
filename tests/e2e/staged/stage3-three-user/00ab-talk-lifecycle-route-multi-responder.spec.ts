@@ -18,6 +18,7 @@ import {
   finalCleanupPages,
   resetTalksMatchingSession,
   waitForTabActive,
+  waitForIncomingTalkClusterOnLocalGun,
 } from '../../helpers/talks-matching-flow';
 import {
   launchThreeBrowsers,
@@ -102,6 +103,10 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);
     await clickBroadcastUntilBulkAck(pageTom);
+    // An answer goes to a Talk that arrived (OPEN-106: over a graph link): wait for it on both.
+    for (const responder of [pageJerry!, pageBob!]) {
+      await waitForIncomingTalkClusterOnLocalGun(responder, created.title, { timeout: 90_000, polling: 500 });
+    }
 
     // --- Jerry takes the match path: looking for job (yes) → engineer (yes) → match ---
     // makeRouteTalk path: q_r_job → a_r_job_yes → q_r_role → a_r_role_yes (isMatch)

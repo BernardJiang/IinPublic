@@ -96,16 +96,16 @@ export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerN
     </div>
     <div class="tag-graph-chips">${tags.map((tag) => {
       const keyword = tagKeyword(tag.label);
-      return `<button type="button" class="tag-graph-chip${tag.shared ? ' is-shared' : ''}" data-testid="tag-graph-chip" data-tag-key="${escapeHtml(tag.key)}" data-topic="${escapeHtml(keyword)}"${tag.shared ? ' data-shared="true"' : ''}>${escapeHtml(tag.label)}</button>`;
+      return `<button type="button" class="tag-graph-chip${tag.shared ? ' is-shared' : ''}" data-testid="tag-graph-chip" data-tag-key="${escapeHtml(tag.key)}" data-talk-ids="${escapeHtml(tag.talkIds.join(' '))}" data-topic="${escapeHtml(keyword)}"${tag.shared ? ' data-shared="true"' : ''}>${escapeHtml(tag.label)}</button>`;
     }).join('')}</div>`;
   container.appendChild(section);
   section.querySelectorAll<HTMLElement>('[data-tag-key]').forEach((chip) => {
     chip.addEventListener('click', () => openContactsTopic(chip.dataset.topic || '', {
-      label: chip.dataset.topic || '', talkIds: [chip.dataset.tagKey || ''], isTag: true,
+      label: chip.dataset.topic || '', talkIds: (chip.dataset.talkIds || chip.dataset.tagKey || '').split(' ').filter(Boolean), isTag: true,
     }));
   });
   section.querySelector('[data-testid="peer-shared-tags-link"]')?.addEventListener('click', () =>
-    openMeFocus({ label: `♡ ${name}`, talkIds: shared.map((tag) => tag.key) }));
+    openMeFocus({ label: `♡ ${name}`, talkIds: shared.flatMap((tag) => tag.talkIds) }));
   section.querySelector('[data-testid="peer-talks-link"]')?.addEventListener('click', () =>
     openPeerTalks(peerId, `💬 ${name}`));
 }

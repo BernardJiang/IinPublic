@@ -135,12 +135,18 @@ its ID.
     Still kept, for a later step: `answeredTalkByContent` (the Talks list and completion read it
     beside the graph's `ix/answered`) and `myAnswerHistory` (how the app's answers reach the graph,
     `recordHistory`). `tagOppositePairRegistry` is the editor's own list, not a copy; it stays.
-    Known gaps: the crash rebuild does not restore `ix/whenever` lists; a device handoff no longer
-    carries chatbot answers; the Android background mailbox agent gets no answer rules (it has no
-    Talks to answer since the mailbox went).
-    Found by e2e `stage2/88` (from stages i–iii, not v): the tag graph (`src/core/tag-graph.ts`)
-    keys a tag by Talk id, so my starter tag (`qa_…`) and a peer's copy of it (a graph id) show as
-    two chips for one keyword in a person's tags.
+    Closed 2026-11-04: the crash rebuild restores `ix/whenever` lists and Preferences changes
+    (each change is a private event, `pref: 'whenever' | 'ctx'`, replayed in time order with the
+    answer events); a device handoff carries what the chatbot remembers (`graph.remembered` in the
+    archive's `answerPreferences`, `graph.importRemembered` on the receiver: this device's own
+    answers win, Whenever answers go after its own). An imported answer for a situation this device
+    never answered is used by the chatbot but not listed in Preferences (that list walks my own
+    answers). `native-app/40` (the Android background mailbox agent) is removed: it has no Talks
+    to answer since the mailbox went.
+    Found by e2e `stage2/88` (from stages i–iii, not v), fixed 2026-11-04 (unit-tested, e2e not
+    rerun): the tag graph (`src/core/tag-graph.ts`) keyed a tag by Talk id, so my starter tag
+    (`qa_…`) and a peer's copy of it (a graph id) showed as two chips for one keyword. A tag is
+    now one node per content identity, holding every Talk id it came under.
   - Done (step 3): the talk ledger and the revisions sent are gone; the device graph keeps what
     they did (`src/core/device-graph/exchanged.ts`, spec §31.8). What passed between me and a
     person is `ix/exchanged/<peer>`: each situation's context hash, or a tag Talk's tag word (the
@@ -156,7 +162,9 @@ its ID.
     incoming row. Found failing on the baseline before step 3 (from step 2e): `stage2/80` (Jerry
     cannot read Tom's Talk by the app id it was created with: a Talk sent under a non-graph id
     arrives under its new graph id) and `stage3/00aa` (the creator records no answers); `00ab`
-    fails the same way (not run on the baseline).
+    fails the same way (not run on the baseline). Specs fixed 2026-11-04, not rerun: 80 answers
+    the Talk by the id it arrived under; 00aa/00ab wait for the Talk to arrive before answering
+    (an answer goes only to a Talk that came over a graph link).
   - Done (step 4, unit-tested only, no e2e run yet): "delete my answer" in the Me tab. A selected
     question's 🗑 (`me-delete-answer-btn`, shown when it was answered on a Talk I did not create)
     asks, then deletes my answers to those Talks (`talk-deletion.ts` `deleteMyAnswers`): the Me

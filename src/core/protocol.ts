@@ -90,6 +90,8 @@ export type CoreRequest =
   | { name: 'graph.questionMemory'; text: string; language?: string }
   /** What the chatbot remembers (the Preferences dialog). */
   | { name: 'graph.remembered' }
+  /** What the chatbot remembered on another device of mine (a device handoff). */
+  | { name: 'graph.importRemembered'; rows: RememberedAnswer[] }
   /** Change one remembered answer, or forget it; `key: '*'` with `forget` forgets everything. */
   | { name: 'graph.changeRemembered'; key: string; change: { reuse?: 'auto' | 'once' } | { answerText: string } | { forget: true } };
 
@@ -131,5 +133,6 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'collection.eraseRetired' } ? { erased: number }
                           : R extends { name: 'graph.questionMemory' } ? { selfTag?: string; sourceTalkId?: string }
                           : R extends { name: 'graph.remembered' } ? RememberedAnswer[]
+                          : R extends { name: 'graph.importRemembered' } ? { imported: number }
                           : R extends { name: 'graph.changeRemembered' } ? { ok: boolean }
                             : never;

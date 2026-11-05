@@ -17,6 +17,7 @@ import {
   finalCleanupPages,
   resetTalksMatchingSession,
   waitForTabActive,
+  waitForIncomingTalkClusterOnLocalGun,
 } from '../../helpers/talks-matching-flow';
 import {
   launchThreeBrowsers,
@@ -102,6 +103,10 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);
     await clickBroadcastUntilBulkAck(pageTom);
+    // An answer goes to a Talk that arrived (OPEN-106: over a graph link): wait for it on both.
+    for (const responder of [pageJerry!, pageBob!]) {
+      await waitForIncomingTalkClusterOnLocalGun(responder, created.title, { timeout: 90_000, polling: 500 });
+    }
 
     // --- Jerry answers with rating '1' (a_sv_1), Bob answers with rating '2' (a_sv_2) ---
     // Survey talks use 'mismatch' as the outcome label since there is no match concept for surveys.

@@ -447,6 +447,25 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
    * Store an answer set, with `alongside` writes in the same batch. One read of every node, then
    * one write of what is missing (nothing when the set exists), as for structures.
    */
+  /**
+   * A change made in the Preferences dialog, kept as a private event (spec §31.8: indexes are
+   * rebuildable): the Whenever list as it now is, or a situation's remembered answer as it now is.
+   * The crash rebuild replays these in time order with the answer events.
+   */
+  async function recordPreference(fields: GraphNode): Promise<void> {
+    const when = now();
+    await putEvent(store, souls, await ids.next(when), { v, when, device: await ids.deviceId(), ...fields });
+  }
+
+  /** Write a question's Whenever list (answer souls, first preference first), and record it. */
+  async function putWheneverList(questionKey: string, list: string[], old: GraphNode | null, record: boolean): Promise<void> {
+    const node: GraphNode = { n: list.length };
+    for (const field of Object.keys(old || {})) if (/^\d+$/.test(field) && Number(field) >= list.length) node[field] = null;
+    list.forEach((soul, j) => { node[String(j)] = link(soul); });
+    await store.put(souls.index(`whenever/${questionKey}`), node);
+    if (record) await recordPreference({ pref: 'whenever', q: questionKey, n: list.length, ...Object.fromEntries(list.map((soul, j) => [String(j), link(soul)])) });
+  }
+
   async function writeAnswerSet(situated: SituatedAnswer[], alongside: Array<[string, GraphNode]>): Promise<string> {
     const entries = Object.fromEntries(situated.map((s) => [s.contextHash, s.entry]));
     const key = answerSetKey(entries);
@@ -706,12 +725,9 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
     async setWhenever(questionKey: string, answerTexts: string[]): Promise<void> {
       const keys = [...new Set(answerTexts)];
       for (const text of keys) await putIfAbsent(souls.answer(answerKey(text)), { v, text, firstSeen: now() });
-      const node: GraphNode = { n: keys.length };
-      // Clear old positions past the new length, so a shorter list does not keep stale entries.
+      // Old positions past the new length are cleared, so a shorter list keeps no stale entries.
       const old = await store.get(souls.index(`whenever/${questionKey}`));
-      for (const field of Object.keys(old || {})) if (/^\d+$/.test(field) && Number(field) >= keys.length) node[field] = null;
-      keys.forEach((text, i) => { node[String(i)] = link(souls.answer(answerKey(text))); });
-      await store.put(souls.index(`whenever/${questionKey}`), node);
+      await putWheneverList(questionKey, keys.map((text) => souls.answer(answerKey(text))), old, true);
     },
 
     /**
@@ -894,10 +910,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
         if (!('forget' in change) && !('reuse' in change && change.reuse === 'once')) return false;
         const node = await store.get(souls.index(`whenever/${first}`));
         const list = Array.from({ length: Number(node?.n || 0) }, (_, i) => linkSoul(node?.[String(i)])).filter((soul): soul is string => !!soul && soul !== souls.answer(second));
-        const next: GraphNode = { n: list.length };
-        for (const field of Object.keys(node || {})) if (/^\d+$/.test(field) && Number(field) >= list.length) next[field] = null;
-        list.forEach((soul, i) => { next[String(i)] = link(soul); });
-        await store.put(souls.index(`whenever/${first}`), next);
+        await putWheneverList(first, list, node, true);
         return true;
       }
       if (kind !== 'ctx' || !first) return false;
@@ -906,8 +919,10 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       if (!linkSoul(index?.entry)) return false;
       if ('forget' in change) {
         await store.put(at, { entry: null, mode: null, reuse: null, ev: null, when: null });
+        await recordPreference({ pref: 'ctx', context: first, forget: true });
       } else if ('reuse' in change && change.reuse) {
         await store.put(at, { reuse: change.reuse });
+        await recordPreference({ pref: 'ctx', context: first, reuse: change.reuse });
       } else if ('answerText' in change) {
         const text = change.answerText;
         await putIfAbsent(souls.answer(answerKey(text)), { v, text, firstSeen: now() });
@@ -916,9 +931,52 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
           putIfAbsent(souls.answerSet(setKey), { v }),
           putIfAbsent(souls.answerSetEntry(setKey, first), { a: link(souls.answer(answerKey(text))) }),
         ]);
-        await store.put(at, { entry: link(souls.answerSetEntry(setKey, first)), when: now() });
+        const when = now();
+        await store.put(at, { entry: link(souls.answerSetEntry(setKey, first)), when });
+        await recordPreference({ pref: 'ctx', context: first, entry: link(souls.answerSetEntry(setKey, first)), at: when });
       }
       return true;
+    },
+
+    /**
+     * What the chatbot remembered on another device of mine (a device handoff, spec §11.2): each
+     * situation's answer not already remembered here, and Whenever offered answers after my own.
+     * Recorded as Preferences events, so the crash rebuild keeps them. Returns how many were taken.
+     */
+    async importRemembered(rows: RememberedAnswer[]): Promise<number> {
+      let imported = 0;
+      for (const row of rows) {
+        const texts = [...new Set((row.answerTexts ?? []).map(String).filter(Boolean))];
+        if (!texts.length || typeof row.questionKey !== 'string') continue;
+        for (const text of texts) await putIfAbsent(souls.answer(answerKey(text)), { v, text, firstSeen: now() });
+        const answers = texts.map((text) => souls.answer(answerKey(text)));
+        if (row.reuse === 'whenever') {
+          const old = await store.get(souls.index(`whenever/${row.questionKey}`));
+          const list = Array.from({ length: Number(old?.n || 0) }, (_, j) => linkSoul(old?.[String(j)])).filter((soul): soul is string => !!soul);
+          const added = answers.filter((soul) => !list.includes(soul));
+          if (!added.length) continue;
+          await putWheneverList(row.questionKey, [...list, ...added], old, true);
+          imported += 1;
+          continue;
+        }
+        const [kind, context] = String(row.key).split('|');
+        if (kind !== 'ctx' || !context) continue;
+        const at = souls.index(`ctx/${context}`);
+        if (linkSoul((await store.get(at))?.entry)) continue; // this device's own answer wins
+        const keys = texts.map(answerKey).sort();
+        const setKey = answerSetKey({ [context]: { choices: keys } });
+        const entry: GraphNode = keys.length === 1
+          ? { a: link(souls.answer(keys[0]!)) }
+          : { n: keys.length, ...Object.fromEntries(keys.map((key, j) => [String(j), link(souls.answer(key))])) };
+        await Promise.all([putIfAbsent(souls.answerSet(setKey), { v }), putIfAbsent(souls.answerSetEntry(setKey, context), entry)]);
+        const when = Number(row.when) || now();
+        const reuse = row.reuse === 'once' ? 'once' : 'auto';
+        await store.put(at, { entry: link(souls.answerSetEntry(setKey, context)), mode: 'import', reuse, when });
+        await recordPreference({ pref: 'ctx', context, entry: link(souls.answerSetEntry(setKey, context)), at: when });
+        if (reuse === 'once') await recordPreference({ pref: 'ctx', context, reuse });
+        imported += 1;
+      }
+      return imported;
     },
 
     /**

@@ -354,7 +354,6 @@ a `covers:` claim on a skipped/excluded/failing test does NOT count.
 - `native-app/30-android-four-phone-nearby.spec.ts`
 - `native-app/32-android-protocol-manifest-upgrade.spec.ts`
 - `native-app/34-android-portable-core-contracts.spec.ts`
-- `native-app/40-android-background-talk-agent.spec.ts`
 - `native-app/41-android-shell-switch-responsiveness.spec.ts`
 - `platform-smoke/01-password-free-custody-restart.spec.ts`
 - `platform-smoke/02-production-geolocation-permissions.spec.ts`

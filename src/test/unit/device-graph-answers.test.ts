@@ -250,6 +250,60 @@ describe('index rebuild (REQ-GRAPH-02)', () => {
     expect((await rebuiltAnswers.me()).map((q) => q.text).sort()).toEqual(['Do you play tennis?', 'How often do you play?']);
     expect(await createTalkGraph(crashed, ids).list()).toEqual([mine]);
   });
+
+  it('a device handoff carries what the chatbot remembers; this device keeps its own answers', async () => {
+    const from = bob();
+    const a = offer(tennis(['Yes', 'No', 'Sometimes']), 'adam');
+    await from.arrivals.receive(a, { userId: 'adam' });
+    const talkA = (await from.arrivals.read(a.talkId))!;
+    await from.answers.answer({ talkId: a.talkId, structure: talkA, withUser: 'adam', mode: 'manual', steps: [{ questionId: 'q_0', answerIds: ['a_0_2'], reuse: 'whenever' }, { questionId: 'q_1', answerIds: ['a_1_0'] }] });
+    const rows = await from.answers.remembered();
+    expect(rows.map((r) => [r.reuse, r.answerTexts])).toEqual([['auto', ['Weekly']], ['whenever', ['Sometimes']]]);
+
+    // The other device already answered "How often" in that situation (after Sometimes) with
+    // Daily, Just once.
+    const to = bob();
+    await to.arrivals.receive(a, { userId: 'adam' });
+    await to.answers.answer({ talkId: a.talkId, structure: talkA, withUser: 'adam', mode: 'manual', steps: [{ questionId: 'q_0', answerIds: ['a_0_2'] }, { questionId: 'q_1', answerIds: ['a_1_1'], reuse: 'once' }] });
+    expect(await to.answers.importRemembered(rows)).toBe(1);
+    const after = await to.answers.remembered();
+    expect(after.find((r) => r.reuse === 'whenever')?.answerTexts).toEqual(['Sometimes']);
+    expect(after.filter((r) => r.questionText === 'How often do you play?').map((r) => [r.reuse, r.answerTexts])).toEqual([['once', ['Daily']]]);
+    expect(await to.answers.importRemembered(rows)).toBe(0); // nothing new the second time
+
+    // The crash rebuild keeps what was imported.
+    const isIndex = (soul: string) => (soul.startsWith('local/ix/') && !soul.startsWith('local/ix/day')) || soul.startsWith('local/mine/');
+    const crashed = memoryNodeStore();
+    for (const soul of to.store.souls()) if (!isIndex(soul)) await crashed.put(soul, (await to.store.get(soul))!);
+    await rebuildIndexes(crashed);
+    const rebuilt = createAnswerGraph(crashed, createEventIdSource({ state: { load: async () => ({}), save: async () => undefined }, randomBytes: (n) => new Uint8Array(n).fill(5) }));
+    expect((await rebuilt.remembered()).filter((r) => r.reuse !== 'auto').map((r) => [r.reuse, r.answerTexts]).sort()).toEqual([['once', ['Daily']], ['whenever', ['Sometimes']]]);
+  });
+
+  it('restores Whenever offered lists and Preferences changes, in the order they were made', async () => {
+    const { store, arrivals, answers } = bob();
+    const a = offer(tennis(['Yes', 'No', 'Sometimes']), 'adam');
+    await arrivals.receive(a, { userId: 'adam' });
+    const talkA = (await arrivals.read(a.talkId))!;
+    const questionKey = questionKeysOf(talkStructureOf(talkA), 'responder').get('q_0')!;
+    // Whenever offered from the dialog, then a Preferences reorder and a removal, then a forget.
+    await answers.answer({ talkId: a.talkId, structure: talkA, withUser: 'adam', mode: 'manual', steps: [{ questionId: 'q_0', answerIds: ['a_0_0'], reuse: 'whenever' }, { questionId: 'q_1', answerIds: ['a_1_0'] }] });
+    await answers.setWhenever(questionKey, ['Sometimes', 'Yes']);
+    await answers.changeRemembered(`whenever|${questionKey}|${(await answers.remembered()).find((r) => r.reuse === 'whenever' && r.answerTexts[0] === 'Yes')!.key.split('|')[2]}`, { forget: true });
+    const remembered = await answers.remembered();
+    const often = remembered.find((r) => r.reuse !== 'whenever')!;
+    await answers.changeRemembered(often.key, { forget: true });
+    const before = await answers.remembered();
+    expect(before.map((r) => [r.reuse, r.answerTexts])).toEqual([['whenever', ['Sometimes']]]);
+
+    const isIndex = (soul: string) => (soul.startsWith('local/ix/') && !soul.startsWith('local/ix/day')) || soul.startsWith('local/mine/');
+    const crashed = memoryNodeStore();
+    for (const soul of store.souls()) if (!isIndex(soul)) await crashed.put(soul, (await store.get(soul))!);
+    await rebuildIndexes(crashed);
+    const rebuilt = createAnswerGraph(crashed, createEventIdSource({ state: { load: async () => ({}), save: async () => undefined }, randomBytes: (n) => new Uint8Array(n).fill(5) }));
+    expect((await rebuilt.remembered()).map((r) => [r.reuse, r.answerTexts])).toEqual([['whenever', ['Sometimes']]]);
+    expect((await rebuildIndexes(crashed)).repaired).toBe(0);
+  });
 });
 
 describe('built-in questions and Pair tags in the chatbot (spec §30.2)', () => {

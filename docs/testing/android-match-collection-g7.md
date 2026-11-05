@@ -17,6 +17,10 @@ data were not touched.
 
 ## Automated physical results
 
+`40-android-background-talk-agent.spec.ts` was removed on 2026-11-04 (OPEN-106): Talks and answers
+travel only over device-graph links, so the background mailbox agent has no Talks to answer. The
+results below are kept as the record of that run.
+
 All of these Playwright native-app gates passed against real attached phones:
 
 - `40-android-background-talk-agent.spec.ts` — P30 author and C10 receiver, 1/1 in 2.5 minutes.

@@ -31,10 +31,22 @@ import { chromium, Browser, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterSync } from '../../helpers/timing';
-import { bootstrapUser, waitForTabActive, longPressTalkRow } from '../../helpers/talks-matching-flow';
-import { createTalkFromCompanyPage, completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
+import { bootstrapUser, waitForTabActive, longPressTalkRow, waitForIncomingTalkClusterOnLocalGun } from '../../helpers/talks-matching-flow';
+import { createTalkFromCompanyPage, completeTalkInAppByAnswerIds, findIncomingTalkIdByTitle } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import type { Talk } from '../../../../src/shared/types';
+
+/** The Talk as this person received it: the id it arrived under, and its body. */
+async function receivedTalk(page: Page, title: string): Promise<{ talkId: string; talkData: any }> {
+  await waitForIncomingTalkClusterOnLocalGun(page, title, { timeout: 60_000, polling: 500 });
+  const talkId = await findIncomingTalkIdByTitle(page, title);
+  const talkData = await page.evaluate(async (id: string) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 });
+  }, talkId);
+  expect(talkData, `${title}: received body`).toBeTruthy();
+  return { talkId, talkData };
+}
 
 function sharedContentTalk(id: string, title: string, authorId: string): Talk {
   return {
@@ -127,13 +139,12 @@ test.describe('Talk row -> co-exchangers (item 17, privacy-scoped)', () => {
       );
       expect(deliveryX).toMatchObject({ talksSent: 1, receivers: 1 });
 
-      const talkDataX = await pageJerry.evaluate(async (id: string) => {
-        const app = (window as any).__iinpublic_app?.getApp?.();
-        return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 });
-      }, talkIdX);
-      const matchAnswerIdX = String(talkDataX.questions?.[0]?.answers?.[0]?.id || '');
+      // A Talk sent under an id that is not a graph id arrives under its graph id (OPEN-106 step
+      // 2e): Jerry answers the Talk he received, by the id it came with.
+      const receivedX = await receivedTalk(pageJerry, 'CoExchange Talk X');
+      const matchAnswerIdX = String(receivedX.talkData.questions?.[0]?.answers?.[0]?.id || '');
       expect(matchAnswerIdX).toBeTruthy();
-      await completeTalkInAppByAnswerIds(pageJerry, talkIdX, talkDataX, [matchAnswerIdX], 'match');
+      await completeTalkInAppByAnswerIds(pageJerry, receivedX.talkId, receivedX.talkData, [matchAnswerIdX], 'match');
 
       // Talk Y: Sam creates and broadcasts to Tom only; Tom answers it. Genuinely different
       // talk.id from Talk X, same identityKey (identical question/answer text).
@@ -149,13 +160,10 @@ test.describe('Talk row -> co-exchangers (item 17, privacy-scoped)', () => {
       );
       expect(deliveryY).toMatchObject({ talksSent: 1, receivers: 1 });
 
-      const talkDataY = await pageTom.evaluate(async (id: string) => {
-        const app = (window as any).__iinpublic_app?.getApp?.();
-        return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 });
-      }, talkIdY);
-      const matchAnswerIdY = String(talkDataY.questions?.[0]?.answers?.[0]?.id || '');
+      const receivedY = await receivedTalk(pageTom, 'CoExchange Talk Y');
+      const matchAnswerIdY = String(receivedY.talkData.questions?.[0]?.answers?.[0]?.id || '');
       expect(matchAnswerIdY).toBeTruthy();
-      await completeTalkInAppByAnswerIds(pageTom, talkIdY, talkDataY, [matchAnswerIdY], 'match');
+      await completeTalkInAppByAnswerIds(pageTom, receivedY.talkId, receivedY.talkData, [matchAnswerIdY], 'match');
 
       await pageTom.click('.nav-btn[data-view="talks"]');
       await waitForTabActive(pageTom, 'talks');

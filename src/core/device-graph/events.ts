@@ -77,9 +77,23 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
   };
   // Deletions are applied after the replay, so they win over the entries the replay put back.
   const deletions: Array<(view: Pick<NodeStore, 'get'>) => Promise<Array<[string, GraphNode]>>> = [];
+  // Whenever offered lists, as the replay builds them: answer souls, first preference first.
+  const whenever = new Map<string, string[]>();
+  const linksOf = (node: GraphNode | null) => Array.from({ length: Number(node?.n || 0) }, (_, j) => linkSoul(node?.[String(j)])).filter((soul): soul is string => !!soul);
 
   for (const { id, event } of loaded) {
     const when = Number(event.when);
+    if (typeof event.pref === 'string') {
+      // A change made in the Preferences dialog (`answers.ts` `recordPreference`).
+      if (event.pref === 'whenever' && typeof event.q === 'string') whenever.set(event.q, linksOf(event));
+      else if (event.pref === 'ctx' && typeof event.context === 'string') {
+        const at = souls.index(`ctx/${event.context}`);
+        if (event.forget === true) await ensure(at, { entry: null, mode: null, reuse: null, ev: null, when: null });
+        else if (typeof event.reuse === 'string') await ensure(at, { reuse: event.reuse });
+        else if (linkSoul(event.entry)) await ensure(at, { entry: link(linkSoul(event.entry)!), when: Number(event.at ?? when) });
+      }
+      continue;
+    }
     const talkSoul = linkSoul(event.talk);
     const withUser = personIdOf(prefix, linkSoul(event.with));
     const withKey = encodeURIComponent(withUser);
@@ -135,8 +149,13 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       for (const [context, questionKey] of Object.entries(questions || {})) {
         if (typeof questionKey !== 'string') continue;
         const extras = parseAnswerExtras(extrasNode?.[context]);
-        // A Whenever offered answer is kept in `ix/whenever`, not as this situation's answer.
-        if (extras.reuse !== 'whenever') {
+        // A Whenever offered answer is kept in `ix/whenever`, not as this situation's answer: its
+        // choices go first in the question's list, as `answer` puts them.
+        if (extras.reuse === 'whenever') {
+          const chosenEntry = await store.get(`${linkSoul(event.gave)}/${context}`);
+          const chosen = linkSoul(chosenEntry?.a) ? [linkSoul(chosenEntry!.a)!] : linksOf(chosenEntry);
+          whenever.set(questionKey, [...new Set([...chosen, ...(whenever.get(questionKey) ?? []).filter((soul) => !chosen.includes(soul))])]);
+        } else {
           await ensure(souls.index(`ctx/${context}`), { entry: link(`${linkSoul(event.gave)}/${context}`), mode: String(event.mode ?? ''), reuse: extras.reuse ?? 'auto', ev: link(souls.event(id)), when });
         }
         await ensure(souls.index(`q/${questionKey}/mine`), { [context]: link(souls.event(id)) });
@@ -157,6 +176,14 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       }
       await ensureListed(souls.index(`person/${withKey}/ev`), id, souls.event(id), when);
     }
+  }
+  for (const [questionKey, list] of whenever) {
+    const soul = souls.index(`whenever/${questionKey}`);
+    const old = await store.get(soul);
+    const node: GraphNode = { n: list.length };
+    for (const field of Object.keys(old || {})) if (/^\d+$/.test(field) && Number(field) >= list.length) node[field] = null;
+    list.forEach((answer, j) => { node[String(j)] = link(answer); });
+    await ensure(soul, node);
   }
   // Deletions see the replayed indexes (planned values over what is stored), and take their fields
   // out of the plan, so a second run plans nothing and writes nothing.
@@ -182,7 +209,8 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
   let repaired = 0;
   for (const [soul, value] of desired) {
     const current = await store.get(soul);
-    const differs = Object.fromEntries(Object.entries(value).filter(([k, v]) => JSON.stringify(current?.[k]) !== JSON.stringify(v)));
+    // A planned null (a field taken out) is already done when the field is absent.
+    const differs = Object.fromEntries(Object.entries(value).filter(([k, v]) => (v === null ? current?.[k] !== null && current?.[k] !== undefined : JSON.stringify(current?.[k]) !== JSON.stringify(v))));
     if (!Object.keys(differs).length) continue;
     await store.put(soul, differs);
     repaired += 1;

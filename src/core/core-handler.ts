@@ -301,6 +301,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         return graph.appAnswers ? graph.appAnswers.questionMemory(request.text, request.language) : {};
       case 'graph.remembered':
         return graph.graph ? graph.graph.answers.remembered() : [];
+      case 'graph.importRemembered':
+        return { imported: graph.graph ? await graph.graph.answers.importRemembered(request.rows) : 0 };
       case 'graph.changeRemembered': {
         if (!graph.graph) return { ok: false };
         const answers = graph.graph.answers;
