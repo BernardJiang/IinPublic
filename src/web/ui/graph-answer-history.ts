@@ -5,6 +5,7 @@
  * app's record until those frames are removed.
  */
 import { checkIfMatch } from '../../shared/talk-engine';
+import type { TypedAnswerValue } from '../../shared/typed-preference-store';
 import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryMap, type FlatAnswerHistoryRecord } from './answer-history-storage';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -16,7 +17,7 @@ type GraphAnswerRecord = {
   mine: boolean;
   withUser?: string;
   talk: Record<string, any>;
-  answers: Array<{ questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string }>;
+  answers: Array<{ questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string; typedValue?: TypedAnswerValue }>;
 };
 
 let requester: (() => Promise<unknown>) | null = null;
@@ -36,11 +37,14 @@ export function setGraphAnswerHistorySource(request: (() => Promise<unknown>) | 
 export function graphRecordToFlat(record: GraphAnswerRecord): FlatAnswerHistoryRecord {
   const talk = { ...record.talk, id: record.appTalkId };
   const outcome = record.mine
-    ? (record.answers.some((a) => a.isMatch) ? 'match' : 'mismatch')
+    ? (record.answers.some((a) => a.isMatch && !a.typedValue) ? 'match' : 'mismatch')
     : (checkIfMatch(talk, record.answers) ? 'match' : 'mismatch');
   return buildFlatAnswerHistoryRecord(
     record.appTalkId, talk,
-    record.answers.map((a) => ({ questionId: a.questionId, answerId: a.answerId, answerText: a.answerText, ...(a.mode ? { mode: a.mode } : {}) })),
+    record.answers.map((a) => ({
+      questionId: a.questionId, answerId: a.answerId, answerText: a.answerText,
+      ...(a.mode ? { mode: a.mode } : {}), ...(a.typedValue ? { typedValue: a.typedValue } : {}),
+    })),
     outcome, record.withUser ? [record.withUser] : [],
     { ...(record.mode === 'chatbot' ? { answeredBy: 'chatbot' as const } : {}), answeredAt: record.when },
   );

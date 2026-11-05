@@ -205,7 +205,8 @@ export function createAppAnswers(options: {
     return { eventId, sent: false };
   }
 
-  // A built-in value is part of an answer (`stepsOf`); an answer of built-in values only is not one.
+  // A built-in value is part of an answer (`stepsOf`); an answer of built-in values only is not
+  // one, except on my own Talk, where those values are my declaration (`stepsOf`, spec §EE).
   const writable = (answers: AppAnswerInput[]) => answers.some((a) => !isTyped(a));
 
   return {
@@ -215,7 +216,7 @@ export function createAppAnswers(options: {
         if (!record || typeof record.talkId !== 'string' || !Array.isArray(record.items)) continue;
         if (record.supportMessage === true || record.supportChannel === true) continue;
         const mode = record.answeredBy === 'chatbot' ? 'chatbot' : 'manual';
-        if (!writable(record.items)) continue;
+        if (!record.items.length) continue;
         const senders = Array.isArray(record.senderIds) ? record.senderIds.map(String) : [];
         try {
           await locked(record.talkId, async () => {
@@ -227,7 +228,10 @@ export function createAppAnswers(options: {
               await options.ownTalks.idle?.();
               found = await targets(record.talkId, senders);
             }
-            for (const target of found) await write(target, answersIn(target.talk, record.items), mode);
+            for (const target of found) {
+              if (target.perspective !== 'author' && !writable(record.items)) continue;
+              await write(target, answersIn(target.talk, record.items), mode);
+            }
           });
         } catch (error) {
           options.log?.(`[app-answers] ${record.talkId}: ${(error as Error).message}`);

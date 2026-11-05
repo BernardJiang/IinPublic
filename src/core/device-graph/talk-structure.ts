@@ -83,7 +83,8 @@ export function builtInValues(spec: BuiltInQuestionSpec | undefined): BuiltInVal
   return out;
 }
 
-function builtInFromValues(values: GraphNode): BuiltInQuestionSpec {
+/** A built-in question's spec from its stored values (the inverse of `builtInValues`). */
+export function builtInFromValues(values: GraphNode): BuiltInQuestionSpec {
   const num = (key: string) => finite(values[key]);
   const out: BuiltInQuestionSpec = { kind: String(values.kind) as BuiltInQuestionSpec['kind'] };
   if (num('quantity') !== undefined) out.quantity = num('quantity')!;

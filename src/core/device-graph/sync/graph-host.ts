@@ -10,7 +10,9 @@ import { personSoul } from '../people-graph';
 import { allSituations } from '../answers';
 import { answerKey, type AnswerSetEntry } from '../keys';
 import { answeredAtoms } from '../exchanged';
-import type { Perspective, TalkStructure } from '../talk-structure';
+import { builtInFromValues, type Perspective, type TalkStructure } from '../talk-structure';
+import type { GraphNode } from '../node-store';
+import { formatTypedAnswerValue, typedAnswerValueFromBuiltIn, type TypedAnswerValue } from '../../../shared/typed-preference-store';
 import { createGraphSync, type GraphCrypto, type GraphLinkStatus, type PeerKeys, type SeaPair } from './graph-sync';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -35,8 +37,11 @@ export type GraphHostRequest =
   /** `answers[].mode`: the dialog's choice for each answer (`auto`, `manual` = Just once, `whenever`). */
   | { name: 'graph.answer'; talkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string; mode?: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
-/** One answer as the app's response carries it. */
-export type AppAnswer = { questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string };
+/**
+ * One answer as the app's response carries it. A built-in value I declared on my own Talk is
+ * `typed:<kind>` with its `typedValue` (spec §EE), as the app's own Me-tab record keeps it.
+ */
+export type AppAnswer = { questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string; typedValue?: TypedAnswerValue };
 
 export type GraphPull = { out: Array<{ to: string; raw: string }>; events: GraphEvent[] };
 export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown };
@@ -49,7 +54,13 @@ export function appAnswersOf(talk: TalkStructure, set: Record<string, AnswerSetE
   const out: AppAnswer[] = [];
   for (const [context, entry] of Object.entries(set)) {
     const question = talk.questions.find((q) => q.id === situations.get(context));
-    if (!question || !('choices' in entry)) continue;
+    if (!question) continue;
+    if ('typed' in entry) {
+      // My built-in values on my own Talk (`app-answers.ts` `stepsOf`): the Me tab's declaration.
+      const typedValue = perspective === 'author' ? typedAnswerValueFromBuiltIn(builtInFromValues(entry.typed as unknown as GraphNode)) : undefined;
+      if (typedValue) out.push({ questionId: question.id, answerId: `typed:${typedValue.kind}`, answerText: formatTypedAnswerValue(typedValue), mode: 'typed', typedValue });
+      continue;
+    }
     for (const answer of question.answers) {
       if (!entry.choices.includes(answerKey(answer.text))) continue;
       out.push({ questionId: question.id, answerId: answer.id, answerText: answer.text, ...(answer.isMatch ? { isMatch: true } : {}), ...(answer.isIgnore ? { isIgnore: true } : {}), mode });

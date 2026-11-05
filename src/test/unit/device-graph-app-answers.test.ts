@@ -148,6 +148,21 @@ describe('app answers in the device graph', () => {
       { questionId: 'q_0', answerId: 'typed:priceRange', typedValue: { kind: 'priceRange', priceRange: { min: 100, max: 200 } }, mode: 'typed' },
     ]));
     expect(await d.graph.answers.answered(mine)).toBeTruthy();
+    // The Me tab reads my built-in value back from the graph as the app's record kept it.
+    const [mineRow] = await d.app.history();
+    expect(mineRow!.answers).toEqual([
+      { questionId: 'q_0', answerId: 'typed:priceRange', answerText: '100 – 200', mode: 'typed', typedValue: { kind: 'priceRange', priceRange: { min: 100, max: 200 } } },
+      { questionId: 'q_1', answerId: 'a_1_0', answerText: 'Red', isMatch: true, mode: 'manual' },
+    ]);
+    // A Talk of mine asking a built-in only: its value alone is my declaration, written too.
+    const pen = { ...priced({ min: 5, max: 9 }), title: 'Pen', questions: [{ id: 'q_0', text: 'Price range', builtIn: { kind: 'priceRange', priceRange: { min: 5, max: 9 } }, answers: [
+      { id: 'q_0_compatible', text: 'Compatible', isMatch: true, isTerminal: true },
+      { id: 'q_0_incompatible', text: 'Not compatible', isIgnore: true, isTerminal: true },
+    ] }] };
+    const onlyPrice = await d.graph.talks.create(pen);
+    d.own.set('app-pen', onlyPrice);
+    await d.app.recordHistory(record('app-pen', [{ questionId: 'q_0', answerId: 'typed:priceRange', typedValue: { kind: 'priceRange', priceRange: { min: 5, max: 9 } }, mode: 'typed' }]));
+    expect(await d.graph.answers.answered(onlyPrice)).toBeTruthy();
 
     const when = Date.now() - 500;
     const theirs = formatEventId({ when, deviceId: 'd'.repeat(32), counter: counter++ });
