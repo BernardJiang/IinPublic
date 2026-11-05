@@ -95,7 +95,7 @@ import {
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { graphAnswerHistoryTalkIds, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
-import { getFlatAnswerHistory, setAnswerHistoryCore, setFlatAnswerHistory, upsertFlatAnswerHistory } from '../ui/answer-history-storage';
+import { getFlatAnswerHistory, getTalkContentKey, setAnswerHistoryCore, setFlatAnswerHistory, upsertFlatAnswerHistory } from '../ui/answer-history-storage';
 import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
@@ -6702,6 +6702,8 @@ export class IinPublicApp {
    */
   private async handleTalkCompleted(data: {
     talkId: string;
+    /** The My Talks row holding this answer when it differs (the same content answered before). */
+    localTalkId?: string;
     answers: any[];
     talkData?: any;
     isChatbotResponse?: boolean;
@@ -6800,6 +6802,7 @@ export class IinPublicApp {
     if (data.talkData?.authorId && data.talkData.authorId !== this.currentUser?.id) {
       await this.submitTalkResponsePairDirect({
         talkId: data.talkId,
+        ...(data.localTalkId && data.localTalkId !== data.talkId ? { localTalkId: data.localTalkId } : {}),
         talkData: data.talkData,
         answers: data.answers,
         isChatbotResponse: isChatbot,
@@ -6811,6 +6814,11 @@ export class IinPublicApp {
       });
     }
     // If no authorId (e.g. self-test or malformed talk), no-op: mesh delivery requires an author.
+  }
+
+  /** The My Talks row already holding my answer to this content (`answered-talks.ts`), if any. */
+  private answeredRowFor(talkData: any): string | undefined {
+    try { return getAnsweredTalkId(getTalkContentKey(talkData)); } catch { return undefined; }
   }
 
   /** Everyone else who sent me this Talk's content: the other senders on its incoming row. */
@@ -6825,6 +6833,12 @@ export class IinPublicApp {
 
   private async submitTalkResponsePairDirect(params: {
     talkId: string;
+    /**
+     * The My Talks row this answer is kept in, when the same content was answered before under
+     * another Talk (one row, answered once): the exchange is recorded against it, so a person's
+     * Talks lead to that row. `talkId` is still the Talk answered and sent.
+     */
+    localTalkId?: string;
     talkData: any;
     answers: any[];
     isChatbotResponse: boolean;
@@ -7004,7 +7018,7 @@ export class IinPublicApp {
     this.recordLocalTalkExchange(
       params.authorId,
       params.authorName,
-      params.talkId,
+      params.localTalkId ?? this.answeredRowFor(params.talkData) ?? params.talkId,
       params.talkData,
       isMatch ? 'match' : 'mismatch',
       {
@@ -8760,7 +8774,10 @@ export class IinPublicApp {
 
     this.uiManager.on('loadTalkForEdit', async (data: { talkId: string }) => {
       try {
-        const talk = await this.talkService.getTalk(data.talkId);
+        // My own Talk as I last saved it: the graph's version of an edit is written a moment after
+        // the save, and reading it in between reopened the editor on the old text (stage1/05).
+        const own = getMyTalks()[data.talkId]?.fullTalk;
+        const talk = own && Array.isArray(own.questions) ? { ...own, id: data.talkId } : await this.talkService.getTalk(data.talkId);
         if (talk) {
           this.uiManager.showTalkEditorDialog(talk);
         } else {
@@ -8802,7 +8819,7 @@ export class IinPublicApp {
 
     this.uiManager.on(
       'talkCompleted',
-      async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
+      async (data: { talkId: string; localTalkId?: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
         // One at a time, but the author's key is fetched before joining the line
         // (talk-completion-pipeline.ts; gui-responsiveness-audit.md F7).
         const authorId = String(data.talkData?.authorId || '');

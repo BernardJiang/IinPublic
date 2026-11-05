@@ -137,6 +137,7 @@ export function completeTalk(
 
   deps.emit('talkCompleted', {
     talkId: talk.id,
+    ...(talkIdToUse !== talk.id ? { localTalkId: talkIdToUse } : {}),
     answers,
     talkData: talk,
     ...(meta?.withholdFromSender ? { withholdFromSender: true } : {}),
