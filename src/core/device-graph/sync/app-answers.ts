@@ -325,7 +325,8 @@ export function createAppAnswers(options: {
         if (!node) continue;
         const mine = !!mineState;
         const appTalkId = mine ? await options.ownTalks.appTalkId(talkId) : talkId;
-        const talk = mine ? await graph.talks.read(talkId) : await graph.arrivals.read(talkId);
+        // A Talk only the app has (a starter tag) is answered under its app id: its body is the app's.
+        const talk = mine ? await graph.talks.read(talkId) : (await graph.arrivals.read(talkId)) ?? (await local(talkId))?.talk;
         const set = await graph.answers.answerSet(eventId);
         if (!talk || !set) continue;
         const mode = typeof node.mode === 'string' ? node.mode : 'manual';

@@ -74,8 +74,10 @@ function deviceGraphGate(options: DeviceGraphOptions | undefined, localTalk?: (a
  */
 export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean; deviceGraph?: DeviceGraphOptions } = {}): (request: CoreRequest) => Promise<unknown> {
   // A Talk only the app has is answered from the body its `myTalks` entry keeps (`app-answers.ts`).
+  // Through My Talks' bodies: once such a Talk is also my graph Talk (a copy I sent), its stored
+  // entry keeps only what the graph does not give back, and the body comes from the graph.
   const graph = deviceGraphGate(options.deviceGraph, async (appTalkId) => {
-    const entry = await collections.get('myTalks', appTalkId) as { fullTalk?: Record<string, any> } | undefined;
+    const entry = await (myTalks ? myTalks.get(appTalkId) : collections.get('myTalks', appTalkId)) as { fullTalk?: Record<string, any> } | undefined;
     return entry?.fullTalk;
   });
   let fresh = options.freshDevice === true;

@@ -48,49 +48,103 @@ const isBucket = (segment: string) => /^bucket-[0-9a-f]$/.test(segment);
 const bucketOf = (key: string): string => `${BUCKET_PREFIX}${keyBucket(key)}`;
 const entryPath = (name: CoreCollection, key: string): string => `${collectionPath(name)}/${bucketOf(key)}/${encodeURIComponent(key)}`;
 
+/**
+ * Each collection's entries as stored (key → JSON), kept once read: the core is the only writer of
+ * its collections (one owner per device: the worker or the node), so every write passes here and
+ * the copy stays true. Reading a bucketed collection takes two rounds of reads, and screens read
+ * My Talks often (the answer dialog's lookups), so they are read once. Keyed by the store, so every
+ * `CollectionStore` over it shares one copy.
+ */
+type CachedCollection = { ready: Promise<void>; entries: Map<string, string> };
+const caches = new WeakMap<GraphStore, Map<string, CachedCollection>>();
+
 export class CollectionStore {
   constructor(private readonly store: GraphStore) {}
 
+  private cacheOf(): Map<string, CachedCollection> {
+    let cache = caches.get(this.store);
+    if (!cache) { cache = new Map(); caches.set(this.store, cache); }
+    return cache;
+  }
+
+  private async loaded(name: CoreCollection): Promise<Map<string, string>> {
+    const cache = this.cacheOf();
+    let state = cache.get(name);
+    if (!state) {
+      const entries = new Map<string, string>();
+      state = { entries, ready: this.read(name).then((read) => { for (const [key, json] of read) entries.set(key, json); }) };
+      cache.set(name, state);
+      state.ready.catch(() => { if (cache.get(name) === state) cache.delete(name); });
+    }
+    await state.ready;
+    return state.entries;
+  }
+
+  /** A write went to storage: the copy follows (after its first read, if one is under way). */
+  private async noted(name: CoreCollection, changes: Array<[string, string | null]>): Promise<void> {
+    const state = this.cacheOf().get(name);
+    if (!state) return;
+    await state.ready.catch(() => undefined);
+    for (const [key, json] of changes) {
+      if (json === null) state.entries.delete(key);
+      else state.entries.set(key, json);
+    }
+  }
+
   async all(name: string): Promise<Record<string, unknown>> {
     assertCollection(name);
+    const out: Record<string, unknown> = {};
+    for (const [key, json] of await this.loaded(name)) {
+      try { out[key] = JSON.parse(json); } catch { /* an unreadable entry is left out */ }
+    }
+    return out;
+  }
+
+  private async read(name: CoreCollection): Promise<Array<[string, string]>> {
     // A collection never written has no node, and reading a missing node waits out storage's
     // not-found grace period — with ~16 mostly empty collections that held every boot by 1.5 s or
     // more under load (e2e stage2/95, stage2/37). Their parent lists every collection ever written
     // (and exists once one was), so one read of it answers for all the empty ones.
-    if (!(await this.store.childKeys(COLLECTIONS_PATH)).includes(name)) return {};
+    if (!(await this.store.childKeys(COLLECTIONS_PATH)).includes(name)) return [];
     const buckets = (await this.store.childKeys(collectionPath(name))).filter(isBucket);
     const paths = (await Promise.all(buckets.map(async (bucket) =>
       (await this.store.childKeys(`${collectionPath(name)}/${bucket}`)).map((encoded) => `${collectionPath(name)}/${bucket}/${encoded}`)))).flat();
     const entries = await Promise.all(paths.map(async (path) => {
       const node = await this.store.get(path);
-      if (!node || typeof node.json !== 'string' || typeof node.key !== 'string') return null;
-      try {
-        return [node.key, JSON.parse(node.json)] as const;
-      } catch {
-        return null;
-      }
+      return node && typeof node.json === 'string' && typeof node.key === 'string' ? [node.key, node.json] as [string, string] : null;
     }));
-    return Object.fromEntries(entries.filter((entry): entry is readonly [string, unknown] => !!entry));
+    return entries.filter((entry): entry is [string, string] => !!entry);
   }
 
   /** One entry, or undefined. */
   async get(name: string, key: string): Promise<unknown> {
     assertCollection(name);
-    const node = await this.store.get(entryPath(name as CoreCollection, key));
-    if (!node || typeof node.json !== 'string') return undefined;
-    try { return JSON.parse(node.json); } catch { return undefined; }
+    const cached = this.cacheOf().get(name);
+    let json: string | undefined;
+    if (cached) {
+      await cached.ready.catch(() => undefined);
+      json = cached.entries.get(key);
+    } else {
+      const node = await this.store.get(entryPath(name as CoreCollection, key));
+      json = typeof node?.json === 'string' ? node.json : undefined;
+    }
+    if (json === undefined) return undefined;
+    try { return JSON.parse(json); } catch { return undefined; }
   }
 
   /** Writes each entry whole; the caller has already merged it with what it replaces. */
   async upsert(name: string, entries: Record<string, unknown>): Promise<number> {
     assertCollection(name);
-    await Promise.all(Object.entries(entries).map(([key, value]) => this.store.put(entryPath(name, key), { key, json: JSON.stringify(value) })));
-    return Object.keys(entries).length;
+    const changes = Object.entries(entries).map(([key, value]) => [key, JSON.stringify(value)] as [string, string]);
+    await Promise.all(changes.map(([key, json]) => this.store.put(entryPath(name, key), { key, json })));
+    await this.noted(name, changes);
+    return changes.length;
   }
 
   async remove(name: string, keys: string[]): Promise<number> {
     assertCollection(name);
     await Promise.all(keys.map((key) => this.store.put(entryPath(name, key), null)));
+    await this.noted(name, keys.map((key) => [key, null]));
     return keys.length;
   }
 
@@ -99,6 +153,8 @@ export class CollectionStore {
    * the layout before buckets (owner decision 2026-11-04: erased, not moved); returns how many.
    */
   async eraseRetired(): Promise<number> {
+    // Only entries no read ever returned are erased, so the copies stay true; read again anyway.
+    caches.delete(this.store);
     const written = await this.store.childKeys(COLLECTIONS_PATH);
     let erased = 0;
     for (const name of CORE_COLLECTIONS) {

@@ -38,6 +38,23 @@ describe('collections in the device core', () => {
     expect(Object.keys(await collections.all('myTalks'))).toHaveLength(20_000);
   });
 
+  it('a read copy follows every write, through any CollectionStore over the same storage', async () => {
+    const store = memoryGraphStore();
+    const a = new CollectionStore(store);
+    const b = new CollectionStore(store);
+    await a.upsert('myTalks', { t1: { v: 1 } });
+    expect(await a.all('myTalks')).toEqual({ t1: { v: 1 } });
+    const reads = jest.spyOn(store, 'get');
+    await b.upsert('myTalks', { t2: { v: 2 } });
+    await b.remove('myTalks', ['t1']);
+    expect(await a.all('myTalks')).toEqual({ t2: { v: 2 } });
+    expect(await a.get('myTalks', 't2')).toEqual({ v: 2 });
+    expect(reads).not.toHaveBeenCalled(); // answered from the copy
+    // Reads hand out copies: changing one changes nothing stored.
+    ((await a.all('myTalks')).t2 as { v: number }).v = 9;
+    expect(await b.get('myTalks', 't2')).toEqual({ v: 2 });
+  });
+
   it('erases entries left in the layout before buckets, and keeps the bucketed ones', async () => {
     const store = memoryGraphStore();
     const collections = new CollectionStore(store);

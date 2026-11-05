@@ -28,6 +28,19 @@ export function setAnswerHistoryCore(request: HistoryCore | null): void {
   if (core && pending.size) send(Object.fromEntries(pending));
 }
 
+/**
+ * Read the graph's history again a little later, once: reading it walks every answer, so a burst of
+ * saves (the chatbot answering several Talks) costs one read. What this page saved shows meanwhile.
+ */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleRefresh(): void {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    void refreshGraphAnswerHistory().catch(() => undefined);
+  }, 2_000);
+}
+
 function send(records: Record<string, FlatAnswerHistoryRecord>): void {
   if (!core || !Object.keys(records).length) return;
   const request = core;
@@ -36,7 +49,7 @@ function send(records: Record<string, FlatAnswerHistoryRecord>): void {
   // graph) before my answers to it, or they are taken for answers to a Talk only the app has.
   void myTalksView.flush().catch(() => undefined)
     .then(() => request({ name: 'graph.recordAnswers', records: copy }))
-    .then(() => refreshGraphAnswerHistory())
+    .then(() => scheduleRefresh())
     .catch((error) => console.warn('[answer-history] not saved to the device graph:', error));
 }
 
@@ -47,8 +60,9 @@ export function getFlatAnswerHistory(): FlatAnswerHistoryMap {
   const confirmed = new Set<string>();
   for (const [id, record] of pending) {
     const fromGraph = graph.find((r) => r.talkId === record.talkId);
-    // The graph has this answer (or a newer one): its record is the one shown from now on.
-    if (fromGraph && Date.parse(fromGraph.answeredAt) >= Date.parse(record.answeredAt) - 1000) { pending.delete(id); continue; }
+    // The graph has this answer (or a newer one): its record is shown. This page's record stays
+    // behind it, for as long as the page lives, in case the graph stops listing that Talk.
+    if (fromGraph && Date.parse(fromGraph.answeredAt) >= Date.parse(record.answeredAt) - 1000) continue;
     confirmed.add(record.talkId);
     out[id] = record;
   }
@@ -77,7 +91,7 @@ export function setFlatAnswerHistory(history: FlatAnswerHistoryMap): void {
     removedTalks.add(talkId);
     if (core) {
       void core({ name: 'graph.forgetAnswers', talkId, senders: [...senders] })
-        .then(() => refreshGraphAnswerHistory())
+        .then(() => scheduleRefresh())
         .catch((error) => console.warn('[answer-history] not removed from the device graph:', error));
     }
   }
@@ -111,6 +125,8 @@ export function deleteFlatAnswerHistoryForTalk(talkId: string): void {
 
 /** Tests: forget this page's unsaved records and removals. */
 export function resetAnswerHistoryForTests(): void {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = null;
   pending.clear();
   removedTalks.clear();
   core = null;

@@ -178,6 +178,9 @@ describe('app answers in the device graph', () => {
     d.localBodies.set('starter-tennis', { ...tennis(), id: 'starter-tennis' });
     await d.app.recordHistory(record('starter-tennis', weekly.map((a) => ({ ...a, mode: 'auto' })), { senderIds: ['starter'] }));
     expect(await d.graph.answers.answered('starter-tennis')).toBeTruthy();
+    // The Me tab lists it from the graph too, with the app's body.
+    const listed = (await d.app.history()).find((h) => h.appTalkId === 'starter-tennis');
+    expect(listed?.answers.map((a) => a.answerId)).toEqual(['a_0_0', 'a_1_0']);
     const later = await received(d, 'bea');
     expect((await d.graph.answers.chatbot((await d.graph.arrivals.read(later))!)).complete).toBe(true);
     expect(d.sync.sendAnswer).not.toHaveBeenCalled();
