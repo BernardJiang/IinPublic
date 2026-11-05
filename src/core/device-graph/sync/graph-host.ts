@@ -67,7 +67,10 @@ export function appAnswersOf(talk: TalkStructure, set: Record<string, AnswerSetE
       out.push({ questionId: question.id, answerId: answer.id, answerText: answer.text, ...(answer.isMatch ? { isMatch: true } : {}), ...(answer.isIgnore ? { isIgnore: true } : {}), mode });
     }
   }
-  return out;
+  // The set is keyed by context hash, so its order is not the answering order; a flow's outcome
+  // is its last answer's, so put the answers back in the Talk's question order.
+  const order = new Map(talk.questions.map((q, i) => [q.id, i]));
+  return out.sort((a, b) => (order.get(a.questionId) ?? 0) - (order.get(b.questionId) ?? 0));
 }
 
 /** A graph Talk as the app's `Talk` object: structure, delivery fields and meta. */

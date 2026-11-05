@@ -44,7 +44,11 @@ function talkSet(authorId: string, owner: string, runId: string): any[] {
         id: `q_${talkIndex + 1}_${questionIndex + 1}`,
         text: `${title}: question ${questionIndex + 1}`,
         answers: [
-          { id: `match_${talkIndex + 1}_${questionIndex + 1}`, text: `Match ${questionIndex + 1}`, isMatch: true, isTerminal: questionIndex === questions - 1 },
+          // A non-final first choice leads on (a match choice ends a flow or route, so a real
+          // responder could never reach the questions after it); the last question's matches.
+          questionIndex === questions - 1
+            ? { id: `match_${talkIndex + 1}_${questionIndex + 1}`, text: `Match ${questionIndex + 1}`, isMatch: true, isTerminal: true }
+            : { id: `match_${talkIndex + 1}_${questionIndex + 1}`, text: `Match ${questionIndex + 1}`, nextQuestionId: `q_${talkIndex + 1}_${questionIndex + 2}` },
           { id: `ignore_${talkIndex + 1}_${questionIndex + 1}`, text: `Ignore ${questionIndex + 1}`, isIgnore: true, isTerminal: true },
         ],
       })),

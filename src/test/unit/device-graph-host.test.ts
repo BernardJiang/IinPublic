@@ -42,6 +42,13 @@ describe('graph host', () => {
     expect(appAnswersOf(talkStructureOf(deal), set, 'manual').map((a) => a.answerId)).toEqual(['a_0_0', 'a_1_0']);
   });
 
+  it('returns the answers in the Talk’s question order whatever order the set holds them in', () => {
+    // A flow's outcome is its last answer's (88-asymmetric: the hash order put the Pair tag last).
+    const set = setOf(deal, [{ questionId: 'q_0', answerIds: ['a_0_0'] }, { questionId: 'q_1', answerIds: ['a_1_0'] }]);
+    const reversed = Object.fromEntries(Object.entries(set).reverse());
+    expect(appAnswersOf(talkStructureOf(deal), reversed, 'manual').map((a) => a.questionId)).toEqual(['q_0', 'q_1']);
+  });
+
   it('gives the app a Talk with its meta fields and graph ids', () => {
     const talk = appTalkOf({ ...talkStructureOf(tennis), id: 't1', versionId: 'v2', title: 'Tennis partner', isAdult: false, createdAt: 1762000000000, updatedAt: 1762000001000, active: true, isTemplate: false, meta: { tags: ['sport'], authorName: 'Adam' }, senders: ['adam'], latestArrival: 'x' });
     expect(talk).toMatchObject({ title: 'Tennis partner', tags: ['sport'], authorName: 'Adam', graphTalkId: 't1', graphVersionId: 'v2' });
