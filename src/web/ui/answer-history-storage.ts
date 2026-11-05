@@ -1,6 +1,7 @@
 import type { TypedAnswerValue } from '../../shared/typed-preference-store';
 import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryMap, type FlatAnswerHistoryRecord } from './answer-history-records';
 import { graphHistoryRecords, refreshGraphAnswerHistory } from './graph-answer-history';
+import { myTalksView } from '../services/core-views';
 
 export { buildFlatAnswerHistoryRecord, getTalkContentKey, type FlatAnswerHistoryItem, type FlatAnswerHistoryMap, type FlatAnswerHistoryRecord } from './answer-history-records';
 
@@ -29,7 +30,12 @@ export function setAnswerHistoryCore(request: HistoryCore | null): void {
 
 function send(records: Record<string, FlatAnswerHistoryRecord>): void {
   if (!core || !Object.keys(records).length) return;
-  void core({ name: 'graph.recordAnswers', records: JSON.parse(JSON.stringify(records)) })
+  const request = core;
+  const copy = JSON.parse(JSON.stringify(records));
+  // After the My Talks writes already made: a new Talk of mine must be in the core (and so in the
+  // graph) before my answers to it, or they are taken for answers to a Talk only the app has.
+  void myTalksView.flush().catch(() => undefined)
+    .then(() => request({ name: 'graph.recordAnswers', records: copy }))
     .then(() => refreshGraphAnswerHistory())
     .catch((error) => console.warn('[answer-history] not saved to the device graph:', error));
 }

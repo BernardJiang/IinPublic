@@ -35,4 +35,14 @@ describe('answered by content', () => {
     await refreshGraphAnswerHistory();
     expect(getAnsweredTalkId(getTalkContentKey(talk))).toBe('gone');
   });
+
+  it('my own Talk\'s self-answers do not make the same content from someone else answered', async () => {
+    const talk = flow('Dating?');
+    setGraphAnswerHistorySource(async () => [{
+      appTalkId: 'mine', when: Date.UTC(2026, 10, 4), mode: 'manual', mine: true, talk,
+      answers: [{ questionId: 'q', answerId: 'a', answerText: 'Yes', isMatch: true }],
+    }]);
+    await refreshGraphAnswerHistory();
+    expect(getAnsweredTalkId(getTalkContentKey(talk))).toBeUndefined();
+  });
 });

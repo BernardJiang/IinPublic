@@ -264,6 +264,8 @@ describe('the Me tab history is the device graph\'s (OPEN-106)', () => {
     setAnswerHistoryCore(async (request) => { requests.push(request); return { ok: true }; });
     setGraphAnswerHistorySource(async () => graphRecords);
     saveFlatAnswerHistoryRecord('t1', talk, [{ questionId: 'q', answerId: 'a', answerText: 'Yes' }], 'match', ['adam']);
+    // Sent once My Talks' pending writes are in the core.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(requests[0]).toMatchObject({ name: 'graph.recordAnswers' });
     expect(Object.values(getFlatAnswerHistory()).map((r) => r.talkId)).toEqual(['t1']);
 

@@ -60,7 +60,9 @@ export async function refreshGraphAnswerHistory(): Promise<boolean> {
     if (!record?.appTalkId || !record.talk || !Array.isArray(record.answers) || !record.answers.length) continue;
     try {
       next.set(record.appTalkId, graphRecordToFlat(record));
-      nextBodies.set(record.appTalkId, { ...record.talk, id: record.appTalkId });
+      // Someone else's Talk I answered. My own Talk's self-answers are not an answer to the same
+      // content from someone else (the Dating template: their Talk can read exactly like mine).
+      if (!record.mine) nextBodies.set(record.appTalkId, { ...record.talk, id: record.appTalkId });
     } catch { /* a Talk the app cannot show */ }
   }
   const nextSignature = JSON.stringify([...next.values()].map((r) => [r.id, r.answeredAt, r.items.map((i) => i.answerId)]));
