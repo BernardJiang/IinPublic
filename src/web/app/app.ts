@@ -217,7 +217,7 @@ import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
 import { mergeIncomingTalkCluster, type IncomingTalkClusterWire } from '../../shared/peer-talk-delivery';
 import { getSEA, type GunPair } from '../sea-gun';
-import { connectExchangeState, exchangeStateSnapshot, markExchangedForTesting, refreshExchangeState } from '../services/exchange-state';
+import { connectExchangeState, exchangeStateSnapshot, markExchangedForTesting, onExchangeStateChanged, refreshExchangeState } from '../services/exchange-state';
 import { buildTalkIdentityKey } from '../../shared/cid';
 import { applyContactsPrune, getContactsCap, planContactsPrune, unprunePeer } from '../services/contacts-prune';
 import { sharedTagCounter } from '../ui/tag-graph-view';
@@ -5970,6 +5970,7 @@ export class IinPublicApp {
           await Promise.all([connectExchangeCore(link), connectCoreCollections(collections, bridge)]);
           // Who I already exchanged what with, from the device graph (OPEN-106 step 3).
           void connectExchangeState(() => core({ name: 'graph.exchangeState' }), bridge);
+          onExchangeStateChanged(() => this.scheduleTalksListRefresh());
           // The Me tab's answers are the graph's; saving and removing them are core requests.
           setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
           setAnswerHistoryCore((request) => core(request));
@@ -6047,6 +6048,8 @@ export class IinPublicApp {
     };
     upsertExchange(exchangeRecordFor(input));
     void this.uiManager.refreshCreatorReplies();
+    // An open Talks tab shows who matched each Talk (its N3 line): draw it again, once per burst.
+    this.scheduleTalksListRefresh();
     // How I decided an answer to my Talk (the next one from them is compared with it).
     const decided = authorOutcomeFor(input);
     if (!decided || !this.coreRequest) return;
@@ -6280,6 +6283,15 @@ export class IinPublicApp {
    * core already dropped how I decided it (`ix/outcome`); a conversation that came through it is
    * withdrawn, unless our deal on it was confirmed by both.
    */
+  private talksListRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private scheduleTalksListRefresh(): void {
+    if (this.talksListRefreshTimer) return;
+    this.talksListRefreshTimer = setTimeout(() => {
+      this.talksListRefreshTimer = null;
+      if (document.getElementById('talks-view')?.classList.contains('active')) this.uiManager.displayTalksList();
+    }, 300);
+  }
+
   private handleGraphAnswerDeleted(talkId: string, from: string): void {
     const me = this.currentUser?.id;
     if (!me || !from || from === me) return;

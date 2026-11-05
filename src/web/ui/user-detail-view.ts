@@ -9,6 +9,7 @@ import {
 } from '../services/local-peer-derivation';
 import { matchScore } from '../../shared/talk-engine';
 import { talkOwedToPeer } from '../services/exchange-state';
+import { onExchangesChanged } from '../services/exchange-view';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
 import { meetsBlockSignalThreshold, type ReceivedBlockSignals } from '../../shared/block-signal';
@@ -388,6 +389,11 @@ export function openPeerDetailView(
   // Load data
   fetchAndRenderStats(peerId, peerName, deps);
   fetchAndRenderHistory(peerId, deps);
+  // An exchange recorded while the page is open (an answer that completes after the tap) shows.
+  stopHistoryWatch?.();
+  stopHistoryWatch = onExchangesChanged(() => {
+    if (currentState?.peerId === peerId) void fetchAndRenderHistory(peerId, deps);
+  });
 }
 
 /** Whose person page is on screen, if any. */
@@ -401,7 +407,11 @@ export function closePeerDetailView(): void {
   const overlay = document.getElementById('peer-detail-overlay');
   if (overlay) overlay.style.display = 'none';
   currentState = null;
+  stopHistoryWatch?.();
+  stopHistoryWatch = null;
 }
+
+let stopHistoryWatch: (() => void) | null = null;
 
 /** Server-authoritative block edges for disabling Send My Talks (matches register-receivers / delivery). */
 type PeerBlockStatus = { eitherBlocked: boolean; blocked: boolean; blockedBy: boolean };

@@ -181,6 +181,9 @@ test.describe('Talk row -> co-exchangers (item 17, privacy-scoped)', () => {
       const matchedDataX = JSON.parse(await matchedLineX.getAttribute('data-matched-people') || '[]');
       expect(matchedDataX.map((p: { id: string }) => p.id)).not.toContain(samId);
 
+      // Who else an answer on this content passed with is read from the device graph after the
+      // answer is written (a beat later): the row is drawn again then.
+      await expect.poll(() => rowX.locator('.talk-item-co-exchanged').count(), { timeout: 15_000 }).toBeGreaterThan(0);
       await longPressTalkRow(pageTom, rowX);
       const popup = pageTom.locator('#item-details-popup');
       await expect(popup).toBeVisible({ timeout: 10_000 });

@@ -25,6 +25,7 @@ import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
 import { answersLinkHtml, peopleLinkHtml, peopleWhoExchanged, bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 import { settingsStorage } from '../services/core-storage';
+import { readExchanges } from '../services/exchange-view';
 import { TALKS_TAB_STATE_KEY } from './talks-tab-state';
 
 const TALKS_FIRST_CHUNK_SIZE = 25;
@@ -476,12 +477,21 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     // instead of an inline .map() callback over the entire list at once.
     const renderOutRow = ([talkId, talk]: [string, any]): string => {
                 const stats = deps.talkStatsMap[talkId];
+                // A Talk I created under its own id travels under its graph id: a conversation the
+                // other side opened through it carries that one. The exchange log records the match
+                // under my id either way.
+                const ownIds = new Set([talkId, String(talk?.fullTalk?.graphTalkId || '')].filter(Boolean));
                 const matchedPeople = Object.values(conversations)
-                  .filter((c: any) => c.talkId === talkId && c.otherUserId)
+                  .filter((c: any) => ownIds.has(String(c.talkId || '')) && c.otherUserId)
                   .map((c: any) => ({
                     id: String(c.otherUserId),
                     name: c.respondedByBot ? `${c.otherUserName} 🤖` : String(c.otherUserName || ''),
                   }));
+                for (const exchange of readExchanges()) {
+                  if (exchange.talkId !== talkId || exchange.outcome !== 'match' || exchange.direction === 'received') continue;
+                  if (matchedPeople.some((p) => p.id === exchange.peerId)) continue;
+                  matchedPeople.push({ id: exchange.peerId, name: String(exchange.peerName || exchange.peerId) });
+                }
                 const matchedNames = matchedPeople.map((p) => p.name);
                 const metrics = outMetrics(talkId);
                 const statsLine = stats || metrics.responses > 0

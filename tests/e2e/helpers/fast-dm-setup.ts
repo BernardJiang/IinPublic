@@ -96,30 +96,33 @@ export async function setupFastMatchedDm(
     return pair?.epub ?? '';
   });
 
+  // A sends the Talk to B over the graph (OPEN-106: an answer goes only to a Talk that arrived);
+  // B answers it under the id it arrived with (a Talk with its own id travels under a graph id).
+  await pageA.evaluate(async ({ tid, to }) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const entry = ((window as any).__iinpublic_collection?.('myTalks') ?? {})[tid];
+    await app.offerTalkForE2e(entry.fullTalk, [to]);
+  }, { tid: talkId, to: userIdB });
+  const arrivedTalkId = await (async () => {
+    const deadline = Date.now() + 30_000;
+    for (;;) {
+      const id = await pageB.evaluate(async (title: string) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        return (((await app.getLocalIncomingClustersForE2e?.()) ?? []) as any[]).find((r) => r.title === title)?.latestTalkId ?? '';
+      }, talkTitle);
+      if (id) return String(id);
+      if (Date.now() > deadline) throw new Error(`setupFastMatchedDm: ${talkTitle} did not reach ${nameB}`);
+      await pageB.waitForTimeout(300);
+    }
+  })();
+
   // Responder (B) submits a MATCH answer directly against the pair-direct response path —
   // same code the incoming-talk response modal calls on radio click, without the modal.
   await pageB.evaluate(
     async ({ tid, authorId, authorName, authorEpub: epub }) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const talkDef = {
-        id: tid,
-        authorId,
-        authorName,
-        authorEpub: epub,
-        title: `Fast DM Setup Talk ${tid}`,
-        type: 'flow',
-        questions: [
-          {
-            id: 'q1',
-            text: 'Want to chat?',
-            answers: [
-              { id: 'a-match', text: 'Yes, lets chat.', isMatch: true },
-              { id: 'a-ignore', text: 'No thanks.', isMatch: false, isIgnore: true },
-            ],
-          },
-        ],
-      };
-      app?.peerMeshService?.cacheTalkBody?.(tid, talkDef);
+      const received = await app?.talkService?.getTalkWithRetry?.(tid, { attempts: 30, gapMs: 250 });
+      const talkDef = { ...received, id: tid, authorId, authorName, authorEpub: epub };
       const matchAnswers = [
         { questionId: 'q1', answerId: 'a-match', answerText: 'Yes, lets chat.', mode: 'manual', isMatch: true },
       ];
@@ -133,7 +136,7 @@ export async function setupFastMatchedDm(
         isAutoResponse: false,
       });
     },
-    { tid: talkId, authorId: userIdA, authorName: nameA, authorEpub },
+    { tid: arrivedTalkId, authorId: userIdA, authorName: nameA, authorEpub },
   );
 
   // Do NOT wait for a live WebRTC DataChannel here: direct-p2p is a notify/sync layer

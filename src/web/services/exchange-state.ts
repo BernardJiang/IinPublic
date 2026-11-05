@@ -21,10 +21,20 @@ let refreshing: Promise<void> | null = null;
 let again = false;
 const atomsCache = new Map<string, ExchangeAtom[]>();
 
+const listeners = new Set<() => void>();
+
+/** Called after the state was read again (a screen showing it redraws). Returns the unsubscribe. */
+export function onExchangeStateChanged(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 function setState(next: ExchangeStateSnapshot): void {
+  const changed = JSON.stringify(next) !== JSON.stringify(state);
   state = next;
   exchangedSets = new Map(Object.entries(next.peers).map(([peer, p]) => [peer, new Set(p.exchanged)]));
   answeredSets = new Map(Object.entries(next.peers).map(([peer, p]) => [peer, new Set(p.answered)]));
+  if (changed) for (const listener of listeners) { try { listener(); } catch { /* a screen's redraw failing stops no other */ } }
 }
 
 function atomsOf(talk: any): ExchangeAtom[] {
