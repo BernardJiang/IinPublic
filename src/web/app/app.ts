@@ -6300,7 +6300,7 @@ export class IinPublicApp {
     for (const [conversationId, conv] of Object.entries(conversations)) {
       if (conv?.otherUserId !== from || !conversationReferencesTalk(conv, talkId)) continue;
       if (this.mutuallyConfirmedConversationIds.has(conversationId) || isDealMutuallyConfirmed(conv, me, from)) continue;
-      this.uiManager.markConversationWithdrawn(from, talkId, now);
+      this.uiManager.markConversationWithdrawn(from, talkId, now, 'answer-deleted');
     }
     this.uiManager.showNotification(this.uiManager.formatAnswerDeletedByPeer(from), 'info');
     void refreshExchangeState();

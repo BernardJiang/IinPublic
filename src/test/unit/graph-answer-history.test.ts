@@ -1,7 +1,7 @@
-// OPEN-106: the Me tab takes each Talk the device graph has from the graph, and keeps the app's
-// own record for Talks the graph does not have (still sent as frames) or has not caught up with.
+// OPEN-106: the device graph's answers as Me-tab records, one per Talk. How they combine with the
+// page's own records (newer ones, deleted Talks) is answer-history-storage.test.ts's.
 
-import { mergeGraphAnswerHistory, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../../web/ui/graph-answer-history';
+import { graphHistoryRecords, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../../web/ui/graph-answer-history';
 
 const talk = {
   title: 'Tennis partner', type: 'flow', language: 'en',
@@ -18,29 +18,16 @@ const graphRecord = {
     { questionId: 'q_1', answerId: 'a_1_0', answerText: 'Weekly', isMatch: true },
   ],
 };
-const appRecord = (talkId: string, answeredAt: number) => ({
-  id: `k:${talkId}`, talkId, title: 'Old', type: 'flow', outcome: 'mismatch' as const, answeredAt: new Date(answeredAt).toISOString(), senderIds: [], items: [],
-});
 
 afterEach(() => setGraphAnswerHistorySource(null));
 
 describe('Me tab answers from the device graph', () => {
-  it('replaces the app record of a Talk the graph has, keeps the rest, and redraws only on change', async () => {
+  it('reads one record per Talk from the graph, and redraws only on change', async () => {
     setGraphAnswerHistorySource(async () => [graphRecord]);
     expect(await refreshGraphAnswerHistory()).toBe(true);
     expect(await refreshGraphAnswerHistory()).toBe(false);
-    const merged = Object.values(mergeGraphAnswerHistory({ a: appRecord('app-1', when - 5000), b: appRecord('frames-only', when) }));
-    expect(merged.map((r) => r.talkId).sort()).toEqual(['app-1', 'frames-only']);
-    const fromGraph = merged.find((r) => r.talkId === 'app-1')!;
-    expect(fromGraph).toMatchObject({ title: 'Tennis partner', outcome: 'match', senderIds: ['adam'], answeredAt: new Date(when).toISOString() });
-    expect(fromGraph.items.map((i) => [i.prompt, i.choice])).toEqual([['Do you play tennis?', 'Yes'], ['How often do you play?', 'Weekly']]);
-  });
-
-  it('an app answer newer than the graph (still being written) wins until the next refresh', async () => {
-    setGraphAnswerHistorySource(async () => [graphRecord]);
-    await refreshGraphAnswerHistory();
-    const merged = Object.values(mergeGraphAnswerHistory({ a: appRecord('app-1', when + 60_000) }));
-    expect(merged).toHaveLength(1);
-    expect(merged[0]!.title).toBe('Old');
+    const [fromGraph] = graphHistoryRecords();
+    expect(fromGraph).toMatchObject({ talkId: 'app-1', title: 'Tennis partner', outcome: 'match', senderIds: ['adam'], answeredAt: new Date(when).toISOString() });
+    expect(fromGraph!.items.map((i) => [i.prompt, i.choice])).toEqual([['Do you play tennis?', 'Yes'], ['How often do you play?', 'Weekly']]);
   });
 });

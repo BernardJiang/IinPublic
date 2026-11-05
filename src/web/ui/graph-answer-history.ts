@@ -5,7 +5,7 @@
  */
 import { checkIfMatch } from '../../shared/talk-engine';
 import type { TypedAnswerValue } from '../../shared/typed-preference-store';
-import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryMap, type FlatAnswerHistoryRecord } from './answer-history-records';
+import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryRecord } from './answer-history-records';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -75,24 +75,6 @@ export async function refreshGraphAnswerHistory(): Promise<boolean> {
   bodies = nextBodies;
   revision += 1;
   return true;
-}
-
-/**
- * The app's history with each Talk the graph has taken from the graph. An app record newer than
- * the graph's (an answer the core is still writing) wins until the next refresh.
- */
-export function mergeGraphAnswerHistory(flat: FlatAnswerHistoryMap): FlatAnswerHistoryMap {
-  if (!byTalk.size) return flat;
-  const out: FlatAnswerHistoryMap = {};
-  const newerInApp = new Set<string>();
-  for (const [key, record] of Object.entries(flat)) {
-    const graph = byTalk.get(record.talkId);
-    if (graph && Date.parse(graph.answeredAt) >= Date.parse(record.answeredAt) - 1000) continue;
-    if (graph) newerInApp.add(record.talkId);
-    out[key] = record;
-  }
-  for (const record of byTalk.values()) if (!newerInApp.has(record.talkId)) out[record.id] = record;
-  return out;
 }
 
 /** The graph's records, one per Talk (the Me tab's history, `answer-history-storage.ts`). */

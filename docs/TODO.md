@@ -182,8 +182,11 @@ its ID.
     author (`app-answers.ts` `forget`), and the answer stops counting in `ix/co`. An answered Talk
     leaves my list (it can come back unanswered); a copy I keep stays without its answers. On the
     author's side the deletion clears `ix/outcome` for that person and withdraws a conversation
-    that came through the Talk, unless our deal was confirmed by both. Still to add: an e2e
-    journey (delete on one side, the other side's outcome and conversation follow).
+    that came through the Talk, unless our deal was confirmed by both. E2e journey:
+    `phone-path/11` (`journeys/delete-answer-journey.ts`, J-ANS-01, 2026-11-05). It found that a
+    deleted answer stayed on Me until a later redraw (the Me list merged the graph's records a
+    second time, past the deletion; fixed), and the author's withdrawn conversation now says "They
+    deleted their answer" instead of "Author removed this talk".
   - e2e verification 2026-11-05 (full web suite, 6 workers, heavy specs skipped; phone-path).
     Regressions from 2026-11-04's steps found and fixed (`1052421e`, `8267f1b6`): own-Talk
     declarations remembered as Just once (stage2/85, 89, 90, 96, stage3/14), the answer dialog

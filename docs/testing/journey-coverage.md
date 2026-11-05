@@ -27,6 +27,7 @@ batch of journeys (03–05, 2026-10-14) found three more, and the 2026-10-15 pho
 | A block made on a phone stayed on that phone: the hub and the blocked person's phone never learned it, so the blocked person still saw the full profile | `phone-path/04` J-TALK-05 | phone node relays blocks and asks the hub for status (`user-routes.ts`, `EmbeddedHubRelayClient.setBlock/getBlockStatus`); `user-routes.test.ts` |
 | Phone-path nodes ran mDNS LAN discovery: phone A and B could sync without the hub, and real phones on the Wi-Fi fed in their data (a release-smoke Place appeared on a fresh node with a dead hub) | `phone-path/03` | `scripts/e2e-phone-node.mjs` turns LAN discovery off |
 | A renamed user's TechSupport welcome went back to the old name ~5 s later (web too): the message subscription re-emitted only when the message ids changed, so a rewrite under the same id never arrived | `native-app/08`, `09` on real phones (setup waits for a welcome with the user's name) | `GunMessageStore.subscribeToMessages` signs id + text; `DirectP2PConversationTransport.mergeLiveMessages` replaces a rewritten record; `direct-p2p-conversation-transport.test.ts`, `phone-path/06` |
+| A deleted answer stayed on the Me tab (web too) until the core's forget landed and something else redrew it: the Me list merged the graph's records in a second time, past the page's deletions | `phone-path/11` J-ANS-01 | `answers-view.ts` reads `getFlatAnswerHistory` only (the merge is removed); `answer-history-storage.test.ts` |
 
 ## The four places a journey can run
 
@@ -90,6 +91,7 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-TALK-03 | Matching answer → both get a conversation | ✅ many | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-TALK-04 | Non-matching answer → no conversation for either | ✅ `stage3/11` | ✅ `phone-path/04` | — |
 | J-TALK-05 | Blocked person's Talks stop arriving | ✅ `stage2/15b` | ✅ `phone-path/04` | — |
+| J-ANS-01 | Delete my answer from Me: it leaves my Me tab at once; the author's device forgets it and withdraws our conversation ("They deleted their answer") | — | ✅ `phone-path/11` | — |
 | **Chat** | | | | |
 | J-CHAT-01 | A message sent appears on the other person's screen | ✅ `stage2/09` | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-CHAT-04 | Sending never makes anyone wait: own message at once, Send stays free, arrival within 2 s, even during a slow local save | — | ✅ `phone-path/02` | ✅ `native-app/37` |

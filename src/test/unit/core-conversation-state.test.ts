@@ -41,4 +41,12 @@ describe('conversation records', () => {
     expect(otherDealConversationIds(conversations, 't1', 'ann')).toEqual(['c2']);
     expect(supersedeConversations(conversations, ['c1', 'c3'], NOW)).toBe(false);
   });
+
+  it('says why a match is gone: the Talk was removed, or they deleted their answer', () => {
+    const conversations: Record<string, any> = { c1: { otherUserId: 'ann', talkId: 't1' }, c2: { otherUserId: 'bob', talkId: 't2' } };
+    withdrawConversation(conversations, 'ann', 't1', Date.parse(NOW));
+    withdrawConversation(conversations, 'bob', 't2', Date.parse(NOW), 'answer-deleted');
+    expect(conversations.c1.lastMessage).toMatch(/^Author removed this talk/);
+    expect(conversations.c2.lastMessage).toMatch(/^They deleted their answer/);
+  });
 });

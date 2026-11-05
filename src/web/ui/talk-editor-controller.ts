@@ -1,6 +1,5 @@
 import { escapeHtml } from './ui-formatters';
 import { getFlatAnswerHistory } from './answer-history-storage';
-import { mergeGraphAnswerHistory } from './graph-answer-history';
 import { getDefaultTalkLanguagePreference } from './ui-settings-storage';
 import {
   addAnswerToQuestion,
@@ -125,7 +124,7 @@ export function createTalkEditorController(deps: TalkEditorControllerDeps) {
       currentUserId: deps.getCurrentUserId(),
       text: deps.t,
       escapeHtml,
-      getSelfAnswer: (talkId, questionId) => Object.values(mergeGraphAnswerHistory(getFlatAnswerHistory()))
+      getSelfAnswer: (talkId, questionId) => Object.values(getFlatAnswerHistory())
         .find((record) => record.talkId === talkId)?.items.find((item) => item.questionId === questionId)?.answerId,
       addQuestionToForm: (index, container) => addQuestionToForm(index, container, formHelperOptions()),
       addAnswerToQuestion: (container, index) => addAnswerToQuestion(container, index, formHelperOptions()),

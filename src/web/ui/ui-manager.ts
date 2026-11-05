@@ -3002,8 +3002,9 @@ export class UIManager extends EventEmitter {
     otherUserId: string,
     talkId: string,
     retractedAt: number,
+    reason?: 'talk-removed' | 'answer-deleted',
   ): void {
-    markConversationWithdrawnImpl(otherUserId, talkId, retractedAt, this.conversationRecordUpdateDeps());
+    markConversationWithdrawnImpl(otherUserId, talkId, retractedAt, this.conversationRecordUpdateDeps(), reason);
   }
 
   /**
