@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { deleteMyTalk, restoreIgnoredTalk, type TalkDeletionDeps } from '../../web/ui/talk-deletion';
+import { answerTalksToDelete, deleteMyAnswers, deleteMyTalk, restoreIgnoredTalk, type TalkDeletionDeps } from '../../web/ui/talk-deletion';
 import { getMyTalks, setMyTalks } from '../../web/ui/my-talks-storage';
 import { getAnsweredTalkByContent, setAnsweredTalkByContent } from '../../web/ui/answer-preferences-storage';
 import { getFlatAnswerHistory, setFlatAnswerHistory } from '../../web/ui/answer-history-storage';
@@ -154,5 +154,40 @@ describe('deleteMyTalk', () => {
     expect(getFlatAnswerHistory()).toEqual({});
     expect(d.emit).not.toHaveBeenCalledWith('withdrawTalk', expect.anything());
     expect(d.emit).not.toHaveBeenCalledWith('retractTalk', expect.anything());
+  });
+});
+
+describe('deleteMyAnswers (Me tab: delete my answer)', () => {
+  const record = (id: string, talkId: string) => ({ id, talkId, items: [], answeredAt: '2026-11-04T10:00:00.000Z' }) as any;
+
+  it('deletes my answers to Talks I did not create, never touching my own Talk', () => {
+    setMyTalks({
+      a: { talkId: 'a', title: 'A', type: 'flow', timestamp: '', role: 'answered', completedAnswers: [{ questionId: 'q', answerId: 'x' }] },
+      c: { talkId: 'c', title: 'C', type: 'flow', timestamp: '', role: 'copied', completedAnswers: [{ questionId: 'q', answerId: 'x' }], outcome: 'match' },
+      mine: { talkId: 'mine', title: 'M', type: 'flow', timestamp: '', role: 'created' },
+    } as any);
+    setFlatAnswerHistory({ ha: record('ha', 'a'), hc: record('hc', 'c'), hm: record('hm', 'mine') });
+    setAnsweredTalkByContent({ ka: 'a', kc: 'c' });
+    expect(answerTalksToDelete(['a', 'c', 'mine', 'a', ''], getMyTalks())).toEqual(['a', 'c']);
+
+    const d = deps();
+    expect(deleteMyAnswers(['a', 'c', 'mine'], d)).toBe(2);
+
+    // The answered Talk leaves my list; the copy I keep stays, without its answers.
+    expect(getMyTalks().a).toBeUndefined();
+    expect(getMyTalks().c).toMatchObject({ role: 'copied' });
+    expect(getMyTalks().c).not.toHaveProperty('completedAnswers');
+    expect(getMyTalks().c).not.toHaveProperty('outcome');
+    expect(getMyTalks().mine).toBeDefined();
+    expect(Object.keys(getFlatAnswerHistory())).toEqual(['hm']);
+    expect(getAnsweredTalkByContent()).toEqual({});
+    expect(d.showNotification).toHaveBeenCalledWith('meAnswerDeleted', 'success');
+  });
+
+  it('does nothing for a row of only my own Talks', () => {
+    setMyTalks({ mine: { talkId: 'mine', title: 'M', type: 'flow', timestamp: '', role: 'created' } } as any);
+    const d = deps();
+    expect(deleteMyAnswers(['mine'], d)).toBe(0);
+    expect(d.displayAnswersList).not.toHaveBeenCalled();
   });
 });

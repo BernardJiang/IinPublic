@@ -110,6 +110,23 @@ describe('the exchange index', () => {
     expect(weekDaysUpTo(Date.UTC(2026, 10, 4))).toEqual(['2026-11-02', '2026-11-03', '2026-11-04']);
   });
 
+  it('a deleted answer no longer counts as answered with them, and its outcome goes', async () => {
+    const { graph, exchange } = setup();
+    const talk = flow('Tennis?');
+    const talkId = await graph.talks.create(talk);
+    const version = (await graph.talks.read(talkId))!.versionId;
+    const answerId = await graph.answers.answer({ talkId, structure: (await graph.talks.read(talkId))!, mode: 'manual', steps: [{ questionId: 'q_0', answerIds: ['a'] }] });
+    await exchange.recordOffer('jerry', talkId, version, exchangeAtoms(talk));
+    await exchange.recordAnswer('jerry', answerId, exchangeAtoms(talk));
+    await exchange.setOutcome(talkId, 'jerry', { outcome: 'matched', version: 1, responseId: 'r1', respondedAt: 'x' });
+    await exchange.forgetAnswer('jerry', talkId);
+    await exchange.clearOutcome(talkId, 'jerry');
+    const state = await exchange.state();
+    expect(state.jerry).toEqual({ exchanged: exchangeAtoms(talk).map((a) => a.atom), answered: [] });
+    expect(await exchange.outcomes(talkId)).toEqual({});
+    expect(await exchange.outcome(talkId, 'jerry')).toBeUndefined();
+  });
+
   it('keeps how I decided each answer to my Talk, and my own answer to theirs', async () => {
     const { exchange } = setup();
     await exchange.setOutcome('t1', 'jerry', { outcome: 'ignored', version: 1, responseId: 'r1', respondedAt: 'x' });

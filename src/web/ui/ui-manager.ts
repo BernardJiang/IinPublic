@@ -147,7 +147,7 @@ import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chat
 import { navigateToMyAnswerForTalk as navigateToMyAnswerForTalkImpl } from './navigate-to-answer';
 import { quickAnswerIncomingTag as quickAnswerIncomingTagImpl } from './quick-answer-incoming-tag';
 import { syncReturnHomeButton as syncReturnHomeButtonImpl } from './return-home-button';
-import { deleteMyTalk as deleteMyTalkImpl, restoreIgnoredTalk as restoreIgnoredTalkImpl } from './talk-deletion';
+import { deleteMyAnswers as deleteMyAnswersImpl, deleteMyTalk as deleteMyTalkImpl, restoreIgnoredTalk as restoreIgnoredTalkImpl } from './talk-deletion';
 import {
   markConversationWithdrawn as markConversationWithdrawnImpl,
   markConversationEnded as markConversationEndedImpl,
@@ -1332,6 +1332,7 @@ export class UIManager extends EventEmitter {
         this.showCreatorRepliesForTalk(talkId, talkTitle);
       },
       answerTag: (talkId, liked) => (liked ? this.quickAnswerIncomingTag(talkId, undefined, true) : this.quickIgnoreIncomingTalk(talkId)),
+      deleteAnswers: (talkIds) => this.deleteMyAnswers(talkIds),
       showPreferencesDialog: this.showPreferencesDialog.bind(this),
       showItemDetailsPopup: this.showDetailsPopupFor.bind(this),
       getTalkContentKey,
@@ -1964,6 +1965,11 @@ export class UIManager extends EventEmitter {
 
   public formatTalkCouldNotLoad(): string {
     return this.t('talksCouldNotLoad');
+  }
+
+  /** "<name> deleted their answer to your Talk", with the person's name as I know it. */
+  public formatAnswerDeletedByPeer(userId: string): string {
+    return this.tf('answerDeletedByPeer', { name: this.getPeerName(userId) });
   }
 
   public formatTalkLoadFailed(reason: string): string {
@@ -2616,6 +2622,16 @@ export class UIManager extends EventEmitter {
       showNotification: (message, type) => this.showNotification(message, type),
       t: (key) => this.t(key),
       emit: (event, payload) => this.emit(event, payload),
+    });
+  }
+  /** "Delete my answer" (Me tab 🗑): asks first; the authors are told through the device graph. */
+  private deleteMyAnswers(talkIds: string[]): void {
+    if (!talkIds.length || !confirm(this.tf('meDeleteAnswerConfirm', { count: talkIds.length }))) return;
+    deleteMyAnswersImpl(talkIds, {
+      displayTalksList: () => this.displayTalksList(),
+      displayAnswersList: () => this.displayAnswersList(),
+      showNotification: (message, type) => this.showNotification(message, type),
+      t: (key) => this.t(key),
     });
   }
   private restoreIgnoredTalk(talkId: string): void {

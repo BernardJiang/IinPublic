@@ -157,8 +157,16 @@ its ID.
     cannot read Tom's Talk by the app id it was created with: a Talk sent under a non-graph id
     arrives under its new graph id) and `stage3/00aa` (the creator records no answers); `00ab`
     fails the same way (not run on the baseline).
-  - Next, in order: (4) "delete my answer" in the UI (no such control today); (5) real-phone run
-    (native-app/37 now asserts graph events).
+  - Done (step 4, unit-tested only, no e2e run yet): "delete my answer" in the Me tab. A selected
+    question's 🗑 (`me-delete-answer-btn`, shown when it was answered on a Talk I did not create)
+    asks, then deletes my answers to those Talks (`talk-deletion.ts` `deleteMyAnswers`): the Me
+    records and "already answered" go, the core writes the deletion event and sends it to the
+    author (`app-answers.ts` `forget`), and the answer stops counting in `ix/co`. An answered Talk
+    leaves my list (it can come back unanswered); a copy I keep stays without its answers. On the
+    author's side the deletion clears `ix/outcome` for that person and withdraws a conversation
+    that came through the Talk, unless our deal was confirmed by both. Still to add: an e2e
+    journey (delete on one side, the other side's outcome and conversation follow).
+  - Next: (5) real-phone run (native-app/37 now asserts graph events).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)

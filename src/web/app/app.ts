@@ -6176,6 +6176,7 @@ export class IinPublicApp {
   private handleGraphEvent(event: GraphEvent): void {
     if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.peerMeshService?.setGraphOwed(event.peers); return; }
     if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
+    if (event.type === 'answer-deleted') { this.handleGraphAnswerDeleted(event.appTalkId ?? event.talkId, event.from); return; }
     if (event.type === 'talk-deleted') {
       void this.handleMeshTalkRetracted({ talkId: event.talkId, authorId: event.from, retractedAt: event.when ?? Date.now() })
         .catch((error) => console.warn('[graph-link] retraction failed:', error))
@@ -6239,6 +6240,27 @@ export class IinPublicApp {
   }
 
   /** Someone answered my Talk over a graph link: the same ingest as a response frame's. */
+  /**
+   * Someone deleted their answer to my Talk (owner decision 2026-11-03: deletions propagate). The
+   * core already dropped how I decided it (`ix/outcome`); a conversation that came through it is
+   * withdrawn, unless our deal on it was confirmed by both.
+   */
+  private handleGraphAnswerDeleted(talkId: string, from: string): void {
+    const me = this.currentUser?.id;
+    if (!me || !from || from === me) return;
+    const now = Date.now();
+    const conversations = this.uiManager.getMyConversations() as Record<string, any>;
+    for (const [conversationId, conv] of Object.entries(conversations)) {
+      if (conv?.otherUserId !== from || !conversationReferencesTalk(conv, talkId)) continue;
+      if (this.mutuallyConfirmedConversationIds.has(conversationId) || isDealMutuallyConfirmed(conv, me, from)) continue;
+      this.uiManager.markConversationWithdrawn(from, talkId, now);
+    }
+    this.uiManager.showNotification(this.uiManager.formatAnswerDeletedByPeer(from), 'info');
+    void refreshExchangeState();
+    void this.uiManager.refreshCreatorReplies();
+    this.uiManager.displayTalksList();
+  }
+
   private handleGraphAnswer(event: Extract<GraphEvent, { type: 'answer' }>): void {
     const me = this.currentUser?.id;
     const context = event.context ?? {};

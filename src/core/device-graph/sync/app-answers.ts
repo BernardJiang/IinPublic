@@ -264,6 +264,7 @@ export function createAppAnswers(options: {
           await store.put(appAnswerSoul(prefix, target.talkId), { sig: null, ev: null, sent: null });
           if (!deletionId) continue;
           deleted += 1;
+          if (target.author) await graph.exchange.forgetAnswer(target.author, target.talkId).catch(() => undefined);
           const sync = options.sync();
           if (!target.author || !sync || known?.sent !== true) continue;
           await sync.sendAnswerDeletion(target.talkId, deletionId);

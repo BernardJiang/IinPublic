@@ -200,6 +200,29 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
       }));
     },
 
+    /**
+     * An answer on this Talk between us was deleted (mine, or theirs to my Talk): it no longer
+     * counts as answered with them (`ix/co`). What passed by the offer stays.
+     */
+    async forgetAnswer(peer: string, talkId: string): Promise<void> {
+      const cache = new Map<string, string>();
+      const node = await store.get(coSoul(peer));
+      const clear: GraphNode = {};
+      for (const [atom, value] of Object.entries(node || {})) {
+        const eventId = eventIdOf(linkSoul(value));
+        if (eventId && await talkOfEvent(eventId, cache) === talkId) clear[atom] = null;
+      }
+      if (Object.keys(clear).length) await store.put(coSoul(peer), clear);
+    },
+
+    /** They deleted their answer to my Talk: how I decided it goes too. */
+    async clearOutcome(talkId: string, responder: string): Promise<void> {
+      await Promise.all([
+        store.put(souls.index(`outcome/${talkId}/${key(responder)}`), { outcome: null, version: null, responseId: null, respondedAt: null }),
+        store.put(souls.index(`outcome/${talkId}`), { [key(responder)]: null }),
+      ]);
+    },
+
     /** The send limit: may this Talk go to them now? A Talk already counted today is free. */
     async withinLimit(peer: string, talkId: string, unlimited = false): Promise<OfferPlan> {
       if (unlimited) return { send: true };

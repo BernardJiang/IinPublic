@@ -20,7 +20,8 @@ export type GraphEvent =
   | { type: 'talk-deleted'; talkId: string; from: string; when?: number }
   /** `appTalkId`: the app's id for my Talk when it is a copy (`own-talks.ts`), else the graph id. */
   | { type: 'answer'; talkId: string; appTalkId?: string; from: string; eventId: string; when?: number; mode?: string; context?: Record<string, unknown>; answers?: AppAnswer[] }
-  | { type: 'answer-deleted'; talkId: string; from: string }
+  /** Someone deleted their answer to my Talk (`appTalkId` as for `answer`). */
+  | { type: 'answer-deleted'; talkId: string; appTalkId?: string; from: string }
   /** The people my log has entries for that they have not read yet: the page keeps links wanted. */
   | { type: 'owed'; peers: string[] };
 
@@ -127,7 +128,15 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
                   push({ type: 'answer', talkId, ...(appTalkId !== talkId ? { appTalkId } : {}), from, eventId, mode, ...(typeof event?.when === 'number' ? { when: event.when } : {}), ...(context ? { context } : {}), ...(answers ? { answers } : {}) });
                 })().catch(() => push({ type: 'answer', talkId, from, eventId }));
               },
-              onAnswerDeleted: (talkId, from) => push({ type: 'answer-deleted', talkId, from }),
+              onAnswerDeleted: (talkId, from) => {
+                // Their answer no longer counts: how I decided it and what it passed go.
+                void (async () => {
+                  const appTalkId = options.appTalkId ? await options.appTalkId(talkId) : talkId;
+                  await graph.exchange.clearOutcome(appTalkId, from);
+                  await graph.exchange.forgetAnswer(from, talkId);
+                  push({ type: 'answer-deleted', talkId, ...(appTalkId !== talkId ? { appTalkId } : {}), from });
+                })().catch(() => push({ type: 'answer-deleted', talkId, from }));
+              },
               onOwedChange: (peers) => push({ type: 'owed', peers }),
             },
           });

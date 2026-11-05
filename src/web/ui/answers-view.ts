@@ -1,3 +1,4 @@
+import { answerTalksToDelete } from './talk-deletion';
 import {
   LOCAL_EXACT_CHATBOT_USER_ID,
   makeAnswerId,
@@ -37,6 +38,8 @@ type AnswersViewDeps = {
   openTalkResponses?: (talkId: string, talkTitle: string) => void;
   /** Answers a tag again from the AppBar (♡ Like / ✕ Pass): `talkId` is its My Talks entry. */
   answerTag?: (talkId: string, liked: boolean) => void;
+  /** 🗑 Delete my answers to these Talks (a Me row's Talks I did not create); asks first. */
+  deleteAnswers?: (talkIds: string[]) => void;
   showPreferencesDialog: () => void;
   /** Reuses ui-manager.ts's shared reparent-into-popup mechanism (showDetailsPopupFor) so
    *  the moved-out metadata/context/variant list keeps working without a second popup
@@ -457,6 +460,8 @@ function openAnswerTalk(row: HTMLElement, deps: AnswersViewDeps | null): void {
  */
 let answersRowSelection: RowSelection | null = null;
 let selectionDeps: AnswersViewDeps | null = null;
+const rowTalkIds = (row: HTMLElement): string[] => (row.dataset.talkIds || row.dataset.talkId || '').split(' ').filter(Boolean);
+
 function answersSelection(deps: AnswersViewDeps): RowSelection {
   selectionDeps = deps;
   answersRowSelection ??= createRowSelection({
@@ -483,6 +488,12 @@ function answersSelection(deps: AnswersViewDeps): RowSelection {
         applies: (row) => row.dataset.tagState === 'checked' && !!selectionDeps?.answerTag
           && selectionDeps.getMyTalks()[row.dataset.talkId || '']?.role !== 'created',
         run: (row) => selectionDeps?.answerTag?.(row.dataset.talkId || '', false),
+      },
+      {
+        buttonId: 'me-delete-answer-btn',
+        applies: (row) => !!selectionDeps?.deleteAnswers
+          && answerTalksToDelete(rowTalkIds(row), selectionDeps.getMyTalks()).length > 0,
+        run: (row) => selectionDeps?.deleteAnswers?.(answerTalksToDelete(rowTalkIds(row), selectionDeps.getMyTalks())),
       },
       {
         buttonId: 'me-talk-btn',
