@@ -293,6 +293,8 @@ test.describe('Talks matching — contextual chatbot Q/A memory', () => {
   });
 
   test('reuses Bob\'s root fruit choice across order and position, but not changed membership', async () => {
+    // Five people and four Talks: about two minutes under a parallel run, past the 120 s default.
+    test.setTimeout(300_000);
     const adam = await bootstrapUser(browserTom, 'Adam', 'Adam');
     contextAdam = adam.context;
     pageAdam = adam.page;
