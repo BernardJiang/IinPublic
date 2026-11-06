@@ -148,6 +148,7 @@ import {
   type TechSupportDelegateGrant,
 } from '../../shared/techsupport-delegate';
 import {
+  readCachedDelegateGrant,
   readCachedDelegateGrants,
   subscribeToDelegateGrants,
   fetchGrantLive,
@@ -3745,9 +3746,17 @@ export class IinPublicApp {
           case 'attachment-share':
             await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
             break;
-          case 'support-question':
-            await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
+          case 'support-question': {
+            const ingested = await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
+            if (!ingested) {
+              // OPEN-107: a delegate can temporarily lose its operator state while the grant
+              // relay is unreachable. Keep the encrypted question queued until a verified
+              // operator session actually materializes it; returning normally used to delete it.
+              console.warn('[Mailbox] Support question was not ingested — leaving envelope queued', envelope.id);
+              continue;
+            }
             break;
+          }
           case 'block-signal':
             await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
             break;
@@ -3952,9 +3961,9 @@ export class IinPublicApp {
    * never a `public/` path, so it does not replicate as a relay-held authority record. Idempotent
    * by questionKey: a duplicate ask overwrites the same row rather than creating a second one.
    */
-  private async ingestSupportQuestionFromMailbox(payload: MailboxSupportQuestionPayload): Promise<void> {
-    if (!this.currentUser?.id || !this.isTechSupportOperatorSession()) return;
-    if (payload.kind !== 'support-question-v1' || !payload.questionKey) return;
+  private async ingestSupportQuestionFromMailbox(payload: MailboxSupportQuestionPayload): Promise<boolean> {
+    if (!this.currentUser?.id || !this.isTechSupportOperatorSession()) return false;
+    if (payload.kind !== 'support-question-v1' || !payload.questionKey) return false;
     const gun = this.gunService.getGun();
     const existing = await new Promise<any>((resolve) => {
       const timer = setTimeout(() => resolve(null), 700);
@@ -3964,7 +3973,7 @@ export class IinPublicApp {
       });
     });
     // A question already answered must not regress to pending on a re-ask/replay.
-    if (existing?.status === 'answered') return;
+    if (existing?.status === 'answered') return true;
     const entry: SupportInboxEntry = {
       questionKey: payload.questionKey,
       question: payload.question,
@@ -3973,11 +3982,19 @@ export class IinPublicApp {
       askedAt: payload.askedAt,
       status: 'pending',
     };
-    gun.get('techsupport-inbox').get(payload.questionKey).put(entry);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Support inbox write timed out')), 2_000);
+      gun.get('techsupport-inbox').get(payload.questionKey).put(entry, (ack: { err?: unknown } | undefined) => {
+        clearTimeout(timer);
+        if (ack?.err) reject(new Error(String(ack.err)));
+        else resolve();
+      });
+    });
     // The operator answers in the ordinary DM overlay, which needs the conversation record; since
     // TechSupport is Contacts-only it never meets the asker through a room member list.
     if (payload.askedBy && payload.askedBy !== TECHSUPPORT_ROOT_USER_ID) this.ensureSupportConversationRecord(payload.askedBy);
     console.log('[Support] Ingested pending question', payload.questionKey, 'from', payload.askedBy);
+    return true;
   }
 
   /**
@@ -4076,7 +4093,15 @@ export class IinPublicApp {
       // cache must never authorize an actual answer (design note "not trusted from a stale
       // cache"). Opt-in alone (without a still-valid grant) is also not enough.
       if (!this.techSupportDelegateOptedIn) return;
-      const grant = await this.fetchOwnGrantLiveOrRelay(pair.pub);
+      let grant: TechSupportDelegateGrant | null = null;
+      try {
+        grant = await this.fetchOwnGrantLiveOrRelay(pair.pub);
+      } catch (error) {
+        // Answering remains fail-closed: retaining the grant keeps the inbox alive during a
+        // network outage, but publishing a new trusted answer still requires a fresh check.
+        console.warn('[Support] Cannot answer — delegate grant lookup is unavailable', error);
+        return;
+      }
       if (!grant) {
         console.warn('[Support] Cannot answer — delegate grant is missing, expired, or revoked');
         return;
@@ -4907,9 +4932,11 @@ export class IinPublicApp {
    * still a live fetch (not the cache), just one that actually reaches a native device's session.
    */
   private async fetchOwnGrantLiveOrRelay(pub: string): Promise<TechSupportDelegateGrant | null> {
-    const raw = await fetchGrantLive(this.gunService.getGun(), pub);
-    const live = await verifyValidDelegateGrant(raw);
-    if (live) return live;
+    const live = await fetchGrantLive(this.gunService.getGun(), pub);
+    // `fetchGrantLive` returns only a signature-verified, monotonic record. A present but revoked
+    // or expired record is therefore an authoritative denial and must win immediately, even if
+    // the HTTP relay is unavailable. Only an absent/timed-out Gun read falls through to HTTP.
+    if (live) return isValidDelegateGrant(live) ? live : null;
     const grants = await fetchDelegateGrantsFromServer(this.getBackendApiBase());
     const relayed = grants.find((grant) => grant.delegatePub === pub) ?? null;
     return isValidDelegateGrant(relayed) ? relayed : null;
@@ -5037,7 +5064,29 @@ export class IinPublicApp {
     if (!this.currentUser || this.currentUser.id === TECHSUPPORT_ROOT_USER_ID) return;
     const pair = this.gunService.getStoredPair();
     if (!pair?.pub) return;
-    const grant = await this.fetchOwnGrantLiveOrRelay(pair.pub);
+    let grant: TechSupportDelegateGrant | null;
+    try {
+      grant = await this.fetchOwnGrantLiveOrRelay(pair.pub);
+    } catch (error) {
+      // OPEN-107: an aborted/failed relay request is not a revocation. Retain the newest verified
+      // grant from this session or the monotonic local cache, while still applying expiry locally.
+      const retained = this.techSupportDelegateGrant?.delegatePub === pair.pub
+        ? this.techSupportDelegateGrant
+        : readCachedDelegateGrant(pair.pub);
+      if (isValidDelegateGrant(retained)) {
+        const validRetained = retained as TechSupportDelegateGrant;
+        this.techSupportDelegateGrant = validRetained;
+        this.techSupportDelegateOptedIn = this.loadDelegateOptInFromStorage();
+        this.uiManager.setTechSupportDelegateEligibility(true, validRetained.label || '', this.techSupportDelegateOptedIn);
+        if (this.techSupportDelegateOptedIn) this.subscribeToSupportInboxIfTechSupport();
+      } else {
+        this.techSupportDelegateGrant = null;
+        this.techSupportDelegateOptedIn = false;
+        this.uiManager.setTechSupportDelegateEligibility(false, '', false);
+      }
+      console.warn('[Support] Delegate grant lookup unavailable — retained last verified state', error);
+      return;
+    }
     this.techSupportDelegateGrant = grant;
     this.techSupportDelegateOptedIn = !!grant && this.loadDelegateOptInFromStorage();
     this.uiManager.setTechSupportDelegateEligibility(!!grant, grant?.label || '', this.techSupportDelegateOptedIn);
@@ -5051,7 +5100,15 @@ export class IinPublicApp {
       // Re-verify live rather than trusting the boot-time check — the grant could have been
       // revoked since (design note's "re-verified at answer time, not a stale cache" discipline).
       const pair = this.gunService.getStoredPair();
-      const grant = pair?.pub ? await this.fetchOwnGrantLiveOrRelay(pair.pub) : null;
+      let grant: TechSupportDelegateGrant | null = null;
+      try {
+        grant = pair?.pub ? await this.fetchOwnGrantLiveOrRelay(pair.pub) : null;
+      } catch (error) {
+        // Leave the existing eligibility and opt-in state untouched. A retry can succeed when
+        // connectivity returns; a transport failure must not masquerade as revocation.
+        console.warn('[Support] Cannot refresh delegate grant while the relay is unavailable', error);
+        return;
+      }
       if (!grant) {
         this.techSupportDelegateGrant = null;
         this.techSupportDelegateOptedIn = false;

@@ -89,23 +89,22 @@ export async function applyRawDelegateGrant(data: unknown): Promise<TechSupportD
  * fetch for both cases: GET the full roster the hub actually holds and verify+cache each one.
  */
 export async function fetchDelegateGrantsFromServer(apiBase: string): Promise<TechSupportDelegateGrant[]> {
-  try {
-    const res = await boundedFetch(`${apiBase}/api/support/delegate-grants`);
-    if (!res.ok) return [];
-    const body = (await res.json()) as { grants?: unknown[]; revocations?: unknown[] };
-    const grants = Array.isArray(body.grants) ? body.grants : [];
-    const revocations = Array.isArray(body.revocations) ? body.revocations : [];
-    const verified: TechSupportDelegateGrant[] = [];
-    // Apply current slots first and append-only tombstones second. Reconciliation is monotonic in
-    // either order, but this ordering also makes the fresh-install behavior explicit and stable.
-    for (const raw of [...grants, ...revocations]) {
-      const grant = await applyRawDelegateGrant(raw);
-      if (grant) verified.push(grant);
-    }
-    return verified;
-  } catch {
-    return [];
+  const res = await boundedFetch(`${apiBase}/api/support/delegate-grants`);
+  // An unavailable relay is not an authoritative empty roster. Callers that use this result to
+  // enable/disable delegate mode must be able to preserve the last signature-verified grant on a
+  // transport failure instead of silently treating the person as revoked (OPEN-107).
+  if (!res.ok) throw new Error(`Delegate grant roster returned ${res.status}`);
+  const body = (await res.json()) as { grants?: unknown[]; revocations?: unknown[] };
+  const grants = Array.isArray(body.grants) ? body.grants : [];
+  const revocations = Array.isArray(body.revocations) ? body.revocations : [];
+  const verified: TechSupportDelegateGrant[] = [];
+  // Apply current slots first and append-only tombstones second. Reconciliation is monotonic in
+  // either order, but this ordering also makes the fresh-install behavior explicit and stable.
+  for (const raw of [...grants, ...revocations]) {
+    const grant = await applyRawDelegateGrant(raw);
+    if (grant) verified.push(grant);
   }
+  return verified;
 }
 
 /** Persist a root-signed grant before presenting it as issued to the master. */

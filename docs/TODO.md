@@ -130,6 +130,17 @@ its ID.
   inbox. Two fixes to decide: keep the last good grant until a lookup actually says revoked or
   expired (a network failure is not a revocation), and never delete a support envelope this
   session did not ingest.
+  **Phone-free repair 2026-11-05 (1.0.230):** the relay roster fetch now distinguishes an authoritative
+  empty roster from HTTP/transport failure. A failed lookup retains this installation's last
+  signature-verified, still-unexpired grant and opt-in state; a signed revocation, expiry or
+  successful absent result still disables delegate mode. Answer publication remains fail-closed
+  and requires a fresh successful grant check. Support-question handlers now return an explicit
+  ingestion result, await the local Gun write acknowledgement, and the drain loop leaves an
+  unconsumed envelope queued. Focused tests cover failed versus empty roster reads, valid versus
+  expired retained grants, and delete-only-after-ingest; all 401 runnable Jest suites / 3,618
+  tests, typecheck, lint, and production web/server builds pass. `native-app/09` now aborts the
+  grant endpoint once and asserts the phone remains an operator before answering, but the real
+  TechSupport signing credential is not installed on this machine, so that physical rerun remains.
 
 - [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
   `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains

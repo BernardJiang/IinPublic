@@ -182,6 +182,24 @@ test.describe('Native app: a real Honor phone is a TechSupport delegate, answeri
     await afterSync();
     await expect(honor.window.locator('#support-inbox-section')).toBeVisible({ timeout: 15_000 });
 
+    // OPEN-107 regression: native embedded Gun does not peer the grant roster from the hub, so a
+    // periodic eligibility refresh falls through to this HTTP route. Abort exactly that lookup
+    // once and prove the last signature-verified grant remains active; before the repair this
+    // transient failure cleared operator mode and the next support envelope was deleted unread.
+    const grantRosterRoute = '**/api/support/delegate-grants';
+    await honor.window.route(grantRosterRoute, (route) => route.abort('failed'));
+    const retainedAfterLookupFailure = await honor.window.evaluate(async () => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
+      await app?.checkOwnDelegateEligibility?.();
+      return {
+        operator: !!app?.isTechSupportOperatorSession?.(),
+        hasGrant: !!app?.techSupportDelegateGrant,
+        optedIn: !!app?.techSupportDelegateOptedIn,
+      };
+    });
+    await honor.window.unroute(grantRosterRoute);
+    expect(retainedAfterLookupFailure).toEqual({ operator: true, hasGrant: true, optedIn: true });
+
     // 4. Essential phone: a completely different, real ordinary user asking a real question.
     essential = await launchAndroidUserViaAdb({ deviceSerial: ASKER_SERIAL, hubGunUrl: lanHubUrl, resetAppData: true });
     essential.window.on('console', (m) => console.log('[Essential]:', m.text()));

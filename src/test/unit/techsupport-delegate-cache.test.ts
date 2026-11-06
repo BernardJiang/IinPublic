@@ -5,6 +5,7 @@ import {
   readCachedDelegateGrant,
   reconcileVerifiedDelegateGrant,
   publishDelegateGrantToServer,
+  fetchDelegateGrantsFromServer,
 } from '../../web/services/techsupport-delegate-cache';
 
 function grant(
@@ -67,5 +68,29 @@ describe('TechSupport delegate grant publication', () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 503 } as Response)) as typeof fetch;
     await expect(publishDelegateGrantToServer('http://localhost:3001', grant('2026-10-31T00:00:00.000Z')))
       .rejects.toThrow('Delegate grant storage returned 503');
+  });
+});
+
+describe('TechSupport delegate roster availability (OPEN-107)', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('distinguishes an authoritative empty roster from a failed lookup', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ grants: [], revocations: [] }),
+    } as unknown as Response)) as typeof fetch;
+    await expect(fetchDelegateGrantsFromServer('http://localhost:3001')).resolves.toEqual([]);
+
+    global.fetch = jest.fn(async () => ({ ok: false, status: 503 } as Response)) as typeof fetch;
+    await expect(fetchDelegateGrantsFromServer('http://localhost:3001'))
+      .rejects.toThrow('Delegate grant roster returned 503');
+  });
+
+  it('does not turn a transport exception into an empty roster', async () => {
+    global.fetch = jest.fn(async () => { throw new Error('hub request aborted'); }) as typeof fetch;
+    await expect(fetchDelegateGrantsFromServer('http://localhost:3001'))
+      .rejects.toThrow('hub request aborted');
   });
 });
