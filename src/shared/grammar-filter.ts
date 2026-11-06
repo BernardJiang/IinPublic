@@ -24,7 +24,34 @@ export function grammarVersionFor(language: string | undefined): GrammarVersion 
 
 const FULL_TO_HALF: Record<string, string> = { '？': '?', '！': '!', '，': ',', '：': ':', '；': ';', '。': '.' };
 const HALF_TO_FULL: Record<string, string> = { '?': '？', '!': '！', ',': '，', ':': '：', ';': '；', '.': '。' };
-const HAN = '\\p{Script=Han}';
+/*
+ * No Unicode property escapes (backslash-p classes, such as L or Script=Han): the phones' embedded Node has no full
+ * ICU, where they do not compile (2026-11-05: every Talk failed to reach the device graph on a
+ * phone). And the filter must give the same text on every device, so there is no per-runtime
+ * fallback either: letters and case come from case mapping (built into V8 without ICU), and the
+ * Han script from its code point blocks.
+ */
+const HAN = '[\\u2E80-\\u2E99\\u2E9B-\\u2EF3\\u2F00-\\u2FD5\\u3005\\u3007\\u3021-\\u3029\\u3038-\\u303B'
+  + '\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFA6D\\uFA70-\\uFAD9\\u{20000}-\\u{2A6DF}\\u{2A700}-\\u{2EBEF}'
+  + '\\u{2F800}-\\u{2FA1F}\\u{30000}-\\u{323AF}]';
+// One character is tested at a time, so a block's combining marks in the class do no harm.
+// eslint-disable-next-line no-misleading-character-class
+const UNCASED_LETTERS = new RegExp(`${HAN}|[\\u3041-\\u3096\\u30A1-\\u30FA\\uAC00-\\uD7A3\\u0600-\\u06FF\\u0590-\\u05FF\\u0E00-\\u0E7F\\u0900-\\u097F]`, 'u');
+
+/** A character with an upper and a lower case form, in its lower one. */
+function isLower(ch: string): boolean {
+  return ch.toUpperCase() !== ch && ch.toLowerCase() === ch;
+}
+
+/** A character with an upper and a lower case form, in its upper one. */
+function isUpper(ch: string): boolean {
+  return ch.toLowerCase() !== ch && ch.toUpperCase() === ch;
+}
+
+/** A letter: a cased one, or one of the common scripts without case (Han, kana, Hangul, …). */
+function isLetter(ch: string): boolean {
+  return ch.toUpperCase() !== ch.toLowerCase() || UNCASED_LETTERS.test(ch);
+}
 
 function collapseSpaces(text: string): string {
   return text.replace(/\s+/gu, ' ').trim();
@@ -34,14 +61,15 @@ function enV1(input: string, role: TextRole, endsWithQuestionMark: boolean): str
   let text = collapseSpaces(input);
   text = text.replace(/[？！，：；。]/gu, (mark) => FULL_TO_HALF[mark]!);
   text = text.replace(/ +([?!.,:;])/gu, '$1');
-  text = text.replace(/([,:;])(?=\p{L})/gu, '$1 ');
+  text = text.replace(/([,:;])(?=(.))/gu, (_all, mark: string, next: string) => (isLetter(next) ? `${mark} ` : mark));
   text = text.replace(/[?!.]{2,}$/u, (run) => run[0]!);
   if (role === 'question' && endsWithQuestionMark && text) {
     text = /[.!]$/u.test(text) ? `${text.slice(0, -1)}?` : (text.endsWith('?') ? text : `${text}?`);
   }
   const firstWord = text.match(/^\S+/u)?.[0] || '';
-  if (/^\p{Ll}/u.test(text) && !/\p{Lu}/u.test(firstWord.slice(1))) {
-    text = text[0]!.toUpperCase() + text.slice(1);
+  const [first = '', ...rest] = Array.from(firstWord);
+  if (isLower(first) && !rest.some(isUpper)) {
+    text = first.toUpperCase() + text.slice(first.length);
   }
   return text;
 }

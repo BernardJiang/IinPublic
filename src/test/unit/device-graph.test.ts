@@ -112,6 +112,35 @@ describe('grammar filter (spec §31.3a)', () => {
     expect(filterText(output, 'zh', 'question')).toBe(output);
   });
 
+  it('reads letters and case without Unicode property escapes (the phones\' Node has no full ICU)', () => {
+    expect(filterText('Tennis,;golf', 'en', 'choice')).toBe('Tennis,; golf');
+    expect(filterText('Tennis,网球', 'en', 'choice')).toBe('Tennis, 网球');
+    expect(filterText('Tennis,1', 'en', 'choice')).toBe('Tennis,1');
+    expect(filterText('élan', 'en', 'choice')).toBe('Élan');
+    expect(filterText('eBay', 'en', 'choice')).toBe('eBay');
+    expect(filterText('42 balls', 'en', 'choice')).toBe('42 balls');
+    expect(filterText('你 𠀀好吗', 'zh', 'question')).toBe('你𠀀好吗？');
+  });
+
+  it('no device-core or shared code uses a Unicode property escape outside a guarded RegExp', () => {
+    // A `\p{…}` regex does not compile on the phones' embedded Node (no full ICU); only
+    // reputation.ts builds one inside a try with a fallback.
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts')) files.push(full);
+      }
+    };
+    walk(path.join(__dirname, '../../core'));
+    walk(path.join(__dirname, '../../shared'));
+    const offenders = files
+      .filter((file) => !file.endsWith(`${path.sep}reputation.ts`))
+      .filter((file) => /\\p\{/.test(fs.readFileSync(file, 'utf8')));
+    expect(offenders).toEqual([]);
+  });
+
   it('other languages are used exactly as written', () => {
     expect(grammarVersionFor('es')).toBeUndefined();
     expect(filterText(' ¿juegas  al tenis ', 'es', 'question')).toBe(' ¿juegas  al tenis ');

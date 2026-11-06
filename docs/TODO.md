@@ -208,7 +208,14 @@ its ID.
     answering past a flow's match, or racing a redraw or a toast.
     Re-run 2026-11-05: 347 passed, 3 failed (stage1/95 screenshot of a redrawn row and stage2/08
     match toast over the filter bar, both fixed in the spec; stage3/14 passes alone).
-  - Next: (5) real-phone run (native-app/37 now asserts graph events).
+  - (5) real-phone run, 2026-11-05, only the C10 attached (one phone): the one-phone specs
+    (05, 07, 12, 18, 26, 34, 35, 36) on 1.0.225 pass (13 passed, 1 skipped by its own gate).
+    It found a release blocker: on phones no Talk reached the device graph, because the grammar
+    filter's Unicode property escapes (`\p{L}`) do not compile on the embedded Node (no full
+    ICU); fixed in `grammar-filter.ts` with a guard test. 07 now checks the Talk in the graph (the
+    old private `talks/<id>` record is gone); 12 sends its Talk over a graph link before answering.
+    Still to run: the two-phone journeys (native-app/37, 38, 28/33, 13, 30) when two or more
+    phones are attached.
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)

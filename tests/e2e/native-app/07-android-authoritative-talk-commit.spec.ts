@@ -3,7 +3,8 @@
  *
  * A local `myTalks` projection used to appear before the Gun repository write completed. If
  * that write failed, users saw "Failed to create talk" while E2E still found the ghost OUT row
- * and passed. This opt-in test requires the real repository record as well as the UI row.
+ * and passed. This opt-in test requires the Talk in the device graph (OPEN-106) as well as the
+ * UI row.
  */
 import { expect, test } from '@playwright/test';
 import * as os from 'os';
@@ -70,24 +71,20 @@ test.describe('Native app: Android authoritative Talk commit', () => {
     });
     await forceJoinGlobal(user.window);
 
+    // The graph's error count persists with the app's data: only errors from this Talk count.
+    const errorsBefore = await user.window.evaluate(async () => Number((await (window as any).__iinpublic_device_graph_status?.())?.errors ?? 0));
     const title = `android-authoritative-${ANDROID_SERIAL}-${Date.now()}`;
     const created = await createTagTalkViaEditor(user.window, { title, timeoutMs: 90_000 });
-    // Talks are stored SEA-encrypted in the owner's private space at `talks/<id>`
-    // (GunTalkRepository.authoredSoul, since 627e04ab), not the old public `users/<pub>/talks/<id>`.
+    // OPEN-106: my Talks are committed to the device graph (the old private `talks/<id>` record is
+    // gone). The core reads it back from the graph under the id the OUT row carries.
     const record = await user.window.evaluate(async (talkId) => {
       const app = (window as any).__iinpublic_app?.getApp?.();
-      const ownerSeaPub = String(app?.gunService?.getStoredPair?.()?.pub || '');
-      if (!ownerSeaPub) throw new Error('No SEA public key for repository verification');
-      const raw = await app.gunService.getPrivate(`talks/${encodeURIComponent(talkId)}`);
-      return {
-        version: raw?.version,
-        role: raw?.role,
-        ownerMatches: raw?.ownerSeaPub === ownerSeaPub,
-        talkId: raw?.talkId,
-        parsedTalkId: raw?.talkJson ? JSON.parse(raw.talkJson)?.id : '',
-      };
+      const body = await app?.coreRequest?.({ name: 'graph.talkBody', talkId });
+      const status = await (window as any).__iinpublic_device_graph_status?.();
+      return { id: body?.id, title: body?.title, hasQuestions: Array.isArray(body?.questions) && body.questions.length > 0, graphErrors: status?.errors ?? null };
     }, created.talkId);
+    record.graphErrors = record.graphErrors === null ? null : record.graphErrors - errorsBefore;
 
-    expect(record).toEqual({ version: 2, role: 'authored', ownerMatches: true, talkId: created.talkId, parsedTalkId: created.talkId });
+    expect(record).toEqual({ id: created.talkId, title, hasQuestions: true, graphErrors: 0 });
   });
 });

@@ -28,6 +28,7 @@ batch of journeys (03–05, 2026-10-14) found three more, and the 2026-10-15 pho
 | Phone-path nodes ran mDNS LAN discovery: phone A and B could sync without the hub, and real phones on the Wi-Fi fed in their data (a release-smoke Place appeared on a fresh node with a dead hub) | `phone-path/03` | `scripts/e2e-phone-node.mjs` turns LAN discovery off |
 | A renamed user's TechSupport welcome went back to the old name ~5 s later (web too): the message subscription re-emitted only when the message ids changed, so a rewrite under the same id never arrived | `native-app/08`, `09` on real phones (setup waits for a welcome with the user's name) | `GunMessageStore.subscribeToMessages` signs id + text; `DirectP2PConversationTransport.mergeLiveMessages` replaces a rewritten record; `direct-p2p-conversation-transport.test.ts`, `phone-path/06` |
 | A deleted answer stayed on the Me tab (web too) until the core's forget landed and something else redrew it: the Me list merged the graph's records in a second time, past the page's deletions | `phone-path/11` J-ANS-01 | `answers-view.ts` reads `getFlatAnswerHistory` only (the merge is removed); `answer-history-storage.test.ts` |
+| On phones no Talk reached the device graph (every write failed): the grammar filter used Unicode property escapes (`\p{L}`), which the embedded Node (no full ICU) cannot compile | `native-app/07` on the C10 (1.0.224) | `grammar-filter.ts` uses case mapping and code point blocks; `device-graph.test.ts` (no property escapes in core/shared) |
 
 ## The four places a journey can run
 
