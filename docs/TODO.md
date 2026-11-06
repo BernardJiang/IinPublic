@@ -241,8 +241,14 @@ its ID.
     nobody owed, so no link ever opened. `graph.offer` now returns `waiting` (no keys yet), the app
     asks the mesh to link them, and the room catch-up offers the Talk when the link opens.
     (a) is still open after that fix: the client that waits now asks for the link, but the two
-    clients' link does not open (their Nearby swaps go unanswered too); 1.0.227 logs why a link
-    fails, to find whether the knock or the WebRTC connection is the break.
+    clients' link does not open (their Nearby swaps go unanswered too). 1.0.227 logs why: signaling
+    between the two clients does pass through the owner (one client reached ICE `failed`, the other
+    timed out idle), but no ICE path opens between two clients, while owner ↔ client links open in
+    about a second. Each phone's WebView uses TURN on its own node (`local-link-turn-relay.ts`), and
+    the node's relay sends across the group; client → client packets would have to cross the
+    owner's network, and these owners (C10, P30) do not forward between their clients. Direct
+    client dialing therefore has no path on this hardware; needs an owner decision (the owner's
+    TURN relay for clients, or the owner forwarding the pair's encrypted souls).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)
