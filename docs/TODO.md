@@ -214,8 +214,14 @@ its ID.
     filter's Unicode property escapes (`\p{L}`) do not compile on the embedded Node (no full
     ICU); fixed in `grammar-filter.ts` with a guard test. 07 now checks the Talk in the graph (the
     old private `talks/<id>` record is gone); 12 sends its Talk over a graph link before answering.
-    Still to run: the two-phone journeys (native-app/37, 38, 28/33, 13, 30) when two or more
-    phones are attached.
+    Multi-phone, same day, 1.0.225 on the C10, P30 and FRD (PH-1 at 9% battery, left out):
+    37 (Talk → answer → match → P2P chat, graph outcome) and 38 pass (38's J-ROOM-03 failed once
+    with "creator never entered Place", passed alone); 28 + 33 pass; 13 (three phones) passes;
+    10 and 11 (phone + MacMini app, desktop bundle rebuilt at 1.0.225) pass (10 failed once,
+    passed on rerun). 09 got past the support thread once its stale step was fixed (a contact
+    opens the person page, then the DM entry), then lost the MacMini's question on the FRD
+    delegate: OPEN-107, a TechSupport delegate bug, not OPEN-106. Not run: 30 (four phones; PH-1 battery),
+    29 (cellular; no SIM phone on mobile data).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)
@@ -462,6 +468,16 @@ its ID.
   crash in the 30 minutes after it. Storage was fine (72% free). IinPublic's involvement is
   unknown: the planned force-stop test was not run before the reboot. Treat as an observation
   unless it recurs with a BLE-using Always mode.
+
+- [ ] **OPEN-107 — A TechSupport delegate silently loses support questions when a grant lookup
+  times out (found 2026-11-05, native-app/09 on the FRD).** The periodic delegate check
+  (`app.ts`, the refresh that sets `techSupportDelegateGrant = await fetchOwnGrantLiveOrRelay(...)`)
+  treats a failed lookup (hub request aborted) as "no grant": the session stops being an operator,
+  and the next support envelope is drained and deleted without being ingested
+  (`ingestSupportQuestionFromMailbox` returns early), so the asker's question never reaches any
+  inbox. Two fixes to decide: keep the last good grant until a lookup actually says revoked or
+  expired (a network failure is not a revocation), and never delete a support envelope this
+  session did not ingest.
 
 - [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
   `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains

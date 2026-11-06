@@ -92,6 +92,9 @@ async function askTechSupport(page: Page, question: string): Promise<void> {
   await afterNav();
   const supportRow = page.locator(`.contact-support-item[data-contact-user-id="${TECHSUPPORT_ROOT_USER_ID}"]`);
   await domClick(supportRow.locator('.contact-item-name'));
+  // A contact opens their person page; its DM entry opens the thread (as stage2/00m does).
+  await expect(page.locator('#peer-detail-overlay')).toBeVisible({ timeout: 15_000 });
+  await domClick(page.locator('[data-testid="dm-thread-entry"]'));
   await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#conversation-messages')).toContainText('Welcome to IinPublic', { timeout: 15_000 });
   await page.locator('#conversation-message-input').fill(question);
