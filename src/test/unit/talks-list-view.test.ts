@@ -296,6 +296,52 @@ describe('displayTalksList', () => {
     expect(showNotification).toHaveBeenCalledWith('talksBroadcastDisabled', 'success');
   });
 
+  it('gives an outgoing Tag its own broadcast toggle without triggering the Tag action', () => {
+    jest.useFakeTimers();
+    installTalksDom();
+    localStorage.setItem('myTalks', JSON.stringify({
+      tag: {
+        talkId: 'tag', title: 'Tennis', type: 'tag', role: 'created',
+        timestamp: '2026-09-12T00:00:00.000Z',
+        fullTalk: {
+          id: 'tag', title: 'Tennis', type: 'tag',
+          questions: [{ id: 'q1', text: 'Tennis', answers: [{ id: 'yes', text: 'Yes' }] }],
+        },
+      },
+    }));
+    const setTalkDisabled = jest.fn();
+    const emit = jest.fn();
+    renderFresh(makeDeps({ setTalkDisabled, emit }));
+
+    const checkbox = document.querySelector<HTMLInputElement>('.talk-tag-out .talk-broadcast-toggle-checkbox');
+    expect(checkbox).not.toBeNull();
+    checkbox!.click();
+
+    expect(setTalkDisabled).toHaveBeenCalledWith('tag', true);
+    expect(emit).not.toHaveBeenCalledWith('loadTalkForEdit', expect.anything());
+  });
+
+  it('keeps the copied Tag text as the primary Pass target beside its broadcast toggle', () => {
+    jest.useFakeTimers();
+    installTalksDom();
+    localStorage.setItem('myTalks', JSON.stringify({
+      tag: {
+        talkId: 'tag', title: 'Tacos', type: 'tag', role: 'copied',
+        timestamp: '2026-09-12T00:00:00.000Z',
+        fullTalk: { id: 'tag', title: 'Tacos', type: 'tag', questions: [] },
+      },
+    }));
+    const quickIgnoreIncomingTalk = jest.fn();
+    renderFresh(makeDeps({ quickIgnoreIncomingTalk }));
+
+    const chip = document.querySelector<HTMLElement>('.talk-tag-out[data-role="copied"]');
+    expect(chip?.querySelector('.talk-tag-text')?.nextElementSibling?.classList).toContain('talk-tag-broadcast-toggle');
+    chip?.querySelector<HTMLElement>('.talk-tag-text')?.click();
+    jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
+
+    expect(quickIgnoreIncomingTalk).toHaveBeenCalledWith('tag', undefined);
+  });
+
   it('likes a tag on tap, passes it on Delete or with the toolbar on a selection', () => {
     jest.useFakeTimers();
     installTalksDom();

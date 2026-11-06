@@ -93,6 +93,19 @@ describe('production/development topology contract', () => {
     expect(nodeBridge).toContain('lastUpdateTime');
   });
 
+  it('bounds Android Node diagnostics and isolates Node from disk-write failures', () => {
+    const nativeShim = fs.readFileSync(
+      path.join(repoRoot, 'android/app/src/main/cpp/native-lib.cpp'),
+      'utf8',
+    );
+
+    expect(nativeShim).toContain('NODE_STDIO_LOG_MAX_BYTES = 4 * 1024 * 1024');
+    expect(nativeShim).toContain('/node-stdio.log.1');
+    expect(nativeShim).toContain('redirect_node_stdio_to_bounded_log(sandbox_dir)');
+    expect(nativeShim).toContain('if (log_fd < 0) continue; // Always drain the pipe');
+    expect(nativeShim).not.toContain('dup2(log_fd, STDOUT_FILENO)');
+  });
+
   it('quarantines only transient signaling chunks before embedded Gun starts', () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-radata-quarantine-'));
     const radataDir = path.join(dataDir, 'radata');

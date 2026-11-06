@@ -185,6 +185,7 @@ import {
   getActiveMatchCollectionSession,
   recordMatchCollectionDelivery,
   recordMatchCollectionExchange,
+  recordMatchCollectionExchangeForSession,
   startMatchCollectionSession,
 } from '../services/match-collection-session';
 import { showEncounterLocationPicker } from '../ui/encounter-location-picker';
@@ -3762,7 +3763,9 @@ export class IinPublicApp {
               });
             }
           } else if (event?.kind === 'talk-response' && event.payload) {
-            await this.handleMeshTalkResponse(event.payload);
+            await this.handleMeshTalkResponse(event.payload, {
+              collectionSessionId: String(event.collectionSessionId || ''),
+            });
           } else {
             continue;
           }
@@ -4543,7 +4546,10 @@ export class IinPublicApp {
     return true;
   }
 
-  private async handleMeshTalkResponse(payload: P2PMeshTalkResponsePayload): Promise<void> {
+  private async handleMeshTalkResponse(
+    payload: P2PMeshTalkResponsePayload,
+    context: { collectionSessionId?: string } = {},
+  ): Promise<void> {
     if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
     if (!talkContactPolicyAllowsPeer(
       payload.responderId,
@@ -4595,6 +4601,7 @@ export class IinPublicApp {
           version: incomingVersion,
           respondedAt: incomingRespondedAt,
           answers: decrypted.answers,
+          ...(context.collectionSessionId ? { collectionSessionId: context.collectionSessionId } : {}),
         },
       );
 
@@ -4675,6 +4682,7 @@ export class IinPublicApp {
         version: incomingVersion,
         respondedAt: incomingRespondedAt,
         answers: decrypted.answers,
+        ...(context.collectionSessionId ? { collectionSessionId: context.collectionSessionId } : {}),
       },
     );
     if (!isMatch) return;
@@ -6309,6 +6317,8 @@ export class IinPublicApp {
       respondedAt?: string;
       answers?: any[];
       direction?: 'sent' | 'received';
+      /** Native background replies retain the exact outing that authored the delivery. */
+      collectionSessionId?: string;
     },
   ): void {
     if (!this.currentUser?.id || !peerId || peerId === this.currentUser.id || !talkId) return;
@@ -6318,7 +6328,9 @@ export class IinPublicApp {
     this.scheduleContactsPrune();
     const collectionTag = meta?.direction === 'received'
       ? null
-      : recordMatchCollectionExchange(peerId, talkId, outcome);
+      : meta?.collectionSessionId
+        ? recordMatchCollectionExchangeForSession(meta.collectionSessionId, peerId, talkId, outcome)
+        : recordMatchCollectionExchange(peerId, talkId, outcome);
     // What it records is the core's (src/core/exchange-recording.ts); this writes it. The exchange
     // log lives in the device core's Gun (OPEN-88, OPEN-91 P1) and the GUI's view updates at once.
     const input = {

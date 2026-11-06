@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 #include <string>
 #include <android/log.h>
@@ -30,6 +32,139 @@
 /* ── thread-local state for the Node run ───────────────────── */
 static std::string g_script_path_full;     // full path to main.js
 static bool        g_started = false;
+
+/* ── bounded Node stdout/stderr capture ────────────────────────────────
+ * Node must never write directly to the on-disk log. A regular-file fd lets the file grow
+ * without limit and propagates ENOSPC back into console writes. Instead Node writes to a pipe;
+ * this native pump always drains it, rotates at 4 MiB, retains one 4 MiB backup, and drops bytes
+ * while storage is unavailable. Logging can therefore fail without taking down the runtime.
+ */
+static constexpr off_t NODE_STDIO_LOG_MAX_BYTES = 4 * 1024 * 1024;
+static constexpr int NODE_STDIO_LOG_RETRY_SECONDS = 5;
+
+struct NodeStdioLogPump {
+    int read_fd;
+    std::string path;
+    std::string rotated_path;
+};
+
+static time_t monotonic_seconds() {
+    struct timespec now{};
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;
+    return now.tv_sec;
+}
+
+static int open_bounded_node_log(const NodeStdioLogPump& pump, off_t* size_out) {
+    struct stat current{};
+    if (stat(pump.path.c_str(), &current) == 0 && current.st_size > NODE_STDIO_LOG_MAX_BYTES) {
+        // A legacy unbounded log may already be gigabytes large on a full device. Truncate it in
+        // place before trying to create anything else; rename would preserve the storage outage.
+        int recovery_fd = open(pump.path.c_str(), O_WRONLY | O_TRUNC | O_CLOEXEC);
+        if (recovery_fd >= 0) close(recovery_fd);
+    }
+    struct stat rotated{};
+    if (stat(pump.rotated_path.c_str(), &rotated) == 0
+            && rotated.st_size > NODE_STDIO_LOG_MAX_BYTES) {
+        unlink(pump.rotated_path.c_str());
+    }
+    int fd = open(pump.path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    if (fd < 0) return -1;
+    struct stat opened{};
+    *size_out = fstat(fd, &opened) == 0 ? opened.st_size : 0;
+    return fd;
+}
+
+static int rotate_node_log(const NodeStdioLogPump& pump, int fd, off_t* size_out) {
+    if (fd >= 0) close(fd);
+    unlink(pump.rotated_path.c_str());
+    if (rename(pump.path.c_str(), pump.rotated_path.c_str()) != 0 && errno != ENOENT) {
+        // Rotation is diagnostic only. If metadata updates fail, truncating the current file still
+        // enforces the cap and is preferable to allowing logging to threaten app availability.
+        int truncate_fd = open(pump.path.c_str(), O_WRONLY | O_TRUNC | O_CLOEXEC);
+        if (truncate_fd >= 0) close(truncate_fd);
+    }
+    int next = open(pump.path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    *size_out = 0;
+    return next;
+}
+
+static bool write_node_log(int fd, const char* bytes, size_t length) {
+    size_t offset = 0;
+    while (offset < length) {
+        const ssize_t written = write(fd, bytes + offset, length - offset);
+        if (written > 0) {
+            offset += static_cast<size_t>(written);
+            continue;
+        }
+        if (written < 0 && errno == EINTR) continue;
+        return false;
+    }
+    return true;
+}
+
+static void* pump_node_stdio(void* raw) {
+    NodeStdioLogPump* pump = static_cast<NodeStdioLogPump*>(raw);
+    off_t log_size = 0;
+    int log_fd = open_bounded_node_log(*pump, &log_size);
+    time_t retry_after = log_fd >= 0 ? 0 : monotonic_seconds() + NODE_STDIO_LOG_RETRY_SECONDS;
+    char buffer[16 * 1024];
+    for (;;) {
+        const ssize_t count = read(pump->read_fd, buffer, sizeof(buffer));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+
+        if (log_fd < 0 && monotonic_seconds() >= retry_after) {
+            log_fd = open_bounded_node_log(*pump, &log_size);
+            retry_after = monotonic_seconds() + NODE_STDIO_LOG_RETRY_SECONDS;
+        }
+        if (log_fd < 0) continue; // Always drain the pipe; unavailable diagnostics are dropped.
+
+        if (log_size + count > NODE_STDIO_LOG_MAX_BYTES) {
+            log_fd = rotate_node_log(*pump, log_fd, &log_size);
+        }
+        if (log_fd < 0 || !write_node_log(log_fd, buffer, static_cast<size_t>(count))) {
+            if (log_fd >= 0) close(log_fd);
+            log_fd = -1;
+            retry_after = monotonic_seconds() + NODE_STDIO_LOG_RETRY_SECONDS;
+            continue;
+        }
+        log_size += count;
+    }
+    if (log_fd >= 0) close(log_fd);
+    close(pump->read_fd);
+    delete pump;
+    return nullptr;
+}
+
+static void redirect_node_stdio_to_bounded_log(const char* sandbox_dir) {
+    int pipe_fds[2];
+    if (pipe(pipe_fds) != 0) {
+        LOGE("[jni] node stdio pipe failed: errno=%d — stdio left as-is", errno);
+        return;
+    }
+    fcntl(pipe_fds[0], F_SETFD, FD_CLOEXEC);
+    fcntl(pipe_fds[1], F_SETFD, FD_CLOEXEC);
+    auto* pump = new NodeStdioLogPump{
+        pipe_fds[0],
+        std::string(sandbox_dir) + "/node-stdio.log",
+        std::string(sandbox_dir) + "/node-stdio.log.1",
+    };
+    pthread_t tid;
+    if (pthread_create(&tid, nullptr, pump_node_stdio, pump) != 0) {
+        LOGE("[jni] node stdio pump failed: errno=%d — stdio left as-is", errno);
+        close(pipe_fds[0]);
+        close(pipe_fds[1]);
+        delete pump;
+        return;
+    }
+    pthread_detach(tid);
+    if (dup2(pipe_fds[1], STDOUT_FILENO) < 0 || dup2(pipe_fds[1], STDERR_FILENO) < 0) {
+        LOGE("[jni] node stdio redirect failed: errno=%d — stdio may be partially redirected", errno);
+    }
+    close(pipe_fds[1]);
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+}
 
 // Node.js runs in its own C++ thread to avoid blocking the Java VM.
 extern "C" void* run_node(void*) {
@@ -126,31 +261,9 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
         LOGE("[jni] chdir(%s) failed: errno=%d", sandbox_dir, errno);
     }
 
-    // Node's own stdout/stderr (console.log, uncaught-exception stack traces printed
-    // right before an early process.exit()) go to whatever fds Zygote gave this process
-    // — normally /dev/null — so they never reach logcat. Redirect to a file in the
-    // sandbox so a device-side crash-loop with no AndroidRuntime/logcat trace (see
-    // 2026-08-08 real-device debugging) can actually be diagnosed via `adb pull`.
-    // Append across Android process restarts. A sticky/re-delivered foreground service can
-    // restart within a second after Node calls process.exit(), and truncating here erased the
-    // only copy of the original boot failure before adb could collect it.
-    // A failed freopen() closes fd 1/2 outright; the next open() anywhere in the process
-    // (WebView threads included) then lands on a stdio fd and Node aborts in
-    // InitializeOncePerProcess / libuv asserts "fd > STDERR_FILENO". Only swap the fds in
-    // once the log file is actually open.
-    {
-        std::string log_path = std::string(sandbox_dir) + "/node-stdio.log";
-        int log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
-        if (log_fd >= 0) {
-            dup2(log_fd, STDOUT_FILENO);
-            dup2(log_fd, STDERR_FILENO);
-            close(log_fd);
-            setvbuf(stdout, nullptr, _IONBF, 0);
-            setvbuf(stderr, nullptr, _IONBF, 0);
-        } else {
-            LOGE("[jni] open(%s) failed: errno=%d — Node stdio left as-is", log_path.c_str(), errno);
-        }
-    }
+    // Capture Node's console output without exposing the runtime to disk-full errors. The native
+    // pump bounds diagnostics to two 4 MiB files and keeps draining even when storage is unusable.
+    redirect_node_stdio_to_bounded_log(sandbox_dir);
 
     env->ReleaseStringUTFChars(script_path_j, script_path);
 

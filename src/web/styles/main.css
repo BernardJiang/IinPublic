@@ -2345,6 +2345,37 @@ button:focus:not(:focus-visible) {
   margin: 0;
 }
 
+.talk-tag-broadcast-toggle {
+  padding: 1px 4px;
+  background: var(--surface);
+}
+
+.match-collection-card {
+  display: grid;
+  gap: 6px;
+}
+
+.match-collection-label {
+  font-weight: 650;
+}
+
+.match-collection-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+.match-collection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.match-collection-actions .btn {
+  min-height: 44px;
+}
+
 /* Me tab — merged-by-question answer rows */
 .answer-tag-item {
   transition: background 0.15s ease;

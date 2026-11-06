@@ -10,6 +10,7 @@ import {
   MATCH_COLLECTION_STORE_KEY,
   recordMatchCollectionDelivery,
   recordMatchCollectionExchange,
+  recordMatchCollectionExchangeForSession,
   startMatchCollectionSession,
   updateMatchCollectionPeerReview,
 } from '../../web/services/match-collection-session';
@@ -115,15 +116,24 @@ describe('match collection sessions', () => {
       .toBeGreaterThan(1_000);
   });
 
-  it('moves a repeated peer + Talk association to the newest outing without rewriting history', () => {
+  it('preserves an older pending pair while ordinary and native replies bind to the right outing', () => {
     const first = startMatchCollectionSession({ label: 'Mall', scopeId: 'nearby-v3' }, new Date('2026-10-20T10:00:00Z'));
     recordMatchCollectionDelivery({ talkIds: ['talk-a'], peerIds: ['alice'] });
     endMatchCollectionSession(new Date('2026-10-20T10:30:00Z'));
     const second = startMatchCollectionSession({ label: 'Train', scopeId: 'nearby-v3' }, new Date('2026-10-21T10:00:00Z'));
     recordMatchCollectionDelivery({ talkIds: ['talk-a'], peerIds: ['alice'] });
 
+    expect(summarizeMatchCollectionSession(first.id)).toMatchObject({ deliveries: 1, replies: 0, pending: 1 });
     expect(recordMatchCollectionExchange('alice', 'talk-a', 'mismatch')?.collectionSessionId).toBe(second.id);
-    expect(listMatchCollectionSessions().find((session) => session.id === first.id)?.results).toEqual([]);
+    expect(recordMatchCollectionExchangeForSession(
+      first.id,
+      'alice',
+      'talk-a',
+      'match',
+      new Date('2026-10-21T11:00:00Z'),
+    )?.collectionSessionId).toBe(first.id);
+    expect(summarizeMatchCollectionSession(first.id)).toMatchObject({ deliveries: 1, replies: 1, pending: 0, matches: 1 });
+    expect(summarizeMatchCollectionSession(second.id)).toMatchObject({ deliveries: 1, replies: 1, pending: 0, mismatches: 1 });
   });
 
   it('ends an earlier active outing when a new one starts and ignores corrupt storage', () => {

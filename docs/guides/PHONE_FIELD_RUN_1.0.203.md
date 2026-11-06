@@ -54,18 +54,24 @@ summary and any failure is useful; redact private replies before sharing it.
 
 1. At a safe starting point, leave one phone (suggest C10) stationary, online, powered and with
    IinPublic's background mode **Always**. Carry P30 and FCP-AN10; bring PH-1 if practical. On
-   P30, prepare two small Talks and one exact automatic answer on a receiver. In the Nearby screen
-   tap **Start collecting**. Note the start time, visible people count and public location/area.
-2. While the phones are close, tap **Broadcast** for `walk-out`. Confirm which receiver shows the
+   P30, prepare two small Talks and one exact automatic answer on a receiver. In the Nearby screen's
+   **Collect matches** card tap **Start collecting**. If collection is already active, the same card
+   says **Collecting matches** and can be stopped before beginning the recorded run. Note the start
+   time, visible people count and public location/area.
+2. While the phones are close, tap **Broadcast into this collection** on that card for `walk-out`.
+   An outgoing Tag Talk has its own 📣 checkbox on the Talks tab; leave it checked to include the
+   Tag, or re-check it before broadcasting if it was disabled. Confirm which receiver shows the
    Talk, whether its exact answer returns, and the outing's reached/reply/match counts. Put the
    receiver's screen off for at least one send; leave its app in **Always** mode. Note the time to
    reply and any delayed or missing notification.
 3. Walk a real route away from the stationary phone and later return to it. Record approximate
    distance, indoor/outdoor segments, when a phone loses GPS, and when Nearby peers disappear and
-   reappear. Broadcast the distinct `walk-return` Talk on the return. Verify the outing review has
+   reappear. Broadcast the distinct `walk-return` Talk on the return. Tap **Review collection** and
+   verify the outing review has
    both encounters, rather than overwriting the first one, and that each Talk result appears once.
-4. For a late reply, broadcast another distinct Talk, immediately tap **Stop collecting**, then
-   allow the receiver's answer. Reopen the ended outing review after the reply. Record whether its
+4. For a late reply, broadcast another distinct Talk, immediately tap **Stop collecting** on the
+   card, then allow the receiver's answer. The ended card keeps **Review collection**; reopen it
+   after the reply. Record whether its
    reached/pending/replied/matched counts change, and whether the late row appears exactly once.
    Restart the author app once and check that the ended outing and its rows remain.
 5. On a real transit/subway trip (or a genuine tunnel/indoor route with location loss, recorded as

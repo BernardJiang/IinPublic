@@ -569,9 +569,10 @@ export async function sweepClickables(
       ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}),
       ...(options.ignoredMutationRoots ? { ignoredMutationRoots: options.ignoredMutationRoots } : {}),
     });
-    if (!result.clicked && /detached|not answering/.test(result.evidence ?? '')) {
-      // A list that re-sorted under the click (positional keys): try the control once more from a
-      // fresh starting screen; if it no longer exists there, it is gone, not dead.
+    if (!result.clicked && /detached|not answering|covered by .*modal-overlay/.test(result.evidence ?? '')) {
+      // A list that re-sorted under the click (positional keys), or a late async dialog from the
+      // previous control that landed after restore(): try once more from a fresh starting screen.
+      // If the control no longer exists there, it is gone, not dead.
       await options.restore();
       const again = page.locator(control.key).first();
       if (!(await again.isVisible().catch(() => false))) continue;

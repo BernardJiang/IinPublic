@@ -34,6 +34,11 @@ function formatDistance(meters: number): string {
   return meters < 1_000 ? `${Math.max(10, Math.round(meters / 10) * 10)} m` : `${(meters / 1_000).toFixed(1)} km`;
 }
 
+function talkTitle(talkId: string): string {
+  const entry = getMyTalks()[talkId] as any;
+  return String(entry?.fullTalk?.title || entry?.title || talkId);
+}
+
 function sortedPeople(sessionId: string) {
   const myTalks = getMyTalks();
   const exchanges = readLocalTalkExchanges();
@@ -121,7 +126,7 @@ export function showMatchCollectionReviewDialog(deps: MatchCollectionReviewDialo
       }));
       const history = person.results.map((result) => {
         const late = session.endedAt && Date.parse(result.capturedAt) > Date.parse(session.endedAt);
-        return `<li>${escapeHtml(result.outcome)} · ${escapeHtml(result.talkId)}${late ? ` · ${escapeHtml(deps.text('matchCollectionLate'))}` : ''}</li>`;
+        return `<li>${escapeHtml(result.outcome)} · ${escapeHtml(talkTitle(result.talkId))}${late ? ` · ${escapeHtml(deps.text('matchCollectionLate'))}` : ''}</li>`;
       }).join('');
       return `<section data-testid="match-collection-person" data-peer-id="${escapeHtml(person.peerId)}" style="border:1px solid var(--border);border-radius:10px;padding:12px;${person.dismissed ? 'opacity:0.62;' : ''}">
         <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;">

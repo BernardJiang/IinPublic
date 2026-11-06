@@ -23,6 +23,10 @@ describe('match collection review dialog', () => {
   });
 
   it('shows honest totals, repeated outcomes, private review controls, and opens a person', () => {
+    localStorage.setItem('myTalks', JSON.stringify({
+      'talk-a': { title: 'Coffee meetup', fullTalk: { title: 'Coffee meetup' } },
+      'talk-b': { title: 'Museum visit', fullTalk: { title: 'Museum visit' } },
+    }));
     const session = startMatchCollectionSession(
       { label: 'Train ride', scopeId: 'nearby-v3' },
       new Date('2026-10-20T10:00:00Z'),
@@ -40,6 +44,8 @@ describe('match collection review dialog', () => {
       '1 reached · 2 replies · 0 pending · 1 matches · 0 mismatches · 1 late',
     );
     expect(document.querySelectorAll('[data-testid="match-collection-person"] li')).toHaveLength(3);
+    expect(document.querySelector('[data-testid="match-collection-person"]')).toHaveTextContent('Coffee meetup');
+    expect(document.querySelector('[data-testid="match-collection-person"]')).toHaveTextContent('Museum visit');
     const row = document.querySelector('[data-testid="match-collection-person"]') as HTMLElement;
     (row.querySelector('[data-action="pin"]') as HTMLButtonElement).click();
     expect(document.querySelector('[data-action="pin"]')).toHaveTextContent('Unpin');

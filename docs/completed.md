@@ -2,6 +2,30 @@
 
 Last updated: 2026-11-02
 
+## 2026-11-02 — OPEN-95 bounded Android Node diagnostics
+
+- Android no longer sends embedded Node stdout/stderr directly to an unbounded regular file. Node
+  writes to a native pipe; a detached pump always drains it, rotates at 4 MiB, retains one 4 MiB
+  backup, and drops diagnostics while storage is unavailable. A legacy oversized log is truncated
+  at the next start, so the 1.88 GB failure mode cannot persist.
+- Disk-open, rotation, and write failures stay inside the diagnostic pump and never reach Node's
+  console writes. The original stdio descriptors are left alone if the pipe/pump cannot start.
+- Verified the production source contract and built the native library successfully for
+  `arm64-v8a`, `armeabi-v7a`, and `x86_64` with `:app:externalNativeBuildDebug`. No phone was used;
+  real storage-pressure observation remains useful field evidence but is no longer an implementation
+  blocker.
+
+## 2026-11-02 — OPEN-98 outing controls restored
+
+- The Nearby/Places list again contains a phone-sized outing card with explicit Start, Broadcast,
+  Review, and Stop actions. An ended outing remains reviewable, and an outgoing Tag chip has its
+  own 📣 broadcast checkbox so a disabled Tag can be re-enabled without USB or hidden state edits.
+- Review histories show saved Talk titles instead of raw Talk ids. The carried-field guide now
+  names the actual controls and their location.
+- Focused UI/service tests pass, and a 390×844 full-app Chromium journey completed the
+  stop/start/review/stop cycle. The shared web runtime is the Android UI, so no native-phone-only
+  implementation remains for this issue.
+
 ## 2026-11-02 — OPEN-94 canonical test gate restored
 
 - Cleared the backlog hidden by the month-long environment-key failure: one Jest failure and 34

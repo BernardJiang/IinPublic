@@ -456,7 +456,12 @@ export function recordMatchCollectionDelivery(input: {
   } : undefined;
   const pairKeys = new Set(intendedPairs.map(({ talkId, peerId }) => `${peerId}\u0000${talkId}`));
   store.associations = [
-    ...store.associations.filter((row) => !pairKeys.has(`${row.peerId}\u0000${row.talkId}`)),
+    // A repeated encounter in a later outing must not erase the earlier outing's pending
+    // evidence. Replace only a duplicate send inside this same outing; reverse lookup below still
+    // makes an unqualified live reply bind to the newest outing.
+    ...store.associations.filter((row) => (
+      row.sessionId !== session.id || !pairKeys.has(`${row.peerId}\u0000${row.talkId}`)
+    )),
     ...intendedPairs.map(({ talkId, peerId }) => {
       const peerPoint = input.peerPoints?.[peerId];
       const encounterDistanceMeters = locationPoint && validPoint(peerPoint)
@@ -511,7 +516,38 @@ export function recordMatchCollectionExchange(
   const store = readStore();
   const association = [...store.associations].reverse().find((row) => row.peerId === peerId && row.talkId === talkId);
   if (!association) return null;
-  const session = store.sessions.find((candidate) => candidate.id === association.sessionId);
+  return appendMatchCollectionExchange(store, association.sessionId, peerId, talkId, outcome, now);
+}
+
+/** Bind a delayed native/background reply to the outing captured when it was authored. */
+export function recordMatchCollectionExchangeForSession(
+  sessionIdInput: string,
+  peerIdInput: string,
+  talkIdInput: string,
+  outcome: MatchCollectionOutcome,
+  now: Date = new Date(),
+): MatchCollectionTag | null {
+  const sessionId = clean(sessionIdInput);
+  const peerId = clean(peerIdInput);
+  const talkId = clean(talkIdInput);
+  if (!sessionId || !peerId || !talkId) return null;
+  const store = readStore();
+  const associated = store.associations.some((row) => (
+    row.sessionId === sessionId && row.peerId === peerId && row.talkId === talkId
+  ));
+  if (!associated) return null;
+  return appendMatchCollectionExchange(store, sessionId, peerId, talkId, outcome, now);
+}
+
+function appendMatchCollectionExchange(
+  store: MatchCollectionStore,
+  sessionId: string,
+  peerId: string,
+  talkId: string,
+  outcome: MatchCollectionOutcome,
+  now: Date,
+): MatchCollectionTag | null {
+  const session = store.sessions.find((candidate) => candidate.id === sessionId);
   if (!session) return null;
   const capturedAt = now.toISOString();
   // Preserve the timeline: a peer can revise an answer, or the same Talk can be encountered more

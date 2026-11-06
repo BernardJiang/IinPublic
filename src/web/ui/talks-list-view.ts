@@ -551,6 +551,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                   return `
       <div class="talk-list-item talk-tag-chip talk-tag-out is-liked ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag" role="button" tabindex="0" aria-label="${escapeHtml(`${deps.t('talksTagLiked')}: ${talk.title || ''}`)}">
         ${tagFace({ state: 'liked', talk, talkId, suffixHtml: tagAnswerSuffix(talk) })}
+        <label class="talk-icon-badge talk-tag-broadcast-toggle" title="${escapeHtml(deps.t(disabled ? 'talksBroadcastOff' : 'talksBroadcastOn'))}">
+          <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'} aria-label="${escapeHtml(deps.t(disabled ? 'talksBroadcastOff' : 'talksBroadcastOn'))}">
+          <span aria-hidden="true">📣</span>
+        </label>
         ${pinButtonHtml(`out:${talkId}`)}
       </div>
     `;
@@ -915,6 +919,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           return;
         }
         if (target.closest('#talks-list')) clearTalkRowSelection();
+        // The outgoing Tag pill contains its own broadcast checkbox. Let the native checkbox
+        // change event below handle it; do not also treat that tap as the Tag's primary action.
+        if (target.closest('.talk-tag-broadcast-toggle')) {
+          e.stopPropagation();
+          return;
+        }
         // A plain tap on a tag acts at once (see actOnTagRow).
         const tappedChip = target.closest('#talks-list .talk-tag-chip') as HTMLElement | null;
         if (tappedChip) {

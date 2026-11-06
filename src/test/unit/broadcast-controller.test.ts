@@ -47,6 +47,10 @@ describe('broadcast controller', () => {
     receiversByTalk.mockReturnValue({ 'talk-1': ['peer-1'] });
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('deduplicates current and rendered roster peers and excludes the current user', () => {
     document.body.innerHTML = `<div id="chatroom-members-list">
       <div class="chatroom-member-item" data-user-id="peer-1" data-stage-name="Peer"></div>
@@ -112,6 +116,52 @@ describe('broadcast controller', () => {
       talkReceiverIds: { 'talk-1': ['peer-1'] },
       automatic: false,
     }));
+  });
+
+  it('does not open the delayed no-Talk editor after the user moves to another control', async () => {
+    jest.useFakeTimers();
+    document.body.innerHTML = `
+      <button id="outing-broadcast">Broadcast into this collection</button>
+      <button id="next-control">List</button>
+      <button class="nav-btn active" data-view="chatrooms"></button>`;
+    const showTalkEditorDialog = jest.fn();
+    const controller = createBroadcastController(makeDeps({
+      getBroadcastableTalkIds: () => [],
+      showTalkEditorDialog,
+    }));
+    const trigger = document.getElementById('outing-broadcast') as HTMLButtonElement;
+    trigger.focus();
+
+    const run = controller.runBroadcastFromCurrentRoom(false);
+    (document.getElementById('next-control') as HTMLButtonElement).focus();
+    await jest.advanceTimersByTimeAsync(1_600);
+    await run;
+
+    expect(showTalkEditorDialog).not.toHaveBeenCalled();
+  });
+
+  it('keeps the no-Talk guard when disabling the initiating button moves focus to the body', async () => {
+    jest.useFakeTimers();
+    document.body.innerHTML = `
+      <button id="broadcast-talk-btn">Broadcast</button>
+      <button class="nav-btn active" data-view="chatrooms"></button>`;
+    const showTalkEditorDialog = jest.fn();
+    const showNotification = jest.fn();
+    const controller = createBroadcastController(makeDeps({
+      getBroadcastableTalkIds: () => [],
+      showTalkEditorDialog,
+      showNotification,
+    }));
+    const trigger = document.getElementById('broadcast-talk-btn') as HTMLButtonElement;
+    trigger.focus();
+
+    const run = controller.runBroadcastFromCurrentRoom(false);
+    await jest.advanceTimersByTimeAsync(1_600);
+    await run;
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(showTalkEditorDialog).toHaveBeenCalledTimes(1);
+    expect(showNotification).toHaveBeenCalledWith('chatroomNoTalksToBroadcast', 'info');
   });
 
   it('renders group membership excluding blocked peers and emits the selected target', () => {

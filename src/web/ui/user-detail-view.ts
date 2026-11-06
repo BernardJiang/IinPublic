@@ -463,6 +463,10 @@ async function applySendButtonFromBlockStatus(
 
 async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewDeps): Promise<any | null> {
   if (!deps.getPublicProfileFoundation) return null;
+  // Built-in support intentionally has no ordinary public-profile foundation. Retrying that
+  // known-absent record for 8.5 seconds wasted work on every person-page open and kept a dangling
+  // timer alive on slow WebViews.
+  if (deps.isSupportContact(peerId) || peerId === TECHSUPPORT_ROOT_USER_ID) return null;
   const deadline = Date.now() + 8_500;
   let foundation: PublicProfileFoundation | null = null;
   while (!foundation && Date.now() < deadline) {

@@ -248,6 +248,20 @@ describe('openPeerDetailView — scenario 2 build-trust badge (§16)', () => {
     expect(section.innerHTML).not.toContain('peer-build-trust-badge');
   });
 
+  it('does not retry the known-absent TechSupport public profile', async () => {
+    const getPublicProfileFoundation = jest.fn(async () => null);
+    const deps = baseDeps({
+      isSupportContact: () => true,
+      getPublicProfileFoundation,
+    });
+
+    openPeerDetailView('support', 'TechSupport', deps);
+    await flush();
+
+    expect(getPublicProfileFoundation).not.toHaveBeenCalled();
+    expect(document.getElementById('peer-stats-section')?.textContent).not.toContain('Loading relationship stats');
+  });
+
   it('includes the "not a trust signal" tooltip text, distinct from the social-trust badge', async () => {
     const deps = baseDeps({ getBuildTrustLabel: () => 'official-verified' });
     openPeerDetailView('peer-1', 'Peer One', deps);

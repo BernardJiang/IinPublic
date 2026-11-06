@@ -102,6 +102,11 @@ export function createBroadcastController(deps: BroadcastControllerDeps) {
   };
 
   const runBroadcastFromCurrentRoom = async (automatic: boolean): Promise<void> => {
+    // A no-Talk broadcast waits briefly for an editor save that may still be landing. Remember
+    // the control that initiated that wait: if the user focuses another control or the screen is
+    // re-rendered meanwhile, the original intent has been superseded and must not pop an editor
+    // over their newer action.
+    const triggerAtStart = document.activeElement as HTMLElement | null;
     let chatroomId = deps.getCurrentChatroom();
     if (!chatroomId) {
       const fromApp = (
@@ -140,7 +145,16 @@ export function createBroadcastController(deps: BroadcastControllerDeps) {
     }
     if (broadcastableIds.length === 0) {
       // The user may have moved on during the wait: never pop the editor over another screen.
-      if (activeTab() !== tappedFrom) return;
+      // Disabling the initiating button during the wait makes browsers move focus to <body>;
+      // that is not a newer user intent and must not suppress the normal empty-list guard.
+      const focusedAfterWait = document.activeElement;
+      if (
+        activeTab() !== tappedFrom
+        || (triggerAtStart && !triggerAtStart.isConnected)
+        || (triggerAtStart
+          && focusedAfterWait !== triggerAtStart
+          && focusedAfterWait !== document.body)
+      ) return;
       deps.showTalkEditorDialog();
       setTimeout(() => deps.showNotification(deps.t('chatroomNoTalksToBroadcast'), 'info'), 0);
       return;

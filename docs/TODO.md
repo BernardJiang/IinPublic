@@ -45,14 +45,6 @@ its ID.
 
 ## Active maintenance queue — website and Android first
 
-- [ ] **OPEN-95 — Android `node-stdio.log` never rotates and can brick the app (found 2026-10-31,
-  OPEN-81 walk).** `native-lib.cpp` sends embedded-node stdio to `files/node-data/node-stdio.log`
-  with no size limit. On Honor FRD-L04 it reached 1.88 GB and took `/data` to 0 free; every start
-  then died with an unhandled `ENOSPC` from the logger about 3.9 s after launch (41 restarts seen
-  in the retained log). After recovery it regrew 434 MB in 54 minutes (~130 KB/s) while running
-  in Always mode, so an emptied FRD can refill in hours. Bound the log, and never let a failed
-  log write kill the node. Workaround: empty the file with `run-as`, then restart the app.
-
 - [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** (a) A late auto-answer was
   lost: PH-1 recorded `walk-late` as outcome match/answeredBy chatbot, but P30's ledger and outing
   never received it, more than 45 minutes later with both online. The PH-1 process had died at
@@ -61,17 +53,15 @@ its ID.
   10 minutes later (13:39:39, 13:40:15), exactly once. Likely tied to the FRD crash loop and hub
   timeouts, but the logs from that minute were overwritten. (c) The outing review reports
   0 pending although journey-bob's `walk-late` reply never arrived.
+  **Phone-free repair 2026-11-02:** rebroadcasting the same peer/Talk pair in a later outing no
+  longer deletes the earlier outing's delivery association, so its pending count stays honest.
+  Native reply reconciliation now uses the journaled original outing id instead of whichever
+  outing is newest when the WebView resumes. Deterministic unit coverage exercises both paths.
+  The lost delivery and ten-minute field delay still require the carried rerun.
 
 - [ ] **OPEN-97 — "Always" background mode does not survive a phone reboot.** The manifest has no
   boot receiver: PH-1 had no app process 5 minutes after booting until the app was opened by hand.
   Decide the intended behavior, then either restart the service or disclose the limit in Settings.
-
-- [ ] **OPEN-98 — Outing controls lost with `d3cecef7` (2026-10-23).** `reviewMatchCollection`
-  and `broadcastMatchCollection` still have handlers, but no UI emits them, so the G4/G5 review
-  cannot be opened on a device; it was reached over USB. Stopping now means unticking
-  **Collect nearby matches**. Tag Talks are chips with no broadcast on/off control, so a disabled
-  one cannot be re-enabled on the phone. The review also labels results with raw Talk ids instead
-  of titles. `docs/guides/PHONE_FIELD_RUN_1.0.203.md` still describes the removed controls.
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no
@@ -107,9 +97,9 @@ its ID.
   visits. Unit and browser navigation regressions pass. Android 1.0.203 was installed in place
   on all five USB phones on 2026-10-29. The later 1.0.205 stalled-hub audit measured prompt
   reactions on P30, PH-1, and FRD-L04; the repository now declares 1.0.207, without a recorded
-  five-phone install or website deployment. The audit also found that TechSupport's relationship
-  stats placeholder can wait about 8.5 seconds for a profile that does not exist; remove that
-  unnecessary delay. A support E2E run stopped before Send because
+  five-phone install or website deployment. TechSupport's known-absent ordinary profile is now
+  skipped instead of being retried for 8.5 seconds; the relationship stats render immediately and
+  focused unit/responsiveness coverage passes. A support E2E run stopped before Send because
   its local greeting/bootstrap was unavailable. **Remaining gate:** reproduce the owner's exact DM
   symptom, verify actual send and immediate Back/tab response on a phone with the tested build,
   and confirm the fixes across the five-phone matrix. Record each installed version before a
