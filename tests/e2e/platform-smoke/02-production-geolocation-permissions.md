@@ -1,3 +1,5 @@
+covers: SPEC-5.3, SPEC-6.3
+
 # Production geolocation permissions (website)
 
 Runs only against the production web bundle (`npm run test:e2e:firefox-permissions`), because dev

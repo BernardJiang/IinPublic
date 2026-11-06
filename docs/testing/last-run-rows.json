@@ -1,0 +1,2492 @@
+[
+  [
+    36494,
+    "isolated/isolated-01-two-responders-partial-match.spec.ts",
+    "isolated/isolated-01-two-responders-partial-match.spec.ts › Talks matching — one match one mismatch from two responders › Jerry matches, Bob mismatches → Tom sees exactly 1 match, no Bob conversation",
+    "expected"
+  ],
+  [
+    80611,
+    "isolated/isolated-02-mixed-saturation.spec.ts",
+    "isolated/isolated-02-mixed-saturation.spec.ts › M4 real mixed saturation › six isolated browser profiles establish numbered identities for flow/tag/survey/route",
+    "expected"
+  ],
+  [
+    148389,
+    "mass/01-flow-mass-exchange.spec.ts",
+    "mass/01-flow-mass-exchange.spec.ts › M1 real flow mass exchange › ten browsers produce the nine numbered golden response vectors",
+    "expected"
+  ],
+  [
+    123584,
+    "mass/02-survey-mass-exchange.spec.ts",
+    "mass/02-survey-mass-exchange.spec.ts › M2 real survey mass exchange › eight browsers submit seven golden numbered vectors",
+    "expected"
+  ],
+  [
+    121518,
+    "mass/03-route-mass-exchange.spec.ts",
+    "mass/03-route-mass-exchange.spec.ts › M3 real route mass exchange › eight browsers deliver one route and produce seven distinct numbered leaves",
+    "expected"
+  ],
+  [
+    66994,
+    "mass/04-heavy-user-gui-stress.spec.ts",
+    "mass/04-heavy-user-gui-stress.spec.ts › M4 heavy-user GUI stress › keeps every tab responsive with an already data-heavy user",
+    "expected"
+  ],
+  [
+    73141,
+    "mass/05-full-layout-tour.spec.ts",
+    "mass/05-full-layout-tour.spec.ts › M5 full-layout screenshot tour › walks every reachable layout and captures a screenshot of each",
+    "expected"
+  ],
+  [
+    346760,
+    "mass/06-map-world-operations-showcase.spec.ts",
+    "mass/06-map-world-operations-showcase.spec.ts › M6 map world operations showcase › starts on the world map, performs talk exchange, then moves each user to the leader one at a time",
+    "expected"
+  ],
+  [
+    5078,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › HTTP, WebSocket, localStorage, IndexedDB, and Gun work together",
+    "expected"
+  ],
+  [
+    3337,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › HTTP, WebSocket, localStorage, IndexedDB, and Gun work together",
+    "expected"
+  ],
+  [
+    2890,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › HTTP, WebSocket, localStorage, IndexedDB, and Gun work together",
+    "expected"
+  ],
+  [
+    3053,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › recovers Gun/WebSocket connectivity after a simulated network drop",
+    "expected"
+  ],
+  [
+    3313,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › recovers Gun/WebSocket connectivity after a simulated network drop",
+    "expected"
+  ],
+  [
+    3145,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › recovers Gun/WebSocket connectivity after a simulated network drop",
+    "expected"
+  ],
+  [
+    8521,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › tab sweep, overflow, dialog takeover, settings persistence",
+    "expected"
+  ],
+  [
+    6196,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › tab sweep, overflow, dialog takeover, settings persistence",
+    "expected"
+  ],
+  [
+    4449,
+    "platform-smoke/00-platform-smoke.spec.ts",
+    "platform-smoke/00-platform-smoke.spec.ts › @smoke platform smoke set › tab sweep, overflow, dialog takeover, settings persistence",
+    "expected"
+  ],
+  [
+    2968,
+    "platform-smoke/01-password-free-custody-restart.spec.ts",
+    "platform-smoke/01-password-free-custody-restart.spec.ts › @smoke password-free custody v3 browser restart › keeps a non-extractable key and the same identity across a browser restart",
+    "expected"
+  ],
+  [
+    4449,
+    "platform-smoke/01-password-free-custody-restart.spec.ts",
+    "platform-smoke/01-password-free-custody-restart.spec.ts › @smoke password-free custody v3 browser restart › keeps a non-extractable key and the same identity across a browser restart",
+    "expected"
+  ],
+  [
+    3007,
+    "platform-smoke/01-password-free-custody-restart.spec.ts",
+    "platform-smoke/01-password-free-custody-restart.spec.ts › @smoke password-free custody v3 browser restart › keeps a non-extractable key and the same identity across a browser restart",
+    "expected"
+  ],
+  [
+    0,
+    "platform-smoke/02-production-geolocation-permissions.spec.ts",
+    "platform-smoke/02-production-geolocation-permissions.spec.ts › @smoke production geolocation permissions › denied Firefox geolocation makes a random-point Traveler on the map and invents no cached fix",
+    "skipped"
+  ],
+  [
+    0,
+    "platform-smoke/02-production-geolocation-permissions.spec.ts",
+    "platform-smoke/02-production-geolocation-permissions.spec.ts › @smoke production geolocation permissions › denied Firefox geolocation makes a random-point Traveler on the map and invents no cached fix",
+    "skipped"
+  ],
+  [
+    0,
+    "platform-smoke/02-production-geolocation-permissions.spec.ts",
+    "platform-smoke/02-production-geolocation-permissions.spec.ts › @smoke production geolocation permissions › denied Firefox geolocation makes a random-point Traveler on the map and invents no cached fix",
+    "skipped"
+  ],
+  [
+    0,
+    "platform-smoke/02-production-geolocation-permissions.spec.ts",
+    "platform-smoke/02-production-geolocation-permissions.spec.ts › @smoke production geolocation permissions › granted Firefox geolocation is requested, cached, and applied without blocking boot",
+    "skipped"
+  ],
+  [
+    0,
+    "platform-smoke/02-production-geolocation-permissions.spec.ts",
+    "platform-smoke/02-production-geolocation-permissions.spec.ts › @smoke production geolocation permissions › granted Firefox geolocation is requested, cached, and applied without blocking boot",
+    "skipped"
+  ],
+  [
+    0,
+    "platform-smoke/02-production-geolocation-permissions.spec.ts",
+    "platform-smoke/02-production-geolocation-permissions.spec.ts › @smoke production geolocation permissions › granted Firefox geolocation is requested, cached, and applied without blocking boot",
+    "skipped"
+  ],
+  [
+    4760,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › bottom navigation stays live with the hub stalled",
+    "expected"
+  ],
+  [
+    3143,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › Create talk → editor opens and Cancel closes it with the hub stalled",
+    "expected"
+  ],
+  [
+    2087,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › F1 control: boot with a healthy hub is ready within 25 s",
+    "expected"
+  ],
+  [
+    2126,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › F1: boot finishes while the transport-flags request hangs",
+    "expected"
+  ],
+  [
+    7109,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › F1: boot finishes with the whole hub stalled",
+    "expected"
+  ],
+  [
+    2556,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › F3: renaming yourself confirms within 3 s while the hub is stalled",
+    "expected"
+  ],
+  [
+    2409,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › F4 control: New Room opens its form when hub requests fail fast",
+    "expected"
+  ],
+  [
+    2316,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › F4: New Room opens its form (or explains why not) while the hub is stalled",
+    "expected"
+  ],
+  [
+    2595,
+    "responsiveness/01-stalled-hub-regressions.spec.ts",
+    "responsiveness/01-stalled-hub-regressions.spec.ts › GUI responsiveness: stalled hub regressions › F9: app-bar actions are tappable right after first launch (toasts do not cover them)",
+    "expected"
+  ],
+  [
+    1608,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → appearance responds",
+    "expected"
+  ],
+  [
+    4157,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → connectivity responds",
+    "expected"
+  ],
+  [
+    3245,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → contentFilters responds",
+    "expected"
+  ],
+  [
+    684,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → credit responds",
+    "expected"
+  ],
+  [
+    1381,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → distanceHome responds",
+    "expected"
+  ],
+  [
+    179,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → downloadApp responds",
+    "expected"
+  ],
+  [
+    218,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → eraseDevice responds",
+    "expected"
+  ],
+  [
+    7569,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → help responds",
+    "expected"
+  ],
+  [
+    4295,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → languages responds",
+    "expected"
+  ],
+  [
+    706,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → linkedDevices responds",
+    "expected"
+  ],
+  [
+    2162,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → profile responds",
+    "expected"
+  ],
+  [
+    453,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → storageInspector responds",
+    "expected"
+  ],
+  [
+    419,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → supportDelegate responds",
+    "expected"
+  ],
+  [
+    6388,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control in Settings → talkBehavior responds",
+    "expected"
+  ],
+  [
+    3051,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control on the chatrooms tab and its app bar responds",
+    "expected"
+  ],
+  [
+    1301,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control on the contacts tab and its app bar responds",
+    "expected"
+  ],
+  [
+    847,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control on the me tab and its app bar responds",
+    "expected"
+  ],
+  [
+    4805,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control on the settings tab and its app bar responds",
+    "expected"
+  ],
+  [
+    7962,
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts",
+    "responsiveness/02-click-sweep-stalled-hub.spec.ts › GUI responsiveness: click sweep with the hub stalled › every control on the talks tab and its app bar responds",
+    "expected"
+  ],
+  [
+    1541,
+    "responsiveness/03-two-user-stalled-hub.spec.ts",
+    "responsiveness/03-two-user-stalled-hub.spec.ts › GUI responsiveness: two users, hub stalled for one › a message sends (is stored and the composer clears) with the hub stalled",
+    "expected"
+  ],
+  [
+    6770,
+    "responsiveness/03-two-user-stalled-hub.spec.ts",
+    "responsiveness/03-two-user-stalled-hub.spec.ts › GUI responsiveness: two users, hub stalled for one › Block works with the hub stalled: the page closes at once and the block survives a reload",
+    "expected"
+  ],
+  [
+    1032,
+    "responsiveness/03-two-user-stalled-hub.spec.ts",
+    "responsiveness/03-two-user-stalled-hub.spec.ts › GUI responsiveness: two users, hub stalled for one › every control in the conversation responds",
+    "expected"
+  ],
+  [
+    2007,
+    "responsiveness/03-two-user-stalled-hub.spec.ts",
+    "responsiveness/03-two-user-stalled-hub.spec.ts › GUI responsiveness: two users, hub stalled for one › every control on Contacts (with a real contact) responds",
+    "expected"
+  ],
+  [
+    10080,
+    "responsiveness/03-two-user-stalled-hub.spec.ts",
+    "responsiveness/03-two-user-stalled-hub.spec.ts › GUI responsiveness: two users, hub stalled for one › every control on the person page responds; its stats are not stuck on \"Loading\"",
+    "expected"
+  ],
+  [
+    6368,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › a Talk created while the app is still starting is saved, not dropped",
+    "expected"
+  ],
+  [
+    2275,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › boot finishes when every hub request fails at once (airplane mode)",
+    "expected"
+  ],
+  [
+    6664,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › boot finishes when every hub request hangs (Wi-Fi without internet)",
+    "expected"
+  ],
+  [
+    6600,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › boot finishes when only presence hangs",
+    "expected"
+  ],
+  [
+    2288,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › boot finishes when only room calls hang",
+    "expected"
+  ],
+  [
+    2170,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › boot finishes when only TechSupport calls hang",
+    "expected"
+  ],
+  [
+    2256,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › boot finishes when only the transport flags hang",
+    "expected"
+  ],
+  [
+    2161,
+    "responsiveness/04-boot-under-faults.spec.ts",
+    "responsiveness/04-boot-under-faults.spec.ts › GUI responsiveness: boot under hub faults › boot finishes when only user lookups hang",
+    "expected"
+  ],
+  [
+    457,
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts",
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts › GUI responsiveness: dialog sweep with the hub stalled › every control in the Answer preferences dialog responds",
+    "expected"
+  ],
+  [
+    7416,
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts",
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts › GUI responsiveness: dialog sweep with the hub stalled › every control in the Edit profile dialog responds",
+    "expected"
+  ],
+  [
+    3377,
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts",
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts › GUI responsiveness: dialog sweep with the hub stalled › every control in the Linked devices dialog responds",
+    "expected"
+  ],
+  [
+    645,
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts",
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts › GUI responsiveness: dialog sweep with the hub stalled › every control in the New Room dialog responds",
+    "expected"
+  ],
+  [
+    1419,
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts",
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts › GUI responsiveness: dialog sweep with the hub stalled › every control in the Set identity password dialog responds",
+    "expected"
+  ],
+  [
+    8170,
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts",
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts › GUI responsiveness: dialog sweep with the hub stalled › every control in the Talk editor dialog responds",
+    "expected"
+  ],
+  [
+    7369,
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts",
+    "responsiveness/05-dialog-sweep-stalled-hub.spec.ts › GUI responsiveness: dialog sweep with the hub stalled › every control in the Talk template picker dialog responds",
+    "expected"
+  ],
+  [
+    266,
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts",
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts › P2P roadmap P2–P7 — infrastructure (merged) › browser stores encrypted key custody while relay exposes only public identity policy",
+    "expected"
+  ],
+  [
+    192,
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts",
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts › P2P roadmap P2–P7 — infrastructure (merged) › data ownership endpoints expose delete/request, migration, relay TTLs, and diagnostics",
+    "expected"
+  ],
+  [
+    180,
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts",
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts › P2P roadmap P2–P7 — infrastructure (merged) › debug storage and discovery endpoint define signed platform compatibility",
+    "expected"
+  ],
+  [
+    171,
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts",
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts › P2P roadmap P2–P7 — infrastructure (merged) › debug storage exposes transport modes and HTTP signaling endpoint is retired",
+    "expected"
+  ],
+  [
+    209,
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts",
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts › P2P roadmap P2–P7 — infrastructure (merged) › local node requires explicit permission, signed pairing, identity binding, and wipe controls",
+    "expected"
+  ],
+  [
+    180,
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts",
+    "staged/stage1-single-user/00-p2p-infrastructure.spec.ts › P2P roadmap P2–P7 — infrastructure (merged) › remembers active neighbors locally and uses them before star fallback",
+    "expected"
+  ],
+  [
+    2293,
+    "staged/stage1-single-user/00-techsupport-identity-bootstrap.spec.ts",
+    "staged/stage1-single-user/00-techsupport-identity-bootstrap.spec.ts › P2 — TechSupport identity public-Gun bootstrap › a fresh browser discovers the self-signed identity solely from public Gun",
+    "expected"
+  ],
+  [
+    3029,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › answering stores flat history; auto-save copies only accepted tags into OUT",
+    "expected"
+  ],
+  [
+    11960,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › bottom navigation exposes Chatrooms, Contacts, Talks, Me, Settings only",
+    "expected"
+  ],
+  [
+    2763,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › broadcast history (ledger-based, §W Gap 2) suppresses unchanged repeat room sends",
+    "expected"
+  ],
+  [
+    2756,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › chatbot room-entry auto-send emits only pending talks and does not replay recorded delivery",
+    "expected"
+  ],
+  [
+    5319,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › custom room creation opens the newly created room",
+    "expected"
+  ],
+  [
+    2507,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › foreground network recovery does not delay Settings Back or a tab tap",
+    "expected"
+  ],
+  [
+    2802,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › Me filters outcome and sorts answer history; Talks keeps unanswered IN above answered history",
+    "expected"
+  ],
+  [
+    2250,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › route responses preview the selected branch and resume saved progress",
+    "expected"
+  ],
+  [
+    2288,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › Settings menu shows the running app version",
+    "expected"
+  ],
+  [
+    2495,
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts",
+    "staged/stage1-single-user/00-ui-navigation-settings.spec.ts › UI navigation and settings shell › settings tolerates legacy string-valued profile and filter fields",
+    "expected"
+  ],
+  [
+    7517,
+    "staged/stage1-single-user/00x-tab-sweep-smoke.spec.ts",
+    "staged/stage1-single-user/00x-tab-sweep-smoke.spec.ts › Tab sweep smoke (D6) › exposes reply triage, OUT sort, and settings filter diagnostics on main tabs",
+    "expected"
+  ],
+  [
+    4655,
+    "staged/stage1-single-user/00y-chinese-ui-traversal.spec.ts",
+    "staged/stage1-single-user/00y-chinese-ui-traversal.spec.ts › Chinese UI localization traversal (D2) › switches to Chinese across tabs, persists on reload, and restores English",
+    "expected"
+  ],
+  [
+    20646,
+    "staged/stage1-single-user/00z-chinese-edge-notifications.spec.ts",
+    "staged/stage1-single-user/00z-chinese-edge-notifications.spec.ts › Chinese UI edge surface localization (D2) › status bar, broadcast modal, response dialog, and chatroom create modal render in Chinese",
+    "expected"
+  ],
+  [
+    3065,
+    "staged/stage1-single-user/01-login-single-user-headcount.spec.ts",
+    "staged/stage1-single-user/01-login-single-user-headcount.spec.ts › Login — single user headcount › Single user: Nearby headcount persists while TechSupport stays Contacts-only",
+    "expected"
+  ],
+  [
+    1889,
+    "staged/stage1-single-user/02-techsupport-away-headcount.spec.ts",
+    "staged/stage1-single-user/02-techsupport-away-headcount.spec.ts › TechSupport — Contacts-only and away with no device running › Nearby counts only the user while the TechSupport Contact remains listed as away",
+    "expected"
+  ],
+  [
+    4610,
+    "staged/stage1-single-user/03-support-greeting-signed.spec.ts",
+    "staged/stage1-single-user/03-support-greeting-signed.spec.ts › TechSupport — signed greeting renders once and verifies (docs/TODO.md K2) › exactly one signed greeting renders, verifies, and survives clear-storage + re-open",
+    "expected"
+  ],
+  [
+    3066,
+    "staged/stage1-single-user/04-support-greeting-tamper-suppressed.spec.ts",
+    "staged/stage1-single-user/04-support-greeting-tamper-suppressed.spec.ts › TechSupport — tampered greeting suppressed, never rendered (docs/TODO.md K2-3) › a stored greeting whose text was altered after signing renders as nothing, silently",
+    "expected"
+  ],
+  [
+    6837,
+    "staged/stage1-single-user/05-talks-edit.spec.ts",
+    "staged/stage1-single-user/05-talks-edit.spec.ts › Talks: create and edit › Create talk, Talks tab shows it with Edit; Edit opens with prefilled data",
+    "expected"
+  ],
+  [
+    6848,
+    "staged/stage1-single-user/05-talks-edit.spec.ts",
+    "staged/stage1-single-user/05-talks-edit.spec.ts › Talks: create and edit › Self-answered own talk: Me-tab entry opens the response view, not the editor",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/05-techsupport-mode-signed-dm.spec.ts",
+    "staged/stage1-single-user/05-techsupport-mode-signed-dm.spec.ts › TechSupport-mode boot authenticates with the canonical DM key (docs/TODO.md K3) › operator boots as TechSupport with the canonical pub, sends a DM, receiver sees a trusted-key author",
+    "skipped"
+  ],
+  [
+    5997,
+    "staged/stage1-single-user/06-support-new-question-ack.spec.ts",
+    "staged/stage1-single-user/06-support-new-question-ack.spec.ts › TechSupport — a brand-new question renders a signed ack (docs/TODO.md K5) › asking a never-seen question gets a signed \"a human will get back to you\" ack, not the old blanket reply",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/07-support-inbox-answer-flow.spec.ts",
+    "staged/stage1-single-user/07-support-inbox-answer-flow.spec.ts › TechSupport support-inbox: operator answers a pending question (docs/TODO.md K5) › operator sees the pending question, answers it, and the asker receives the answer + FAQ is published",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/09-support-faq-reask-no-duplicate.spec.ts",
+    "staged/stage1-single-user/09-support-faq-reask-no-duplicate.spec.ts › TechSupport FAQ: a re-asked known question is a hit, not a re-answer (docs/TODO.md K5 Item 6) › question answered once, then TechSupport stops — the same question re-asked is auto-answered locally with no duplicate FAQ row or inbox regression",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/10-techsupport-ignores-broadcast-talks.spec.ts",
+    "staged/stage1-single-user/10-techsupport-ignores-broadcast-talks.spec.ts › TechSupport ignores broadcast talks entirely (docs/TODO.md K5, invariant 1) › Nearby broadcasts never target the Contacts-only TechSupport root",
+    "skipped"
+  ],
+  [
+    2432,
+    "staged/stage1-single-user/17-chatroom-custom-business-api.spec.ts",
+    "staged/stage1-single-user/17-chatroom-custom-business-api.spec.ts › Chatroom custom/business API scripts › business chatroom create returns business metadata",
+    "expected"
+  ],
+  [
+    2461,
+    "staged/stage1-single-user/17-chatroom-custom-business-api.spec.ts",
+    "staged/stage1-single-user/17-chatroom-custom-business-api.spec.ts › Chatroom custom/business API scripts › custom chatroom create validates required fields and returns metadata",
+    "expected"
+  ],
+  [
+    2435,
+    "staged/stage1-single-user/17-chatroom-custom-business-api.spec.ts",
+    "staged/stage1-single-user/17-chatroom-custom-business-api.spec.ts › Chatroom custom/business API scripts › members add/remove endpoints accept valid payloads and reject invalid payloads",
+    "expected"
+  ],
+  [
+    2814,
+    "staged/stage1-single-user/25-mobile-viewport-navigation.spec.ts",
+    "staged/stage1-single-user/25-mobile-viewport-navigation.spec.ts › Mobile viewport navigation › bottom navigation and primary panels fit a phone viewport",
+    "expected"
+  ],
+  [
+    2977,
+    "staged/stage1-single-user/25-mobile-viewport-navigation.spec.ts",
+    "staged/stage1-single-user/25-mobile-viewport-navigation.spec.ts › Mobile viewport navigation › connectivity controls are labelled, responsive, and persist on a phone viewport",
+    "expected"
+  ],
+  [
+    2580,
+    "staged/stage1-single-user/27-location-auto-assignment.spec.ts",
+    "staged/stage1-single-user/27-location-auto-assignment.spec.ts › Location-based chatroom assignment › explicit location refresh keeps a lone user in Nearby",
+    "expected"
+  ],
+  [
+    5503,
+    "staged/stage1-single-user/29-me-answers-search.spec.ts",
+    "staged/stage1-single-user/29-me-answers-search.spec.ts › Me tab: answers search filter › Answers search: type query filters list; clear restores all; garbage query shows empty state",
+    "expected"
+  ],
+  [
+    7143,
+    "staged/stage1-single-user/30-talks-filter-query.spec.ts",
+    "staged/stage1-single-user/30-talks-filter-query.spec.ts › Talks tab: filter by query › Talks filter: partial match filters list; case-insensitive; garbage empties; clear restores",
+    "expected"
+  ],
+  [
+    8061,
+    "staged/stage1-single-user/31-intake-filters-persist.spec.ts",
+    "staged/stage1-single-user/31-intake-filters-persist.spec.ts › Settings: intake filters persist across reload › Intake filter settings persist after reload",
+    "expected"
+  ],
+  [
+    6721,
+    "staged/stage1-single-user/32-language-setting-persist.spec.ts",
+    "staged/stage1-single-user/32-language-setting-persist.spec.ts › Settings: language selections persist across reload › UI language and profile language selections persist after reload",
+    "expected"
+  ],
+  [
+    3198,
+    "staged/stage1-single-user/33-mobile-chatroom-hierarchy.spec.ts",
+    "staged/stage1-single-user/33-mobile-chatroom-hierarchy.spec.ts › Mobile chatroom navigation › open and leave the Nearby room on a phone viewport with the bottom nav visible",
+    "expected"
+  ],
+  [
+    3013,
+    "staged/stage1-single-user/34-deleted-talk-routes-404.spec.ts",
+    "staged/stage1-single-user/34-deleted-talk-routes-404.spec.ts › Deleted talk delivery routes return 404 › removed delivery endpoints 404; health and talk lookup stay live",
+    "expected"
+  ],
+  [
+    7329,
+    "staged/stage1-single-user/35-me-answer-dead-end-retry.spec.ts",
+    "staged/stage1-single-user/35-me-answer-dead-end-retry.spec.ts › Me-tab answer dead-end retry (P) › purged talk: Me-tab click shows a real retry affordance; successful retry opens the talk",
+    "expected"
+  ],
+  [
+    3436,
+    "staged/stage1-single-user/36-per-question-deep-link.spec.ts",
+    "staged/stage1-single-user/36-per-question-deep-link.spec.ts › Me-tab per-question deep link (P) › Me-tab row carries the right questionId; targetQuestionId scrolls/highlights the right review block",
+    "expected"
+  ],
+  [
+    18081,
+    "staged/stage1-single-user/37-compact-talk-rows-out.spec.ts",
+    "staged/stage1-single-user/37-compact-talk-rows-out.spec.ts › Compact talk rows (M2) — OUT row 2-line collapse + popup details › flow/survey/route OUT rows: 2 visible lines, no dedicated actions row, popup shows moved fields, checkbox toggles on change",
+    "expected"
+  ],
+  [
+    2778,
+    "staged/stage1-single-user/50-appbar-layout.spec.ts",
+    "staged/stage1-single-user/50-appbar-layout.spec.ts › AppBar layout › per-tab action icons are scoped to their tab",
+    "expected"
+  ],
+  [
+    2775,
+    "staged/stage1-single-user/50-appbar-layout.spec.ts",
+    "staged/stage1-single-user/50-appbar-layout.spec.ts › AppBar layout › single AppBar on every tab, no second action row",
+    "expected"
+  ],
+  [
+    3599,
+    "staged/stage1-single-user/50-appbar-layout.spec.ts",
+    "staged/stage1-single-user/50-appbar-layout.spec.ts › AppBar layout › sub-view shows the back icon in the AppBar left zone",
+    "expected"
+  ],
+  [
+    2535,
+    "staged/stage1-single-user/51-appbar-actions.spec.ts",
+    "staged/stage1-single-user/51-appbar-actions.spec.ts › AppBar actions › ➕ opens the talk editor",
+    "expected"
+  ],
+  [
+    5378,
+    "staged/stage1-single-user/51-appbar-actions.spec.ts",
+    "staged/stage1-single-user/51-appbar-actions.spec.ts › AppBar actions › 🏠 return-home enable state carries over and back icon pops one level",
+    "expected"
+  ],
+  [
+    4298,
+    "staged/stage1-single-user/51-appbar-actions.spec.ts",
+    "staged/stage1-single-user/51-appbar-actions.spec.ts › AppBar actions › 📣 broadcast keeps its guard behavior with an empty OUT list",
+    "expected"
+  ],
+  [
+    2245,
+    "staged/stage1-single-user/51-appbar-actions.spec.ts",
+    "staged/stage1-single-user/51-appbar-actions.spec.ts › AppBar actions › 🆕 opens the create-room dialog",
+    "expected"
+  ],
+  [
+    2260,
+    "staged/stage1-single-user/51-appbar-actions.spec.ts",
+    "staged/stage1-single-user/51-appbar-actions.spec.ts › AppBar actions › testids preserved on all migrated buttons",
+    "expected"
+  ],
+  [
+    2496,
+    "staged/stage1-single-user/52-appbar-overflow-responsive.spec.ts",
+    "staged/stage1-single-user/52-appbar-overflow-responsive.spec.ts › AppBar overflow responsive › Talks keeps ➕ inline at 320; the row actions fold into ⋯",
+    "expected"
+  ],
+  [
+    5536,
+    "staged/stage1-single-user/52-appbar-overflow-responsive.spec.ts",
+    "staged/stage1-single-user/52-appbar-overflow-responsive.spec.ts › AppBar overflow responsive › width matrix: inline at wide widths, ⋯ menu at 320 with priority order",
+    "expected"
+  ],
+  [
+    500,
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts",
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts › Nearby and Place navigation — back, list/map, create, return home › back icon swaps in for room detail and out for the flat list",
+    "expected"
+  ],
+  [
+    2602,
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts",
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts › Nearby and Place navigation — back, list/map, create, return home › creates one immutable content-addressed Community Place with no owner controls",
+    "expected"
+  ],
+  [
+    485,
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts",
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts › Nearby and Place navigation — back, list/map, create, return home › flat list shows Nearby people, no Nearby room, and no hierarchy or capacity shards",
+    "expected"
+  ],
+  [
+    494,
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts",
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts › Nearby and Place navigation — back, list/map, create, return home › list/map toggle shows the map and an open-map tap does not invent a grid room",
+    "expected"
+  ],
+  [
+    1063,
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts",
+    "staged/stage1-single-user/53-chatroom-navigation.spec.ts › Nearby and Place navigation — back, list/map, create, return home › Return to Nearby leaves the Place and the chatroom back icon never leaks to Contacts",
+    "expected"
+  ],
+  [
+    5299,
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts",
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts › Nearby and Places list/map views › broadcast event handlers animate the map and core exchange updates change match badges",
+    "expected"
+  ],
+  [
+    2390,
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts",
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts › Nearby and Places list/map views › center on me keeps bottom navigation responsive",
+    "expected"
+  ],
+  [
+    179,
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts",
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts › Nearby and Places list/map views › list exposes no synthetic Nearby room or Global/tree/capacity shards",
+    "expected"
+  ],
+  [
+    3272,
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts",
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts › Nearby and Places list/map views › list puts me first and Places last, with downward sending and upward receiving waves",
+    "expected"
+  ],
+  [
+    442,
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts",
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts › Nearby and Places list/map views › map focuses on me without a shaded Nearby area or retired tile travel",
+    "expected"
+  ],
+  [
+    3837,
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts",
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts › Nearby and Places list/map views › map nodes open Me and relationships; exchange lines open focused Talks and return to the same map",
+    "expected"
+  ],
+  [
+    3675,
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts",
+    "staged/stage1-single-user/54-chatroom-tree-and-map.spec.ts › Nearby and Places list/map views › Place member lists also keep me first and animate toward members",
+    "expected"
+  ],
+  [
+    17628,
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts",
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts › Notification auto-dismiss › all ordinary toast types dismiss within ~3s",
+    "expected"
+  ],
+  [
+    2527,
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts",
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts › Notification auto-dismiss › clicking a Match! toast dismisses it and opens its conversation",
+    "expected"
+  ],
+  [
+    11140,
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts",
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts › Notification auto-dismiss › Match! toast keeps its marker, lingers 8s, then dismisses on its own",
+    "expected"
+  ],
+  [
+    2579,
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts",
+    "staged/stage1-single-user/54-notification-autodismiss.spec.ts › Notification auto-dismiss › ordinary toast click dismisses without navigation",
+    "expected"
+  ],
+  [
+    8730,
+    "staged/stage1-single-user/54-place-creation-rules.spec.ts",
+    "staged/stage1-single-user/54-place-creation-rules.spec.ts › Place creation rules › an empty Place is listed under Places near you; one Place per person",
+    "expected"
+  ],
+  [
+    3078,
+    "staged/stage1-single-user/54-place-creation-rules.spec.ts",
+    "staged/stage1-single-user/54-place-creation-rules.spec.ts › Place creation rules › New Room needs the minimum number of incoming Friend marks",
+    "expected"
+  ],
+  [
+    2497,
+    "staged/stage1-single-user/54-place-creation-rules.spec.ts",
+    "staged/stage1-single-user/54-place-creation-rules.spec.ts › Place creation rules › the form reminds the creator of trademark law",
+    "expected"
+  ],
+  [
+    236,
+    "staged/stage1-single-user/56-me-dialogs.spec.ts",
+    "staged/stage1-single-user/56-me-dialogs.spec.ts › Me tab — answer history and dialogs (merged) › My Talks dialog opens and closes",
+    "expected"
+  ],
+  [
+    235,
+    "staged/stage1-single-user/56-me-dialogs.spec.ts",
+    "staged/stage1-single-user/56-me-dialogs.spec.ts › Me tab — answer history and dialogs (merged) › Preferences dialog opens and closes",
+    "expected"
+  ],
+  [
+    757,
+    "staged/stage1-single-user/56-me-dialogs.spec.ts",
+    "staged/stage1-single-user/56-me-dialogs.spec.ts › Me tab — answer history and dialogs (merged) › seeded answer renders and search filters it",
+    "expected"
+  ],
+  [
+    2775,
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts",
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts › Responsive tab sweep across the width matrix › Chinese sweep at 390px wide",
+    "expected"
+  ],
+  [
+    2772,
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts",
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts › Responsive tab sweep across the width matrix › English sweep at 1024px wide",
+    "expected"
+  ],
+  [
+    3271,
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts",
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts › Responsive tab sweep across the width matrix › English sweep at 320px wide",
+    "expected"
+  ],
+  [
+    2766,
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts",
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts › Responsive tab sweep across the width matrix › English sweep at 390px wide",
+    "expected"
+  ],
+  [
+    2778,
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts",
+    "staged/stage1-single-user/59-responsive-tab-sweep.spec.ts › Responsive tab sweep across the width matrix › English sweep at 768px wide",
+    "expected"
+  ],
+  [
+    5939,
+    "staged/stage1-single-user/64-option-matrices.spec.ts",
+    "staged/stage1-single-user/64-option-matrices.spec.ts › Option matrices — talks/me filters, announcement, talk editor, settings (merged) › nav modes, all 8 sorts, 5 types, completion, outcome, dates, query",
+    "expected"
+  ],
+  [
+    753,
+    "staged/stage1-single-user/64-option-matrices.spec.ts",
+    "staged/stage1-single-user/64-option-matrices.spec.ts › Option matrices — talks/me filters, announcement, talk editor, settings (merged) › renders, dismisses, and stays dismissed for the same id",
+    "expected"
+  ],
+  [
+    1114,
+    "staged/stage1-single-user/64-option-matrices.spec.ts",
+    "staged/stage1-single-user/64-option-matrices.spec.ts › Option matrices — talks/me filters, announcement, talk editor, settings (merged) › stage-name, distance, language, and type guards",
+    "expected"
+  ],
+  [
+    3514,
+    "staged/stage1-single-user/64-option-matrices.spec.ts",
+    "staged/stage1-single-user/64-option-matrices.spec.ts › Option matrices — talks/me filters, announcement, talk editor, settings (merged) › type radios, expirations, radii, checkboxes, and title validation",
+    "expected"
+  ],
+  [
+    5473,
+    "staged/stage1-single-user/64-option-matrices.spec.ts",
+    "staged/stage1-single-user/64-option-matrices.spec.ts › Option matrices — talks/me filters, announcement, talk editor, settings (merged) › type toggles, tag states, outcome, sorts, query, dates, clear",
+    "expected"
+  ],
+  [
+    7416,
+    "staged/stage1-single-user/70-dirty-word-list-editor.spec.ts",
+    "staged/stage1-single-user/70-dirty-word-list-editor.spec.ts › Settings: dirty-word list editor › defaults render, add/remove/reset, validation, and persistence",
+    "expected"
+  ],
+  [
+    9794,
+    "staged/stage1-single-user/70-dirty-word-list-editor.spec.ts",
+    "staged/stage1-single-user/70-dirty-word-list-editor.spec.ts › Settings: dirty-word list editor › rejects the 51st entry (cap 50)",
+    "expected"
+  ],
+  [
+    2767,
+    "staged/stage1-single-user/71-linked-devices-page.spec.ts",
+    "staged/stage1-single-user/71-linked-devices-page.spec.ts › Identity & devices page › 320px layout has no horizontal overflow and keeps controls reachable",
+    "expected"
+  ],
+  [
+    9958,
+    "staged/stage1-single-user/71-linked-devices-page.spec.ts",
+    "staged/stage1-single-user/71-linked-devices-page.spec.ts › Identity & devices page › open/close, empty state, code lifecycle, error paths, unlink",
+    "expected"
+  ],
+  [
+    12307,
+    "staged/stage1-single-user/71-linked-devices-page.spec.ts",
+    "staged/stage1-single-user/71-linked-devices-page.spec.ts › Identity & devices page › password custody preserves identity and gates reload/change/lock lifecycle",
+    "expected"
+  ],
+  [
+    6098,
+    "staged/stage1-single-user/72-erase-this-device.spec.ts",
+    "staged/stage1-single-user/72-erase-this-device.spec.ts › Erase this device › typed-confirm gate, cancel intact, wipe verified, fresh identity",
+    "expected"
+  ],
+  [
+    290,
+    "staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts",
+    "staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts › Conversation modes — manual answers are never auto-reused (spec §7.6) › auto answer enters chatbot memory and auto-completes the next same question",
+    "expected"
+  ],
+  [
+    391,
+    "staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts",
+    "staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts › Conversation modes — manual answers are never auto-reused (spec §7.6) › manual answer stays out of chatbot memory and is not auto-applied",
+    "expected"
+  ],
+  [
+    278,
+    "staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts",
+    "staged/stage1-single-user/74-conversation-mode-auto-manual.spec.ts › Conversation modes — manual answers are never auto-reused (spec §7.6) › the global Whenever offered setting keeps ordered Apple/Kiwi defaults across choice sets",
+    "expected"
+  ],
+  [
+    2417,
+    "staged/stage1-single-user/75-p2p-rate-limit-429.spec.ts",
+    "staged/stage1-single-user/75-p2p-rate-limit-429.spec.ts › P2P rate limiting — 429 past the per-peer budget (spec §3.8) › burst past the budget → 429; other peers unaffected; window recovery",
+    "expected"
+  ],
+  [
+    10459,
+    "staged/stage1-single-user/76-compact-answer-rows.spec.ts",
+    "staged/stage1-single-user/76-compact-answer-rows.spec.ts › Compact answer rows (§LL.2) — 1-line collapse, no popup › answer entry: one line with inline context label and no talk-copy action",
+    "expected"
+  ],
+  [
+    10482,
+    "staged/stage1-single-user/77-settings-section-wrapper.spec.ts",
+    "staged/stage1-single-user/77-settings-section-wrapper.spec.ts › Settings tab cleanup (M4) — shared section wrapper + drill-down › every section uses the shared wrapper; menu/detail drill-down works; sampled controls still read/write state",
+    "expected"
+  ],
+  [
+    11238,
+    "staged/stage1-single-user/78-techsupport-unblockable-every-route.spec.ts",
+    "staged/stage1-single-user/78-techsupport-unblockable-every-route.spec.ts › TechSupport is unblockable by every available route (docs/TODO.md K6) › mute, client-service call, and raw server API attempts all fail to block TechSupport",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/79-techsupport-survives-restrictive-filters.spec.ts",
+    "staged/stage1-single-user/79-techsupport-survives-restrictive-filters.spec.ts › TechSupport DM survives maximally restrictive intake filters (docs/TODO.md K6) › greeting renders and a new-question round trip completes with every filter maxed out",
+    "skipped"
+  ],
+  [
+    5882,
+    "staged/stage1-single-user/80-talks-list-progressive-render.spec.ts",
+    "staged/stage1-single-user/80-talks-list-progressive-render.spec.ts › Talks tab: progressive render for long lists (R2) › rapid successive re-renders settle with no dropped or duplicated rows; a remainder row is clickable",
+    "expected"
+  ],
+  [
+    5732,
+    "staged/stage1-single-user/81-answers-list-progressive-render.spec.ts",
+    "staged/stage1-single-user/81-answers-list-progressive-render.spec.ts › Me tab: progressive render for long answer lists (R3) › rapid successive re-renders settle with no dropped or duplicated rows; a remainder row is fully interactive",
+    "expected"
+  ],
+  [
+    8070,
+    "staged/stage1-single-user/82-list-pins.spec.ts",
+    "staged/stage1-single-user/82-list-pins.spec.ts › manual pins across Contacts, Talks, and Me › pins, persists, and unpins rows in all three tabs",
+    "expected"
+  ],
+  [
+    11437,
+    "staged/stage1-single-user/82-route-editor-multi-item-builtin.spec.ts",
+    "staged/stage1-single-user/82-route-editor-multi-item-builtin.spec.ts › Route editor: multi-item branching + builtIn leaf questions (§BB Phase 6) › creates a 2-item route talk with per-item quantity builtIn leaves; saves, reopens, and round-trips correctly",
+    "expected"
+  ],
+  [
+    13663,
+    "staged/stage1-single-user/83-incoming-talk-gesture-actions.spec.ts",
+    "staged/stage1-single-user/83-incoming-talk-gesture-actions.spec.ts › Incoming talk gesture actions › Flow, Survey, and Route support retain plus left-swipe Ignore while right swipe makes no decision",
+    "expected"
+  ],
+  [
+    13020,
+    "staged/stage1-single-user/83-incoming-talk-gesture-actions.spec.ts",
+    "staged/stage1-single-user/83-incoming-talk-gesture-actions.spec.ts › Incoming talk gesture actions › Tag Pass persists across senders and direct Like↔Pass updates Talks plus Me",
+    "expected"
+  ],
+  [
+    10363,
+    "staged/stage1-single-user/83-talk-template-picker.spec.ts",
+    "staged/stage1-single-user/83-talk-template-picker.spec.ts › Talk template picker › lists all 4 templates + start-from-scratch, and each pre-fills the editor correctly",
+    "expected"
+  ],
+  [
+    10609,
+    "staged/stage1-single-user/84-talk-editor-preview.spec.ts",
+    "staged/stage1-single-user/84-talk-editor-preview.spec.ts › Talk editor: live responder preview › flow talk: walks to a match, restarts to an ignore, and re-derives live on edit",
+    "expected"
+  ],
+  [
+    10605,
+    "staged/stage1-single-user/84-talk-editor-preview.spec.ts",
+    "staged/stage1-single-user/84-talk-editor-preview.spec.ts › Talk editor: live responder preview › route talk: parallel spec fan-out preview walks to a match",
+    "expected"
+  ],
+  [
+    9966,
+    "staged/stage1-single-user/85-talk-template-customize-and-expand.spec.ts",
+    "staged/stage1-single-user/85-talk-template-customize-and-expand.spec.ts › Talk template picker — more use cases + customize/expand › Roommate, Lost & Found, Pet Sitting, and Study Buddy/Tutoring templates render and pre-fill correctly",
+    "expected"
+  ],
+  [
+    10397,
+    "staged/stage1-single-user/85-talk-template-customize-and-expand.spec.ts",
+    "staged/stage1-single-user/85-talk-template-customize-and-expand.spec.ts › Talk template picker — more use cases + customize/expand › user customizes the Roommate template's wording and expands it with a new question before saving",
+    "expected"
+  ],
+  [
+    9344,
+    "staged/stage1-single-user/86-download-app-settings.spec.ts",
+    "staged/stage1-single-user/86-download-app-settings.spec.ts › Download the app (banner rewording + Settings section) › app-download banner never says \"not available\"/\"network\" and its fallback link opens the Settings section",
+    "expected"
+  ],
+  [
+    9565,
+    "staged/stage1-single-user/86-download-app-settings.spec.ts",
+    "staged/stage1-single-user/86-download-app-settings.spec.ts › Download the app (banner rewording + Settings section) › Settings > Download the app lists all 3 platforms, each \"Coming soon\" with nothing published",
+    "expected"
+  ],
+  [
+    4358,
+    "staged/stage1-single-user/87-onboarding-walkthrough.spec.ts",
+    "staged/stage1-single-user/87-onboarding-walkthrough.spec.ts › First-run introduction › introduces digital you first, then lets a demo contact be removed",
+    "expected"
+  ],
+  [
+    5129,
+    "staged/stage1-single-user/87-onboarding-walkthrough.spec.ts",
+    "staged/stage1-single-user/87-onboarding-walkthrough.spec.ts › First-run introduction › keeps the introduction usable at a 320px phone width",
+    "expected"
+  ],
+  [
+    1,
+    "staged/stage1-single-user/88-tag-similarity-scoring.spec.ts",
+    "staged/stage1-single-user/88-tag-similarity-scoring.spec.ts › application tag-similarity scoring › cosine ranks controlled users Eve > Bob > Alice",
+    "expected"
+  ],
+  [
+    3,
+    "staged/stage1-single-user/88-tag-similarity-scoring.spec.ts",
+    "staged/stage1-single-user/88-tag-similarity-scoring.spec.ts › application tag-similarity scoring › covers identity, no overlap, empty sets, containment, and overlap ordering",
+    "expected"
+  ],
+  [
+    4,
+    "staged/stage1-single-user/88-tag-similarity-scoring.spec.ts",
+    "staged/stage1-single-user/88-tag-similarity-scoring.spec.ts › application tag-similarity scoring › jaccard ranks controlled users Eve > Bob > Alice",
+    "expected"
+  ],
+  [
+    1515,
+    "staged/stage1-single-user/89-contacts-cap.spec.ts",
+    "staged/stage1-single-user/89-contacts-cap.spec.ts › Contacts cap (OPEN-87) › choosing 500 prunes the oldest exchange-only people and keeps relationships",
+    "expected"
+  ],
+  [
+    2566,
+    "staged/stage1-single-user/89-talk-editor-mobile-layout.spec.ts",
+    "staged/stage1-single-user/89-talk-editor-mobile-layout.spec.ts › Talk editor compact phone layout › keeps a simple tag and Create reachable at 390px without losing advanced controls",
+    "expected"
+  ],
+  [
+    1485,
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts",
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts › OPEN-33 Android update-reminder banner (real-browser DOM lifecycle) › a still-newer version re-triggers after the older one was dismissed",
+    "expected"
+  ],
+  [
+    1477,
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts",
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts › OPEN-33 Android update-reminder banner (real-browser DOM lifecycle) › dismiss removes banner + badge, persists the dismissal, and the same version stays hidden on re-render",
+    "expected"
+  ],
+  [
+    1247,
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts",
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts › OPEN-33 Android update-reminder banner (real-browser DOM lifecycle) › does not render on a non-Android (web) shell even when a newer version is published",
+    "expected"
+  ],
+  [
+    1011,
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts",
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts › OPEN-33 Android update-reminder banner (real-browser DOM lifecycle) › does not render when the published version is not newer than the running one",
+    "expected"
+  ],
+  [
+    969,
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts",
+    "staged/stage1-single-user/90-app-update-reminder-banner.spec.ts › OPEN-33 Android update-reminder banner (real-browser DOM lifecycle) › shows the banner and Settings badge at boot when a newer APK is published",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/91-techsupport-recovery-anchor-catch-up.spec.ts",
+    "staged/stage1-single-user/91-techsupport-recovery-anchor-catch-up.spec.ts › OPEN-29 recovery anchor: cross-client stale-cache catch-up (real browser + relay) › stale cache catches up, live client learns a new record, newer cache never rolls back",
+    "skipped"
+  ],
+  [
+    301,
+    "staged/stage1-single-user/92-location-model-settings.spec.ts",
+    "staged/stage1-single-user/92-location-model-settings.spec.ts › Location model settings › Quiet now blurs to Regional by default, Hide me leaves Nearby, and turning it off returns",
+    "expected"
+  ],
+  [
+    134,
+    "staged/stage1-single-user/92-location-model-settings.spec.ts",
+    "staged/stage1-single-user/92-location-model-settings.spec.ts › Location model settings › Resident by default: area sizes only, quiet places, no distance filter",
+    "expected"
+  ],
+  [
+    213,
+    "staged/stage1-single-user/92-location-model-settings.spec.ts",
+    "staged/stage1-single-user/92-location-model-settings.spec.ts › Location model settings › Talk audience lives in Talk Behavior; one distance unit across Settings",
+    "expected"
+  ],
+  [
+    420,
+    "staged/stage1-single-user/92-location-model-settings.spec.ts",
+    "staged/stage1-single-user/92-location-model-settings.spec.ts › Location model settings › Traveler ✈: no GPS; a random point (still on the map) until one is chosen, then Nearby there",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/93-production-encounter-picker.spec.ts",
+    "staged/stage1-single-user/93-production-encounter-picker.spec.ts › Production website encounter location → Nearby › location allowed: a Resident at the browser fix, with no picker",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/93-production-encounter-picker.spec.ts",
+    "staged/stage1-single-user/93-production-encounter-picker.spec.ts › Production website encounter location → Nearby › location refused: a random Traveler point in Nearby, then the picked point",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage1-single-user/93-production-encounter-picker.spec.ts",
+    "staged/stage1-single-user/93-production-encounter-picker.spec.ts › Production website encounter location → Nearby › the Traveler and the Resident share the one Nearby room",
+    "skipped"
+  ],
+  [
+    10472,
+    "staged/stage1-single-user/94-exchange-log-in-device-core.spec.ts",
+    "staged/stage1-single-user/94-exchange-log-in-device-core.spec.ts › The exchange log in the device core › old exchanges are imported once, kept in the core, and come back after a reload",
+    "expected"
+  ],
+  [
+    4391,
+    "staged/stage1-single-user/95-four-tab-graph.spec.ts",
+    "staged/stage1-single-user/95-four-tab-graph.spec.ts › four tabs traverse people, non-tag Talks, answers and historical Places without travelling",
+    "expected"
+  ],
+  [
+    9703,
+    "staged/stage1-single-user/96-shared-device-core.spec.ts",
+    "staged/stage1-single-user/96-shared-device-core.spec.ts › elected dedicated worker preserves simultaneous writes and survives a tab closing",
+    "expected"
+  ],
+  [
+    9493,
+    "staged/stage1-single-user/96-shared-device-core.spec.ts",
+    "staged/stage1-single-user/96-shared-device-core.spec.ts › shared worker preserves simultaneous writes and survives a tab closing",
+    "expected"
+  ],
+  [
+    840,
+    "staged/stage1-single-user/96-shared-device-core.spec.ts",
+    "staged/stage1-single-user/96-shared-device-core.spec.ts › simultaneous first app tabs create one device identity",
+    "expected"
+  ],
+  [
+    11002,
+    "staged/stage1-single-user/96-shared-device-core.spec.ts",
+    "staged/stage1-single-user/96-shared-device-core.spec.ts › two app tabs keep the same identity and both confirmed edits after the first tab closes",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/00-aaa-stage2-adam-joins.spec.ts",
+    "staged/stage2-two-user/00-aaa-stage2-adam-joins.spec.ts › Stage 2 — Adam joins Tom while TechSupport remains Contacts-only › load stage1, Adam enters network, exchanges a match talk, save stage2",
+    "skipped"
+  ],
+  [
+    29817,
+    "staged/stage2-two-user/00-broadcast-abort-clear-all.spec.ts",
+    "staged/stage2-two-user/00-broadcast-abort-clear-all.spec.ts › Broadcast cancellation — clear all mid-flight › broadcast loop remains stable when creator clears all talks mid-flight",
+    "expected"
+  ],
+  [
+    30692,
+    "staged/stage2-two-user/00-broadcast-boundary-match.spec.ts",
+    "staged/stage2-two-user/00-broadcast-boundary-match.spec.ts › Broadcast — chatroom boundary matching › talk matching still works across chatroom boundaries (answer after switching rooms)",
+    "expected"
+  ],
+  [
+    30423,
+    "staged/stage2-two-user/00-broadcast-deletion-mid-broadcast.spec.ts",
+    "staged/stage2-two-user/00-broadcast-deletion-mid-broadcast.spec.ts › Broadcast cancellation — talk deletion mid-flight › talk deletion by creator mid-broadcast cancels remaining talk delivery",
+    "expected"
+  ],
+  [
+    15275,
+    "staged/stage2-two-user/00-talk-response-option-paths.spec.ts",
+    "staged/stage2-two-user/00-talk-response-option-paths.spec.ts › Talk Response: option paths › tag Like is a direct one-tap response without a response modal",
+    "expected"
+  ],
+  [
+    19883,
+    "staged/stage2-two-user/00ae-contacts-stranger-relationship.spec.ts",
+    "staged/stage2-two-user/00ae-contacts-stranger-relationship.spec.ts › Contacts: stranger default label → save relationship → sort (D6) › new match starts as Stranger; can be labeled Friend and sort/persist correctly",
+    "expected"
+  ],
+  [
+    27035,
+    "staged/stage2-two-user/00an-presence-indicator-parity.spec.ts",
+    "staged/stage2-two-user/00an-presence-indicator-parity.spec.ts › Presence indicator parity: Contacts tab vs chatroom member list › same online/away dot renders for an ordinary peer in both lists",
+    "expected"
+  ],
+  [
+    10256,
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts",
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts › Chatroom peer detail views › clicking a chatroom member opens the peer detail overlay",
+    "expected"
+  ],
+  [
+    10449,
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts",
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts › Chatroom peer detail views › member list shows online presence for an unknown user",
+    "expected"
+  ],
+  [
+    23106,
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts",
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts › Chatroom peer detail views › peer detail direct message creates a pair conversation and receiver sees it",
+    "expected"
+  ],
+  [
+    24159,
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts",
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts › Chatroom peer detail views › peer detail shows talk history after a talk exchange",
+    "expected"
+  ],
+  [
+    15841,
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts",
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts › Chatroom peer detail views › Send My Talks auto mode sends active unsent talks but excludes expired talks",
+    "expected"
+  ],
+  [
+    19008,
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts",
+    "staged/stage2-two-user/00e-chatroom-peer-detail.spec.ts › Chatroom peer detail views › Send My Talks manual mode shows picker modal",
+    "expected"
+  ],
+  [
+    26017,
+    "staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts",
+    "staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts › GPS grid room navigation and room-scoped broadcast › Both peers in the same remote grid room; broadcast there reaches the peer",
+    "expected"
+  ],
+  [
+    23939,
+    "staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts",
+    "staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts › GPS grid room navigation and room-scoped broadcast › Broadcaster in one grid room does not reach a peer in a different grid room",
+    "expected"
+  ],
+  [
+    10405,
+    "staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts",
+    "staged/stage2-two-user/00h-chatroom-hierarchy-broadcast.spec.ts › GPS grid room navigation and room-scoped broadcast › Flat room list shows no region tiles or country rooms; an area room still opens by coordinates",
+    "expected"
+  ],
+  [
+    31692,
+    "staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts",
+    "staged/stage2-two-user/00i-p0-direct-talk-delivery.spec.ts › Pair-direct talk delivery over Gun mesh › delivers talk to receiver local Gun without server incoming-talks inbox",
+    "expected"
+  ],
+  [
+    27186,
+    "staged/stage2-two-user/00j-messaging-edge-cases.spec.ts",
+    "staged/stage2-two-user/00j-messaging-edge-cases.spec.ts › Messaging edge cases › conversation can be reopened after page reopen (same identity)",
+    "expected"
+  ],
+  [
+    50201,
+    "staged/stage2-two-user/00j-messaging-edge-cases.spec.ts",
+    "staged/stage2-two-user/00j-messaging-edge-cases.spec.ts › Messaging edge cases › messaging works after unblock",
+    "expected"
+  ],
+  [
+    32724,
+    "staged/stage2-two-user/00k-p2p-handshake.spec.ts",
+    "staged/stage2-two-user/00k-p2p-handshake.spec.ts › P2P-Q handshake E2E › handshakeState is ok and selectedProtocol is iinpublic-p2p-v2 after peers connect",
+    "expected"
+  ],
+  [
+    429,
+    "staged/stage2-two-user/00k-p2p-handshake.spec.ts",
+    "staged/stage2-two-user/00k-p2p-handshake.spec.ts › P2P-Q handshake E2E › in-browser negotiation with incompatible protocol list produces failed state",
+    "expected"
+  ],
+  [
+    11030,
+    "staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts",
+    "staged/stage2-two-user/00k-techsupport-contact-mute.spec.ts › TechSupport built-in contact controls › pins TechSupport and mutes notifications without ordinary blocking",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/00l-techsupport-faq-cross-user.spec.ts",
+    "staged/stage2-two-user/00l-techsupport-faq-cross-user.spec.ts › TechSupport FAQ: a different user gets the same question auto-answered (docs/TODO.md K5 Item 6) › Jerry asks the exact question Tom already got answered and is auto-answered with zero TechSupport involvement in Jerry's session",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/00m-techsupport-delegate-answers.spec.ts",
+    "staged/stage2-two-user/00m-techsupport-delegate-answers.spec.ts › TechSupport delegation: master issues a grant, a delegate answers as TechSupport (docs/TODO.md K7) › issue a grant to Dana, she opts in and answers Amy without ever holding the master key, and the master audits it",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/00n-techsupport-conversation-answer-flow.spec.ts",
+    "staged/stage2-two-user/00n-techsupport-conversation-answer-flow.spec.ts › TechSupport conversation UI: operator answers multiple questions through the ordinary DM flow › user asks several questions; TechSupport opens the inbox conversation in the ordinary DM overlay",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/00n-techsupport-delegate-answers-cold-asker.spec.ts",
+    "staged/stage2-two-user/00n-techsupport-delegate-answers-cold-asker.spec.ts › TechSupport delegation: a cold asker (never previously synced the delegate roster) still reaches the delegate (real-device regression, 2026-09-23) › Amy asks the instant she opens the app, before her own client has ever synced the delegate roster — Dana must still get the envelope",
+    "skipped"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/00o-techsupport-delegate-remote-invite.spec.ts",
+    "staged/stage2-two-user/00o-techsupport-delegate-remote-invite.spec.ts › TechSupport delegation: remote invite to a named user, no code or QR › master invites Dana by user id; Dana accepts in her own Settings; master approves",
+    "skipped"
+  ],
+  [
+    42112,
+    "staged/stage2-two-user/01-login-two-users-headcount.spec.ts",
+    "staged/stage2-two-user/01-login-two-users-headcount.spec.ts › Login — two users headcount › Two users: Nearby headcount excludes TechSupport across leave and rejoin",
+    "expected"
+  ],
+  [
+    4633,
+    "staged/stage2-two-user/04-profile-edit-stage-name.spec.ts",
+    "staged/stage2-two-user/04-profile-edit-stage-name.spec.ts › Profile foundation › a multi-megabyte photo is accepted and shrunk to a small square JPEG (no 2 MB limit)",
+    "expected"
+  ],
+  [
+    67344,
+    "staged/stage2-two-user/04-profile-edit-stage-name.spec.ts",
+    "staged/stage2-two-user/04-profile-edit-stage-name.spec.ts › Profile foundation › New user edits stage name and public profile, then peers can see it",
+    "expected"
+  ],
+  [
+    22713,
+    "staged/stage2-two-user/07-tags-checkbox.spec.ts",
+    "staged/stage2-two-user/07-tags-checkbox.spec.ts › Tag: create tag, answer with Like/Pass actions › Alice sends Coffee and Cat; Tom Likes Coffee and Passes Cat; Alice sees one match",
+    "expected"
+  ],
+  [
+    30993,
+    "staged/stage2-two-user/08-super-user-copy-talk.spec.ts",
+    "staged/stage2-two-user/08-super-user-copy-talk.spec.ts › Super user: copy talk broadcast toggle + delete › Answer first, recover from Answered, add to My Talks, toggle broadcast, and delete",
+    "expected"
+  ],
+  [
+    25247,
+    "staged/stage2-two-user/09-messaging.spec.ts",
+    "staged/stage2-two-user/09-messaging.spec.ts › Direct messaging between matched users › Tom and Jerry match on talk, then exchange messages",
+    "expected"
+  ],
+  [
+    25823,
+    "staged/stage2-two-user/10-message-unread-badge.spec.ts",
+    "staged/stage2-two-user/10-message-unread-badge.spec.ts › Unread badge on Me tab after match and new message › Unread badge appears after match, clears on open; reappears after new message, clears on open",
+    "expected"
+  ],
+  [
+    68883,
+    "staged/stage2-two-user/15a-blocking-unblock-resumes-talk-delivery.spec.ts",
+    "staged/stage2-two-user/15a-blocking-unblock-resumes-talk-delivery.spec.ts › Blocking system — unblock resumes talk delivery › unblock resumes talk delivery",
+    "expected"
+  ],
+  [
+    54497,
+    "staged/stage2-two-user/15b-blocking-stops-delivery-and-peer-visibility.spec.ts",
+    "staged/stage2-two-user/15b-blocking-stops-delivery-and-peer-visibility.spec.ts › Blocking system — block stops delivery › block stops delivery and hides peer detail from the blocked user",
+    "expected"
+  ],
+  [
+    57930,
+    "staged/stage2-two-user/21a-reputation-block-count.spec.ts",
+    "staged/stage2-two-user/21a-reputation-block-count.spec.ts › Reputation system — block count propagation › block/unblock propagates reputation.blockCount",
+    "expected"
+  ],
+  [
+    31431,
+    "staged/stage2-two-user/21b-reputation-peer-star-rating.spec.ts",
+    "staged/stage2-two-user/21b-reputation-peer-star-rating.spec.ts › Reputation system — peer star rating › submit peer star rating updates starRating + liked/disliked counts",
+    "expected"
+  ],
+  [
+    36650,
+    "staged/stage2-two-user/21c-reputation-vouch-threshold.spec.ts",
+    "staged/stage2-two-user/21c-reputation-vouch-threshold.spec.ts › Reputation system — vouch threshold › vouch votes accumulate to threshold (delivery flips at 3)",
+    "expected"
+  ],
+  [
+    13076,
+    "staged/stage2-two-user/28-stage-zero-n2n.spec.ts",
+    "staged/stage2-two-user/28-stage-zero-n2n.spec.ts › Stage zero N2N smoke › stage zero Adam configures profile, creates four talks, visits a Place and returns home, and keeps the Nearby room on reload",
+    "expected"
+  ],
+  [
+    17728,
+    "staged/stage2-two-user/29-messaging-semantics.spec.ts",
+    "staged/stage2-two-user/29-messaging-semantics.spec.ts › Messaging semantics — concurrent order, read state, history order (merged) › A and B interleave 3 messages each; both sides converge to the same 6-message order",
+    "expected"
+  ],
+  [
+    19102,
+    "staged/stage2-two-user/29-messaging-semantics.spec.ts",
+    "staged/stage2-two-user/29-messaging-semantics.spec.ts › Messaging semantics — concurrent order, read state, history order (merged) › alternating messages render in full and in order on both sides",
+    "expected"
+  ],
+  [
+    18608,
+    "staged/stage2-two-user/29-messaging-semantics.spec.ts",
+    "staged/stage2-two-user/29-messaging-semantics.spec.ts › Messaging semantics — concurrent order, read state, history order (merged) › unread badge lifecycle survives a reload via persisted read cursor",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/30-ledger-message-pruning-e2e.spec.ts",
+    "staged/stage2-two-user/30-ledger-message-pruning-e2e.spec.ts › Ledger + message checkpoint pruning end to end › ledger and message pruning fire for real, and a lagging peer still catches up via delta-sync",
+    "skipped"
+  ],
+  [
+    26679,
+    "staged/stage2-two-user/31-auto-linear-capture.spec.ts",
+    "staged/stage2-two-user/31-auto-linear-capture.spec.ts › Auto Linear Capture from DM shorthand › captured line shows confirmation, renders as chips both sides, chip tap replies, terminator saves a Talk",
+    "expected"
+  ],
+  [
+    28860,
+    "staged/stage2-two-user/32-broadcast-to-contact-group.spec.ts",
+    "staged/stage2-two-user/32-broadcast-to-contact-group.spec.ts › Broadcast to a contact group › a contact with overlapping labels is reachable via either group broadcast",
+    "expected"
+  ],
+  [
+    24114,
+    "staged/stage2-two-user/32-broadcast-to-contact-group.spec.ts",
+    "staged/stage2-two-user/32-broadcast-to-contact-group.spec.ts › Broadcast to a contact group › group-picker resolves a custom group and delivers via the normal broadcast path",
+    "expected"
+  ],
+  [
+    12973,
+    "staged/stage2-two-user/33-mesh-only-delivery-no-server.spec.ts",
+    "staged/stage2-two-user/33-mesh-only-delivery-no-server.spec.ts › Mesh-only delivery: talk delivery + match + conversation without any server talk-delivery path › A authors, B receives via local Gun IN, answers → match on both sides; zero server talk-delivery traffic",
+    "expected"
+  ],
+  [
+    17649,
+    "staged/stage2-two-user/34-contacts-filter-name.spec.ts",
+    "staged/stage2-two-user/34-contacts-filter-name.spec.ts › Contacts tab: filter by name › name filter: partial match filters contacts; case-insensitive; garbage empties; clear restores",
+    "expected"
+  ],
+  [
+    704,
+    "staged/stage2-two-user/35-concurrent-visit-counter.spec.ts",
+    "staged/stage2-two-user/35-concurrent-visit-counter.spec.ts › Room visit counter: concurrent joins › a repeat visit by the same user raises visits but not unique visitors",
+    "expected"
+  ],
+  [
+    12331,
+    "staged/stage2-two-user/35-concurrent-visit-counter.spec.ts",
+    "staged/stage2-two-user/35-concurrent-visit-counter.spec.ts › Room visit counter: concurrent joins › two simultaneous joins are both counted, unique = 2",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/35-reply-filter-query.spec.ts",
+    "staged/stage2-two-user/35-reply-filter-query.spec.ts › Talks tab: replies filter by query › reply filter: partial name match filters replies; case-insensitive; garbage empties; clear restores",
+    "skipped"
+  ],
+  [
+    15495,
+    "staged/stage2-two-user/36-offline-beyond-mailbox-ttl.spec.ts",
+    "staged/stage2-two-user/36-offline-beyond-mailbox-ttl.spec.ts › Mailbox: an envelope announced while the recipient is offline past TTL is pruned, never delivered › expired mailbox item is pruned and never delivered; a fresh control item still drains",
+    "expected"
+  ],
+  [
+    26185,
+    "staged/stage2-two-user/37-hard-crash-recovery.spec.ts",
+    "staged/stage2-two-user/37-hard-crash-recovery.spec.ts › Hard crash recovery: SIGKILL B, A sends offline, B relaunches from same profile and recovers › B survives SIGKILL: relaunched profile is the same user and receives the 2 offline messages",
+    "expected"
+  ],
+  [
+    13616,
+    "staged/stage2-two-user/38-mobile-talk-answer-flow.spec.ts",
+    "staged/stage2-two-user/38-mobile-talk-answer-flow.spec.ts › Mobile talk answer flow: B on 390x844 answers through the real response modal › B answers an incoming flow talk via the mobile response modal and matches with A",
+    "expected"
+  ],
+  [
+    17953,
+    "staged/stage2-two-user/39-mobile-conversation-messages.spec.ts",
+    "staged/stage2-two-user/39-mobile-conversation-messages.spec.ts › Mobile conversation messaging: B on 390x844 › A and B exchange messages, all visible; B mobile overlay stays within 390px width",
+    "expected"
+  ],
+  [
+    23023,
+    "staged/stage2-two-user/40-blocklist-persist-restart.spec.ts",
+    "staged/stage2-two-user/40-blocklist-persist-restart.spec.ts › Blocklist persists after browser restart › blocklist persists across browser restart",
+    "expected"
+  ],
+  [
+    24641,
+    "staged/stage2-two-user/41-stats-aggregation-four-types.spec.ts",
+    "staged/stage2-two-user/41-stats-aggregation-four-types.spec.ts › Stats aggregation across all four talk types (flow, tag, survey, route) › per-talk and aggregate stats reflect the right response/match counts per type",
+    "expected"
+  ],
+  [
+    47459,
+    "staged/stage2-two-user/42-stale-room-membership-prune.spec.ts",
+    "staged/stage2-two-user/42-stale-room-membership-prune.spec.ts › Nearby list cleanup › a person who disappears leaves the Nearby headcount when the next swap gets no answer",
+    "expected"
+  ],
+  [
+    43336,
+    "staged/stage2-two-user/43-crash-room-membership-prune.spec.ts",
+    "staged/stage2-two-user/43-crash-room-membership-prune.spec.ts › Nearby list cleanup after an OS-level browser crash › a SIGKILLed person leaves the Nearby headcount when the next swap gets no answer",
+    "expected"
+  ],
+  [
+    12294,
+    "staged/stage2-two-user/60-peer-contact-layout-parity.spec.ts",
+    "staged/stage2-two-user/60-peer-contact-layout-parity.spec.ts › Peer/contact layout parity › both entry points render the identical shared layout",
+    "expected"
+  ],
+  [
+    10559,
+    "staged/stage2-two-user/61-peer-actions-in-appbar.spec.ts",
+    "staged/stage2-two-user/61-peer-actions-in-appbar.spec.ts › Peer actions in AppBar › 📤 inline, 🚫 under ⋯; block from the bar takes effect and testids survive",
+    "expected"
+  ],
+  [
+    13459,
+    "staged/stage2-two-user/63-send-talks-picker.spec.ts",
+    "staged/stage2-two-user/63-send-talks-picker.spec.ts › Send-My-Talks picker › opens the picker and cancels",
+    "expected"
+  ],
+  [
+    18629,
+    "staged/stage2-two-user/64-contacts-filter-sort-options.spec.ts",
+    "staged/stage2-two-user/64-contacts-filter-sort-options.spec.ts › Contacts: filter/sort option matrix › 7 relations, 7 sorts, name query",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage2-two-user/65-reply-triage-option-matrix.spec.ts",
+    "staged/stage2-two-user/65-reply-triage-option-matrix.spec.ts › Reply-triage option matrix › every triage control across its values",
+    "skipped"
+  ],
+  [
+    14095,
+    "staged/stage2-two-user/67-peer-history-controls.spec.ts",
+    "staged/stage2-two-user/67-peer-history-controls.spec.ts › Peer history controls › sort by date/outcome, filter all/sent/received, auto-mode persists",
+    "expected"
+  ],
+  [
+    16548,
+    "staged/stage2-two-user/68-conversation-first-entry.spec.ts",
+    "staged/stage2-two-user/68-conversation-first-entry.spec.ts › Person-first entry (OPEN-94) › member click lands on ⟨User⟩; Message opens ⟨Conv⟩; back chain pops ⟨User⟩ then opener; contact entry reaches the same thread",
+    "expected"
+  ],
+  [
+    13221,
+    "staged/stage2-two-user/69-matched-talk-threads.spec.ts",
+    "staged/stage2-two-user/69-matched-talk-threads.spec.ts › Matched-talk threads › thread rows per matched talk; open/reply/back; isolation from DM",
+    "expected"
+  ],
+  [
+    17767,
+    "staged/stage2-two-user/70-dirty-word-message-blocking.spec.ts",
+    "staged/stage2-two-user/70-dirty-word-message-blocking.spec.ts › Messaging: dirty-word filter blocks on send and hides on receive › send-block, clean pass, cocktail pass, receive-hide + reveal",
+    "expected"
+  ],
+  [
+    18029,
+    "staged/stage2-two-user/71-grammar-message-blocking.spec.ts",
+    "staged/stage2-two-user/71-grammar-message-blocking.spec.ts › Messaging: grammar filter blocks on send and hides on receive › grammar send-block, good passes, receive-hide + reveal",
+    "expected"
+  ],
+  [
+    8441,
+    "staged/stage2-two-user/72-sync-before-erase.spec.ts",
+    "staged/stage2-two-user/72-sync-before-erase.spec.ts › Sync before erase › sync offer → progress → a send to an unreachable device fails and keeps erase disabled",
+    "expected"
+  ],
+  [
+    17985,
+    "staged/stage2-two-user/73-dm-arrival-toast-navigation.spec.ts",
+    "staged/stage2-two-user/73-dm-arrival-toast-navigation.spec.ts › DM-arrival toast navigation (N1) › clicking the DM-arrival toast opens the conversation with the sender",
+    "expected"
+  ],
+  [
+    16410,
+    "staged/stage2-two-user/73-identity-link-mutual.spec.ts",
+    "staged/stage2-two-user/73-identity-link-mutual.spec.ts › mutual direct identity linking › requires both signatures, rejects replay, and converges when a lost device returns",
+    "expected"
+  ],
+  [
+    18893,
+    "staged/stage2-two-user/74-device-handoff-transfer.spec.ts",
+    "staged/stage2-two-user/74-device-handoff-transfer.spec.ts › device handoff transfer (§J) › A sends an encrypted archive to linked device B; B imports; A observes the ack and Done enables",
+    "expected"
+  ],
+  [
+    25426,
+    "staged/stage2-two-user/74-talk-row-person-traceback.spec.ts",
+    "staged/stage2-two-user/74-talk-row-person-traceback.spec.ts › Talk row -> person traceback (N3, single partner) › IN row: clicking the sender name opens that person, without opening the talk detail",
+    "expected"
+  ],
+  [
+    13881,
+    "staged/stage2-two-user/74-talk-row-person-traceback.spec.ts",
+    "staged/stage2-two-user/74-talk-row-person-traceback.spec.ts › Talk row -> person traceback (N3, single partner) › OUT row: clicking the sole matched name opens that responder and their DM thread",
+    "expected"
+  ],
+  [
+    44947,
+    "staged/stage2-two-user/74-talk-row-person-traceback.spec.ts",
+    "staged/stage2-two-user/74-talk-row-person-traceback.spec.ts › Talk row -> person traceback (N3, single partner) › OUT row: two matched responders opens the \"choose who to DM\" picker (item 8)",
+    "expected"
+  ],
+  [
+    22843,
+    "staged/stage2-two-user/75-contact-headshots.spec.ts",
+    "staged/stage2-two-user/75-contact-headshots.spec.ts › Contact headshots (M6) › no headshot shows \"?\" fallback; a set headshot renders (fresh session); re-sort does not re-fetch",
+    "expected"
+  ],
+  [
+    17775,
+    "staged/stage2-two-user/76-peer-history-clickable.spec.ts",
+    "staged/stage2-two-user/76-peer-history-clickable.spec.ts › Peer-detail exchanged-talk history is clickable (O) › a mismatch talk with no conversation yet: clicking creates one, scoped to that talk",
+    "expected"
+  ],
+  [
+    13907,
+    "staged/stage2-two-user/76-peer-history-clickable.spec.ts",
+    "staged/stage2-two-user/76-peer-history-clickable.spec.ts › Peer-detail exchanged-talk history is clickable (O) › existing conversation: matched talk opens its known thread; a second exchanged talk re-scopes without a regression",
+    "expected"
+  ],
+  [
+    29001,
+    "staged/stage2-two-user/77-talk-to-me-tab-reverse-edge.spec.ts",
+    "staged/stage2-two-user/77-talk-to-me-tab-reverse-edge.spec.ts › Talk -> Me-tab Q&A reverse edge › not yet answered: no \"View in My Answers\" link; after answering: link appears and jumps to the Me-tab entry",
+    "expected"
+  ],
+  [
+    29224,
+    "staged/stage2-two-user/78-answer-to-talk-and-contact-navigation.spec.ts",
+    "staged/stage2-two-user/78-answer-to-talk-and-contact-navigation.spec.ts › Me tab: an answer links to its talk and to the sender's contact › \"View contact\" jumps to the sender's Contacts detail; \"View talk\" still opens the talk unchanged",
+    "expected"
+  ],
+  [
+    18170,
+    "staged/stage2-two-user/78-dm-inbox-affordance.spec.ts",
+    "staged/stage2-two-user/78-dm-inbox-affordance.spec.ts › Cross-tab DM inbox affordance (N2) › badge updates on a non-Me tab; picker lists the sender and links to the DM thread",
+    "expected"
+  ],
+  [
+    24737,
+    "staged/stage2-two-user/79-compact-talk-row-in.spec.ts",
+    "staged/stage2-two-user/79-compact-talk-row-in.spec.ts › Compact talk rows (M2) — IN row 2-line collapse + popup details › IN row: 2 visible lines, sender stays visible, chips/meta in popup, View icon acts on first click",
+    "expected"
+  ],
+  [
+    43305,
+    "staged/stage2-two-user/80-talk-co-exchangers.spec.ts",
+    "staged/stage2-two-user/80-talk-co-exchangers.spec.ts › Talk row -> co-exchangers (item 17, privacy-scoped) › a talk I created and a different talk I answered, sharing the same content, surface each other's exchange partner",
+    "expected"
+  ],
+  [
+    46180,
+    "staged/stage2-two-user/81-friend-circle-block-signal-threshold.spec.ts",
+    "staged/stage2-two-user/81-friend-circle-block-signal-threshold.spec.ts › Friend-circle block signal — threshold-gated warning › viewer accumulates signals from contacts and crosses the threshold",
+    "expected"
+  ],
+  [
+    29085,
+    "staged/stage2-two-user/81-graph-traversal-no-dead-end.spec.ts",
+    "staged/stage2-two-user/81-graph-traversal-no-dead-end.spec.ts › Full graph traversal (Chatroom -> Person -> Talk -> Q&A) has no dead end › from Jerry: chatroom member -> person -> peer history -> talk, view -> Me-tab answer",
+    "expected"
+  ],
+  [
+    18263,
+    "staged/stage2-two-user/82-blocked-pair-cannot-exchange-ipfs-attachments.spec.ts",
+    "staged/stage2-two-user/82-blocked-pair-cannot-exchange-ipfs-attachments.spec.ts › Blocked pair cannot exchange IPFS attachments › blocked sender cannot deliver a mailbox attachment-share or have bytes fetched",
+    "expected"
+  ],
+  [
+    16375,
+    "staged/stage2-two-user/82-copy-then-edit-transfers-authorship.spec.ts",
+    "staged/stage2-two-user/82-copy-then-edit-transfers-authorship.spec.ts › Copy then edit transfers authorship › copy keeps original author; editing mints a new talk owned by the editor",
+    "expected"
+  ],
+  [
+    21307,
+    "staged/stage2-two-user/83-survey-ignore-mid-question-not-complete.spec.ts",
+    "staged/stage2-two-user/83-survey-ignore-mid-question-not-complete.spec.ts › Survey: Ignore on a non-last question does not end the response early › a mid-survey Ignore advances instead of completing; only the last question ends it",
+    "expected"
+  ],
+  [
+    31648,
+    "staged/stage2-two-user/84-receiver-ignore-withholds-from-sender.spec.ts",
+    "staged/stage2-two-user/84-receiver-ignore-withholds-from-sender.spec.ts › Receiver dedicated Ignore withholds the response from the sender › flow and survey: dedicated Ignore ends the response and the sender receives nothing",
+    "expected"
+  ],
+  [
+    31400,
+    "staged/stage2-two-user/85-multi-value-checkbox-match.spec.ts",
+    "staged/stage2-two-user/85-multi-value-checkbox-match.spec.ts › Multi-value checkbox questions (§FF) › chatbot auto-matches an exact-context multi-select set with zero manual clicks",
+    "expected"
+  ],
+  [
+    29312,
+    "staged/stage2-two-user/85-multi-value-checkbox-match.spec.ts",
+    "staged/stage2-two-user/85-multi-value-checkbox-match.spec.ts › Multi-value checkbox questions (§FF) › seller checking one of the buyer's accepted models produces a match",
+    "expected"
+  ],
+  [
+    33094,
+    "staged/stage2-two-user/85-multi-value-checkbox-match.spec.ts",
+    "staged/stage2-two-user/85-multi-value-checkbox-match.spec.ts › Multi-value checkbox questions (§FF) › seller checking only the buyer's rejected model does NOT match",
+    "expected"
+  ],
+  [
+    31089,
+    "staged/stage2-two-user/86-builtin-quantity-match.spec.ts",
+    "staged/stage2-two-user/86-builtin-quantity-match.spec.ts › Typed built-in \"quantity\" comparison questions (§BB) › buyer wanting fewer than the seller has auto-matches with zero manual clicks",
+    "expected"
+  ],
+  [
+    33298,
+    "staged/stage2-two-user/86-builtin-quantity-match.spec.ts",
+    "staged/stage2-two-user/86-builtin-quantity-match.spec.ts › Typed built-in \"quantity\" comparison questions (§BB) › buyer wanting more than the seller has resolves to no-match automatically (not sent to a human)",
+    "expected"
+  ],
+  [
+    37671,
+    "staged/stage2-two-user/87-price-overlap-buy-sell-match.spec.ts",
+    "staged/stage2-two-user/87-price-overlap-buy-sell-match.spec.ts › Reciprocal buy/sell matching with overlapping price ranges (§BB) › Adam buys an iPhone and sells a notebook; Eve is the mirror image; both deals auto-match on overlapping (not identical) price ranges",
+    "expected"
+  ],
+  [
+    36576,
+    "staged/stage2-two-user/88-asymmetric-exact-match-with-attachment.spec.ts",
+    "staged/stage2-two-user/88-asymmetric-exact-match-with-attachment.spec.ts › Asymmetric exact match (buyer wants \"any iPhone\") + IPFS photo auto-share + mutual deal confirmation (§30.2) › buyer matches seller's simple ask (not her detailed listing); photo auto-shares; deal needs both sides",
+    "expected"
+  ],
+  [
+    11862,
+    "staged/stage2-two-user/88-starter-interest-tags.spec.ts",
+    "staged/stage2-two-user/88-starter-interest-tags.spec.ts › Starter interest tags (OPEN-87) › one tap likes a tag and passes the ones scrolled past; the Like becomes my own Talk",
+    "expected"
+  ],
+  [
+    24945,
+    "staged/stage2-two-user/88-starter-interest-tags.spec.ts",
+    "staged/stage2-two-user/88-starter-interest-tags.spec.ts › Starter interest tags (OPEN-87) › people who liked the same starter tag match through ordinary Talk exchange",
+    "expected"
+  ],
+  [
+    85066,
+    "staged/stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts",
+    "staged/stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts › Buy/sell talks match each other via chatbot cross-talk flattened matching (§KK) › §KK: a second, differently-tagged same-item talk does not corrupt the chatbot's reply to the first",
+    "expected"
+  ],
+  [
+    99805,
+    "staged/stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts",
+    "staged/stage2-two-user/89-buy-sell-chatbot-cross-talk-match.spec.ts › Buy/sell talks match each other via chatbot cross-talk flattened matching (§KK) › Adam's buy talks and Eve's sell talks (iPhone + iPad, route type + matchThreshold, real Talk Editor UI) match with zero manual clicking",
+    "expected"
+  ],
+  [
+    31892,
+    "staged/stage2-two-user/90-reciprocal-tag-context-non-root-question.spec.ts",
+    "staged/stage2-two-user/90-reciprocal-tag-context-non-root-question.spec.ts › Non-root reciprocalTagContext question auto-matches buy/sell strangers (§LL follow-up) › Adam's \"buy\" talk and Eve's \"sell\" talk match with zero manual clicking, via a non-root reciprocalTagContext question",
+    "expected"
+  ],
+  [
+    32154,
+    "staged/stage2-two-user/91-safety-toast-once-per-day.spec.ts",
+    "staged/stage2-two-user/91-safety-toast-once-per-day.spec.ts › FR-FIN-1: once-per-day pre-send and post-match safety toasts › T1 pre-send and T2 post-match toasts each fire once, are suppressed within the cooldown, and return after it expires",
+    "expected"
+  ],
+  [
+    27319,
+    "staged/stage2-two-user/92-route-shared-builtin-root-branches.spec.ts",
+    "staged/stage2-two-user/92-route-shared-builtin-root-branches.spec.ts › Route: shared builtIn root branching into per-item questions (§BB / spec §30.5) › a shared builtIn root, saved through the editor, round-trips and lets a real responder walk past it into an item branch to a match",
+    "expected"
+  ],
+  [
+    29572,
+    "staged/stage2-two-user/93-route-parallel-spec-fanout-buy-sell.spec.ts",
+    "staged/stage2-two-user/93-route-parallel-spec-fanout-buy-sell.spec.ts › Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out (\"buy stuff\") › a real responder walks buy -> sell -> iPhone -> model+condition to a match",
+    "expected"
+  ],
+  [
+    40975,
+    "staged/stage2-two-user/94-dating-agerange-match.spec.ts",
+    "staged/stage2-two-user/94-dating-agerange-match.spec.ts › Dating template: mutual ageRange matching (§DD) › mutually-acceptable ages match; one side outside the other's range does not",
+    "expected"
+  ],
+  [
+    32220,
+    "staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts",
+    "staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts › Built-in question ASK_USER fallback to the human inbox (§BB) › a location builtin question is not auto-resolved without consent; manually answering still matches",
+    "expected"
+  ],
+  [
+    32154,
+    "staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts",
+    "staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts › Built-in question ASK_USER fallback to the human inbox (§BB) › responder with no stored preference gets no auto-answer; manually answering still matches",
+    "expected"
+  ],
+  [
+    31688,
+    "staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts",
+    "staged/stage2-two-user/95-builtin-ask-user-fallback.spec.ts › Built-in question ASK_USER fallback to the human inbox (§BB) › with consent granted and a matching-scope talk on both sides, location auto-resolves with zero manual clicks",
+    "expected"
+  ],
+  [
+    19192,
+    "staged/stage2-two-user/95-device-sync-continuous.spec.ts",
+    "staged/stage2-two-user/95-device-sync-continuous.spec.ts › device sync (WP5): continuous preferences sync between linked devices › enabling sync on both sides propagates a talk-filter change from one device to the other",
+    "expected"
+  ],
+  [
+    21603,
+    "staged/stage2-two-user/95-nearby-screens.spec.ts",
+    "staged/stage2-two-user/95-nearby-screens.spec.ts › Nearby screens › nearby people need no duplicate Nearby room",
+    "expected"
+  ],
+  [
+    34483,
+    "staged/stage2-two-user/96-dating-multi-gender-match.spec.ts",
+    "staged/stage2-two-user/96-dating-multi-gender-match.spec.ts › Dating template: multi-gender preference matching (§DD) › Chris, a man, does NOT match Adam's talk once the \"men\" branch is removed (accepts only women/non-binary people)",
+    "expected"
+  ],
+  [
+    38243,
+    "staged/stage2-two-user/96-dating-multi-gender-match.spec.ts",
+    "staged/stage2-two-user/96-dating-multi-gender-match.spec.ts › Dating template: multi-gender preference matching (§DD) › Eve, declared \"women\", matches Adam's default talk (accepts men/women/non-binary people) — zero manual clicks",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage3-three-user/00-aaa-stage3-eve-joins.spec.ts",
+    "staged/stage3-three-user/00-aaa-stage3-eve-joins.spec.ts › Stage 3 — Eve joins Tom and Adam › load stage2, Eve enters Nearby, headcount reflects three ordinary users",
+    "skipped"
+  ],
+  [
+    447788,
+    "staged/stage3-three-user/00-three-user-talk-matrix.spec.ts",
+    "staged/stage3-three-user/00-three-user-talk-matrix.spec.ts › Three-user complete talk matrix › exchanges 36 distinct talks per user and flattens all answered questions",
+    "expected"
+  ],
+  [
+    41518,
+    "staged/stage3-three-user/00aa-talk-lifecycle-survey-multi-responder.spec.ts",
+    "staged/stage3-three-user/00aa-talk-lifecycle-survey-multi-responder.spec.ts › Talk lifecycle — survey multi-responder matrix (D4) › survey with two responders records aggregate stats and shows answered entry in Me for each",
+    "expected"
+  ],
+  [
+    41517,
+    "staged/stage3-three-user/00ab-talk-lifecycle-route-multi-responder.spec.ts",
+    "staged/stage3-three-user/00ab-talk-lifecycle-route-multi-responder.spec.ts › Talk lifecycle — route multi-responder matrix (D4) › route match via engineer branch and mismatch via no-job branch yield one creator match",
+    "expected"
+  ],
+  [
+    40096,
+    "staged/stage3-three-user/00ac-talk-lifecycle-intake-filtered-responder.spec.ts",
+    "staged/stage3-three-user/00ac-talk-lifecycle-intake-filtered-responder.spec.ts › Talk lifecycle — intake-filtered responder matrix (D4) › flow talk filtered for Bob yields only Jerry match visible to creator",
+    "expected"
+  ],
+  [
+    24115,
+    "staged/stage3-three-user/00ae-techsupport-fixed-chatroom-position.spec.ts",
+    "staged/stage3-three-user/00ae-techsupport-fixed-chatroom-position.spec.ts › TechSupport stays out of Nearby room rosters › room details contain only ordinary Nearby participants",
+    "expected"
+  ],
+  [
+    33368,
+    "staged/stage3-three-user/00af-late-joiner-tag-broadcast-catchup.spec.ts",
+    "staged/stage3-three-user/00af-late-joiner-tag-broadcast-catchup.spec.ts › Late joiner receives an already-broadcast tag talk (catch-up) › tag talk broadcast before Kate joined the room still reaches her automatically",
+    "expected"
+  ],
+  [
+    34159,
+    "staged/stage3-three-user/00f-ux-contacts-talks-answers.spec.ts",
+    "staged/stage3-three-user/00f-ux-contacts-talks-answers.spec.ts › UX polish: contacts, talks navigation, and answers details › contacts include mismatched peers, contacts/chatroom open the same peer detail, talks nav splits IN and OUT, and answers show question plus answer",
+    "expected"
+  ],
+  [
+    35036,
+    "staged/stage3-three-user/00g-age-gating.spec.ts",
+    "staged/stage3-three-user/00g-age-gating.spec.ts › Age-gating — adult talk blocked for unverified user › age-verified Jerry receives adult talk; unverified Bob does not",
+    "expected"
+  ],
+  [
+    42832,
+    "staged/stage3-three-user/00i-survey-analytics-dashboard.spec.ts",
+    "staged/stage3-three-user/00i-survey-analytics-dashboard.spec.ts › Survey analytics dashboard › creator sees dashboard sections, can export CSVs, and can create a follow-up survey",
+    "expected"
+  ],
+  [
+    44009,
+    "staged/stage3-three-user/00j-pair-private-isolation.spec.ts",
+    "staged/stage3-three-user/00j-pair-private-isolation.spec.ts › Pair-private graph isolation › same talk to Alice and Tom keeps Alice/Bob answer and DM ciphertext pair-private",
+    "expected"
+  ],
+  [
+    25809,
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts",
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts › Chatrooms and Talks UI regressions › An author-written \"ignore\" answer is a normal answer, not the Ignore action; Me rows have no Edit button",
+    "expected"
+  ],
+  [
+    33838,
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts",
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts › Chatrooms and Talks UI regressions › answering a Flow talk never copies it; the row 📋 toggle does, and undoes it",
+    "expected"
+  ],
+  [
+    48399,
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts",
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts › Chatrooms and Talks UI regressions › chatroom headcounts keep updating as members come and go, in the list and the open detail view",
+    "expected"
+  ],
+  [
+    25531,
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts",
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts › Chatrooms and Talks UI regressions › first Chatrooms screen hydrates existing room headcounts before entering detail",
+    "expected"
+  ],
+  [
+    29573,
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts",
+    "staged/stage3-three-user/00l-chatroom-talks-ui-regressions.spec.ts › Chatrooms and Talks UI regressions › Talks rows expose new/answered and broadcasting states without redundant edit controls",
+    "expected"
+  ],
+  [
+    19195,
+    "staged/stage3-three-user/00m-language-intake-filter.spec.ts",
+    "staged/stage3-three-user/00m-language-intake-filter.spec.ts › Incoming talk language intake filtering › allows English and Chinese, hides Spanish, then accepts Spanish after opt-in",
+    "expected"
+  ],
+  [
+    19674,
+    "staged/stage3-three-user/00o-content-intake-filter.spec.ts",
+    "staged/stage3-three-user/00o-content-intake-filter.spec.ts › Incoming talk content intake filtering › grammar and content moderation toggles gate delivery and persist disabled state",
+    "expected"
+  ],
+  [
+    40893,
+    "staged/stage3-three-user/00p-custom-cutoff-intake-filter.spec.ts",
+    "staged/stage3-three-user/00p-custom-cutoff-intake-filter.spec.ts › Incoming talk custom phrase and cutoff filtering › custom phrase and sent-after settings reject delivery until each control is cleared",
+    "expected"
+  ],
+  [
+    26402,
+    "staged/stage3-three-user/00q-expiration-broadcast.spec.ts",
+    "staged/stage3-three-user/00q-expiration-broadcast.spec.ts › Talk expiration broadcast behavior › delivers an active one-day talk and excludes the same setting after it expires",
+    "expected"
+  ],
+  [
+    26416,
+    "staged/stage3-three-user/00t-talk-type-intake-filter.spec.ts",
+    "staged/stage3-three-user/00t-talk-type-intake-filter.spec.ts › Incoming talk type intake filtering › allows flow talks while rejecting tag talks when only flow is enabled",
+    "expected"
+  ],
+  [
+    29190,
+    "staged/stage3-three-user/00u-talk-lifecycle-stranger-match.spec.ts",
+    "staged/stage3-three-user/00u-talk-lifecycle-stranger-match.spec.ts › Talk lifecycle: stranger before match, then contact › shows stranger in contacts after match without a saved relationship label",
+    "expected"
+  ],
+  [
+    43257,
+    "staged/stage3-three-user/00w-talk-lifecycle-flow-multi-responder.spec.ts",
+    "staged/stage3-three-user/00w-talk-lifecycle-flow-multi-responder.spec.ts › Talk lifecycle — flow multi-responder matrix (D4) › match and mismatch responders stay isolated across conversations, contacts, and Me",
+    "expected"
+  ],
+  [
+    42824,
+    "staged/stage3-three-user/00z-talk-lifecycle-tag-multi-responder.spec.ts",
+    "staged/stage3-three-user/00z-talk-lifecycle-tag-multi-responder.spec.ts › Talk lifecycle — tag multi-responder matrix (D4) › tag match from one responder and mismatch from another yield a single creator match",
+    "expected"
+  ],
+  [
+    23517,
+    "staged/stage3-three-user/01-tennis-jerry-match.spec.ts",
+    "staged/stage3-three-user/01-tennis-jerry-match.spec.ts › Talks matching — tennis, Jerry match › Tom sends Tennis Partner, Jerry answers match",
+    "expected"
+  ],
+  [
+    141305,
+    "staged/stage3-three-user/02-multi-user-headcount.spec.ts",
+    "staged/stage3-three-user/02-multi-user-headcount.spec.ts › Multi-user headcount (3 users: FIFO exit, random re-enter) › Three users enter sequentially, exit FIFO, re-enter random order",
+    "expected"
+  ],
+  [
+    39362,
+    "staged/stage3-three-user/02-two-talks-status-answers.spec.ts",
+    "staged/stage3-three-user/02-two-talks-status-answers.spec.ts › Talks matching — two talks, status bar, answers tab › Tennis+Coffee: Jerry/Bob match/mismatch; Tom sees 2 matches; Answers tab lists both",
+    "expected"
+  ],
+  [
+    40559,
+    "staged/stage3-three-user/03-chatbot-bot-badge.spec.ts",
+    "staged/stage3-three-user/03-chatbot-bot-badge.spec.ts › Talks matching — chatbot + bot badge › Tom manual match, Bob bot match; Tom stores manual attribution, Bob stores bot attribution",
+    "expected"
+  ],
+  [
+    28791,
+    "staged/stage3-three-user/04-ignore-then-change-answer.spec.ts",
+    "staged/stage3-three-user/04-ignore-then-change-answer.spec.ts › Talks matching — answered incoming remains in IN history › Jerry answers No and the answered incoming talk remains in read-only IN history",
+    "expected"
+  ],
+  [
+    31275,
+    "staged/stage3-three-user/05-partial-auto-answers.spec.ts",
+    "staged/stage3-three-user/05-partial-auto-answers.spec.ts › Talks matching — partial auto-answers (flattened context) › Jerry finishes talk with Sunday; new talk Sat skips Q1–Q2 then Jerry answers Q3",
+    "expected"
+  ],
+  [
+    39855,
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts",
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts › Edited talk is answered fully automatically › flow: author changes one question already answered elsewhere; receiver auto-answers all three",
+    "expected"
+  ],
+  [
+    44995,
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts",
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts › Edited talk is answered fully automatically › route: slightly edited talk is answered fully automatically and can be re-answered later",
+    "expected"
+  ],
+  [
+    40815,
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts",
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts › Edited talk is answered fully automatically › survey: slightly edited talk is answered fully automatically and can be re-answered later",
+    "expected"
+  ],
+  [
+    29440,
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts",
+    "staged/stage3-three-user/05b-edited-talk-full-auto-answer.spec.ts › Edited talk is answered fully automatically › title/routing-only edit updates the receiver's copy in place",
+    "expected"
+  ],
+  [
+    36502,
+    "staged/stage3-three-user/06-contacts-tab.spec.ts",
+    "staged/stage3-three-user/06-contacts-tab.spec.ts › Contacts tab: list of users with matches, click to see matching talks › Contacts tab shows users with matches; click contact shows matching talks",
+    "expected"
+  ],
+  [
+    60008,
+    "staged/stage3-three-user/09-contacts-talks-cross-navigation.spec.ts",
+    "staged/stage3-three-user/09-contacts-talks-cross-navigation.spec.ts › Contacts/Talks cross-navigation: outcome filters + a talk's responses list › Contacts outcome filter, peer-history outcome filter, and a talk's responses list all work and cross-navigate",
+    "expected"
+  ],
+  [
+    79241,
+    "staged/stage3-three-user/09-four-types-chatbot.spec.ts",
+    "staged/stage3-three-user/09-four-types-chatbot.spec.ts › Talks matching — four talk types, Jerry chatbot auto-replies Sam › Tom broadcasts 4 talks, Jerry auto-answers all, Sam re-asks, chatbot replies",
+    "expected"
+  ],
+  [
+    24093,
+    "staged/stage3-three-user/11-mismatch-no-match.spec.ts",
+    "staged/stage3-three-user/11-mismatch-no-match.spec.ts › Talks matching — mismatch path yields no match › Jerry picks the ignore branch → no match toast, Tom has 0 matches, Jerry Answers tab shows Mismatch",
+    "expected"
+  ],
+  [
+    29794,
+    "staged/stage3-three-user/13-me-filters-credit.spec.ts",
+    "staged/stage3-three-user/13-me-filters-credit.spec.ts › Me tab filters and credit visibility › Me filters hide disallowed talk types and preserve the credit visibility toggle",
+    "expected"
+  ],
+  [
+    27241,
+    "staged/stage3-three-user/13-tag-reopen-mismatch-then-match.spec.ts",
+    "staged/stage3-three-user/13-tag-reopen-mismatch-then-match.spec.ts › Talks matching — change a Tag from Passed to Liked › Tom Passes a tag, then Likes it directly from Passed",
+    "expected"
+  ],
+  [
+    32589,
+    "staged/stage3-three-user/14-contacts-relationship-credit.spec.ts",
+    "staged/stage3-three-user/14-contacts-relationship-credit.spec.ts › Contacts relationship dialog › Contact relationship settings persist nickname, label, rating, and notes",
+    "expected"
+  ],
+  [
+    95034,
+    "staged/stage3-three-user/14-exact-chatbot-memory.spec.ts",
+    "staged/stage3-three-user/14-exact-chatbot-memory.spec.ts › Talks matching — contextual chatbot Q/A memory › reuses Bob's root fruit choice across order and position, but not changed membership",
+    "expected"
+  ],
+  [
+    18400,
+    "staged/stage3-three-user/24-profile-privacy-visibility.spec.ts",
+    "staged/stage3-three-user/24-profile-privacy-visibility.spec.ts › Profile privacy visibility › hides contacts_only/private profile rows from non-owner viewers",
+    "expected"
+  ],
+  [
+    21604,
+    "staged/stage3-three-user/26-offline-reconnect-incoming-sync.spec.ts",
+    "staged/stage3-three-user/26-offline-reconnect-incoming-sync.spec.ts › Reconnect recovery › incoming talk sync recovers after offline/online transition",
+    "expected"
+  ],
+  [
+    22300,
+    "staged/stage3-three-user/29-conversation-list-sorting.spec.ts",
+    "staged/stage3-three-user/29-conversation-list-sorting.spec.ts › Contacts tab recency sort with two independent matches sharing a hub user › A message then B message reorders C contacts by recency; order survives reload",
+    "expected"
+  ],
+  [
+    0,
+    "staged/stage3-three-user/70-reply-triage-grouping-multi.spec.ts",
+    "staged/stage3-three-user/70-reply-triage-grouping-multi.spec.ts › Reply triage grouping across 3 responders › no/responder/talk grouping partitions the same 9 replies",
+    "skipped"
+  ],
+  [
+    15031,
+    "staged/stage3-three-user/71-thread-isolation-multi.spec.ts",
+    "staged/stage3-three-user/71-thread-isolation-multi.spec.ts › Thread isolation across three users › same talk, three users: threads stay pair-private with per-thread badges",
+    "expected"
+  ],
+  [
+    53177,
+    "staged/stage3-three-user/72-dog-talk-cross-dms.spec.ts",
+    "staged/stage3-three-user/72-dog-talk-cross-dms.spec.ts › Three-user dog talk + full DM mesh (both ends) › dog talk matches Bob & Carol; every user DMs the other two, verified both ends",
+    "expected"
+  ],
+  [
+    24614,
+    "staged/stage3-three-user/73-media-link-share.spec.ts",
+    "staged/stage3-three-user/73-media-link-share.spec.ts › Multimedia link sharing (composer + talk editor) › DM composer shares a document link; talk editor stores an attachment cid",
+    "expected"
+  ],
+  [
+    32421,
+    "staged/stage3-three-user/74-multi-tag-match.spec.ts",
+    "staged/stage3-three-user/74-multi-tag-match.spec.ts › Multiple tag talks each record the right outcome › Bob matches three distinct tag talks; none flip to mismatch",
+    "expected"
+  ],
+  [
+    16538,
+    "staged/stage3-three-user/75-p2p-attachment-transfer.spec.ts",
+    "staged/stage3-three-user/75-p2p-attachment-transfer.spec.ts › Shared media bytes travel P2P over the DM DataChannel › recipient pulls the photo bytes from the sender over the DataChannel",
+    "expected"
+  ],
+  [
+    14993,
+    "staged/stage3-three-user/79-dm-inbox-multi-sender.spec.ts",
+    "staged/stage3-three-user/79-dm-inbox-multi-sender.spec.ts › Cross-tab DM inbox affordance, multiple senders (N2 stage3) › two senders, sorted most-recent-first; picking one leaves the other unread",
+    "expected"
+  ],
+  [
+    46903,
+    "staged/stage3-three-user/80-route-multi-spec-match-percent.spec.ts",
+    "staged/stage3-three-user/80-route-multi-spec-match-percent.spec.ts › Route multi-spec matching — order-independent partial match, ranked results (§30.2) › 100% match ranks above 67% partial match; clicking a matched row opens that conversation",
+    "expected"
+  ],
+  [
+    49632,
+    "staged/stage3-three-user/81-nearby-offline-resync.spec.ts",
+    "staged/stage3-three-user/81-nearby-offline-resync.spec.ts › Three people nearby: concurrent Talks, one offline, catch-up on return (shared with native-app/13) › J-NEARBY-04/05: concurrent Talks; Bob misses one while offline and gets it back",
+    "expected"
+  ],
+  [
+    50976,
+    "staged/stage3-three-user/82-tag-graph-tour.spec.ts",
+    "staged/stage3-three-user/82-tag-graph-tour.spec.ts › Tag graph tour › one tag walks every edge: place, people, Talks and answers",
+    "expected"
+  ],
+  [
+    65693,
+    "staged/stage4-four-user/04-dealmaker-chatbot-match.spec.ts",
+    "staged/stage4-four-user/04-dealmaker-chatbot-match.spec.ts › Dealmaker: chatbot auto-matches strangers who broadcast compatible flow talks › Adam+Eve auto-match on compatible criteria; Bob+Alice never match anyone",
+    "expected"
+  ],
+  [
+    50073,
+    "staged/stage4-four-user/04-dealmaker-chatbot-match.spec.ts",
+    "staged/stage4-four-user/04-dealmaker-chatbot-match.spec.ts › Dealmaker: chatbot auto-matches strangers who broadcast compatible flow talks › two buyers with byte-identical criteria do NOT match — same Pair-tag word is vetoed even when text matches exactly",
+    "expected"
+  ],
+  [
+    60655,
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts",
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts › Taxi driver ↔ passenger matching in a local chatroom (§GG) › Adam+Alice auto-match in the local room; Eve+Bob never match anyone",
+    "expected"
+  ],
+  [
+    109640,
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts",
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts › Taxi: chatbot auto-reply on the responder side narrows to the specific listing it matched (§JJ residual gap) › Alice has two listings; a chatbot-formed deal on one leaves the other enabled",
+    "expected"
+  ],
+  [
+    34180,
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts",
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts › Taxi: confirming one deal does not disable an unrelated simultaneous listing (§JJ follow-up) › Adam has two listings; confirming a deal on one leaves the other enabled",
+    "expected"
+  ],
+  [
+    26609,
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts",
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts › Taxi: simplest form — a single-question tag talk per side (§GG follow-up, simple) › a single-question tag talk on each side is enough for the chatbot to match two strangers",
+    "expected"
+  ],
+  [
+    47047,
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts",
+    "staged/stage4-four-user/05-taxi-local-chatroom-match.spec.ts › Taxi: two drivers reach the same passenger; a confirmed deal (not distance) finalizes one (§GG follow-up) › both drivers match Alice; confirming the deal with Adam disables his talk, Frank stays unaffected",
+    "expected"
+  ],
+  [
+    56872,
+    "staged/stage4-four-user/06-handyman-local-chatroom-match.spec.ts",
+    "staged/stage4-four-user/06-handyman-local-chatroom-match.spec.ts › Handyman ↔ customer matching in a local chatroom with detailed criteria (§HH) › Adam+Alice auto-match on overlapping price/time/service criteria; Eve+Bob never match anyone",
+    "expected"
+  ],
+  [
+    67707,
+    "staged/stage4-four-user/07-nearby-ring-journey.spec.ts",
+    "staged/stage4-four-user/07-nearby-ring-journey.spec.ts › Four people nearby: personal lists and a Talk ring (shared with native-app/30) › J-NEARBY-01/02: everyone lists everyone, and each Talk reaches the next person",
+    "expected"
+  ],
+  [
+    82122,
+    "staged/stage4-four-user/08-meet-new-people.spec.ts",
+    "staged/stage4-four-user/08-meet-new-people.spec.ts › Chatroom browser layout and Nearby paging (§3.7) › people-first multi-room layout; page 1 → last page 2 → page 1",
+    "expected"
+  ],
+  [
+    105398,
+    "staged/stage5-multi-user/00d-super-user-20-broadcast.spec.ts",
+    "staged/stage5-multi-user/00d-super-user-20-broadcast.spec.ts › Super user: 20 talks completed by Tom › Alice creates 10 tags + 10 talks; Tom completes each through the app path; both verify 20 at end",
+    "expected"
+  ],
+  [
+    45222,
+    "staged/stage5-multi-user/13-chatroom-scroll-and-broadcast-bar.spec.ts",
+    "staged/stage5-multi-user/13-chatroom-scroll-and-broadcast-bar.spec.ts › Chatroom UX: member list scroll and unified broadcast bar › chatroom detail keeps one broadcast action and the member list can scroll",
+    "expected"
+  ],
+  [
+    468583,
+    "staged/stage5-multi-user/14-nearby-place-pagination.spec.ts",
+    "staged/stage5-multi-user/14-nearby-place-pagination.spec.ts › 20-user San Diego/Los Angeles Nearby and Place pagination demo › first user exchanges one tag per page: 5 Nearby pages, 2 Place pages, 2 Los Angeles pages",
+    "expected"
+  ],
+  [
+    87438,
+    "staged/stage5-multi-user/15-nearby-audience-shapes.spec.ts",
+    "staged/stage5-multi-user/15-nearby-audience-shapes.spec.ts › Nearby audience shapes at C = 3 (OPEN-86 E5) › all → nearest C → exactly C → crowded area → travel → larger area",
+    "expected"
+  ],
+  [
+    279344,
+    "staged/stage5-multi-user/find-similar-people.spec.ts",
+    "staged/stage5-multi-user/find-similar-people.spec.ts › Find similar people › chatbot auto-matches created tags, user rejects the rest, contacts sort by match %",
+    "expected"
+  ],
+  [
+    46227,
+    "staged/stage5-multi-user/route-hr-hiring-match-detection.spec.ts",
+    "staged/stage5-multi-user/route-hr-hiring-match-detection.spec.ts › Route talk: HR hiring — sender correctly detects match vs. mismatch per candidate › Alice and Bob land in HR contacts as matches; Carol and Dave do not",
+    "expected"
+  ],
+  [
+    864249,
+    "staged/stage5-multi-user/starter-tags-similar-people.spec.ts",
+    "staged/stage5-multi-user/starter-tags-similar-people.spec.ts › Find similar people with starter tags › six users decide all 60 starter tags, broadcast to their Nearby group, find who is most similar, befriend and message them",
+    "expected"
+  ],
+  [
+    15263,
+    "talks-matching/01-mesh-ping-overlay.spec.ts",
+    "talks-matching/01-mesh-ping-overlay.spec.ts › Mesh-ping overlay — three browser peers, zero Gun writes › mesh-ping reaches all three peers and no forbidden Gun writes occur",
+    "expected"
+  ],
+  [
+    19427,
+    "talks-matching/02-mesh-broadcast-announce.spec.ts",
+    "talks-matching/02-mesh-broadcast-announce.spec.ts › Mesh broadcast announce — three browsers, zero Gun writes › find-similar broadcast reaches eligible receivers over mesh, ineligible peer excluded",
+    "expected"
+  ],
+  [
+    13505,
+    "talks-matching/02-mesh-broadcast-announce.spec.ts",
+    "talks-matching/02-mesh-broadcast-announce.spec.ts › Mesh broadcast announce — three browsers, zero Gun writes › ipfs attachment descriptor survives announce, body, and intake",
+    "expected"
+  ],
+  [
+    25490,
+    "talks-matching/03-mesh-response-match.spec.ts",
+    "talks-matching/03-mesh-response-match.spec.ts › Mesh response match — three browsers, zero server calls › Jerry matches Tom, Bob ignores — conversation on both sides, zero server response calls",
+    "expected"
+  ],
+  [
+    14409,
+    "talks-matching/04-local-contacts.spec.ts",
+    "talks-matching/04-local-contacts.spec.ts › Local-only contacts — zero server peer/history/replies calls › Tom contacts show Jerry (match%) and Bob locally; zero peer/history/replies server calls",
+    "expected"
+  ],
+  [
+    47595,
+    "talks-matching/05-mailbox-offline-response.spec.ts",
+    "talks-matching/05-mailbox-offline-response.spec.ts › Mailbox offline response — two browsers, ciphertext-only envelope › Jerry mailboxes a match response while Tom is offline — Tom drains on reconnect",
+    "expected"
+  ],
+  [
+    11280,
+    "talks-matching/06-mesh-ping-with-hub-api-down.spec.ts",
+    "talks-matching/06-mesh-ping-with-hub-api-down.spec.ts › Mesh-ping with hub API down mid-session › peers keep mesh-ping reachability after hub API loss",
+    "expected"
+  ],
+  [
+    23127,
+    "talks-matching/06-sender-suppression.spec.ts",
+    "talks-matching/06-sender-suppression.spec.ts › Sender-side suppression — step 8 (three browsers) › Jerry ignores → Tom rebroadcasts → Jerry never re-prompted; talkLedger records Jerry=ignored Bob=matched",
+    "expected"
+  ],
+  [
+    35428,
+    "talks-matching/07-change-of-mind.spec.ts",
+    "talks-matching/07-change-of-mind.spec.ts › Change-of-mind -- step 9 (three browsers) › Jerry ignores both; changes to match -> Tom+Bob get conversations; stale update rejected",
+    "expected"
+  ],
+  [
+    9300,
+    "talks-matching/07-mesh-ping-after-hub-stop.spec.ts",
+    "talks-matching/07-mesh-ping-after-hub-stop.spec.ts › Mesh-ping after process-level hub stop › overlay remains reachable and ping reaches peers after hub process stops",
+    "expected"
+  ],
+  [
+    25825,
+    "talks-matching/08-retraction.spec.ts",
+    "talks-matching/08-retraction.spec.ts › Retraction -- step 10 (three browsers) › Jerry matched + Bob ignored; Tom retracts; both see withdrawn; Jerry post-retraction answer not delivered",
+    "expected"
+  ],
+  [
+    33112,
+    "talks-matching/09-exchange-suppression.spec.ts",
+    "talks-matching/09-exchange-suppression.spec.ts › Exchange suppression -- step 11 (three browsers) › Tom exchanges tennis with Jerry; Jerry rebroadcasts tennis+chess; Tom receives chess only; Bob receives both; edited tennis delivered once",
+    "expected"
+  ],
+  [
+    19912,
+    "talks-matching/09-ipfs-auto-share.spec.ts",
+    "talks-matching/09-ipfs-auto-share.spec.ts › L5 matched-talk IPFS auto-share › shares once, decrypts for the match only, and redrains idempotently",
+    "expected"
+  ],
+  [
+    23518,
+    "topology/lan-browser-participant.spec.ts",
+    "topology/lan-browser-participant.spec.ts › LAN browser development topology › LAN-hostname browser joins the Nearby room with local browser users and exchanges a direct message",
+    "expected"
+  ]
+]

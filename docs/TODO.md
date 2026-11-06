@@ -144,7 +144,7 @@ its ID.
 
 - [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
   `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains
-  331 specs. Regenerated matrix on 2026-11-05 now reports 331 specs, 74 untagged specs, and 151
+  331 specs. Regenerated matrix on 2026-11-05 now reports 331 specs, 62 untagged specs, and 145
   anchors without passing coverage. Keep this updated in regular health/review runs and reduce the
   untagged backlog incrementally (new specs should carry coverage tags when applicable).
   - [x] Regenerate `docs/testing/coverage-matrix.md` from `npm run coverage:matrix`.
@@ -160,8 +160,12 @@ its ID.
   - [x] Tag a second focused native batch (`18/20/21/22/24/25/26/30/32/41`) covering custody,
     cross-host desktop/browser, permissions, Nearby, protocol upgrade, and responsiveness journeys,
     reducing untagged specs 84 → 74. OPEN-106-owned `07/10` remain untouched.
-  - [ ] Tag/highlight remaining high-value untagged specs (next: more native-app and cross-platform
-    journeys) so
+  - [x] Add accurate companions/tags for the mixed-browser matrix, Android portable-core gate,
+    browser custody/geolocation, and five stalled-hub responsiveness journeys, reducing untagged
+    specs 74 → 62. Preserve the canonical 389-pass / 26-skip result rows as a compact fallback so
+    one targeted Playwright run cannot make the coverage ratchet forget the merged report.
+  - [ ] Tag/highlight remaining high-value untagged specs (next: stage1/stage2 navigation and
+    matching journeys) so
     matrix traceability improves without broad one-shot churn.
 
 - [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**

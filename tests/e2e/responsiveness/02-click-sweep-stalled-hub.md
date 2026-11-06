@@ -1,3 +1,5 @@
+covers: SPEC-5.1, SPEC-5.2, SPEC-5.4, SPEC-13.6
+
 # Test: GUI responsiveness — click sweep with the hub stalled
 
 **File:** 02-click-sweep-stalled-hub.spec.ts

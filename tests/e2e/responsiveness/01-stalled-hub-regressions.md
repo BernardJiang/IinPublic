@@ -1,3 +1,5 @@
+covers: SPEC-5.1, SPEC-5.2, SPEC-5.4, SPEC-13.6
+
 # Test: GUI responsiveness — stalled hub regressions
 
 **File:** 01-stalled-hub-regressions.spec.ts
