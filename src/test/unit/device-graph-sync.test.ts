@@ -230,4 +230,10 @@ describe('Talk exchange by Gun sync', () => {
     await ben.sync.sendDecline('ann-d', talkId, (await ben.graph.arrivals.read(talkId))!.versionId);
     await until(() => ann.events.some((e) => e[0] === 'declined' && e[1] === talkId && e[2] === 'ben-d'));
   });
+
+  it('knows only people whose keys it holds, so an offer to someone never linked can wait', async () => {
+    const [kim, lee] = [await device('kim-d'), await device('lee-d')];
+    expect(await kim.sync.knows(lee.userId)).toBe(true);
+    expect(await kim.sync.knows('never-met-d')).toBe(false);
+  });
 });

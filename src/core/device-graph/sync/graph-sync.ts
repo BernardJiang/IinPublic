@@ -481,6 +481,16 @@ export function createGraphSync(options: {
      * Offer my Talk's latest version to these people. A person already offered this version is
      * skipped; an edit is a new version and is offered again (D14).
      */
+    /**
+     * Whether I hold this person's public keys, so their pair log can be written. Keys come from a
+     * link that opened (`graph.open`); someone met only on a Nearby list has none yet.
+     */
+    async knows(peerUserId: string): Promise<boolean> {
+      if (secrets.has(peerUserId)) return true;
+      const keys = await options.peerKeys(peerUserId).catch(() => undefined);
+      return !!keys?.pub && !!keys.epub;
+    },
+
     async offerTalk(talkId: string, recipients: string[], context?: Record<string, unknown>): Promise<number> {
       const talk = await graph.talks.read(talkId);
       if (!talk) throw new Error(`no Talk ${talkId}`);

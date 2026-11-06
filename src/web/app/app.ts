@@ -3180,7 +3180,11 @@ export class IinPublicApp {
       onReadinessGap: (gap) => gap === 'permission' ? undefined : this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
         retry: () => bridge.openNearbySettings(gap),
       }),
-      onEvent: (event) => console.info('[nearby-offline]', JSON.stringify(event)),
+      onEvent: (event) => {
+        console.info('[nearby-offline]', JSON.stringify(event));
+        // In a group, or out of one: every path to the people nearby changed.
+        if (event.type === 'group' && (event.state === 'owner' || event.state === 'client' || event.state === 'idle')) this.peerMeshService?.networkChanged();
+      },
     });
     this.nearbyOfflineService = service;
     (window as unknown as { __iinpublicNearbyOffline?: NearbyOfflineService }).__iinpublicNearbyOffline = service;
@@ -3265,8 +3269,14 @@ export class IinPublicApp {
       onNeighborConnected: (userId, roomId) => {
         // Warm the block-status answer now, so this peer's first Talk does not wait ~1 s on the hub.
         void this.resolveBlockStatusEitherWay(userId).catch(() => undefined);
-        this.catchUpPeerInActiveRoom(userId, roomId);
-        void this.graphLinks?.open(userId);
+        // The graph link first: it brings their keys, which a waiting offer needs (the catch-up
+        // offers this room's Talks again).
+        const waited = this.graphWaitingPeers.delete(userId);
+        const opened = this.graphLinks?.open(userId).catch(() => false) ?? Promise.resolve(false);
+        void opened.then(() => {
+          if (waited) this.pushGraphOwedToMesh();
+          this.catchUpPeerInActiveRoom(userId, roomId, undefined, waited ? { ignoreInterval: true } : {});
+        });
       },
       onNeighborDisconnected: (userId) => this.graphLinks?.close(userId),
       onGraphGun: (fromUserId, _fromPub, raw) => this.graphLinks?.hear(fromUserId, raw),
@@ -6183,9 +6193,20 @@ export class IinPublicApp {
    */
   /** Who my device graph log owes entries to (the latest `owed` event), kept for a new mesh. */
   private graphOwedPeers: string[] = [];
+  /**
+   * People a Talk was offered to before we ever linked: their keys come with a link, so nothing is in
+   * our pair log for them yet. They are a reason to link (as the owed are); the room catch-up offers
+   * the Talk again when the link opens (offline Wi-Fi Direct clients, native-app/30, 2026-11-05).
+   */
+  private graphWaitingPeers = new Set<string>();
+
+  /** The people the mesh should link to for my log: owed entries, and offers waiting for keys. */
+  private pushGraphOwedToMesh(): void {
+    this.peerMeshService?.setGraphOwed([...new Set([...this.graphOwedPeers, ...this.graphWaitingPeers])]);
+  }
 
   private async startGraphLinks(): Promise<void> {
-    this.peerMeshService?.setGraphOwed(this.graphOwedPeers);
+    this.pushGraphOwedToMesh();
     const core = this.coreRequest;
     const pair = this.gunService.getStoredPair() as { pub?: string; priv?: string; epub?: string; epriv?: string } | null;
     const userId = this.currentUser?.id;
@@ -6234,7 +6255,7 @@ export class IinPublicApp {
    * list and chatbot as one that arrived in a Talk frame, under its graph id (OPEN-106 step 2e).
    */
   private handleGraphEvent(event: GraphEvent): void {
-    if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.peerMeshService?.setGraphOwed(event.peers); return; }
+    if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.pushGraphOwedToMesh(); return; }
     if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
     if (event.type === 'answer-deleted') { this.handleGraphAnswerDeleted(event.appTalkId ?? event.talkId, event.from); return; }
     if (event.type === 'talk-deleted') {
@@ -6595,6 +6616,11 @@ export class IinPublicApp {
     }).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
     if (!offer?.known) return false;
     for (const recipientId of offer.sent) this.noteNearbyDelivery(talkId, recipientId);
+    if (offer.waiting?.length) {
+      for (const recipientId of offer.waiting) this.graphWaitingPeers.add(recipientId);
+      this.pushGraphOwedToMesh();
+      console.log(`[graph-link] ${talkId} waits for a link to ${offer.waiting.length} person(s)`);
+    }
     void refreshExchangeState();
     const skipped = Object.entries(offer.skipped);
     if (skipped.length) console.debug(`[exchange] ${talkId} not sent to ${skipped.map(([peer, reason]) => `${peer} (${reason})`).join(', ')}`);

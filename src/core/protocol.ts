@@ -119,7 +119,7 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.pull' } ? GraphPull
                           : R extends { name: 'graph.status' } ? GraphHostStatus
                           : R extends { name: 'graph.identity' | 'graph.open' | 'graph.close' | 'graph.hear' } ? { ok: true }
-                          : R extends { name: 'graph.offer' } ? { offered: number; known: boolean; sent: string[]; skipped: Record<string, string>; omitted: Record<string, string[]> }
+                          : R extends { name: 'graph.offer' } ? { offered: number; known: boolean; sent: string[]; skipped: Record<string, string>; omitted: Record<string, string[]>; /** No keys yet (never linked): offered once a link opens. */ waiting: string[] }
                           : R extends { name: 'graph.exchangeState' } ? ExchangeStateSnapshot
                           : R extends { name: 'graph.recordOutcome' } ? { ok: boolean }
                           : R extends { name: 'graph.outcome' } ? OutcomeRecord | null
