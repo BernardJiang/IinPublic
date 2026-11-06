@@ -222,7 +222,7 @@ the user switches to them.
 - Mobile GPS provides true location, but location must be blurred before any public sharing.
 - No user registration or server-side authentication — identity is solely the Gun SEA key pair.
 - Node.js feasibility on iOS is uncertain and requires separate investigation.
-- **Out of scope (current phase):** Full IPFS as a general data store, blockchain, cryptocurrency, token systems, distributed consensus, mining, and global immutable ledgers are explicitly excluded. Gun.js is the data layer; IPFS is used only for binary media blobs referenced by CID field values in Gun nodes (§21.4).
+- **Out of scope (current phase):** Full IPFS as a general data store, cryptocurrency, token systems, distributed consensus, mining, and global immutable ledgers are explicitly excluded. Gun.js is the data layer; IPFS is used only for binary media blobs referenced by CID field values in Gun nodes (§21.4). Each device's own history is a hash-linked, signed chain, and what two people exchange is signed by both (§31.13, owner direction 2026-11-05); these are personal and pairwise records, with no consensus, mining or global ledger.
 
 ### 2.6 Assumptions and Dependencies
 
@@ -7504,7 +7504,7 @@ Content and event souls are written by exact soul only and are never linked into
   sent like any other record to everyone who holds the Talk or the answer; their devices then remove
   it from their lists, and later copies of a deleted Talk are recorded but not shown.
 - **REQ-GRAPH-36 — storage limit (§31.12 #13):** the graph may use 1 GB. A full store refuses what
-  other people send; my own writes are never refused. Trimming old data comes later.
+  other people send; my own writes are never refused. Trimming old data is §31.13 (REQ-GRAPH-46..48).
 
 ### 31.10 No migration: old data is erased
 
@@ -7540,7 +7540,7 @@ removes my answers with core requests (`graph.recordAnswers`, `graph.forgetAnswe
 
 | Earlier rule | Conflict | Resolution in this section |
 |---|---|---|
-| REQ-LEDGER-01, -02 (typed `kind`, per-user `seq` chain, JSON `content`) | D6: no types; D4: no JSON bodies | Replaced by §31.5. Whether to keep a signed `prev` chain is open (§31.12 #11). |
+| REQ-LEDGER-01, -02 (typed `kind`, per-user `seq` chain, JSON `content`) | D6: no types; D4: no JSON bodies | Replaced by §31.5. The signed `prev` chain is kept, on every event of a device (§31.13, REQ-GRAPH-40). |
 | REQ-LEDGER-03 (any field change → new talkId), REQ-LEDGER-11a (title/routing edits keep the id), REQ-CHATBOT-03 (content edits are new Talks) | Three rules for edits, and none for built-in values | One rule (§31.3, D14): every edit is a new event of the same Talk; context hashes decide what is answered again. |
 | REQ-LEDGER-05 (repeat receipt writes nothing) | D7: record who, when, where of a repeat | REQ-GRAPH-22. |
 | REQ-LEDGER-06 (delta sync of `seq` over the DataChannel) | D3, D4: Gun sync | REQ-GRAPH-30, -31. |
@@ -7550,6 +7550,80 @@ removes my answers with core requests (`graph.recordAnswers`, `graph.forgetAnswe
 | REQ-LEDGER-16 (suppression by Talk identity) | No Talk content key | By context hash, or a tag's word (`ix/exchanged`). |
 | `normalizeIdentityText` case folding in every key | D15: exact text | Grammar filter instead (§31.3a); new key versions. |
 | §20.8 `talkAnswerTemplateByUser/…` | | `ix/ctx/`, `ix/whenever/`. |
+
+### 31.13 The event log as a signed chain (owner direction 2026-11-05; planned: OPEN-108..110)
+
+**Owner direction.** The whole system is a log of events. At the lowest level an event is an ask or
+an answer, with who, where, when and how. Events sit on Gun. A Talk is a structured series of
+questions and answers built from events. The user and the user's chatbot both write events, and the
+history is kept. The Chatrooms, Contacts, Talks and Me tabs are different views of the same log. The
+log is a DAG and a chain: when two people exchange Talks, both record the exchange with shared
+timestamps and metadata, so the history cannot be changed, while each person stays free to speak
+(change, delete, add) in the present and future. When the store reaches its limit, history is
+removed gradually.
+
+**Today (2026-11-05), for comparison.** Events and content are as in §31.4–31.5: a DAG of
+content-addressed records linked by `re`, `talk`, `gave`. A pair log (REQ-GRAPH-34) numbers, hash-links
+and signs what I send one person, and the receiver checks it. Not yet: a chain over my own events (a
+device can rewrite its past); a record both people sign (the receiver's acknowledgement is an
+unsigned `read: { n }`, and an answer names the Talk version, not the offer entry); `where` on my
+answers and Talk versions; trimming (REQ-GRAPH-36 refuses incoming data when full); chat messages,
+Nearby and Places as events.
+
+#### Device chain (OPEN-108)
+
+- **REQ-GRAPH-40 — every event I write is chained and signed.** It carries `seq` (per device, from
+  0), `prev` (the hash of my previous event) and `sig` (my signature over its canonical fields,
+  `sig` excluded). An event's hash is SHA-256 of its canonical JSON including `sig`. `ix/head` holds
+  `{ seq, hash }`. Arrival events are mine too (I write them), so they are in my chain. Index nodes
+  and the private sidecars (`ev/<id>/q`, `ev/<id>/x`) are not events and are not chained.
+- **REQ-GRAPH-41 — verified at start.** The index rebuild (§31.8) walks the chain from the newest
+  checkpoint (REQ-GRAPH-46) and checks every `prev` and `sig`. A break is reported in the graph
+  status (`chainBreaks`), with the first bad `seq`; it is never "repaired" by rewriting.
+- **REQ-GRAPH-42 — `where` and `how` on every event of mine.** My answers and Talk versions carry
+  `where` (the blurred cell, §31.7) when a location is known, and `mode` / `link` as in §31.5.
+
+#### Exchanges both people sign (OPEN-108)
+
+- **REQ-GRAPH-43 — acknowledgement is signed and names the hash.** The receiver's head for a pair
+  becomes `ack: { n, hash, when, sig }`: the last entry applied, its hash, the receiver's time and
+  signature. The sender keeps every acknowledgement it reads (`ix/ack/<peer>`), so it holds the
+  receiver's signed proof of what arrived and when.
+- **REQ-GRAPH-44 — the two sides are linked.** An answer entry carries `reEntry`, the hash of the
+  offer entry it answers; the receiver's arrival event keeps `entry: { n, hash, when }` of the
+  sender's entry, and the sender's offer event keeps the receiver's acknowledgement. Each exchange
+  step is then held by both people as: the sender's signed entry (sender's time), the receiver's
+  signed acknowledgement (receiver's time), each pointing to the other's hash.
+- **REQ-GRAPH-45 — shared time.** An exchange step's time is the pair (sender `when`, receiver
+  `when`), both signed; the clocks are not reconciled. A skew beyond 10 minutes is shown on the
+  exchange, not corrected.
+- **The past is fixed; speech is free going forward.** A change or deletion is a new event (§31.5,
+  REQ-GRAPH-35); no signed event is rewritten. A deleted record's content may be erased on request
+  (redaction: its content node is cleared, the event and its hash stay), so the chain still
+  verifies.
+
+#### Trimming with checkpoints (OPEN-109)
+
+- **REQ-GRAPH-46 — checkpoints.** Before events are removed, the device writes a signed checkpoint
+  `cp/<seq>` = `{ seq, hash, when, counts }`, chained like an event. Verification starts from the
+  newest checkpoint; the removed prefix is summarized, not lost silently.
+- **REQ-GRAPH-47 — what goes first.** From 90% of the limit (REQ-GRAPH-36), whole days are removed,
+  oldest first, down to 80%: their events, index entries that point only to them, and content no
+  remaining event or index points to. Never removed: the last 30 days; my Talks that are still
+  active and their latest version; anything an open conversation, a confirmed deal or an
+  unacknowledged pair-log entry points to; the chatbot's remembered answers (`ix/ctx`, `ix/whenever`,
+  `ix/typed`) and the content they point to.
+- **REQ-GRAPH-48 — pair logs trim the same way.** A pair log is trimmed only below the other person's
+  last signed acknowledgement, with a `checkpoint: { n, hash }` entry they can verify; nothing they
+  have not acknowledged is removed.
+
+#### All four tabs from the log (OPEN-110)
+
+- **REQ-GRAPH-49 — one log, four views.** Chat messages become events (`conv`, `text`, §31.5 table;
+  §31.12 #16); a Nearby encounter and a Place visit become events (`with` / `place`, `where`); the
+  Talks tab reads my Talks and arrivals from the graph indexes instead of `myTalks`, and Contacts
+  reads people, exchanges and conversations from the graph instead of `myConversations` and the
+  deal and key maps. A collection stays only for settings and device-local state.
 
 ### 31.12 Open issues (review, 2026-11-02)
 

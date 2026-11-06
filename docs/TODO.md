@@ -220,8 +220,20 @@ its ID.
     10 and 11 (phone + MacMini app, desktop bundle rebuilt at 1.0.225) pass (10 failed once,
     passed on rerun). 09 got past the support thread once its stale step was fixed (a contact
     opens the person page, then the DM entry), then lost the MacMini's question on the FRD
-    delegate: OPEN-107, a TechSupport delegate bug, not OPEN-106. Not run: 30 (four phones; PH-1 battery),
-    29 (cellular; no SIM phone on mobile data).
+    delegate: OPEN-107, a TechSupport delegate bug, not OPEN-106.
+    30 and 29, same night (PH-1 charged): 30 online with four phones passes (its background step
+    checked the removed frame outbox; it now checks that the author's pair log is no longer owed).
+    **Two blockers left before OPEN-106 closes:**
+    (a) 30 offline Wi-Fi Direct, three phones: the group forms (P30 owner, C10 and PH-1 clients) and
+    Talks between the owner and a client pass, but client → client sends nothing: each client links
+    only to the owner, and a pair's log travels only on that pair's link (REQ-GRAPH-32), so the
+    owner does not carry it. Before the graph the owner relayed Talk frames. Owner decision needed:
+    clients dial each other directly over the group's subnet, or the owner forwards the pair's
+    encrypted souls (it cannot read them). With the FRD as third phone the FRD never started
+    discovery (Android 7; OPEN-93's area).
+    (b) 29 cellular runs against production, which is 1.0.200 (2026-10-29), before the graph
+    exchange; both runs (cellular ↔ Wi-Fi, both on cellular) failed at the first Talk. Needs
+    production updated to the graph build first (owner approval).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)
@@ -444,6 +456,51 @@ its ID.
     (`getFlattenedAnswerPreference`, `answeredBeforeFor`). `isPassedTag`, question defaults and saves
     still copy whole maps.
   - `contextHashId` still exists and is still positional. Do not build on it.
+
+- [ ] **OPEN-108 — The event log as a signed chain; exchanges both people sign (owner direction
+  2026-11-05; spec §31.13 REQ-GRAPH-40..45).** The system is one log of ask and answer events (who,
+  where, when, how) on Gun; Talks are structured series of them; the user and the chatbot both
+  write them; the four tabs are views of it. History cannot be changed; the present and future stay
+  free (a change or deletion is a new event). Review 2026-11-05 against OPEN-106's code: events and
+  content are a git-like DAG and each pair log is numbered, hash-linked and signed, but my own events
+  are not chained or signed, the receiver's acknowledgement is an unsigned `read: { n }`, the two
+  sides of an exchange are not linked by hash, and answers and Talk versions carry no `where`.
+  - [ ] Device chain: `seq`, `prev`, `sig` on every event I write; `ix/head`; canonical hashing
+    shared with the pair log (`keys.ts` `canonicalJson`); unit tests for order, tamper and a gap.
+  - [ ] Verification in the index rebuild: `chainBreaks` and the first bad `seq` in the graph
+    status; never rewritten. A phone and a browser verify the same chain (no ICU-only code, see the
+    2026-11-05 grammar-filter bug).
+  - [ ] `where` (blurred cell) on my answers and Talk versions; `mode` / `link` everywhere they are known.
+  - [ ] Signed acknowledgement `ack: { n, hash, when, sig }` in the pair head; the sender keeps
+    acknowledgements (`ix/ack/<peer>`); `reEntry` on answer entries; the arrival event keeps the
+    sender's entry `{ n, hash, when }`. Shared time = both signed times; skew over 10 min shown.
+  - [ ] Redaction: erase a deleted record's content on request, keep its event and hash.
+  - [ ] E2e: two people exchange, each side proves the other's signed entry and acknowledgement;
+    a tampered local event is reported after restart (web, phone path, real phones).
+
+- [ ] **OPEN-109 — Trim old history with signed checkpoints (spec §31.13 REQ-GRAPH-46..48).** Today the
+  1 GB store only refuses other people's data when full (REQ-GRAPH-36) and erases exact GPS after 30
+  days. Needs OPEN-108's chain.
+  - [ ] Signed checkpoint `cp/<seq>` `{ seq, hash, when, counts }`, chained like an event;
+    verification starts from the newest.
+  - [ ] Trimming from 90% down to 80%: whole days, oldest first; their events, index entries that
+    point only to them, unreferenced content. Kept: the last 30 days, my active Talks, anything an
+    open conversation, a confirmed deal or an unacknowledged log entry points to, the chatbot's
+    remembered answers.
+  - [ ] Pair logs trimmed only below the other person's signed acknowledgement, with a checkpoint
+    entry they can verify.
+  - [ ] Tests: a store filled past 90% trims to 80% and still verifies; nothing kept above is lost;
+    the indexes rebuild from what remains.
+
+- [ ] **OPEN-110 — All four tabs read the one log (spec §31.13 REQ-GRAPH-49, §31.12 #16).** Me already
+  reads the graph. Still outside it: chat messages (own Gun message store), Nearby encounters and
+  Place visits (hub cards and Place records), the Talks tab's `myTalks`, and Contacts'
+  `myConversations`, `dealTalkByConversation` and `needKeyByConversation`.
+  - [ ] Chat messages as events (`conv`, `text`), in the pair log, with the DM transport as notify.
+  - [ ] Nearby encounters and Place visits as events (`with`, `place`, `where`).
+  - [ ] Talks tab from the graph indexes; `myTalks` reduced to device-local display state, then removed.
+  - [ ] Contacts from people, exchanges and conversation events; the deal and key maps as events or
+    indexes. Collections left only for settings and device-local state.
 
 - [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** Retest first on the current build: the
   OPEN-100 memory crash may explain (a) and (b), but a clean rerun has not shown that. After that

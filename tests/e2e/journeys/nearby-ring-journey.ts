@@ -126,7 +126,7 @@ export async function ringTalkJourney(people: NearbyParticipant[], runId: string
 
 /**
  * J-NEARBY-03: the receiver goes to the background, a Talk is sent straight to them, and it is
- * there once they are back; the author's durable outbox entry clears on the receiver's ACK.
+ * there once they are back; the author's pair log stops being owed once the receiver acknowledges it.
  * Returns the delivery latency including the background interval.
  */
 export async function backgroundDeliveryJourney(
@@ -159,16 +159,16 @@ export async function backgroundDeliveryJourney(
   ).toBe(true);
   expect(await waitForIncomingTalk(receiver.actor.page, receiver.actor.id, talk.talkData.title)).toBe(talk.talkId);
   const elapsed = Date.now() - startedAt;
-  await expect.poll(() => author.actor.page.evaluate(async ({ targetRoomId, targetUserId, targetTalkId }) => {
+  // OPEN-106: the author's pair log is owed to the receiver until their head says they applied it
+  // (`graph-sync.ts` delivery receipts; the frame outbox is gone).
+  await expect.poll(() => author.actor.page.evaluate((targetUserId) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
-    const outbox = app?.peerMeshService?.directTalkOutbox;
-    if (!outbox?.list) return -1;
-    const entries = await outbox.list(targetRoomId);
-    return entries.filter((entry: any) => entry.recipientUserId === targetUserId && entry.talkId === targetTalkId).length;
-  }, { targetRoomId: roomId, targetUserId: receiver.userId, targetTalkId: talk.talkId }), {
+    const owed = app?.graphOwedPeers;
+    return Array.isArray(owed) ? owed.includes(targetUserId) : null;
+  }, receiver.userId), {
     timeout: 30_000,
-    message: 'author durable outbox should clear after the receiver ACK',
-  }).toBe(0);
+    message: 'author should no longer owe the receiver once they acknowledge the log',
+  }).toBe(false);
   expect(await receiver.actor.page.evaluate(
     () => String((window as any).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.() || ''),
   )).toBe(roomId);
