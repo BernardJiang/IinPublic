@@ -373,11 +373,35 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
     await pageJerry.evaluate(async ({ cid, messageId }) => {
       const app = (window as any).__iinpublic_app?.getApp?.() as any;
       const key = `conversations/${encodeURIComponent(cid)}/history`;
-      const envelope = await app.gunService.getPrivate(key);
-      const messages = JSON.parse(String(envelope?.messagesJson || '[]')) as Array<{ id: string }>;
+      const manifest = await app.gunService.getPrivate(key);
+      if (manifest?.version === 1) {
+        const messages = JSON.parse(String(manifest.messagesJson || '[]')) as Array<{ id: string }>;
+        await app.gunService.putPrivate(key, {
+          ...manifest,
+          messagesJson: JSON.stringify(messages.filter((message) => message.id !== messageId)),
+        });
+        return;
+      }
+      if (manifest?.version !== 2) throw new Error('local conversation manifest missing');
+      let changed = false;
+      for (let index = 0; index < Number(manifest.segmentCount || 0); index += 1) {
+        const segmentKey = `conversationHistorySegments/${encodeURIComponent(cid)}/${index}`;
+        const segment = await app.gunService.getPrivate(segmentKey);
+        const messages = JSON.parse(String(segment?.messagesJson || '[]')) as Array<{ id: string }>;
+        const filtered = messages.filter((message) => message.id !== messageId);
+        if (filtered.length === messages.length) continue;
+        changed = true;
+        await app.gunService.putPrivate(segmentKey, {
+          ...segment,
+          messagesJson: JSON.stringify(filtered),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      if (!changed) throw new Error(`local message ${messageId} not found`);
       await app.gunService.putPrivate(key, {
-        ...envelope,
-        messagesJson: JSON.stringify(messages.filter((message) => message.id !== messageId)),
+        ...manifest,
+        revision: Number(manifest.revision || 0) + 1,
+        updatedAt: new Date().toISOString(),
       });
     }, { cid: conversationId, messageId: shareMessageId });
     await afterAction();

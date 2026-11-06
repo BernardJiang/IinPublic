@@ -594,7 +594,7 @@ export class IinPublicApp {
     });
     // Phase 4: queue undeliverable DMs to the recipient's offline mailbox.
     this.conversationService.setMessageUndeliverableHandler((wire, conversationId, recipientUserId, recipientEpub) => {
-      void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, recipientEpub).catch(() => {});
+      return this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, recipientEpub);
     });
     if (!this.ledgerService) return;
     const ledger = this.ledgerService;
@@ -3772,12 +3772,12 @@ export class IinPublicApp {
     recipientUserId: string,
     knownEpub?: string,
     attempt = 1,
-  ): Promise<void> {
-    if (this.mailboxFallbackDisabledForE2e) return;
-    if (!this.currentUser?.id || !recipientUserId || recipientUserId === this.currentUser.id) return;
+  ): Promise<boolean> {
+    if (this.mailboxFallbackDisabledForE2e) return false;
+    if (!this.currentUser?.id || !recipientUserId || recipientUserId === this.currentUser.id) return false;
     const mailbox = this.ensureMailboxClient();
     const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
+    if (!pair?.priv) return false;
     try {
       const recipientEpub = await this.resolvePeerEpub(recipientUserId, knownEpub);
       if (!recipientEpub) throw new Error(`epub not found for ${recipientUserId}`);
@@ -3797,17 +3797,17 @@ export class IinPublicApp {
       });
       if (!result.stored) throw new Error(`server rejected envelope: ${result.error}`);
       console.log('[Mailbox] Posted DM envelope', wire.id, 'for', recipientUserId);
+      return true;
     } catch (err) {
       // The message exists only on this device until this works, so one failure must not end it.
       if (attempt >= DM_MAILBOX_POST_ATTEMPTS) {
         console.warn('[Mailbox] Gave up posting DM', wire.id, 'for', recipientUserId, err);
         this.uiManager.showNotification(this.uiText('conversationDeliveryFailed'), 'error');
-        return;
+        return false;
       }
       console.warn('[Mailbox] Retrying DM post', wire.id, err);
-      setTimeout(() => {
-        void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, knownEpub, attempt + 1);
-      }, DM_MAILBOX_POST_RETRY_MS * attempt);
+      await new Promise<void>((resolve) => setTimeout(resolve, DM_MAILBOX_POST_RETRY_MS * attempt));
+      return this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, knownEpub, attempt + 1);
     }
   }
 

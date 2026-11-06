@@ -45,7 +45,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     conversationId: string,
     recipientUserId: string,
     recipientEpub?: string,
-  ) => void;
+  ) => boolean | void | Promise<boolean | void>;
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
@@ -139,7 +139,12 @@ export class DirectP2PConversationTransport implements ConversationTransport {
 
   /** Wire the offline-mailbox fallback (Phase 4); see `onUndeliverable`. */
   setUndeliverableHandler(
-    handler: (wire: ConversationMessageWire, conversationId: string, recipientUserId: string, recipientEpub?: string) => void,
+    handler: (
+      wire: ConversationMessageWire,
+      conversationId: string,
+      recipientUserId: string,
+      recipientEpub?: string,
+    ) => boolean | void | Promise<boolean | void>,
   ): void {
     this.onUndeliverable = handler;
   }
@@ -319,6 +324,30 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     const remaining = bucket.filter((message) => message.id !== messageId);
     this.liveMessagesByConversation.set(conversationId, remaining);
     for (const listener of this.listenersByConversation.get(conversationId) ?? []) listener([...remaining]);
+  }
+
+  private updateLiveMessage(
+    conversationId: string,
+    messageId: string,
+    patch: Partial<Message>,
+  ): void {
+    const bucket = this.liveMessagesByConversation.get(conversationId) ?? [];
+    const index = bucket.findIndex((message) => message.id === messageId);
+    if (index < 0) return;
+    bucket[index] = { ...bucket[index], ...patch };
+    this.liveMessagesByConversation.set(conversationId, bucket);
+    for (const listener of this.listenersByConversation.get(conversationId) ?? []) listener([...bucket]);
+  }
+
+  /** Persist only terminal sender-local state; `sending` is intentionally session-only. */
+  private recordDeliveryState(
+    conversationId: string,
+    wire: ConversationMessageWire,
+    state: 'sent' | 'queued' | 'failed',
+  ): void {
+    this.updateLiveMessage(conversationId, wire.id, { deliveryState: state });
+    void this.gunStore.putMessageRecord(conversationId, { ...wire, deliveryState: state })
+      .catch((error) => console.warn(`[dm-notify] could not persist ${state} state for ${wire.id}:`, error));
   }
 
   /**
@@ -506,6 +535,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       text,
       timestamp: sentAt,
       channel: (channel as Message['channel']) || 'public',
+      deliveryState: 'sending',
       readBy: [],
       isFromChatbot: !!opts?.isFromChatbot,
       ...(opts?.talkId && opts.talkId !== 'direct' ? { talkId: opts.talkId } : {}),
@@ -554,18 +584,31 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       const slow = setTimeout(() => console.warn(`[dm-notify] ${wire.id} still at "${stage}" after 15 s`), 15_000);
       // Queued once: when the grace period runs out, or at once if the direct link fails. The
       // recipient keys messages by id, so one that also arrives directly still shows once.
-      let queued = false;
-      const queueToMailbox = async () => {
-        if (queued || !this.onUndeliverable) return;
-        queued = true;
-        try {
-          const recipientUserId = opts?.otherUserId ?? (await this.resolveOtherUserId(conversationId, senderId));
-          if (recipientUserId) {
-            this.onUndeliverable(wire, conversationId, recipientUserId, this.gunStore.knownEpub(recipientUserId));
+      let directSent = false;
+      let mailbox: Promise<boolean> | null = null;
+      const queueToMailbox = (): Promise<boolean> => {
+        if (mailbox) return mailbox;
+        mailbox = (async () => {
+          if (!this.onUndeliverable) return false;
+          try {
+            const recipientUserId = opts?.otherUserId ?? (await this.resolveOtherUserId(conversationId, senderId));
+            if (!recipientUserId) return false;
+            const accepted = await this.onUndeliverable(
+              wire,
+              conversationId,
+              recipientUserId,
+              this.gunStore.knownEpub(recipientUserId),
+            );
+            return accepted !== false;
+          } catch (resolveErr) {
+            console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
+            return false;
           }
-        } catch (resolveErr) {
-          console.warn(`Direct P2P mailbox fallback skipped (no recipient) for ${conversationId}:`, resolveErr);
-        }
+        })();
+        void mailbox.then((accepted) => {
+          if (!directSent) this.recordDeliveryState(conversationId, wire, accepted ? 'queued' : 'failed');
+        });
+        return mailbox;
       };
       const grace = this.hasOpenLink(conversationId, senderId)
         ? setTimeout(() => void queueToMailbox(), DM_OPEN_LINK_GRACE_MS)
@@ -574,6 +617,8 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId, (next) => { stage = next; });
         stage = 'send';
         await session.sendDm(senderId, text, channel as Message['channel'], wire);
+        directSent = true;
+        this.recordDeliveryState(conversationId, wire, 'sent');
         console.info(`[dm-notify] ${wire.id} delivered over WebRTC in ${Date.now() - startedAt} ms`);
       } catch (err) {
         console.warn(

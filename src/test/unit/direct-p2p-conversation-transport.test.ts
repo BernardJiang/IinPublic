@@ -149,6 +149,10 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     const shown = (transport: DirectP2PConversationTransport): string[] =>
       ((transport as unknown as { liveMessagesByConversation: Map<string, Array<{ text: string }>> })
         .liveMessagesByConversation.get('conv1') ?? []).map((message) => message.text);
+    const deliveryState = (transport: DirectP2PConversationTransport): string | undefined =>
+      (transport as unknown as {
+        liveMessagesByConversation: Map<string, Array<{ deliveryState?: string }>>;
+      }).liveMessagesByConversation.get('conv1')?.[0]?.deliveryState;
 
     afterEach(() => {
       jest.restoreAllMocks();
@@ -166,7 +170,47 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       void transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob', messageId: 'm1' }).catch(() => undefined);
 
       expect(shown(transport)).toEqual(['hello']);
+      expect(deliveryState(transport)).toBe('sending');
       expect(buildSpy).toHaveBeenCalled();
+    });
+
+    it('marks a direct delivery sent and persists the terminal state', async () => {
+      jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
+      const putSpy = jest.spyOn(GunMessageStore.prototype, 'putMessageRecord').mockResolvedValue(undefined);
+      const transport = new DirectP2PConversationTransport(mockGun);
+      const sendDm = jest.fn(async () => undefined);
+      jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+        sendDm, setLedgerHooks: jest.fn(), setOnRemoteDm: jest.fn(),
+      });
+
+      await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob', messageId: wire.id });
+      await waitForMockCall(sendDm);
+      await Promise.resolve();
+
+      expect(deliveryState(transport)).toBe('sent');
+      expect(putSpy).toHaveBeenCalledWith('conv1', expect.objectContaining({ id: wire.id, deliveryState: 'sent' }));
+    });
+
+    it.each([
+      [true, 'queued'],
+      [false, 'failed'],
+    ] as const)('marks mailbox acceptance %s as %s', async (accepted, expectedState) => {
+      jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
+      const putSpy = jest.spyOn(GunMessageStore.prototype, 'putMessageRecord').mockResolvedValue(undefined);
+      const transport = new DirectP2PConversationTransport(mockGun);
+      sessionless(transport);
+      const onUndeliverable = jest.fn(async () => accepted);
+      transport.setUndeliverableHandler(onUndeliverable);
+
+      await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob', messageId: wire.id });
+      await waitForMockCall(onUndeliverable);
+      await Promise.resolve();
+
+      expect(deliveryState(transport)).toBe(expectedState);
+      expect(putSpy).toHaveBeenCalledWith(
+        'conv1',
+        expect.objectContaining({ id: wire.id, deliveryState: expectedState }),
+      );
     });
 
     it('delivers without waiting for a slow save', async () => {

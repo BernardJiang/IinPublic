@@ -142,6 +142,8 @@ export type ConversationMessageWire = {
   channel: string;
   transport?: string;
   encryption?: 'sea-ecdh-v1';
+  /** Sender-local status persisted after transport/mailbox completion; never trusted remotely. */
+  deliveryState?: 'sent' | 'queued' | 'failed';
   prevSeen?: string;
   isFromChatbot?: boolean;
   /** Per-matched-talk thread scope (redesign §5); absent/'direct' = the pair DM thread. */
@@ -394,6 +396,7 @@ export class GunMessageStore {
       channel: wire.channel,
       transport: wire.transport ?? this.mode,
       ...(wire.encryption ? { encryption: wire.encryption } : {}),
+      ...(wire.deliveryState ? { deliveryState: wire.deliveryState } : {}),
       ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
       ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
       ...(wire.talkId ? { talkId: wire.talkId } : {}),
@@ -577,6 +580,9 @@ export class GunMessageStore {
         timestamp: new Date(String(msg.timestamp)),
         readBy: Array.isArray(msg.readBy) ? msg.readBy as string[] : [],
         channel: ch,
+        ...(msg.deliveryState === 'sent' || msg.deliveryState === 'queued' || msg.deliveryState === 'failed'
+          ? { deliveryState: msg.deliveryState }
+          : {}),
         ...(typeof msg.questionId === 'string' ? { questionId: msg.questionId } : {}),
         ...(typeof msg.answerId === 'string' ? { answerId: msg.answerId } : {}),
         ...(msg.prevSeen !== undefined ? { prevSeen: String(msg.prevSeen) } : {}),

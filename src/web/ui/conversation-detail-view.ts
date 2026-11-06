@@ -422,11 +422,21 @@ export async function displayConversationMessages(
       const botBadge = msg.isFromChatbot
         ? `<span class="message-bot-badge" title="${escapeHtml(deps.t('conversationBotAnswered'))}" aria-label="${escapeHtml(deps.t('conversationBotAnswered'))}">🤖</span>`
         : '';
+      const deliveryLabels: Record<string, string> = {
+        sending: deps.t('peerSending'),
+        sent: deps.t('peerSentStatus'),
+        queued: deps.t('conversationMessageQueued'),
+        failed: deps.t('conversationMessageFailed'),
+      };
+      const deliveryLabel = isOwn ? deliveryLabels[String(msg.deliveryState || '')] : undefined;
+      const deliveryStatus = deliveryLabel
+        ? ` · <span class="message-delivery-state" data-testid="message-delivery-state" data-delivery-state="${msg.deliveryState}">${escapeHtml(deliveryLabel)}</span>`
+        : '';
       return `
           <div class="message ${isOwn ? 'message-own' : 'message-other'}">
             <div class="message-content">
               <div class="message-text">${botBadge}${escapeHtml(text)}</div>
-              <div class="message-time">${deps.formatTalkRelativeTime(new Date(msg.timestamp))}</div>
+              <div class="message-time">${deps.formatTalkRelativeTime(new Date(msg.timestamp))}${deliveryStatus}</div>
             </div>
           </div>
         `;

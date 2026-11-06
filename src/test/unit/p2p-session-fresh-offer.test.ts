@@ -237,6 +237,31 @@ describe('P2P session: a fresh offer from a rebuilt connection (OPEN-74)', () =>
     expect(ensure).toHaveBeenCalledTimes(1);
   });
 
+  it('a DM send follows a coordinated connection replacement', async () => {
+    const bob = harness(bobPair, alicePair.pub, false);
+    const ensure = jest.spyOn(bob.session, 'ensureConnected')
+      .mockRejectedValueOnce(new Error('WebRTC connection replaced'))
+      .mockResolvedValueOnce(undefined);
+    (bob.session as any).dc = { readyState: 'open' };
+    jest.spyOn(bob.session as any, 'waitForLedgerReady').mockResolvedValue(undefined);
+    const sendFrame = jest.spyOn(bob.session as any, 'sendChannelFrame').mockResolvedValue(undefined);
+    jest.spyOn(bob.session as any, 'ingestWireMessage').mockResolvedValue(undefined);
+
+    await expect(bob.session.sendDm('bob', 'hello', 'public', {
+      id: 'msg-replacement',
+      senderId: 'bob',
+      text: 'hello',
+      timestamp: new Date().toISOString(),
+      channel: 'public',
+    })).resolves.toBeUndefined();
+
+    expect(ensure).toHaveBeenCalledTimes(2);
+    expect(sendFrame).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'dm',
+      message: expect.objectContaining({ id: 'msg-replacement' }),
+    }));
+  });
+
   it('asks the initiator for a new offer when Nearby reopens a disposed answering session', async () => {
     const bob = harness(bobPair, alicePair.pub, false);
     void bob.session.ensureConnected(1_000).catch(() => undefined);

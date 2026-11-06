@@ -1647,7 +1647,21 @@ export class P2PConversationSession {
     channel: Message['channel'] = 'public',
     persistedWire?: Partial<DmWirePayload['message']> & Pick<DmWirePayload['message'], 'id' | 'senderId' | 'text' | 'timestamp' | 'channel'>,
   ): Promise<void> {
-    await this.ensureConnected();
+    // A coordinated restart can retire the exact connection attempt this send was awaiting while
+    // immediately installing its replacement on the same session. Treat that internal handoff as
+    // progress, not as a delivery failure that needlessly falls back to the mailbox. Keep the
+    // original overall deadline and still surface disposal, timeout, and genuine failures.
+    const deadline = Date.now() + P2P_WEBRTC_CONNECT_TIMEOUT_MS;
+    let connected = false;
+    while (!connected) {
+      try {
+        await this.ensureConnected(Math.max(1, deadline - Date.now()));
+        connected = true;
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'WebRTC connection replaced') throw error;
+        if (Date.now() >= deadline) throw new Error('WebRTC connection timeout');
+      }
+    }
     await this.waitForLedgerReady();
     if (!this.dc || this.dc.readyState !== 'open') {
       throw new Error('DataChannel not open');

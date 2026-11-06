@@ -507,6 +507,9 @@ export interface Message {
   readBy: string[];
   /** Default `public` — other values use SEA with recipient/sender epub */
   channel?: 'public' | 'known' | 'mutual';
+  /** Sender-local transport state. `sent` means accepted by the direct channel, while `queued`
+   * means durably accepted by the offline mailbox; neither claims the recipient has read it. */
+  deliveryState?: 'sending' | 'sent' | 'queued' | 'failed';
   /**
    * Two-writer DAG link (REQ-LEDGER-08): the `id` of the last message from the
    * *other* participant that the sender had observed before composing this

@@ -152,21 +152,47 @@ export async function prepareDirectP2PConversation(
   return conversationId;
 }
 
-/** Raw message records this endpoint holds for a conversation in its encrypted, peerless local Gun. */
-export async function readLocalConversationMessages(page: Page, conversationId: string): Promise<any[]> {
+/** Manifest plus raw message records held in this endpoint's encrypted, peerless local store. */
+export async function readLocalConversationHistory(
+  page: Page,
+  conversationId: string,
+): Promise<{ manifest: any; messages: any[] }> {
   return page.evaluate(async (cid) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
-    const envelope = await app?.gunService?.getPrivate?.(
+    const manifest = await app?.gunService?.getPrivate?.(
       `conversations/${encodeURIComponent(cid)}/history`,
     );
-    if (!envelope || typeof envelope.messagesJson !== 'string') return [];
-    try {
-      const parsed = JSON.parse(envelope.messagesJson);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
+    if (!manifest) return { manifest: null, messages: [] };
+    if (manifest.version === 1 && typeof manifest.messagesJson === 'string') {
+      try {
+        const parsed = JSON.parse(manifest.messagesJson);
+        return { manifest, messages: Array.isArray(parsed) ? parsed : [] };
+      } catch {
+        return { manifest, messages: [] };
+      }
     }
+    if (manifest.version !== 2 || !Number.isInteger(manifest.segmentCount)) {
+      return { manifest, messages: [] };
+    }
+    const segments = await Promise.all(
+      Array.from({ length: manifest.segmentCount }, (_unused, index) =>
+        app.gunService.getPrivate(`conversationHistorySegments/${encodeURIComponent(cid)}/${index}`)),
+    );
+    const messages = segments.flatMap((segment: any) => {
+      try {
+        const parsed = JSON.parse(String(segment?.messagesJson || '[]'));
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    });
+    return { manifest, messages };
   }, conversationId);
+}
+
+/** Raw message records this endpoint holds for a conversation in its encrypted, peerless local store. */
+export async function readLocalConversationMessages(page: Page, conversationId: string): Promise<any[]> {
+  return (await readLocalConversationHistory(page, conversationId)).messages;
 }
 
 /**

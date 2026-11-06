@@ -14,7 +14,7 @@ import {
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
-import { prepareDirectP2PConversation } from '../../helpers/p2p-transport-e2e';
+import { prepareDirectP2PConversation, readLocalConversationHistory } from '../../helpers/p2p-transport-e2e';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 import {
@@ -284,21 +284,23 @@ test.describe('Ledger + message checkpoint pruning end to end', () => {
 
     // ── Requirement 2 (messages): the peerless encrypted local envelope contains a
     // bounded retained tail plus checkpoints, while the relay has no message bodies. ──
-    const localEnvelope = await pageTom.evaluate(async (cid) => {
-      const app = (window as any).__iinpublic_app.getApp();
-      return app.gunService.getPrivate(`conversations/${encodeURIComponent(cid)}/history`);
-    }, conversationId) as {
-      messagesJson: string;
-      checkpointsJson: string;
-      totalCount: number;
-      lastCheckpointedCount: number;
-      prunedThroughCount: number;
+    const localHistory = await readLocalConversationHistory(pageTom, conversationId) as {
+      manifest: {
+        version: number;
+        checkpointsJson: string;
+        totalCount: number;
+        lastCheckpointedCount: number;
+        prunedThroughCount: number;
+      };
+      messages: Array<{
+        id: string;
+        text: string;
+        encryption?: string;
+      }>;
     };
-    const retainedMessages = JSON.parse(localEnvelope.messagesJson) as Array<{
-      id: string;
-      text: string;
-      encryption?: string;
-    }>;
+    const localEnvelope = localHistory.manifest;
+    const retainedMessages = localHistory.messages;
+    expect(localEnvelope.version).toBe(2);
     const messageCheckpoints = JSON.parse(localEnvelope.checkpointsJson) as unknown[];
     expect(messageCheckpoints.length).toBeGreaterThan(0);
     expect(localEnvelope.totalCount).toBeGreaterThanOrEqual(messageFillCount);

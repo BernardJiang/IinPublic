@@ -79,6 +79,35 @@ describe('conversation view and list update extraction', () => {
     expect(rendered).not.toContain('SEA{');
   });
 
+  it('shows sender-local delivery state only on outgoing messages', async () => {
+    document.body.innerHTML = '<div id="conversation-messages"></div>';
+    const deps = {
+      getCurrentConversationId: () => 'c1',
+      bindCapturedQuestionChipDelegation: jest.fn(),
+      getMyConversations: () => ({ c1: { conversationId: 'c1' } }),
+      messageInCurrentThread: () => true,
+      setLastConversationMessages: jest.fn(),
+      parseIpfsSharePayload: () => null,
+      shouldHideIncomingMessage: () => ({ passed: true }),
+      formatTalkRelativeTime: () => 'now',
+      showContentFilterToast: jest.fn(),
+      hydrateAttachmentImages: jest.fn(),
+      hiddenMessageToastIds: new Set(),
+      currentUserId: 'me',
+      t: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+    } as unknown as ConversationDetailViewDeps;
+
+    await displayConversationMessages('c1', [
+      { id: 'm1', senderId: 'me', text: 'outgoing', timestamp: 1, deliveryState: 'queued' },
+      { id: 'm2', senderId: 'peer', text: 'incoming', timestamp: 2, deliveryState: 'failed' },
+    ], deps);
+
+    const states = [...document.querySelectorAll<HTMLElement>('[data-testid="message-delivery-state"]')];
+    expect(states).toHaveLength(1);
+    expect(states[0].getAttribute('data-delivery-state')).toBe('queued');
+    expect(states[0].textContent).toBe('Queued for delivery');
+  });
+
   it('keeps a DM draft while persistence is pending and allows Back immediately', () => {
     document.body.innerHTML = `
       <div id="conversation-detail-overlay" style="display:none"></div>

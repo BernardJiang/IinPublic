@@ -517,18 +517,25 @@ its ID.
   conversation; FRD-L04 took 7.9 s for one write and saw repeated main-thread stalls of about 1 s.
   **Phone-free repair 2026-11-05:** native-core private writes now serialize per record instead of
   sharing one device-wide queue, so a conversation save cannot wait behind unrelated owner-private
-  bookkeeping; same-record ordering is preserved. Whole-conversation envelope rewrites remain.
+  bookkeeping; same-record ordering is preserved. Conversation history now uses a small manifest
+  plus bounded encrypted segments (32 messages by default), so the common append re-encrypts only
+  the final segment instead of the whole retained history. Existing v1 envelopes migrate lazily on
+  their next append, with focused migration, pruning, and bounded-write coverage.
   (b) "hi 12" (P30, 16:36; probably the slow read fixed under OPEN-102, not proven) was saved, but the mailbox refused it with `epub not found` although the
   sender had just used that key. It reached FRD only about 30 minutes later, after the direct link
   reconnected and the phones synced. The key is now passed through, posting retries 5 times, and a
   successfully decrypted mailbox wrapper seeds the DM key cache immediately; this path has not been
-  re-proven on phones. There is still no per-message delivered/failed state. (c) A received message can
+  re-proven on phones. Outgoing messages now show and persist sender-local `sending`, `sent`, `queued`,
+  or `failed` state: `sent` means the direct channel accepted the message and `queued` means the
+  mailbox accepted it; neither is presented as a recipient read receipt. (c) A received message can
   stay undecrypted. Since 2026-11-01 it shows "This message could not be decrypted." instead of raw
   `SEA{...}` (not yet on a phone). The message subscription now retries unchanged ciphertext with
   bounded backoff when its peer key arrives, and no longer lets a stale initial private-store read
   overwrite a newer live message; focused unit coverage passes. Phone proof remains. (d) P30's app died 12 s after launch at
   16:51:30 with no crash record, and a local `/health` once took about 3 s; causes unknown.
-  (e) DM sessions report `WebRTC connection replaced` around start-up. (f) `getUserPub` gave up on
+  (e) DM sessions reported `WebRTC connection replaced` around start-up. A send now follows a
+  coordinated replacement connection within its original deadline instead of treating that
+  internal handoff as a delivery failure; phone proof remains. (f) `getUserPub` gave up on
   the first missing peer record instead of retrying; fixed in 1.0.215 with a unit test.
 
 ## Paused implementation and field qualification — track, but do not start new features
