@@ -247,8 +247,14 @@ its ID.
     about a second. Each phone's WebView uses TURN on its own node (`local-link-turn-relay.ts`), and
     the node's relay sends across the group; client → client packets would have to cross the
     owner's network, and these owners (C10, P30) do not forward between their clients. Direct
-    client dialing therefore has no path on this hardware; needs an owner decision (the owner's
-    TURN relay for clients, or the owner forwarding the pair's encrypted souls).
+    client dialing therefore has no path on this hardware. Owner decision 2026-11-05: clients go
+    through the owner's TURN relay. Done so far: the relay passes a client's packets for another
+    client through the owner's hop socket (`local-link-turn-relay.ts`, IIF1 envelope, unit test);
+    the mesh tries again someone it gave up on when they are owed something new or the group
+    forms (`networkChanged`, unit test). On 1.0.229 both clients now dial each other after the
+    group forms, but every attempt times out in state `idle`: the WebRTC session never starts in
+    either direction, so the hop is not reached yet. Next: find why the session stays idle between
+    two clients (signaling through the owner's Gun, or both sides waiting for the other's offer).
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)

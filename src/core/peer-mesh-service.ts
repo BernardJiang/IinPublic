@@ -366,9 +366,22 @@ export class PeerMeshService {
     const added = [...next].filter((id) => !this.graphOwed.has(id));
     const read = [...this.graphOwed].filter((id) => !next.has(id));
     this.graphOwed = next;
+    // Something new to give them is a new reason to try, even someone I recently gave up on.
+    for (const id of added) { this.gaveUpAt.delete(id); this.connectFailures.delete(id); }
     // Each person who read what I owed them is a delivered Talk: the Nearby loop may widen.
     for (const _ of read) this.adjustPersonalConcurrency(true);
     if ((added.length || read.length) && this.currentRoomId) void this.reconcileNeighbors().then(() => this.scheduleReconcile()).catch(() => undefined);
+  }
+
+  /**
+   * My network paths changed (I joined or formed a Wi-Fi Direct group, or left one): people I gave
+   * up on may be reachable now. Without this, a link tried a moment before the group formed was not
+   * tried again for five minutes (native-app/30, 2026-11-05).
+   */
+  networkChanged(): void {
+    this.gaveUpAt.clear();
+    this.connectFailures.clear();
+    if (this.currentRoomId) void this.reconcileNeighbors().then(() => this.scheduleReconcile()).catch(() => undefined);
   }
 
   /** The current room's members (not me). */

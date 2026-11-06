@@ -185,6 +185,58 @@ type Allocation = {
   channelsByPeer: Map<string, number>;
 };
 
+/** Android's Wi-Fi Direct group owner always has this address. */
+export const GROUP_OWNER_ADDRESS = '192.168.49.1';
+/** The owner relay's hop socket (group interface only). */
+export const GROUP_HOP_PORT = 58089;
+const GROUP_SUBNET = /^192\.168\.49\.(\d{1,3})$/;
+/** "IIF1": a packet one client's relay sends another through the group owner. */
+const HOP_MAGIC = Buffer.from('IIF1');
+const HOP_HEADER = HOP_MAGIC.length + 12;
+
+function ip4(address: string): Buffer | null {
+  const parts = address.split('.').map(Number);
+  return parts.length === 4 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255) ? Buffer.from(parts) : null;
+}
+
+/** `IIF1` + source IPv4 and port + destination IPv4 and port + the packet. */
+export function encodeHop(src: { address: string; port: number }, dst: { address: string; port: number }, data: Buffer): Buffer | null {
+  const s = ip4(src.address);
+  const d = ip4(dst.address);
+  if (!s || !d) return null;
+  const header = Buffer.alloc(HOP_HEADER);
+  HOP_MAGIC.copy(header, 0);
+  s.copy(header, 4);
+  header.writeUInt16BE(src.port, 8);
+  d.copy(header, 10);
+  header.writeUInt16BE(dst.port, 14);
+  return Buffer.concat([header, data]);
+}
+
+export function decodeHop(buf: Buffer): { src: { address: string; port: number }; dst: { address: string; port: number }; data: Buffer } | null {
+  if (buf.length < HOP_HEADER || !buf.subarray(0, 4).equals(HOP_MAGIC)) return null;
+  return {
+    src: { address: [...buf.subarray(4, 8)].join('.'), port: buf.readUInt16BE(8) },
+    dst: { address: [...buf.subarray(10, 14)].join('.'), port: buf.readUInt16BE(14) },
+    data: buf.subarray(HOP_HEADER),
+  };
+}
+
+/**
+ * Where a client's relay sends: two clients of one Wi-Fi Direct group cannot reach each other
+ * (the owners we test on do not forward between their clients; native-app/30, 2026-11-05), so a
+ * packet for another client goes to the owner's hop socket and the owner passes it on. Still DTLS
+ * ciphertext, between our own relays.
+ */
+export type GroupHopOptions = {
+  /** `owner` opens the hop socket; `client` sends other clients' packets through the owner. */
+  role?: 'owner' | 'client' | 'none';
+  ownerAddress?: string;
+  hopPort?: number;
+  /** Whether a peer is another client reached through the owner (default: a group address that is not the owner's). */
+  viaOwner?: (peer: { address: string; port: number }) => boolean;
+};
+
 export type LocalLinkRelayInfo = {
   urls: string[];
   username: string;
@@ -202,13 +254,23 @@ export class LocalLinkTurnRelay {
   private readonly nonce = crypto.randomBytes(12).toString('hex');
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private listenPort = 0;
+  private hopSocket: dgram.Socket | null = null;
+  private readonly role: 'owner' | 'client' | 'none';
+  private readonly ownerAddress: string;
+  private readonly hopPort: number;
+  private readonly viaOwner: (peer: { address: string; port: number }) => boolean;
 
   constructor(
     /** This device's Wi-Fi Direct group address; relay sockets bind here. */
     readonly relayAddress: string,
     private readonly listenAddress = '127.0.0.1',
     private readonly now: () => number = Date.now,
+    hop: GroupHopOptions = {},
   ) {
+    this.ownerAddress = hop.ownerAddress ?? GROUP_OWNER_ADDRESS;
+    this.hopPort = hop.hopPort ?? GROUP_HOP_PORT;
+    this.role = hop.role ?? (relayAddress === this.ownerAddress ? 'owner' : GROUP_SUBNET.test(relayAddress) ? 'client' : 'none');
+    this.viaOwner = hop.viaOwner ?? ((peer) => peer.address !== this.ownerAddress && GROUP_SUBNET.test(peer.address));
     this.username = `ll${crypto.randomBytes(6).toString('hex')}`;
     this.password = crypto.randomBytes(16).toString('hex');
     this.key = longTermKey(this.username, this.realm, this.password);
@@ -228,7 +290,41 @@ export class LocalLinkTurnRelay {
       this.sweepTimer = setInterval(() => this.sweep(), 30_000);
       (this.sweepTimer as { unref?: () => void }).unref?.();
     }
+    if (this.role === 'owner' && !this.hopSocket) await this.openHop();
     return this.info();
+  }
+
+  /**
+   * The owner passes a client's packet on to the client it names. Only from the client that sent
+   * it (its source address is the sender's), only to a group client, never to the owner itself.
+   */
+  private async openHop(): Promise<void> {
+    const socket = dgram.createSocket('udp4');
+    socket.on('error', () => undefined);
+    socket.on('message', (msg, rinfo) => {
+      const hop = decodeHop(msg);
+      if (!hop || hop.src.address !== rinfo.address || !this.viaOwner(hop.dst) || hop.dst.port === this.hopPort) return;
+      socket.send(msg, hop.dst.port, hop.dst.address);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once('error', reject);
+        socket.bind(this.hopPort, this.relayAddress, () => { socket.off('error', reject); resolve(); });
+      });
+      this.hopSocket = socket;
+    } catch {
+      // Port taken (another relay instance): clients fall back to sending directly.
+      try { socket.close(); } catch { /* never bound */ }
+    }
+  }
+
+  /** A packet from my allocation to a peer relay: directly, or through the owner for another client. */
+  private sendToPeer(allocation: Allocation, data: Buffer, peer: { address: string; port: number }): void {
+    if (this.role === 'client' && this.viaOwner(peer)) {
+      const wrapped = encodeHop({ address: this.relayAddress, port: allocation.relayPort }, peer, data);
+      if (wrapped) { allocation.socket.send(wrapped, this.hopPort, this.ownerAddress); return; }
+    }
+    allocation.socket.send(data, peer.port, peer.address);
   }
 
   info(): LocalLinkRelayInfo {
@@ -247,6 +343,8 @@ export class LocalLinkTurnRelay {
     this.allocations.clear();
     try { this.socket?.close(); } catch { /* already closed */ }
     this.socket = null;
+    try { this.hopSocket?.close(); } catch { /* already closed */ }
+    this.hopSocket = null;
   }
 
   private sweep(): void {
@@ -268,7 +366,7 @@ export class LocalLinkTurnRelay {
       const allocation = this.allocations.get(clientKey);
       const peer = allocation?.channelsByNumber.get(msg.readUInt16BE(0));
       const length = msg.readUInt16BE(2);
-      if (allocation && peer && length + 4 <= msg.length) allocation.socket.send(msg.subarray(4, 4 + length), peer.port, peer.address);
+      if (allocation && peer && length + 4 <= msg.length) this.sendToPeer(allocation, msg.subarray(4, 4 + length), peer);
       return;
     }
     const message = parseStunMessage(msg);
@@ -401,10 +499,16 @@ export class LocalLinkTurnRelay {
     const data = attr(message, ATTR.data);
     const peer = peerValue ? decodeXorAddress(peerValue) : null;
     if (!allocation || !peer || !data || !allocation.permissions.has(peer.address)) return;
-    allocation.socket.send(data, peer.port, peer.address);
+    this.sendToPeer(allocation, data, peer);
   }
 
   private onPeerPacket(allocation: Allocation, data: Buffer, address: string, port: number): void {
+    // Another client's packet the owner passed on: from its sender, as if it came directly.
+    if (address === this.ownerAddress && port === this.hopPort) {
+      const hop = decodeHop(data);
+      if (!hop || hop.dst.port !== allocation.relayPort) return;
+      ({ data, address, port } = { data: hop.data, address: hop.src.address, port: hop.src.port });
+    }
     if (!allocation.permissions.has(address) || !this.socket) return;
     const channel = allocation.channelsByPeer.get(`${address}:${port}`);
     if (channel !== undefined) {

@@ -161,6 +161,27 @@ describe('PeerMeshService', () => {
     expect(dispose).not.toHaveBeenCalled();
   });
 
+  it('tries again someone it gave up on once they are owed something new or the network changes', async () => {
+    // native-app/30 (2026-11-05): a client tried another client a moment before the Wi-Fi Direct
+    // group formed, gave up, and did not try again for five minutes while a Talk waited for them.
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const service = new PeerMeshService(mockGunService(alicePair, { bob: { pub: bobPair.pub }, carol: { pub: bobPair.pub } }), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      personalRoster: true,
+      createSession: () => { throw new Error('not used'); },
+    });
+    const gaveUp = (service as any).gaveUpAt as Map<string, number>;
+    gaveUp.set('bob', Date.now());
+    gaveUp.set('carol', Date.now());
+    service.setGraphOwed(['bob']);
+    expect(gaveUp.has('bob')).toBe(false);
+    expect(gaveUp.has('carol')).toBe(true);
+    service.networkChanged();
+    expect(gaveUp.size).toBe(0);
+  });
+
   it('synchronizes a complete authenticated manifest chain before exchanging room traffic', async () => {
     const [alicePair, bobPair, k2, k3, k4, recovery] = await Promise.all([
       SEA.pair(),

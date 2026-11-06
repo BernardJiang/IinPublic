@@ -3179,7 +3179,11 @@ export class IinPublicApp {
       onReadinessGap: (gap) => gap === 'permission' ? undefined : this.uiManager.showNotification(uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), gapMessages[gap]), 'warning', {
         retry: () => bridge.openNearbySettings(gap),
       }),
-      onEvent: (event) => console.info('[nearby-offline]', JSON.stringify(event)),
+      onEvent: (event) => {
+        console.info('[nearby-offline]', JSON.stringify(event));
+        // In a group, or out of one: every path to the people nearby changed.
+        if (event.type === 'group' && (event.state === 'owner' || event.state === 'client' || event.state === 'idle')) this.peerMeshService?.networkChanged();
+      },
     });
     this.nearbyOfflineService = service;
     (window as unknown as { __iinpublicNearbyOffline?: NearbyOfflineService }).__iinpublicNearbyOffline = service;

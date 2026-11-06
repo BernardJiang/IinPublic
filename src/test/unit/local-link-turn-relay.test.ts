@@ -5,6 +5,8 @@ import {
   encodeStunMessage,
   encodeXorAddress,
   LocalLinkTurnRelay,
+  decodeHop,
+  encodeHop,
   longTermKey,
   parseStunMessage,
   verifyMessageIntegrity,
@@ -174,5 +176,46 @@ describe('LocalLinkTurnRelay', () => {
     const received = await b.next();
     expect(received.readUInt16BE(0)).toBe(0x4001);
     expect(received.subarray(4, 4 + received.readUInt16BE(2)).toString()).toBe('dtls-record');
+  });
+
+  test('two clients of one group reach each other through the owner relay, as if directly', async () => {
+    // Two clients cannot reach each other in a Wi-Fi Direct group (native-app/30, 2026-11-05):
+    // each client's relay sends the other's packets to the owner's hop socket, which passes them on.
+    const hopPort = 40000 + Math.floor(Math.random() * 20000);
+    const viaOwner = () => true;
+    const owner = new LocalLinkTurnRelay('127.0.0.1', '127.0.0.1', Date.now, { role: 'owner', ownerAddress: '127.0.0.1', hopPort, viaOwner });
+    relays.push(owner);
+    await owner.start();
+    const pair: Client[] = [];
+    for (let i = 0; i < 2; i += 1) {
+      const relay = new LocalLinkTurnRelay('127.0.0.1', '127.0.0.1', Date.now, { role: 'client', ownerAddress: '127.0.0.1', hopPort, viaOwner });
+      relays.push(relay);
+      const info = await relay.start();
+      const client = new Client({ port: Number(/:(\d+)\?/.exec(info.urls[0]!)![1]) }, info.username, info.credential);
+      clients.push(client);
+      await client.open();
+      pair.push(client);
+    }
+    const [a, b] = [pair[0]!, pair[1]!];
+    const relayA = await a.allocate();
+    const relayB = await b.allocate();
+    expect((await a.request(CREATE_PERMISSION, [{ type: ATTR.peer, value: encodeXorAddress(relayB.address, relayB.port) }])).cls).toBe(SUCCESS);
+    expect((await b.request(CREATE_PERMISSION, [{ type: ATTR.peer, value: encodeXorAddress(relayA.address, relayA.port) }])).cls).toBe(SUCCESS);
+
+    a.send(encodeStunMessage({ method: SEND, cls: INDICATION, transactionId: crypto.randomBytes(12), attributes: [
+      { type: ATTR.peer, value: encodeXorAddress(relayB.address, relayB.port) },
+      { type: ATTR.data, value: Buffer.from('via-owner') },
+    ] }));
+    const indication = parseStunMessage(await b.next())!;
+    expect(indication.method).toBe(DATA);
+    expect(attr(indication, ATTR.data)!.toString()).toBe('via-owner');
+    // B sees A's own relayed address, not the owner's.
+    expect(decodeXorAddress(attr(indication, ATTR.peer)!)).toEqual(relayA);
+  });
+
+  test('a hop envelope round-trips, and anything else is not one', () => {
+    const wrapped = encodeHop({ address: '192.168.49.7', port: 40001 }, { address: '192.168.49.9', port: 40002 }, Buffer.from('x'))!;
+    expect(decodeHop(wrapped)).toEqual({ src: { address: '192.168.49.7', port: 40001 }, dst: { address: '192.168.49.9', port: 40002 }, data: Buffer.from('x') });
+    expect(decodeHop(Buffer.from('not a hop at all'))).toBeNull();
   });
 });
