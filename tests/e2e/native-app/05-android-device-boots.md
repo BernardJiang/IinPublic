@@ -1,4 +1,5 @@
 # 05-android-device-boots
+covers: SPEC-5.5
 
 The Android equivalent of `01-desktop-app-boots.spec.ts`, but the shell is a real phone (or
 emulator) attached over adb, not a process on this machine. Playwright's `_android` module

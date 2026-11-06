@@ -11,7 +11,7 @@
  * Assertions (durable, not toast-only):
  *   - conversation-list-item data-conversation-status + data-change-of-mind-at
  *   - myConversations in localStorage
- *   - talkLedger.outcomes version monotonicity
+ *   - the graph's outcome version (`ix/outcome`) is monotonic
  *
  * See companion 07-change-of-mind.md for plain-English description.
  *
@@ -34,6 +34,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -164,8 +165,8 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
       ],
     };
 
-    const TOM_TALK_ID = `com-tom-${Date.now()}`;
-    const BOB_TALK_ID = `com-bob-${Date.now() + 1}`;
+    const TOM_TALK_ID = await newGraphTalkId(pageTom);
+    const BOB_TALK_ID = await newGraphTalkId(pageBob);
     const TOM_TALK_TITLE = 'CoM Tennis';
     const BOB_TALK_TITLE = 'CoM Tennis';
 
@@ -205,7 +206,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
-        await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
       },
       { tDef: tomTalkDef, rIds: [jerryId] },
     );
@@ -220,7 +221,7 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[tDef.id] = { role: 'created', fullTalk: tDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
-        await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
       },
       { tDef: bobTalkDef, rIds: [jerryId] },
     );
@@ -350,12 +351,9 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
 
     // ---- 11. Verify Tom ledger shows Jerry matched with version >= 2 --------
     const tomJerryEntry = await pageTom.evaluate(
-      ({ jId, tId }: { jId: string; tId: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        if (!doc) return null;
-        return Object.values(doc.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === jId && e.talkId === tId,
-        ) ?? null;
+      async ({ jId, tId }: { jId: string; tId: string }) => {
+        const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([tId]);
+        return doc?.outcomes?.[tId]?.[jId] ?? null;
       },
       { jId: jerryId, tId: TOM_TALK_ID },
     );
@@ -420,12 +418,12 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
     expect(tomConvChangedAt, 'Tom: changedAt not set on ended conversation').not.toBeNull();
 
     // ---- 15. Shared-identity revert also reaches Bob ------------------------
-    const bobConvStatus = await pageBob.evaluate(({ jId }: { jId: string }) => {
+    // Bob's copy is a separate graph Talk: his answer event arrives on its own link.
+    await expect.poll(() => pageBob.evaluate(({ jId }: { jId: string }) => {
       const convs = ((window as any).__iinpublic_collection?.('myConversations') ?? {});
       const conv = Object.values(convs).find((c: any) => c?.otherUserId === jId) as any;
       return conv?.status ?? 'active';
-    }, { jId: jerryId });
-    expect(bobConvStatus, 'Bob: shared-identity revert should fan out').toBe('ignored');
+    }, { jId: jerryId }), { timeout: MESH_E2E_TIMEOUT_MS, message: 'Bob: shared-identity revert should fan out' }).toBe('ignored');
 
     // ---- 16. Inject stale older-version update -> rejected ------------------
     // Directly call handleMeshTalkResponse with an older version
@@ -434,12 +432,9 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         if (!app) return 'no-app';
 
-        // Read current entry for Jerry in Tom's ledger
-        const doc = app.getTalkLedgerDocForE2e?.();
-        if (!doc) return 'no-ledger';
-        const entry = Object.values(doc.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === jId && e.talkId === tId,
-        );
+        // Read how Tom decided Jerry's answer (the graph's `ix/outcome`)
+        const doc = await app.getExchangesForE2e?.([tId]);
+        const entry = doc?.outcomes?.[tId]?.[jId];
         if (!entry) return 'no-entry';
         const beforeVersion = entry.version;
 
@@ -464,10 +459,8 @@ test.describe('Change-of-mind -- step 9 (three browsers)', () => {
           // Expected to return early or throw
         }
 
-        const docAfter = app.getTalkLedgerDocForE2e?.();
-        const entryAfter = Object.values(docAfter.outcomes as Record<string, any>).find(
-          (e: any) => e.responderId === jId && e.talkId === tId,
-        );
+        const docAfter = await app.getExchangesForE2e?.([tId]);
+        const entryAfter = docAfter?.outcomes?.[tId]?.[jId];
         return entryAfter?.version === beforeVersion ? 'rejected' : 'accepted';
       },
       { jId: jerryId, tId: TOM_TALK_ID, version: 1 },

@@ -11,13 +11,13 @@ import {
   clickBroadcastUntilBulkAck,
   createTalksFromCompanyPage,
   completeTalkInAppByAnswerIds,
-  waitForDistinctGunPeersExcludingSelf,
-} from '../../helpers/talk-demo-ui';
+  waitForDistinctGunPeersExcludingSelf, findIncomingTalkIdByTitle } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   finalCleanupPages,
   resetTalksMatchingSession,
   waitForTabActive,
+  waitForIncomingTalkClusterOnLocalGun,
 } from '../../helpers/talks-matching-flow';
 import {
   launchThreeBrowsers,
@@ -102,13 +102,24 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);
     await clickBroadcastUntilBulkAck(pageTom);
+    // An answer goes to a Talk that arrived (OPEN-106: over a graph link), by the id it arrived
+    // under: a Talk created with its own id (`demo-…`) travels under its graph id.
+    const arrivedAt = async (responder: Page) => {
+      await waitForIncomingTalkClusterOnLocalGun(responder, created.title, { timeout: 90_000, polling: 500 });
+      const talkId = await findIncomingTalkIdByTitle(responder, created.title);
+      const talkData = await responder.evaluate(async (id: string) =>
+        (window as any).__iinpublic_app?.getApp?.()?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }), talkId);
+      return { talkId, talkData };
+    };
+    const forJerry = await arrivedAt(pageJerry!);
+    const forBob = await arrivedAt(pageBob!);
 
     // --- Jerry takes the match path: looking for job (yes) → engineer (yes) → match ---
     // makeRouteTalk path: q_r_job → a_r_job_yes → q_r_role → a_r_role_yes (isMatch)
     await completeTalkInAppByAnswerIds(
-      pageJerry,
-      created.talkId,
-      created.talkData,
+      pageJerry!,
+      forJerry.talkId,
+      forJerry.talkData,
       ['a_r_job_yes', 'a_r_role_yes'],
       'match',
     );
@@ -116,9 +127,9 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
     // --- Bob takes the mismatch path: not looking for job → ignore ---
     // makeRouteTalk path: q_r_job → a_r_job_no (isIgnore, terminal)
     await completeTalkInAppByAnswerIds(
-      pageBob,
-      created.talkId,
-      created.talkData,
+      pageBob!,
+      forBob.talkId,
+      forBob.talkData,
       ['a_r_job_no'],
       'mismatch',
     );
@@ -126,11 +137,9 @@ test.describe('Talk lifecycle — route multi-responder matrix (D4)', () => {
     // --- Creator sees both peer-signed responses in its local ledger ---
     await expect
       .poll(
-        () => pageTom.evaluate((talkId) => {
-          const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-          return Object.values(doc?.outcomes || {}).filter(
-            (entry: any) => String(entry?.talkId || '') === talkId,
-          ).length;
+        () => pageTom.evaluate(async (talkId) => {
+          const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+          return Object.keys(doc?.outcomes?.[talkId] || {}).length;
         }, created.talkId),
         { timeout: 30_000, message: 'Expected both route responses in the creator local ledger' },
       )

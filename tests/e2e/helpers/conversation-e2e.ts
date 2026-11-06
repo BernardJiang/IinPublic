@@ -110,3 +110,12 @@ export async function openConversationViaServer(
   );
   await expect(page.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 20_000 });
 }
+
+/**
+ * A direct message sent from a person page has gone through: the composer cleared at once (since
+ * 1.0.216 there is no "Sent" label) and the send finished (`data-sent-at` on the button).
+ */
+export async function waitForPeerDmSent(page: Page, timeoutMs = 30_000): Promise<void> {
+  await expect(page.locator('#peer-dm-input')).toHaveValue('', { timeout: 5_000 });
+  await expect(page.locator('#peer-dm-send-btn')).toHaveAttribute('data-sent-at', /\d+/, { timeout: timeoutMs });
+}

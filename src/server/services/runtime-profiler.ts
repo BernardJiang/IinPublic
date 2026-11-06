@@ -156,3 +156,57 @@ export async function captureRuntimeWindow(seconds: number, withProfile: boolean
     ...(profileUnavailable ? { profileUnavailable } : {}),
   };
 }
+
+type HeapProfileNode = {
+  callFrame: { functionName: string; url: string; lineNumber: number };
+  selfSize: number;
+  children?: HeapProfileNode[];
+};
+
+export type HeapGrowthReport = {
+  seconds: number;
+  before: NodeJS.MemoryUsage;
+  after: NodeJS.MemoryUsage;
+  /** Live sampled allocations made during the window, largest first, with their callers. */
+  top: Array<{ bytes: number; stack: string[] }>;
+  unavailable?: string;
+};
+
+const frameLabel = ({ functionName, url, lineNumber }: HeapProfileNode['callFrame']): string =>
+  `${functionName || '(anonymous)'} ${url.split('/').pop() || ''}:${lineNumber + 1}`;
+
+/** Flattens a sampling heap profile to its largest allocation sites, each with its callers. */
+export function summarizeHeapProfile(head: HeapProfileNode, limit = 25): HeapGrowthReport['top'] {
+  const sites: HeapGrowthReport['top'] = [];
+  const walk = (node: HeapProfileNode, callers: string[]): void => {
+    const stack = [frameLabel(node.callFrame), ...callers].slice(0, 6);
+    if (node.selfSize > 0) sites.push({ bytes: node.selfSize, stack });
+    for (const child of node.children ?? []) walk(child, stack);
+  };
+  walk(head, []);
+  return sites.sort((a, b) => b.bytes - a.bytes).slice(0, limit);
+}
+
+/**
+ * What this node allocated during `seconds` and still holds at the end. Sampling stays cheap
+ * enough for a phone whose heap is already large, where a full snapshot would run it out of memory.
+ */
+export async function captureHeapGrowth(seconds: number): Promise<HeapGrowthReport> {
+  const before = process.memoryUsage();
+  const wait = () => new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+  const inspector = loadInspector();
+  if (!inspector) {
+    await wait();
+    return { seconds, before, after: process.memoryUsage(), top: [], unavailable: 'no inspector module' };
+  }
+  const session = new inspector.Session();
+  session.connect();
+  try {
+    await post(session, 'HeapProfiler.startSampling', { samplingInterval: 64 * 1024 });
+    await wait();
+    const result = (await post(session, 'HeapProfiler.stopSampling')) as { profile: { head: HeapProfileNode } };
+    return { seconds, before, after: process.memoryUsage(), top: summarizeHeapProfile(result.profile.head) };
+  } finally {
+    session.disconnect();
+  }
+}

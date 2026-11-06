@@ -1,39 +1,30 @@
-# 05 — Encrypted offline mailbox (P0 step 6)
+# 05 — An answer while the author is offline (graph log catch-up)
 
-covers: SPEC-19.4, SPEC-9.1, SPEC-3.6  <!-- auto-seeded; refine by hand -->
+covers: SPEC-31.9, SPEC-19.4, SPEC-3.6
 
 ## What this test proves
 
-Two browser peers (Tom / Jerry). Tom is the talk **author**; Jerry is a **matching responder**.
+Two browser peers (Tom / Jerry). Tom is the Talk **author**; Jerry is a **matching responder**.
+Since OPEN-106 there is no mailbox for Talks or answers: an answer is an entry in the
+responder's per-pair device-graph log, and the author reads it the next time they are linked.
 
 ### Flow
 
-1. Both Tom and Jerry are online. Tom creates and broadcasts a **tag** talk.
-2. Jerry receives it over mesh. Tom's page is then **closed** (simulating Tom going offline).
-3. Jerry answers **MATCH**. Because Tom is offline, the direct mesh unicast cannot succeed.
-   The response is posted to the server mailbox as a ciphertext-only envelope.
-4. **Ciphertext opacity assertion:** `GET /api/mailbox/:tomId` returns exactly 1 envelope
-   whose `ciphertext` field does NOT contain the answer text in plaintext. The server sees
-   only an opaque SEA ECDH ciphertext blob.
-5. Tom **reconnects** (new page in the same isolated device context, with both app user id and
-   SEA public key unchanged). Keeping the device context is required because JSON `storageState`
-   cannot serialize custody v3's non-extractable WebCrypto key. On boot,
-   `drainMailbox()` is called automatically.
-6. **Durable match assertion:** Tom's side shows a `conversation-list-item` for the
-   Tom↔Jerry pair (localStorage-backed — persists while the Conversations tab is active).
-   The conversation id on Tom's side matches the one Jerry created optimistically.
-7. The mailbox envelope is deleted from the server after successful drain.
-
-### Expired envelope sub-case (server integration test)
-
-The "expired envelope is dropped on drain" case is covered by the server integration test
-`src/test/integration/mailbox-routes.test.ts` (TTL eviction section), which can control
-time precisely without browser clock manipulation. The E2E spec omits this sub-case to
-avoid clock-override fragility in Playwright.
+1. Both are online. Tom offers a **tag** Talk over the graph (`offerTalkForE2e`).
+2. Jerry receives it. Tom's page is then **closed** (Tom goes offline).
+3. Jerry answers **MATCH**. The answer becomes an entry in Jerry's log for Tom; Jerry's device
+   owes Tom that entry (the `owed` graph event lists Tom), so it keeps wanting a link to him.
+4. **No mailbox:** `GET /api/mailbox/:tomId` returns 0 envelopes.
+5. Tom **reconnects** in the same device context (user id and SEA key unchanged; the context
+   keeps custody v3's non-extractable WebCrypto key).
+6. **Durable match assertion:** Tom's `myConversations` gains the Tom↔Jerry conversation,
+   from reading Jerry's log.
+7. Tom's head now says he read the entry, so Jerry owes him nothing (`owed` no longer lists Tom);
+   the mailbox is still empty.
+8. The conversation id is identical on both sides.
 
 ### Invariants
 
-- Zero calls to `POST /api/talks/:id/response` (server fan-in not used).
-- The ciphertext field in the mailbox envelope does not contain the plaintext answer.
-- After drain, `GET /api/mailbox/:tomId` returns 0 envelopes.
-- The match conversation id is identical on both sides (deterministic `conv_<sorted>_<talkId>`).
+- Zero calls to `POST /api/talks/:id/response`.
+- No mailbox envelope at any point.
+- The match conversation id is identical on both sides.

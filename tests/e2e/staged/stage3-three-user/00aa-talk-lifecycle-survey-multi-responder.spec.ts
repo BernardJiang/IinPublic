@@ -10,13 +10,13 @@ import {
   clickBroadcastUntilBulkAck,
   createTalksFromCompanyPage,
   completeTalkInAppByAnswerIds,
-  waitForDistinctGunPeersExcludingSelf,
-} from '../../helpers/talk-demo-ui';
+  waitForDistinctGunPeersExcludingSelf, findIncomingTalkIdByTitle } from '../../helpers/talk-demo-ui';
 import {
   bootstrapUser,
   finalCleanupPages,
   resetTalksMatchingSession,
   waitForTabActive,
+  waitForIncomingTalkClusterOnLocalGun,
 } from '../../helpers/talks-matching-flow';
 import {
   launchThreeBrowsers,
@@ -102,20 +102,31 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
     await afterSync();
     await waitForDistinctGunPeersExcludingSelf(pageTom, 2, 120_000);
     await clickBroadcastUntilBulkAck(pageTom);
+    // An answer goes to a Talk that arrived (OPEN-106: over a graph link), by the id it arrived
+    // under: a Talk created with its own id (`demo-…`) travels under its graph id.
+    const arrivedAt = async (responder: Page) => {
+      await waitForIncomingTalkClusterOnLocalGun(responder, created.title, { timeout: 90_000, polling: 500 });
+      const talkId = await findIncomingTalkIdByTitle(responder, created.title);
+      const talkData = await responder.evaluate(async (id: string) =>
+        (window as any).__iinpublic_app?.getApp?.()?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }), talkId);
+      return { talkId, talkData };
+    };
+    const forJerry = await arrivedAt(pageJerry!);
+    const forBob = await arrivedAt(pageBob!);
 
     // --- Jerry answers with rating '1' (a_sv_1), Bob answers with rating '2' (a_sv_2) ---
     // Survey talks use 'mismatch' as the outcome label since there is no match concept for surveys.
     await completeTalkInAppByAnswerIds(
-      pageJerry,
-      created.talkId,
-      created.talkData,
+      pageJerry!,
+      forJerry.talkId,
+      forJerry.talkData,
       ['a_sv_1'],
       'mismatch',
     );
     await completeTalkInAppByAnswerIds(
-      pageBob,
-      created.talkId,
-      created.talkData,
+      pageBob!,
+      forBob.talkId,
+      forBob.talkData,
       ['a_sv_2'],
       'mismatch',
     );
@@ -123,11 +134,9 @@ test.describe('Talk lifecycle — survey multi-responder matrix (D4)', () => {
     // --- Creator ledger records both peer-signed responses locally ---
     await expect
       .poll(
-        () => pageTom!.evaluate((talkId) => {
-          const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-          return Object.values(doc?.outcomes || {}).filter(
-            (entry: any) => String(entry?.talkId || '') === talkId,
-          ).length;
+        () => pageTom!.evaluate(async (talkId) => {
+          const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+          return Object.keys(doc?.outcomes?.[talkId] || {}).length;
         }, created.talkId),
         { timeout: 30_000, message: 'Expected both survey responses in the creator local ledger' },
       )

@@ -228,7 +228,8 @@ Each phase ships on its own and keeps every test green.
      a transport payload. Missing storage acknowledgements fail instead of authorizing a send.
      These ordered writes are not a multi-record atomic transaction. The GUI still owns encryption,
      transport scheduling, fanout, chatbot execution, Nearby and conversation effects; cached GUI
-     reads are not yet a complete live host view model. P5.4 remains open.
+     reads are not yet a complete live host view model. OPEN-91 is closed as an architecture
+     delivery umbrella; this deferred P5.4 expansion is tracked by OPEN-104.
      A retry of the same response preserves a delivery journal's higher state (`sent` or
      `persisted-receipt`); talk-response journal writes share the host command queue.
      Received answers now use one host command for the outcome and author-side identity aliases;
@@ -239,7 +240,7 @@ Each phase ships on its own and keeps every test green.
      reread. Only this tab's unacknowledged edits remain visible during refresh; another tab's
      shared recovery-journal entries are not mistaken for committed host state.
      Worker replacement triggers a refresh of all collections after session recovery. Native
-     multi-window refresh and the remaining domain effects are still future work.
+     multi-window refresh and the remaining domain effects remain future work under OPEN-104.
 6. **P6 (2026-10-26) — One Gun on the web**: the page's hub-connected Gun goes away; the worker
    core's Gun is the only one. It peers with the hub, and the page reaches it through the same
    `RemoteGun`, over `postMessage` instead of HTTP (`GunBridge.gunTransport()`, worker message

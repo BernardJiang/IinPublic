@@ -12,6 +12,7 @@ import { uiText } from '../../web/ui/ui-translations';
 import { getEncounterLocation, setEncounterLocation } from '../../web/services/encounter-location';
 import { getAutoAnswerScope, getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, NEARBY_SETTINGS_EVENT } from '../../web/ui/ui-settings-storage';
 import { loadConnectivitySettings } from '../../web/ui/connectivity-settings';
+import { MATCH_COLLECTION_STORE_KEY, startMatchCollectionSession } from '../../web/services/match-collection-session';
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -298,6 +299,21 @@ describe('settings view extraction', () => {
 
     expect(deps.setSettingsActiveSectionId).toHaveBeenCalledWith('settings-section-profile');
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
+  });
+
+  it('opens the latest outing review from Settings, once there has been an outing', () => {
+    localStorage.removeItem(MATCH_COLLECTION_STORE_KEY);
+    document.body.innerHTML = '<div id="settings-content"></div>';
+    renderSettingsView(makeUser(), viewDeps());
+    expect(document.getElementById('settings-match-collection-review')).toBeNull();
+
+    const session = startMatchCollectionSession({ label: 'Walk', scopeId: 'nearby-v3' });
+    renderSettingsView(makeUser(), viewDeps());
+    const emit = jest.fn();
+    bindSettingsControls(controlsDeps({ emit }));
+    document.getElementById('settings-match-collection-review')?.click();
+    expect(emit).toHaveBeenCalledWith('reviewMatchCollection', { sessionId: session.id });
+    localStorage.removeItem(MATCH_COLLECTION_STORE_KEY);
   });
 
   it('keeps match collection on by default and moves its opt-out to Settings', () => {

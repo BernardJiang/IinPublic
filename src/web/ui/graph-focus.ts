@@ -8,7 +8,7 @@
  * Leaving the tab, or a chip's ✕, shows everything again.
  */
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
-import { buildTagGraph, type TagGraph, type TagGraphInput } from '../../core/tag-graph';
+import { buildTagGraph, tagNodeFor, type TagGraph, type TagGraphInput } from '../../core/tag-graph';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
 import { readExchanges } from '../services/exchange-view';
@@ -126,7 +126,7 @@ export function peopleWhoLike(tagKeys: Iterable<string>): string[] {
   const graph = currentTagGraph();
   if (!graph) return peopleWhoExchanged(keys, true);
   const ordered = peopleWhoExchanged(keys, false);
-  const likers = new Set(keys.flatMap((key) => [...(graph.tags.get(key)?.likers.keys() ?? [])]));
+  const likers = new Set(keys.flatMap((key) => [...(tagNodeFor(graph, key)?.likers.keys() ?? [])]));
   return [...ordered.filter((peerId) => likers.has(peerId)), ...[...likers].filter((peerId) => !ordered.includes(peerId))];
 }
 
@@ -143,7 +143,7 @@ function allTopics(): Map<string, GraphTopic> {
     const label = tagKeyword(tag.label);
     if (!label) continue;
     const topic = topics.get(norm(label)) ?? { label, talkIds: [], isTag: true };
-    if (!topic.talkIds.includes(tag.key)) topic.talkIds.push(tag.key);
+    for (const id of tag.talkIds.length ? tag.talkIds : [tag.key]) if (!topic.talkIds.includes(id)) topic.talkIds.push(id);
     topic.isTag = true;
     topics.set(norm(label), topic);
   }

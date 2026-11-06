@@ -1,6 +1,6 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { isStarterTagTalk, STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
-import { getAnsweredTalkByContent, setAnsweredTalkByContent } from './answer-preferences-storage';
+import { answeredTalkIdsByContent, getAnsweredTalkId } from './answered-talks';
 import { deleteFlatAnswerHistoryForTalk, getTalkContentKey, saveFlatAnswerHistoryRecord } from './answer-history-storage';
 import { getCopyTalkAutoSave } from './ui-settings-storage';
 import { getMyTalks, setMyTalks, type MyTalkEntry } from './my-talks-storage';
@@ -58,8 +58,8 @@ export function completeTalk(
   console.log('✅ Talk completed:', talk.id, answers, outcome);
 
   const contentKey = getTalkContentKey(talk);
-  const answeredByContent = getAnsweredTalkByContent();
-  const existingTalkId = answeredByContent[contentKey];
+  // The My Talks entry already holding my answer to this content (derived from My Talks).
+  const existingTalkId = answeredTalkIdsByContent()[contentKey];
   const myTalks = getMyTalks();
   const authorId = talk.authorId || (talk as any).authorId;
   // A starter tag has no sender: answered, it is the user's own tag, not one from a person (OPEN-87).
@@ -76,13 +76,6 @@ export function completeTalk(
   } else {
     talkIdToUse = talk.id;
     senders = isPerson(authorId) ? [authorId] : [];
-    answeredByContent[contentKey] = talk.id;
-    try {
-      answeredByContent[computeTalkIdFromTalkData(talk)] = talk.id;
-    } catch {
-      /* keep legacy content key only */
-    }
-    setAnsweredTalkByContent(answeredByContent);
   }
 
   const existingEntry = myTalks[talkIdToUse];
@@ -144,6 +137,7 @@ export function completeTalk(
 
   deps.emit('talkCompleted', {
     talkId: talk.id,
+    ...(talkIdToUse !== talk.id ? { localTalkId: talkIdToUse } : {}),
     answers,
     talkData: talk,
     ...(meta?.withholdFromSender ? { withholdFromSender: true } : {}),
@@ -177,7 +171,7 @@ export function applyTalkRevisionToAnsweredCopy(talk: any, authorId: string): bo
   } catch {
     return false;
   }
-  const answeredTalkId = getAnsweredTalkByContent()[contentId];
+  const answeredTalkId = getAnsweredTalkId(contentId);
   const myTalks = getMyTalks();
   const entry = answeredTalkId ? myTalks[answeredTalkId] : undefined;
   if (!entry || !authorId || !(entry.senders || []).includes(authorId)) return false;

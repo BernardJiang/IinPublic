@@ -1,3 +1,4 @@
+import { answerTalksToDelete } from './talk-deletion';
 import {
   LOCAL_EXACT_CHATBOT_USER_ID,
   makeAnswerId,
@@ -13,6 +14,7 @@ import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { createRowSelection, type RowSelection } from './list-row-selection';
 import { bindGraphLinks, clearMeFocus, getMeFocus, openContactsTopic, peopleForTopic, peopleLinkHtml, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
+import { refreshGraphAnswerHistory } from './graph-answer-history';
 
 /** TODO §R3: first-chunk size for the Me tab's Answers list, same precedent as R1/R2. */
 const ANSWERS_FIRST_CHUNK_SIZE = 25;
@@ -36,6 +38,8 @@ type AnswersViewDeps = {
   openTalkResponses?: (talkId: string, talkTitle: string) => void;
   /** Answers a tag again from the AppBar (♡ Like / ✕ Pass): `talkId` is its My Talks entry. */
   answerTag?: (talkId: string, liked: boolean) => void;
+  /** 🗑 Delete my answers to these Talks (a Me row's Talks I did not create); asks first. */
+  deleteAnswers?: (talkIds: string[]) => void;
   showPreferencesDialog: () => void;
   /** Reuses ui-manager.ts's shared reparent-into-popup mechanism (showDetailsPopupFor) so
    *  the moved-out metadata/context/variant list keeps working without a second popup
@@ -68,7 +72,9 @@ type AnswerVariant = {
    *  the actual grouping key (see AnswerQuestionGroup's doc comment). Absent for talks
    *  answered before this field existed. */
   questionContentId?: string;
-  contextKey: string; // '' = universal/context-free; else contextHash || contextLabel
+  // '' = universal/context-free; else the readable label. Not `contextHash`: that hashes only
+  // positional ids (q_0:a_0_0), so the same step of two unrelated Talks shares one hash.
+  contextKey: string;
   contextLabel: string;
   talkId: string;
   talkTitle: string;
@@ -255,8 +261,7 @@ export function buildAnswerItemModels(
     }, undefined);
     const contextPath = formatQuestionContext(talk, question);
     const contextLabel = contextPath.join(' · ');
-    const contextHash = String(question?.contextHashId || '').trim();
-    const contextKey = talkType === 'tag' || talkType === 'survey' ? '' : (contextHash || contextLabel);
+    const contextKey = talkType === 'tag' || talkType === 'survey' ? '' : contextLabel;
     const questionContentId = String(question?.cidId || '').trim();
     return {
       questionId: entry.questionId,
@@ -294,6 +299,8 @@ export function answerTalkMatchesQuery(model: { searchText: string }, rawQuery: 
  *  ever answered it (any talk type, any sender) into that group's `variants`. */
 function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
   const myTalks = deps.getMyTalks();
+  // OPEN-106: the history already takes each Talk the device graph has from the graph, without
+  // the Talks whose answers I deleted (answer-history-storage.ts `getFlatAnswerHistory`).
   const flatHistory = deps.getFlatAnswerHistory?.() || {};
   const exactMemory = deps.getExactChatbotMemory?.();
   const groups = new Map<string, AnswerQuestionGroup>();
@@ -327,7 +334,7 @@ function buildQuestionGroups(deps: AnswersViewDeps): AnswerQuestionGroup[] {
           return latest == null ? event.lastAutoUsedAt : Math.max(latest, event.lastAutoUsedAt);
         }, undefined);
         const contextLabel = deriveContextLabelFromFlatRecord(record, item, itemIndex, myTalks);
-        const contextKey = item.contextHash || contextLabel || '';
+        const contextKey = contextLabel || '';
         pushVariant(item.prompt, {
           questionId: item.questionId,
           ...(item.questionContentId ? { questionContentId: item.questionContentId } : {}),
@@ -397,12 +404,11 @@ function distinctContextKeys(group: AnswerQuestionGroup): string[] {
   return Array.from(keys);
 }
 
-/** One variant per distinct context key (most recent instance of each), for the detail
- *  popup's per-context breakdown. */
+/** One variant per distinct context key (most recent instance of each), for the row's
+ *  per-context lines. A context-free answer keeps its own line beside the others. */
 function contextVariantsFor(group: AnswerQuestionGroup): AnswerVariant[] {
   const seen = new Map<string, AnswerVariant>();
   group.variants.forEach((variant) => {
-    if (!variant.contextKey) return;
     if (!seen.has(variant.contextKey)) seen.set(variant.contextKey, variant);
   });
   return Array.from(seen.values());
@@ -455,6 +461,8 @@ function openAnswerTalk(row: HTMLElement, deps: AnswersViewDeps | null): void {
  */
 let answersRowSelection: RowSelection | null = null;
 let selectionDeps: AnswersViewDeps | null = null;
+const rowTalkIds = (row: HTMLElement): string[] => (row.dataset.talkIds || row.dataset.talkId || '').split(' ').filter(Boolean);
+
 function answersSelection(deps: AnswersViewDeps): RowSelection {
   selectionDeps = deps;
   answersRowSelection ??= createRowSelection({
@@ -483,6 +491,12 @@ function answersSelection(deps: AnswersViewDeps): RowSelection {
         run: (row) => selectionDeps?.answerTag?.(row.dataset.talkId || '', false),
       },
       {
+        buttonId: 'me-delete-answer-btn',
+        applies: (row) => !!selectionDeps?.deleteAnswers
+          && answerTalksToDelete(rowTalkIds(row), selectionDeps.getMyTalks()).length > 0,
+        run: (row) => selectionDeps?.deleteAnswers?.(answerTalksToDelete(rowTalkIds(row), selectionDeps.getMyTalks())),
+      },
+      {
         buttonId: 'me-talk-btn',
         applies: (row) => !!row.dataset.talkId,
         run: (row) => openAnswerTalk(row, selectionDeps),
@@ -497,6 +511,10 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   const container = document.getElementById('answers-content');
   if (!container) return;
   const renderSeq = ++answersRenderSeq;
+  // The graph's answers are read after drawing; a change draws the list again.
+  void refreshGraphAnswerHistory().then((changed) => {
+    if (changed && renderSeq === answersRenderSeq && document.getElementById('answers-content')) displayAnswersList(deps);
+  }, () => undefined);
 
   // docs/TODO.md §LL.2 follow-up: delegated on document.body (not #answers-content) so `deps`
   // stashed on the container and read at click time (not closed over at bind time) always

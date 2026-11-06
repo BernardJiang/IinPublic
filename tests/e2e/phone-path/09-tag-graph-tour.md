@@ -1,4 +1,5 @@
 # 09 — Tag graph tour across phones
+covers: SPEC-3.5
 
 **File:** `tests/e2e/phone-path/09-tag-graph-tour.spec.ts`
 

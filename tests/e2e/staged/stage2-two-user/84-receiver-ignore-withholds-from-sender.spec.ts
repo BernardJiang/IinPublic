@@ -142,10 +142,10 @@ test.describe('Receiver dedicated Ignore withholds the response from the sender'
       return raw.some((r: any) => r.title === title && r.direction !== 'received');
     }, flowTitle);
     expect(techSupportFlowReceived).toBe(false);
-    const techSupportFlowLedger = await pageTechSupport.evaluate(() => {
+    const techSupportFlowLedger = await pageTechSupport.evaluate(async () => {
       const app = (window as any).__iinpublic_app.getApp();
-      const doc = app.getTalkLedgerDocForE2e() as any;
-      return { outcomes: Object.keys(doc.outcomes).length, exchanged: Object.keys(doc.exchanged).length };
+      const doc = await app.getExchangesForE2e() as any;
+      return { outcomes: Object.values(doc.outcomes).reduce((n: number, o: any) => n + Object.keys(o).length, 0), peers: Object.keys(doc.peers).length };
     });
     console.log('TechSupport ledger after flow dedicated-ignore:', techSupportFlowLedger);
 

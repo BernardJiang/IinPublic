@@ -2,13 +2,10 @@
 
 import { saveCreatedTalk } from '../../web/ui/talk-creation-storage';
 import { getMyTalks } from '../../web/ui/my-talks-storage';
-import { getTypedPreferenceState } from '../../web/ui/answer-preferences-storage';
-import { LOCAL_EXACT_CHATBOT_USER_ID } from '../../shared/exact-chatbot-memory';
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 function deps(overrides: Partial<Parameters<typeof saveCreatedTalk>[2]> = {}) {
   return {
-    saveAnswerPreference: jest.fn(() => 'context-hash'),
-    saveQuestionAnswersFromCompletion: jest.fn(),
     saveFlatAnswerHistoryRecord: jest.fn(),
     refreshTalksListIfActive: jest.fn(),
     refreshAnswersListIfActive: jest.fn(),
@@ -27,7 +24,7 @@ function talk(overrides: Partial<Parameters<typeof saveCreatedTalk>[0]> = {}) {
 }
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.clear(); resetAnswerHistoryForTests();
   document.body.innerHTML = '<div id="talks-view" class="active"></div>';
 });
 
@@ -67,19 +64,11 @@ describe('saveCreatedTalk', () => {
     expect(getMyTalks().t1.disabled).toBe(false);
   });
 
-  it('cascades each self-answer through saveAnswerPreference', () => {
+  it('records each self-answer in the answer history (the device graph learns from it)', () => {
     const d = deps();
     saveCreatedTalk(talk(), { selfAnswers: [{ questionId: 'q1', answerId: 'a1' }] }, d);
-    expect(d.saveAnswerPreference).toHaveBeenCalledTimes(1);
-    expect(d.saveAnswerPreference).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't1' }),
-      't1',
-      expect.objectContaining({ id: 'q1' }),
-      'a1',
-      'Yes',
-      [{ questionId: 'q1', answerId: 'a1', answerText: 'Yes', contextHash: 'context-hash' }],
-      'auto',
-    );
+    expect(d.saveFlatAnswerHistoryRecord).toHaveBeenCalledWith('t1', expect.objectContaining({ id: 't1' }),
+      [{ questionId: 'q1', answerId: 'a1', answerText: 'Yes', mode: 'manual' }], 'match', []);
   });
 
   it('skips a self-answer whose question or answer id does not exist on the talk', () => {
@@ -89,15 +78,7 @@ describe('saveCreatedTalk', () => {
       { selfAnswers: [{ questionId: 'missing-q', answerId: 'a1' }, { questionId: 'q1', answerId: 'missing-a' }] },
       d,
     );
-    expect(d.saveAnswerPreference).not.toHaveBeenCalled();
-    expect(d.saveQuestionAnswersFromCompletion).not.toHaveBeenCalled();
-  });
-
-  it('saves question-answers-from-completion and flat history only when at least one self-answer resolved', () => {
-    const d = deps();
-    saveCreatedTalk(talk(), { selfAnswers: [{ questionId: 'q1', answerId: 'a1' }] }, d);
-    expect(d.saveQuestionAnswersFromCompletion).toHaveBeenCalledTimes(1);
-    expect(d.saveFlatAnswerHistoryRecord).toHaveBeenCalledWith('t1', expect.anything(), expect.any(Array), 'match', []);
+    expect(d.saveFlatAnswerHistoryRecord).not.toHaveBeenCalled();
   });
 
   it('records outcome "mismatch" when no resolved self-answer is a match', () => {
@@ -110,7 +91,7 @@ describe('saveCreatedTalk', () => {
     expect(d.saveFlatAnswerHistoryRecord).toHaveBeenCalledWith('t1', expect.anything(), expect.any(Array), 'mismatch', []);
   });
 
-  it('stores each typed built-in declaration as a structured answer and isolated lookup entry', () => {
+  it('stores each typed built-in declaration as a structured answer', () => {
     const d = deps();
     saveCreatedTalk(talk({
       title: 'Inventory',
@@ -135,11 +116,6 @@ describe('saveCreatedTalk', () => {
       expect.objectContaining({ questionId: 'notebook-quantity', answerText: '5', typedValue: { kind: 'quantity', quantity: 5 } }),
       expect.objectContaining({ questionId: 'pen-quantity', answerText: '1', typedValue: { kind: 'quantity', quantity: 1 } }),
     ]);
-    expect(d.saveQuestionAnswersFromCompletion).not.toHaveBeenCalled();
-    const indexed = Object.values(getTypedPreferenceState().users[LOCAL_EXACT_CHATBOT_USER_ID]);
-    expect(indexed).toHaveLength(2);
-    expect(indexed.map((value) => value.quantity).sort()).toEqual([1, 5]);
-    expect(indexed.every((value) => value.sourceTalkId === 't1')).toBe(true);
   });
 
   it('refreshes the talks list only when the talks view is active', () => {

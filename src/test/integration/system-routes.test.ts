@@ -1257,7 +1257,7 @@ describeWithRealTechSupportPair('targeted delegate invite routes (remote invite,
     expect(got.status).toBe(200);
     expect(got.body).toEqual(invite);
     const miss = await request(app).get('/api/support/delegate-invites/nobody');
-    expect(miss.status).toBe(404);
+    expect(miss.status).toBe(204);
   });
 
   it('refuses an invite signed by an untrusted key (no overwriting someone else\'s inbox)', async () => {

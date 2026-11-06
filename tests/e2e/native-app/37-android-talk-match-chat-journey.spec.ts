@@ -2,16 +2,18 @@
  * The two-person core loop on two real phones: the same journey body phone-path/02 runs with host
  * phone nodes (tests/e2e/journeys/talk-match-chat-journey.ts). Phone A broadcasts a talk in the
  * shared Nearby room, phone B answers with the match, both get the conversation, the direct P2P
- * channel connects, and a message from A shows on B's screen. Clears both phones' app data.
+ * channel connects, both reopen it from Contacts (name tap to DM), and a composer-sent
+ * message from A shows on B's screen. Clears both phones' app data.
  *
  *   E2E_REAL_ANDROID_JOURNEYS=1 NATIVE_APP_ANDROID_SERIALS=<a>,<b> \
  *     npx playwright test --config tests/e2e/native-app/playwright.config.ts tests/e2e/native-app/37-android-talk-match-chat-journey.spec.ts
  */
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import * as os from 'os';
 import { bootstrapNativeWindow } from './helpers/native-app';
 import { closeAndroidUser, isAndroidDeviceReady, launchAndroidUserViaAdb, resetAndroidAppData, type AndroidUser } from './helpers/native-app-android';
 import { talkMatchChatJourney } from '../journeys/talk-match-chat-journey';
+import { deviceGraphStatus, expectDeviceGraph, expectGraphEvent } from '../helpers/device-graph';
 
 const RUN = process.env.E2E_REAL_ANDROID_JOURNEYS === '1';
 const SERIALS = String(process.env.NATIVE_APP_ANDROID_SERIALS || '').split(',').map((serial) => serial.trim()).filter(Boolean);
@@ -47,7 +49,20 @@ test.describe('Two real phones: talk → answer → match → P2P chat', () => {
       await bootstrapNativeWindow(user.window, `journey-${name.toLowerCase()}`, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000 });
       actors.push({ id: `${name} (${serial})`, runtime: 'android-webview' as const, page: user.window });
     }
+    // OPEN-106: both phones write their Talks and answers into the device graph.
     const { timings } = await talkMatchChatJourney(actors[0]!, actors[1]!);
+    await expectDeviceGraph(actors[0]!.page, actors[0]!.id, { talks: 1 });
+    // The Talk reached the responder over a graph link, and the answer came back over it.
+    await expectGraphEvent(actors[1]!.page, actors[1]!.id, 'talk');
+    await expectGraphEvent(actors[0]!.page, actors[0]!.id, 'answer');
+    // The author's graph keeps how the answer was decided (`ix/outcome`, OPEN-106 step 3).
+    await expect.poll(() => actors[0]!.page.evaluate(async () => {
+      const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.();
+      return Object.values(doc?.outcomes ?? {}).flatMap((byResponder: any) => Object.values(byResponder ?? {}))
+        .some((record: any) => record?.outcome === 'matched');
+    }), { timeout: 60_000, message: `${actors[0]!.id}: no matched outcome in the graph` }).toBe(true);
+    const mirrorMs = await Promise.all(actors.map((actor) => deviceGraphStatus(actor.page).then((s: any) => ({ phone: actor.id, lastMs: s?.lastMs, maxMs: s?.maxMs }))));
+    console.log(`[device-graph] ${JSON.stringify(mirrorMs)}`);
     console.log(`[journey] ${JSON.stringify(timings)}`);
     await testInfo.attach('journey-timings.json', { body: Buffer.from(JSON.stringify(timings, null, 2)), contentType: 'application/json' });
   });

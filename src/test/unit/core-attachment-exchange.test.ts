@@ -1,6 +1,6 @@
 /** OPEN-91 P4: attachment shares and what an exchange records. */
 import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText } from '../../core/attachment-share';
-import { authorLedgerWritesFor, exchangeRecordFor, type ExchangeInput } from '../../core/exchange-recording';
+import { authorOutcomeFor, exchangeRecordFor, type ExchangeInput } from '../../core/exchange-recording';
 
 const attachment = { cid: 'bafy1', name: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 10, enc: 'sea-pair' } as any;
 const NOW = '2026-10-26T10:00:00.000Z';
@@ -30,10 +30,11 @@ describe('exchange recording', () => {
     });
   });
 
-  it('writes the ledger only for an answer to a Talk of mine', () => {
-    expect(authorLedgerWritesFor(input({ meta: { direction: 'received' } }), 'me')).toBeNull();
-    const writes = authorLedgerWritesFor(input({ meta: { answers: [{ answerId: 'a' }] } }), 'me')!;
-    expect(writes.event).toMatchObject({ kind: 'TALK_ANSWERED', responderId: 'bob', authorId: 'me', outcome: 'matched', version: 1, responseId: 'resp_t1_bob' });
-    expect(authorLedgerWritesFor(input({ outcome: 'mismatch' }), 'me')!.exchanged.identityKeys).toHaveLength(1);
+  it('records an outcome only for an answer to a Talk of mine', () => {
+    expect(authorOutcomeFor(input({ meta: { direction: 'received' } }))).toBeNull();
+    expect(authorOutcomeFor(input({ meta: { answers: [{ answerId: 'a' }] } }))).toEqual({
+      talkId: 't1', responderId: 'bob', record: { outcome: 'matched', version: 1, responseId: 'resp_t1_bob', respondedAt: NOW },
+    });
+    expect(authorOutcomeFor(input({ outcome: 'mismatch' }))!.record.outcome).toBe('ignored');
   });
 });

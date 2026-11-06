@@ -49,6 +49,78 @@ Last updated: 2026-11-02
   mass, and all 16 physical C10 phone-path cases. The 12-blob merged report is in
   `playwright-report/`.
 
+## 2026-10-31 — OPEN-91 architecture delivery umbrella closed
+
+- OPEN-91's committed architecture scope is now complete: one core protocol/handler (`src/core/`),
+  one Gun per host runtime, core-owned local data collections, web SharedWorker ownership, native
+  loopback core/Gun RPC hosting, and host-serialized ledger command execution with tab refresh
+  invalidations.
+- Coverage and qualification evidence are now consolidated in OPEN-88, OPEN-91 P2–P4, and the
+  2026-10-29/2026-10-31 OPEN-94 focused reruns (including stage1/96 and wire09 checks recorded in
+  `docs/TODO.md` history before closure).
+- Deferred expansion from OPEN-91 is preserved as explicit follow-ons: OPEN-103 (sharing-policy
+  compatibility migration and legacy audiences) and OPEN-104 (host-owned remaining domain effects
+  plus full live host-view semantics). This keeps maintenance-first priorities explicit while
+  preventing OPEN-91 from staying open as an umbrella tracker.
+
+## 2026-10-31 — OPEN-102 phones could not look up each other's keys
+
+- `405a3022` raised the age-verification read inside every public user lookup from 0.5 s to 3 s.
+  Most people have no such record, so each lookup took about 3 s, past an embedded node's 2.5 s hub
+  relay limit. Peer key lookups then failed as `No data found for key: users/<id>`, which stopped
+  direct links from opening and broke background answers after a process kill.
+- The public read is back to 0.5 s; the age gate keeps its longer read. Peer key lookups now retry
+  instead of giving up on the first miss, and the key found for the link is shared with message
+  encryption, so a first message needs no second lookup.
+- Verification, app 1.0.217 on PH-1 + FRD-L04: `native-app/40` passed in the default While open mode
+  (screen off, process killed, forced Doze; answer in 6.5 s), and `native-app/37` passed (worst
+  arrival 178 ms). Full phone path: 13 passed, 3 failed (04, 07b, 09, all already in OPEN-94d),
+  compared with four failures on 2026-10-30.
+
+## 2026-10-31 — OPEN-97 the embedded node's lifetime is decided
+
+- Owner decision: the node runs from app launch until Force stop or a reboot, including with the
+  screen off and after the app is swiped away. It need not survive a reboot or Force stop, there is
+  no on/off switch, and Android's sleep rules apply. The chatbot only repeats saved answers. A crash
+  is a bug.
+- Saved answers now go out in the background unless the Nearby mode is Off
+  (`backgroundTalkAgentEnabled`); they previously needed Always, which was not the default. The
+  Nearby mode still decides what the radios do in the background, and the labels now say so. Unit
+  tests cover this, and `native-app/40` proved it on real phones (OPEN-102).
+
+## 2026-10-31 — OPEN-100 a stalled page can no longer run the phone's node out of memory
+
+- Found during OPEN-92: PH-1's embedded node died with `Reached heap limit` after about 18 minutes
+  (750 MB heap), and P30 reached 1.16 GB. Graph size ruled out Gun's memory (580 souls). A new
+  loopback-only `/api/debug/heap-growth` heap sample showed the live memory in `write_` from
+  the Gun RPC stream: the node queued events without limit for a page that was not reading them.
+- `writeBoundedStream` drops the stream past a 4 MiB backlog. RemoteGun already reopens it and
+  resubscribes, and Gun then replays current state. The route also cleans up on the response's
+  `close`, which fires when the server drops the stream.
+- Verification, app 1.0.210: 3/3 backlog tests, including a real HTTP reader that stops reading.
+  A 26-minute screen-off soak ended at 174 MB on P30 and 235 MB on PH-1, flat after start-up, with
+  no out-of-memory crash. Not separately proven: which WebView state stops it reading.
+
+## 2026-10-31 — OPEN-95 the Android node log can no longer fill a phone
+
+- Found on the OPEN-81 walk: `node-stdio.log` had no size limit. It reached 1.88 GB on FRD-L04
+  and filled `/data`; the embedded node then died about 3.9 s after every start with an uncaught
+  `ENOSPC` from the logger. P30 had reached 5.4 GB and PH-1 501 MB. After a manual recovery the
+  FRD log regrew 434 MB in 54 minutes.
+- `bounded_stdio_log.cpp` trims an oversized log to its last 4 MiB at start (this also works on
+  a full disk) and rotates to one `.1` generation at 4 MiB, checked every 10 s. Fds 1/2 stay
+  synchronous O_APPEND files, so the last lines before a native abort survive. If no fresh file
+  can be created, the current one is emptied. The app sets `LOG_LEVEL=warn`, unless already set,
+  which removes routine per-request lines. `protectStdioFromWriteFailures` keeps a failed stdio
+  write from ending the embedded node on any native host.
+- Verification, app 1.0.208 installed in place on P30, PH-1 and FRD with identities kept:
+  3/3 focused tests (host-built native trim/rotate checks, plus a real stream failure that kills
+  an unprotected process and not a protected one). P30 went from 5.4 GB to about 4.2 MB and
+  gained 5 GB; PH-1 went from 501 MB to about 4.2 MB. A 5 MiB append on P30 rotated live with the
+  same process running. Growth measured 8 B/s on P30 and PH-1 and 182 B/s on FRD soon after
+  start. FRD had no restarts after the install. A real `ENOSPC` on a phone was not reproduced:
+  that path is covered by the host test only.
+
 ## 2026-10-31 — OPEN-94a Settings startup test
 
 - The test expected the old Chatrooms panel to remain active after a Settings tap before an

@@ -74,6 +74,12 @@ export class CoreCollectionView<T> {
     this.notify();
   }
 
+  /** Goes up whenever the entries change (a write, a refresh, a reset): a cache's key. */
+  revision(): number {
+    this.load();
+    return this.changes;
+  }
+
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -135,6 +141,7 @@ export class CoreCollectionView<T> {
   }
 
   resetForTests(): void {
+    this.changes++;
     this.entries.clear();
     this.listeners.clear();
     this.localUnconfirmed.clear();
@@ -157,7 +164,10 @@ export class CoreCollectionView<T> {
     this.importLegacy();
   }
 
+  private changes = 0;
+
   private notify(): void {
+    this.changes++;
     for (const listener of this.listeners) {
       try {
         listener();

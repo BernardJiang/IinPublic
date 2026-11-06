@@ -132,7 +132,6 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
           });
         const offers = await collect(gun.get('peerTalkOffers').get(receiverId));
         const ownerPub = String(app?.gunService?.getStoredPair?.()?.pub || receiverId);
-        const localOwnerEnvelope = await app?.gunService?.getPrivate?.('incomingTalkClusters');
         const publicOwnerEnvelope = await new Promise<any>((resolve) => {
           gun.get(`users/${encodeURIComponent(ownerPub)}/incomingTalkClusters`).once((raw: unknown) => resolve(raw));
         });
@@ -144,12 +143,9 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
             return 0;
           }
         };
-        let localOwnerEnvelopeCount = 0;
-        try {
-          localOwnerEnvelopeCount = envelopeCount(localOwnerEnvelope);
-        } catch {
-          localOwnerEnvelopeCount = 0;
-        }
+        // The incoming list is built from the receiver's own device graph (OPEN-106 step 2e iv);
+        // the private rows envelope it replaced is erased.
+        const localOwnerEnvelopeCount = ((await app?.getLocalIncomingClustersForE2e?.()) ?? []).length;
         const legacyOwnerIndex = await collect(gun.get('ownerIncomingTalkIndex').get(receiverId));
         const legacyIndex = await collect(gun.get('incomingTalksByUser').get(receiverId));
         const announcements = await collect(gun.get('chatrooms').get('global').get('announcements'));

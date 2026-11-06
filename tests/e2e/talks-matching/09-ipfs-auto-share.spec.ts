@@ -25,6 +25,7 @@ import {
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { readLocalConversationMessages } from '../helpers/p2p-transport-e2e';
 import { gunBaseURL, webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 const TEST_TIMEOUT_MS = 300_000;
@@ -159,7 +160,7 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       { label: 'Bob', page: pageBob, otherIds: [tomId, jerryId] },
     ]);
 
-    const talkId = `l5-ipfs-${Date.now()}`;
+    const talkId = await newGraphTalkId(pageTom);
     const attachmentText = `private L5 bytes ${Date.now()}`;
     const [tomPair, jerryEpub] = await Promise.all([
       pageTom.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()),
@@ -236,10 +237,7 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       myTalks[talk.id] = { role: 'created', fullTalk: talk };
       localStorage.setItem('myTalks', JSON.stringify(myTalks));
-      await app.peerMeshService.broadcastTalk(talk, {
-        recipientUserIds: recipients,
-        roomBroadcast: true,
-      });
+      await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talk, recipients);
     }, { talk: tomTalk, recipients: [jerryId, bobId] });
 
     for (const [label, page] of [['Jerry', pageJerry], ['Bob', pageBob]] as const) {

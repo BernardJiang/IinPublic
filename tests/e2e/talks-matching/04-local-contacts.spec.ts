@@ -27,6 +27,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 /**
  * Timeout for WebRTC overlay formation and response/match propagation.
@@ -193,7 +194,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
     }
 
     // ── 5. Tom creates and broadcasts a tag talk ─────────────────────────────
-    const TEST_TALK_ID = `local-contacts-e2e-${Date.now()}`;
+    const TEST_TALK_ID = await newGraphTalkId(pageTom);
     const TEST_TALK_TITLE = 'Local Contacts E2E Tennis';
 
     await pageTom.evaluate(
@@ -258,7 +259,7 @@ test.describe('Local-only contacts — zero server peer/history/replies calls', 
         };
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService unavailable');
-        await mesh.broadcastTalk(talk, { recipientUserIds: recipientIds, roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talk, recipientIds);
       },
       { talkId: TEST_TALK_ID, authorId: tomId, title: TEST_TALK_TITLE, recipientIds: [jerryId, bobId] },
     );

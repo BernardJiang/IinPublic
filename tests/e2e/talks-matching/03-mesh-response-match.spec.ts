@@ -30,6 +30,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 /** Collect all non-metadata Gun keys over a 500ms window (ASI-safe helper source). */
 const COLLECT_GUN_WINDOW_MS = 500;
@@ -170,7 +171,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
     ]);
 
     // ── 5. Tom creates and broadcasts a tag talk ─────────────────────────────
-    const TEST_TALK_ID = `mesh-response-e2e-${Date.now()}`;
+    const TEST_TALK_ID = await newGraphTalkId(pageTom);
     const TEST_TALK_TITLE = 'Mesh Response E2E Tennis';
 
     await pageTom.evaluate(
@@ -201,7 +202,7 @@ test.describe('Mesh response match — three browsers, zero server calls', () =>
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
         // Broadcast via mesh
-        await mesh.broadcastTalk(talkDef, { roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talkDef);
       },
       { talkId: TEST_TALK_ID, authorId: tomId, title: TEST_TALK_TITLE },
     );

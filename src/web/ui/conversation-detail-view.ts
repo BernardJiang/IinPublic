@@ -246,7 +246,6 @@ export function showConversationDetail(
     const newSendBtn = document.getElementById('send-conversation-message') as HTMLButtonElement | null;
 
     const sendMessage = async () => {
-      if (newSendBtn?.disabled) return;
       const message = messageInput.value.trim();
       // An empty Send takes the user to the composer rather than doing nothing visible.
       if (!message) { messageInput.focus(); return; }
@@ -285,28 +284,15 @@ export function showConversationDetail(
         }
       }
 
-      // The send event is asynchronous. Keep the draft until encrypted local persistence
-      // succeeds, and show progress while key lookup or storage is slow.
-      if (newSendBtn) {
-        newSendBtn.disabled = true;
-        newSendBtn.textContent = deps.t('peerSending');
-      }
-      const finish = () => {
-        if (newSendBtn) {
-          newSendBtn.disabled = false;
-          newSendBtn.textContent = deps.t('conversationSend');
-        }
-      };
+      // Saving and delivery run behind the composer: it clears now and stays ready for the next
+      // message. The text only comes back if the save fails, unless a new draft has replaced it.
+      messageInput.value = '';
       deps.emit('sendConversationMessage', {
         conversationId,
         message: outgoingMessage,
         ...(deps.getCurrentThreadTalkId() ? { talkId: deps.getCurrentThreadTalkId() } : {}),
-        onPersisted: () => {
-          onStored?.();
-          if (messageInput.value.trim() === message) messageInput.value = '';
-          finish();
-        },
-        onError: finish,
+        onPersisted: () => onStored?.(),
+        onError: () => { if (!messageInput.value) messageInput.value = message; },
       });
     };
 
@@ -389,7 +375,9 @@ export async function displayConversationMessages(
       // from senderId here so a user's own DMs render with the "message-own" style
       // instead of always falling through to "message-other".
       const isOwn = !!deps.currentUserId && String(msg.senderId || '') === deps.currentUserId;
-      const text = String(msg.text || '');
+      const rawText = String(msg.text || '');
+      // The store keeps ciphertext it could not decrypt so a later read can retry; never show it.
+      const text = rawText.startsWith('SEA{') ? deps.t('conversationMessageUnreadable') : rawText;
       // Matched-talk IPFS auto-share (L5): render the shared photo/file as an attachment
       // card (with an image preview once the decrypted bytes arrive) instead of raw JSON.
       const share = deps.parseIpfsSharePayload(text);

@@ -74,7 +74,7 @@ test.describe('Me-tab answer dead-end retry (P)', () => {
           },
         ],
       };
-      localStorage.setItem('myAnswerHistory', JSON.stringify({ [record.id]: record }));
+      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, { [record.id]: record });
     }, DEAD_TALK_ID);
 
     await page.click('.nav-btn[data-view="me"]');

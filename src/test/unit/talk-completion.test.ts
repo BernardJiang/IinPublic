@@ -1,8 +1,9 @@
 /** @jest-environment jsdom */
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 import { completeTalk, saveMyTalk, type TalkCompletionDeps } from '../../web/ui/talk-completion';
 import { getMyTalks } from '../../web/ui/my-talks-storage';
-import { getAnsweredTalkByContent } from '../../web/ui/answer-preferences-storage';
+import { answeredTalkIdsByContent } from '../../web/ui/answered-talks';
 import { getFlatAnswerHistory } from '../../web/ui/answer-history-storage';
 import { starterTagsFor, starterTagTalk } from '../../shared/starter-tags';
 
@@ -29,7 +30,7 @@ function talk(overrides: Record<string, any> = {}): any {
 }
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.clear(); resetAnswerHistoryForTests();
   document.body.innerHTML = '';
 });
 
@@ -76,7 +77,7 @@ describe('completeTalk', () => {
     expect(myTalks.t1.outcome).toBe('match');
     expect(myTalks.t1.senders).toEqual(['author-1']);
 
-    const byContent = getAnsweredTalkByContent();
+    const byContent = answeredTalkIdsByContent();
     expect(Object.values(byContent)).toContain('t1');
   });
 
@@ -200,7 +201,7 @@ describe('completeTalk', () => {
     );
 
     expect(getMyTalks().t1.fullTalk.starterContactId).toBe('flow-guide');
-    expect(Object.keys(getAnsweredTalkByContent()).length).toBeGreaterThan(0);
+    expect(Object.keys(answeredTalkIdsByContent()).length).toBeGreaterThan(0);
     expect(Object.keys(getFlatAnswerHistory()).length).toBeGreaterThan(0);
     expect(d.emit).toHaveBeenCalledWith('talkCompleted', expect.objectContaining({ talkId: 't1' }));
     expect(d.showNotification).toHaveBeenCalledWith('responseSubmittedFlow', 'success');
@@ -227,7 +228,7 @@ describe('completeTalk — answered by the chatbot', () => {
     expect(getMyTalks().t1.answeredBy).toBe('chatbot');
     expect(getMyTalks().t1.completedAnswers).toHaveLength(1);
     expect(Object.values(getFlatAnswerHistory())[0].answeredBy).toBe('chatbot');
-    expect(Object.keys(getAnsweredTalkByContent()).length).toBeGreaterThan(0);
+    expect(Object.keys(answeredTalkIdsByContent()).length).toBeGreaterThan(0);
     expect(d.emit).not.toHaveBeenCalled();
     expect(d.showNotification).not.toHaveBeenCalled();
   });

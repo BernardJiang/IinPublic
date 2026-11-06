@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.207",
+  "version": "1.0.225",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -143,6 +143,7 @@
     "test:e2e:regen-stage0-fixture": "npm run build:server && E2E_STAGE_PIPELINE=1 PW_WORKERS=1 DISABLE_HMR=true playwright test tests/e2e/staged/stage0-bootstrap && cp tests/e2e/staged/snapshots/worker-0/stage0.json tests/e2e/staged/fixtures/stage0.fixture.json && echo 'Regenerated tests/e2e/staged/fixtures/stage0.fixture.json -- review the diff and commit.'",
     "test:e2e:talks-matching": "npm run build:server && DISABLE_HMR=true playwright test tests/e2e/talks-matching",
     "test:android:responsiveness": "node scripts/android-responsiveness-check.mjs",
+    "test:android:dm": "node scripts/android-dm-responsiveness-check.mjs",
     "test:e2e:responsiveness": "npm run build:server && DISABLE_HMR=true PW_WORKERS=4 playwright test tests/e2e/responsiveness --project=chromium --workers=4",
     "test:e2e:three-user-talk-matrix": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true PW_WORKERS=1 playwright test tests/e2e/staged/stage3-three-user/00-three-user-talk-matrix.spec.ts",
     "test:e2e:l3:node-discovery": "npm run build:server && E2E_GUN_MEMORY_ONLY=1 DISABLE_HMR=true E2E_P2P_NODE_ENABLED=1 PW_WORKERS=1 playwright test tests/e2e/talks-matching/06-mesh-ping-with-hub-api-down.spec.ts",
@@ -167,9 +168,9 @@
     "format": "prettier --write src/**/*.ts",
     "android:wrapper": "cd android && gradle wrapper --gradle-version 8.4",
     "android:clean": "cd android && { [ -x ./gradlew ] && ./gradlew clean || gradle clean; }",
-    "android:build": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
-    "android:build:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew assembleRelease || gradle assembleRelease; }",
-    "android:bundle:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && cd android && { [ -x ./gradlew ] && ./gradlew bundleRelease || gradle bundleRelease; }",
+    "android:build": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && node scripts/patch-gun-radix.js platforms/mobile/nodejs-project && cd android && { [ -x ./gradlew ] && ./gradlew assembleDebug || gradle assembleDebug; }",
+    "android:build:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && node scripts/patch-gun-radix.js platforms/mobile/nodejs-project && cd android && { [ -x ./gradlew ] && ./gradlew assembleRelease || gradle assembleRelease; }",
+    "android:bundle:release": "npm run mobile:stage && npm --prefix platforms/mobile/nodejs-project install --omit=dev --no-audit --no-fund && node scripts/patch-gun-radix.js platforms/mobile/nodejs-project && cd android && { [ -x ./gradlew ] && ./gradlew bundleRelease || gradle bundleRelease; }",
     "android:install": "cd android && { [ -x ./gradlew ] && ./gradlew installDebug || gradle installDebug; }",
     "test:android:release-smoke": "node scripts/run-android-release-smoke.mjs",
     "test:android:coverage": "node scripts/android-test-coverage.mjs",

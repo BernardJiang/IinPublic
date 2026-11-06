@@ -11,6 +11,10 @@ import {
 import { showMatchCollectionReviewDialog } from '../../web/ui/match-collection-review-dialog';
 import { uiText } from '../../web/ui/ui-translations';
 
+jest.mock('../../web/ui/my-talks-storage', () => ({
+  getMyTalks: () => ({ 'talk-a': { fullTalk: { id: 'talk-a', title: 'Coffee this week?' } } }),
+}));
+
 describe('match collection review dialog', () => {
   beforeEach(() => {
     localStorage.removeItem(MATCH_COLLECTION_STORE_KEY);
@@ -43,9 +47,10 @@ describe('match collection review dialog', () => {
     expect(document.querySelector('[data-testid="match-collection-review-summary"]')).toHaveTextContent(
       '1 reached · 2 replies · 0 pending · 1 matches · 0 mismatches · 1 late',
     );
-    expect(document.querySelectorAll('[data-testid="match-collection-person"] li')).toHaveLength(3);
-    expect(document.querySelector('[data-testid="match-collection-person"]')).toHaveTextContent('Coffee meetup');
-    expect(document.querySelector('[data-testid="match-collection-person"]')).toHaveTextContent('Museum visit');
+    const rows = Array.from(document.querySelectorAll('[data-testid="match-collection-person"] li'));
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent('Coffee this week?');
+    expect(rows[0]).not.toHaveTextContent('talk-a');
     const row = document.querySelector('[data-testid="match-collection-person"]') as HTMLElement;
     (row.querySelector('[data-action="pin"]') as HTMLButtonElement).click();
     expect(document.querySelector('[data-action="pin"]')).toHaveTextContent('Unpin');

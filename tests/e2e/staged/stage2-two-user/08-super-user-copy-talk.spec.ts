@@ -15,6 +15,7 @@ import {
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
+import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 
 test.describe('Super user: copy talk broadcast toggle + delete', () => {
   let browserTechSupport: Browser;
@@ -136,6 +137,8 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await expect(
       pageTom.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: copyTalkTitle }),
     ).toHaveCount(0);
+    // The match toasts sit over the filter bar for a few seconds; a person would wait them out.
+    await dismissNotificationOverlays(pageTom);
     await pageTom.locator('[data-testid="talks-filter-toggle"]').click();
     await pageTom.locator('#talks-filter-completion').selectOption('answered');
     await afterNav();

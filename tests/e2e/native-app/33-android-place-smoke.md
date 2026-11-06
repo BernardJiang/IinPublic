@@ -1,4 +1,5 @@
 # 33 — Android release smoke: Places on two phones
+covers: SPEC-3.3, SPEC-6.1
 
 Two real phones, fresh app data, pointed at a hub this spec starts on the Mac's LAN address with
 the release capacity (never the public hub — Places there are public and undeletable). Phone 1

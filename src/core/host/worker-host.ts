@@ -11,6 +11,8 @@
  */
 import { gunGraphStore } from '../graph-store';
 import { createCoreHandler } from '../core-handler';
+import { gunNodeStore } from '../device-graph/node-store';
+import { seaGraphCrypto } from '../device-graph/sync/sea-crypto';
 import type { CoreRequest } from '../protocol';
 import { closeGunRpcSession, createGunRpcSession, runGunRpc } from '../gun-rpc';
 import { cancelSharingRead } from '../sharing-interests';
@@ -141,7 +143,21 @@ function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<voi
     }))
     .catch(() => false)
     .then((freshDevice) => {
-      handleCore = createCoreHandler(gunGraphStore(gun), { freshDevice, allowTestOverrides: process.env.DISABLE_HMR === 'true' });
+      handleCore = createCoreHandler(gunGraphStore(gun), {
+        freshDevice,
+        allowTestOverrides: process.env.DISABLE_HMR === 'true',
+        // OPEN-106: the device graph. A miss there is final: a false miss only rewrites identical
+        // content.
+        deviceGraph: {
+          nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
+          randomBytes: (length) => crypto.getRandomValues(new Uint8Array(length)),
+          log: (message) => console.warn(message),
+          // OPEN-106 step 3: direct links carry the graph through this Gun.
+          gun,
+          crypto: seaGraphCrypto((self as any).SEA || (Gun as any).SEA, (length) => crypto.getRandomValues(new Uint8Array(length))),
+          storageUsage: async () => (await (navigator as any).storage?.estimate?.())?.usage,
+        },
+      });
     });
   return initialized;
 }
@@ -156,6 +172,8 @@ type Client = {
   emit: (message: any) => void;
 };
 const clients = new Map<string, Client>();
+/** Requests that change who I exchanged what with (`graph.exchangeState`, OPEN-106 step 3). */
+const EXCHANGE_STATE_WRITES = new Set<string>(['response.commit', 'graph.offer', 'graph.acceptArrival', 'graph.recordOutcome', 'graph.retract', 'graph.answer', 'graph.recordAnswers', 'graph.forgetAnswers']);
 let ownerPub: string | null = null;
 let authenticating = false;
 let authQueue: Promise<unknown> = Promise.resolve();
@@ -284,13 +302,9 @@ coordinateWorker(scope, { disconnect, async receive(clientId, message, emit) {
         {
           const result = await handleCore(payload as CoreRequest);
           const request = payload as CoreRequest;
-          const unchangedGate = request.name === 'ledger.gate'
-            && (result as { gate?: { ok?: boolean } }).gate?.ok === false;
-          if (!unchangedGate && (request.name === 'response.commit' || request.name.startsWith('ledger.')
-            || (('collection' in request) && request.collection === 'talkLedger' && request.name !== 'collection.snapshot'))) {
-            for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: 'talkLedger' });
-          } else if ((request.name === 'collection.upsert' || request.name === 'collection.remove')
-            && request.collection !== 'talkLedger') {
+          if (EXCHANGE_STATE_WRITES.has(request.name)) {
+            for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: 'exchangeState' });
+          } else if (request.name === 'collection.upsert' || request.name === 'collection.remove') {
             for (const session of clients.values()) session.emit({ type: 'core-collection-changed', collection: request.collection });
           }
           reply(id, null, result);

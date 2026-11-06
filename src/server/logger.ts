@@ -39,7 +39,22 @@ export interface LogEntry {
 }
 
 function write(entry: LogEntry): void {
-  process.stdout.write(JSON.stringify(entry) + '\n');
+  try {
+    process.stdout.write(JSON.stringify(entry) + '\n');
+  } catch {
+    // A log line is never worth failing the request that produced it.
+  }
+}
+
+/**
+ * Keeps a failed stdio write from ending the process (OPEN-95). When stdio is a file, a full disk
+ * surfaces as an `error` event on the stream, and with no listener that is an uncaught exception:
+ * the embedded node then died on every start. Hosts whose stdio is only a diagnostic call this.
+ */
+export function protectStdioFromWriteFailures(): void {
+  const ignore = () => {};
+  process.stdout.on('error', ignore);
+  process.stderr.on('error', ignore);
 }
 
 function buildEntry(

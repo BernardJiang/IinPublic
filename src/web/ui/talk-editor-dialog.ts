@@ -86,7 +86,8 @@ type TalkEditorDialogOptions = {
    */
   currentUserId?: string;
   escapeHtml: (text: string) => string;
-  getAnswerPreferences: () => Record<string, any>;
+  /** My own answer to a question of this Talk (its Me-tab record, from the device graph). */
+  getSelfAnswer: (talkId: string, questionId: string) => string | undefined;
   addQuestionToForm: (index: number, container: HTMLElement) => void;
   addAnswerToQuestion: (container: HTMLElement, index: number) => void;
   appendIgnoreRow: (container: HTMLElement, qIndex: number) => void;
@@ -413,11 +414,9 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
         });
         const editingId = existingTalk.id;
         if (editingId) {
-          const prefs = options.getAnswerPreferences();
           existingTalk.questions.forEach((q: any, qIndex: number) => {
             const questionId = q.id || `q_${qIndex}`;
-            const key = `${editingId}_${questionId}`;
-            const pref = prefs[key];
+            const pref = { answerId: options.getSelfAnswer(editingId, questionId) };
             const questionItem = questionsContainer.querySelector(`[data-question-index="${qIndex}"]`);
             const radio = questionItem?.querySelector(`input[name="self-answer-q_${qIndex}"][value="${pref?.answerId}"]`) as HTMLInputElement | null;
             if (radio) {

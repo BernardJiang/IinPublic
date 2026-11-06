@@ -107,7 +107,7 @@ test.describe('Talks matching — local stats aggregation across four talk types
 
     // --- Verify the UI shows "Responses: 2" for every talk ---
     // expectTalkResponsesLine navigates to the Talks tab and reads talk-item-stats.
-    // The app's needTalkStats → setTalkStats pipeline reads from talkLedger localStorage.
+    // The app's needTalkStats → setTalkStats pipeline reads the outcomes from the device graph.
     for (const b of createdTalks) {
       await expectTalkResponsesLine(tom.page, b.title, 2);
     }

@@ -25,6 +25,8 @@
 #include <android/log.h>
 #include <node/node.h>            // nodejs-mobile headers live under include/node/
 
+#include "bounded_stdio_log.h"
+
 #define TAG "IinPublic-Native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
@@ -263,6 +265,9 @@ Java_com_iinpublic_app_NodeBridge_nativeStartNode(
 
     // Capture Node's console output without exposing the runtime to disk-full errors. The native
     // pump bounds diagnostics to two 4 MiB files and keeps draining even when storage is unusable.
+    // Routine per-request lines stay off this diagnostic path so the retained crash evidence is
+    // useful and rotation remains exceptional.
+    setenv("LOG_LEVEL", "warn", 0);
     redirect_node_stdio_to_bounded_log(sandbox_dir);
 
     env->ReleaseStringUTFChars(script_path_j, script_path);

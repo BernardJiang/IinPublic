@@ -3,39 +3,10 @@ import { Talk, type IpfsAttachment, type Question } from '../../shared/types';
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { computeTalkCIDv1, computeCIDv1, normalizeIdentityText } from '../../shared/cid';
-import { GunTalkRepository } from './gun-talk-repository';
 import { getMyTalks, upsertMyTalk } from '../ui/my-talks-storage';
-import { appStorage } from './core-storage';
 
 /** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
 const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
-// ── Local authored-talks store (R-f debt: replaces Gun talks/* author writes) ──
-const AUTHORED_TALKS_KEY = 'myAuthoredTalks';
-const RECEIVED_TALKS_KEY = 'myReceivedTalks';
-
-function loadAuthoredTalks(): Record<string, { talkJson: string; createdAt: string }> {
-  try {
-    const raw = appStorage.getItem(AUTHORED_TALKS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveAuthoredTalk(talkId: string, talk: Talk): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    const store = loadAuthoredTalks();
-    store[talkId] = {
-      talkJson: JSON.stringify(talk),
-      createdAt: talk.createdAt instanceof Date ? talk.createdAt.toISOString() : String(talk.createdAt),
-    };
-    appStorage.setItem(AUTHORED_TALKS_KEY, JSON.stringify(store));
-  } catch {
-    // Non-fatal: localStorage unavailable (e.g. SSR/Jest without jsdom)
-  }
-}
-
 /**
  * Project an authoritatively committed Talk into the compatibility OUT list.
  * UIManager.saveCreatedTalk later merges self-answer metadata into the same entry, so this
@@ -59,53 +30,34 @@ function projectAuthoredTalkToMyTalks(talkId: string, talk: Talk): void {
   }
 }
 
-function loadAuthoredTalk(talkId: string): Talk | null {
-  try {
-    const store = loadAuthoredTalks();
-    const entry = store[talkId];
-    if (!entry?.talkJson) return null;
-    return JSON.parse(entry.talkJson) as Talk;
-  } catch {
-    return null;
-  }
-}
-
-function loadReceivedTalks(): Record<string, { talkJson: string; receivedAt: string }> {
-  try {
-    const raw = appStorage.getItem(RECEIVED_TALKS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function loadReceivedTalk(talkId: string): Talk | null {
-  try {
-    const entry = loadReceivedTalks()[talkId];
-    return entry?.talkJson ? JSON.parse(entry.talkJson) as Talk : null;
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * Talk bodies live in the device graph (OPEN-106 step 2e, spec §31.10): my Talks and the Talks I
+ * received are read from it (`graph.talkBody`). The app's `myTalks` entry is the fallback (a core
+ * without graph links, a starter Talk). The SEA Talk copies and the authored/received body caches
+ * that held each body again are gone; their old data is erased, not migrated.
+ */
 export class WebTalkService {
-  private readonly talkRepository: GunTalkRepository;
-
   constructor(
     private gunService: WebGunService,
     /** When set, incomplete Gun reads fall back to GET this host + /api/talks/:id (server graph). */
     private apiBase?: string,
-    private opts?: { meshLocalFirst?: boolean; gunTalkRepository?: boolean },
-  ) {
-    this.talkRepository = new GunTalkRepository(gunService);
+    private opts?: { meshLocalFirst?: boolean },
+  ) {}
+
+  private graphTalk: ((talkId: string) => Promise<Record<string, unknown> | null>) | null = null;
+  /** Where Talk bodies are read from once the core has the device graph. */
+  setGraphTalkSource(source: ((talkId: string) => Promise<Record<string, unknown> | null>) | null): void {
+    this.graphTalk = source;
   }
 
-  private repositoryEnabled(): boolean {
-    return this.opts?.gunTalkRepository !== false;
-  }
-
-  private ownerSeaPub(): string {
-    return String(this.gunService.getStoredPair?.()?.pub || '').trim();
+  /**
+   * Where a new Talk's id comes from once the device graph carries Talks (OPEN-106, spec §31.10):
+   * the graph's own event id, so the app and the graph know the Talk by one id. Without it (no
+   * graph links, unit tests) the id stays the content hash.
+   */
+  private newTalkId: (() => Promise<string | null>) | null = null;
+  setNewTalkIdSource(source: (() => Promise<string | null>) | null): void {
+    this.newTalkId = source;
   }
 
   /**
@@ -232,7 +184,7 @@ export class WebTalkService {
     // Stamp each question with a CIDv1 content hash (excludes routing fields)
     talk.questions = await this.stampQuestionCids(talk.questions);
 
-    talk.id = talkData.id || await computeTalkCIDv1(talk);
+    talk.id = talkData.id || await this.newTalkId?.().catch(() => null) || await computeTalkCIDv1(talk);
 
     // AFTER the content hash: attach the author's public encryption key so every delivery
     // path hands responders the key material to pair-encrypt their responses without a
@@ -242,65 +194,18 @@ export class WebTalkService {
     const authorPair = this.gunService.getStoredPair?.();
     if (authorPair?.epub && !talk.authorEpub) talk.authorEpub = authorPair.epub;
 
-    const ownerSeaPub = this.ownerSeaPub() || talk.authorId;
-    if (this.repositoryEnabled()) await this.talkRepository.putAuthored(ownerSeaPub, talk);
-    // Never leave a broadcastable ghost row when the authoritative commit fails. The editor
-    // awaits createTalk(), so projecting after the commit does not delay any usable UI state.
+    // My Talk is saved as a `myTalks` entry; the core writes it into the graph (own-talks.ts).
     projectAuthoredTalkToMyTalks(talk.id, talk);
-    saveAuthoredTalk(talk.id, talk);
-    console.log('Talk committed to local Gun repository:', talk.id);
+    console.log('Talk saved:', talk.id);
     return talk;
   }
 
-  /**
-   * Persist a body received over the mesh in the receiver-owned content cache.
-   * The key is the content-addressed talk id; this local block store is the
-   * browser-side boundary that can later be backed by Helia/IPFS.
-   */
-  async cacheReceivedTalk(talkId: string, talkData: Talk | Record<string, unknown>): Promise<void> {
-    if (!talkId) return;
-    const talk = { ...talkData, id: talkId } as Talk;
-    const ownerSeaPub = this.ownerSeaPub();
-    const authorKey = String(talk.authorId || 'unknown-author');
-    if (this.repositoryEnabled() && ownerSeaPub) {
-      await this.talkRepository.putReceived(ownerSeaPub, authorKey, talk);
-    }
-    if (typeof localStorage === 'undefined') return;
-    try {
-      const store = loadReceivedTalks();
-      store[talkId] = {
-        talkJson: JSON.stringify(talk),
-        receivedAt: new Date().toISOString(),
-      };
-      appStorage.setItem(RECEIVED_TALKS_KEY, JSON.stringify(store));
-    } catch {
-      // Non-fatal: the live mesh cache still serves the current session.
-    }
-  }
-
   async getTalk(talkId: string): Promise<Talk | null> {
-    const ownerSeaPub = this.ownerSeaPub();
-    if (this.repositoryEnabled() && ownerSeaPub) {
-      const authored = await this.talkRepository.getAuthored(ownerSeaPub, talkId);
-      if (authored) return this.normalizeTalkFromStorage(authored);
-      const receivedFromGun = await this.talkRepository.getReceivedById(ownerSeaPub, talkId);
-      if (receivedFromGun) return this.normalizeTalkFromStorage(receivedFromGun);
-      // Received records are author-partitioned; compatibility storage supplies
-      // the author key during migration, then the record is promoted idempotently.
-      const compatReceived = loadReceivedTalk(talkId);
-      if (compatReceived) {
-        await this.talkRepository.putReceived(ownerSeaPub, String(compatReceived.authorId || 'unknown-author'), compatReceived);
-        return this.normalizeTalkFromStorage(compatReceived);
-      }
-    }
-    // Compatibility reads remain available for rollback and migrate on read.
-    const local = loadAuthoredTalk(talkId);
-    if (local) {
-      if (this.repositoryEnabled() && ownerSeaPub) await this.talkRepository.putAuthored(ownerSeaPub, local);
-      return this.normalizeTalkFromStorage(local);
-    }
-    const received = loadReceivedTalk(talkId);
-    if (received) return this.normalizeTalkFromStorage(received);
+    if (!talkId) return null;
+    const fromGraph = await this.graphTalk?.(talkId).catch(() => null);
+    if (fromGraph) return this.normalizeTalkFromStorage({ ...fromGraph, id: talkId });
+    const entry = (getMyTalks() as Record<string, any>)[talkId];
+    if (entry?.fullTalk && Array.isArray(entry.fullTalk.questions)) return this.normalizeTalkFromStorage({ ...entry.fullTalk, id: talkId });
     try {
       const raw = await this.gunService.get(`talks/${talkId}`);
       if (!raw || !raw.data) return null;
@@ -309,12 +214,6 @@ export class WebTalkService {
     } catch {
       return null;
     }
-  }
-
-  async listReceivedTalksFromGun(): Promise<Talk[]> {
-    const ownerSeaPub = this.ownerSeaPub();
-    if (!this.repositoryEnabled() || !ownerSeaPub) return [];
-    return this.talkRepository.listReceived(ownerSeaPub);
   }
 
   /** Server is authoritative for complete talk data; Gun is used as a low-latency cache. */
@@ -441,9 +340,6 @@ export class WebTalkService {
     else if (existing.authorLocation != null) updated.authorLocation = existing.authorLocation;
     // Re-stamp CIDs on edit so routing-only changes don't affect cidId
     updated.questions = await this.stampQuestionCids(updated.questions);
-    const ownerSeaPub = this.ownerSeaPub() || updated.authorId;
-    if (this.repositoryEnabled()) await this.talkRepository.putAuthored(ownerSeaPub, updated);
-    saveAuthoredTalk(talkId, updated);
     return updated;
   }
 

@@ -5,8 +5,7 @@ import { CollectionStore } from '../../core/collections';
 import { memoryGraphStore } from '../../core/graph-store';
 import { CoreCollectionView, type CollectionCoreLink } from '../../web/services/core-collection-view';
 import { getChatbotTemplate, saveChatbotTemplate } from '../../web/ui/ui-settings-storage';
-import { chatbotTemplatesView, talkLedgerView } from '../../web/services/core-views';
-import { loadTalkLedger, saveTalkLedger } from '../../web/services/web-talk-ledger-store';
+import { chatbotTemplatesView } from '../../web/services/core-views';
 
 const linkTo = (handle: ReturnType<typeof createCoreHandler>): CollectionCoreLink => ({
   snapshot: (collection) => handle({ name: 'collection.snapshot', collection }) as Promise<Record<string, unknown>>,
@@ -21,10 +20,49 @@ describe('collections in the device core', () => {
     const collections = new CollectionStore(store);
     await collections.upsert('chatbotTemplates', { 'talk/1': { answers: [1] }, t2: { answers: [] } });
     expect(await collections.all('chatbotTemplates')).toEqual({ 'talk/1': { answers: [1] }, t2: { answers: [] } });
-    expect(await store.childKeys('local/collections/chatbotTemplates')).toHaveLength(2);
+    // Entries sit in bucket nodes, never all in the collection's own node.
+    const buckets = await store.childKeys('local/collections/chatbotTemplates');
+    expect(buckets.every((b) => /^bucket-[0-9a-f]$/.test(b))).toBe(true);
     await collections.remove('chatbotTemplates', ['talk/1']);
     expect(Object.keys(await collections.all('chatbotTemplates'))).toEqual(['t2']);
     await expect(collections.all('typo')).rejects.toThrow('Unknown core collection');
+  });
+
+  it('no node lists more than a few thousand entries, however many a collection holds', async () => {
+    const store = memoryGraphStore();
+    const collections = new CollectionStore(store);
+    await collections.upsert('myTalks', Object.fromEntries(Array.from({ length: 20_000 }, (_, i) => [`talk-${i}`, { i }])));
+    const buckets = await store.childKeys('local/collections/myTalks');
+    expect(buckets.length).toBeLessThanOrEqual(16);
+    for (const bucket of buckets) expect((await store.childKeys(`local/collections/myTalks/${bucket}`)).length).toBeLessThan(2_000);
+    expect(Object.keys(await collections.all('myTalks'))).toHaveLength(20_000);
+  });
+
+  it('a read copy follows every write, through any CollectionStore over the same storage', async () => {
+    const store = memoryGraphStore();
+    const a = new CollectionStore(store);
+    const b = new CollectionStore(store);
+    await a.upsert('myTalks', { t1: { v: 1 } });
+    expect(await a.all('myTalks')).toEqual({ t1: { v: 1 } });
+    const reads = jest.spyOn(store, 'get');
+    await b.upsert('myTalks', { t2: { v: 2 } });
+    await b.remove('myTalks', ['t1']);
+    expect(await a.all('myTalks')).toEqual({ t2: { v: 2 } });
+    expect(await a.get('myTalks', 't2')).toEqual({ v: 2 });
+    expect(reads).not.toHaveBeenCalled(); // answered from the copy
+    // Reads hand out copies: changing one changes nothing stored.
+    ((await a.all('myTalks')).t2 as { v: number }).v = 9;
+    expect(await b.get('myTalks', 't2')).toEqual({ v: 2 });
+  });
+
+  it('erases entries left in the layout before buckets, and keeps the bucketed ones', async () => {
+    const store = memoryGraphStore();
+    const collections = new CollectionStore(store);
+    await collections.upsert('settings', { theme: 'dark' });
+    await store.put('local/collections/settings/old-flat-key', { key: 'old-flat-key', json: '"x"' });
+    expect(await collections.eraseRetired()).toBe(1);
+    expect(await collections.all('settings')).toEqual({ theme: 'dark' });
+    expect(await store.childKeys('local/collections/settings')).not.toContain('old-flat-key');
   });
 });
 
@@ -149,21 +187,6 @@ describe('the GUI’s view of a collection', () => {
     // A fresh view (a reload, or a second module instance) has not connected yet.
     const after = new CoreCollectionView<{ answers: string[] }>('myTalks', 'myTalks');
     expect(after.get('t1')).toEqual({ answers: ['mine'] });
-  });
-
-  it('the talk ledger: the old document is imported as one entry per record; a save writes changes and evictions', () => {
-    localStorage.setItem('talkLedger', JSON.stringify({ version: 1, outcomes: { 'r::t::a': { outcome: 'match' } }, exchanged: { 'p::k': { version: 1 } }, edges: {}, retracted: {} }));
-    expect(loadTalkLedger().outcomes['r::t::a']).toEqual({ outcome: 'match' });
-    expect(Object.keys(talkLedgerView.all()).sort()).toEqual(['exchanged::p::k', 'outcomes::r::t::a']);
-    const doc = loadTalkLedger();
-    doc.exchanged['p::k'] = { version: 2 } as never;
-    delete doc.outcomes['r::t::a'];
-    doc.sent['p::k2'] = { at: 1 } as never;
-    saveTalkLedger(doc);
-    expect(talkLedgerView.all()).toEqual({ 'exchanged::p::k': { version: 2 }, 'sent::p::k2': { at: 1 } });
-    // Loads are copies: changing one never changes the view.
-    loadTalkLedger().exchanged['p::k'].version = 9;
-    expect(loadTalkLedger().exchanged['p::k'].version).toBe(2);
   });
 
   it('chatbot templates are kept by Talk id and content id', async () => {

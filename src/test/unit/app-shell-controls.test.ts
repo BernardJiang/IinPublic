@@ -96,19 +96,12 @@ describe('bindAppShellControls', () => {
       conversationId: 'default',
       message: 'hello',
     }));
-    expect(input.value).toBe('  hello  ');
+    expect(input.value).toBe('');
     const button = document.getElementById('send-button') as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
     const first = emit.mock.calls[0][1] as { onError: () => void };
     first.onError();
-    expect(button.disabled).toBe(false);
-    expect(input.value).toBe('  hello  ');
-
-    button.click();
-    const second = emit.mock.calls[1][1] as { onPersisted: () => void };
-    second.onPersisted();
-    expect(button.disabled).toBe(false);
-    expect(input.value).toBe('');
+    expect(input.value).toBe('hello');
 
     input.value = 'blocked';
     document.getElementById('send-button')?.click();

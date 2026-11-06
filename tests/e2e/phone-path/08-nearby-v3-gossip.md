@@ -1,4 +1,5 @@
 # 08 — Nearby v3: personal lists and a gossip swap
+covers: SPEC-3.3
 
 Nearby v3 (`docs/design/nearby-and-place-chatrooms.md` §3.7). Two phone-like nodes in the same
 square:

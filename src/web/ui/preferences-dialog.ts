@@ -1,10 +1,20 @@
-import type { AnswerPreferenceMap } from './answer-preferences-storage';
 import type { UiTranslationKey } from './ui-translations';
 
 export type AnswerPreferenceUiMode = 'auto' | 'manual';
 
+/** One remembered answer as the dialog shows it (`answer-preference-mutations.ts`). */
+export type PreferenceDisplayMap = Record<string, {
+  answerId: string;
+  answerText: string;
+  mode: string;
+  contextVersion?: number;
+  questionText?: string;
+  allAnswers?: Array<{ id: string; text: string }>;
+  timestamp?: string;
+}>;
+
 type PreferencesDialogOptions = {
-  getPreferences: () => AnswerPreferenceMap;
+  getPreferences: () => PreferenceDisplayMap;
   escapeHtml: (text: string) => string;
   updateAnswer: (key: string, answerId: string, answerText: string) => void;
   updateMode: (key: string, mode: AnswerPreferenceUiMode) => void;
@@ -15,7 +25,8 @@ type PreferencesDialogOptions = {
   formatDate?: (date: Date) => string;
 };
 
-export function showPreferencesDialog(options: PreferencesDialogOptions): void {
+/** Opens the dialog; `refresh` redraws it from `getPreferences` (a list that arrives later). */
+export function showPreferencesDialog(options: PreferencesDialogOptions): { refresh: () => void } {
   const text = (key: UiTranslationKey, fallback: string): string => options.text?.(key) || fallback;
   const format = (key: UiTranslationKey, fallback: string, values: Record<string, string | number>): string =>
     Object.entries(values).reduce(
@@ -209,4 +220,5 @@ export function showPreferencesDialog(options: PreferencesDialogOptions): void {
   });
 
   document.body.appendChild(modal);
+  return { refresh: () => { if (document.body.contains(modal)) render(); } };
 }

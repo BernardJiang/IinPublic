@@ -28,6 +28,9 @@ import {
   resolveEmbeddedNodeConfig,
   type EmbeddedNodeConfig,
 } from '../shared/embedded-node-config';
+import { protectStdioFromWriteFailures } from '../server/logger';
+
+protectStdioFromWriteFailures();
 
 export interface StartEmbeddedNodeOptions {
   /** Host-specific defaults injected by the native shell. */
@@ -56,6 +59,19 @@ function isTransientSignalRadataFile(fileName: string): boolean {
     // A malformed unrelated filename is not a signaling record.
   }
   return decoded.startsWith('p2p-signal/') || decoded.startsWith('undefinedp2p-signal');
+}
+
+/**
+ * Keep the error that is about to end Node. The stdio log drops the last lines when the process
+ * exits at once, and logcat rotates within hours, so a morning check found no cause.
+ */
+export function recordFatalError(dataDir: string, err: unknown): void {
+  try {
+    const detail = err instanceof Error ? err.stack || err.message : String(err);
+    fs.writeFileSync(path.join(dataDir, 'node-last-crash.log'), `${new Date().toISOString()}\n${detail}\n`);
+  } catch {
+    /* The crash itself still has to surface. */
+  }
 }
 
 /**
@@ -324,6 +340,7 @@ function installRadiskCorruptionGuard(dataDir: string): void {
       quarantineRadiskRootIndex(dataDir);
       return;
     }
+    recordFatalError(dataDir, err);
     throw err;
   });
 

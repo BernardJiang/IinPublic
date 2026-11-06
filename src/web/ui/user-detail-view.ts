@@ -8,8 +8,8 @@ import {
   localTalkHistoryForPeer,
 } from '../services/local-peer-derivation';
 import { matchScore } from '../../shared/talk-engine';
-import { shouldSuppressForPeer } from '../services/web-talk-ledger-store';
-import { buildTalkIdentityKey } from '../../shared/cid';
+import { talkOwedToPeer } from '../services/exchange-state';
+import { onExchangesChanged } from '../services/exchange-view';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-modal';
 import { meetsBlockSignalThreshold, type ReceivedBlockSignals } from '../../shared/block-signal';
@@ -109,11 +109,9 @@ function omitReasonLabel(deps: UserDetailViewDeps, reason: PeerSendOmitReason): 
 }
 
 /**
- * docs/TODO.md §W Gap 2 — the "already sent" check is now the same ledger `shouldSuppressForPeer`
- * every other send path (room broadcast, contact-group broadcast) uses, not a separate
- * `localTalkExchanges`-derived set scoped only to this peer-detail view. This is what actually
- * closes the gap: a talk this peer already got via a room broadcast is now correctly hidden
- * here too, not just talks previously sent through this exact button.
+ * docs/TODO.md §W Gap 2 — the "already sent" check is the same one every send path uses (the
+ * device graph's exchange index, `talkOwedToPeer`): a Talk this person already got through a room
+ * broadcast is hidden here too, not just Talks sent through this button.
  */
 function classifyPeerSendTalks(
   myTalks: Record<string, any>,
@@ -130,7 +128,7 @@ function classifyPeerSendTalks(
     const expiresAtMs = resolveExpiresAtMs(expiresAt);
     if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omitReasons.push('talk_expired');
     const fullTalk = talk?.fullTalk || talk;
-    if (fullTalk && shouldSuppressForPeer(peerId, buildTalkIdentityKey(fullTalk))) {
+    if (fullTalk && !talkOwedToPeer(peerId, talkId, fullTalk)) {
       omitReasons.push('peer_already_sent');
     }
     const entry: ClassifiedPeerTalk = { talkId, talk, eligible: omitReasons.length === 0, omitReasons };
@@ -376,19 +374,14 @@ export function openPeerDetailView(
       const text = inp?.value?.trim() ?? '';
       // An empty Send takes the user to the composer rather than doing nothing visible.
       if (!text) { inp?.focus(); return; }
-      fresh.disabled = true;
-      fresh.textContent = `⏳ ${deps.text('peerSending')}`;
+      // Like the conversation composer: cleared now, and the text returns only on failure.
+      if (inp) inp.value = '';
       try {
         await deps.sendDirectMessage(peerId, peerName, text);
-        if (inp?.value.trim() === text) inp.value = '';
-        fresh.textContent = `✓ ${deps.text('peerSentStatus')}`;
-        setTimeout(() => {
-          fresh.disabled = false;
-          fresh.textContent = `💬 ${deps.text('peerSendMessage')}`;
-        }, 2000);
+        // No visible "Sent" state any more (the text clears at once); e2e and diagnostics read this.
+        fresh.dataset.sentAt = String(Date.now());
       } catch {
-        fresh.disabled = false;
-        fresh.textContent = `💬 ${deps.text('peerSendMessage')}`;
+        if (inp && !inp.value) inp.value = text;
       }
     });
   }
@@ -396,6 +389,11 @@ export function openPeerDetailView(
   // Load data
   fetchAndRenderStats(peerId, peerName, deps);
   fetchAndRenderHistory(peerId, deps);
+  // An exchange recorded while the page is open (an answer that completes after the tap) shows.
+  stopHistoryWatch?.();
+  stopHistoryWatch = onExchangesChanged(() => {
+    if (currentState?.peerId === peerId) void fetchAndRenderHistory(peerId, deps);
+  });
 }
 
 /** Whose person page is on screen, if any. */
@@ -409,7 +407,11 @@ export function closePeerDetailView(): void {
   const overlay = document.getElementById('peer-detail-overlay');
   if (overlay) overlay.style.display = 'none';
   currentState = null;
+  stopHistoryWatch?.();
+  stopHistoryWatch = null;
 }
+
+let stopHistoryWatch: (() => void) | null = null;
 
 /** Server-authoritative block edges for disabling Send My Talks (matches register-receivers / delivery). */
 type PeerBlockStatus = { eitherBlocked: boolean; blocked: boolean; blockedBy: boolean };
@@ -463,18 +465,20 @@ async function applySendButtonFromBlockStatus(
 
 async function readPublicProfileFoundation(peerId: string, deps: UserDetailViewDeps): Promise<any | null> {
   if (!deps.getPublicProfileFoundation) return null;
-  // Built-in support intentionally has no ordinary public-profile foundation. Retrying that
-  // known-absent record for 8.5 seconds wasted work on every person-page open and kept a dangling
-  // timer alive on slow WebViews.
-  if (deps.isSupportContact(peerId) || peerId === TECHSUPPORT_ROOT_USER_ID) return null;
-  const deadline = Date.now() + 8_500;
-  let foundation: PublicProfileFoundation | null = null;
-  while (!foundation && Date.now() < deadline) {
-    foundation = await Promise.race([
-      deps.getPublicProfileFoundation(peerId).catch(() => null),
-      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1_500)),
-    ]);
-    if (!foundation) await new Promise((resolve) => window.setTimeout(resolve, 250));
+  const read = deps.getPublicProfileFoundation;
+  const readOnce = (): Promise<PublicProfileFoundation | null> => Promise.race([
+    read(peerId).catch(() => null),
+    new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1_500)),
+  ]);
+  // A person's profile can still be arriving, so it is worth retrying. Support profiles usually
+  // do not exist; read once in case one is present, but do not spend another 8.5 s polling for it.
+  let foundation = await readOnce();
+  if (!deps.isSupportContact(peerId) && peerId !== TECHSUPPORT_ROOT_USER_ID) {
+    const deadline = Date.now() + 8_500;
+    while (!foundation && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      foundation = await readOnce();
+    }
   }
   if (!foundation) return null;
   return { ...publicProfileFromFoundation(foundation), reputation: foundation.reputation };
@@ -491,8 +495,8 @@ async function fetchAndRenderStats(peerId: string, peerName: string, deps: UserD
   const stillShown = (): boolean => shownPeerDetailId() === peerId;
   try {
     // P0 step 5: relationship stats derived locally — no server call. Shown at once: the block
-    // status (hub, up to 5 s) and the public profile (up to 8.5 s of retries, forever-missing for
-    // TechSupport) used to keep the whole section on "Loading…" (gui-responsiveness-audit.md).
+    // status (hub, up to 5 s) and the public profile (up to 8.5 s of retries) used to keep the
+    // whole section on "Loading…" (gui-responsiveness-audit.md).
     const stats = computeLocalStats(peerId);
     const render = (publicUser: any): void => {
       if (!stillShown()) return;

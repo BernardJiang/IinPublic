@@ -14,7 +14,7 @@
  *   C. After Jerry edits the tennis tag (new text = new identity key tennis'),
  *      Tom receives the new tennis' exactly once (new key, no exchanged entry).
  *
- * Durable assertion targets: talkLedger.exchanged, meshAnnounceDiagnostics.
+ * Durable assertion targets: the graph's exchange index (`getExchangesForE2e`), meshAnnounceDiagnostics.
  * No POST /api/talks/:id/response calls expected.
  *
  * See companion 09-exchange-suppression.md for plain-English description.
@@ -37,6 +37,7 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
@@ -54,16 +55,17 @@ async function warmMesh(page: Page, otherIds: string[]): Promise<void> {
  * Helper: compute the qa_tag_* identity key for a single tag answer text.
  * Mirrors the FNV-1a32 logic in talk-ledger.ts buildTagIdentityKeys.
  */
+/** The atom a tag word is exchanged as in the device graph (`ix/exchanged/<peer>`). */
 async function computeTagIdentityKey(page: Page, text: string): Promise<string> {
-  return page.evaluate((t: string) => {
-    let hash = 0x811c9dc5;
-    const normalized = t.trim().replace(/\s+/g, ' ').toLowerCase();
-    for (let i = 0; i < normalized.length; i++) {
-      hash ^= normalized.charCodeAt(i);
-      hash = Math.imul(hash, 0x01000193);
-    }
-    return 'qa_tag_' + (hash >>> 0).toString(16).padStart(8, '0');
-  }, text);
+  return page.evaluate((t: string) => (window as any).__iinpublic_app.getApp().exchangeTagAtomForE2e(t), text);
+}
+
+/** Has this person's device recorded the atom as exchanged with the peer? */
+async function hasExchanged(page: Page, peerId: string, atom: string): Promise<boolean> {
+  return page.evaluate(async ({ pId, a }: { pId: string; a: string }) => {
+    const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.();
+    return !!doc?.peers?.[pId]?.exchanged?.includes(a);
+  }, { pId: peerId, a: atom });
 }
 
 test.describe('Exchange suppression -- step 11 (three browsers)', () => {
@@ -195,7 +197,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
     }
 
     // ---- 5. Tom broadcasts a tag talk (tennis + chess) to Jerry and Bob --------
-    const TOM_TALK_ID = `exchsup-tom-${Date.now()}`;
+    const TOM_TALK_ID = await newGraphTalkId(pageTom);
 
     const tomTalkDef = {
       id: TOM_TALK_ID,
@@ -232,7 +234,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
         const mesh = app?.peerMeshService;
         if (!mesh) throw new Error('peerMeshService not available on Tom');
-        await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
       },
       { tDef: tomTalkDef, rIds: [jerryId, bobId] },
     );
@@ -297,12 +299,9 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
     // ---- 9. Wait for Tom to receive Jerry's response in ledger ----------------
     await expect
       .poll(
-        () => pageTom.evaluate(({ jId, talkId }: { jId: string; talkId: string }) => {
-          const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-          if (!doc) return null;
-          return Object.values(doc.outcomes as Record<string, any>).find(
-            (e: any) => e.responderId === jId && e.talkId === talkId,
-          ) ?? null;
+        () => pageTom.evaluate(async ({ jId, talkId }: { jId: string; talkId: string }) => {
+          const doc: any = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([talkId]);
+          return doc?.outcomes?.[talkId]?.[jId] ?? null;
         }, { jId: jerryId, talkId: TOM_TALK_ID }),
         { timeout: MESH_E2E_TIMEOUT_MS, intervals: [300, 600], message: "Tom: did not receive Jerry's response in ledger" },
       )
@@ -312,18 +311,10 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
     const tennisIdentityKey = await computeTagIdentityKey(pageTom, 'Tennis');
     void await computeTagIdentityKey(pageTom, 'Chess'); // chessIdentityKey computed for symmetry check; unused directly
 
-    const tomExchangedTennis = await pageTom.evaluate(
-      ({ jId, iKey }: { jId: string; iKey: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        if (!doc) return null;
-        return doc.exchanged[`${jId}::${iKey}`] ?? null;
-      },
-      { jId: jerryId, iKey: tennisIdentityKey },
-    );
-    expect(tomExchangedTennis, 'Tom: exchanged[jerry::tennis] should exist after Jerry answered Tom').not.toBeNull();
+    expect(await hasExchanged(pageTom, jerryId, tennisIdentityKey), 'Tom: tennis should be exchanged with Jerry after Jerry answered Tom').toBe(true);
 
     // ---- 11. Jerry broadcasts his own talk with tennis + chess to Tom and Bob --
-    const JERRY_TALK_ID = `exchsup-jerry-${Date.now()}`;
+    const JERRY_TALK_ID = await newGraphTalkId(pageJerry);
     const jerryEpub = await pageJerry.evaluate(() => {
       const pair = (window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.();
       return pair?.epub ?? '';
@@ -378,7 +369,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         if (typeof (app as any).deliverTalkToReceiversOverMesh === 'function') {
           await (app as any).deliverTalkToReceiversOverMesh(tDef.id, tDef, members);
         } else {
-          await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+          await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
         }
       },
       { tDef: jerryTalkDef, rIds: [tomId, bobId] },
@@ -435,7 +426,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
 
     // ---- 13. Assert Tom received CHESS only (tennis suppressed) ---------------
     // Tom should have received a filtered talk from Jerry containing only chess.
-    // Check via talkLedger.exchanged[jerry::tennis] still present (not doubled)
+    // Check via the graph's exchange index (tennis still exchanged with Jerry)
     // and via the cached body if it was delivered.
 
     // The tom-side announce count (logged for diagnostics; not directly asserted).
@@ -456,8 +447,6 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
     const tomReceivedTennisFromJerryBroadcast = await pageTom.evaluate(
       ({ jTalkId, tennisKey }: { jTalkId: string; tennisKey: string }) => {
         const app = (window as any).__iinpublic_app?.getApp?.() as any;
-        const doc: any = app?.getTalkLedgerDocForE2e?.();
-        if (!doc) return false;
         // Check the body cache: if Jerry delivered a filtered (chess-only) version, tennis should not appear.
         void tennisKey; // referenced via closure for type checking; body cache is the primary signal
         const mesh = app?.peerMeshService;
@@ -476,7 +465,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
 
     // ---- 14. Part C: Jerry edits tennis (new text → new identity key) ---------
     // After edit, Tom should receive the new tennis' once.
-    const JERRY_TALK_EDITED_ID = `exchsup-jerry-v2-${Date.now()}`;
+    const JERRY_TALK_EDITED_ID = await newGraphTalkId(pageJerry);
     const jerryTalkEditedDef = {
       id: JERRY_TALK_EDITED_ID,
       authorId: jerryId,
@@ -501,14 +490,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
     expect(tennisNewIdentityKey, 'New tennis identity key must differ from old').not.toBe(tennisIdentityKey);
 
     // Verify Tom does NOT yet have an exchanged entry for the new tennis'
-    const tomHasNewTennisBeforeBroadcast = await pageTom.evaluate(
-      ({ jId, iKey }: { jId: string; iKey: string }) => {
-        const doc: any = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        if (!doc) return false;
-        return !!(doc.exchanged[`${jId}::${iKey}`]);
-      },
-      { jId: jerryId, iKey: tennisNewIdentityKey },
-    );
+    const tomHasNewTennisBeforeBroadcast = await hasExchanged(pageTom, jerryId, tennisNewIdentityKey);
     expect(tomHasNewTennisBeforeBroadcast, "Tom should not have new tennis' before Jerry broadcasts it").toBe(false);
 
     // Jerry broadcasts the edited talk
@@ -522,7 +504,7 @@ test.describe('Exchange suppression -- step 11 (three browsers)', () => {
         if (typeof (app as any).deliverTalkToReceiversOverMesh === 'function') {
           await (app as any).deliverTalkToReceiversOverMesh(tDef.id, tDef, members);
         } else {
-          await mesh.broadcastTalk(tDef, { recipientUserIds: rIds, roomBroadcast: true });
+          await (window as any).__iinpublic_app.getApp().offerTalkForE2e(tDef, rIds);
         }
       },
       { tDef: jerryTalkEditedDef, rIds: [tomId, bobId] },

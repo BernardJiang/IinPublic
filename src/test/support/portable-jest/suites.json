@@ -18,7 +18,6 @@
     "chatroom-hierarchy-runtime.test.ts",
     "chatroom-map-geojson.test.ts",
     "chatroom-map-locations.test.ts",
-    "client-incoming-talk-mirror.test.ts",
     "closest-match.test.ts",
     "connection-manager.test.ts",
     "connectivity-binding-store.test.ts",
@@ -48,9 +47,7 @@
     "flattened-answer-keys.test.ts",
     "flow-capture.test.ts",
     "graph-size-report.test.ts",
-    "gun-chatbot-memory-repository.test.ts",
     "gun-message-store.test.ts",
-    "gun-talk-repository.test.ts",
     "handoff-protocol.test.ts",
     "identity-custody-store.test.ts",
     "intake-filter-reasons.test.ts",
@@ -113,7 +110,6 @@
     "talk-contact-policy.test.ts",
     "talk-content-id.test.ts",
     "talk-engine.test.ts",
-    "talk-history-restorer.test.ts",
     "talk-intake-filters.test.ts",
     "talk-list-metadata.test.ts",
     "talk-stats.test.ts",
@@ -158,24 +154,8 @@
       "reason": "fails under the portable runtime in host Node as embedded Node 18: Android framework nearby adapter › starts vendor-independent sources and emits unauthenticated upgrade candidates: rejects.toThrow: expected the rejection ReferenceError: crypto is not defined to match \"not ready\""
     },
     {
-      "file": "answer-context-migration.test.ts",
-      "reason": "needs a DOM test environment"
-    },
-    {
       "file": "answer-history-storage.test.ts",
       "reason": "fails under the portable runtime in host Node as embedded Node 18: getTalkContentKey › is stable for the same question/answer content regardless of unrelated fields: localStorage is not defined"
-    },
-    {
-      "file": "answer-preference-mutations.test.ts",
-      "reason": "uses jest.mock (module mocks stay host-only)"
-    },
-    {
-      "file": "answer-preference-resolution-characterization.test.ts",
-      "reason": "needs a DOM test environment"
-    },
-    {
-      "file": "answer-preferences-storage.test.ts",
-      "reason": "needs a DOM test environment"
     },
     {
       "file": "answers-view.test.ts",
@@ -666,10 +646,6 @@
       "reason": "needs a DOM test environment"
     },
     {
-      "file": "talk-ledger.test.ts",
-      "reason": "uses the DOM or browser globals"
-    },
-    {
       "file": "talk-peer-registration.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -834,7 +810,6 @@
       "reason": "uses jest.mock (module mocks stay host-only)"
     },
     {
-      "file": "web-talk-service-migration.test.ts",
       "reason": "uses the DOM or browser globals"
     },
     {

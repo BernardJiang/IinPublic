@@ -1,6 +1,7 @@
 /**
  * @jest-environment jsdom
  */
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 import { answerTalkMatchesQuery, applyMeAnswerFilter, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
 import { longPress } from './helpers/long-press';
@@ -77,7 +78,7 @@ describe('answers view models', () => {
     );
 
     expect(variants[0].choice).toBe('Blue Bottle');
-    expect(variants[0].contextKey).toBe('cafefeed');
+    expect(variants[0].contextKey).toBe('Need coffee?→Yes, please');
     expect(variants[0].contextLabel).toBe('Need coffee?→Yes, please');
   });
 
@@ -140,6 +141,62 @@ describe('answers view models', () => {
     expect(content).toContain('Tennis? -> Yes');
     expect(content).toContain('Badminton? -> Yes');
     expect(document.querySelector('.answer-copy-talk-jump')).toBeNull();
+  });
+
+  const contextLines = (records: Array<{ talkId: string; day: string; choice: string; contextLabel: string; contextHash?: string }>): string[] => {
+    document.body.innerHTML = '<div id="answers-content"></div>';
+    displayAnswersList({
+      getMyTalks: () => ({}),
+      getFlatAnswerHistory: () => Object.fromEntries(records.map((record) => [record.talkId, {
+        id: record.talkId,
+        talkId: record.talkId,
+        title: record.talkId,
+        type: 'flow',
+        language: 'en',
+        outcome: 'match' as const,
+        answeredAt: `2026-06-${record.day}T00:00:00.000Z`,
+        senderIds: ['u1'],
+        items: [{
+          questionId: 'q_1',
+          answerId: 'a_1_0',
+          prompt: 'How often do you play?',
+          choice: record.choice,
+          kind: 'question' as const,
+          contextPath: [],
+          contextLabel: record.contextLabel,
+          ...(record.contextHash ? { contextHash: record.contextHash } : {}),
+        }],
+      }])),
+      escapeHtml: (value) => value,
+      showTalkDetail: jest.fn(),
+      showPreferencesDialog: jest.fn(),
+      showItemDetailsPopup: jest.fn(),
+      getTalkContentKey: jest.fn(),
+      text: (key) => uiText('en', key),
+      formatDate: () => 'date',
+      formatType: () => 'Flow',
+      formatLanguage: () => 'English',
+    });
+    return Array.from(document.querySelectorAll('.answer-context-jump'))
+      .map((line) => (line.textContent || '').replace(/\s+/g, ' ').trim());
+  };
+
+  // The stored hash covers positional ids only, so step 2 of any two flows shares it.
+  it('keeps two Talks apart when their step ids hash the same', () => {
+    expect(contextLines([
+      { talkId: 'sport', day: '01', choice: 'Weekly', contextLabel: 'Do you play sport?→Tennis', contextHash: 'd61994b8' },
+      { talkId: 'music', day: '02', choice: 'Daily', contextLabel: 'Do you play music?→Piano', contextHash: 'd61994b8' },
+    ])).toEqual([
+      '→ Daily (Do you play music? -> Piano)',
+      '→ Weekly (Do you play sport? -> Tennis)',
+    ]);
+  });
+
+  it('shows a context-free answer beside an answer that has a context', () => {
+    expect(contextLines([
+      { talkId: 'sport', day: '01', choice: 'Weekly', contextLabel: 'Do you play sport?→Tennis' },
+      { talkId: 'first', day: '02', choice: 'Daily', contextLabel: '' },
+    ])).toEqual(['→ Daily', '→ Weekly (Do you play sport? -> Tennis)']);
   });
 
   it('renders stored contextLabel even when source talk is unavailable', () => {
@@ -522,7 +579,7 @@ describe('answers view models', () => {
 
     beforeEach(() => {
       document.body.innerHTML = '<div id="answers-content"></div>';
-      localStorage.clear();
+      localStorage.clear(); resetAnswerHistoryForTests();
     });
 
     it('pins an older question above the newest-first answer order and toggles it off', () => {
@@ -960,7 +1017,7 @@ describe('Me rows lead through the graph (owner design 2026-10-25)', () => {
 
   beforeEach(() => {
     document.body.innerHTML = '<div id="answers-content"></div><button class="nav-btn" data-view="contacts"></button><input id="contacts-filter-topic"><button id="me-like-btn" disabled></button><button id="me-pass-btn" disabled></button>';
-    localStorage.clear();
+    localStorage.clear(); resetAnswerHistoryForTests();
   });
 
   it('a liked tag shows ♡ and its keyword only, and leads to the people who like it, the latest first', () => {

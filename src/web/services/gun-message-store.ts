@@ -265,6 +265,16 @@ export class GunMessageStore {
    *  turning a 12-message history render into ~10s+ and blowing e2e budgets after reload. */
   private readonly epubByUserId = new Map<string, string>();
 
+  /** The key this store has already used for a person, with no lookup. */
+  knownEpub(userId: string): string | undefined {
+    return this.epubByUserId.get(userId);
+  }
+
+  /** A key learned elsewhere, so the first message to that person needs no lookup. */
+  rememberEpub(userId: string, epub: string): void {
+    if (epub) this.epubByUserId.set(userId, epub);
+  }
+
   private async getUserEpub(userId: string, attempts = 8): Promise<string | undefined> {
     const cached = this.epubByUserId.get(userId);
     if (cached) return cached;
@@ -322,6 +332,24 @@ export class GunMessageStore {
     text: string,
     opts?: SendMessageOptions & { transport?: ConversationTransportMode },
   ): Promise<ConversationMessageWire> {
+    const wire = await this.buildMessage(conversationId, senderId, text, opts);
+    await this.putMessageRecord(conversationId, wire, opts?.otherUserId ? { otherUserId: opts.otherUserId } : {});
+    return wire;
+  }
+
+  /**
+   * The encrypted message, ready to send. Saving it is separate: see `putMessageRecord`.
+   * `sentAt` is the time the sender's screen already shows it with; both phones order a thread by
+   * this one time, so it must not be taken again after the awaits below (two people typing at
+   * once saw different orders, e2e stage2/29).
+   */
+  async buildMessage(
+    conversationId: string,
+    senderId: string,
+    text: string,
+    opts?: SendMessageOptions & { transport?: ConversationTransportMode; sentAt?: Date },
+  ): Promise<ConversationMessageWire> {
+    const sentAt = opts?.sentAt ?? new Date();
     const channel = opts?.channel ?? 'public';
     const transport = opts?.transport ?? this.mode;
     const messageId = String(opts?.messageId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
@@ -334,7 +362,7 @@ export class GunMessageStore {
       id: messageId,
       senderId,
       text: payloadText,
-      timestamp: new Date().toISOString(),
+      timestamp: sentAt.toISOString(),
       channel,
       transport,
       ...(opts?.isFromChatbot ? { isFromChatbot: true } : {}),
@@ -349,11 +377,6 @@ export class GunMessageStore {
       base.encryption = 'sea-ecdh-v1';
     }
 
-    await this.putMessageRecord(
-      conversationId,
-      base,
-      otherUserId ? { otherUserId } : {},
-    );
     return base;
   }
 

@@ -23,7 +23,7 @@ export const LEGACY_SHARED_NAMESPACES = [
   'techsupport-delegate-revocations', 'techsupport-delegate-requests', 'techsupport-delegate-invites',
   'techsupport-recovery', 'techsupport-recovery-history',
 ] as const;
-const sharedRoots = new Set<string>(['public', 'pair', 'room', ...LEGACY_SHARED_NAMESPACES]);
+const sharedRoots = new Set<string>(['public', 'pair', 'room', 'g', ...LEGACY_SHARED_NAMESPACES]);
 const OWNER_PRIVATE_SOUL = /^users\/[^/]+\/private(?:\/|$)/;
 const LEGACY_CONTACT_SOUL = /^users\/[^/]+\/knownPeople(?:\/|$)/;
 const LEGACY_FULL_PROFILE_FIELD = /^user-public-profile\/[^/]+\/fullProfileJson$/;
@@ -92,6 +92,8 @@ function allowedRead(get: any): boolean {
 
 function encryptedNode(soul: string, node: any): boolean {
   const parts = soul.split('/');
+  // Device graph souls (spec §31.9): every value is ciphertext, and nothing links anywhere.
+  if (parts[0] === 'g') return Object.entries(node).every(([key, value]) => key === '_' || value === null || isSeaCiphertext(value));
   if (parts[0] !== 'pair' && parts[0] !== 'room') return true;
   return Object.entries(node).every(([key, value]) => {
     if (key === '_') return true;
@@ -192,6 +194,55 @@ export function filterPeerAudience(msg: any, relay: boolean, report?: Report): a
   return !Object.keys(put).length ? null : changed ? changedMessage(msg, { put }) : msg;
 }
 
+/** Who may receive or send which graph soul (`src/core/device-graph/sync/audience.ts`). */
+export type GraphAudiencePolicy = {
+  mayReceive(peerUserId: string, soul: string): boolean;
+  mayAccept(peerUserId: string, soul: string): boolean;
+};
+
+const isGraph = (soul: unknown): boolean => typeof soul === 'string' && (soul === 'g' || soul.startsWith('g/'));
+
+function withoutSouls(msg: any, put: Record<string, any>, removed: boolean): any | null {
+  if (!removed) return msg;
+  return Object.keys(put).length ? changedMessage(msg, { put }) : null;
+}
+
+/**
+ * The device graph's audience rule (REQ-GRAPH-32): graph souls (`g/…`) never go to or come from a
+ * relay or any peer but a direct graph link, and a graph link carries graph souls only, each to or
+ * from the one person allowed. `outgoing` is what I send to `peer`; otherwise what I heard from it.
+ */
+export function filterGraphAudience(msg: any, peer: any, outgoing: boolean, audience: GraphAudiencePolicy | undefined, report?: Report): any | null {
+  const graphPeer: string | undefined = typeof peer?.graphUserId === 'string' ? peer.graphUserId : undefined;
+  if (!graphPeer) {
+    if (isGraph(msg.get?.['#'])) { report?.('audience'); return null; }
+    if (!msg.put) return msg;
+    const put: Record<string, any> = Object.create(null);
+    let removed = false;
+    for (const [soul, node] of Object.entries<any>(msg.put)) {
+      if (isGraph(soul)) { removed = true; report?.('audience'); } else put[soul] = node;
+    }
+    return withoutSouls(msg, put, removed);
+  }
+  // A graph link: acknowledgements pass; anything else must be a graph soul for this person.
+  if (!msg.get && !msg.put) return msg;
+  if (msg.get) {
+    const soul = msg.get['#'];
+    // Outgoing: I ask only for their souls. Incoming: they ask only for mine granted to them.
+    const ok = typeof soul === 'string' && !!audience && (outgoing ? audience.mayAccept(graphPeer, soul) : audience.mayReceive(graphPeer, soul));
+    if (!ok) { report?.('audience'); return null; }
+    return msg;
+  }
+  const put: Record<string, any> = Object.create(null);
+  let removed = false;
+  for (const [soul, node] of Object.entries<any>(msg.put)) {
+    // Outgoing puts are only my granted souls; incoming only theirs (nobody writes into my part).
+    const ok = isGraph(soul) && (outgoing ? !!audience?.mayReceive(graphPeer, soul) : !!audience?.mayAccept(graphPeer, soul));
+    if (ok) put[soul] = node; else { removed = true; report?.('audience'); }
+  }
+  return withoutSouls(msg, put, removed);
+}
+
 /** Counters contain no souls, identities or payloads. */
 export function guardMeshSay(mesh: any, root?: any): void {
   if (!mesh || typeof mesh.say !== 'function' || mesh.sharingPolicy) return;
@@ -208,8 +259,11 @@ export function guardMeshSay(mesh: any, root?: any): void {
       const route = root?.dup?.s?.[allowed['@']];
       peer = route?.via || route?.it?._?.via || (mesh.last?.['#'] === allowed['@'] ? mesh.leap : undefined);
       if (!peer) allowed = filterPeerAudience(allowed, false, report);
+      if (!peer && allowed) allowed = filterGraphAudience(allowed, undefined, true, root?.opt?.graphAudience, report);
     }
-    if (allowed && peer?.id) {
+    // A broadcast (no peer) comes back through here once per peer; filter each of those.
+    if (allowed && peer) allowed = filterGraphAudience(allowed, peer, true, root?.opt?.graphAudience, report);
+    if (allowed && peer?.id && !peer.graphUserId) {
       const url = peer.url;
       const relay = typeof url === 'string' && Array.isArray(root?.opt?.sharingRelayPeers)
         && root.opt.sharingRelayPeers.includes(url) && root.opt.peers?.[url] === peer;
@@ -223,7 +277,9 @@ export function guardMeshSay(mesh: any, root?: any): void {
   if (typeof mesh.hear?.one === 'function') {
     const hear = mesh.hear.one;
     mesh.hear.one = function (this: any, msg: any, peer: any, ...rest: any[]) {
-      const allowed = filterIncomingGunMessage(msg, report, interests);
+      const audienceChecked = msg && typeof msg === 'object' ? filterGraphAudience(msg, peer, false, root?.opt?.graphAudience, report) : msg;
+      if (!audienceChecked) return;
+      const allowed = filterIncomingGunMessage(audienceChecked, report, interests);
       if (allowed) return hear.call(this, allowed, peer, ...rest);
     };
   }

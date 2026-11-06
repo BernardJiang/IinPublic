@@ -71,9 +71,22 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
           status: 'OUT', stats: { responses: 0, matched: 0 }, disabled: false, fullTalk,
         };
       };
+      // The answers' Talks, as answered entries with their bodies: the device graph keeps my
+      // answers to them (OPEN-106), so the Me rows survive the reload below.
+      const answeredTalk = (talkId: string, questionId: string, prompt: string, choice: string, at: string) => ({
+        id: talkId, talkId, role: 'answered', title: `${prompt} source`, type: 'flow', language: 'en',
+        timestamp: at, lastInteraction: at, senders: [],
+        completedAnswers: [{ questionId, answerId: `${questionId}-answer`, answerText: choice }],
+        fullTalk: {
+          id: talkId, title: `${prompt} source`, type: 'flow', language: 'en', isAdult: false,
+          questions: [{ id: questionId, text: prompt, answers: [{ id: `${questionId}-answer`, text: choice, isMatch: true, isTerminal: true }] }],
+        },
+      });
       localStorage.setItem('myTalks', JSON.stringify({
         'pin-talk-new': makeTalk('pin-talk-new', 'Newer Talk', newest),
         'pin-talk-old': makeTalk('pin-talk-old', 'Older Talk', oldest),
+        'pin-answer-new-talk': answeredTalk('pin-answer-new-talk', 'pin-answer-new', 'Newer question?', 'Newer answer', newest),
+        'pin-answer-old-talk': answeredTalk('pin-answer-old-talk', 'pin-answer-old', 'Older question?', 'Older answer', oldest),
       }));
 
       const makeHistory = (
@@ -91,16 +104,17 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
           contextLabel: '', contextPath: [], contextHash: '',
         }],
       });
-      localStorage.setItem('myAnswerHistory', JSON.stringify({
-        'pin-answer-new-history': makeHistory(
-          'pin-answer-new-history', 'pin-answer-new-talk', 'pin-answer-new',
-          'Newer question?', 'Newer answer', newest,
-        ),
+      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, {
+        // The older first: the graph dates each answer by when it is written.
         'pin-answer-old-history': makeHistory(
           'pin-answer-old-history', 'pin-answer-old-talk', 'pin-answer-old',
           'Older question?', 'Older answer', oldest,
         ),
-      }));
+        'pin-answer-new-history': makeHistory(
+          'pin-answer-new-history', 'pin-answer-new-talk', 'pin-answer-new',
+          'Newer question?', 'Newer answer', newest,
+        ),
+      });
     });
   }
 

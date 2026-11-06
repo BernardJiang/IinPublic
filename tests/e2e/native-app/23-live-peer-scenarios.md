@@ -1,4 +1,5 @@
 # 23 — Live peer scenarios (Tier 5)
+covers: SPEC-3.4, SPEC-5.5, SPEC-19.4
 
 Parametrised all-pairs scenarios over real peers: local macOS app, installed Windows app, Ubuntu
 AppImage, physical Android phones. Every peer authors + broadcasts a tag Talk; every other peer

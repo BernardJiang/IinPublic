@@ -15,11 +15,14 @@ export const TALK_CONTENT_HASH_ID = /^qa_[0-9a-f]{8}$/i;
  */
 export const TALK_CIDv1_ID = /^b[a-z2-7]{50,}$/;
 
-/** UUID, content-hash, or CIDv1 talk id. */
+/** A device graph event id (OPEN-106 step 2e: Talks are known by their graph id), `event-id.ts`. */
+export const TALK_GRAPH_EVENT_ID = /^\d{13}-[0-9a-f]{32}-[0-9a-z]+$/;
+
+/** UUID, content-hash, CIDv1 or graph event talk id. */
 export function isValidTalkId(id: string | undefined | null): boolean {
   if (typeof id !== 'string') return false;
   const t = id.trim();
-  return TALK_UUID_KEY.test(t) || TALK_CONTENT_HASH_ID.test(t) || TALK_CIDv1_ID.test(t);
+  return TALK_UUID_KEY.test(t) || TALK_CONTENT_HASH_ID.test(t) || TALK_CIDv1_ID.test(t) || TALK_GRAPH_EVENT_ID.test(t);
 }
 
 /** @deprecated use isValidTalkId */
@@ -28,7 +31,7 @@ export function isTalkUuid(id: string | undefined | null): boolean {
 }
 
 function isTalkIdMapKey(k: string): boolean {
-  return TALK_UUID_KEY.test(k) || TALK_CONTENT_HASH_ID.test(k) || TALK_CIDv1_ID.test(k);
+  return TALK_UUID_KEY.test(k) || TALK_CONTENT_HASH_ID.test(k) || TALK_CIDv1_ID.test(k) || TALK_GRAPH_EVENT_ID.test(k);
 }
 
 function visitTalkIdsNode(node: unknown, out: Record<string, string>): void {

@@ -1,3 +1,4 @@
+import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 import { quickIgnoreIncomingTalk, quickCopyIncomingTalk, uncopyIncomingTalk } from '../../web/ui/quick-incoming-talk-actions';
 import { getMyTalks } from '../../web/ui/my-talks-storage';
 
@@ -166,7 +167,7 @@ describe('uncopyIncomingTalk', () => {
   const deps = () => ({ showNotification: jest.fn(), t, refreshTalksList: jest.fn() });
   // My Talks live in the device core's view (OPEN-91 P3); seeds still go in as the old blob.
   const stored = () => getMyTalks();
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => { localStorage.clear(); resetAnswerHistoryForTests(); resetAnswerHistoryForTests(); });
 
   it('turns an answered copy back into answered history, keeping its answers', () => {
     localStorage.setItem('myTalks', JSON.stringify({ t1: { talkId: 't1', role: 'copied', completedAnswers: [{ questionId: 'q1', answerId: 'yes' }] } }));

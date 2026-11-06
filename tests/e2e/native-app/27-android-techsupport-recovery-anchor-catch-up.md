@@ -1,4 +1,5 @@
 # 27 — Android: TechSupport recovery anchor stale-cache catch-up (OPEN-29)
+covers: SPEC-19.7
 
 Real phone, debug build, app data kept. The phone learns recovery records through its embedded
 node's `GET /api/support/recovery` (relayed to the hub, polled by `app.ts` every 5 s) or through Gun

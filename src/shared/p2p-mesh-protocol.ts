@@ -4,16 +4,11 @@ import type { SignedProtocolManifest } from './protocol-manifest';
 export type P2PMeshMessageKind =
   | 'mesh-ping'
   | 'mesh-pong'
-  | 'talk-announce'
-  | 'talk-body-request'
-  | 'talk-body'
-  | 'talk-response'
-  | 'talk-retracted'
   | 'protocol-manifest-summary'
   | 'protocol-manifest-request'
   | 'protocol-manifest-chain'
   | 'nearby-gossip'
-  | 'ack';
+  | 'graph-gun';
 
 export type P2PProtocolManifestCheckpoint = {
   networkId: string;
@@ -128,7 +123,23 @@ export type P2PMeshFramePayload =
   | P2PProtocolManifestRequestPayload
   | P2PProtocolManifestChainPayload
   | P2PNearbyGossipPayload
+  | P2PGraphGunPayload
   | { msgId: string };
+
+/**
+ * One Gun message of the device graph between the two ends of a direct link (spec §31.9, D3: the
+ * link is Gun's transport). Always one hop; its content is already filtered by the sender's
+ * audience rule and encrypted (`src/core/device-graph/sync/`).
+ */
+export type P2PGraphGunPayload = { raw: string };
+
+/** Gun batches messages; a frame stays under the data channel's comfortable size. */
+export const GRAPH_GUN_MAX_RAW = 256 * 1024;
+
+export function isP2PGraphGunPayload(payload: unknown): payload is P2PGraphGunPayload {
+  return !!payload && typeof payload === 'object' && typeof (payload as P2PGraphGunPayload).raw === 'string'
+    && (payload as P2PGraphGunPayload).raw.length > 0 && (payload as P2PGraphGunPayload).raw.length <= GRAPH_GUN_MAX_RAW;
+}
 
 /**
  * One Nearby v3 gossip message between two direct neighbors (nearby-v3-gossip.ts). A request carries
@@ -183,7 +194,7 @@ export function isP2PMeshFrame(value: unknown): value is P2PMeshFrame {
   if (!value || typeof value !== 'object') return false;
   const frame = value as Partial<P2PMeshFrame>;
   return frame.version === 1
-    && ['mesh-ping', 'mesh-pong', 'talk-announce', 'talk-body-request', 'talk-body', 'talk-response', 'talk-retracted', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'nearby-gossip', 'ack'].includes(String(frame.kind))
+    && ['mesh-ping', 'mesh-pong', 'protocol-manifest-summary', 'protocol-manifest-request', 'protocol-manifest-chain', 'nearby-gossip', 'graph-gun'].includes(String(frame.kind))
     && typeof frame.msgId === 'string' && frame.msgId.length > 0 && frame.msgId.length <= 256
     && typeof frame.roomId === 'string' && frame.roomId.length <= 256
     && typeof frame.originUserId === 'string' && frame.originUserId.length <= 256

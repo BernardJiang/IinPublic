@@ -202,31 +202,22 @@ async function deliverTalkToReceiver(
 async function waitForRecordedResponse(page: Page, talkId: string): Promise<void> {
   await expect
     .poll(
-      () => page.evaluate((id) => {
-        const doc = (window as any).__iinpublic_app?.getApp?.()?.getTalkLedgerDocForE2e?.();
-        return Object.values(doc?.exchanged || {}).filter((row: any) =>
-          row?.role === 'responder' && row?.talkId === id && Number(row?.version || 0) >= 1,
-        ).length;
+      () => page.evaluate(async (id) => {
+        const doc = await (window as any).__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([id]);
+        return Object.values(doc?.responded?.[id] || {}).filter((row: any) => Number(row?.version || 0) >= 1).length;
       }, talkId),
       { timeout: 30_000, intervals: [300, 600, 1000] },
     )
     .toBeGreaterThanOrEqual(1);
 }
 
+/** The chatbot remembers this answer for reuse (the device graph's `ix/ctx`, OPEN-106). */
 async function waitForContextualMemoryAnswer(page: Page, answerText: string): Promise<void> {
   await expect
     .poll(
-      () => page.evaluate((expected) => {
-        try {
-          const parsed = ((window as any).__iinpublic_collection?.('flattenedAnswerPreferences') ?? {});
-          return Object.entries(parsed).some(([key, value]: [string, any]) =>
-            key.startsWith('flat_v2_')
-            && value?.contextVersion === 2
-            && value?.answerText === expected,
-          );
-        } catch {
-          return false;
-        }
+      () => page.evaluate(async (expected) => {
+        const remembered = (await (window as any).__iinpublic_graph_remembered?.()) ?? [];
+        return remembered.some((item: any) => item.reuse === 'auto' && item.answerTexts?.includes(expected));
       }, answerText),
       { timeout: 30_000, intervals: [300, 600, 1000] },
     )
@@ -302,6 +293,8 @@ test.describe('Talks matching — contextual chatbot Q/A memory', () => {
   });
 
   test('reuses Bob\'s root fruit choice across order and position, but not changed membership', async () => {
+    // Five people and four Talks: about two minutes under a parallel run, past the 120 s default.
+    test.setTimeout(300_000);
     const adam = await bootstrapUser(browserTom, 'Adam', 'Adam');
     contextAdam = adam.context;
     pageAdam = adam.page;

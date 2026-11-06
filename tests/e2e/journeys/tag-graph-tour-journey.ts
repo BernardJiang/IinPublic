@@ -108,14 +108,16 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
   await a.locator('[data-testid="peer-talks-link"]').click();
   await expect(a.locator('[data-testid="talks-focus-chip"]')).toContainText(cyName);
   const talkPizza = a.locator('#talks-list .talk-tag-chip[data-role="copied"]').filter({ hasText: PIZZA });
-  await expect(talkPizza).toHaveCount(1);
+  // Cy's answer to Ann's own Pizza can land after his own Pizza Talk did (both count above).
+  await expect(talkPizza).toHaveCount(1, { timeout: 30_000 });
   await expect(talkPizza.locator('[data-testid="answer-tag-mark"]')).toHaveText('♡');
   await expect(talkPizza.locator('[data-testid="answer-people"]')).toContainText('2');
 
   // ── Talk → my answer: Pizza's ♡ opens it on Me ──────────────────────────
   await talkPizza.locator('[data-testid="answer-tag-mark"]').click();
   await expect(a.locator('[data-testid="me-focus-chip"]')).toContainText(PIZZA);
-  await expect(a.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
+  // The Me tab settles once the graph's answer history is read back.
+  await expect(a.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1, { timeout: 30_000 });
   await expect(a.locator('#answers-list .answer-talk-item:visible')).toHaveAttribute('data-topic', PIZZA);
 
   // ── Answer → 👥 the same people, and 💬 its Talk ─────────────────────────

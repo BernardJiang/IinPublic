@@ -17,6 +17,7 @@ import { afterLoad, afterSync, afterAction } from '../../helpers/timing';
 import { bootstrapUser, ensureMeshNeighbors } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../../helpers/ports';
+import { newGraphTalkId } from '../../helpers/device-graph';
 
 const E2E_TIMEOUT_MS = 30_000;
 
@@ -67,7 +68,7 @@ test.describe('Shared media bytes travel P2P over the DM DataChannel', () => {
     ]);
 
     // Adam publishes a photo to HIS content node (public bytes) — Bob's node never seeds it.
-    const talkId = `p2p-photo-${Date.now()}`;
+    const talkId = await newGraphTalkId(pageAdam);
     const photoBytesLen = 40_000; // spans several 12KB DataChannel chunks
     const attachment = await pageAdam.evaluate(async ({ tId, len }) => {
       const service = (window as any).__iinpublic_app.getApp().contentNodeService;
@@ -97,7 +98,7 @@ test.describe('Shared media bytes travel P2P over the DM DataChannel', () => {
       a.peerMeshService.cacheTalkBody(def.id, def);
       const mt = ((window as any).__iinpublic_collection?.('myTalks') ?? {}); mt[def.id] = { role: 'created', fullTalk: def };
       localStorage.setItem('myTalks', JSON.stringify(mt));
-      await a.peerMeshService.broadcastTalk(def, { roomBroadcast: true });
+      await (window as any).__iinpublic_app.getApp().offerTalkForE2e(def);
     }, { def: talkDef });
     await afterAction();
 

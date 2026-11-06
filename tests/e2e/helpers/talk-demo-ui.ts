@@ -1004,18 +1004,16 @@ export async function findIncomingTalkIdByTitle(page: Page, titleSubstring: stri
 }
 
 /**
- * Seed a TalkLedger outcome entry directly into the browser's localStorage.
+ * Seed how the author decided an answer to their Talk, in the device graph (`ix/outcome`,
+ * `graph.recordOutcome`), as the app records a real answer.
  *
- * Replaces the now-deleted POST /api/stats/talks/:id/record server endpoint.
- * Stats are local-only since P0 Step 7; this helper writes the authoritative
- * `talkLedger` localStorage key so that:
- *   - app.ts `needTalkStats` shows the correct "Responses: N" count in the UI
- *   - summarize() / buildAllLocalTalkResponses() produce correct output
+ * Replaces the now-deleted POST /api/stats/talks/:id/record server endpoint. Stats are local-only
+ * since P0 Step 7; app.ts `needTalkStats` counts these for the "Responses: N" line.
  *
- * @param page         Browser page where the app is running (authorId is read from the app)
+ * @param page         Browser page where the app is running
  * @param talkId       The talk's ID
  * @param responderId  Synthetic responder ID (e.g. 'stats-jerry')
- * @param ledgerOutcome 'matched' | 'ignored' | 'other' (TalkLedger outcome, not TalkResponse outcome)
+ * @param ledgerOutcome 'matched' | 'ignored' | 'other' ('other', a survey answer, is kept as 'ignored')
  */
 export async function seedTalkLedgerOutcome(
   page: Page,
@@ -1024,27 +1022,13 @@ export async function seedTalkLedgerOutcome(
   ledgerOutcome: 'matched' | 'ignored' | 'other' = 'other',
 ): Promise<void> {
   await page.evaluate(
-    ({ talkId, responderId, ledgerOutcome }) => {
-      const authorId: string =
-        (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id ?? 'unknown-author';
-      const key = `${responderId}::${talkId}::${authorId}`;
+    async ({ talkId, responderId, ledgerOutcome }) => {
+      const app = (window as any).__iinpublic_app?.getApp?.();
       const now = new Date().toISOString();
-      const raw = localStorage.getItem('talkLedger');
-      const doc: any = raw
-        ? JSON.parse(raw)
-        : { version: 1, outcomes: {}, exchanged: {}, edges: {}, retracted: {} };
-      doc.outcomes[key] = {
-        responderId,
-        talkId,
-        authorId,
-        identityKey: `${talkId}::${authorId}`,
-        outcome: ledgerOutcome,
-        version: 1,
-        responseId: `seed::${key}`,
-        respondedAt: now,
-        updatedAt: now,
-      };
-      localStorage.setItem('talkLedger', JSON.stringify(doc));
+      await app.coreRequest({
+        name: 'graph.recordOutcome', talkId, responderId,
+        record: { outcome: ledgerOutcome === 'matched' ? 'matched' : 'ignored', version: 1, responseId: `seed::${responderId}::${talkId}`, respondedAt: now },
+      });
     },
     { talkId, responderId, ledgerOutcome },
   );

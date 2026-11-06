@@ -1,11 +1,16 @@
 import {
+  deleteFlatAnswerHistoryForTalk,
   getFlatAnswerHistory,
   getTalkContentKey,
+  resetAnswerHistoryForTests,
   saveFlatAnswerHistoryRecord,
+  setAnswerHistoryCore,
   setFlatAnswerHistory,
 } from '../../web/ui/answer-history-storage';
+import { refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../../web/ui/graph-answer-history';
 
 beforeEach(() => {
+  resetAnswerHistoryForTests();
   setFlatAnswerHistory({});
 });
 
@@ -246,5 +251,39 @@ describe('saveFlatAnswerHistoryRecord', () => {
     const history = getFlatAnswerHistory();
     expect(history[`${getTalkContentKey(withRadius)}:t1`].locationRadiusMiles).toBe(25);
     expect(history[`${getTalkContentKey(withoutRadius)}:t2`].locationRadiusMiles).toBeUndefined();
+  });
+});
+
+describe('the Me tab history is the device graph\'s (OPEN-106)', () => {
+  const talk = { id: 't1', type: 'flow', title: 'Tennis', questions: [{ id: 'q', text: 'Tennis?', answers: [{ id: 'a', text: 'Yes', isMatch: true }] }] };
+  afterEach(() => setGraphAnswerHistorySource(null));
+
+  it('a saved answer goes to the graph, shows at once, and is replaced by the graph\'s record', async () => {
+    const requests: any[] = [];
+    let graphRecords: any[] = [];
+    setAnswerHistoryCore(async (request) => { requests.push(request); return { ok: true }; });
+    setGraphAnswerHistorySource(async () => graphRecords);
+    saveFlatAnswerHistoryRecord('t1', talk, [{ questionId: 'q', answerId: 'a', answerText: 'Yes' }], 'match', ['adam']);
+    // Sent once My Talks' pending writes are in the core.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(requests[0]).toMatchObject({ name: 'graph.recordAnswers' });
+    expect(Object.values(getFlatAnswerHistory()).map((r) => r.talkId)).toEqual(['t1']);
+
+    graphRecords = [{ appTalkId: 't1', when: Date.now() + 5000, mode: 'manual', mine: false, withUser: 'adam', talk, answers: [{ questionId: 'q', answerId: 'a', answerText: 'Yes', isMatch: true }] }];
+    await refreshGraphAnswerHistory();
+    const rows = Object.values(getFlatAnswerHistory());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.senderIds).toEqual(['adam']);
+  });
+
+  it('removing a Talk\'s answers asks the core to delete them (telling its senders) and hides them', async () => {
+    const requests: any[] = [];
+    setAnswerHistoryCore(async (request) => { requests.push(request); return {}; });
+    setGraphAnswerHistorySource(async () => [{ appTalkId: 't1', when: Date.now(), mode: 'manual', mine: false, withUser: 'adam', talk, answers: [{ questionId: 'q', answerId: 'a', answerText: 'Yes', isMatch: true }] }]);
+    await refreshGraphAnswerHistory();
+    expect(Object.keys(getFlatAnswerHistory())).toHaveLength(1);
+    deleteFlatAnswerHistoryForTalk('t1');
+    expect(requests).toContainEqual({ name: 'graph.forgetAnswers', talkId: 't1', senders: ['adam'] });
+    expect(getFlatAnswerHistory()).toEqual({});
   });
 });

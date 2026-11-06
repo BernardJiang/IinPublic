@@ -15,9 +15,10 @@ export interface GraphStore {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/** A Gun-backed store. `gun` is a Gun instance (worker or Node). */
-export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTimeoutMs?: number; readWaitMs?: number; missWaitMs?: number } = {}): GraphStore {
-  const parts = (path: string): string[] => path.split('/').filter(Boolean);
+export type GunReadOptions = { getTimeoutMs?: number; readWaitMs?: number; missWaitMs?: number };
+
+/** One node by soul, as Gun's storage answers it: the raw node with `_`, or null when absent. */
+export function gunNodeReader(gun: any, options: GunReadOptions = {}): (soul: string) => Promise<any> {
   // Reads ask for the node's soul directly: a chained node's soul is its path (`local/exchanges`).
   // Walking the chain on a cold start (after a reload) loses the first callback while Gun loads
   // each parent from storage; one direct lookup does not (found by e2e stage1/94).
@@ -40,12 +41,18 @@ export function gunGraphStore(gun: any, options: { putTimeoutMs?: number; getTim
   // which made the log look empty after a reload under load (e2e stage1/94). A host whose storage
   // answers a miss for certain (the native node's disk) passes `missWaitMs: 0`; every read there
   // used to cost the whole wait, 1.5 s, and a phone's start-up made dozens of them (OPEN-91 P5).
-  const once = async (path: string): Promise<any> => {
+  return async (path: string): Promise<any> => {
     const found = await onceWithin(path, options.readWaitMs ?? 30);
     const missWait = options.missWaitMs ?? 1500;
     if (found !== null || missWait <= 0) return found;
     return onceWithin(path, missWait);
   };
+}
+
+/** A Gun-backed store. `gun` is a Gun instance (worker or Node). */
+export function gunGraphStore(gun: any, options: { putTimeoutMs?: number } & GunReadOptions = {}): GraphStore {
+  const parts = (path: string): string[] => path.split('/').filter(Boolean);
+  const once = gunNodeReader(gun, options);
   const write = (node: any, path: string, value: unknown): Promise<void> => new Promise((resolve, reject) => {
     // A timeout leaves the write uncertain. Never authorize transport from an unconfirmed commit.
     const timer = setTimeout(() => reject(new Error(`storage did not acknowledge write for ${path}`)), options.putTimeoutMs ?? 8000);

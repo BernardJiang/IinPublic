@@ -136,7 +136,7 @@ test.describe('Route: Pair-tag root -> Simple-tag item -> parallel spec fan-out 
     await clickBroadcastUntilBulkAck(pageAlice);
 
     const chooseAndContinue = async (answerText: string): Promise<void> => {
-      await pageBob.locator(`input.choice-radio[data-answer-text="${answerText}"][data-mode="manual"]`).first().click();
+      await pageBob.locator(`input.choice-radio[data-answer-text="${answerText}" i][data-mode="manual"]`).first().click();
       await pageBob.locator('[data-testid="route-branch-continue"]').click();
     };
 

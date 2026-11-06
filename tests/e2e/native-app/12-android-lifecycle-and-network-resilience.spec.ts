@@ -147,17 +147,41 @@ async function establishRealMatchAndOpenConversation(
     return pair?.epub ?? '';
   });
 
-  await responderPage.evaluate(async ({ tid, authorId, authorName, epub, questions }) => {
+  // OPEN-106: an answer goes only to a Talk that arrived over a graph link. The author sends it to
+  // the responder, who answers it under the id it arrived with (as fast-dm-setup.ts does).
+  // Their keys are known once the two are linked as Nearby neighbours: offer until then.
+  await expect.poll(() => authorPage.evaluate(async ({ tid, to }) => {
     const app = (window as any).__iinpublic_app?.getApp?.();
-    const talkDef = {
-      id: tid, authorId, authorName, authorEpub: epub, title: `Resilience match ${tid}`, type: 'flow', questions,
-    };
-    app?.peerMeshService?.cacheTalkBody?.(tid, talkDef);
+    const entry = ((window as any).__iinpublic_collection?.('myTalks') ?? {})[tid];
+    try {
+      await app.offerTalkForE2e(entry.fullTalk, [to]);
+      return 'offered';
+    } catch (error) {
+      return String((error as Error)?.message || error);
+    }
+  }, { tid: talkId, to: responderId }), { timeout: 90_000, intervals: [2_000] }).toBe('offered');
+  const arrivedTalkId = await (async () => {
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      const id = await responderPage.evaluate(async (title: string) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        return (((await app.getLocalIncomingClustersForE2e?.()) ?? []) as any[]).find((r) => r.title === title)?.latestTalkId ?? '';
+      }, talkTitle);
+      if (id) return String(id);
+      if (Date.now() > deadline) throw new Error(`${talkTitle} did not reach ${responderName}`);
+      await responderPage.waitForTimeout(500);
+    }
+  })();
+
+  await responderPage.evaluate(async ({ tid, authorId, authorName, epub }) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const received = await app?.talkService?.getTalkWithRetry?.(tid, { attempts: 30, gapMs: 250 });
+    const talkDef = { ...received, id: tid, authorId, authorName, authorEpub: epub };
     const matchAnswers = [{ questionId: 'q1', answerId: 'a-match', answerText: 'Yes, lets chat.', mode: 'manual', isMatch: true }];
     await app.submitTalkResponsePairDirect({
       talkId: tid, talkData: talkDef, answers: matchAnswers, isChatbotResponse: false, authorId, authorName, isAutoResponse: false,
     });
-  }, { tid: talkId, authorId, authorName, epub: authorEpub, questions: baseQuestions });
+  }, { tid: arrivedTalkId, authorId, authorName, epub: authorEpub });
 
   await Promise.all([
     waitForServerConversationBetween(authorPage, authorId, responderId),
@@ -233,7 +257,6 @@ test.describe('Native app: Android real-hardware lifecycle and network resilienc
     const androidId = await bootstrapNativeWindow(android.window, 'Resilience Android', {
       waitForSupportGreeting: false,
       readinessTimeoutMs: 110_000,
-      pinStableLocation: false,
     });
     await forceJoinGlobal(android.window);
 
@@ -273,7 +296,6 @@ test.describe('Native app: Android real-hardware lifecycle and network resilienc
     const androidId = await bootstrapNativeWindow(android.window, 'Background Android', {
       waitForSupportGreeting: false,
       readinessTimeoutMs: 110_000,
-      pinStableLocation: false,
     });
     await forceJoinGlobal(android.window);
 
@@ -321,7 +343,6 @@ test.describe('Native app: Android real-hardware lifecycle and network resilienc
     const idBefore = await bootstrapNativeWindow(android.window, stageName, {
       waitForSupportGreeting: false,
       readinessTimeoutMs: 110_000,
-      pinStableLocation: false,
     });
     expect(idBefore).toBeTruthy();
 

@@ -4,6 +4,7 @@
  * shared ⟨User⟩ layout — same component, same DOM structure, same section order
  * (context → stats → messaging → talk history).
  */
+import { waitForPeerDmSent } from '../../helpers/conversation-e2e';
 import { chromium, Browser, BrowserContext, Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
@@ -95,7 +96,7 @@ test.describe('Peer/contact layout parity', () => {
     // in Contacts, then return to the same layout for the contact-entry comparison.
     await tom.locator('#peer-dm-input').fill(`layout parity ${Date.now()}`);
     await tom.locator('#peer-dm-send-btn').click();
-    await expect(tom.locator('#peer-dm-send-btn')).toContainText('Sent', { timeout: 30_000 });
+    await waitForPeerDmSent(tom, 30_000);
     await tom.click('#back-from-peer-detail');
 
     // ── Entry 2: contact row (the DM conversation created above makes Jerry a contact) ──

@@ -118,7 +118,7 @@ test.describe('Talks matching — answered incoming remains in IN history', () =
     await afterSync();
     await openIncomingTalkModal(pageJerry, 'E2E Ignore Then Match Tennis');
     await pageJerry.locator('input.choice-radio[data-answer-text="Yes"][data-mode="manual"]').first().click();
-    await pageJerry.locator('input.choice-radio[data-answer-text="amateur"][data-mode="manual"]').first().click();
+    await pageJerry.locator('input.choice-radio[data-answer-text="amateur" i][data-mode="manual"]').first().click();
     await pageJerry.locator('input.choice-radio[data-answer-text="No"][data-mode="manual"]').first().click();
     await pageJerry.waitForSelector('#talk-response-modal', { state: 'detached', timeout: 15000 });
 

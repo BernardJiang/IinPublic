@@ -10,7 +10,11 @@ import path from 'path';
 import type express from 'express';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import crypto from 'crypto';
 import { createCoreHandler } from '../../core/core-handler';
+import { gunNodeStore } from '../../core/device-graph/node-store';
+import { seaGraphCrypto } from '../../core/device-graph/sync/sea-crypto';
+import SEA from 'gun/sea';
 import { gunGraphStore } from '../../core/graph-store';
 import type { CoreRequest } from '../../core/protocol';
 import { soulLeavesDevice } from '../../core/sharing-policy';
@@ -18,6 +22,21 @@ import { soulLeavesDevice } from '../../core/sharing-policy';
 export function localNodeToken(env: NodeJS.ProcessEnv): string {
   const token = String(env.IINPUBLIC_CORE_TOKEN || env.IINPUBLIC_BACKGROUND_AGENT_TOKEN || '');
   return token.length >= 32 ? token : '';
+}
+
+/** Bytes in a folder (the radata store), for the device graph's 1 GB limit. */
+async function directoryBytes(dir: string): Promise<number | undefined> {
+  try {
+    let total = 0;
+    for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) total += (await directoryBytes(full)) ?? 0;
+      else total += (await fs.promises.stat(full)).size;
+    }
+    return total;
+  } catch {
+    return undefined;
+  }
 }
 
 /** A node whose Gun has never stored anything (no radata yet): snapshots are empty until a write. */
@@ -44,7 +63,18 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
   const store = () => gunGraphStore(gun, { missWaitMs: 0 });
   const allowTestOverrides = process.env.E2E_GUN_MEMORY_ONLY === '1';
-  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir), allowTestOverrides });
+  const randomBytes = (length: number) => new Uint8Array(crypto.randomBytes(length));
+  const radata = path.join(dataDir, 'radata');
+  const deviceGraph = () => ({
+    nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
+    randomBytes,
+    log: (message: string) => console.warn(message),
+    // OPEN-106 step 3: direct links carry the graph through this Gun.
+    gun,
+    crypto: seaGraphCrypto(SEA, randomBytes),
+    storageUsage: async () => directoryBytes(radata),
+  });
+  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir), allowTestOverrides, deviceGraph: deviceGraph() });
   const authorized = (req: express.Request): boolean => token.length >= 32 && req.get('authorization') === `Bearer ${token}`;
 
   app.post('/api/core', async (req, res) => {
@@ -59,10 +89,20 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
     }
   });
 
+  // OPEN-106 on a phone (adb forward, loopback only, not in production builds): GET the counts of
+  // my Talks written into the device graph.
+  if (process.env.NODE_ENV !== 'production') {
+    const loopback = (req: express.Request) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(String(req.socket.remoteAddress || ''));
+    app.get('/api/debug/device-graph', async (req, res) => {
+      if (!loopback(req)) { res.status(403).end(); return; }
+      res.json(await handle({ name: 'deviceGraph.status' }));
+    });
+  }
+
   return {
     resetForTesting: () => {
       forgetDeviceSouls(gun);
-      handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides });
+      handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides, deviceGraph: deviceGraph() });
     },
   };
 }

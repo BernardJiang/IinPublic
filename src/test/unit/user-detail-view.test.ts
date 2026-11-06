@@ -10,6 +10,7 @@
 
 import { openPeerDetailView, type UserDetailViewDeps } from '../../web/ui/user-detail-view';
 import { uiText } from '../../web/ui/ui-translations';
+import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
 
 describe('openPeerDetailView — linked-identity badge (TODO §I)', () => {
   beforeEach(() => {
@@ -79,15 +80,34 @@ describe('openPeerDetailView — linked-identity badge (TODO §I)', () => {
     const button = document.getElementById('peer-dm-send-btn') as HTMLButtonElement;
     input.value = 'hello';
     button.click();
-    expect(button.disabled).toBe(true);
-    expect(button.textContent).toContain('Sending...');
-    expect(input.value).toBe('hello');
+    expect(button.disabled).toBe(false);
+    expect(input.value).toBe('');
     document.getElementById('back-from-peer-detail')?.click();
     expect(document.getElementById('peer-detail-overlay')?.style.display).toBe('none');
     rejectSend(new Error('Recipient has no epub published'));
     await flush();
     expect(button.disabled).toBe(false);
     expect(input.value).toBe('hello');
+  });
+
+  describe('public profile reads', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const readsDuring = async (peerId: string, name: string): Promise<number> => {
+      const getPublicProfileFoundation = jest.fn(async () => null);
+      openPeerDetailView(peerId, name, baseDeps({ getPublicProfileFoundation }));
+      await jest.advanceTimersByTimeAsync(12_000);
+      return getPublicProfileFoundation.mock.calls.length;
+    };
+
+    it('reads a missing TechSupport profile once instead of retrying for 8.5 s', async () => {
+      expect(await readsDuring(TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME)).toBe(1);
+    });
+
+    it('keeps retrying for an ordinary person whose profile may still be arriving', async () => {
+      expect(await readsDuring('peer-1', 'Peer One')).toBeGreaterThan(1);
+    });
   });
 
   it('renders the badge when isLinkedIdentity resolves true', async () => {
@@ -258,7 +278,7 @@ describe('openPeerDetailView — scenario 2 build-trust badge (§16)', () => {
     openPeerDetailView('support', 'TechSupport', deps);
     await flush();
 
-    expect(getPublicProfileFoundation).not.toHaveBeenCalled();
+    expect(getPublicProfileFoundation).toHaveBeenCalledTimes(1);
     expect(document.getElementById('peer-stats-section')?.textContent).not.toContain('Loading relationship stats');
   });
 

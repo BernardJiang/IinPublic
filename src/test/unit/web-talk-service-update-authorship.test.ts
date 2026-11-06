@@ -15,7 +15,7 @@ function service(graph: Map<string, unknown>): WebTalkService {
     put: async (key: string, value: unknown) => { graph.set(key, value); },
     get: async (key: string) => graph.get(key) ?? null,
   } as unknown as WebGunService;
-  return new WebTalkService(gun, undefined, { gunTalkRepository: false });
+  return new WebTalkService(gun, undefined);
 }
 
 describe('WebTalkService.updateTalk authorship preservation', () => {

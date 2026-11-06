@@ -8,7 +8,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { headless, afterAction, afterNav, afterSync } from '../../helpers/timing';
 import { setupFastMatchedDm, teardownFastDmPair, FastDmPair } from '../../helpers/fast-dm-setup';
-import { bootstrapUser, waitForTabActive, longPressTalkRow } from '../../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, longPressTalkRow, waitForIncomingTalkClusterOnLocalGun } from '../../helpers/talks-matching-flow';
 import { selectTalkEditorType } from '../../helpers/talk-editor-e2e';
 import { completeTalkInAppByAnswerIds, submitTalkEditorAndWaitForOut } from '../../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
@@ -175,6 +175,8 @@ test.describe('Talk row -> person traceback (N3, single partner)', () => {
       expect(talkId).toBeTruthy();
 
       for (const responder of [pageJerry, pageBob]) {
+        // An answer goes only to a Talk that arrived over a graph link (OPEN-106).
+        await waitForIncomingTalkClusterOnLocalGun(responder, 'Multi-partner picker talk', { timeout: 60_000, polling: 500 });
         const talkData = await responder.evaluate(async (id: string) => {
           const app = (window as any).__iinpublic_app?.getApp?.();
           return app?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 });

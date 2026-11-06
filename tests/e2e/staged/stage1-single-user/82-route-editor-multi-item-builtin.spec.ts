@@ -98,11 +98,11 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     // No validation error banner should have appeared.
     await expect(page.locator('#talk-validation-errors')).not.toBeVisible();
 
-    // §EE: authored typed declarations are durable, structured AnswerRecord values, not only
-    // entries in the chatbot's typedPreferenceState index. Identical question text on two route
+    // §EE: authored typed declarations are durable, structured AnswerRecord values, and the
+    // chatbot's own declarations in the device graph (`ix/typed`, OPEN-106). Identical question text on two route
     // branches stays isolated by context and both declarations surface in Me.
     const typedAnswerRecord = await page.evaluate((talkTitle) => {
-      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
+      const history = ((window as any).__iinpublic_answer_history?.() ?? {});
       return Object.values(history).find((record: any) => record.title === talkTitle) as any;
     }, title);
     expect(typedAnswerRecord.items).toEqual(expect.arrayContaining([
@@ -157,21 +157,20 @@ test.describe('Route editor: multi-item branching + builtIn leaf questions (§BB
     // replaced while q_2's separate branch remains intact.
     await page.locator('.route-builtin-quantity-input[data-qid="q_1"]').fill('7');
     await submitTalkEditorAndWaitForOut(page, title);
-    const afterEdit = await page.evaluate((talkTitle) => {
-      const history = ((window as any).__iinpublic_collection?.('myAnswerHistory') ?? {});
+    const readAfterEdit = () => page.evaluate(async (talkTitle) => {
+      const history = ((window as any).__iinpublic_answer_history?.() ?? {});
       const record = Object.values(history).find((candidate: any) => candidate.title === talkTitle) as any;
-      // Kept in the device core as `users::<userId>` entries (OPEN-91 P3).
-      const typedEntries = (window as any).__iinpublic_collection?.('typedPreferenceState') ?? {};
-      const typedIndex = { users: Object.fromEntries(Object.entries(typedEntries).map(([key, value]) => [key.replace(/^users::/, ''), value])) };
-      const indexedValues = Object.values(Object.values(typedIndex.users || {})[0] || {}) as any[];
+      // My declarations for this Talk, as the graph chatbot reads them (one per branch).
+      const entry = Object.values((window as any).__iinpublic_collection?.('myTalks') ?? {}).find((candidate: any) => candidate.title === talkTitle) as any;
+      const view = entry?.fullTalk ? await (window as any).__iinpublic_graph_chatbot_view?.(entry.fullTalk, true) : null;
       return {
         items: record?.items,
-        quantities: indexedValues
-          .filter((value) => value.sourceTalkId === record?.talkId)
-          .map((value) => value.quantity)
-          .sort((a, b) => a - b),
+        quantities: Object.values(view?.typed ?? {}).map((value: any) => value.quantity).sort((a: number, b: number) => a - b),
       };
     }, title);
+    // The edit reaches the device graph just after the save.
+    await expect.poll(async () => (await readAfterEdit()).quantities).toEqual([1, 7]);
+    const afterEdit = await readAfterEdit();
     expect(afterEdit.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ questionId: 'q_1', typedValue: { kind: 'quantity', quantity: 7 } }),
       expect.objectContaining({ questionId: 'q_2', typedValue: { kind: 'quantity', quantity: 1 } }),

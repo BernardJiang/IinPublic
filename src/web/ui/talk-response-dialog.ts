@@ -117,6 +117,8 @@ type TalkResponseDialogOptions = {
     previousQAPairs: QAPair[],
     currentQuestion: { id: string; text?: string; answers?: any[]; answerSelectionMode?: string },
     talkInstanceId: string,
+    /** The answers given so far in this dialog, in answering order (the graph's situations). */
+    sessionAnswers?: Array<{ questionId: string; answerId?: string; answerIds?: string[] }>,
   ) => SavedPreference;
   saveAnswerPreference: (
     talk: any,
@@ -159,7 +161,7 @@ function tryCollectAllAutoAnswers(
   while (currentQ) {
     const idx = talk.questions.findIndex((q: any) => q.id === currentQ.id);
     const previousPairs = immediateParentQAPairs(talk, currentQ, collected);
-    const pref = resolveAnswerPreference(talk, idx, previousPairs, currentQ, talk.id);
+    const pref = resolveAnswerPreference(talk, idx, previousPairs, currentQ, talk.id, collected);
     if (!pref || pref.mode !== 'auto') return null; // unanswered or manual — can't pre-fill all
     if (pref.answerId === 'ignore') return null; // ignore-auto is terminal but not a positive flow
 
@@ -531,11 +533,13 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           return;
         }
         // Save preferences and determine outcome
+        // The review's Auto is the device-wide Auto scope (Same context or Whenever offered):
+        // each answer's mode is how the chatbot may reuse it (the device graph, OPEN-106).
         const finalAnswers = reviewAnswers.map((a) => ({
           questionId: a.questionId,
           answerId: a.answerId,
           answerText: a.answerText,
-          mode: a.mode as AnswerSelectionMode,
+          mode: (a.mode === 'auto' ? autoAnswerMode : a.mode) as AnswerSelectionMode,
           ...(a.contextHash ? { contextHash: a.contextHash } : {}),
         }));
         finalAnswers.forEach((a, i) => {
@@ -548,7 +552,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
             a.answerId,
             a.answerText,
             finalAnswers.slice(0, i + 1),
-            a.mode === 'auto' ? autoAnswerMode : 'manual',
+            a.mode === 'auto' || a.mode === 'whenever' ? a.mode : 'manual',
           );
         });
         // Determine outcome from last answer's flags
@@ -668,6 +672,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           previousPairs,
           currentQuestion,
           talk.id,
+          answers,
         );
 
     if (savedPreference && savedPreference.mode === 'auto') {
@@ -790,6 +795,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
       previousPairsForDisplay,
       currentQuestion,
       talk.id,
+      answers,
     );
     const previousChoice =
       previousChoiceFromSession ||

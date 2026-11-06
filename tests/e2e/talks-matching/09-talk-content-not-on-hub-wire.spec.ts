@@ -17,6 +17,7 @@ import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage3Spec } from '../helpers/e2e-stage-pipeline';
 import { afterLoad, afterSync } from '../helpers/timing';
 import { bootstrapUser, ensureMeshNeighbors, finalCleanupPages } from '../helpers/talks-matching-flow';
+import { expectDeviceGraph, expectGraphAnswerHistory } from '../helpers/device-graph';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 
@@ -45,6 +46,8 @@ type WireEvent = {
   privateSouls?: string[];
   probe?: boolean;
   pairProbe?: boolean;
+  /** The frame names a device graph soul (`g/…`, OPEN-106): those never go to the hub. */
+  graphSoul?: boolean;
 };
 
 /** Namespaces that never leave the device (src/core/sharing-policy.ts). */
@@ -108,6 +111,7 @@ function scan(who: string, channel: WireEvent['channel'], where: string, payload
     size: payload.length,
     ...(payload.includes(PROBE) ? { probe: true } : {}),
     ...(payload.includes('pair/wire-audit/encrypted') ? { pairProbe: true } : {}),
+    ...(/"g\/[0-9a-f]{32}\//.test(payload) ? { graphSoul: true } : {}),
     markers,
     ...(first >= 0 ? { excerpt: payload.slice(Math.max(0, first - 60), first + 100), souls: soulsCarryingMarkers(payload) } : {}),
   };
@@ -379,5 +383,23 @@ test.describe('Wire audit — talk content vs the hub', () => {
     const privateOnWire = [...new Set(events.flatMap((event) => (event.privateSouls ?? []).map((soul) => `${event.who}: ${soul}`)))];
     console.log(`private souls sent to the hub: ${privateOnWire.length}`);
     expect(privateOnWire, 'a private soul reached the hub').toEqual([]);
+    // Tom's Talk really is in his device graph (audited above with every other record).
+    await expectDeviceGraph(pageTom, 'Tom', { talks: 1 });
+
+    // OPEN-106 step 3: the Talk also reached Jerry as device-graph nodes over the direct link
+    // (Gun sync carried by graph-gun frames), and no graph soul (`g/…`) ever crossed the hub.
+    await expect.poll(() => pageJerry!.evaluate((authorId) => ((window as any).__iinpublic_graph_events ?? [])
+      .some((event: any) => event.type === 'talk' && event.from === authorId), tomId), {
+      timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Jerry never received the Talk over the graph link',
+    }).toBe(true);
+    // Jerry's answer went back over the same link, as an answer event in their pair log.
+    await expect.poll(() => pageTom!.evaluate((responderId) => ((window as any).__iinpublic_graph_events ?? [])
+      .some((event: any) => event.type === 'answer' && event.from === responderId && Array.isArray(event.answers) && event.answers.length > 0), jerryId), {
+      timeout: MESH_E2E_TIMEOUT_MS, intervals: [200, 400, 800], message: 'Tom never received Jerry’s answer over the graph link',
+    }).toBe(true);
+    // Jerry's Me tab reads that answer from Jerry's own device graph.
+    await expectGraphAnswerHistory(pageJerry, 'Jerry', tomId);
+    const graphOnHub = events.filter((event) => event.channel.startsWith('gun-ws-') && event.graphSoul);
+    expect(graphOnHub.map((event) => `${event.who} ${event.channel}`), 'a device graph soul crossed the hub').toEqual([]);
   });
 });

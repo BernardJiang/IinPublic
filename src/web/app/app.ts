@@ -1,5 +1,4 @@
 import { User, GPSCoordinate, Talk, type Tag, type KnownPerson, type IpfsAttachment, InteractionKind } from '../../shared/types';
-import { backgroundAnswerRulesFromPreferences } from '../../shared/background-talk-agent';
 import {
   BLOCK_SIGNAL_PAYLOAD_KIND,
   recordBlockSignal,
@@ -49,17 +48,14 @@ import { setCachedLocation } from '../services/location-cache';
 import { boundsContain, type MapBounds } from '../../shared/map-dots';
 import { publicLocationFor, publicLocationWithHysteresis, snapPublicLocation, publicLocationPrecisionMeters, type PublicLocation } from '../../shared/public-location';
 import { isNearbyAudienceCandidate } from '../../shared/nearby-v3-audience';
-import { restoreReceivedTalkHistory } from '../services/talk-history-restorer';
-import { GunChatbotMemoryRepository } from '../services/gun-chatbot-memory-repository';
-import { getAnsweredTalkByContent, getExactChatbotMemory, getFlattenedAnswerPreferences, setExactChatbotMemory } from '../ui/answer-preferences-storage';
-import { runAnswerContextMigration } from '../ui/answer-context-migration';
-import { getMyTalks, setMyTalks } from '../ui/my-talks-storage';
+import { getAnsweredTalkId } from '../ui/answered-talks';
+import { setGraphChatbotSource } from '../ui/graph-chatbot';
+import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
+import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
-import { computeTalkRevisionHash } from '../../shared/talk-revision';
-import { recordTalkRevisionSent, talkRevisionOwedToPeer } from '../services/talk-revision-sent-store';
 import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
-import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings } from '../ui/connectivity-settings';
+import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
 import { WebContentNodeService, type WebContentNode } from '../services/web-content-node-service';
@@ -98,6 +94,8 @@ import {
   type TechSupportIdentity,
 } from '../../shared/system-announcements';
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
+import { graphAnswerHistoryTalkIds, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
+import { getFlatAnswerHistory, getTalkContentKey, setAnswerHistoryCore, setFlatAnswerHistory, upsertFlatAnswerHistory } from '../ui/answer-history-storage';
 import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
@@ -178,7 +176,6 @@ import { uiLanguageFromProfile, uiText, type UiTranslationKey } from '../ui/ui-t
 import { getChatbotTemplates, getMatchCollectionEnabled, getNearbyBluetoothEnabled, getNearbyProviderEnabled, getNearbyWifiDirectEnabled, getUiLanguagePreference, NEARBY_SETTINGS_EVENT, setMatchCollectionEnabled } from '../ui/ui-settings-storage';
 import { discoveryPolicyTimingFromSearch, hubDiscoveryPathAllowed, type DiscoveryNetworkPath } from '../../shared/nearby-discovery-policy';
 import { CONFIG } from '../../shared/config';
-import { buildTalkWakePayload, TALK_WAKE_TTL_MS, TalkWakeThrottle, talkWakeEnvelopeId } from '../../shared/talk-wake';
 import { assignRandomEncounterLocation, deviceHasGps, readDeviceLocation, ENCOUNTER_LOCATION_EVENT, encounterLocationCoordinate, getEncounterLocation, isGpsFixUnavailable, setEncounterLocation, setGpsFixUnavailable, usesSelfDefinedEncounterLocation, type EncounterLocation } from '../services/encounter-location';
 import {
   endMatchCollectionSession,
@@ -219,28 +216,9 @@ import {
 import { createFallbackMeshSession } from '../services/p2p-mesh-session-fallback';
 import { P2PRoomDiscoveryService } from '../services/p2p-room-discovery';
 import type { P2PMeshTalkBodyPayload, P2PMeshTalkResponsePayload, P2PMeshTalkRetractedPayload } from '../../shared/p2p-mesh-protocol';
-import {
-  collectLocalIncomingTalkClusters,
-  mirrorIncomingTalkClustersToLocalGun,
-  subscribeLocalIncomingTalkClusters,
-  upsertLocalIncomingTalkCluster,
-  upsertLocalIncomingTalkClusters,
-} from '../../core/client-incoming-talk-mirror';
+import { mergeIncomingTalkCluster, type IncomingTalkClusterWire } from '../../shared/peer-talk-delivery';
 import { getSEA, type GunPair } from '../sea-gun';
-import {
-  applyTalkLedgerEvent,
-  applyEdgeGateForPeer,
-  shouldSuppressForPeer,
-  getTalkLedgerDoc,
-  connectTalkLedgerCore,
-  commitTalkResponse,
-  recordAuthorAnswer,
-  getResponderVersionForTalk,
-  writeResponderExchangedEntry,
-  getResponderTargetsForIdentity,
-  getResponderLastResponseId,
-  markTalkSentToPeer,
-} from '../services/web-talk-ledger-store';
+import { connectExchangeState, exchangeStateSnapshot, markExchangedForTesting, onExchangeStateChanged, refreshExchangeState } from '../services/exchange-state';
 import { buildTalkIdentityKey } from '../../shared/cid';
 import { applyContactsPrune, getContactsCap, planContactsPrune, unprunePeer } from '../services/contacts-prune';
 import { sharedTagCounter } from '../ui/tag-graph-view';
@@ -253,27 +231,28 @@ import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { classifyMailboxPayload, mailboxSenderId } from '../../core/mailbox-envelope';
-import { authorLedgerWritesFor, exchangeRecordFor } from '../../core/exchange-recording';
+import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
 import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
-import { isIgnoreAnswerSet, isResponseComplete, nextResponseVersion } from '../../core/response-rules';
-import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt, retractionRecipients } from '../../core/retraction';
+import { answeredBeforeFor, isDealEligibleTalk, matchScoreParamsFor, talkRevisionPairKey } from '../../core/talk-rules';
+import { isIgnoreAnswerSet, isResponseComplete } from '../../core/response-rules';
+import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
+import { GraphLinkBridge } from '../services/graph-link-bridge';
+import type { GraphEvent } from '../../core/device-graph/sync/graph-host';
 import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
-import {
-  buildTagIdentityKeys,
-  filterTalkForRecipient,
-  setTalkLedgerQuotaUnlimited,
-  retractedKey as ledgerRetractedKey,
-} from '../../shared/talk-ledger';
+import { filterTalkForRecipient } from '../../shared/tag-identity';
+import { tagAtom } from '../../core/device-graph/exchanged';
 import { getMyConversations } from '../ui/my-conversations-storage';
 
+/** Private records that held Talk bodies before the device graph (erased, never read): the SEA
+ *  Talk copies (authored, received, their index) and the incoming rows envelope. */
+const OLD_TALK_COPY_KEY = /^(talks\/|receivedTalks\/|receivedTalkIndex$|incomingTalkClusters$)/;
 /** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
 const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
 
@@ -325,6 +304,9 @@ const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
 const PRESENCE_REFRESH_MS = 60_000;
 /** On a phone the native mailbox watch wakes a drain; the page's own drain is a safety net. */
 const NATIVE_MAILBOX_SAFETY_DRAIN_MS = 15_000;
+/** A DM that reached neither the peer nor the mailbox exists only here, so keep trying a while. */
+const DM_MAILBOX_POST_ATTEMPTS = 5;
+const DM_MAILBOX_POST_RETRY_MS = 3_000;
 
 /**
  * The room protocol baseline. Outside production a local-debug/E2E capacity (`?e2e_capacity=`)
@@ -431,15 +413,18 @@ export class IinPublicApp {
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
+  private talkSendQuotaUnlimitedForE2e = false;
   private mailboxFallbackDisabledForE2e = false;
   private localNodeBridge: P2PLocalNodeBridgeClient | null = null;
   private peerMeshService: PeerMeshService | null = null;
+  /** OPEN-106 step 3: direct links carry the device graph's Gun (graph-link-bridge.ts). */
+  private graphLinks: GraphLinkBridge | null = null;
+  private readonly graphEventListeners = new Set<(event: GraphEvent) => void>();
   private wifiDirectLinkService: WifiDirectLinkService | null = null;
   private nearbyOfflineService: NearbyOfflineService | null = null;
   /** The hub count revision the last stats poll saw (OPEN-86 E4). */
   private nearbyCountRevisionSeen: number | null = null;
   private activeRoomRoster: { roomId: string; count: number; pubs: string[] } | null = null;
-  private readonly talkWakeThrottle = new TalkWakeThrottle();
   private activeExchangeRoomController: ActiveExchangeRoomController | null = null;
   private protocolManifestController: ProtocolManifestController | null = null;
   private protocolActivationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -542,7 +527,10 @@ export class IinPublicApp {
   };
   private readonly e2eSeededIncomingClusters: any[] = [];
   private readonly e2eSeededTagTalks = new Map<string, any>();
-  private incomingTalkClusterUnsubscribe: (() => void) | null = null;
+  /** Incoming rows of Talks that did not come over a graph link (e2e seeds, native replays): memory only. */
+  private readonly localIncomingClusters = new Map<string, IncomingTalkClusterWire>();
+  /** The incoming list as last shown. */
+  private incomingRows: IncomingTalkClusterWire[] = [];
   private roomDiscoveryService: P2PRoomDiscoveryService | null = null;
   private readonly roomDiscoveredUserIds = new Map<string, Set<string>>();
   /** Room members already scheduled for receiver-scoped historical broadcast catch-up. */
@@ -605,8 +593,8 @@ export class IinPublicApp {
       this.uiManager.updateConversationTransportMode(conversationId, mode, fallbackReason);
     });
     // Phase 4: queue undeliverable DMs to the recipient's offline mailbox.
-    this.conversationService.setMessageUndeliverableHandler((wire, conversationId, recipientUserId) => {
-      void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId).catch(() => {});
+    this.conversationService.setMessageUndeliverableHandler((wire, conversationId, recipientUserId, recipientEpub) => {
+      void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, recipientEpub).catch(() => {});
     });
     if (!this.ledgerService) return;
     const ledger = this.ledgerService;
@@ -1337,14 +1325,6 @@ export class IinPublicApp {
       applyPublicChatroomHierarchy(raw);
     });
     void this.identityLinkService.flushPendingRevocations().catch(() => {});
-    // getPrivate() (used by loadState()) has a hardcoded 4s wait for a lone peer with nothing to
-    // answer it locally — this was blocking every single boot for 4s to restore an auto-reply
-    // memory that has no bearing on whether the app can be used yet. Fire-and-forget: arrives
-    // like email whenever (if) it lands, and updates chatbot memory in place at that point.
-    const durableChatbotMemory = new GunChatbotMemoryRepository(this.gunService);
-    void durableChatbotMemory.loadState().then((restored) => {
-      if (restored) setExactChatbotMemory(restored);
-    }).catch(() => {});
     // Not awaited: one hung request here used to keep boot (and every handler registered after
     // it) from ever finishing (docs/testing/gui-responsiveness-audit.md F1).
     void this.syncConversationTransportFromServer();
@@ -1418,7 +1398,7 @@ export class IinPublicApp {
       const { buildHandoffArchive } = await import('../../shared/device-handoff');
       const pair = this.gunService.getStoredPair?.();
       const sources: Parameters<typeof buildHandoffArchive>[0] = { fromPub: String(pair?.pub || '') };
-      const collect: Array<[import('../../shared/device-handoff').HandoffCategory, () => void]> = [
+      const collect: Array<[import('../../shared/device-handoff').HandoffCategory, () => void | Promise<void>]> = [
         ['profile', () => {
           if (this.currentUser) {
             sources.profile = {
@@ -1436,13 +1416,17 @@ export class IinPublicApp {
           }
         }],
         ['talkFilters', () => { sources.talkFilters = this.currentUser?.talkFilters as any; }],
-        ['answerPreferences', () => { sources.answerPreferences = getExactChatbotMemory() as any; }],
         ['myTalks', () => { sources.myTalks = getMyTalks(); }],
+        // What the chatbot remembers, from the device graph (OPEN-106 step 2e v), by key.
+        ['answerPreferences', async () => {
+          const rows = this.coreRequest ? await this.coreRequest({ name: 'graph.remembered' }) as Array<{ key: string }> : [];
+          if (rows.length) sources.answerPreferences = Object.fromEntries(rows.map((row) => [row.key, row]));
+        }],
         ['conversations', () => { sources.conversations = getMyConversations(); }],
       ];
       for (const [category, fill] of collect) {
         try {
-          fill();
+          await fill();
         } catch {
           /* category unavailable locally — still counts as collected */
         }
@@ -1499,7 +1483,7 @@ export class IinPublicApp {
         const merged = mergeHandoffArchive(archive as any, {
           contacts: (this.currentUser.knownPeople as any) || [],
           talkFilters: this.currentUser.talkFilters as any,
-          answerPreferences: getExactChatbotMemory() as any,
+          answerPreferences: {},
           myTalks: getMyTalks(),
         });
         this.currentUser.knownPeople = merged.contacts as any;
@@ -1509,8 +1493,13 @@ export class IinPublicApp {
           knownPeople: merged.contacts as any,
           talkFilters: merged.talkFilters as any,
         });
-        setExactChatbotMemory(merged.answerPreferences as any);
         setMyTalks(merged.myTalks as any);
+        // The chatbot's answers from the other device go into this device's graph (this one's win).
+        const remembered = Object.values(merged.answerPreferences ?? {}).filter((row: any) => row && typeof row.key === 'string' && Array.isArray(row.answerTexts));
+        if (remembered.length && this.coreRequest) {
+          await this.coreRequest({ name: 'graph.importRemembered', rows: remembered as any })
+            .catch((error) => console.warn('[handoff] chatbot answers not imported:', error));
+        }
         // Imported thread history is read-only (spec §11.2) — never merged into the
         // live conversation store, kept under its own key, additive across imports
         // rather than clobbering a prior import from a different linked device.
@@ -1541,20 +1530,6 @@ export class IinPublicApp {
     } else {
       await this.initializeUser();
     }
-    // Contextual chatbot memory (docs/design/contextual-chatbot-memory.md): one-time, no-
-    // user-interaction resync of the chatbot's answer memory whenever ANSWER_CONTEXT_VERSION
-    // bumps — see answer-context-migration.ts's own header for why this is a full rebuild from
-    // myTalks history rather than an in-place hash conversion. Purely local/synchronous (no Gun
-    // dependency), so it runs right after currentUser is known and before anything reads
-    // flattenedAnswerPreferences; no-ops instantly once the version marker is current.
-    try {
-      const { migratedTalks } = runAnswerContextMigration(this.currentUser?.id);
-      if (migratedTalks > 0) {
-        console.log(`🔄 Chatbot answer memory resynced for ${migratedTalks} saved talk(s) after an answer-context version upgrade.`);
-      }
-    } catch (error) {
-      console.warn('Answer-context migration failed (non-fatal — chatbot will re-ask as needed):', error);
-    }
     // Scenario 2 (§16): kick off this device's build-attestation credential + the verifier's
     // published keys, both fire-and-forget — WebAttestationService's own doc comment explains
     // why this never gates app usability (native bridge call + two network round trips, and the
@@ -1564,15 +1539,6 @@ export class IinPublicApp {
       void this.attestationService.ensureCredential(localPubForAttestation).catch(() => {});
     }
     void this.attestationService.ensureVerifierKeys().catch(() => {});
-    // Rebuilds previously-received Talk UI from a Gun read that, for a lone peer with nothing
-    // local to answer it, pays its own multi-second timeout before giving up (gun-talk-repository
-    // .ts's listReceived → WebGunService.get()). None of this gates whether the app is usable —
-    // it only back-fills a list the user can already see is there once it arrives. Fire-and-forget.
-    void restoreReceivedTalkHistory(
-      this.talkService,
-      (talk) => this.uiManager.displayIncomingTalk(talk),
-    ).catch(() => {});
-
     // Join appropriate chatroom
     await this.initializeChatrooms();
 
@@ -2708,7 +2674,6 @@ export class IinPublicApp {
     // Step 6: drain mailbox on app boot + retry any failed mailbox POSTs.
     void this.drainMailbox().catch(() => {});
     this.startMailboxPolling();
-    void this.retryFailedMailboxPosts().catch(() => {});
     this.resumeDeviceSyncForLinkedPeers();
     this.startDeviceSyncLoop();
   }
@@ -3301,7 +3266,10 @@ export class IinPublicApp {
         // Warm the block-status answer now, so this peer's first Talk does not wait ~1 s on the hub.
         void this.resolveBlockStatusEitherWay(userId).catch(() => undefined);
         this.catchUpPeerInActiveRoom(userId, roomId);
+        void this.graphLinks?.open(userId);
       },
+      onNeighborDisconnected: (userId) => this.graphLinks?.close(userId),
+      onGraphGun: (fromUserId, _fromPub, raw) => this.graphLinks?.hear(fromUserId, raw),
       knockPeer: async (peer) => { await this.nearbyV3?.knock(peer); },
       onNearbyGossip: async (fromUserId, fromPub, message) => this.nearbyV3?.handleGossip(fromUserId, fromPub, message) ?? null,
       personalConcurrency: () => {
@@ -3309,35 +3277,10 @@ export class IinPublicApp {
         return { initial: config.broadcastInitialConcurrency, max: config.broadcastMaxConcurrency };
       },
       onPersonalPeerUnreachable: (_userId, pub) => this.nearbyV3?.unreachable(pub),
-      admitTalkOffer: (authorUserId) => {
-        const contacts = this.currentUser?.knownPeople;
-        if (Array.isArray(contacts) && contacts.some((known) => known?.userId === authorUserId)) return true;
-        return this.incomingTalkBudget.tryAdmit(Date.now());
-      },
       ...(this.protocolManifestController
         ? { protocolManifestController: this.protocolManifestController }
         : {}),
       authoritativeDirectTalkDelivery: this.p2pRuntimeFlags.p2pDirectTalkDelivery,
-      onTalkDeliveryAck: (payload, recipientUserId) => {
-        this.noteNearbyDelivery(payload.talkId, recipientUserId);
-        const deliveredTalk = payload.talkData as unknown as Talk;
-        const wholeIdentityKey = buildTalkIdentityKey(deliveredTalk);
-        const deliveredIdentityKeys = buildTagIdentityKeys(deliveredTalk, wholeIdentityKey);
-        const sentAt = new Date().toISOString();
-        for (const identityKey of deliveredIdentityKeys) {
-          void markTalkSentToPeer({
-            peerId: recipientUserId,
-            identityKey,
-            talkId: payload.talkId,
-            sentAt,
-          }).catch((error) => console.warn('[ledger] delivery acknowledgement commit failed:', error));
-        }
-        recordTalkRevisionSent(
-          recipientUserId,
-          payload.talkId,
-          computeTalkRevisionHash(deliveredTalk),
-        );
-      },
       onProtocolManifestCompatibility: async () => {
         await this.syncActiveRoomProtocolCheckpoint();
       },
@@ -3378,13 +3321,6 @@ export class IinPublicApp {
               }),
           }
         : {}),
-      onTalkBody: (payload) => this.handleMeshTalkBody(payload),
-      onTalkResponse: (payload) => void this.handleMeshTalkResponse(payload).catch((err) => {
-        // The mesh layer has already ACKed the frame by the time this runs — a swallowed
-        // throw here is a silently lost response (observed: author-side decrypt failures
-        // were invisible in every log). Never let ingest failures vanish.
-        console.warn('[MeshResponse] ingest failed for', payload?.responderId, err);
-      }),
       onPing: (fromUserId, _frame) => {
         const diag = this.meshPingDiagnostics;
         diag.lastPingFrom = fromUserId;
@@ -3395,59 +3331,9 @@ export class IinPublicApp {
         diag.lastPongFrom = fromUserId;
         if (!diag.pongedOrigins.includes(fromUserId)) diag.pongedOrigins.push(fromUserId);
       },
-      // Step 2: record announce receipt for durable E2E assertion (meshAnnounceDiagnostics).
-      // Fires before body pull, enabling the test to assert announce reachability without
-      // waiting for the full talk-body-request/talk-body round-trip.
-      onTalkAnnounce: async (payload, _frame) => {
-        const diag = this.meshAnnounceDiagnostics;
-        const alreadyRecorded = diag.received.some(
-          (r) => r.talkId === payload.talkId && r.authorId === payload.authorId,
-        );
-        if (!alreadyRecorded) {
-          diag.received.push({ talkId: payload.talkId, authorId: payload.authorId });
-        }
-        return this.shouldAcceptIncomingTalkAsync({
-          senderId: payload.authorId,
-          talkData: {
-            id: payload.talkId,
-            title: payload.title,
-            type: payload.type,
-            isAdult: payload.isAdult === true,
-            language: payload.language,
-            tags: payload.tags ?? [],
-            questions: [],
-          },
-          ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
-        });
-      },
-      // OPEN-38/G6: mailbox the encrypted body for every pending receiver and send a separate
-      // content-free wake only to peers that look asleep; the authoritative body stays queued.
-      ...(this.p2pRuntimeFlags.p2pDirectTalkDelivery
-        ? {
-            onDirectDeliveryPending: async (
-              payload: P2PMeshTalkBodyPayload,
-              recipientUserIds: string[],
-              wakeRecipientUserIds: string[],
-            ) => {
-              await Promise.all([
-                this.postTalkWakeToMailbox(wakeRecipientUserIds),
-                this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
-              ]);
-            },
-          }
-        : {}),
-      // Mixed-release escape hatch only. The authoritative direct scheduler retains ordinary
-      // Talk bodies in the author's encrypted local outbox until the end receiver ACKs.
-      ...(!this.p2pRuntimeFlags.p2pDirectTalkDelivery
-        ? {
-            onMailboxFallback: (payload: P2PMeshTalkBodyPayload, recipientUserIds: string[]) =>
-              this.postTalkBodyToMailboxForRecipients(payload, recipientUserIds),
-          }
-        : {}),
-      // Step 10: responder side — handle incoming retraction flood frames.
-      onTalkRetracted: (payload) => this.handleMeshTalkRetracted(payload),
     });
     (this as any).peerMeshService = this.peerMeshService;
+    void this.startGraphLinks();
     return this.peerMeshService;
   }
 
@@ -3540,9 +3426,7 @@ export class IinPublicApp {
     const now = Date.now();
     if (!options.ignoreInterval && now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
     const broadcastHere = talksBroadcastInRoom(roomId);
-    // A Talk already queued for this peer is retried by the outbox itself (OPEN-51).
-    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) =>
-      broadcastHere.has(talkId) && !this.peerMeshService?.hasQueuedDirectTalk(peerId, talkId));
+    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) => broadcastHere.has(talkId));
     // A Talk still being broadcast is left to that broadcast; re-check this peer when it settles.
     if (candidates.some((talkId) => this.talkBroadcastsInFlight.has(talkId))) {
       this.catchUpDeferredByInFlight.set(peerId, { roomId, ...(stageName ? { stageName } : {}) });
@@ -3615,7 +3499,6 @@ export class IinPublicApp {
     // may be a sender for whom we have queued envelopes in the mailbox).
     // Also retry failed mailbox POSTs now that network may be available.
     void this.drainMailbox().catch(() => {});
-    void this.retryFailedMailboxPosts().catch(() => {});
   }
 
   // ─── Encrypted offline mailbox — drain-on-connect (Step 6) ───────────────
@@ -3652,8 +3535,7 @@ export class IinPublicApp {
     }
     this.mailboxPollTimer = setInterval(throttleWhileHidden(() => {
       void this.drainMailbox().catch(() => {});
-      void this.retryFailedMailboxPosts().catch(() => {});
-    }, 60_000), native ? NATIVE_MAILBOX_SAFETY_DRAIN_MS : 3_000);
+      }, 60_000), native ? NATIVE_MAILBOX_SAFETY_DRAIN_MS : 3_000);
   }
 
   /**
@@ -3693,8 +3575,9 @@ export class IinPublicApp {
     }).IinPublicBackground;
     if (typeof bridge?.configure !== 'function') return;
     this.nativeBackgroundSyncRunning = true;
-    const flattened = getFlattenedAnswerPreferences();
-    const answerRules = backgroundAnswerRulesFromPreferences(flattened);
+    // The chatbot answers from the device graph now (OPEN-106); the background mailbox agent
+    // is given no rules of its own.
+    const answerRules = {};
     const settings = loadConnectivitySettings();
     const myTalks = getMyTalks();
     const authoredTalks = Object.fromEntries(Object.entries(myTalks)
@@ -3702,7 +3585,7 @@ export class IinPublicApp {
     try {
       bridge.configure(JSON.stringify({
         version: 1,
-        enabled: settings.nearbyMode === 'always',
+        enabled: backgroundTalkAgentEnabled(settings),
         userId: this.currentUser.id,
         stageName: this.currentUser.stageName,
         activeRoomId: this.chatroomService.getCurrentChatroomId?.() || this.currentChatroomId || '',
@@ -3822,7 +3705,6 @@ export class IinPublicApp {
         }
         const payload = await mailbox.decryptEnvelope<
           | P2PMeshTalkResponsePayload
-          | import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload
           | MailboxAttachmentSharePayload
           | MailboxConversationMessagePayload
           | MailboxSupportQuestionPayload
@@ -3853,13 +3735,11 @@ export class IinPublicApp {
             await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
             break;
           case 'talk-body':
-            await this.handleMeshTalkBody(payload as import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload);
+            // Talks travel only over graph links now (OPEN-106): an old envelope is dropped.
             break;
           case 'talk-retraction':
-            await this.handleMeshTalkRetracted(payload as unknown as P2PMeshTalkRetractedPayload);
-            break;
           case 'talk-response':
-            await this.handleMeshTalkResponse(payload as P2PMeshTalkResponsePayload);
+            // Answers and retractions travel only over graph links now (OPEN-106).
             break;
         }
         // Delete only after handler completes without throwing.
@@ -3869,79 +3749,6 @@ export class IinPublicApp {
         console.warn('[Mailbox] Failed to drain envelope', envelope.id, '— will retry on next connect:', err);
         // Leave envelope on server for re-delivery.
       }
-    }
-  }
-
-  /**
-   * OPEN-38: wake receivers whose page is frozen asleep. One content-free encrypted envelope per
-   * receiver per 30 minutes; it reveals only that this sender has something for them.
-   */
-  private async postTalkWakeToMailbox(recipientUserIds: string[]): Promise<void> {
-    const me = this.currentUser?.id;
-    const pair = this.gunService.getStoredPair();
-    if (!me || !pair?.priv || this.mailboxFallbackDisabledForE2e) return;
-    const mailbox = this.ensureMailboxClient();
-    const nowMs = Date.now();
-    for (const recipientId of recipientUserIds) {
-      if (!recipientId || recipientId === me || !this.talkWakeThrottle.shouldWake(recipientId, nowMs)) continue;
-      try {
-        const recipientEpub = await this.resolvePeerEpub(recipientId);
-        if (!recipientEpub) continue;
-        const ciphertext = await mailbox.encryptForRecipient(
-          recipientEpub,
-          pair as import('../sea-gun').GunPair,
-          buildTalkWakePayload(me, new Date(nowMs)),
-        );
-        await mailbox.postEnvelope({
-          id: talkWakeEnvelopeId(me, recipientId, nowMs),
-          recipientId,
-          ciphertext,
-          ttlMs: TALK_WAKE_TTL_MS,
-        });
-      } catch (error) {
-        console.warn('[Mailbox] Failed to post Talk wake ping:', error);
-      }
-    }
-  }
-
-  /**
-   * Post a talk response to the mailbox as a ciphertext-only envelope.
-   * Falls back to localStorage queue only when the mailbox POST itself fails.
-   */
-  private async postToMailbox(payload: P2PMeshTalkResponsePayload): Promise<boolean> {
-    if (this.mailboxFallbackDisabledForE2e) return true;
-    if (!this.currentUser?.id) return false;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return false;
-
-    const authorEpub = await this.resolvePeerEpub(payload.authorId);
-    if (!authorEpub) {
-      console.warn('[Mailbox] Cannot post — author epub not found for', payload.authorId);
-      return false;
-    }
-
-    try {
-      const ciphertext = await mailbox.encryptForRecipient(
-        authorEpub,
-        pair as import('../sea-gun').GunPair,
-        payload,
-      );
-      const envelopeId = `mbx_${payload.responseId}`;
-      const result = await mailbox.postEnvelope({
-        id: envelopeId,
-        recipientId: payload.authorId,
-        ciphertext,
-      });
-      if (result.stored) {
-        console.log('[Mailbox] Posted envelope', envelopeId, 'for author', payload.authorId);
-        return true;
-      }
-      console.warn('[Mailbox] Server rejected envelope:', result.error);
-      return false;
-    } catch (err) {
-      console.warn('[Mailbox] postToMailbox failed:', err);
-      return false;
     }
   }
 
@@ -3956,6 +3763,8 @@ export class IinPublicApp {
     wire: import('../services/gun-message-store').ConversationMessageWire,
     conversationId: string,
     recipientUserId: string,
+    knownEpub?: string,
+    attempt = 1,
   ): Promise<void> {
     if (this.mailboxFallbackDisabledForE2e) return;
     if (!this.currentUser?.id || !recipientUserId || recipientUserId === this.currentUser.id) return;
@@ -3963,11 +3772,8 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return;
     try {
-      const recipientEpub = await this.resolvePeerEpub(recipientUserId);
-      if (!recipientEpub) {
-        console.warn('[Mailbox] Cannot post DM — epub not found for', recipientUserId);
-        return;
-      }
+      const recipientEpub = await this.resolvePeerEpub(recipientUserId, knownEpub);
+      if (!recipientEpub) throw new Error(`epub not found for ${recipientUserId}`);
       const payload: MailboxConversationMessagePayload = {
         kind: 'conversation-message-v1',
         conversationId,
@@ -3982,13 +3788,19 @@ export class IinPublicApp {
         recipientId: recipientUserId,
         ciphertext,
       });
-      if (result.stored) {
-        console.log('[Mailbox] Posted DM envelope', wire.id, 'for', recipientUserId);
-      } else {
-        console.warn('[Mailbox] Server rejected DM envelope:', result.error);
-      }
+      if (!result.stored) throw new Error(`server rejected envelope: ${result.error}`);
+      console.log('[Mailbox] Posted DM envelope', wire.id, 'for', recipientUserId);
     } catch (err) {
-      console.warn('[Mailbox] postConversationMessageToMailbox failed:', err);
+      // The message exists only on this device until this works, so one failure must not end it.
+      if (attempt >= DM_MAILBOX_POST_ATTEMPTS) {
+        console.warn('[Mailbox] Gave up posting DM', wire.id, 'for', recipientUserId, err);
+        this.uiManager.showNotification(this.uiText('conversationDeliveryFailed'), 'error');
+        return;
+      }
+      console.warn('[Mailbox] Retrying DM post', wire.id, err);
+      setTimeout(() => {
+        void this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, knownEpub, attempt + 1);
+      }, DM_MAILBOX_POST_RETRY_MS * attempt);
     }
   }
 
@@ -4330,119 +4142,6 @@ export class IinPublicApp {
     console.log('[Support] Answered and published', input.questionKey);
   }
 
-  /**
-   * R-a step 7: mailbox fallback for talk-body delivery when DataChannel overlay cannot
-   * guarantee full room coverage. Posts an encrypted talk-body envelope per unreachable
-   * recipient. Recipients drain the mailbox on reconnect → flows through the same
-   * intake-filtered `handleMeshTalkBody` accept path.
-   * Best-effort: failures are logged but do not propagate.
-   */
-  private async postTalkBodyToMailboxForRecipients(
-    payload: import('../../shared/p2p-mesh-protocol').P2PMeshTalkBodyPayload,
-    recipientUserIds: string[],
-  ): Promise<void> {
-    if (this.mailboxFallbackDisabledForE2e) return;
-    if (!this.currentUser?.id || recipientUserIds.length === 0) return;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
-    const recipients = [...new Set(recipientUserIds)].filter(
-      (recipientId) => recipientId && recipientId !== this.currentUser?.id,
-    );
-    // The body mailbox post is the delivery backstop when the mesh overlay can't reach a
-    // recipient. Under saturation (20-browser M4) a single epub read or POST can transiently
-    // fail; unlike talk *responses* there was no retry, so that recipient was permanently
-    // skipped and never received the talk. Retry per recipient with backoff. The envelope id is
-    // deterministic, so re-posting is idempotent (server dedupes; receiver dedupes on drain).
-    // This whole method is invoked fire-and-forget from the mesh fallback, so the retries never
-    // delay the broadcast's own completion. The budget must survive a saturation boot storm:
-    // with ~12 browsers starting at once (mass/ specs, busy real deployments), a receiver can
-    // take 20-30s to publish its SEA keys, and the old ~8s budget (6 attempts) gave up forever
-    // — receivers permanently missed the talk. ~45s of capped backoff rides out the storm.
-    const MAX_POST_ATTEMPTS = 12;
-    const concurrency = 5;
-    for (let i = 0; i < recipients.length; i += concurrency) {
-      await Promise.all(recipients.slice(i, i + concurrency).map(async (recipientId) => {
-        for (let attempt = 0; attempt < MAX_POST_ATTEMPTS; attempt += 1) {
-          try {
-            const recipientEpub = await this.resolvePeerEpub(recipientId);
-            if (recipientEpub) {
-              const ciphertext = await mailbox.encryptForRecipient(
-                recipientEpub,
-                pair as import('../sea-gun').GunPair,
-                payload,
-              );
-              const envelopeId = `mbx_body_${payload.talkId}_${this.currentUser?.id}_${recipientId}`;
-              const result = await mailbox.postEnvelope({
-                id: envelopeId,
-                recipientId,
-                ciphertext,
-              });
-              if (result.stored) {
-                console.log('[Mesh/Mailbox] Posted talk-body envelope for', recipientId);
-                return;
-              }
-              console.warn('[Mesh/Mailbox] Server rejected talk-body envelope for', recipientId, ':', result.error);
-            } else {
-              console.warn('[Mesh/Mailbox] epub not found for', recipientId, `(attempt ${attempt + 1})`);
-            }
-          } catch (err) {
-            console.warn('[Mesh/Mailbox] post talk-body failed for', recipientId, `(attempt ${attempt + 1}):`, err);
-          }
-          if (attempt < MAX_POST_ATTEMPTS - 1) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, 400 + attempt * 600)));
-          }
-        }
-        console.warn('[Mesh/Mailbox] gave up posting talk-body for', recipientId, `after ${MAX_POST_ATTEMPTS} attempts`);
-      }));
-    }
-  }
-
-  // ─── localStorage fallback queue (POST-to-mailbox failure only) ──────────
-  //
-  // The STEP-6-REPLACE localStorage queue is now narrowed to a "mailbox POST
-  // itself failed" buffer only — it retries on the next roster-change drain
-  // via retryFailedMailboxPosts.  This covers transient network errors during the
-  // mailbox POST without requiring a new server endpoint or Gun path.
-
-  private static readonly PENDING_MESH_RESPONSES_KEY = 'pendingMeshTalkResponses';
-
-  private enqueueFailedMailboxPost(payload: P2PMeshTalkResponsePayload): void {
-    try {
-      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
-      const queue: Record<string, P2PMeshTalkResponsePayload> = raw ? JSON.parse(raw) : {};
-      const queueKey = `${payload.talkId}::${payload.authorId}::${payload.responseId}`;
-      queue[queueKey] = payload;
-      appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
-      console.log('[Mailbox] Queued failed-POST response for author', payload.authorId, 'key:', queueKey);
-    } catch (err) {
-      console.warn('[Mailbox] Failed to enqueue failed-POST response:', err);
-    }
-  }
-
-  /** Retry pending mailbox POSTs on roster change (transient network error recovery). */
-  private async retryFailedMailboxPosts(): Promise<void> {
-    let queue: Record<string, P2PMeshTalkResponsePayload>;
-    try {
-      const raw = appStorage.getItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY);
-      if (!raw) return;
-      queue = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    const succeeded: string[] = [];
-    for (const [queueKey, payload] of Object.entries(queue)) {
-      const posted = await this.postToMailbox(payload);
-      if (posted) succeeded.push(queueKey);
-    }
-    if (succeeded.length > 0) {
-      for (const k of succeeded) delete queue[k];
-      try {
-        appStorage.setItem(IinPublicApp.PENDING_MESH_RESPONSES_KEY, JSON.stringify(queue));
-      } catch {/* ignore */}
-    }
-  }
-
   private async resolveMeshTalkData(talkId: string): Promise<any | null> {
     const cached = this.peerMeshService?.getCachedTalkBody(talkId);
     if (cached) return cached;
@@ -4466,7 +4165,7 @@ export class IinPublicApp {
 
   private async handleMeshTalkBody(
     payload: P2PMeshTalkBodyPayload,
-    options: { suppressAutoReply?: boolean } = {},
+    options: { suppressAutoReply?: boolean; graphArrival?: { omit?: string[] } } = {},
   ): Promise<boolean> {
     if (!this.currentUser?.id || payload.authorId === this.currentUser.id) return false;
     const activeRoom = this.activeExchangeRoomController?.getActiveRoom();
@@ -4513,19 +4212,20 @@ export class IinPublicApp {
       payload.authorId,
       payload.authorName || 'Unknown',
       talkData,
-      this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {},
+      {
+        ...(this.currentChatroomId ? { deliveryChatroomId: this.currentChatroomId } : {}),
+        ...(options.graphArrival ? { graphArrival: options.graphArrival } : {}),
+      },
     );
     if (!accepted) return false;
     this.processedTalkResponseKeys.add(bodyDedupeKey);
     this.peerMeshService?.cacheTalkBody(payload.talkId, talkData);
-    // Delivery is ACK-eligible only after the receiver's local Gun commit and
-    // repository read-back verification complete.
-    await this.talkService.cacheReceivedTalk(payload.talkId, talkData);
     // OPEN-45: same content already answered from this author → refresh that copy in place.
     const silentUpdate = applyTalkRevisionToAnsweredCopy(talkData, payload.authorId);
+    const chatbotDecision = silentUpdate ? undefined : await this.chatbotReplyDecision(payload.talkId, talkData, payload.authorId);
     this.uiManager.displayIncomingTalk({
       silentUpdate,
-      autoAnsweredByChatbot: !silentUpdate && this.chatbotWillAnswer(payload.talkId, talkData, payload.authorId),
+      autoAnsweredByChatbot: !!chatbotDecision && chatbotWillAct(chatbotDecision),
       id: payload.talkId,
       title: String(payload.title || (talkData as any).title || 'Talk'),
       authorName: payload.authorName || 'Unknown',
@@ -4536,11 +4236,12 @@ export class IinPublicApp {
       fullTalk: talkData,
     });
     if (!options.suppressAutoReply) {
-      this.maybeAutoChatbotReplyToAnnouncer(
+      void this.maybeAutoChatbotReplyToAnnouncer(
         payload.talkId,
         talkData,
         payload.authorId,
         payload.authorName || 'Unknown',
+        chatbotDecision,
       );
     }
     return true;
@@ -4548,7 +4249,13 @@ export class IinPublicApp {
 
   private async handleMeshTalkResponse(
     payload: P2PMeshTalkResponsePayload,
-    context: { collectionSessionId?: string } = {},
+    context: {
+      collectionSessionId?: string;
+      /** A graph answer arrives readable (decrypted by the core from our pair log). */
+      answers?: any[];
+      responderName?: string;
+      isChatbotResponse?: boolean;
+    } = {},
   ): Promise<void> {
     if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
     if (!talkContactPolicyAllowsPeer(
@@ -4562,14 +4269,26 @@ export class IinPublicApp {
     if (this.processedTalkResponseKeys.has(dedupeKey)) return;
     const talkData = await this.resolveMeshTalkData(payload.talkId);
     if (!talkData) return;
-    const decrypted = await this.decryptPairTalkResponsePayload(payload);
+    const decrypted = Array.isArray(context.answers)
+      ? {
+          answers: context.answers,
+          responderName: context.responderName || payload.responderId,
+          isChatbotResponse: context.isChatbotResponse === true,
+        }
+      : await this.decryptPairTalkResponsePayload(payload);
 
     // The decision is the core's (src/core/response-ingest.ts); this method carries it out.
+    const [prior, retractedAt] = this.coreRequest
+      ? await Promise.all([
+        this.coreRequest({ name: 'graph.outcome', talkId: payload.talkId, responderId: payload.responderId }).catch(() => null),
+        this.coreRequest({ name: 'graph.deletedAt', talkId: payload.talkId }).catch(() => null),
+      ])
+      : [null, null];
     const decision = decideResponseIngest({
       talkData,
       answers: decrypted.answers,
-      ledger: getTalkLedgerDoc(),
-      identityKey: buildTalkIdentityKey(talkData),
+      ...(prior ? { prior } : {}),
+      ...(retractedAt !== null ? { retractedAt } : {}),
       responderId: payload.responderId,
       authorId: this.currentUser.id,
       talkId: payload.talkId,
@@ -4577,7 +4296,6 @@ export class IinPublicApp {
       ...(payload.version !== undefined ? { version: payload.version } : {}),
       ...(payload.respondedAt ? { respondedAt: payload.respondedAt } : {}),
       submittedAt: payload.submittedAt,
-      now: new Date().toISOString(),
     });
     if (decision.kind === 'reject') {
       console.debug(`[RESP-INGEST] discarded (${decision.reason}) from ${payload.responderId} v=${payload.version ?? 1}`);
@@ -4873,11 +4591,10 @@ export class IinPublicApp {
   /**
    * Step 10 (author side): hard retraction on delete or tag-uncheck.
    *
-   * 1. Write local tombstone via applyEvent.
-   * 2. Emit TALK_RETRACTED to the audit ledger.
-   * 3. Flood the `talk-retracted` mesh frame to all connected neighbors.
-   * 4. Mailbox-fanout to all known responders so offline holders are reached.
-   * 5. Tear down the author's own conversation view (if matched).
+   * 1. Emit TALK_RETRACTED to the audit ledger.
+   * 2. A deletion event, kept in my graph and sent to everyone who got the Talk over a graph link
+   *    (OPEN-106); answers given before it are discarded.
+   * 3. Tear down the author's own conversation view (if matched).
    */
   private async handleRetractTalk(talkId: string, retractedAt: number): Promise<void> {
     if (!this.currentUser?.id) return;
@@ -4886,34 +4603,18 @@ export class IinPublicApp {
     const attachments = this.getTalkAttachmentsForShare(talkData);
     this.contentNodeService.unpinTalkAttachments(talkId);
 
-    // 1. Write local tombstone (clears outcomes + exchanged for this talkId::authorId).
-    await applyTalkLedgerEvent({
-      kind: 'TALK_RETRACTED',
-      talkId,
-      authorId,
-      retractedAt,
-    });
-
-    // 2. Emit audit ledger event.
+    // 1. Emit audit ledger event.
     this.ledgerEmit(InteractionKind.TALK_RETRACTED, { talkId, retractedAt });
 
-    // 3. Flood the mesh frame.
-    const mesh = this.ensurePeerMeshService();
-    if (mesh) {
-      const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
-      try {
-        await mesh.sendTalkRetraction(retractionPayload);
-      } catch (err) {
-        console.warn('[Retraction] Mesh flood failed (non-fatal):', err);
-      }
+    // 2. OPEN-106: the deletion event, in my graph and to everyone who got this Talk over a link.
+    if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+    if (this.coreRequest) {
+      void this.coreRequest({ name: 'graph.retract', talkId })
+        .then(() => refreshExchangeState())
+        .catch((err) => console.warn('[Retraction] graph deletion failed (non-fatal):', err));
     }
 
-    // 4. Mailbox fanout to known responders.
-    // The ledger already cleared outcomes, so we read from a pre-retraction snapshot:
-    // use the conversations store to enumerate responders.
-    void this.postRetractionToKnownResponders(talkId, authorId, retractedAt).catch(() => {});
-
-    // 5. Author side: tear down any conversations derived from this talkId.
+    // 3. Author side: tear down any conversations derived from this talkId.
     //
     // Skips a conversation whose deal is ALREADY mutually confirmed (§JJ): this same
     // retraction fires as a SIDE EFFECT of maybeFinalizeConfirmedDeal's fallback disabling
@@ -4951,11 +4652,11 @@ export class IinPublicApp {
   }
 
   /**
-   * Step 10 (responder side): handle an incoming `talk-retracted` mesh frame.
+   * Step 10 (responder side): the author deleted a Talk I had (a graph deletion event, applied once
+   * from their log; the graph keeps it, `ix/deleted`).
    *
-   * 1. Write tombstone to local ledger.
-   * 2. Surface "match gone" notice to UI.
-   * 3. Mark any conversations for this talkId::authorId as withdrawn.
+   * 1. Surface "match gone" notice to UI.
+   * 2. Mark any conversations for this talkId::authorId as withdrawn.
    */
   private async handleMeshTalkRetracted(payload: P2PMeshTalkRetractedPayload): Promise<void> {
     if (!this.currentUser?.id) return;
@@ -4963,76 +4664,27 @@ export class IinPublicApp {
 
     // What it changes is the core's (src/core/retraction.ts); read before the tombstone is written.
     const receipt = planRetractionReceipt({
-      ledger: getTalkLedgerDoc(),
       talkId: payload.talkId,
       authorId: payload.authorId,
-      retractedAt: payload.retractedAt,
       myId: this.currentUser.id,
       conversations: this.uiManager.getMyConversations() as Record<string, any>,
       confirmedThisSession: this.mutuallyConfirmedConversationIds,
     });
+    void refreshExchangeState();
 
-    // 1. Write tombstone to local ledger.
-    await applyTalkLedgerEvent({
-      kind: 'TALK_RETRACTED',
-      talkId: payload.talkId,
-      authorId: payload.authorId,
-      retractedAt: payload.retractedAt,
-    });
+    // 1. Surface the retraction (a log entry is applied once).
+    this.uiManager.showNotification(
+      `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
+      'info',
+    );
+    this.contentNodeService.unpinTalkAttachments(payload.talkId);
 
-    // 2. Surface each semantic retraction once. Mesh and mailbox delivery can replay the same
-    // frame; the durable ledger timestamp is the idempotency boundary across reloads too.
-    if (receipt.isNew) {
-      this.uiManager.showNotification(
-        `${payload.authorId} removed a talk — the match is gone · ${new Date(payload.retractedAt).toLocaleTimeString()}`,
-        'info',
-      );
-      this.contentNodeService.unpinTalkAttachments(payload.talkId);
-    }
-
-    // 3. Mark any conversation involving this talkId as withdrawn — unless our own deal on it
+    // 2. Mark any conversation involving this talkId as withdrawn — unless our own deal on it
     // is already mutually confirmed (see handleRetractTalk's matching guard/comment: a
     // finalized match is a successful outcome, never retroactively invalidated by the
     // retraction that produced it).
     if (receipt.withdraw) {
       this.uiManager.markConversationWithdrawn(payload.authorId, payload.talkId, payload.retractedAt);
-    }
-  }
-
-  /**
-   * Step 10: post encrypted retraction envelopes to known responders via the mailbox.
-   * Reads the myConversations store for talkId matches — these are the peers who need
-   * the tombstone but may be offline at the moment of retraction.
-   */
-  private async postRetractionToKnownResponders(
-    talkId: string,
-    authorId: string,
-    retractedAt: number,
-  ): Promise<void> {
-    if (!this.currentUser?.id) return;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
-
-    const responderIds = retractionRecipients(this.uiManager.getMyConversations() as Record<string, any>, talkId, authorId);
-    if (responderIds.length === 0) return;
-
-    const retractionPayload: P2PMeshTalkRetractedPayload = { talkId, authorId, retractedAt };
-    for (const responderId of responderIds) {
-      try {
-        const responderEpub = await this.resolvePeerEpub(responderId);
-        if (!responderEpub) continue;
-        const ciphertext = await mailbox.encryptForRecipient(
-          responderEpub,
-          pair as import('../sea-gun').GunPair,
-          retractionPayload,
-        );
-        const envelopeId = `mbx_retract_${talkId}_${authorId}_${responderId}`;
-        await mailbox.postEnvelope({ id: envelopeId, recipientId: responderId, ciphertext });
-        console.log('[Retraction] Posted mailbox envelope for responder', responderId);
-      } catch (err) {
-        console.warn('[Retraction] Failed to post mailbox envelope for', responderId, ':', err);
-      }
     }
   }
 
@@ -6038,44 +5690,74 @@ export class IinPublicApp {
     );
   }
 
-  private chatbotHasAnswersFor(talkId: string, contentId: string, talkData: any): boolean {
-    return !!this.uiManager.getChatbotTemplate(talkId)
-      || (!!contentId && contentId !== talkId && !!this.uiManager.getChatbotTemplate(contentId))
-      || !!this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+  /**
+   * A reply template saved for this Talk (or its content), if any. A template saved from another
+   * sender's copy of the same content may list the choices in another order: its answers are
+   * carried over by question and choice text, never by id.
+   */
+  private chatbotTemplateFor(talkId: string, talkData: any): { answers: any[]; talkData: any } | null {
+    let saved = this.uiManager.getChatbotTemplate(talkId);
+    if (!saved && talkData) {
+      try {
+        const contentId = computeTalkIdFromTalkData(talkData);
+        saved = contentId && contentId !== talkId ? this.uiManager.getChatbotTemplate(contentId) : null;
+      } catch {
+        saved = null;
+      }
+    }
+    if (!saved || !talkData || !Array.isArray(saved.talkData?.questions)) return saved;
+    const answers: any[] = [];
+    for (const answer of saved.answers || []) {
+      const fromQuestion = saved.talkData.questions.find((q: any) => q?.id === answer?.questionId);
+      const toQuestion = (talkData.questions || []).find((q: any) => String(q?.text || '').trim() === String(fromQuestion?.text || '').trim());
+      const text = String((fromQuestion?.answers || []).find((a: any) => a?.id === answer?.answerId)?.text || '').trim();
+      const match = (toQuestion?.answers || []).find((a: any) => String(a?.text || '').trim() === text);
+      if (!toQuestion || !match) return null; // the template does not fit this Talk
+      const idOf = (id: unknown) => {
+        const choice = String((fromQuestion?.answers || []).find((a: any) => a?.id === id)?.text || '').trim();
+        return (toQuestion.answers || []).find((a: any) => String(a?.text || '').trim() === choice)?.id;
+      };
+      const answerIds = Array.isArray(answer.answerIds) ? answer.answerIds.map(idOf) : undefined;
+      if (answerIds?.some((id: unknown) => !id)) return null;
+      answers.push({ ...answer, questionId: toQuestion.id, answerId: match.id, answerText: match.text, ...(answerIds ? { answerIds } : {}) });
+    }
+    return { answers, talkData };
   }
 
   /**
-   * OPEN-42: true when the chatbot is about to answer this talk on its own, so the user is told
-   * "answered automatically" instead of a "New talk" notice that implies they must act.
+   * The core's rule (src/core/chatbot-reply.ts) over this app's chatbot state: what the graph
+   * chatbot answers (`graph.chatbot`, asked only when the chatbot is on and the Talk is not mine).
    */
-  private chatbotWillAnswer(talkId: string, talkData: any, authorId: string): boolean {
-    return chatbotWillAct(this.chatbotReplyDecision(talkId, talkData, authorId));
-  }
-
-  /** The core's rule (src/core/chatbot-reply.ts) over this app's chatbot state. */
-  private chatbotReplyDecision(talkId: string, talkData: any, authorId: string): ChatbotReplyDecision {
-    return decideChatbotReply(authorId, this.currentUser?.id, {
+  private async chatbotReplyDecision(talkId: string, talkData: any, authorId: string): Promise<ChatbotReplyDecision & { answers?: any[] | null }> {
+    const asks = !!authorId && authorId !== this.currentUser?.id && this.uiManager.getChatbotEnabled()
+      && !this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData));
+    const graph = asks ? await this.uiManager.chatbotAnswersFor(talkData, talkId) : { answers: null, passed: false, answered: false };
+    const decision = decideChatbotReply(authorId, this.currentUser?.id, {
       enabled: () => this.uiManager.getChatbotEnabled(),
       handled: () => this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData)),
       contentId: () => computeTalkIdFromTalkData(talkData),
-      answeredBefore: (contentId) => answeredBeforeFor(contentId, authorId, getAnsweredTalkByContent(), getMyTalks()),
-      hasAnswers: (contentId) => this.chatbotHasAnswersFor(talkId, contentId, talkData),
-      passedTag: () => isPassedTag(talkData, getExactChatbotMemory(), Date.now()),
+      // This version answered already (the graph; an edit is a new version), or this content
+      // for this sender (the app's map).
+      answeredBefore: (contentId) => graph.answered || answeredBeforeFor(contentId, authorId, getAnsweredTalkId, getMyTalk),
+      hasAnswers: () => !!this.chatbotTemplateFor(talkId, talkData) || !!graph.answers?.length,
+      passedTag: () => graph.passed,
     });
+    return { ...decision, answers: graph.answers };
   }
 
   /**
    * When chatbot is on and we have a saved template for this talk, reply once per announcer
    * (e.g. Bob re-broadcasts the same talk Tom created — Jerry auto-replies on first receipt, not only on Gun replay).
    */
-  private maybeAutoChatbotReplyToAnnouncer(
+  private async maybeAutoChatbotReplyToAnnouncer(
     talkId: string,
     talkData: any,
     authorId: string,
     authorName: string,
-  ): void {
+    known?: ChatbotReplyDecision & { answers?: any[] | null },
+  ): Promise<void> {
     const pairKey = talkRevisionPairKey(talkId, authorId, talkData);
-    const decision = this.chatbotReplyDecision(talkId, talkData, authorId);
+    const decision = known ?? await this.chatbotReplyDecision(talkId, talkData, authorId);
     if (decision.act === 'skip') {
       if (decision.reason !== 'self') console.log(`🤖 Chatbot auto-reply skipped: ${decision.reason}`, { talkId, authorId });
       return;
@@ -6097,11 +5779,13 @@ export class IinPublicApp {
     }
     if (decision.act === 'wait') {
       const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
-      if (retries < 6) {
+      // My own answers reach the device graph a moment after they are saved (a Talk I just made
+      // writes its self-answers after the Talk itself): ask again for about ten seconds.
+      if (retries < 20) {
         this.chatbotAutoReplyRetryCountByPair.set(pairKey, retries + 1);
         setTimeout(() => {
-          this.maybeAutoChatbotReplyToAnnouncer(talkId, talkData, authorId, authorName);
-        }, 250);
+          void this.maybeAutoChatbotReplyToAnnouncer(talkId, talkData, authorId, authorName);
+        }, 500);
       } else {
         this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
         console.log('🤖 Chatbot auto-reply skipped: no reusable template', {
@@ -6117,7 +5801,7 @@ export class IinPublicApp {
     this.chatbotAutoReplySentForPair.add(pairKey);
 
     console.log('🤖 Chatbot auto-reply triggered', { talkId, contentId, authorId, authorName });
-    this.tryChatbotReply(talkId, talkData, authorId, authorName);
+    await this.tryChatbotReply(talkId, talkData, authorId, authorName, decision.answers ?? null);
   }
 
   /** Load full talk for an incoming mesh/local announcement. */
@@ -6133,7 +5817,7 @@ export class IinPublicApp {
     if (!this.currentUser?.id) return [];
     // R-a step 7: syncRoomTalkBodyRendezvous removed (Gun p2pMeshTalkBodies/* path deleted).
     // Incoming clusters arrive exclusively via mesh DataChannel push or mailbox drain.
-    const gunClusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
+    const gunClusters = await this.collectIncomingRows();
     const uiClusters = Array.isArray((this.uiManager as any).incomingTalkClusters)
       ? (this.uiManager as any).incomingTalkClusters
       : [];
@@ -6225,6 +5909,23 @@ export class IinPublicApp {
     }
     this.coreRequest = node ?? worker;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
+    // The chatbot and the Preferences dialog read the device graph (OPEN-106 step 2e v).
+    const chatbotCore = this.coreRequest;
+    setGraphChatbotSource(chatbotCore ? (request) => chatbotCore(request) : null);
+    setRememberedAnswersSource(chatbotCore ? (request) => chatbotCore(request) : null);
+    if (chatbotCore) void this.eraseOldChatbotCopies(chatbotCore).catch(() => undefined);
+    // e2e: what the chatbot remembers, read from the graph (the Preferences dialog's list).
+    if (typeof window !== 'undefined') {
+      (window as any).__iinpublic_graph_remembered = () => chatbotCore?.({ name: 'graph.remembered' }) ?? [];
+      (window as any).__iinpublic_graph_chatbot_view = (talk: Record<string, unknown>, mine = false) => chatbotCore?.({ name: 'graph.chatbotView', talk, mine }) ?? null;
+    }
+    if (this.peerMeshService) void this.startGraphLinks();
+    // Diagnostics and e2e: counts of my Talks written into the device graph (OPEN-106), from either host.
+    if (typeof window !== 'undefined') {
+      (window as any).__iinpublic_device_graph_status = () => this.coreRequest?.({ name: 'deviceGraph.status' }) ?? null;
+      // E2E fixtures that write my Talks directly take a graph id for them (OPEN-106 step 2e).
+      (window as any).__iinpublic_new_talk_id = () => this.coreRequest?.({ name: 'graph.newTalkId' }) ?? null;
+    }
   }
 
   /**
@@ -6283,7 +5984,28 @@ export class IinPublicApp {
         try {
           const bridge = this.gunService.isNativeNode() ? undefined : this.gunService.getBridge();
           await Promise.all([connectExchangeCore(link), connectCoreCollections(collections, bridge)]);
-          connectTalkLedgerCore(core, bridge);
+          // Who I already exchanged what with, from the device graph (OPEN-106 step 3).
+          void connectExchangeState(() => core({ name: 'graph.exchangeState' }), bridge);
+          onExchangeStateChanged(() => this.scheduleTalksListRefresh());
+          // The Me tab's answers are the graph's; saving and removing them are core requests.
+          setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
+          setAnswerHistoryCore((request) => core(request));
+          if (typeof window !== 'undefined') {
+            // e2e: the Me tab's history (the graph's, with what this page saved), and seeding it
+            // as the app saves an answer (`answer-history-storage.ts`).
+            (window as any).__iinpublic_answer_history = () => getFlatAnswerHistory();
+            (window as any).__iinpublic_answer_history_seed = (records: Record<string, any>) => {
+              for (const record of Object.values(records)) upsertFlatAnswerHistory(record);
+            };
+            (window as any).__iinpublic_answer_history_clear = () => setFlatAnswerHistory({});
+            // Seeded by a spec's init script before the app was up.
+            const early = (window as any).__iinpublic_pending_answer_history;
+            if (early && typeof early === 'object') {
+              delete (window as any).__iinpublic_pending_answer_history;
+              (window as any).__iinpublic_answer_history_seed(early);
+            }
+          }
+          void refreshGraphAnswerHistory().then((changed) => { if (changed) this.uiManager.displayAnswersList(); }).catch(() => undefined);
           return;
         } catch (error) {
           if (attempt >= 6) {
@@ -6346,14 +6068,14 @@ export class IinPublicApp {
     };
     upsertExchange(exchangeRecordFor(input));
     void this.uiManager.refreshCreatorReplies();
-    const ledger = authorLedgerWritesFor(input, this.currentUser.id);
-    if (!ledger) return;
-    try {
-      void recordAuthorAnswer(ledger.event, ledger.exchanged)
-        .catch((error) => console.warn('[ledger] exchange commit failed:', error));
-    } catch {
-      // Ledger write failures are non-fatal — suppression misses cost one redundant send.
-    }
+    // An open Talks tab shows who matched each Talk (its N3 line): draw it again, once per burst.
+    this.scheduleTalksListRefresh();
+    // How I decided an answer to my Talk (the next one from them is compared with it).
+    const decided = authorOutcomeFor(input);
+    if (!decided || !this.coreRequest) return;
+    void this.coreRequest({ name: 'graph.recordOutcome', ...decided })
+      .then(() => refreshExchangeState())
+      .catch((error) => console.warn('[exchange] outcome record failed:', error));
   }
 
   private async syncDirectPairTalkExchangesForContacts(): Promise<void> {
@@ -6446,6 +6168,188 @@ export class IinPublicApp {
         this.gunService.rememberRosterEpub(id, epub);
       }
     }
+  }
+
+  /**
+   * OPEN-106 step 3: carry the device graph over direct links. Needs the device core, the mesh and
+   * my key pair; a later call (a new mesh, a new user) starts it again.
+   */
+  /** Who my device graph log owes entries to (the latest `owed` event), kept for a new mesh. */
+  private graphOwedPeers: string[] = [];
+
+  private async startGraphLinks(): Promise<void> {
+    this.peerMeshService?.setGraphOwed(this.graphOwedPeers);
+    const core = this.coreRequest;
+    const pair = this.gunService.getStoredPair() as { pub?: string; priv?: string; epub?: string; epriv?: string } | null;
+    const userId = this.currentUser?.id;
+    if (!core || !userId || !pair?.pub || !pair.priv || !pair.epub || !pair.epriv) return;
+    if (!this.graphEventListeners.size) this.graphEventListeners.add((event) => this.handleGraphEvent(event));
+    this.graphLinks ||= new GraphLinkBridge({
+      core,
+      mesh: () => this.peerMeshService,
+      keys: async (peerUserId) => {
+        const pub = this.peerMeshService?.neighborPub(peerUserId);
+        if (!pub) return null;
+        const epub = await this.resolvePeerEpub(peerUserId).catch(() => '');
+        return epub ? { pub, epub } : null;
+      },
+      onEvent: (event) => {
+        for (const listener of this.graphEventListeners) listener(event);
+        if (typeof window !== 'undefined') {
+          const page = window as any;
+          (page.__iinpublic_graph_events ||= []).push({ ...event, at: Date.now() });
+        }
+      },
+      log: (message) => console.warn(message),
+    });
+    try {
+      await this.graphLinks.start({ userId, pair: { pub: pair.pub, priv: pair.priv, epub: pair.epub, epriv: pair.epriv } });
+      if (typeof window !== 'undefined') {
+        (window as any).__iinpublic_graph_status = () => this.coreRequest?.({ name: 'graph.status' }) ?? null;
+        (window as any).__iinpublic_graph_answer_history = () => this.coreRequest?.({ name: 'graph.answerHistory' }) ?? [];
+        (window as any).__iinpublic_graph_me_talks = () => graphAnswerHistoryTalkIds();
+      }
+      // The Me tab reads my answers from the graph (OPEN-106 step 1 of the switch-over).
+      setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
+      // New Talks are known by their graph id from the start (OPEN-106 step 2e), and their bodies
+      // are read from the graph.
+      this.talkService.setNewTalkIdSource(() => core({ name: 'graph.newTalkId' }));
+      this.talkService.setGraphTalkSource((talkId) => core({ name: 'graph.talkBody', talkId }));
+      void this.eraseOldTalkCopies(core).catch(() => undefined);
+      this.watchGraphStorage();
+    } catch (error) {
+      console.warn('[graph-link] could not start:', error);
+    }
+  }
+
+  /**
+   * OPEN-106 step 3: a Talk that arrived over a graph link goes through the same intake, incoming
+   * list and chatbot as one that arrived in a Talk frame, under its graph id (OPEN-106 step 2e).
+   */
+  private handleGraphEvent(event: GraphEvent): void {
+    if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.peerMeshService?.setGraphOwed(event.peers); return; }
+    if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
+    if (event.type === 'answer-deleted') { this.handleGraphAnswerDeleted(event.appTalkId ?? event.talkId, event.from); return; }
+    if (event.type === 'talk-deleted') {
+      void this.handleMeshTalkRetracted({ talkId: event.talkId, authorId: event.from, retractedAt: event.when ?? Date.now() })
+        .catch((error) => console.warn('[graph-link] retraction failed:', error))
+        .finally(() => this.scheduleIncomingRefresh());
+      return;
+    }
+    if (event.type !== 'talk' || !event.talk) return;
+    const context = event.context ?? {};
+    let talk = event.talk as Record<string, any>;
+    // Tags I already exchanged with the author are left out of what I am asked (REQ-LEDGER-16).
+    if (Array.isArray(context.omit) && context.omit.length) {
+      const trimmed = filterTalkForRecipient(talk, new Set(context.omit.map(String)));
+      if (!trimmed) return;
+      talk = trimmed.filtered as Record<string, any>;
+    }
+    const appTalkId = event.talkId;
+    // Nearby receiving limit: Talks from strangers beyond the per-minute budget are not shown.
+    const contacts = this.currentUser?.knownPeople;
+    // A Talk my intake refuses is declined to its author (their record of passing it to me goes,
+    // so it can come again once my filters or my age verification allow it).
+    const decline = () => { void this.coreRequest?.({ name: 'graph.declineArrival', talkId: event.talkId, from: event.from }).catch(() => undefined); };
+    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) { decline(); return; }
+    const authorName = String(context.authorName || talk.authorName || 'Unknown');
+    const payload = {
+      roomId: typeof context.roomId === 'string' ? context.roomId : '',
+      broadcastAt: typeof context.broadcastAt === 'string' ? context.broadcastAt : new Date().toISOString(),
+      talkId: appTalkId,
+      authorId: event.from,
+      authorName,
+      title: String(talk.title || 'Talk'),
+      ...(typeof talk.type === 'string' ? { type: talk.type } : {}),
+      questionCount: Array.isArray(talk.questions) ? talk.questions.length : 0,
+      isAdult: talk.isAdult === true,
+      ...(typeof talk.language === 'string' ? { language: talk.language } : {}),
+      ...(Array.isArray(talk.tags) ? { tags: talk.tags } : {}),
+      talkData: { ...talk, id: appTalkId, authorId: event.from, authorName },
+    } as unknown as P2PMeshTalkBodyPayload;
+    // The same receipt record a Talk frame's announce leaves (e2e and diagnostics read it).
+    const diag = this.meshAnnounceDiagnostics;
+    if (!diag.received.some((r) => r.talkId === appTalkId && r.authorId === event.from)) diag.received.push({ talkId: appTalkId, authorId: event.from });
+    const omit = Array.isArray(context.omit) ? context.omit.map(String) : [];
+    void this.handleMeshTalkBody(payload, { graphArrival: { omit } })
+      .then((accepted) => { if (!accepted) decline(); })
+      .catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
+  }
+
+  /**
+   * The device graph's 1 GB limit (owner decision 2026-11-03): warn once when the store is nearly
+   * full, and again when it is full and refuses what others send. Checked every 10 minutes.
+   */
+  private graphStorageWatch: ReturnType<typeof setInterval> | null = null;
+  private graphStorageWarned: string | null = null;
+  private watchGraphStorage(): void {
+    if (this.graphStorageWatch) return;
+    const check = async () => {
+      const status = await this.coreRequest?.({ name: 'graph.status' }).catch(() => null) as { storage?: { level?: string; usedBytes?: number } } | null;
+      const level = status?.storage?.level;
+      if ((level !== 'near' && level !== 'full') || this.graphStorageWarned === level) return;
+      this.graphStorageWarned = level;
+      const usedMb = Math.round((status?.storage?.usedBytes ?? 0) / 1_000_000);
+      const message = uiText(getUiLanguagePreference(uiLanguageFromProfile(this.currentUser?.languages)), level === 'full' ? 'graphStorageFull' : 'graphStorageNear').replace('{count}', String(usedMb));
+      this.uiManager.showNotification(message, 'warning');
+    };
+    void check();
+    this.graphStorageWatch = setInterval(() => { void check(); }, 600_000);
+  }
+
+  /** Someone answered my Talk over a graph link: the same ingest as a response frame's. */
+  /**
+   * Someone deleted their answer to my Talk (owner decision 2026-11-03: deletions propagate). The
+   * core already dropped how I decided it (`ix/outcome`); a conversation that came through it is
+   * withdrawn, unless our deal on it was confirmed by both.
+   */
+  private talksListRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private scheduleTalksListRefresh(): void {
+    if (this.talksListRefreshTimer) return;
+    this.talksListRefreshTimer = setTimeout(() => {
+      this.talksListRefreshTimer = null;
+      if (document.getElementById('talks-view')?.classList.contains('active')) this.uiManager.displayTalksList();
+    }, 300);
+  }
+
+  private handleGraphAnswerDeleted(talkId: string, from: string): void {
+    const me = this.currentUser?.id;
+    if (!me || !from || from === me) return;
+    const now = Date.now();
+    const conversations = this.uiManager.getMyConversations() as Record<string, any>;
+    for (const [conversationId, conv] of Object.entries(conversations)) {
+      if (conv?.otherUserId !== from || !conversationReferencesTalk(conv, talkId)) continue;
+      if (this.mutuallyConfirmedConversationIds.has(conversationId) || isDealMutuallyConfirmed(conv, me, from)) continue;
+      this.uiManager.markConversationWithdrawn(from, talkId, now, 'answer-deleted');
+    }
+    this.uiManager.showNotification(this.uiManager.formatAnswerDeletedByPeer(from), 'info');
+    void refreshExchangeState();
+    void this.uiManager.refreshCreatorReplies();
+    this.uiManager.displayTalksList();
+  }
+
+  private handleGraphAnswer(event: Extract<GraphEvent, { type: 'answer' }>): void {
+    const me = this.currentUser?.id;
+    const context = event.context ?? {};
+    if (!me || !event.answers) return;
+    const at = new Date(event.when ?? Date.now()).toISOString();
+    const payload = {
+      responseId: typeof context.responseId === 'string' ? context.responseId : event.eventId,
+      talkId: event.appTalkId ?? event.talkId,
+      authorId: me,
+      responderId: event.from,
+      submittedAt: typeof context.submittedAt === 'string' ? context.submittedAt : at,
+      respondedAt: typeof context.respondedAt === 'string' ? context.respondedAt : at,
+      version: typeof context.version === 'number' ? context.version : 1,
+      encryption: 'sea-ecdh-v1',
+      payloadCiphertext: '',
+      transportMode: 'mesh-p2p',
+    } as P2PMeshTalkResponsePayload;
+    void this.handleMeshTalkResponse(payload, {
+      answers: event.answers,
+      responderName: String(context.responderName || event.from),
+      isChatbotResponse: context.isChatbotResponse === true || event.mode === 'chatbot',
+    }).catch((error) => console.warn('[graph-link] answer ingest failed:', error));
   }
 
   private async resolvePeerEpub(peerUserId: string, hint?: string): Promise<string> {
@@ -6548,21 +6452,16 @@ export class IinPublicApp {
    * Auto-reply to a talk using saved template (chatbot). Puts response to Gun and creates
    * responder's conversation so the author will receive the match and see bot icon.
    */
-  private tryChatbotReply(
+  private async tryChatbotReply(
     talkId: string,
     talkData: any,
     authorId: string,
     authorName: string,
-  ): void {
-    let template = this.uiManager.getChatbotTemplate(talkId);
+    graphAnswers: any[] | null = null,
+  ): Promise<void> {
+    let template = this.chatbotTemplateFor(talkId, talkData);
     if (!template && talkData) {
-      const cid = computeTalkIdFromTalkData(talkData);
-      if (cid && cid !== talkId) {
-        template = this.uiManager.getChatbotTemplate(cid);
-      }
-    }
-    if (!template && talkData) {
-      const built = this.uiManager.tryBuildChatbotAnswersFromFlattened(talkData);
+      const built = graphAnswers ?? (await this.uiManager.chatbotAnswersFor(talkData, talkId)).answers;
       if (built && built.length > 0) {
         template = { answers: built, talkData };
       }
@@ -6590,7 +6489,7 @@ export class IinPublicApp {
     const outcome = checkIfMatch(
       talkData,
       template.answers,
-      this.resolveResponderSelfTagForAnswers(talkData, template.answers),
+      await this.resolveResponderSelfTagForAnswers(talkData, template.answers),
     ) ? 'match' : 'mismatch';
     this.uiManager.recordChatbotAnsweredTalk({ ...talkData, id: talkId, authorId }, template.answers, outcome);
   }
@@ -6635,7 +6534,6 @@ export class IinPublicApp {
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
     eligibleReceiverIds?: string[],
-    deliveryOptions: { skipAcknowledgements?: boolean } = {},
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
@@ -6658,82 +6556,6 @@ export class IinPublicApp {
     );
     if (receiverIds.length === 0) return false;
 
-    // Step 8.2 / Step 11.3: sender-side per-identity suppression.
-    // For tag talks: compute suppressed identity keys per recipient and deliver a
-    // filtered talk body (only non-exchanged answers). For flow/survey/route: whole-talk
-    // suppression unchanged (no independent atoms).
-    // NOTE: flood frames reach everyone by design; suppression applies only to the
-    // directed recipientUserIds list used for announce/body delivery.
-    const wholeTalkIdentityKey = buildTalkIdentityKey(talk);
-    const identityKeys = buildTagIdentityKeys(talk, wholeTalkIdentityKey);
-    const isTagTalk = talk.type === 'tag' && identityKeys.length > 1;
-    const nowMs = Date.now();
-    const talkRevision = computeTalkRevisionHash(talk);
-
-    // Build per-recipient delivery plan:
-    //   null    → skip entirely (all identities suppressed or edge gated)
-    //   talk    → deliver unmodified talk (no suppression)
-    //   filtered → deliver tag-filtered version (partial suppression)
-    // docs/TODO.md §W Gap 2 — `sentIdentityKeys` is the set actually delivered to this
-    // recipient (identityKeys minus whatever was suppressed), recorded to the ledger's
-    // `sent` set once the send actually happens below, so a future send suppresses on our
-    // own outbound record, not just on the recipient's answer coming back.
-    type DeliveryPlan = { recipientId: string; talkPayload: typeof talk; sentIdentityKeys: string[] };
-    const plans: DeliveryPlan[] = [];
-
-    for (const recipientId of receiverIds) {
-      // Compute which identity keys are suppressed for this recipient.
-      const suppressedSet = new Set<string>();
-      if (!this.talkLedgerSuppressionDisabledForE2e) {
-        for (const ik of identityKeys) {
-          if (shouldSuppressForPeer(recipientId, ik)) suppressedSet.add(ik);
-        }
-      }
-
-      // If ALL identity keys suppressed → skip recipient entirely — unless the peer holds an older
-      // revision of the same content (title/routing edit, OPEN-45): then re-send it whole as an
-      // in-place update.
-      let revisionUpdate = false;
-      if (suppressedSet.size === identityKeys.length) {
-        if (!talkRevisionOwedToPeer(recipientId, talkId, talkRevision, { baselineIfUnknown: true })) {
-          console.debug(`[Ledger] Suppressing talk deliver to ${recipientId} for all identityKey(s) ${identityKeys.join(',')} — already exchanged`);
-          continue;
-        }
-        revisionUpdate = true;
-        console.debug(`[Ledger] Re-sending ${talkId} to ${recipientId} — title/routing updated in place`);
-      }
-
-      // Step 8.3: client per-edge cooldown/quota gate.
-      const gate = await applyEdgeGateForPeer(recipientId, nowMs, talkId);
-      if (!gate.ok) {
-        console.debug(`[Ledger] Edge gate rejected deliver to ${recipientId}: ${gate.rejectedBy.join(',')}`);
-        continue;
-      }
-
-      const sentIdentityKeys = revisionUpdate ? identityKeys : identityKeys.filter((ik) => !suppressedSet.has(ik));
-
-      if (isTagTalk && suppressedSet.size > 0 && !revisionUpdate) {
-        // Partial suppression for tag talk: deliver filtered body.
-        const filterResult = filterTalkForRecipient(talk, suppressedSet);
-        if (!filterResult) {
-          // filterTalkForRecipient returns null when all remaining are also suppressed (edge case).
-          console.debug(`[Ledger] filterTalkForRecipient returned null for ${recipientId} — skipping`);
-          continue;
-        }
-        const filteredTalk = { ...filterResult.filtered, id: talkId, authorId: me.id } as typeof talk;
-        plans.push({ recipientId, talkPayload: filteredTalk, sentIdentityKeys });
-        console.debug(`[Ledger] Partial tag suppression for ${recipientId}: delivering ${(filteredTalk.questions ?? []).length > 0 ? ((filteredTalk.questions as any[])[0]?.answers?.length ?? '?') : '?'} of ${identityKeys.length} tags`);
-      } else {
-        // No suppression (or non-tag talk with no suppression): deliver unmodified.
-        plans.push({ recipientId, talkPayload: { ...talk, id: talkId, authorId: me.id }, sentIdentityKeys });
-      }
-    }
-
-    if (plans.length === 0) {
-      console.debug(`[Ledger] All recipients suppressed or gated for talkId=${talkId}, skipping broadcastTalk`);
-      return true; // return true so the caller counts this as "sent" (suppression is silent)
-    }
-
     const mesh = this.ensurePeerMeshService();
     if (!mesh) return false;
     const chatroomId = this.chatroomService.getCurrentChatroomId();
@@ -6745,56 +6567,31 @@ export class IinPublicApp {
       ]);
     }
     // R-f step 7: author-side Gun talks/* mirror removed; body cached in PeerMeshService directly.
-    // Cache the full (unfiltered) talk body so body-request fallbacks get the complete talk.
     mesh.cacheTalkBody(talkId, talk as unknown as Record<string, unknown>);
 
-    // Group plans by talkPayload identity to minimise frame count:
-    //   - Recipients that get the full unfiltered talk can share one broadcast call.
-    //   - Recipients that get different filtered versions each need a directed send.
-    const fullTalkPayload = JSON.stringify({ ...talk, id: talkId, authorId: me.id });
-    const fullRecipients = plans
-      .filter((p) => JSON.stringify(p.talkPayload) === fullTalkPayload)
-      .map((p) => p.recipientId);
-    const filteredPlans = plans.filter((p) => JSON.stringify(p.talkPayload) !== fullTalkPayload);
-
-    let announceCount = 0;
-    const acceptedRecipientIds = new Set<string>();
-    // Deliver full-talk recipients in one broadcast (batched).
-    if (fullRecipients.length > 0) {
-      const acknowledged = await mesh.broadcastTalk({ ...talk, id: talkId, authorId: me.id }, {
-        recipientUserIds: fullRecipients,
-        roomBroadcast: true,
-        ...(deliveryOptions.skipAcknowledgements ? { skipAcknowledgements: true } : {}),
-      });
-      for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
-      announceCount += fullRecipients.length;
+    // OPEN-106: over graph links when they run. The Talk is written once as encrypted nodes and
+    // each recipient's offer waits in our pair log until they are connected (D2). The core decides
+    // per recipient (REQ-LEDGER-16, step 3): someone who has this version, or every part of it, is
+    // skipped; a tag Talk leaves out the tags they have (`omit`, their app trims them); the daily
+    // and weekly send limits apply. There are no Talk frames: it goes over links or stays pending.
+    if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+    if (!this.coreRequest || !this.graphLinks?.isRunning()) {
+      console.warn(`[graph-link] links are not running: ${talkId} stays pending`);
+      return false;
     }
-    // Deliver per-recipient filtered talk (directed sends, one per distinct filtered body).
-    for (const plan of filteredPlans) {
-      const acknowledged = await mesh.broadcastTalk(plan.talkPayload, {
-        recipientUserIds: [plan.recipientId],
-        roomBroadcast: false,
-      });
-      for (const recipientId of acknowledged) acceptedRecipientIds.add(recipientId);
-      announceCount += 1;
-    }
-
-    // Record only delivery that the recipient accepted and acknowledged. Transport attempts
-    // rejected by intake policy (for example, an adult talk before age verification) deliberately
-    // receive no ACK and must remain eligible after that policy changes. The accepted-delivery
-    // record still suppresses repeats before an answer comes back.
-    const sentAtIso = new Date(nowMs).toISOString();
-    for (const plan of plans) {
-      if (!acceptedRecipientIds.has(plan.recipientId)) continue;
-      this.noteNearbyDelivery(talkId, plan.recipientId);
-      for (const ik of plan.sentIdentityKeys) {
-        await markTalkSentToPeer({ peerId: plan.recipientId, identityKey: ik, talkId, sentAt: sentAtIso });
-      }
-      recordTalkRevisionSent(plan.recipientId, talkId, talkRevision);
-    }
-
-    const suppressedCount = receiverIds.length - plans.length;
-    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${announceCount} (suppressed=${suppressedCount}, partialFiltered=${filteredPlans.length})`);
+    const offer = await this.coreRequest({
+      name: 'graph.offer', talkId, recipients: receiverIds, talk: { ...talk, id: talkId, authorId: me.id } as Record<string, unknown>,
+      // What the receiver's intake checks besides the Talk: which broadcast this is.
+      context: { roomId: chatroomId ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+      ...(this.talkLedgerSuppressionDisabledForE2e ? { suppress: false } : {}),
+      ...(this.talkSendQuotaUnlimitedForE2e ? { unlimitedForTesting: true } : {}),
+    }).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
+    if (!offer?.known) return false;
+    for (const recipientId of offer.sent) this.noteNearbyDelivery(talkId, recipientId);
+    void refreshExchangeState();
+    const skipped = Object.entries(offer.skipped);
+    if (skipped.length) console.debug(`[exchange] ${talkId} not sent to ${skipped.map(([peer, reason]) => `${peer} (${reason})`).join(', ')}`);
+    console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${offer.sent.length} (suppressed=${skipped.length}, partialFiltered=${Object.keys(offer.omitted).length})`);
     return true;
   }
 
@@ -6883,7 +6680,7 @@ export class IinPublicApp {
     senderId: string,
     senderName: string,
     talkData: any,
-    opts: { deliveryChatroomId?: string } = {},
+    opts: { deliveryChatroomId?: string; graphArrival?: { omit?: string[] } } = {},
   ): Promise<boolean> {
     if (!this.currentUser) return false;
     if (
@@ -6896,43 +6693,17 @@ export class IinPublicApp {
       return false;
     }
 
-    const cluster = await upsertLocalIncomingTalkCluster(
-      this.gunService,
-      this.currentUser.id,
-      {
-        talkId,
-        talkData: talkData as Record<string, unknown>,
-        senderId,
-        senderName,
-      },
-      this.p2pRuntimeFlags,
-    );
-    this.mergeIncomingClusterIntoUi([cluster]);
-
-    // Step 9: write responder-side exchanged entry so change-of-mind fanout can
-    // enumerate all senders of this identity.  Written here (on talk acceptance)
-    // so the sender list is populated before any submitTalkResponsePairDirect call.
-    // role:'responder' + version:0 means "received but not yet answered".
-    // submitTalkResponsePairDirect will overwrite with the actual version on answer.
-    try {
-      const identityKey = buildTalkIdentityKey(talkData);
-      const existingVersion = getResponderVersionForTalk(identityKey, senderId);
-      if (existingVersion === 0) {
-        // Only seed the sender record if not yet answered (version 0 = no prior answer)
-        await writeResponderExchangedEntry({
-          authorId: senderId,
-          identityKey,
-          talkId,
-          authorName: senderName,
-          authorEpub: String(talkData?.authorEpub || talkData?.senderEpub || ''),
-          outcome: 'no-reply',
-          version: 0,
-          responseId: '',
-          respondedAt: new Date().toISOString(),
-        });
-      }
-    } catch {
-      // Non-fatal: fanout may miss this sender on first change-of-mind attempt
+    const delivery = { talkId, talkData: talkData as Record<string, unknown>, senderId, senderName };
+    if (opts.graphArrival && this.coreRequest) {
+      // A graph arrival: the core lists it from the graph (OPEN-106 step 2e); the row is shown now
+      // and the list is read again shortly.
+      const omit = opts.graphArrival.omit;
+      await this.coreRequest({ name: 'graph.acceptArrival', talkId, from: senderId, senderName, ...(omit?.length ? { omit } : {}) });
+      const key = mergeIncomingTalkCluster(null, delivery).identityKey;
+      this.mergeIncomingClusterIntoUi([mergeIncomingTalkCluster(this.incomingRows.find((row) => row.identityKey === key), delivery)]);
+      this.scheduleIncomingRefresh();
+    } else {
+      this.mergeIncomingClusterIntoUi(this.mergeLocalIncoming([delivery]));
     }
 
     return true;
@@ -6951,6 +6722,8 @@ export class IinPublicApp {
    */
   private async handleTalkCompleted(data: {
     talkId: string;
+    /** The My Talks row holding this answer when it differs (the same content answered before). */
+    localTalkId?: string;
     answers: any[];
     talkData?: any;
     isChatbotResponse?: boolean;
@@ -6966,7 +6739,7 @@ export class IinPublicApp {
     const isChatbot = !!data.isChatbotResponse;
     const locallyLooksLikeMatch =
       !!data.talkData &&
-      checkIfMatch(data.talkData, data.answers, this.resolveResponderSelfTagForAnswers(data.talkData, data.answers));
+      checkIfMatch(data.talkData, data.answers, await this.resolveResponderSelfTagForAnswers(data.talkData, data.answers));
     const isE2eLocalOnlyReject =
       data.talkData?.e2eLocalOnlyReject === true &&
       !locallyLooksLikeMatch &&
@@ -7001,7 +6774,7 @@ export class IinPublicApp {
           await this.userService.syncQuestionAnswersFromTalkCompletion(
             data.talkData,
             data.answers,
-            this.uiManager.getAnswerPreferencesSnapshot(),
+            {},
             pair,
           );
         } catch (syncErr) {
@@ -7049,6 +6822,7 @@ export class IinPublicApp {
     if (data.talkData?.authorId && data.talkData.authorId !== this.currentUser?.id) {
       await this.submitTalkResponsePairDirect({
         talkId: data.talkId,
+        ...(data.localTalkId && data.localTalkId !== data.talkId ? { localTalkId: data.localTalkId } : {}),
         talkData: data.talkData,
         answers: data.answers,
         isChatbotResponse: isChatbot,
@@ -7062,8 +6836,29 @@ export class IinPublicApp {
     // If no authorId (e.g. self-test or malformed talk), no-op: mesh delivery requires an author.
   }
 
+  /** The My Talks row already holding my answer to this content (`answered-talks.ts`), if any. */
+  private answeredRowFor(talkData: any): string | undefined {
+    try { return getAnsweredTalkId(getTalkContentKey(talkData)); } catch { return undefined; }
+  }
+
+  /** Everyone else who sent me this Talk's content: the other senders on its incoming row. */
+  private otherSendersOf(talkId: string, authorId: string): Array<{ senderId: string; senderName: string; talkId: string }> {
+    const row = this.incomingRows.find((r) => r.latestTalkId === talkId || Object.values(r.talkIds ?? {}).includes(talkId)
+      || Object.values(r.senders ?? {}).some((sender) => sender.lastTalkId === talkId));
+    if (!row) return [];
+    return Object.values(row.senders ?? {})
+      .filter((sender) => sender.senderId && sender.senderId !== authorId && sender.senderId !== this.currentUser?.id)
+      .map((sender) => ({ senderId: sender.senderId, senderName: sender.senderName, talkId: sender.lastTalkId || talkId }));
+  }
+
   private async submitTalkResponsePairDirect(params: {
     talkId: string;
+    /**
+     * The My Talks row this answer is kept in, when the same content was answered before under
+     * another Talk (one row, answered once): the exchange is recorded against it, so a person's
+     * Talks lead to that row. `talkId` is still the Talk answered and sent.
+     */
+    localTalkId?: string;
     talkData: any;
     answers: any[];
     isChatbotResponse: boolean;
@@ -7078,19 +6873,6 @@ export class IinPublicApp {
       this.currentUser.knownPeople,
       this.roomTravelerIds,
     )) return;
-    // Persist exact-answer memory and provenance privately before any chatbot/manual
-    // response can leave this device. Public offers never subscribe to this path.
-    try {
-      await new GunChatbotMemoryRepository(this.gunService).saveState(
-        getExactChatbotMemory(),
-        params.isChatbotResponse ? 'chatbot-reuse' : 'human',
-      );
-    } catch (error) {
-      // Exact-answer memory is already durable in the device-local store. A transient SEA
-      // conflict while backing it up to the private Gun namespace must not suppress the talk
-      // response itself; a later completion rewrites both per-question state and the snapshot.
-      console.warn('Private chatbot-memory backup failed (non-fatal):', error);
-    }
     // docs/TODO.md §W Gap 2 completeness note: a survey response that hasn't answered every
     // question is not yet "done" on the responder's side — the sender must not receive it and
     // must go on treating it as not-yet-answered (no ledger write, no mesh send). This is the
@@ -7112,7 +6894,7 @@ export class IinPublicApp {
     const isMatch = checkIfMatch(
       params.talkData,
       params.answers,
-      this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
+      await this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
     );
     const isIgnore = isIgnoreAnswerSet(params.answers);
     // R-1: CIDv1 response id — REQ-LEDGER-04/12 (replaces resp_<ts>_<rand> non-deterministic id)
@@ -7124,15 +6906,11 @@ export class IinPublicApp {
     });
     const submittedAt = new Date().toISOString();
 
-    // Step 9: monotonic version bump (REQ-LEDGER-04).
-    // The identityKey is the content-hash of the talk (same for all senders of identical content).
-    // We look up the prior version we sent for this (identityKey, authorId) pair.
-    const wholeTalkIdentityKey = buildTalkIdentityKey(params.talkData);
-    const priorVersion = getResponderVersionForTalk(wholeTalkIdentityKey, params.authorId);
-    const priorResponseId = getResponderLastResponseId(wholeTalkIdentityKey, params.authorId);
-    let isContentChange = priorResponseId !== null && priorResponseId !== responseId;
-    let newVersion = nextResponseVersion(priorResponseId, priorVersion, responseId);
-    const respondedAt = submittedAt; // first answer: respondedAt == submittedAt; supersession: now
+    // Step 9: monotonic version bump (REQ-LEDGER-04). The core commits each answer against my
+    // last answer to that author's Talk (`response.commit`, `ix/responded`); the primary author's
+    // commit sets these.
+    let isContentChange = false;
+    let newVersion = 1;
 
     const skipE2eLocalOnlyReject =
       process.env.DISABLE_HMR === 'true' &&
@@ -7173,13 +6951,13 @@ export class IinPublicApp {
         console.warn(`[Step9] Failed to encrypt response for ${targetAuthorId}:`, err);
         return;
       }
-      const committed = await commitTalkResponse({
+      const committed = await this.coreRequest!({ name: 'response.commit', input: {
         talkId: targetTalkId, talkData: params.talkData, answers: params.answers,
         authorId: targetAuthorId, authorName: targetAuthorName, authorEpub,
         responderId: this.currentUser!.id, responderEpub: this.gunService.getStoredPair()?.epub,
         payloadCiphertext, submittedAt,
-        selfTag: this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
-      });
+        selfTag: await this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
+      } });
       const meshPayload = committed.payload;
       const targetResponseId = meshPayload.responseId;
       const targetVersion = meshPayload.version!;
@@ -7188,27 +6966,22 @@ export class IinPublicApp {
         newVersion = targetVersion;
         isContentChange = committed.isContentChange;
       }
-      const mesh = this.ensurePeerMeshService();
-      let sent = false;
-      if (mesh) {
-        try {
-          sent = await mesh.sendTalkResponse(meshPayload);
-        } catch (err) {
-          console.warn('[MeshResponse] sendTalkResponse failed, falling back to mailbox:', err);
-        }
-      }
-      // Step 6: when unicast cannot be delivered (author offline or send failed),
-      // post a ciphertext envelope to the server mailbox.
-      let mailboxPosted: boolean | null = null;
-      let queued = false;
-      if (!sent) {
-        mailboxPosted = await this.postToMailbox(meshPayload);
-        if (!mailboxPosted) {
-          this.enqueueFailedMailboxPost(meshPayload);
-          queued = true;
-        }
-      }
-      if (sent || mailboxPosted || queued) {
+      // OPEN-106: an answer is an answer event in our pair log, read by the author when connected.
+      // There is no response frame or mailbox: a Talk that did not come over a graph link cannot be
+      // answered (every Talk does since the Talk frames were removed).
+      if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+      const sent = this.coreRequest && this.graphLinks?.isRunning()
+        ? await this.coreRequest({
+          name: 'graph.answer', talkId: targetTalkId, authorId: targetAuthorId,
+          answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
+          mode: params.isChatbotResponse ? 'chatbot' : 'manual',
+          context: {
+            responderName: this.currentUser!.stageName, isChatbotResponse: params.isChatbotResponse,
+            responseId: targetResponseId, version: targetVersion, submittedAt: meshPayload.submittedAt, respondedAt: meshPayload.respondedAt,
+          },
+        }).then((result) => result.sent).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
+        : false;
+      if (sent) {
         await this.coreDelivery({ name: 'delivery.record', input: {
           objectId: targetResponseId,
           recipientId: targetAuthorId,
@@ -7216,9 +6989,7 @@ export class IinPublicApp {
           state: 'sent',
         } });
       }
-      // Delivery-matrix diagnostic: exactly one line per response send with every stage's
-      // outcome — the silent-success pipeline made every saturation post-mortem archaeology.
-      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} mesh=${sent} mailbox=${mailboxPosted} queued=${queued}`);
+      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} graph=${sent}`);
       sentResponseByAuthor.set(targetAuthorId, {
         talkId: targetTalkId,
         responseId: targetResponseId,
@@ -7227,107 +6998,35 @@ export class IinPublicApp {
     };
 
     if (!skipE2eLocalOnlyReject) {
-      // Step 10: check dead inbox — if the talk has been retracted by the author, skip delivery.
-      const ledgerDocForPrimary = getTalkLedgerDoc();
-      const primaryRetractKey = ledgerRetractedKey(params.talkId, params.authorId);
-      const talkRetractedForPrimary = !!ledgerDocForPrimary.retracted[primaryRetractKey];
-      if (talkRetractedForPrimary) {
+      // Step 10: a Talk its author deleted is not answered (dead inbox).
+      const deleted = async (talkId: string) => this.coreRequest
+        ? (await this.coreRequest({ name: 'graph.deletedAt', talkId }).catch(() => null)) !== null
+        : false;
+      if (await deleted(params.talkId)) {
         console.debug(`[Step10] Skipping response send — talk ${params.talkId} retracted by ${params.authorId}`);
       } else {
         // Send to the primary author
         await sendToAuthor(params.authorId, params.authorName);
       }
 
-      // Step 9.1: change-of-mind fanout — if this is a version bump (content change),
-      // propagate to ALL original senders of this identity (not just the current author).
-      // The responder's exchanged section records every author who sent them this identity.
+      // Step 9.1: change-of-mind fanout — a different answer than last time also goes to everyone
+      // else who sent me this content (the other senders on its incoming row).
       if (isContentChange) {
-        const allSenders = getResponderTargetsForIdentity(wholeTalkIdentityKey);
-        const ledgerDocForFanout = getTalkLedgerDoc();
-        for (const sender of allSenders) {
-          const senderId = sender.peerId;
-          if (senderId === params.authorId) continue; // already sent above
-          // Step 10: skip senders whose talk has been retracted (dead inbox).
-          const rKey = ledgerRetractedKey(params.talkId, senderId);
-          if (ledgerDocForFanout.retracted[rKey]) {
-            console.debug(`[Step10] Skipping fanout to retracted-talk sender ${senderId}`);
+        for (const sender of this.otherSendersOf(params.talkId, params.authorId)) {
+          if (await deleted(sender.talkId)) {
+            console.debug(`[Step10] Skipping fanout to retracted-talk sender ${sender.senderId}`);
             continue;
           }
-          console.log(`[Step9] Change-of-mind fanout to additional sender ${senderId}`);
+          console.log(`[Step9] Change-of-mind fanout to additional sender ${sender.senderId}`);
           try {
-            await sendToAuthor(
-              senderId,
-              sender.peerName || 'Unknown',
-              sender.peerEpub,
-              sender.talkId || params.talkId,
-            );
+            await sendToAuthor(sender.senderId, sender.senderName || 'Unknown', undefined, sender.talkId);
           } catch (err) {
-            console.warn(`[Step9] Fanout to ${senderId} failed:`, err);
+            console.warn(`[Step9] Fanout to ${sender.senderId} failed:`, err);
           }
         }
       }
     }
-
-    // Write/update the responder-side exchanged entry to track this response.
-    // This persists version + responseId for future version-bump decisions.
-    try {
-      const ledgerOutcomeVal = isMatch ? 'matched' as const : 'ignored' as const;
-      await writeResponderExchangedEntry({
-        authorId: params.authorId,
-        identityKey: wholeTalkIdentityKey,
-        talkId: params.talkId,
-        authorName: params.authorName,
-        authorEpub: String(params.talkData?.authorEpub || params.talkData?.senderEpub || ''),
-        outcome: ledgerOutcomeVal,
-        version: newVersion,
-        responseId,
-        respondedAt,
-      });
-      for (const identityKey of selectedTalkIdentityKeys(params.talkData, params.answers)) {
-        if (identityKey === wholeTalkIdentityKey) continue;
-        await writeResponderExchangedEntry({
-          authorId: params.authorId,
-          identityKey,
-          talkId: params.talkId,
-          authorName: params.authorName,
-          authorEpub: String(params.talkData?.authorEpub || params.talkData?.senderEpub || ''),
-          outcome: ledgerOutcomeVal,
-          version: newVersion,
-          responseId,
-          respondedAt,
-        });
-      }
-      // Also update for any other senders of the same identity (fanout case)
-      if (isContentChange) {
-        const allSenders = getResponderTargetsForIdentity(wholeTalkIdentityKey);
-        for (const sender of allSenders) {
-          const senderId = sender.peerId;
-          if (senderId === params.authorId) continue;
-          if (!talkContactPolicyAllowsPeer(
-            senderId,
-            getTalkIntakeFilters(),
-            this.currentUser.knownPeople,
-            this.roomTravelerIds,
-          )) continue;
-          const sentResponse = sentResponseByAuthor.get(senderId);
-          await writeResponderExchangedEntry({
-            authorId: senderId,
-            identityKey: wholeTalkIdentityKey,
-            ...(sentResponse?.talkId || sender.talkId
-              ? { talkId: sentResponse?.talkId || sender.talkId }
-              : {}),
-            ...(sender.peerName ? { authorName: sender.peerName } : {}),
-            ...(sender.peerEpub ? { authorEpub: sender.peerEpub } : {}),
-            outcome: ledgerOutcomeVal,
-            version: sentResponse?.version ?? sender.version,
-            responseId: sentResponse?.responseId || String((sender as any).responseId || ''),
-            respondedAt,
-          });
-        }
-      }
-    } catch {
-      // Non-fatal
-    }
+    void refreshExchangeState();
 
     // Step 7: client-side stats POST removed (server route dies in phase B).
     this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
@@ -7339,13 +7038,13 @@ export class IinPublicApp {
     this.recordLocalTalkExchange(
       params.authorId,
       params.authorName,
-      params.talkId,
+      params.localTalkId ?? this.answeredRowFor(params.talkData) ?? params.talkId,
       params.talkData,
       isMatch ? 'match' : 'mismatch',
       {
         responseId,
         version: newVersion,
-        respondedAt,
+        respondedAt: submittedAt,
         answers: params.answers,
         direction: 'received',
       },
@@ -7368,7 +7067,7 @@ export class IinPublicApp {
     // the OTHER side's talk, not mine — recordMyDealTalkForConversation needs my own talkId,
     // resolved from chatbot memory rather than known directly the way the author-side call
     // sites above already know it from payload.talkId.
-    const responderSourceTalkId = this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers);
+    const responderSourceTalkId = await this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers);
     if (responderSourceTalkId) {
       this.recordMyDealTalkForConversation(conversationId, responderSourceTalkId, params.talkData);
     }
@@ -7401,7 +7100,7 @@ export class IinPublicApp {
    * Undefined (no veto) if I have no self-tag history for this question or the talk declares no
    * qualifying Pair-tag ancestor.
    */
-  private resolveResponderSelfTagForAnswers(talkData: any, answers: any[]): string | undefined {
+  private async resolveResponderSelfTagForAnswers(talkData: any, answers: any[]): Promise<string | undefined> {
     const lastAnswer = answers?.[answers.length - 1];
     const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
     if (!question?.text) return undefined;
@@ -7420,7 +7119,7 @@ export class IinPublicApp {
    * question text), in which case `maybeFinalizeConfirmedDeal` keeps its existing "disable every
    * active listing" fallback.
    */
-  private resolveResponderSourceTalkIdForAnswers(talkData: any, answers: any[]): string | undefined {
+  private async resolveResponderSourceTalkIdForAnswers(talkData: any, answers: any[]): Promise<string | undefined> {
     const lastAnswer = answers?.[answers.length - 1];
     const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
     if (!question?.text) return undefined;
@@ -7431,8 +7130,7 @@ export class IinPublicApp {
   private async loadFullTalkViaIncomingIdentity(identityKey: string): Promise<Talk | null> {
     if (!this.currentUser?.id) return null;
     try {
-      const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
-      if (!Array.isArray(clusters)) return null;
+      const clusters = await this.collectIncomingRows();
       const cluster = clusters.find(
         (c: any) =>
           c &&
@@ -7479,19 +7177,64 @@ export class IinPublicApp {
     if (!this.currentUser) return;
     console.log('👂 Subscribing to incoming talk clusters for:', this.currentUser.id);
 
-    this.incomingTalkClusterUnsubscribe?.();
-    this.incomingTalkClusterUnsubscribe = subscribeLocalIncomingTalkClusters(
-      this.gunService,
-      this.currentUser.id,
-      this.p2pRuntimeFlags,
-      (cluster: any, id: string) => {
-        if (!cluster || !id || id.startsWith('_')) return;
-        if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
-        this.incomingApiRefreshTimer = setTimeout(() => {
-          void this.refreshIncomingTalkClustersFromLocalGun();
-        }, 120);
-      },
-    );
+    // The list is built from graph arrivals (OPEN-106 step 2e): graph events refresh it.
+    void this.refreshIncomingTalkClustersFromLocalGun();
+  }
+
+  /**
+   * OPEN-106 step 2e: Talk bodies and the incoming list live in the device graph. What held them
+   * again before — the SEA Talk copies, the incoming rows envelope, the authored and received body
+   * caches — is erased once, not migrated (owner decision 2026-11-03).
+   */
+  /**
+   * OPEN-106 step 2e v: the old chatbot's copies of my answers (core collections, the private Gun
+   * backup and their old localStorage keys) are erased, not migrated; the graph has the answers.
+   */
+  private async eraseOldChatbotCopies(core: CoreRequester): Promise<void> {
+    const { erased } = await core({ name: 'collection.eraseRetired' });
+    const keys = await core({ name: 'private.keys' }).catch(() => [] as string[]);
+    const backup = keys.filter((key: string) => key.startsWith('chatbotMemory/'));
+    for (const key of backup) await core({ name: 'private.put', key, value: null }).catch(() => undefined);
+    // The old chatbot's copies (OPEN-106 step 2e v), the talk ledger and the revisions sent (step 3).
+    for (const key of ['answerPreferences', 'flattenedAnswerPreferences', 'questionDefaultContracts', 'myQuestionAnswers', 'exactChatbotMemory', 'typedPreferenceState', 'talkLedger', 'iinpublic_talk_revision_sent_v1', 'answeredTalkByContent', 'myAnswerHistory']) {
+      try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+    }
+    if (erased || backup.length) console.log(`[core] erased ${erased} old record(s) (chatbot copies, talk ledger) and ${backup.length} backup record(s)`);
+  }
+
+  private async eraseOldTalkCopies(core: CoreRequester): Promise<void> {
+    const keys = await core({ name: 'private.keys' }).catch(() => [] as string[]);
+    const old = keys.filter((key: string) => OLD_TALK_COPY_KEY.test(key));
+    for (const key of old) await core({ name: 'private.put', key, value: null }).catch(() => undefined);
+    for (const key of ['myAuthoredTalks', 'myReceivedTalks']) appStorage.removeItem(key);
+    if (old.length) console.log(`[graph-link] erased ${old.length} old Talk copies`);
+  }
+
+  /** Rows of Talks that did not come over a graph link, kept in memory. */
+  private mergeLocalIncoming(items: Array<{ talkId: string; talkData: Record<string, unknown>; senderId: string; senderName: string }>): IncomingTalkClusterWire[] {
+    return items.map((item) => {
+      const key = mergeIncomingTalkCluster(null, item).identityKey;
+      const cluster = mergeIncomingTalkCluster(this.localIncomingClusters.get(key), item);
+      this.localIncomingClusters.set(cluster.identityKey, cluster);
+      return cluster;
+    });
+  }
+
+  /** The incoming list: graph arrivals the app accepted, then the rows kept in memory. */
+  private async collectIncomingRows(): Promise<IncomingTalkClusterWire[]> {
+    const graphRows: IncomingTalkClusterWire[] = await this.coreRequest?.({ name: 'graph.incoming' }).catch(() => []) ?? [];
+    const byKey = new Map<string, IncomingTalkClusterWire>(graphRows.map((row) => [row.identityKey, row]));
+    for (const row of this.localIncomingClusters.values()) if (!byKey.has(row.identityKey)) byKey.set(row.identityKey, row);
+    return [...byKey.values()];
+  }
+
+  /** Read the list again shortly: a burst of arrivals reads it once. */
+  private scheduleIncomingRefresh(delayMs = 150): void {
+    if (this.incomingApiRefreshTimer) clearTimeout(this.incomingApiRefreshTimer);
+    this.incomingApiRefreshTimer = setTimeout(() => {
+      this.incomingApiRefreshTimer = undefined;
+      void this.refreshIncomingTalkClustersFromLocalGun();
+    }, delayMs);
   }
 
   /**
@@ -7516,6 +7259,37 @@ export class IinPublicApp {
     if (!progress?.talkIds.has(talkId) || progress.delivered.has(recipientUserId)) return;
     progress.delivered.add(recipientUserId);
     this.uiManager.setNearbyBroadcastProgress({ sent: Math.min(progress.delivered.size, progress.total), total: progress.total });
+  }
+
+  /**
+   * E2E: offer this Talk over graph links to these people (the room's members when none), as the
+   * raw Talk frame send used to: no ledger, suppression or audience checks. Returns who was offered.
+   */
+  public async offerTalkForE2e(talk: Record<string, any>, recipientUserIds?: string[]): Promise<string[]> {
+    const me = this.currentUser;
+    if (!me?.id) throw new Error('offerTalkForE2e: no user');
+    if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+    if (!this.coreRequest || !this.graphLinks?.isRunning()) throw new Error('offerTalkForE2e: graph links are not running');
+    const talkId = String(talk.id || '');
+    if (!talkId) throw new Error('offerTalkForE2e: the Talk needs an id');
+    const recipients = [...new Set(recipientUserIds?.length ? recipientUserIds : this.peerMeshService?.roomMemberIds() ?? [])]
+      .filter((id) => id && id !== me.id && id !== TECHSUPPORT_ROOT_USER_ID);
+    // Every question and choice needs an id in the graph (a spec's hand-written Talk may omit them).
+    const questions = Array.isArray(talk.questions) ? talk.questions.map((q: any, qi: number) => ({
+      ...q, id: q?.id || `q_${qi}`,
+      answers: Array.isArray(q?.answers) ? q.answers.map((a: any, ai: number) => ({ ...a, id: a?.id || `a_${qi}_${ai}` })) : [],
+    })) : [];
+    const body = { ...talk, questions, id: talkId, authorId: me.id };
+    // The author's own copy, read when answers come back.
+    this.peerMeshService?.cacheTalkBody(talkId, body);
+    const result = await this.coreRequest({
+      name: 'graph.offer', talkId, recipients, talk: body,
+      context: { roomId: this.chatroomService.getCurrentChatroomId() ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+      // An injection: no exchange suppression or send limit (the version rule still holds).
+      suppress: false, unlimitedForTesting: true,
+    });
+    if (!result.known) throw new Error(`offerTalkForE2e: ${talkId} could not be written to the graph`);
+    return recipients;
   }
 
   public async deliverPendingBroadcastTalksForE2e(
@@ -7607,7 +7381,6 @@ export class IinPublicApp {
               talk,
               receivers,
               eligibleIds,
-              { skipAcknowledgements: opts.skipDeliveryAcks === true },
             );
           }),
         );
@@ -7642,7 +7415,7 @@ export class IinPublicApp {
    * Step 8 E2E hook: set quota unlimited for high-fanout rebroadcast specs.
    */
   public setTalkLedgerQuotaUnlimitedForE2e(unlimited: boolean): void {
-    setTalkLedgerQuotaUnlimited(unlimited === true);
+    this.talkSendQuotaUnlimitedForE2e = unlimited === true;
   }
 
   public setTalkLedgerSuppressionDisabledForE2e(disabled: boolean): void {
@@ -7659,25 +7432,45 @@ export class IinPublicApp {
   }
 
   /**
-   * Step 8 E2E read helper: return the current talkLedger doc for assertions.
+   * E2E read helper (OPEN-106 step 3): who I exchanged what with (`peers`: atoms passed and
+   * answered), my Talks' versions and who was sent which (`talks`), how I decided each answer to
+   * the Talks given (`outcomes[talkId][responderId]`), my own answer to each per author
+   * (`responded[talkId][authorId]`) and when each was deleted (`deleted`), all from the device graph.
    */
-  public getTalkLedgerDocForE2e(): unknown {
-    return getTalkLedgerDoc();
+  public async getExchangesForE2e(talkIds: string[] = []): Promise<unknown> {
+    await refreshExchangeState();
+    const core = this.coreRequest;
+    const outcomes: Record<string, Record<string, unknown>> = {};
+    const deleted: Record<string, number | null> = {};
+    const responded: Record<string, unknown> = {};
+    if (core) {
+      for (const talkId of talkIds) {
+        deleted[talkId] = await core({ name: 'graph.deletedAt', talkId });
+        responded[talkId] = await core({ name: 'graph.respondedTo', talkId });
+      }
+      const ids = talkIds.length ? talkIds : Object.keys(exchangeStateSnapshot().talks);
+      const decided = await core({ name: 'graph.outcomes', talkIds: ids });
+      for (const [talkId, responders] of Object.entries(decided as Record<string, Record<string, string>>)) {
+        outcomes[talkId] = {};
+        for (const responderId of Object.keys(responders)) {
+          outcomes[talkId]![responderId] = await core({ name: 'graph.outcome', talkId, responderId });
+        }
+      }
+    }
+    return { ...exchangeStateSnapshot(), outcomes, deleted, responded };
+  }
+
+  /** E2E: the atom a tag word is exchanged as (`ix/exchanged/<peer>`), whoever's Talk it is in. */
+  public exchangeTagAtomForE2e(word: string): string {
+    return tagAtom(word);
   }
 
   /**
-   * docs/TODO.md §W Gap 2 E2E hook: write a `sent` ledger entry directly, for tests that need
-   * to simulate "a send already happened" without driving a full mesh delivery. Computes the
-   * identityKey the same way `deliverTalkToReceiversOverMesh` does (`buildTalkIdentityKey`) so
-   * a test-written entry suppresses exactly what a real send would.
+   * docs/TODO.md §W Gap 2 E2E hook: the screens' view counts this Talk as already passed to the
+   * peer, for tests of what the screens offer (no real send, so the core is not changed).
    */
   public async markTalkSentToPeerForE2e(params: { peerId: string; talkId: string; talkData: unknown; sentAt?: string }): Promise<void> {
-    await markTalkSentToPeer({
-      peerId: params.peerId,
-      talkId: params.talkId,
-      identityKey: buildTalkIdentityKey(params.talkData),
-      ...(params.sentAt ? { sentAt: params.sentAt } : {}),
-    });
+    markExchangedForTesting(params.peerId, params.talkData);
   }
 
   /**
@@ -7801,12 +7594,7 @@ export class IinPublicApp {
       this.e2eSeededTagTalks.set(keyword.toLowerCase(), talkData);
       return [{ talkId, talkData, senderId, senderName: params.senderName || senderId }];
     });
-    const clusters = await upsertLocalIncomingTalkClusters(
-      this.gunService,
-      this.currentUser.id,
-      items,
-      this.p2pRuntimeFlags,
-    );
+    const clusters = this.mergeLocalIncoming(items);
     this.e2eSeededIncomingClusters.push(...clusters);
     await this.refreshIncomingTalkClustersFromLocalGun();
     this.mergeIncomingClusterIntoUi(clusters);
@@ -7831,18 +7619,8 @@ export class IinPublicApp {
     if (!talkId || !senderId || senderId === this.currentUser.id) return;
     const talkData = { ...params.talkData, authorId: senderId, authorName: params.senderName || senderId };
     this.ensurePeerMeshService()?.cacheTalkBody?.(talkId, talkData);
-    const cluster = await upsertLocalIncomingTalkCluster(
-      this.gunService,
-      this.currentUser.id,
-      {
-        talkId,
-        talkData,
-        senderId,
-        senderName: params.senderName || senderId,
-      },
-      this.p2pRuntimeFlags,
-    );
-    this.e2eSeededIncomingClusters.push(cluster);
+    const [cluster] = this.mergeLocalIncoming([{ talkId, talkData, senderId, senderName: params.senderName || senderId }]);
+    this.e2eSeededIncomingClusters.push(cluster!);
     await this.refreshIncomingTalkClustersFromLocalGun();
     this.mergeIncomingClusterIntoUi([cluster]);
   }
@@ -7856,21 +7634,19 @@ export class IinPublicApp {
 
   private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
     if (!this.currentUser?.id) return;
-    const clusters = await collectLocalIncomingTalkClusters(this.gunService, this.currentUser.id, this.p2pRuntimeFlags);
-    // Just read from local Gun: render only. Mirroring it straight back re-wrote the whole owner
-    // envelope once per cluster, which re-fired this refresh's own subscription — a feedback loop
-    // measured on hardware at >1 write/s (5.5 KB each, ~16 KB/s of Gun traffic sent to every
-    // connected peer, ~10 %/h battery on the Wi-Fi radio).
-    this.mergeIncomingClusterIntoUi(clusters, { persist: false });
+    // Read only: rows are never written back (that once made a write/refresh loop on phones).
+    this.applyIncomingTalkClusters(await this.collectIncomingRows());
   }
 
-  private mergeIncomingClusterIntoUi(clusters: any[], options: { persist?: boolean } = {}): void {
-    this.applyIncomingTalkClusters(clusters, options);
+  /** These rows replace the shown rows with the same content; the others stay. */
+  private mergeIncomingClusterIntoUi(clusters: any[]): void {
+    const next = new Map<string, any>(this.incomingRows.map((row) => [row.identityKey, row]));
+    for (const cluster of clusters) if (cluster?.identityKey) next.set(cluster.identityKey, cluster);
+    this.applyIncomingTalkClusters([...next.values()]);
   }
 
-  private applyIncomingTalkClusters(clusters: any[], options: { persist?: boolean } = {}): void {
-    // Replace the UI snapshot with the current local/direct or legacy server cluster list.
-    // Spreading incomingClustersMap left stale/non-identity entries and could prevent IN rows from matching.
+  /** Show exactly these rows (one per content). */
+  private applyIncomingTalkClusters(clusters: any[]): void {
     const next: Record<string, any> = {};
     for (const c of clusters) {
       if (c?.identityKey) {
@@ -7878,14 +7654,7 @@ export class IinPublicApp {
       }
     }
     const list = Object.values(next).filter((c: any) => c && c.identityKey);
-    if (this.currentUser?.id && options.persist !== false) {
-      mirrorIncomingTalkClustersToLocalGun(
-        this.gunService,
-        this.currentUser.id,
-        list,
-        this.p2pRuntimeFlags,
-      );
-    }
+    this.incomingRows = list;
     this.uiManager.setIncomingTalkClusters(list);
     this.uiManager.displayTalksList();
   }
@@ -9025,7 +8794,10 @@ export class IinPublicApp {
 
     this.uiManager.on('loadTalkForEdit', async (data: { talkId: string }) => {
       try {
-        const talk = await this.talkService.getTalk(data.talkId);
+        // My own Talk as I last saved it: the graph's version of an edit is written a moment after
+        // the save, and reading it in between reopened the editor on the old text (stage1/05).
+        const own = getMyTalks()[data.talkId]?.fullTalk;
+        const talk = own && Array.isArray(own.questions) ? { ...own, id: data.talkId } : await this.talkService.getTalk(data.talkId);
         if (talk) {
           this.uiManager.showTalkEditorDialog(talk);
         } else {
@@ -9048,15 +8820,16 @@ export class IinPublicApp {
         return;
       }
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
-      const outcomes = Object.values(getTalkLedgerDoc().outcomes);
+      // Each answer to my Talks as I decided it, from the device graph (`ix/outcome`).
+      const outcomes = this.coreRequest
+        ? await this.coreRequest({ name: 'graph.outcomes', talkIds: data.talkIds }).catch(() => ({} as Record<string, Record<string, string>>))
+        : {};
       for (const talkId of data.talkIds) {
-        const rows = outcomes.filter(
-          (entry) => entry.talkId === talkId && entry.authorId === this.currentUser?.id,
-        );
+        const rows = Object.values(outcomes[talkId] ?? {});
         statsMap[talkId] = {
           responses: rows.length,
-          matches: rows.filter((entry) => entry.outcome === 'matched').length,
-          ignores: rows.filter((entry) => entry.outcome === 'ignored').length,
+          matches: rows.filter((outcome) => outcome === 'matched').length,
+          ignores: rows.filter((outcome) => outcome === 'ignored').length,
         };
       }
       this.uiManager.setTalkStats(statsMap);
@@ -9066,7 +8839,7 @@ export class IinPublicApp {
 
     this.uiManager.on(
       'talkCompleted',
-      async (data: { talkId: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
+      async (data: { talkId: string; localTalkId?: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
         // One at a time, but the author's key is fetched before joining the line
         // (talk-completion-pipeline.ts; gui-responsiveness-audit.md F7).
         const authorId = String(data.talkData?.authorId || '');
@@ -9755,8 +9528,7 @@ export class IinPublicApp {
           this.chatroomService.pullMembersFromPeers(this.currentChatroomId);
         }
         void this.drainMailbox().catch(() => {});
-        void this.retryFailedMailboxPosts().catch(() => {});
-        this.syncNativeBackgroundAgent();
+            this.syncNativeBackgroundAgent();
         void this.replayNativeBackgroundEvents();
       } finally {
         foregroundRecoveryRunning = false;

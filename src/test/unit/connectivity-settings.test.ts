@@ -1,4 +1,4 @@
-import { applyConnectivityPreset, connectivityDiagnosticsText, connectivityStatusText, defaultConnectivitySettings, loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration } from '../../web/ui/connectivity-settings';
+import { applyConnectivityPreset, backgroundTalkAgentEnabled, connectivityDiagnosticsText, connectivityStatusText, defaultConnectivitySettings, loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration } from '../../web/ui/connectivity-settings';
 import { DEFAULT_FORWARDING_SETTINGS, MeshForwardingPolicy } from '../../shared/mesh-forwarding-policy';
 import { ConnectionManager, pathScore, type PathInfo } from '../../shared/connection-manager';
 import type { P2PMeshFrame } from '../../shared/p2p-mesh-protocol';
@@ -129,5 +129,13 @@ describe('connectivity UI settings', () => {
       .toBeGreaterThan(pathScore(highBattery, 'text', null, { freeFirst: true, directFirst: true, batteryAware: true }));
     expect(pathScore(base, 'text', null, { freeFirst: true, directFirst: true, batteryAware: false }))
       .toBe(pathScore(highBattery, 'text', null, { freeFirst: true, directFirst: true, batteryAware: false }));
+  });
+});
+
+describe('background answers', () => {
+  it('keep working in the default mode and in Always, and stop only for Off', () => {
+    expect(backgroundTalkAgentEnabled(defaultConnectivitySettings())).toBe(true);
+    expect(backgroundTalkAgentEnabled({ nearbyMode: 'always' })).toBe(true);
+    expect(backgroundTalkAgentEnabled({ nearbyMode: 'off' })).toBe(false);
   });
 });

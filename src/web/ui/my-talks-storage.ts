@@ -39,6 +39,11 @@ export function getMyTalks(): MyTalkMap {
   return JSON.parse(JSON.stringify(myTalksView.all())) as MyTalkMap;
 }
 
+/** One entry without copying the map. The caller must not change it. */
+export function getMyTalk(talkId: string): MyTalkEntry | undefined {
+  return myTalksView.get(talkId);
+}
+
 /** Replaces My Talks with this map; only what changed is written. */
 export function setMyTalks(myTalks: MyTalkMap): void {
   const current = myTalksView.all();

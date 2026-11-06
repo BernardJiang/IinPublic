@@ -16,6 +16,7 @@ import { afterLoad, afterSync, afterAction } from '../../helpers/timing';
 import { bootstrapUser, ensureMeshNeighbors } from '../../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../../helpers/ports';
+import { newGraphTalkId } from '../../helpers/device-graph';
 
 const E2E_TIMEOUT_MS = 30_000;
 
@@ -67,9 +68,9 @@ test.describe('Multiple tag talks each record the right outcome', () => {
 
     const adamEpub = await pageAdam.evaluate(() =>
       String((window as any).__iinpublic_app.getApp().gunService.getStoredPair()?.epub || ''));
-    const stamp = Date.now();
+    const talkIds = [await newGraphTalkId(pageAdam), await newGraphTalkId(pageAdam), await newGraphTalkId(pageAdam)];
     const talks = ['Dogs', 'Cats', 'Birds'].map((topic, i) => ({
-      id: `tag-${topic.toLowerCase()}-${stamp}-${i}`,
+      id: talkIds[i]!,
       type: 'tag',
       title: topic,
       authorId: adamId,
@@ -87,7 +88,7 @@ test.describe('Multiple tag talks each record the right outcome', () => {
       for (const def of defs) {
         a.peerMeshService.cacheTalkBody(def.id, def);
         mt[def.id] = { role: 'created', fullTalk: def };
-        await a.peerMeshService.broadcastTalk(def, { roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(def);
       }
       localStorage.setItem('myTalks', JSON.stringify(mt));
     }, { defs: talks });

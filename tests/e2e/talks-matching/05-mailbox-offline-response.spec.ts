@@ -33,12 +33,13 @@ import {
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom, gunBaseURL } from '../helpers/ports';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 const MESH_E2E_TIMEOUT_MS = 30_000;
 
 const MATCH_ANSWER_TEXT = 'Yes — mailbox test';
 
-test.describe('Mailbox offline response — two browsers, ciphertext-only envelope', () => {
+test.describe('Offline answer — two browsers, graph log catch-up', () => {
   let browserTom: import('@playwright/test').Browser | undefined;
   let browserJerry: import('@playwright/test').Browser | undefined;
   let contextTom: BrowserContext | undefined;
@@ -75,7 +76,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
     await clearGunForStage3Spec();
   });
 
-  test('Jerry mailboxes a match response while Tom is offline — Tom drains on reconnect', async () => {
+  test('Jerry answers while Tom is offline — the answer waits in Jerry\'s graph log and Tom reads it on reconnect', async () => {
     test.setTimeout(300_000);
 
     // ── 1. Bootstrap both users ─────────────────────────────────────────────
@@ -141,7 +142,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
     }
 
     // ── 4. Tom creates + broadcasts a tag talk ───────────────────────────────
-    const TEST_TALK_ID = `mailbox-e2e-${Date.now()}`;
+    const TEST_TALK_ID = await newGraphTalkId(pageTom);
     const TEST_TALK_TITLE = 'Mailbox E2E Offline Talk';
 
     // Capture Tom's epub for later use in Jerry's encryption
@@ -174,7 +175,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
         const myTalks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
         myTalks[talkId] = { role: 'created', fullTalk: talkDef };
         localStorage.setItem('myTalks', JSON.stringify(myTalks));
-        await mesh.broadcastTalk(talkDef, { roomBroadcast: true });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talkDef);
       },
       { talkId: TEST_TALK_ID, authorId: tomId, title: TEST_TALK_TITLE },
     );
@@ -262,36 +263,22 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
     );
 
     await afterAction();
-    // Give the async postToMailbox call time to complete
     await afterSync();
 
-    // ── 8. Assert mailbox has exactly 1 envelope for Tom ────────────────────
+    // ── 8. The answer waits in Jerry's graph log for Tom (OPEN-106): no mailbox ──
+    // Jerry's device owes Tom an unread log entry, so it keeps wanting a link to him.
+    await expect.poll(() => pageJerry.evaluate((tId) => {
+      const owed = ((window as any).__iinpublic_graph_events ?? []).filter((e: any) => e.type === 'owed').pop();
+      return Array.isArray(owed?.peers) && owed.peers.includes(tId);
+    }, tomId), { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: graph log does not owe Tom the answer' }).toBe(true);
     const apiBase = gunBaseURL();
-    const mailboxRes = await pageJerry.evaluate(
-      async ({ base, tId }: { base: string; tId: string }) => {
-        const res = await fetch(`${base}/api/mailbox/${encodeURIComponent(tId)}`, { cache: 'no-store' });
-        return res.ok ? await res.json() : null;
-      },
-      { base: apiBase, tId: tomId },
-    );
+    const mailboxCount = async () => pageJerry.evaluate(async ({ base, tId }: { base: string; tId: string }) => {
+      const res = await fetch(`${base}/api/mailbox/${encodeURIComponent(tId)}`, { cache: 'no-store' });
+      return res.ok ? (await res.json() as { count: number }).count : -1;
+    }, { base: apiBase, tId: tomId });
 
-    expect(mailboxRes, 'mailbox response must not be null').not.toBeNull();
-    expect(mailboxRes.count, 'exactly 1 mailbox envelope for Tom').toBe(1);
-    const envelope = mailboxRes.envelopes[0];
-    expect(envelope.id, 'envelope id starts with mbx_').toMatch(/^mbx_/);
-
-    // ── 9. Ciphertext opacity assertion ──────────────────────────────────────
-    // The ciphertext stored on the server must NOT contain the plaintext answer.
-    const ciphertextField: string = envelope.ciphertext;
-    expect(
-      ciphertextField,
-      'ciphertext must not contain plaintext answer text',
-    ).not.toContain(MATCH_ANSWER_TEXT);
-    // The ciphertext should be a JSON wrapper with senderEpub + ct fields.
-    const wrapper = JSON.parse(ciphertextField) as { senderEpub?: string; ct?: string };
-    expect(wrapper.senderEpub, 'wrapper has senderEpub').toBeTruthy();
-    expect(wrapper.ct, 'wrapper has ct (inner ciphertext)').toBeTruthy();
-    expect(wrapper.ct, 'inner ct does not contain plaintext').not.toContain(MATCH_ANSWER_TEXT);
+    // ── 9. Nothing went to the hub's mailbox ─────────────────────────────────
+    expect(await mailboxCount(), 'no mailbox envelope for Tom').toBe(0);
 
     // ── 10. Zero server response endpoint calls on Jerry's side ──────────────
     expect(jerryServerResponseCalls, 'zero POST /api/talks/*/response calls').toBe(0);
@@ -310,9 +297,7 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
       () => String((window as any).__iinpublic_app?.getApp?.()?.gunService?.getStoredPair?.()?.pub || ''),
     ), 'Tom reconnects with the same SEA identity').toBe(tomPub);
 
-    // drainMailbox is called automatically at boot (after initP2PPresenceAndBridge).
-    // Also triggered when syncPeerMeshRoom fires on room join.
-    // Poll for the conversation to appear.
+    // Tom's link to Jerry comes back; Tom reads Jerry's graph log and gets the answer.
 
     // Navigate to Me tab for durable assertion
     await waitForTabActive(pageTom, 'me');
@@ -330,31 +315,17 @@ test.describe('Mailbox offline response — two browsers, ciphertext-only envelo
         {
           timeout: MESH_E2E_TIMEOUT_MS,
           intervals: [500, 1000, 2000],
-          message: 'Tom: no conversation with Jerry after mailbox drain',
+          message: 'Tom: no conversation with Jerry after reading Jerry\'s graph log',
         },
       )
       .toBe(true);
 
-    // ── 13. Mailbox is empty after drain ─────────────────────────────────────
-    await expect
-      .poll(
-        async () => {
-          const res = await pageTom!.evaluate(
-            async ({ base, tId }: { base: string; tId: string }) => {
-              const r = await fetch(`${base}/api/mailbox/${encodeURIComponent(tId)}`, { cache: 'no-store' });
-              return r.ok ? (await r.json() as { count: number }).count : -1;
-            },
-            { base: apiBase, tId: tomId },
-          );
-          return res;
-        },
-        {
-          timeout: MESH_E2E_TIMEOUT_MS,
-          intervals: [500, 1000],
-          message: 'Mailbox should be empty after Tom drains it',
-        },
-      )
-      .toBe(0);
+    // ── 13. Tom read the entry: Jerry no longer owes him anything ───────────
+    await expect.poll(() => pageJerry.evaluate((tId) => {
+      const owed = ((window as any).__iinpublic_graph_events ?? []).filter((e: any) => e.type === 'owed').pop();
+      return Array.isArray(owed?.peers) && !owed.peers.includes(tId);
+    }, tomId), { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: graph log still owes Tom after he reconnected' }).toBe(true);
+    expect(await mailboxCount(), 'still no mailbox envelope for Tom').toBe(0);
 
     // ── 14. Conversation id matches on both sides ─────────────────────────────
     const tomConvId = await pageTom.evaluate(({ jId }: { jId: string }) => {

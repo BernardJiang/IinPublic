@@ -631,6 +631,9 @@ export function formatSweepFailures(reports: SweepReport[]): string {
  * leave the full-screen person / conversation pages (they cover the bottom nav by design).
  */
 export async function closeAppOverlays(page: Page): Promise<void> {
+  // A Talk's answer dialog opens up to 300 ms after its tap (it waits that long for the chatbot's
+  // lookups, `showTalkResponseDialog`); let it open first, or it lands on the next control.
+  await page.waitForTimeout(400);
   await page.keyboard.press('Escape').catch(() => undefined);
   await page.evaluate(() => {
     document.querySelectorAll('.modal-overlay, .notification, .item-details-popup, [id$="-modal"]').forEach((element) => element.remove());

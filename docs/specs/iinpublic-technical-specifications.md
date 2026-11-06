@@ -69,6 +69,10 @@
 
 30. [Opposite-Attribute Matching: Typed Comparisons, Preference-Sets, and the Dating Use Case](#30-opposite-attribute-matching-typed-comparisons-preference-sets-and-the-dating-use-case)
 
+**Part IX — Device Graph (OPEN-106, 2026-11-02)**
+
+31. [Device Graph Data Model](#31-device-graph-data-model)
+
 ---
 
 > **Consolidation note (2026-07-29):** Sections 26–28 were merged in from `docs/gui-redesign-plan.md`,
@@ -7137,3 +7141,496 @@ Bob, checking only C, gets `{A,B} ∩ {C} = ∅` — no match, filtered exactly 
 mismatch.
 
 ---
+
+---
+
+# PART IX — DEVICE GRAPH (OPEN-106, 2026-11-02)
+
+## 31. Device Graph Data Model
+
+Status: **specified 2026-11-02; every owner decision settled 2026-11-03 (§31.12).** Built in `src/core/device-graph/`; the app is being moved onto it. Release blocker (OPEN-106).
+Rationale, experiments and alternatives: `docs/design/device-graph.md`. Where this section and
+§20 (Interaction Ledger), §12.2 or REQ-LEDGER-xx disagree, this section is the target design and
+§31.11 lists each conflict.
+
+### 31.1 Owner decisions this section implements
+
+| # | Decision | Date |
+|---|---|---|
+| D1 | The hub is only a seed that introduces two users. It never carries or stores Talk content. TechSupport data is the one exception. | 2026-11-01 |
+| D2 | No offline delivery. Two users exchange data only while connected (internet, Wi-Fi, Wi-Fi Direct, Bluetooth). | 2026-11-01 |
+| D3 | WebRTC and the other links are Gun's transport, not a second network. | 2026-11-01 |
+| D4 | A Talk reaches the receiver as Gun nodes through Gun sync, never as a JSON string. The chatbot answers by key lookup. | 2026-11-01 |
+| D5 | Each question exists once per device. Talks, the Me tab, contacts, places and GPS are links in one graph. | 2026-11-01 |
+| D6 | Every record is an event or content an event points to. There are no event types. | 2026-11-02 |
+| D7 | Nothing is stored twice, as in git. A repeat arrival or a repeated chatbot answer stores only what is new: who, when, where, how. | 2026-11-02 |
+| D8 | Question identity is the Whenever offered question key (exact text since D15): the same question with a different choice set is the same question, answered from the Whenever offered list by default (REQ-CHATBOT-03, FR-QA-9). | 2026-11-02 (existing) |
+| D9 | A title or routing edit is the same Talk with a new revision (REQ-LEDGER-11a). Widened by D14 to every edit. | 2026-10-07, widened 2026-11-02 |
+| D10 | The Android node runs from launch to Force stop or reboot; screen off is not a limit. | 2026-10-31 |
+| D11 | The question is the key. There is no separate Talk content key. The context hash distinguishes situations and must be a full-length hash, never a 32-bit id. | 2026-11-02 |
+| D12 | Every hash that leaves the device (revision included) is full length. | 2026-11-02 |
+| D13 | A built-in value such as a price range is part of the question's choice set: changing it follows the same rule as changing a choice. | 2026-11-02 |
+| D14 | Editing a Talk is a new event with a new time. Peers holding an older version receive the new one. | 2026-11-02 |
+| D15 | Text is exact: "do you play tennis?" and "Do you play tennis?" are two questions. A grammar filter, for English and Chinese only, corrects simple errors when a Talk is written; a receiver ignores a whole Talk with errors; other languages are unfiltered; no spelling correction (§31.3a). | 2026-11-02 |
+| D16 | Talks and other happenings are identified by events (time, device, author), not by content hashes, which removes Talk id collisions. | 2026-11-02 |
+
+### 31.2 Record classes
+
+Every soul on a device belongs to exactly one class.
+
+| Class | Key | Mutable | Written | Example |
+|---|---|---|---|---|
+| **Content** | a hash of the content | Never | Once per device; rewriting is a no-op | a question, a choice, a Talk revision, an answer set |
+| **Event** | a unique, time-sortable id | Never | Once per happening | "Talk T arrived from Adam at the café at 10:02" |
+| **State** | a stable name | Yes, last writer wins | When it changes | a person's display name, a contact label, settings |
+| **Index** | a stable name | Yes | Derived from content and events | "my answer under this context", "events at this cell" |
+
+- **REQ-GRAPH-01:** Content and events SHALL never be overwritten. A change is a new event that
+  points to what it replaces with `re`.
+- **REQ-GRAPH-02:** Every index SHALL be rebuildable from content and events alone. A start-up repair
+  SHALL rebuild any index entry whose event exists without it.
+- **REQ-GRAPH-03:** Only content records and events SHALL leave the device (§31.9). State and indexes
+  are private.
+- **REQ-GRAPH-04:** Every soul is written by exact soul (`gun.get(soul).put(...)`), never by a chained
+  `get().get().put()` with a missing parent (it stalls, design experiment 2026-11-01).
+- **REQ-GRAPH-05:** Gun stores no arrays. Ordered lists are maps keyed `0`, `1`, …; sets are maps
+  keyed by member id with value `true` or a link. A nested object is a separate soul, so small
+  structured fields are flattened (`mode`, `link`, not `how: { mode, link }`).
+- **REQ-GRAPH-06:** Every content record and event carries `v` (schema version, integer, starts at 1).
+  Readers SHALL ignore fields they do not know.
+
+### 31.3 Identity and key rules
+
+Two kinds of identity, and nothing else:
+
+| What | Identified by | Collision |
+|---|---|---|
+| Something that **happened** (a Talk written, a Talk edited, an arrival, an answer, a message) | its event id (REQ-GRAPH-23): time, install, counter | impossible by construction |
+| **Content** that can repeat (a question, a choice, a situation, a Talk's structure, an answer set) | SHA-256 of its exact content, with a domain string | negligible (256 bits) |
+
+- **REQ-GRAPH-10 — a Talk is an event.** A Talk's id is the id of the event that first wrote it. There
+  is no Talk content key: `qa_…` (FNV-1a, 32 bits) and the Talk CIDv1 retire as identities (D11, D16).
+- **REQ-GRAPH-11 — the question is the key.** `q/<key>` is SHA-256 of the exact question text, its
+  language, its selection mode and Pair-tag scope (Whenever offered key, version 2). Choices are not
+  part of the question.
+- **REQ-GRAPH-12 — the context hash is the situation.** SHA-256 (answer context, version 3) of: Talk
+  type, language, the parent context hash and the answer chosen there, the exact question text, the
+  sorted exact choice texts, the built-in values (D13), the selection mode and the Pair-tag scope.
+  Same context hash = same situation = the chatbot may repeat the answer. 64 hex characters. The
+  8-character `Question.contextHashId` (`RouteProcessor.buildContextHash`, FNV-1a) is retired; it
+  already caused one Me-tab collision (fixed 2026-11-01).
+- **REQ-GRAPH-13 — exact text.** No case folding. Keys hash the text the grammar filter produced
+  (§31.3a). Language stays in the key.
+- **REQ-GRAPH-14 — every hash is full length (D12):** SHA-256 hex (`portableSha256Hex`) for every
+  content key, including the revision. No 32-bit hash is used as a key anywhere in the graph.
+
+| Soul or key | Hash of | Domain | Replaces |
+|---|---|---|---|
+| `q/<key>` | exact question text, language, selection mode, Pair-tag scope | `iinpublic-question-v2` | Whenever offered key v1 (case-folded) |
+| `a/<hash>` | exact choice text | `iinpublic-answer-v2` | answer identity v1 (case-folded) |
+| context hash (a key, not a soul) | REQ-GRAPH-12 | `iinpublic-answer-context-v3` | context v2 (case-folded, no built-in values), `contextHashId` |
+| `rev/<hash>` | the Talk's structure: questions, choices, built-in values, routing, match and ignore rules, thresholds | `iinpublic-talk-structure-v1` | `rev_…` (32 bits), Talk CIDv1, `qa_…` |
+| `s/<hash>` | the answers: sorted map of context hash → chosen choice hashes or typed value | `iinpublic-answer-set-v1` | — |
+
+One rule covers every edit (D13, D14). Before, title edits, routing edits, content edits and
+built-in edits each had their own rule (REQ-LEDGER-03, -11a, REQ-CHATBOT-03, none for built-ins):
+
+| Edit | Structure hash | Context hashes | What receivers do |
+|---|---|---|---|
+| Title, expiry, radius, adult flag | same | same | take the new event; answers stand |
+| Routing or match rules | new | same where the path is unchanged | take it; the chatbot re-walks, unchanged situations answer themselves |
+| A choice added, removed or reworded | new | new for that question and every question after it | take it; the chatbot answers from Same context or Whenever offered, otherwise asks |
+| A price range or other built-in value | new | new for that question and after it, as a choice change (D13) | the same as a choice change; built-in answers are computed again |
+| Question text | new | new | the same; Whenever offered applies only if the new text is an exact known question |
+
+Every edit is a new event with a new `when`, linked to the version before (`re`) and to the Talk
+(`talk`). A peer is sent the Talk again whenever its latest known version event is older than mine.
+Matches formed under an earlier version are kept (REQ-LEDGER-11b).
+
+### 31.3a Grammar filter (D15; owner decisions and rule tables agreed 2026-11-02)
+
+Because keys are exact, two spellings of one question are two questions. The grammar filter keeps
+spellings consistent so that they meet. Where they still differ, users simply answer two questions.
+
+- **REQ-GRAPH-15 — when writing:** the editor runs the filter for the Talk's `language` on every
+  question and choice and replaces the text with the corrected text before the Talk is saved. The
+  author sees the result.
+- **REQ-GRAPH-16 — when receiving:** a receiver runs the same filter. If the filter would change any
+  question or choice, the **whole Talk is ignored** (not shown, not answered by the chatbot, no answer
+  sent). The arrival event is still written, marked `ignored: 'grammar'`, so the reason is visible.
+- **REQ-GRAPH-17 — language specific:** rule sets exist for English (`en`) and Chinese (`zh`) only.
+  A Talk in any other language has no filter: its text is used exactly as written and is never
+  ignored for grammar. The rule set is chosen by the Talk's `language`, not by detecting the text.
+- **REQ-GRAPH-18 — deterministic and versioned:** every device must produce the same output for the
+  same input, offline, or keys diverge. Each rule set has a version (`en-v1`, `zh-v1`), carried on
+  the Talk's structure (`grammar`). A receiver that does not know that version checks with the
+  newest version of that language it has.
+- **REQ-GRAPH-19a — names keep their end:** the "a question ends with `?`" rule does not apply
+  to a tag Talk's question, a simple tag, a Pair-tag question or a built-in question. Those are
+  names ("Tennis", "Buy"), and a simple tag's answer must stay equal to its question.
+- **REQ-GRAPH-19 — no spelling correction:** spelling ("tenis" → "tennis") is not corrected and
+  not checked. "Do you play tenis?" and "Do you play tennis?" are two questions.
+
+`en-v1`:
+
+| Rule | In | Out |
+|---|---|---|
+| Trim, collapse spaces | `" Do  you play tennis? "` | `"Do you play tennis?"` |
+| No space before `? ! . , : ;` | `"Do you play tennis ?"` | `"Do you play tennis?"` |
+| One space after `, : ;` when a letter follows | `"Tennis,golf"` | `"Tennis, golf"` |
+| Full-width marks become half-width | `"Do you play tennis？"` | `"Do you play tennis?"` |
+| One end mark | `"Tennis??"` | `"Tennis?"` |
+| A question ends with `?` (choices are not changed) | `"Do you play tennis"` | `"Do you play tennis?"` |
+| Capital first letter, unless the first word has a capital after its first letter | `"do you play tennis?"`, `"iPhone model?"` | `"Do you play tennis?"`, `"iPhone model?"` |
+
+`zh-v1`:
+
+| Rule | In | Out |
+|---|---|---|
+| Trim, collapse spaces | `" 你打网球吗？ "` | `"你打网球吗？"` |
+| No space between two Chinese characters | `"你 打网球吗？"` | `"你打网球吗？"` |
+| Half-width marks after Chinese become full-width (`? ! , : ;` → `？ ！ ， ： ；`, `.` → `。`) | `"你打网球吗?"` | `"你打网球吗？"` |
+| No space before or after a full-width mark | `"你好 ， 打网球吗？"` | `"你好，打网球吗？"` |
+| One end mark | `"你打网球吗？？"` | `"你打网球吗？"` |
+| A question ends with `？` (choices are not changed) | `"你打网球吗"` | `"你打网球吗？"` |
+
+Spaces between Chinese and Latin text ("用 iPhone 吗？" or "用iPhone吗？") are left as written, so those
+are two questions. Simplified and Traditional characters are not converted.
+
+### 31.4 Content records
+
+```
+q/<key>     { v, text, language, selection, selfTag?, counterpartTag?, firstSeen }
+a/<hash>    { v, text, firstSeen }
+
+rev/<hash>  { v, type, language, grammar, start: <qid>, matchThreshold?, collectionImportance? }
+rev/<hash>/q/<qid>        { v, q: →q/<key>, next?: <qid>, isAgeGate?, isAggregatable?,
+                            collectionImportance?, reciprocalTagContext?, tagKind?,
+                            builtIn?: →rev/<hash>/q/<qid>/builtIn }
+rev/<hash>/q/<qid>/builtIn  { kind, quantity?, min?, max?, start?, end?, age?, rangeMin?, rangeMax? }
+rev/<hash>/q/<qid>/a/<aid>  { v, a: →a/<hash>, next?: <qid>, nextMany?: →…/nextMany,
+                              match?, ignore?, terminal?, threshold? }
+rev/<hash>/q/<qid>/a/<aid>/nextMany  { 0: <qid>, 1: <qid>, … }
+
+s/<hash>                { v }
+s/<hash>/<contextHash>  { a: →a/<hash> }                    single choice
+                        { 0: →a/<hash>, 1: →a/<hash>, … }   multiple choice, sorted by hash
+                        { kind, quantity?, min?, max?, … }   built-in typed answer
+```
+
+- As built (2026-11-02, `src/core/device-graph/talk-structure.ts`): `rev/<hash>` also links
+  `order` (`{ n, 0: <qid>, … }`, the authored question order), each `rev/…/q/<qid>` links `choices`
+  (the answer order), and a route question links `path` (its `contextPath` as `qid, aid` pairs) and
+  `branch` (`branchingLogic` as `aid, qid` pairs). Every list node carries `n`, its length, so a
+  partly read list is detected and the structure reads as not stored. A structure's root node is
+  written last.
+- Pair-tag scope in `q/<key>` is the reader's side: the author's self tag is the Pair-tag question's
+  text, a responder's is its answer (as `effectiveTagContext` does today), so one question has two
+  keys on the two phones.
+- `Talk.tags` and `ipfsAttachments` are not mapped yet (§31.12 #17).
+- `<qid>` and `<aid>` are the authored ids inside the structure (`q_0`, `a_0_1`). They are keys, not
+  identities: the same question twice in one route Talk is two `<qid>` pointing to one `q/<key>`.
+- The text in `q/` and `a/` is exact, so there is no display override.
+- A structure holds no author, title or time. Those are on the Talk's events. Two authors who wrote
+  identical structures share one `rev/`.
+- An answer set holds no Talk: the same answers to the same situations in two Talks are one `s/`.
+  The answer event says which Talk.
+- Survey counters (`Answer.counter`), `usageCount` and `isTemplate` are not content. Counters are
+  derived from answer events; template status is state on `mine/talk/<talkId>`.
+
+### 31.5 Events
+
+```
+ev/<id> {
+  v:      1
+  when:   epoch ms, from the writer's clock
+  by:     →person/<pub>       author; omitted on events that never leave the device (= me)
+  with:   →person/<pub>       the other person, if any
+  where:  →cell/<region>      optional, blurred cell (§31.7)
+  place:  →place/<id>         optional, a user Place
+  mode:   'manual' | 'chatbot' | 'import'   optional
+  link:   'mesh' | 'webrtc' | 'wifi-direct' | 'bluetooth' | 'lan' | 'hub'   optional
+  device: <deviceId>          the writer's install
+  talk:   →ev/<id>            optional: the Talk (the event that first wrote it)
+  rev:    →rev/<hash>         optional: the Talk's structure in this version
+  title, expiresAt, locationRadiusMiles, isAdult   optional: Talk fields that are not structure
+  gave:   →s/<hash>           optional
+  re:     →ev/<id>            optional: the event this answers, replies to or replaces
+  conv:   →conv/<id>          optional: the conversation a message belongs to
+  text:   string              optional: private free text, e.g. a chat message
+  …any further named field or link added later
+}
+```
+
+- **REQ-GRAPH-20 — no types:** an event has no `kind`. What happened is read from the fields present.
+  Readers use these conventions:
+
+| Happening | Fields | Written by | Leaves the device |
+|---|---|---|---|
+| I wrote a Talk | `by`, `rev`, `title`, delivery fields, `when`, `where` (its id is the Talk id) | author | yes, with the offer |
+| I edited a Talk | the same, plus `talk` (the Talk) and `re` (the version before) | author | yes, to peers holding an older version |
+| I offered a Talk to someone | `by`, `with`, `talk`, `re` (the version offered), `when` | author | yes, to `with` |
+| A Talk arrived | `with` (sender), `talk`, `re` (the version), `where`, `link`, `when` | receiver | no |
+| I answered | `by`, `with`, `re` (the offer), `talk`, `gave`, `mode`, `when` | responder | yes, to `with` |
+| I changed an answer | the same, `re` → my previous answer event | responder | yes |
+| I withdrew or retracted a Talk | `by`, `talk`, `re` (offer), `withdrawn: true` or `retracted: true` | author | yes |
+| A chat message | `by`, `with`, `conv`, `text`, `re`? (last seen message) | sender | yes, encrypted |
+| A location sample of an outing | `where`, `outing: →outing/<id>` | me | no |
+
+- **REQ-GRAPH-21 — arrival and answer are two events.** The arrival is private (where I was, which
+  link); the answer is shared with the author. Different audiences require different events, even
+  when the chatbot answers in the same second.
+- **REQ-GRAPH-22 — repeats:** a Talk version arriving again, or a different Talk with an identical
+  structure, writes one arrival event and no content. The chatbot giving the same answers writes one
+  answer event whose `gave` is the existing `s/<hash>`. No `q/`, `a/`, `rev/` or `s/` record is
+  rewritten.
+- **REQ-GRAPH-23 — ids:** `<when, 13 digits>-<deviceId>-<counter, base36>`. `deviceId` is 128 random
+  bits (32 hex) created once per install and kept in settings, so two installs never share one.
+  `counter` increases per install and is persisted, so two events in one millisecond on one install
+  differ. No hash is involved, so event ids cannot collide (D16).
+- **REQ-GRAPH-24 — order:** within one device, by id. Across devices, by links first (`re`, `conv`
+  plus `re`), then by `when`. A receiver writes its own arrival event with its own clock, so a local
+  timeline never depends on another phone's clock.
+- **REQ-GRAPH-25 — `when` in the record:** Gun's per-field state (`_['>']`) is its merge clock and is
+  not used as event time.
+- **REQ-GRAPH-26 — derived facts:** match, ignore, "already answered" and survey counts are computed
+  from the Talk structure and answer sets (`talk-engine.ts`). They MAY be cached in an index; they are
+  never stored as events.
+- **REQ-GRAPH-27 — private text:** free text (chat messages, manual notes) stays in the event's `text`
+  and is never hashed into a content key: a short text's hash can be guessed.
+
+### 31.6 People and conversations
+
+```
+person/<userId>   { userId, pub?, epub?, name?, firstSeen }          state
+contact/<userId>  { person: →person/<userId>, nickname?, labels?, notes?, rating?, addedAt, blocked? }   state
+conv/<id>         { with: →person/<userId>, talk?: →ev/<talkId>, startedAt, status }                 state
+```
+
+- People are keyed by user ID (owner decision 2026-11-03, §31.12 #12). One person may hold several
+  user IDs (one per device, or one used over Wi-Fi Direct); each has its own public key, which signs
+  that user's shared records and receives the keys of records sent to them. The stage name is never
+  a key. Every `ix/…/<peerPub>` and `<senderPub>` in §31.8 is a user ID.
+
+- A person node exists once someone appears in any event. A contact is my private relationship to a
+  person. A name change updates one node.
+- Messages are events with `conv` and `text`. The conversation id stays the existing id.
+
+### 31.7 Places and location
+
+```
+cell/<region>   { latitude, longitude, precisionMeters, parent?: →cell/<wider region> }   content-like
+place/<id>      { name, anchor: →cell/<region>, … existing Place fields }                  state
+gps/<eventId>   { latitude, longitude, accuracy, source: 'gps' | 'traveler' }             private, deletable
+outing/<id>     { label, startedAt, endedAt }                                               state
+```
+
+- `<region>` is `publicLocationRegion` (`cell_<lat>_<lng>_<precision>`), snapped by
+  `snapPublicLocation` at 400 m. `parent` is the same point at the next precision
+  (1 km, 10 km, 50 km).
+- An exact point is never on the event, because events never change and an exact point must be
+  deletable. It sits in `gps/<eventId>` and is removed after the retention period (§31.12 #10).
+- A Traveler ✈ point is `source: 'traveler'` and is never shown as real GPS.
+
+### 31.8 Indexes
+
+All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen read with one key read.
+
+| Index | Value | Used by | Replaces |
+|---|---|---|---|
+| `ix/ctx/<contextHash>` | `{ entry: →s/…/<context>, mode, reuse, ev: →ev }` my latest answer there; `reuse` `auto` (the chatbot answers it), `once` (Just once: shown, never answered by itself) | chatbot Same context; a question's first-asked situation is my default later in a flow | `flattenedAnswerPreferences`, `exactChatbotMemory` |
+| `ix/whenever/<questionKey>` | `{ n, 0: →a/<hash>, 1: … }` priority order; an answer chosen Whenever offered goes first | chatbot Whenever offered | `questionDefaultContracts` |
+| `ix/typed/<typedKey>` | `{ kind, …values, ev }` my declared built-in values; `typedKey` = question key, Talk title and route branch | chatbot built-in comparison | `typedPreferenceState` |
+| `ix/passed/<questionKey>` | `{ passed: true, when }` a one-keyword tag I passed | the chatbot passes it again; answering it takes the pass back | suppressed questions in `exactChatbotMemory` |
+| `ix/q/<questionKey>/mine/<contextHash>` | `→ev` my latest answer event | Me tab | `answerPreferences`, `myQuestionAnswers`, `myAnswerHistory` |
+| `ix/q/<questionKey>/talks/<talkId>` | `true` | Me → Talks | — |
+| `ix/q/<questionKey>/theirs/<eventId>` | `→ev` | Me → Contacts | parts of `talkLedger` |
+| `ix/talk/<talkId>/ev/<eventId>` | `→ev` | Talks → Contacts, statistics | `talkLedger` exchange records |
+| `ix/received/<talkId>/<senderPub>` | `→ev` latest arrival | incoming list, delivery dedupe | `ownerIncomingTalkIndex` cluster `senders` |
+| `ix/answered/<talkId>` | `→ev` my latest answer | "already answered" | `answeredTalkByContent` |
+| `ix/exchanged/<peer>` | `{ <atom>: →ev }` an atom is a situation's context hash, or a tag Talk's tag word (the same tag in anyone's Talk); it passed between us: my offer, their Talk I accepted (a tag Talk's tags only once answered), or an answer either way | REQ-LEDGER-16 suppression (`exchanged.ts`): a Talk is not sent to a person who has this version or every atom of it; a tag Talk leaves out the tags they have (`omit`) | `talkLedger` exchanged and sent sets |
+| `ix/co/<peer>` | `{ <atom>: →ev }` an answer passed on it | the Talks list's "also exchanged with" | `talkLedger` exchanged entries with an answer |
+| `ix/sent-day/<peer>/<yyyy-mm-dd>` | `{ <talkId>: true }` | the send limit: 10 distinct Talks per person per UTC day, 50 per week | `talkLedger` edge counters |
+| `ix/outcome/<talkId>` and `/<responder>` | `{ <responder>: 'matched' \| 'ignored' }`; `{ outcome, version, responseId, respondedAt }` | how I decided each answer to my Talk: statistics, the change-of-mind and stale-answer rule | `talkLedger` outcomes |
+| `ix/responded/<talkId>/<author>` | `{ outcome, version, responseId, respondedAt }` | my answer's version (REQ-LEDGER-04) | `talkLedger` responder entries |
+| `ix/person/<pub>/ev/<eventId>` | `→ev` | Contacts history | copied names in logs |
+| `ix/app-answer/<appTalkId>` | `{ sig, ev, sent }` the app's answers last written | switch-over only: one event per saved answer, sent once | — |
+| `ix/graph-app/<talkId>` / `ix/app-talk/<appTalkId>` | the app's Talk id ↔ the graph's | switch-over only, until the app keys Talks by graph ids | — |
+| `ix/cell/<region>/ev/<eventId>` | `→ev` | Chatrooms, map | — |
+| `ix/day/<yyyy-mm-dd>/<eventId>` | `→ev` | time-range reads, retention | — |
+| `ix/conv/<id>/<eventId>` | `→ev` | conversation view | `myConversations` message lists |
+| `mine/talk/<talkId>` | `{ latest: →ev, active, checked, isTemplate }` | Talks tab | `myTalks` |
+| `sync/sent/<talkId>` | `{ <peer>: <versionId> }` latest version sent | re-send on edit (D14) | `talkRevisionSent` |
+| `ix/legacy/<oldTalkId>` | `→ev` | migration: old `qa_`/CID ids to Talk events | — |
+
+A list that grows with history (`mine/talks`, `ix/person/<pub>/ev`, `ix/talk/<talkId>/ev`,
+`ix/q/<key>/theirs`, `ix/me`) is split into time buckets, `ix/<name>/<yyyy-mm>`, with a directory
+node `ix/<name>` of bucket links (`index-buckets.ts`); the busiest are smaller: every event
+`ix/day/<yyyy-mm-ddThh>` by hour, arrivals `ix/incoming/<yyyy-mm-dd>` by day. A map keyed by a
+person or an atom (`ix/theirs/<talkId>`, `ix/exchanged/<peer>`, `ix/co/<peer>`,
+`ix/exchanged-with`, `ix/outcome/<talkId>`, `ix/responded/<talkId>`, `sync/sent/<talkId>`) is
+spread over 16 nodes by one hex digit of a SHA-256 of the key, `<map>/<hex>`, with a directory node
+(`keyed-buckets.ts`). The core's collections do the same: `local/collections/<name>/bucket-<hex>/
+<key>` (entries in the layout before buckets are erased at start, not moved). No node may hold more
+than about 5,000 links: Gun answers a node larger than one Radisk file (1 MB) in parts (OPEN-106
+benchmark).
+Content and event souls are written by exact soul only and are never linked into a parent node
+(`local/q`, `local/ev`), which would hold every record.
+
+`settings` and `appData` stay as state.
+
+### 31.9 Where records live and what travels
+
+| Namespace | Holds | Leaves the device |
+|---|---|---|
+| `local/` | every class above | never directly |
+| `~<myPub>/…` (signed) | the content and events I share: `rev/` (with its `q/`, `a/`), `s/`, offer, answer, retraction and message events | to the pair named in the event, over the pair's link only |
+
+- **REQ-GRAPH-30:** A shared record is written once in my signed space and read by each receiver
+  through Gun sync (design §"Proposed flow": per-Talk key `K`, per-pair grant). A receiver copies
+  what it verified into its own `local/` graph by the same keys.
+- **REQ-GRAPH-31:** On connect, each side subscribes to its pairs' grants and the souls they point to.
+  Gun sends nothing a peer did not ask for.
+- **REQ-GRAPH-32:** An outgoing audience filter SHALL send a pair's souls only on that pair's link and
+  SHALL NOT relay other people's souls (Gun floods by default).
+- **REQ-GRAPH-33:** No key of a guessable hash (`q/`, `a/`, `s/`, `rev/`) appears in clear on the
+  wire. Shared souls use random tags; hashes travel only inside encrypted values.
+- Shared values are encrypted (owner decision 2026-11-03, §31.12 #8): each shared record is
+  encrypted with a key that is wrapped for each receiver's public key.
+- **REQ-GRAPH-34 — provable timeline (§31.12 #11):** everything I share with one person is listed in
+  that pair's log, numbered from 0, each entry carrying the hash of the entry before it, so the
+  receiver can prove the order and see a gap.
+- **REQ-GRAPH-35 — deletes propagate (§31.12 #14):** deleting my Talk or my answer is a new event,
+  sent like any other record to everyone who holds the Talk or the answer; their devices then remove
+  it from their lists, and later copies of a deleted Talk are recorded but not shown.
+- **REQ-GRAPH-36 — storage limit (§31.12 #13):** the graph may use 1 GB. A full store refuses what
+  other people send; my own writes are never refused. Trimming old data comes later.
+
+### 31.10 No migration: old data is erased
+
+Owner decision 2026-11-03 (§31.12 #15, #17): the graph has not shipped, so there is no migration, no
+mixed-version period and no reading of both formats. When the graph takes over, today's collections
+(`myTalks`, `talkLedger`, `myAnswerHistory`, `answerPreferences`, `myQuestionAnswers`,
+`flattenedAnswerPreferences`, `exactChatbotMemory`, `questionDefaultContracts`,
+`answeredTalkByContent`, `ownerIncomingTalkIndex`, `talkRevisionSent`, `chatbotTemplates`,
+`typedPreferenceState`, `tagOppositePairRegistry`, `dealTalkByConversation`,
+`needKeyByConversation`, and the SEA Talk copies under `local/private/talks%2F…`) are deleted from
+the device. Conversations and chat messages stay where they are: they join the graph in a later
+release (§31.12 #16). The phase-4 mirror and `ix/legacy/` were removed (OPEN-106 step 2e): the app
+knows each Talk by its graph id, and a copy I send is my own graph Talk with the copied id as `source`. The
+SEA Talk copies, the incoming rows envelope (`incomingTalkClusters`) and the authored and received
+body caches are erased: a Talk's body is read from the graph, a created Talk's `myTalks` entry keeps
+only what the graph does not give back identical, and the incoming list is built from the arrivals
+the app accepted (`ix/shown/<talkId>`, with each sender's name and the tags left out).
+The talk ledger (`talkLedger`) and the revisions sent (`talkRevisionSent`) are erased (OPEN-106
+step 3): what passed between two people, the send limit, and how each answer was decided are the
+indexes of §31.8 (`ix/exchanged`, `ix/co`, `ix/sent-day`, `ix/outcome`, `ix/responded`); a
+retraction is the graph's deletion event.
+The chatbot's collections (`answerPreferences`, `flattenedAnswerPreferences`,
+`questionDefaultContracts`, `typedPreferenceState`, `exactChatbotMemory`, `myQuestionAnswers`) and
+its private `chatbotMemory/` backup are erased at start (OPEN-106 step 2e v): the chatbot answers
+from §31.8's `ix/ctx`, `ix/whenever`, `ix/typed` and `ix/passed`, and how each answer may be reused
+is kept in a private sidecar of my answer event (`ev/<id>/x`), so the crash rebuild restores them.
+A built-in question's situation names its kind, not the values it compares. `answeredTalkByContent`
+is erased: "already answered" is derived from My Talks and the graph's answer history.
+`myAnswerHistory` is erased: the Me tab reads the graph's answer history, and the app saves and
+removes my answers with core requests (`graph.recordAnswers`, `graph.forgetAnswers`).
+
+### 31.11 Conflicts with earlier sections
+
+| Earlier rule | Conflict | Resolution in this section |
+|---|---|---|
+| REQ-LEDGER-01, -02 (typed `kind`, per-user `seq` chain, JSON `content`) | D6: no types; D4: no JSON bodies | Replaced by §31.5. Whether to keep a signed `prev` chain is open (§31.12 #11). |
+| REQ-LEDGER-03 (any field change → new talkId), REQ-LEDGER-11a (title/routing edits keep the id), REQ-CHATBOT-03 (content edits are new Talks) | Three rules for edits, and none for built-in values | One rule (§31.3, D14): every edit is a new event of the same Talk; context hashes decide what is answered again. |
+| REQ-LEDGER-05 (repeat receipt writes nothing) | D7: record who, when, where of a repeat | REQ-GRAPH-22. |
+| REQ-LEDGER-06 (delta sync of `seq` over the DataChannel) | D3, D4: Gun sync | REQ-GRAPH-30, -31. |
+| REQ-LEDGER-09 (`ledger/<userId>/index/…`) | | §31.8 indexes. |
+| REQ-LEDGER-12 (CIDv1 for `talkId` and all content addresses) | D16: a Talk is an event | Talk ids are event ids; content keys are SHA-256 hex. |
+| REQ-LEDGER-14 (`questionId` includes options) | D11: the question is the key, choices are not | `q/<key>`; choices are in the context hash. `Question.cidId` is retired. |
+| REQ-LEDGER-16 (suppression by Talk identity) | No Talk content key | By context hash, or a tag's word (`ix/exchanged`). |
+| `normalizeIdentityText` case folding in every key | D15: exact text | Grammar filter instead (§31.3a); new key versions. |
+| §20.8 `talkAnswerTemplateByUser/…` | | `ix/ctx/`, `ix/whenever/`. |
+
+### 31.12 Open issues (review, 2026-11-02)
+
+Settled by the owner on 2026-11-02 and now in §31.3: the Talk key (none; the question is the key),
+full-length revision and context hashes, built-in values as choices, edits as events, exact text.
+
+Settled by the owner on 2026-11-03 (items 7–17 below are closed by this list and by #7):
+
+- **Shared records are encrypted** (#8). Only the people a record is shared with can read it: they
+  get the key from the author, which is wrapped for each receiver's public key.
+- **No encryption at rest on the website** (#9). The browser graph is stored unencrypted, as today's
+  `local/` collections are. Phones still encrypt at rest with an Android Keystore key.
+- **Exact GPS kept 30 days** (#10), then only the blurred cell remains.
+- **Keep the provable timeline** (#11): shared events carry a `prev` link to the author's previous
+  shared event, so order and completeness can be checked (§20.1 stays).
+- **People keep the user ID design** (#12, revised by the owner 2026-11-03): a person is
+  identified by user ID, as today, and one person may hold several user IDs (one per device, or one
+  used over Wi-Fi Direct), which is more flexible than one key per person. Each user ID carries its
+  public key, which signs that user's records and receives wrapped keys; the stage name is never a
+  key. Graph person records are `person/<userId>` with `pub` as a field.
+- **1 GB database limit** (#13), set by the owner. Trimming of old data comes later, as its own
+  piece of work; until then the app reports when the store nears the limit.
+- **Deletion propagates** (#14): deleting an answer or a Talk writes a delete event that is synced to
+  contacts like any other edit, and their devices remove their copies.
+- **No backward compatibility** (#15): the graph has not shipped, so there is no mixed-version
+  period, no migration of old records and no dual-format reads. `ix/legacy` and the mirror's
+  comparison with the old collections exist only for testing during development.
+- **Chat messages stay out of the first release** (#16): they keep their pair-encrypted store
+  (`gun-message-store.ts`) and become events in a later release.
+- **Old data is erased, not mapped** (#17): when the graph replaces the old collections, their records
+  (including `chatbotTemplates`, `typedPreferenceState`, `tagOppositePairRegistry`,
+  `dealTalkByConversation`, `needKeyByConversation`) are deleted from the device. Features that still
+  need any of this state get it as new graph records, starting empty.
+
+Defects in today's code, to fix with the graph or before it:
+
+1. **32-bit keys.** `qa_` Talk identity keys (about 20 source files), `rev_` revision hashes and
+   `Question.contextHashId` are FNV-1a, 32 bits. At 10,000 Talks on one device the chance of a
+   collision is about 1 %, at 100,000 about 69 %. Removed by REQ-GRAPH-10 and -14.
+2. **Built-in values and delivery fields change no hash today.** Checked 2026-11-02 by hashing: a price
+   range changed from 100–200 to 500–900, or a Talk made adult-only, keeps the same Talk id and the
+   same revision, so the re-send never fires and peers keep the old version. Not yet reproduced end
+   to end. Removed by D13 and D14.
+3. **Selection mode** changes today's revision but not the Talk id, so receivers keep answers to a
+   question that changed meaning. Under §31.3 it changes the question key and the context hash, so
+   the question is answered again.
+
+Decisions still needed:
+
+4. **Grammar filter:** decided 2026-11-02: English and Chinese only, other languages unfiltered;
+   a Talk with an error is ignored whole; no spelling correction; `en-v1` and `zh-v1` rule tables
+   agreed (§31.3a).
+5. (merged into 4)
+6. (merged into 4)
+7. **Language in the key.** The same exact text in two languages ("Taxi?") is two questions.
+   Decided 2026-11-03: keep, as today.
+8. **Encrypted or public** shared records (open since 2026-11-01).
+9. **Encryption at rest** by a store adapter with an Android Keystore key, and the website without a
+   keystore.
+10. **Exact GPS retention.** Proposed: 30 days in `gps/`, then only the cell.
+11. **Provable timeline.** §20.1 required a signed, hash-chained history. Gun's signed space proves
+    who wrote each record, not order or completeness. Keep a `prev` chain on shared events, or drop
+    the requirement.
+12. **Person key.** `pub` here; the app identifies people by `userId`, and linked devices share a
+    person.
+13. **Retention and storage budget.** Every arrival and answer adds an event. Measure bytes per event
+    on the FRD; set a cap (for example, the latest N arrivals per sender and Talk, older ones folded
+    into a count).
+14. **Deletion.** Gun keeps tombstones, and synced copies stay with the other person. Define what
+    "delete my answer" and "delete this Talk" promise.
+15. **Mixed app versions** during rollout: minimum-version cutover (signed manifest), or both formats
+    for a period.
+16. **Chat messages as events** in the first release of the graph, or later (they are pair-encrypted
+    through `gun-message-store.ts` today).
+17. **Unmapped collections:** `chatbotTemplates`, `typedPreferenceState`, `tagOppositePairRegistry`,
+    `dealTalkByConversation`, `needKeyByConversation`.
+
+To build or measure:
+
+18. **Index consistency:** start-up repair (REQ-GRAPH-02), cost at 100,000 events unmeasured.
+19. **Audience filter, per-pair subscriptions, Gun in the phone's embedded Node:** not built or tested.
+20. **Device sync** must carry content, events and each install's `deviceId`.
+21. **FRD targets** before building past phase 1: write and read time per event at 10,000 and
+    100,000 events, start-up, Radisk chunk rewrites per arrival.

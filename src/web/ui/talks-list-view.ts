@@ -1,6 +1,6 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import type { GPSCoordinate, User } from '../../shared/types';
-import { getAnsweredTalkByContent } from './answer-preferences-storage';
+import { answeredTalkIdsByContent } from './answered-talks';
 import { getFlatAnswerHistory, getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
@@ -25,6 +25,7 @@ import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import type { UiTranslationKey } from './ui-translations';
 import { answersLinkHtml, peopleLinkHtml, peopleWhoExchanged, bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 import { settingsStorage } from '../services/core-storage';
+import { readExchanges } from '../services/exchange-view';
 import { TALKS_TAB_STATE_KEY } from './talks-tab-state';
 
 const TALKS_FIRST_CHUNK_SIZE = 25;
@@ -88,7 +89,8 @@ export type DisplayTalksListDeps = {
   getMyConversations: () => Record<string, any>;
   formatReasonCounts: (counts: Record<string, number>) => string;
   displayContextualStatistics: (elementId: string, prefix?: string) => void;
-  getCoExchangedPeople: (identityKey: string, excludePeerIds: Set<string>) => Array<{ id: string; name: string }>;
+  /** People I exchanged answers on this Talk's content with (the device graph's exchange index). */
+  getCoExchangedPeople: (talk: any, excludePeerIds: Set<string>) => Array<{ id: string; name: string }>;
   formatTalkDistanceFromAuthor: (location: { latitude?: number; longitude?: number } | null | undefined) => string;
   formatTalkExpiration: (expiresAt: number | null | undefined) => string;
   formatTalkLanguage: (code: string) => string;
@@ -310,7 +312,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
   );
   const incomingFilterResult = { ...filteredIncoming, visible: [...rawIncomingEntries.filter(isStarter), ...filteredIncoming.visible] };
   const hiddenReasonsText = deps.formatReasonCounts(incomingFilterResult.hiddenByReason);
-  const answeredByContent = getAnsweredTalkByContent();
+  const answeredByContent = answeredTalkIdsByContent();
   const backendInEntries = incomingFilterResult.visible.filter((cluster: any) => {
     if (cluster?.isAnswered) return false;
     const identityKey = String(cluster?.identityKey || '');
@@ -475,12 +477,21 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     // instead of an inline .map() callback over the entire list at once.
     const renderOutRow = ([talkId, talk]: [string, any]): string => {
                 const stats = deps.talkStatsMap[talkId];
+                // A Talk I created under its own id travels under its graph id: a conversation the
+                // other side opened through it carries that one. The exchange log records the match
+                // under my id either way.
+                const ownIds = new Set([talkId, String(talk?.fullTalk?.graphTalkId || '')].filter(Boolean));
                 const matchedPeople = Object.values(conversations)
-                  .filter((c: any) => c.talkId === talkId && c.otherUserId)
+                  .filter((c: any) => ownIds.has(String(c.talkId || '')) && c.otherUserId)
                   .map((c: any) => ({
                     id: String(c.otherUserId),
                     name: c.respondedByBot ? `${c.otherUserName} 🤖` : String(c.otherUserName || ''),
                   }));
+                for (const exchange of readExchanges()) {
+                  if (exchange.talkId !== talkId || exchange.outcome !== 'match' || exchange.direction === 'received') continue;
+                  if (matchedPeople.some((p) => p.id === exchange.peerId)) continue;
+                  matchedPeople.push({ id: exchange.peerId, name: String(exchange.peerName || exchange.peerId) });
+                }
                 const matchedNames = matchedPeople.map((p) => p.name);
                 const metrics = outMetrics(talkId);
                 const statsLine = stats || metrics.responses > 0
@@ -502,14 +513,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                     ? `<div class="talk-item-matched talk-matched-people" data-matched-people="${escapeHtml(JSON.stringify(matchedPeople))}" style="font-size: 0.85em; color: var(--success-text); margin-top: 4px; cursor: pointer;">${deps.tf('talksMatchedWith', { names: escapeHtml(matchedNames.join(', ')) })}</div>`
                     : '';
                 // TODO §Q build-order item 17: "people I've separately exchanged this same
-                // content with" — a different talkId sharing the same identityKey (e.g. a
-                // separate broadcast round), scoped to this device's own talkLedger only.
-                // Excludes people already shown by matchedLine above (this row's own partners).
+                // content with" (e.g. a separate broadcast round), from this device's own graph
+                // only. Excludes people already shown by matchedLine above (this row's own partners).
                 const coExchangedPeople = talk.fullTalk
-                  ? deps.getCoExchangedPeople(
-                      computeTalkIdFromTalkData(talk.fullTalk),
-                      new Set(matchedPeople.map((p) => p.id)),
-                    )
+                  ? deps.getCoExchangedPeople(talk.fullTalk, new Set(matchedPeople.map((p) => p.id)))
                   : [];
                 const coExchangedLine =
                   coExchangedPeople.length > 0
@@ -637,10 +644,13 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
               const identityKey = String(cluster?.identityKey || '');
               const pinKey = incomingPinKey(cluster, talkId);
               // TODO §Q build-order item 17: other people I've separately exchanged this same
-              // content with (e.g. a different sender who sent me the identical talk), scoped
-              // to this device's own talkLedger only. Excludes this cluster's own sender(s).
-              const coExchangedPeople = identityKey
-                ? deps.getCoExchangedPeople(identityKey, new Set(senderPeople.map((p) => p.id)))
+              // content with (e.g. a different sender who sent me the identical talk), from this
+              // device's own graph only. Excludes this cluster's own sender(s).
+              const clusterTalk = (() => {
+                try { return { type: cluster?.type, questions: JSON.parse(String(cluster?.questionsJson || '[]')) }; } catch { return null; }
+              })();
+              const coExchangedPeople = clusterTalk && clusterTalk.questions.length
+                ? deps.getCoExchangedPeople(clusterTalk, new Set(senderPeople.map((p) => p.id)))
                 : [];
               const coExchangedLine =
                 coExchangedPeople.length > 0

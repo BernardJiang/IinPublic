@@ -1,6 +1,5 @@
 /** OPEN-91 P4: small Talk rules shared by delivery, the chatbot and deals. */
-import { answeredBeforeFor, isDealEligibleTalk, isPassedTag, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
-import { createEmptyExactChatbotMemoryState, LOCAL_EXACT_CHATBOT_USER_ID, saveSuppressedQuestion } from '../../shared/exact-chatbot-memory';
+import { answeredBeforeFor, isDealEligibleTalk, matchScoreParamsFor, selectedTalkIdentityKeys, talkRevisionPairKey } from '../../core/talk-rules';
 
 const tags = { type: 'tag', title: 'Likes', language: 'en', questions: [{ id: 'q1', text: 'Likes', answers: [{ id: 'a', text: 'Tennis' }, { id: 'b', text: 'Chess' }] }] };
 
@@ -24,18 +23,10 @@ describe('talk rules', () => {
   });
 
   it('answered before: only for a sender my answered copy lists', () => {
-    const myTalks = { copy: { senders: ['ann'] } };
-    expect(answeredBeforeFor('cid', 'ann', { cid: 'copy' }, myTalks)).toBe(true);
-    expect(answeredBeforeFor('cid', 'bob', { cid: 'copy' }, myTalks)).toBe(false);
-    expect(answeredBeforeFor('', 'ann', { cid: 'copy' }, myTalks)).toBe(false);
-  });
-
-  it('a one-keyword tag I passed is passed; one I did not is not', () => {
-    const tag = { type: 'tag', language: 'en', questions: [{ id: 'q1', text: 'Opera', answers: [{ id: 'y', text: 'Opera' }] }] };
-    const memory = createEmptyExactChatbotMemoryState();
-    expect(isPassedTag(tag, memory, Date.now())).toBe(false);
-    saveSuppressedQuestion(memory, LOCAL_EXACT_CHATBOT_USER_ID, 'Opera', undefined, { language: 'en' });
-    expect(isPassedTag(tag, memory, Date.now())).toBe(true);
-    expect(isPassedTag(tags, memory, Date.now())).toBe(false);
+    const answered = (contentId: string) => (contentId === 'cid' ? 'copy' : undefined);
+    const myTalk = (talkId: string) => (talkId === 'copy' ? { senders: ['ann'] } : undefined);
+    expect(answeredBeforeFor('cid', 'ann', answered, myTalk)).toBe(true);
+    expect(answeredBeforeFor('cid', 'bob', answered, myTalk)).toBe(false);
+    expect(answeredBeforeFor('', 'ann', answered, myTalk)).toBe(false);
   });
 });

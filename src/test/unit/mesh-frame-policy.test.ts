@@ -3,11 +3,11 @@ import { configuredMeshSyncCapabilities, CURRENT_MESH_SYNC_CAPABILITIES, MESH_FR
 describe('PeerMesh frame narrowing and mixed versions', () => {
   test('classifies every current frame kind', () => {
     expect(Object.keys(MESH_FRAME_INVENTORY).sort()).toEqual([
-      'ack', 'mesh-ping', 'mesh-pong', 'nearby-gossip', 'protocol-manifest-chain', 'protocol-manifest-request',
-      'protocol-manifest-summary', 'talk-announce', 'talk-body', 'talk-body-request',
-      'talk-response', 'talk-retracted',
+      'graph-gun', 'mesh-ping', 'mesh-pong', 'nearby-gossip', 'protocol-manifest-chain', 'protocol-manifest-request',
+      'protocol-manifest-summary',
     ]);
-    expect(MESH_FRAME_INVENTORY['talk-body']).toBe('adapt-to-gun-sync');
+    // Talks travel as device graph nodes in graph-gun frames (OPEN-106); there is no Talk frame.
+    expect(MESH_FRAME_INVENTORY['graph-gun']).toBe('retain-control');
   });
 
   test('new sender and receiver negotiate Gun-native sync', () => {

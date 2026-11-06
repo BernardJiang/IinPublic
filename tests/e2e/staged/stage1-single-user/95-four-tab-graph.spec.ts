@@ -1,7 +1,20 @@
+import type { Locator } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { webBaseURL } from '../../helpers/ports';
+
+/** A picture for review, not an assertion: a list redrawn under it (late data) is taken again. */
+async function snap(target: Locator, path: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await target.screenshot({ path });
+      return;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+    }
+  }
+}
 
 // OPEN-94: all 12 directed tab pairs, through rendered contextual links rather than nav shortcuts.
 test('four tabs traverse people, non-tag Talks, answers and historical Places without travelling', async ({ browser }) => {
@@ -22,10 +35,10 @@ test('four tabs traverse people, non-tag Talks, answers and historical Places wi
         [flow.id]: { title: flow.title, type: flow.type, role: 'created', timestamp: at, fullTalk: flow },
         [tag.id]: { title: tag.title, type: tag.type, role: 'created', timestamp: at, fullTalk: tag },
       } });
-      (window as any).__iinpublic_collection_edit('myAnswerHistory', { set: {
+      (window as any).__iinpublic_answer_history_seed({
         [flow.id]: { id: flow.id, talkId: flow.id, title: flow.title, type: 'flow', outcome: 'match', answeredAt: at, senderIds: ['graph-eve'], items: [{ questionId: 'q', answerId: 'yes', prompt: 'Coffee tomorrow?', choice: 'Yes', kind: 'question', contextPath: [] }] },
         [tag.id]: { id: tag.id, talkId: tag.id, title: tag.title, type: 'tag', outcome: 'match', answeredAt: at, senderIds: ['graph-bob'], items: [{ questionId: 'q', answerId: 'yes', prompt: 'Graph hiking', choice: 'Checked', kind: 'tag', booleanTag: true, contextPath: [] }] },
-      } });
+      });
       app.recordLocalTalkExchange('graph-eve', 'Eve', flow.id, flow, 'match');
       app.recordLocalTalkExchange('graph-bob', 'Bob', tag.id, tag, 'match');
       const room = app.currentChatroomId;
@@ -54,14 +67,14 @@ test('four tabs traverse people, non-tag Talks, answers and historical Places wi
     await active('contacts');
     const peer = page.locator('#peer-detail-overlay');
     await expect(peer).toBeVisible();
-    await peer.screenshot({ path: '/tmp/iinpublic-graph-peer-mobile.png' });
+    await snap(peer, '/tmp/iinpublic-graph-peer-mobile.png');
     await expect(page.locator('#conversation-detail-overlay')).toBeHidden();
     // Contacts → Talks: Eve exchanged only a Flow, no tags.
     await peer.getByTestId('peer-talks-link').click();
     await active('talks');
     await expect(page.locator('#talks-focus-chip')).toContainText('Eve');
     await expect(page.locator('#talks-list .talk-list-item[data-talk-id="graph-flow"]')).toBeVisible();
-    await page.locator('#talks-list .talk-list-item[data-talk-id="graph-flow"]').screenshot({ path: '/tmp/iinpublic-graph-talk-mobile.png' });
+    await snap(page.locator('#talks-list .talk-list-item[data-talk-id="graph-flow"]'), '/tmp/iinpublic-graph-talk-mobile.png');
     await expect(page.locator('#talks-list .talk-list-item[data-talk-id="graph-tag"]')).toHaveCount(0);
     await back();
     await expect(peer).toBeVisible();
@@ -82,7 +95,7 @@ test('four tabs traverse people, non-tag Talks, answers and historical Places wi
       await back();
       await expect(history).toBeVisible();
     }
-    await history.screenshot({ path: '/tmp/iinpublic-graph-place-mobile.png' });
+    await snap(history, '/tmp/iinpublic-graph-place-mobile.png');
     await back();
     await expect(peer).toBeVisible();
     await page.locator('#back-from-peer-detail').click();

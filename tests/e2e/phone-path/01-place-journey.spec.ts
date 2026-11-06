@@ -4,8 +4,9 @@
  * Alice on phone A creates a Place. Bob on phone B — a different embedded node, so the only way
  * he can learn about it is through the hub — finds it in his list, enters it, and both see each
  * other. Both leave; the empty Place is still listed for Bob and for Carol, a plain web user on
- * the hub, and Bob can enter it again. Each step is checked on the OTHER user's screen or in the
- * hub's own data, never only on the screen of the person who acted.
+ * the hub, and Bob can enter it again. The map must show the Place marker for both a phone and a
+ * plain web viewer. Each step is checked on the OTHER user's screen or in the hub's own data,
+ * never only on the screen of the person who acted.
  *
  * Bugs this would have caught (2026-10-13): Place creation threw on phones (no WebCrypto); phone
  * Places stayed on the phone and never reached the hub; empty Places were hidden so nobody could
@@ -13,6 +14,7 @@
  */
 import { test, expect } from '@playwright/test';
 import {
+  clickAppBarAction,
   closeUsers,
   createPlace,
   currentRoomId,
@@ -50,6 +52,9 @@ test.describe('Place journey: phone A creates, phone B and a web user find and e
     // J-PLACE-01: creating a Place on a phone succeeds and the creator stands in it.
     const name = `Journey Cafe ${Date.now()}`;
     const placeId = await createPlace(alice.page, name);
+    await clickAppBarAction(alice.page, '#chatroom-map-view-btn');
+    await expect(alice.page.locator('#chatroom-map')).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
+    await expect(alice.page.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"]`)).toBeVisible({ timeout: 20_000 });
 
     // J-PLACE-02: the hub knows the Place (it did not stay on phone A).
     await expect.poll(() => hubListsPlace(request, placeId), { timeout: 20_000, message: 'hub never listed the Place' }).toBe(true);
@@ -78,6 +83,9 @@ test.describe('Place journey: phone A creates, phone B and a web user find and e
     // …and for Carol, a plain web user on the hub (J-PLACE-06)…
     carol = await openUser(browser, 'Carol', 'hub');
     await waitForRoomRow(carol.page, placeId);
+    await clickAppBarAction(carol.page, '#chatroom-map-view-btn');
+    await expect(carol.page.locator('#chatroom-map')).toHaveClass(/maplibregl-map/, { timeout: 20_000 });
+    await expect(carol.page.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"]`)).toBeVisible({ timeout: 20_000 });
 
     // …and Bob can enter the empty Place again (J-PLACE-07).
     await enterRoomFromList(bob.page, placeId);

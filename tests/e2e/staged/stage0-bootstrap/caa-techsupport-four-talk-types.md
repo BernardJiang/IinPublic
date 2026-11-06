@@ -20,7 +20,7 @@ TechSupport programmatically creates one talk of each type (tag, flow, survey, r
 3. **Verify Me/Answers tab:** All four talk titles visible with correct `talk-type-*` class.
 4. **Verify answer rows:** 5 answer-outcome items match expected question/answer pairs.
 5. **Verify route context path:** Child question row shows context path in display format, not raw questionId/answerId tuples.
-6. **Verify localStorage:** Exactly 5 TechSupport-prefixed questions in `myQuestionAnswers`.
+6. **Verify the chatbot remembers them:** exactly 5 TechSupport-prefixed questions among the answers the device graph remembers (`__iinpublic_graph_remembered`).
 
 > **Why this matters:** Exercises the complete talk-creation pipeline for every supported type. The route-talk context path check catches regressions where internal IDs leak into the user-visible UI.
 

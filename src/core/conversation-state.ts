@@ -12,14 +12,21 @@ function findConversation(conversations: Conversations, otherUserId: string, tal
 }
 
 /** The author retracted the Talk: the match is gone. Falls back to the Talk alone (author-side teardown). */
-export function withdrawConversation(conversations: Conversations, otherUserId: string, talkId: string, retractedAt: number): boolean {
+/**
+ * The match through this Talk is gone: its author removed the Talk (`talk-removed`), or the other
+ * person deleted their answer to my Talk (`answer-deleted`).
+ */
+export function withdrawConversation(
+  conversations: Conversations, otherUserId: string, talkId: string, retractedAt: number,
+  reason: 'talk-removed' | 'answer-deleted' = 'talk-removed',
+): boolean {
   const id = findConversation(conversations, otherUserId, talkId, (c) => c?.talkId === talkId);
   if (!id) return false;
   const at = new Date(retractedAt).toISOString();
   Object.assign(conversations[id], {
     status: 'withdrawn',
     retractedAt: at,
-    lastMessage: `Author removed this talk — the match is gone · ${new Date(retractedAt).toLocaleString()}`,
+    lastMessage: `${reason === 'answer-deleted' ? 'They deleted their answer' : 'Author removed this talk'} — the match is gone · ${new Date(retractedAt).toLocaleString()}`,
     lastMessageTime: at,
   });
   return true;

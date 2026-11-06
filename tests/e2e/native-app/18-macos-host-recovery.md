@@ -1,4 +1,5 @@
 # macOS host recovery
+covers: SPEC-5.2, SPEC-5.5
 
 These opt-in tests exercise real Mac-mini host boundaries that ordinary browser emulation cannot
 prove.

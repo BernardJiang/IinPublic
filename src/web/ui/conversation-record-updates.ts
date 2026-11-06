@@ -19,9 +19,12 @@ function refreshAfterConversationRecordChange(deps: ConversationRecordUpdateDeps
 }
 
 /** Marks a conversation withdrawn after the author retracted its talk — the match is gone. */
-export function markConversationWithdrawn(otherUserId: string, talkId: string, retractedAt: number, deps: ConversationRecordUpdateDeps): void {
+export function markConversationWithdrawn(
+  otherUserId: string, talkId: string, retractedAt: number, deps: ConversationRecordUpdateDeps,
+  reason?: 'talk-removed' | 'answer-deleted',
+): void {
   const conversations = deps.getMyConversations();
-  if (!withdrawConversation(conversations, otherUserId, talkId, retractedAt)) return;
+  if (!withdrawConversation(conversations, otherUserId, talkId, retractedAt, reason)) return;
   setMyConversations(conversations);
   refreshAfterConversationRecordChange(deps);
 }

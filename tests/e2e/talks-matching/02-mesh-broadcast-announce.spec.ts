@@ -24,6 +24,7 @@ import {
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { webAppURLStableChatroom } from '../helpers/ports';
 import { enterNewPlaceTogether } from '../helpers/nearby-v3';
+import { newGraphTalkId } from '../helpers/device-graph';
 
 /** Collect all non-metadata keys under a Gun root over a 500ms window. */
 const COLLECT_GUN_WINDOW_MS = 500;
@@ -203,7 +204,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
 
     // --- Tom broadcasts a find-similar talk via the mesh ---
     // Use a stable talkId so assertions can look it up in diagnostics.
-    const TEST_TALK_ID = `mesh-announce-e2e-${Date.now()}`;
+    const TEST_TALK_ID = await newGraphTalkId(pageTom);
     await afterAction();
     await pageTom.evaluate(
       async ({ talkId, authorId }: { talkId: string; authorId: string }) => {
@@ -218,7 +219,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
           type: 'tag',
           questions: [{ id: 'q1', text: 'Do you like mesh?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
         });
-        await mesh.broadcastTalk(
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(
           {
             id: talkId,
             authorId,
@@ -226,7 +227,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
             type: 'tag',
             questions: [{ id: 'q1', text: 'Do you like mesh?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
           },
-          { roomBroadcast: true },
+
         );
       },
       { talkId: TEST_TALK_ID, authorId: tomId },
@@ -393,7 +394,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
       ).toBe(true);
     }
 
-    const TEST_TALK_ID = `mesh-ipfs-attachment-e2e-${Date.now()}`;
+    const TEST_TALK_ID = await newGraphTalkId(pageTom);
     const expectedAttachment = {
       cid: 'bafybeigdyrzt4v5a7y4k2w5c7kq4t7x2x3h2y6z5m3qk7w6y5n4t3u2r1qa',
       name: 'hello.txt',
@@ -421,10 +422,7 @@ test.describe('Mesh broadcast announce — three browsers, zero Gun writes', () 
           questions: [{ id: 'q1', text: 'Do you want attachments?', answers: [{ text: 'Yes' }, { text: 'No' }] }],
           ipfsAttachments: [attachment],
         };
-        await mesh.broadcastTalk(talk, {
-          recipientUserIds: recipientIds,
-          roomBroadcast: true,
-        });
+        await (window as any).__iinpublic_app.getApp().offerTalkForE2e(talk, recipientIds);
       },
       {
         talkId: TEST_TALK_ID,
