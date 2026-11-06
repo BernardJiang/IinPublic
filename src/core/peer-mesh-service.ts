@@ -749,7 +749,10 @@ export class PeerMeshService {
         void this.sendProtocolManifestSummary(neighbor);
         if (newlyConnected) this.notifyNeighborConnected(neighbor.userId);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        // Why a link did not open (knock unanswered, ICE failed, timed out): a failure was silent
+        // before, which hid client-to-client links in an offline Wi-Fi Direct group (native-app/30).
+        console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} not connected after ${Date.now() - startedAt} ms: ${error instanceof Error ? error.message : String(error)} (${neighbor.session.getState?.() ?? 'unknown'})`);
         // A WebRTC reconnect can retire one promise while a coordinated replacement is already
         // connecting on the same session. Treating that expected rejection as an unreachable
         // personal peer twice dropped the neighbor and disposed the replacement underneath its

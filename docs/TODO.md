@@ -231,9 +231,18 @@ its ID.
     clients dial each other directly over the group's subnet, or the owner forwards the pair's
     encrypted souls (it cannot read them). With the FRD as third phone the FRD never started
     discovery (Android 7; OPEN-93's area).
-    (b) 29 cellular runs against production, which is 1.0.200 (2026-10-29), before the graph
-    exchange; both runs (cellular ↔ Wi-Fi, both on cellular) failed at the first Talk. Needs
-    production updated to the graph build first (owner approval).
+    (b) 29 cellular runs against production, which was 1.0.200 (2026-10-29), before the graph
+    exchange. Production was updated to 1.0.225 (owner approval, 2026-11-05; the VPS is back on
+    `dev`). Both phones on cellular then passed; cellular ↔ Wi-Fi passed on 1.0.226 once an offer
+    to someone never linked waits for the link instead of failing (below): Talks 4.7 s and 6.3 s,
+    match 8 s, DMs under 0.1 s. **29 is done.**
+    Found on the way (fixed in 1.0.226): an offer needs the person's keys, which come only with a
+    link, and on the personal Nearby list a link opens only for someone owed; a failed offer made
+    nobody owed, so no link ever opened. `graph.offer` now returns `waiting` (no keys yet), the app
+    asks the mesh to link them, and the room catch-up offers the Talk when the link opens.
+    (a) is still open after that fix: the client that waits now asks for the link, but the two
+    clients' link does not open (their Nearby swaps go unanswered too); 1.0.227 logs why a link
+    fails, to find whether the knock or the WebRTC connection is the break.
   - Known environment issue: `phone-path/03` J-PLACE-09 restarts a phone node on 18302, where an
     adb port forward listens; it fails whenever that forward exists.
   - Known: `talks-matching/02` fails about 1 in 6 runs and `07`/`08` (hub shutdown returns non-202)

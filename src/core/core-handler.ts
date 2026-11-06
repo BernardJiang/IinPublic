@@ -155,7 +155,7 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.offer': {
         // My Talk as the app keys it (`myTalks`), written into the graph first if it is not yet.
         const sync = graph.host?.sync();
-        const none = { offered: 0, known: false, sent: [], skipped: {}, omitted: {} };
+        const none = { offered: 0, known: false, sent: [], skipped: {}, omitted: {}, waiting: [] };
         if (!sync || !graph.ownTalks) return none;
         // Whatever I send is my Talk: one I wrote, a copy I keep, or a body the app holds only in
         // memory. Each is written (or versioned) as my own graph Talk before it is offered.
@@ -176,6 +176,7 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const unlimited = options.allowTestOverrides === true && request.unlimitedForTesting === true;
         const skipped: Record<string, string> = {};
         const groups = new Map<string, { omit: string[]; recipients: string[] }>();
+        const waiting: string[] = [];
         for (const recipient of new Set(request.recipients)) {
           const had = suppress ? await exchange.has(recipient, atoms.map((a) => a.atom)) : new Set<string>();
           const sentVersion = typeof sentTo[recipient] === 'string' ? sentTo[recipient] as string : undefined;
@@ -185,6 +186,9 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
             if (!limit.send) plan = limit;
           }
           if (!plan.send) { skipped[recipient] = plan.reason; continue; }
+          // No keys yet (never linked): nothing can go in our pair log. The app asks for a link and
+          // offers again once it opens (its room catch-up).
+          if (!(await sync.knows(recipient))) { waiting.push(recipient); continue; }
           const omit = plan.omit ?? [];
           const group = groups.get(omit.join(',')) ?? { omit, recipients: [] };
           group.recipients.push(recipient);
@@ -201,7 +205,7 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
             if (omit.length) omitted[recipient] = omit;
           }
         }
-        return { offered, known: true, sent, skipped, omitted };
+        return { offered, known: true, sent, skipped, omitted, waiting };
       }
       case 'graph.exchangeState': {
         if (!graph.graph || !nodeStore) return { peers: {}, talks: {} };
