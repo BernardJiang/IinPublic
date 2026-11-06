@@ -24,20 +24,29 @@ function isLoopbackRequest(req: express.Request): boolean {
  * when the server runs as a loopback-only embedded node, and every call must come from loopback —
  * the hub never exposes it.
  */
-export function registerLocalLinkRoutes(app: express.Application): void {
+export function registerLocalLinkRoutes(app: express.Application, gun?: any): void {
   let relay: LocalLinkTurnRelay | null = null;
+
+  // Only a group owner accepts signaling records it did not request itself. Those records are
+  // needed to rendezvous two downstream clients, are never persisted, and are swept from memory.
+  const setSignalRelayRole = (enabled: boolean): void => {
+    if (gun?._?.opt) gun._.opt.relayTransientSignals = enabled;
+  };
 
   app.post('/api/local-link/relay', async (req, res) => {
     if (!isLoopbackRequest(req)) return void res.status(403).json({ error: 'loopback only' });
     const relayAddress = (req.body as { relayAddress?: unknown } | undefined)?.relayAddress;
     if (!isGroupAddress(relayAddress)) return void res.status(400).json({ error: 'relayAddress must be a Wi-Fi Direct group address' });
-    if (relay && relay.relayAddress !== relayAddress) { relay.stop(); relay = null; }
+    if (relay && relay.relayAddress !== relayAddress) { relay.stop(); relay = null; setSignalRelayRole(false); }
     try {
       relay ??= new LocalLinkTurnRelay(relayAddress);
-      res.json(await relay.start());
+      const info = await relay.start();
+      setSignalRelayRole(relayAddress === '192.168.49.1');
+      res.json(info);
     } catch (err) {
       relay?.stop();
       relay = null;
+      setSignalRelayRole(false);
       res.status(503).json({ error: `relay unavailable: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
@@ -58,6 +67,7 @@ export function registerLocalLinkRoutes(app: express.Application): void {
     if (!isLoopbackRequest(req)) return void res.status(403).json({ error: 'loopback only' });
     relay?.stop();
     relay = null;
+    setSignalRelayRole(false);
     res.json({ stopped: true });
   });
 }

@@ -141,9 +141,10 @@ function parseReport() {
 }
 
 /**
- * Fallback results source: docs/testing/last-run-rows.json — rows of
+ * Durable results source: docs/testing/last-run-rows.json — rows of
  * [durationMs, fileName, title, outcome] extracted from an earlier real merged report.
- * Used only when playwright-report/index.html is missing or is a listing artifact.
+ * A targeted Playwright run overwrites the HTML report with one or a few specs; in that case the
+ * current rows overlay this broader snapshot instead of erasing every unrelated passing result.
  */
 function parseRows(file) {
   const results = new Map();
@@ -166,9 +167,15 @@ const anchors = parseAnchors();
 const links = parseCompanions();
 let { results, found: reportFound } = parseReport();
 let resultsSource = 'playwright-report/index.html';
+const snapshot = parseRows(path.join(ROOT, 'docs/testing/last-run-rows.json'));
 if (!reportFound) {
-  ({ results, found: reportFound } = parseRows(path.join(ROOT, 'docs/testing/last-run-rows.json')));
+  ({ results, found: reportFound } = snapshot);
   resultsSource = 'docs/testing/last-run-rows.json (fallback snapshot)';
+} else if (snapshot.found && results.size < snapshot.results.size) {
+  const current = results;
+  results = new Map(snapshot.results);
+  for (const [fileName, row] of current) results.set(fileName, row);
+  resultsSource = `playwright-report/index.html (${current.size} current) over docs/testing/last-run-rows.json`;
 }
 
 const byAnchor = new Map([...anchors.keys()].map((k) => [k, []]));

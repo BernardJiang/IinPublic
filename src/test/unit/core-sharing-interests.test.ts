@@ -30,6 +30,24 @@ describe('device read interests at the network boundary', () => {
     gun.get('public').off();
   });
 
+  it('lets only an active group owner relay an unrequested transient signaling record', async () => {
+    const ordinary = device();
+    ordinary.put('p2p-signal/pair/offer', { frame: 'signed offer' });
+    await wait();
+    expect(ordinary.gun._.graph['p2p-signal/pair/offer']).toBeUndefined();
+
+    const owner = device();
+    owner.gun._.opt.relayTransientSignals = true;
+    owner.put('p2p-signal/pair/offer', { frame: 'signed offer' });
+    owner.put('public/unrequested', { value: 'not signaling' });
+    await wait();
+    expect(owner.gun._.graph['p2p-signal/pair/offer']?.frame).toBe('signed offer');
+    expect(owner.gun._.graph['public/unrequested']).toBeUndefined();
+
+    ordinary.gun.off?.();
+    owner.gun.off?.();
+  });
+
   it('does not turn a remote GET into permission to populate storage', async () => {
     const { gun, put } = device();
     gun._.opt.mesh.hear(JSON.stringify({ '#': 'remote-get', get: { '#': 'public/unrequested' } }), { id: 'attacker', wire: { send: jest.fn() } });

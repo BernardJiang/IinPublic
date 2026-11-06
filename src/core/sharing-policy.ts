@@ -147,14 +147,30 @@ export function filterOutgoingGunMessage(msg: any, report?: Report): any | null 
   return msg;
 }
 
-export function filterIncomingGunMessage(msg: any, report?: Report, interests?: SharingInterests): any | null {
+const transientSignalSoul = (soul: string): boolean =>
+  soul === 'p2p-signal' || soul.startsWith('p2p-signal/');
+
+/**
+ * A Wi-Fi Direct group owner is also the only Gun rendezvous between its clients. In that one
+ * role, a signaling write for client B is deliberately unsolicited from the owner's point of
+ * view: the owner has no WebRTC session for that pair, but must still relay the transient record
+ * to B's subscription. Ordinary device nodes keep the strict local-interest rule.
+ */
+export function filterIncomingGunMessage(
+  msg: any,
+  report?: Report,
+  interests?: SharingInterests,
+  relayTransientSignals = false,
+): any | null {
   const allowed = filterOutgoingGunMessage(msg, report);
   if (!allowed?.put || !interests) return allowed;
   const put: Record<string, any> = Object.create(null);
   let changed = false;
   for (const [soul, node] of Object.entries<any>(allowed.put)) {
     const keys = Object.keys(node).filter((key) => key !== '_');
-    const kept = keys.filter((key) => interests.acceptsField(soul, key));
+    const kept = relayTransientSignals && transientSignalSoul(soul)
+      ? keys
+      : keys.filter((key) => interests.acceptsField(soul, key));
     if (kept.length === keys.length && keys.length) { put[soul] = node; continue; }
     changed = true;
     report?.('unsolicited');
@@ -279,7 +295,12 @@ export function guardMeshSay(mesh: any, root?: any): void {
     mesh.hear.one = function (this: any, msg: any, peer: any, ...rest: any[]) {
       const audienceChecked = msg && typeof msg === 'object' ? filterGraphAudience(msg, peer, false, root?.opt?.graphAudience, report) : msg;
       if (!audienceChecked) return;
-      const allowed = filterIncomingGunMessage(audienceChecked, report, interests);
+      const allowed = filterIncomingGunMessage(
+        audienceChecked,
+        report,
+        interests,
+        root?.opt?.relayTransientSignals === true,
+      );
       if (allowed) return hear.call(this, allowed, peer, ...rest);
     };
   }

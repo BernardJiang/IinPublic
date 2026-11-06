@@ -337,7 +337,7 @@ class IinPublicServer {
     });
 
     // OPEN-36: on-device loopback TURN relay for Wi-Fi Direct links — never on a hub.
-    if (isLoopbackEmbeddedNode(process.env)) registerLocalLinkRoutes(this.app);
+    if (isLoopbackEmbeddedNode(process.env)) registerLocalLinkRoutes(this.app, this.gun);
 
     // §16.5's verifier — routes 503 gracefully (not a startup crash) when
     // ATTESTATION_VERIFIER_KEY_FILE isn't configured on this deployment yet. On an embedded/

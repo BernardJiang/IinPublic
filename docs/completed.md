@@ -1,6 +1,28 @@
 # IinPublic Completed Work
 
-Last updated: 2026-11-02
+Last updated: 2026-11-06
+
+## 2026-11-06 — OPEN-93 offline Wi-Fi Direct discovery and client relay closed
+
+- The three-phone failure was signaling, not TURN/ICE: C10 was the group owner; P30 and PH-1 were
+  its clients. Owner↔client Talks passed, while the two clients repeatedly opened WebRTC sessions
+  without receiving any offer/ICE frame from each other. The device privacy boundary correctly
+  rejected graph records with no local read interest, but that also discarded transient
+  `p2p-signal` records before the group owner could relay them between downstream subscribers.
+- While its loopback local-link relay is actively bound to `192.168.49.1`, and only then, the group
+  owner's embedded Gun may accept unsolicited `p2p-signal` records. All other namespaces retain
+  the local-interest filter; client nodes remain strict; signaling stays memory-only and is swept.
+  Focused sharing-policy tests prove that unrelated unsolicited records are still rejected.
+- Physical 1.0.231 proof on 2026-11-06: P30 + C10 + PH-1 formed one hub-unreachable Wi-Fi Direct
+  group (C10 owner, two clients). The ring delivered P30→C10 in 10.342 s, C10→PH-1 in 12.400 s,
+  and the formerly failing PH-1→P30 client hop in 12.634 s. Background delivery also passed in
+  11.915 s; all pair handshakes reported `iinpublic-p2p-v2` on 1.0.231.
+- The original park gate also passed without clearing identities. P30 and C10 kept the identities
+  from the preceding run, entered real airplane mode, then had Wi-Fi and Bluetooth re-enabled as
+  the field checklist requires. They formed a fresh group, listed each other, delivered both Talk
+  directions in 10.048/23.444 s, and verified background delivery in 12.635 s. The physical test
+  now has `E2E_NEARBY_PRESERVE_APP_DATA=1` for this regression mode. Airplane mode was restored off
+  and all four connected phone screens were explicitly returned to sleep/doze after testing.
 
 ## 2026-11-05 — OPEN-106 the question-keyed device graph closed
 

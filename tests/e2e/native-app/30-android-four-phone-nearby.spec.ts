@@ -46,6 +46,8 @@ const ANDROID_DEVICES = resolveAndroidMatrixDevices(process.env.NATIVE_APP_ANDRO
 const RUN = process.env.E2E_REAL_ANDROID_FOUR_PHONE_NEARBY === '1';
 const BACKGROUND_ONLY = process.env.E2E_FOUR_PHONE_BACKGROUND_ONLY === '1';
 const OFFLINE_WIFI_DIRECT = process.env.E2E_NEARBY_OFFLINE_WIFI_DIRECT === '1';
+/** Field regression mode: keep the installed identities and on-device graph across the run. */
+const PRESERVE_APP_DATA = process.env.E2E_NEARBY_PRESERVE_APP_DATA === '1';
 /** Diagnostic: hub path only, LAN NSD off (isolates LAN-peer effects on delivery). */
 const LAN_OFF = process.env.E2E_NEARBY_LAN_OFF === '1';
 const OFFLINE_PHONE_COUNT = Number(process.env.E2E_NEARBY_OFFLINE_PHONE_COUNT || '3');
@@ -311,8 +313,12 @@ test.describe('Native app: four Android phones in one current Nearby room (OPEN-
       await dropLeftoverWifiDirectGroup(device.serial);
       batteryBefore[device.serial] = await readBattery(device.serial);
     }
-    console.log(`[four-phone-nearby] clearing only ${available.length} IinPublic app sandboxes`);
-    await Promise.all(available.map((device) => resetAndroidAppData(device.serial)));
+    if (PRESERVE_APP_DATA) {
+      console.log(`[four-phone-nearby] preserving ${available.length} installed identities and app sandboxes`);
+    } else {
+      console.log(`[four-phone-nearby] clearing only ${available.length} IinPublic app sandboxes`);
+      await Promise.all(available.map((device) => resetAndroidAppData(device.serial)));
+    }
 
     for (let index = 0; index < available.length; index += 1) {
       const device = available[index];

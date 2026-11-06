@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-11-02.
+Last reconciled: 2026-11-06.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -23,10 +23,12 @@ Run the Android availability preflight before physical-device work. When an issu
 move its outcome and verification evidence to `docs/completed.md`, remove it here, and do not reuse
 its ID.
 
-## Current status (2026-11-05)
+## Current status (2026-11-06)
 
 - OPEN-106 (the device graph) is closed; details in `docs/completed.md`. Production runs 1.0.225
-  (VPS on `dev`, 2026-11-05); phones under test run 1.0.229. Next by owner direction: OPEN-108
+  (VPS on `dev`, 2026-11-05); phones under test run 1.0.231. OPEN-93 is closed: the exact
+  preserved-identity airplane-mode check and the three-phone client-to-client relay both pass.
+  Next by owner direction: OPEN-108
   (signed event chain), OPEN-109 (trimming), OPEN-110 (all four tabs from the log); OPEN-107
   (TechSupport delegate loses questions) is a bug found on the way.
 
@@ -163,32 +165,12 @@ its ID.
   - [x] Add accurate companions/tags for the mixed-browser matrix, Android portable-core gate,
     browser custody/geolocation, and five stalled-hub responsiveness journeys, reducing untagged
     specs 74 → 62. Preserve the canonical 389-pass / 26-skip result rows as a compact fallback so
-    one targeted Playwright run cannot make the coverage ratchet forget the merged report.
+    one targeted Playwright run cannot make the coverage ratchet forget the merged report. Fixed
+    2026-11-06: a real targeted report was still preferred over the snapshot; targeted results now
+    overlay the broader snapshot, and the 145-anchor baseline remains green after physical runs.
   - [ ] Tag/highlight remaining high-value untagged specs (next: stage1/stage2 navigation and
     matching journeys) so
     matrix traceability improves without broad one-shot churn.
-
-- [ ] **OPEN-93 — Two-phone park offline Wi-Fi Direct discovery (reported 2026-10-29).**
-  Current work is browser-first. Physical checks in this session may use C10 only; defer the
-  multi-phone reproduction until the owner makes another device available.
-  Airplane mode with Wi-Fi and Bluetooth re-enabled did not make two phones find each other.
-  Post-visit USB preflight found C10's Nearby Wi-Fi Devices/Bluetooth permissions denied and Honor
-  FCP-AN10's Wi-Fi off; the exact park pair and its then-current radio/room states are unconfirmed.
-  The service could report Searching with no discovery running, would retain a permission denial
-  after a Settings grant until restart, and incorrectly required Bluetooth permission for the
-  Wi-Fi-only fallback. These code paths now report the blocker and retry once ready; focused tests
-  pass. Android 1.0.202 was installed in place on all five USB phones on 2026-10-29. **Remaining gate:** confirm the pair/status, reproduce
-  and verify the full airplane-mode two-phone journey without clearing identities. Checklist:
-  `docs/guides/PARK_OFFLINE_WIFI_DIRECT_CHECK.md`.
-  **Moved here from OPEN-106 (2026-11-05): client → client Talks in an offline group.** In a
-  three-phone group (`native-app/30` with `E2E_NEARBY_OFFLINE_WIFI_DIRECT=1`) owner ↔ client Talks
-  pass, client → client do not: the owners tested (C10, P30) do not forward between their clients,
-  and since OPEN-106 a pair's log travels only on that pair's link. Done: an offer to someone not
-  yet linked waits for the link (`graph.offer` `waiting`); give-ups are retried on a new reason or
-  when a group forms; the relay passes client packets through the owner's hop socket
-  (`local-link-turn-relay.ts`, owner decision: the owner's TURN relay). Open: on 1.0.229 both clients
-  dial each other but the WebRTC session stays `idle` in both directions (the mesh now logs it), so
-  the hop is not reached; find why (signaling through the owner's Gun, or both sides waiting).
 
 - [ ] **OPEN-92 — Message Send and navigation responsiveness on Android (reported
   2026-10-29).** Earlier freezes were fixed in `bd7427e8`, `2846414a` and 1.0.202/1.0.203. On
