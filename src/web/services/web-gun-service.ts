@@ -288,8 +288,14 @@ export class WebGunService extends EventEmitter {
   private connected: boolean = false;
   /** In-memory copy of the SEA pair after `ensureKeypairAndAuth()`. */
   private seaPair: GunPair | null = null;
-  /** Serialize authenticated private-namespace writes; GUN/SEA can reject overlapping signs. */
+  /** Serialize worker-Gun private writes; its authenticated SEA signer rejects overlap. */
   private privateWriteQueue: Promise<void> = Promise.resolve();
+  /**
+   * The native core stores already-encrypted records and does not use Gun's authenticated signer.
+   * Preserve ordering for writes to the same record while allowing unrelated records (notably a
+   * DM history and background bookkeeping) to proceed independently.
+   */
+  private privateNativeWriteQueues = new Map<string, Promise<void>>();
   private identityPasswordManager: IdentityPasswordCustodyManager | null = null;
   private browserPasswordFreeCustodyManager: PasswordFreeCustodyManager | null | undefined;
   /** Cached from the last `getIdentityPasswordProtectionStatus()` read (and kept current by
@@ -1029,6 +1035,22 @@ export class WebGunService extends EventEmitter {
 
   /** Write to the current user's private namespace (AES-encrypted, owner-only). */
   async putPrivate(key: string, data: any): Promise<void> {
+    if (this.nativeNode) {
+      const previous = this.privateNativeWriteQueues.get(key) || Promise.resolve();
+      const write = previous
+        .catch(() => undefined)
+        .then(() => this.putPrivateWithRetry(key, data));
+      this.privateNativeWriteQueues.set(key, write);
+      void write.then(
+        () => {
+          if (this.privateNativeWriteQueues.get(key) === write) this.privateNativeWriteQueues.delete(key);
+        },
+        () => {
+          if (this.privateNativeWriteQueues.get(key) === write) this.privateNativeWriteQueues.delete(key);
+        },
+      );
+      return write;
+    }
     const write = this.privateWriteQueue
       .catch(() => undefined)
       .then(() => this.putPrivateWithRetry(key, data));
@@ -1208,6 +1230,7 @@ export class WebGunService extends EventEmitter {
   async lockIdentityNow(): Promise<void> {
     this.seaPair = null;
     this.privateWriteQueue = Promise.resolve();
+    this.privateNativeWriteQueues.clear();
     try {
       this.gun?.user?.().leave?.();
     } catch {

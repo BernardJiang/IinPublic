@@ -2,6 +2,7 @@ import {
   PEER_EPUB_CACHE_STORAGE,
   WebGunService,
 } from '../../web/services/web-gun-service';
+import { getSEA } from '../../web/sea-gun';
 
 type PrivateServiceHarness = {
   putPrivate: WebGunService['putPrivate'];
@@ -13,6 +14,14 @@ type PrivateServiceHarness = {
     getPrivate: jest.Mock<Promise<unknown>, [string]>;
   };
   privateWriteQueue: Promise<void>;
+  privateNativeWriteQueues: Map<string, Promise<void>>;
+  privateSubscribers: Map<string, Set<(value: unknown) => void>>;
+  nativeNode: {
+    token: string;
+    baseUrl: string;
+    keepWorker: boolean;
+    core: jest.Mock<Promise<unknown>, [unknown]>;
+  } | null;
   getGun: jest.Mock;
   rosterEpubByUserId: Map<string, string>;
   rememberRosterEpub: WebGunService['rememberRosterEpub'];
@@ -28,6 +37,9 @@ function harness(): PrivateServiceHarness {
     getPrivate: jest.fn().mockResolvedValue(null),
   };
   service.privateWriteQueue = Promise.resolve();
+  service.privateNativeWriteQueues = new Map();
+  service.privateSubscribers = new Map();
+  service.nativeNode = null;
   // The peered control Gun must never be touched by owner-private reads or writes.
   service.getGun = jest.fn(() => { throw new Error('peered Gun used for private data'); });
   service.rosterEpubByUserId = new Map();
@@ -80,6 +92,34 @@ describe('WebGunService private/control Gun boundary', () => {
       'Local private Gun store is unavailable',
     );
     expect(service.bridge.putPrivate).not.toHaveBeenCalled();
+  });
+
+  test('native private writes serialize per key without blocking unrelated records', async () => {
+    jest.useFakeTimers();
+    const service = harness();
+    let releaseSlow!: () => void;
+    const slowGate = new Promise<void>((resolve) => { releaseSlow = resolve; });
+    const core = jest.fn(async (request: unknown) => {
+      const key = String((request as { key?: string }).key || '');
+      if (key === 'slow') await slowGate;
+      return { ok: true };
+    });
+    service.nativeNode = { token: 'token', baseUrl: 'http://native', keepWorker: false, core };
+    const encrypt = jest.spyOn(getSEA(), 'encrypt').mockImplementation(async (value: unknown) => `SEA${JSON.stringify(value)}`);
+
+    try {
+      const slow = service.putPrivate('slow', { value: 1 });
+      await jest.advanceTimersByTimeAsync(0);
+      const fast = service.putPrivate('fast', { value: 2 });
+
+      await expect(fast).resolves.toBeUndefined();
+      expect(core).toHaveBeenCalledWith(expect.objectContaining({ name: 'private.put', key: 'fast' }));
+      releaseSlow();
+      await expect(slow).resolves.toBeUndefined();
+    } finally {
+      encrypt.mockRestore();
+      jest.useRealTimers();
+    }
   });
 
   test('retains a learned peer encryption key across a page-service reload', () => {

@@ -15,6 +15,7 @@ import {
 } from '../../web/services/gun-message-store';
 import { computeMerkleRoot, sha256Hex } from '../../shared/merkle-checkpoint';
 import type { WebGunService } from '../../web/services/web-gun-service';
+import { getSEA } from '../../web/sea-gun';
 
 it('uses an in-room recipient epub without waiting for a slow public-user request', async () => {
   const getPublicUser = jest.fn(() => new Promise<never>(() => undefined));
@@ -27,6 +28,66 @@ it('uses an in-room recipient epub without waiting for a slow public-user reques
 
   await expect(keys.getUserEpub('peer')).resolves.toBe('epub_peer');
   expect(getPublicUser).not.toHaveBeenCalled();
+});
+
+it('retries unchanged ciphertext when the sender epub arrives after the message', async () => {
+  jest.useFakeTimers();
+  let privateListener: ((value: any) => void) | undefined;
+  const gun = {
+    getStoredPair: () => ({ pub: 'my-pub', priv: 'my-priv', epub: 'my-epub', epriv: 'my-epriv' }),
+    getPrivate: jest.fn().mockResolvedValue(null),
+    subscribePrivate: jest.fn((_key: string, callback: (value: any) => void) => {
+      privateListener = callback;
+      return () => undefined;
+    }),
+    getGun: jest.fn(),
+  } as unknown as WebGunService;
+  const store = new GunMessageStore(gun);
+  const getUserEpub = jest.fn()
+    .mockResolvedValueOnce(undefined)
+    .mockResolvedValue('sender-epub');
+  (store as unknown as { getUserEpub: typeof getUserEpub }).getUserEpub = getUserEpub;
+  const secret = jest.spyOn(getSEA(), 'secret').mockResolvedValue('pair-secret');
+  const decrypt = jest.spyOn(getSEA(), 'decrypt').mockResolvedValue('hello after key sync');
+  const renders: string[][] = [];
+
+  try {
+    const off = store.subscribeToMessages(
+      'conv_pair_me_peer',
+      (messages) => renders.push(messages.map((message) => message.text)),
+      'me',
+      'peer',
+    );
+    privateListener?.({
+      version: 1,
+      conversationId: 'conv_pair_me_peer',
+      messagesJson: JSON.stringify([{
+        id: 'm1',
+        senderId: 'peer',
+        text: 'SEA{"ct":"ciphertext"}',
+        timestamp: '2026-11-05T00:00:00.000Z',
+        channel: 'pair',
+        encryption: 'sea-ecdh-v1',
+      }]),
+      checkpointsJson: '[]',
+      totalCount: 1,
+      lastCheckpointedCount: 0,
+      prunedThroughCount: 0,
+      updatedAt: '2026-11-05T00:00:00.000Z',
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(renders.at(-1)).toEqual(['SEA{"ct":"ciphertext"}']);
+
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(renders.at(-1)).toEqual(['hello after key sync']);
+    expect(getUserEpub).toHaveBeenCalledTimes(2);
+    off();
+  } finally {
+    secret.mockRestore();
+    decrypt.mockRestore();
+    jest.useRealTimers();
+  }
 });
 
 describe('planMessageCheckpoint / planMessagePruning (TODO §S Item 4, pure logic)', () => {

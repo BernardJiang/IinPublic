@@ -464,7 +464,7 @@ its ID.
 
 - [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
   `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains
-  330 specs. Regenerated matrix on 2026-11-01 now reports 330 specs, 94 untagged specs, and 139
+  331 specs. Regenerated matrix on 2026-11-05 now reports 331 specs, 74 untagged specs, and 151
   anchors without passing coverage. Keep this updated in regular health/review runs and reduce the
   untagged backlog incrementally (new specs should carry coverage tags when applicable).
   - [x] Regenerate `docs/testing/coverage-matrix.md` from `npm run coverage:matrix`.
@@ -474,6 +474,12 @@ its ID.
     untagged specs 115 → 107.
   - [x] Add covers tags for high-value native-app journeys (`02/04/05/18/19/23/27/28/29/35/36/38/39`),
     reducing untagged specs 107 → 94.
+  - [x] Add focused companions/covers tags for ten more real-device and cross-host native journeys
+    (`06/08/09/11/12/13/14/15/16/17`), reducing untagged specs 94 → 84 without touching OPEN-106's
+    authoritative-commit/device-sync tests.
+  - [x] Tag a second focused native batch (`18/20/21/22/24/25/26/30/32/41`) covering custody,
+    cross-host desktop/browser, permissions, Nearby, protocol upgrade, and responsiveness journeys,
+    reducing untagged specs 84 → 74. OPEN-106-owned `07/10` remain untouched.
   - [ ] Tag/highlight remaining high-value untagged specs (next: more native-app and cross-platform
     journeys) so
     matrix traceability improves without broad one-shot churn.
@@ -509,12 +515,18 @@ its ID.
 - [ ] **OPEN-101 — Open DM defects from the 2026-10-31 timing session.** (a) Private saves are
   slow because every private write shares one queue and each DM rewrites and re-encrypts the whole
   conversation; FRD-L04 took 7.9 s for one write and saw repeated main-thread stalls of about 1 s.
+  **Phone-free repair 2026-11-05:** native-core private writes now serialize per record instead of
+  sharing one device-wide queue, so a conversation save cannot wait behind unrelated owner-private
+  bookkeeping; same-record ordering is preserved. Whole-conversation envelope rewrites remain.
   (b) "hi 12" (P30, 16:36; probably the slow read fixed under OPEN-102, not proven) was saved, but the mailbox refused it with `epub not found` although the
   sender had just used that key. It reached FRD only about 30 minutes later, after the direct link
-  reconnected and the phones synced. The key is now passed through and posting retries 5 times, but
-  this path has not been re-proven on phones. There is still no per-message delivered/failed state. (c) A received message can
+  reconnected and the phones synced. The key is now passed through, posting retries 5 times, and a
+  successfully decrypted mailbox wrapper seeds the DM key cache immediately; this path has not been
+  re-proven on phones. There is still no per-message delivered/failed state. (c) A received message can
   stay undecrypted. Since 2026-11-01 it shows "This message could not be decrypted." instead of raw
-  `SEA{...}` (not yet on a phone); why it never re-decrypts is still open. (d) P30's app died 12 s after launch at
+  `SEA{...}` (not yet on a phone). The message subscription now retries unchanged ciphertext with
+  bounded backoff when its peer key arrives, and no longer lets a stale initial private-store read
+  overwrite a newer live message; focused unit coverage passes. Phone proof remains. (d) P30's app died 12 s after launch at
   16:51:30 with no crash record, and a local `/health` once took about 3 s; causes unknown.
   (e) DM sessions report `WebRTC connection replaced` around start-up. (f) `getUserPub` gave up on
   the first missing peer record instead of retrying; fixed in 1.0.215 with a unit test.

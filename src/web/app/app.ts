@@ -3715,7 +3715,14 @@ export class IinPublicApp {
         );
         if (senderEpubHint) {
           const senderId = mailboxSenderId(payload);
-          if (senderId) this.peerEpubByUserId.set(senderId, senderEpubHint);
+          if (senderId) {
+            this.peerEpubByUserId.set(senderId, senderEpubHint);
+            // The mailbox wrapper already proved which encryption key produced this envelope.
+            // Seed the message store's shared key cache too; otherwise the inner DM wire can be
+            // persisted immediately but remain undecryptable while a redundant public-user
+            // lookup races or is unavailable offline.
+            this.gunService.rememberRosterEpub(senderId, senderEpubHint);
+          }
         }
         // The kind is the core's call (src/core/mailbox-envelope.ts); each goes to its handler.
         switch (classifyMailboxPayload(payload)) {

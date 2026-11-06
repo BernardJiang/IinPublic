@@ -442,28 +442,87 @@ export class GunMessageStore {
   ): () => void {
     let disposed = false;
     let lastSignature = '';
+    let lastRenderedSignature = '';
+    let latestWires: LocalConversationWire[] = [];
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryAttempt = 0;
+    let decryptGeneration = 0;
+
+    const cancelRetry = () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+
+    const hasUndecryptedWire = (wires: LocalConversationWire[], messages: Message[]): boolean => {
+      const textById = new Map(messages.map((message) => [message.id, message.text]));
+      return wires.some((wire) => {
+        const encrypted = wire.encryption === 'sea-ecdh-v1' || String(wire.text).startsWith('SEA{');
+        return encrypted && textById.get(wire.id) === String(wire.text);
+      });
+    };
+
+    const decryptAndRender = (wires: LocalConversationWire[]) => {
+      const generation = ++decryptGeneration;
+      void this.decryptLocalWires(conversationId, wires, myUserId, otherUserId)
+        .then((messages) => {
+          if (disposed || generation !== decryptGeneration) return;
+          const renderedSignature = messages.map((message) => `${message.id}:${message.text}`).join('|');
+          if (renderedSignature !== lastRenderedSignature) {
+            lastRenderedSignature = renderedSignature;
+            callback(messages);
+          }
+
+          cancelRetry();
+          if (!hasUndecryptedWire(wires, messages) || retryAttempt >= 10) {
+            retryAttempt = 0;
+            return;
+          }
+
+          // A message can arrive before its sender's public epub. The private-history record does
+          // not change when that key later appears, so its subscription will not fire again. Retry
+          // the same ciphertext with bounded exponential backoff while this view is subscribed.
+          // Reopening the conversation starts a fresh retry window.
+          const delayMs = Math.min(1_000 * (2 ** retryAttempt), 30_000);
+          retryAttempt += 1;
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            decryptAndRender(latestWires);
+          }, delayMs);
+        })
+        .catch(() => undefined);
+    };
+
     const emit = (wires: LocalConversationWire[]) => {
       // Text too, not ids alone: a record rewritten under the same id (the TechSupport welcome
       // re-rendered after a rename) must reach subscribers, or they keep the old text.
       const signature = wires.map((wire) => `${wire.id}:${wire.text}`).join('|');
       if (disposed || signature === lastSignature) return;
+      latestWires = wires;
       lastSignature = signature;
-      void this.decryptLocalWires(conversationId, wires, myUserId, otherUserId)
-        .then((messages) => {
-          if (!disposed) callback(messages);
-        })
-        .catch(() => undefined);
+      retryAttempt = 0;
+      cancelRetry();
+      decryptAndRender(wires);
     };
 
-    const offPrivate = this.privateRepository.subscribe(conversationId, emit);
+    let privateEmissionSeen = false;
+    const offPrivate = this.privateRepository.subscribe(conversationId, (wires) => {
+      privateEmissionSeen = true;
+      emit(wires);
+    });
     void this.listLocalWires(conversationId, 0)
-      .then((wires) => emit(wires as LocalConversationWire[]))
+      // A live private-store update can beat this initial read. Never let the older snapshot
+      // replace it (or cancel its in-flight decrypt) when the read eventually resolves.
+      .then((wires) => {
+        if (!privateEmissionSeen) emit(wires as LocalConversationWire[]);
+      })
       .catch(() => {
-        if (!disposed) callback([]);
+        if (!disposed && !privateEmissionSeen) callback([]);
       });
 
     return () => {
       disposed = true;
+      decryptGeneration += 1;
+      cancelRetry();
       offPrivate();
       console.log(`👋 Unsubscribed from user ${conversationId} messages (${this.mode})`);
     };
