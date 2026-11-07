@@ -17,6 +17,7 @@
 import { putEvent } from './events';
 import type { EventChainSigner } from './chain';
 import { addToIndex } from './index-buckets';
+import { parseEventId } from './event-id';
 import { maybeStampWhere, type Locator } from './location-graph';
 import { personIdOf, personSoul, personWrites } from './people-graph';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
@@ -52,12 +53,15 @@ export function createNearbyGraph(store: NodeStore, ids: EventIds, options: { pr
   const placeSoul = (placeId: string) => `${prefix}place/${encodeURIComponent(placeId)}`;
   const outingSoul = (outingId: string) => `${prefix}outing/${encodeURIComponent(outingId)}`;
 
-  /** The event id of the last record, when it still sits inside the repeat window. */
+  /** The event id of the last record, when it still sits inside the repeat window. A backward
+      clock jump makes the diff negative: fail OPEN (record a new event) rather than suppressing
+      every encounter until real time catches up with the marker. */
   const recent = async (markerSoul: string, when: number): Promise<string | undefined> => {
     const marker = await store.get(markerSoul);
     const ev = linkSoul(marker?.ev);
     if (!ev?.startsWith(souls.event(''))) return undefined;
-    return when - Number(marker?.when ?? 0) < NEARBY_REPEAT_WINDOW_MS ? ev.slice(souls.event('').length) : undefined;
+    const diff = when - Number(marker?.when ?? 0);
+    return diff >= 0 && diff < NEARBY_REPEAT_WINDOW_MS ? ev.slice(souls.event('').length) : undefined;
   };
 
   /** The `ix/cell/<region>/ev` entry an event with a `where` implies (rebuilt in events.ts). */
@@ -83,6 +87,8 @@ export function createNearbyGraph(store: NodeStore, ids: EventIds, options: { pr
         v: GRAPH_SCHEMA_VERSION, when, device: await ids.deviceId(),
         with: link(personSoul(prefix, encounter.personUserId)),
       };
+      // `re` becomes a Gun link: it must be a real event id, never arbitrary caller text.
+      if (encounter.re !== undefined && parseEventId(encounter.re) == null) throw new Error('invalid encounter re event id');
       if (encounter.re) event.re = link(souls.event(encounter.re));
       // `where` before putEvent: the chain signs the event with it (REQ-GRAPH-42).
       const whereSidecar = await maybeStampWhere(store, options, event, eventId);

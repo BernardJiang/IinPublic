@@ -33,6 +33,20 @@ type SeaPair = { pub: string; priv: string; epub: string; epriv: string };
 const POINT: GpsPoint = { latitude: 37.7694, longitude: -122.4862, accuracy: 12, source: 'gps' };
 const DAY = 86_400_000;
 
+const tennis = () => ({
+  title: 'Tennis partner', type: 'flow', language: 'en', isAdult: false,
+  questions: [
+    { id: 'q_0', text: 'Do you play tennis?', answers: [
+      { id: 'a_0_0', text: 'Yes', nextQuestionId: 'q_1' },
+      { id: 'a_0_1', text: 'No', isIgnore: true, isTerminal: true },
+    ] },
+    { id: 'q_1', text: 'How often do you play?', answers: [
+      { id: 'a_1_0', text: 'Weekly', isMatch: true, isTerminal: true },
+      { id: 'a_1_1', text: 'Daily', isIgnore: true, isTerminal: true },
+    ] },
+  ],
+});
+
 async function setup(options: { locate?: () => Promise<GpsPoint | undefined>; now?: () => number; chain?: boolean } = {}) {
   const store = memoryNodeStore();
   const graph = createDeviceGraph(store, {
@@ -60,11 +74,15 @@ describe('Nearby encounters and Place visits as events (REQ-GRAPH-49)', () => {
 
   it('an encounter is a chained event with `with` and the blurred-cell `where`; the exact point stays in the gps sidecar', async () => {
     const { store, graph, souls } = await setup({ locate: async () => POINT });
-    const eventId = await graph.nearby.recordEncounter({ personUserId: 'zoe', re: 'some-talk-event' });
+    const talkEventId = `1700000000000-${'a'.repeat(32)}-0`;
+    const eventId = await graph.nearby.recordEncounter({ personUserId: 'zoe', re: talkEventId });
 
     const event = (await store.get(souls.event(eventId)))!;
     expect(linkSoul(event.with)).toBe(personSoul(graph.prefix, 'zoe'));
-    expect(linkSoul(event.re)).toBe(souls.event('some-talk-event'));
+    expect(linkSoul(event.re)).toBe(souls.event(talkEventId));
+    // `re` must be a real event id — it becomes a Gun link (a fresh person: the dedupe window
+    // above would return the standing event before validation).
+    await expect(graph.nearby.recordEncounter({ personUserId: 'rex', re: 'not/an/event' })).rejects.toThrow('invalid encounter re');
     const region = linkSoul(event.where)?.slice(`${graph.prefix}cell/`.length);
     expect(region).toMatch(/^cell_/);
     // Chained like an arrival: mine (no `by`), first seq on this device.
@@ -146,6 +164,21 @@ describe('Nearby encounters and Place visits as events (REQ-GRAPH-49)', () => {
     expect((await readIndex(store, cellList)).map((entry) => entry.key).sort()).toEqual([encounter, visit].sort());
     // A second rebuild has nothing left to repair.
     expect((await rebuildIndexes(store, {})).repaired).toBe(0);
+  });
+
+  it('a Talk version carrying where is never cell-indexed — not at write, not after a rebuild', async () => {
+    const { store, graph, souls } = await setup({ locate: async () => POINT });
+    const talkId = await graph.talks.create(tennis());
+    const event = (await store.get(souls.event(talkId)))!;
+    const region = linkSoul(event.where)?.slice(`${graph.prefix}cell/`.length);
+    expect(region).toMatch(/^cell_/); // the locator stamped it, exactly like an encounter…
+
+    // …but the Talk shape is not cell-indexed at write time (only encounters/visits are)…
+    const cellList = souls.index(`cell/${region}/ev`);
+    expect(await readIndex(store, cellList)).toEqual([]);
+    // …and a rebuild does not invent an entry for it either (write/rebuild symmetry).
+    await rebuildIndexes(store, {});
+    expect(await readIndex(store, cellList)).toEqual([]);
   });
 
   it('the chain verifies after several records', async () => {
