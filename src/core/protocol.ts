@@ -52,6 +52,8 @@ export type CoreRequest =
   | { name: 'device.get'; path: string }
   | { name: 'device.put'; path: string; value: unknown }
   | { name: 'deviceGraph.status' }
+  /** Erase a record's content (redaction, spec §31.13): its event and the event's hash stay. */
+  | { name: 'deviceGraph.redact'; eventId: string }
   | GraphHostRequest
   /** `talk`: the body the app is sending, written as my Talk when the core has no record of it. */
   /**
@@ -116,6 +118,7 @@ export type CoreResponse<R extends CoreRequest> =
                       : R extends { name: 'device.get' } ? unknown
                         : R extends { name: 'private.put' | 'device.put' } ? { ok: true }
                           : R extends { name: 'deviceGraph.status' } ? (OwnTalksStatus & { enabled: boolean; bodies?: MyTalksBodiesStatus }) | null
+                          : R extends { name: 'deviceGraph.redact' } ? { cleared: string[] } | null
                           : R extends { name: 'graph.pull' } ? GraphPull
                           : R extends { name: 'graph.status' } ? GraphHostStatus
                           : R extends { name: 'graph.identity' | 'graph.open' | 'graph.close' | 'graph.hear' } ? { ok: true }

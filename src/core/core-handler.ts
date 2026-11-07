@@ -21,6 +21,7 @@ import { createIncomingList } from './device-graph/sync/incoming-list';
 import { createAppChatbot } from './device-graph/sync/app-chatbot';
 import type { GraphCrypto } from './device-graph/sync/graph-sync';
 import { exchangeAtoms, planOffer, type OfferPlan } from './device-graph/exchanged';
+import { redactEvent } from './device-graph/redact';
 import { linkSoul } from './device-graph/node-store';
 import { getKeyedMany, readKeyed } from './device-graph/keyed-buckets';
 import { graphSouls } from './device-graph/talk-structure';
@@ -159,6 +160,9 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       }
       case 'deviceGraph.status':
         return graph.ownTalks ? { enabled: true, ...(await graph.ownTalks.status()), bodies: myTalks?.status() } : null;
+      case 'deviceGraph.redact':
+        // Erase the record's content (spec §31.13); the event and its hash stay.
+        return graph.graph && nodeStore ? redactEvent(nodeStore, souls, request.eventId) : null;
       case 'graph.offer': {
         // My Talk as the app keys it (`myTalks`), written into the graph first if it is not yet.
         const sync = graph.host?.sync();
