@@ -24,6 +24,7 @@
  */
 import { answerExtrasSoul, answerQuestionsSoul, putEvent, type AnswerExtras } from './events';
 import type { EventChainSigner } from './chain';
+import { maybeStampWhere, type Locator } from './location-graph';
 import { personIdOf, personSoul, personWrites } from './people-graph';
 import { ageRangeMutuallyAcceptable, intervalsOverlap, quantitySufficient } from '../../shared/built-in-comparisons';
 import { pickBuiltInAnswer } from '../../shared/built-in-question-resolution';
@@ -435,7 +436,7 @@ export async function theirAnswerClears(store: Pick<NodeStore, 'get'>, souls: Re
   return out;
 }
 
-export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number; chain?: EventChainSigner } = {}) {
+export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number; chain?: EventChainSigner; locate?: Locator } = {}) {
   const souls = graphSouls(options.prefix);
   const now = options.now ?? Date.now;
   const v = GRAPH_SCHEMA_VERSION;
@@ -563,9 +564,12 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       if (params.re) event.re = link(souls.event(params.re));
       if (params.replaces) event.replaces = link(souls.event(params.replaces));
       const at = link(souls.event(eventId));
+      // `where` before putEvent: the chain signs the event with it (REQ-GRAPH-42).
+      const whereSidecar = await maybeStampWhere(store, options, event, eventId);
       // The event and every index it implies, in one batch (all rebuildable from the event).
       await Promise.all([
         putEvent(store, souls, eventId, event, options.chain),
+        ...(whereSidecar ? [whereSidecar] : []),
         ...whenever.flat(),
         ...situated.flatMap((s, i) => [
           // A Whenever offered answer replaces what was remembered for this exact situation.
@@ -602,7 +606,8 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       };
       if (answerEvent?.with) event.with = answerEvent.with;
       const clears = await answerIndexClears(store, souls, latest);
-      await Promise.all([putEvent(store, souls, eventId, event, options.chain), ...clears.map(([soul, node]) => store.put(soul, node))]);
+      const whereSidecar = await maybeStampWhere(store, options, event, eventId);
+      await Promise.all([putEvent(store, souls, eventId, event, options.chain), ...(whereSidecar ? [whereSidecar] : []), ...clears.map(([soul, node]) => store.put(soul, node))]);
       return eventId;
     },
 

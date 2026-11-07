@@ -8,7 +8,7 @@ import { createArrivalGraph } from './arrivals';
 import type { EventChainSigner } from './chain';
 import { createEventIdSource } from './event-id';
 import { createExchangeIndex } from './exchanged';
-import { createLocationGraph } from './location-graph';
+import { createLocationGraph, type Locator } from './location-graph';
 import type { NodeStore } from './node-store';
 import type { StorageBudget } from './storage-budget';
 import { createTalkGraph } from './talk-events';
@@ -18,6 +18,8 @@ export function createDeviceGraph(store: NodeStore, options: {
   prefix?: string;
   now?: () => number;
   budget?: StorageBudget;
+  /** Where the device is, as the host knows it; events are stamped with its blurred cell (REQ-GRAPH-42). */
+  locate?: Locator;
 }) {
   const prefix = options.prefix ?? 'local/';
   const idsSoul = `${prefix}device-graph/ids`;
@@ -32,8 +34,10 @@ export function createDeviceGraph(store: NodeStore, options: {
       save: async (state) => { await store.put(idsSoul, state); },
     },
   });
-  const graphOptions: { prefix: string; now?: () => number; chain?: EventChainSigner } = { prefix, ...(options.now ? { now: options.now } : {}) };
-  // The arrival graph's options carry the budget too; setChain installs the signer on both.
+  const graphOptions: { prefix: string; now?: () => number; chain?: EventChainSigner; locate?: Locator } = {
+    prefix, ...(options.now ? { now: options.now } : {}), ...(options.locate ? { locate: options.locate } : {}),
+  };
+  // The arrival graph's options carry the budget too; setChain/setLocator install on both.
   const arrivalOptions: typeof graphOptions & { budget?: StorageBudget } = { ...graphOptions, ...(options.budget ? { budget: options.budget } : {}) };
   return {
     store,
@@ -48,6 +52,8 @@ export function createDeviceGraph(store: NodeStore, options: {
     budget: options.budget,
     /** Install my event-chain signer (REQ-GRAPH-40); the factories read it at write time. */
     setChain(signer: EventChainSigner): void { graphOptions.chain = signer; arrivalOptions.chain = signer; },
+    /** Install the host's locator (REQ-GRAPH-42); my Talk versions and answers get `where` then. */
+    setLocator(locate: Locator): void { graphOptions.locate = locate; arrivalOptions.locate = locate; },
   };
 }
 

@@ -22,6 +22,32 @@ const PRECISION_LADDER = PUBLIC_LOCATION_PRECISIONS;
 
 export type GpsPoint = { latitude: number; longitude: number; accuracy?: number | undefined; source: 'gps' | 'traveler' };
 
+/**
+ * Stamp an event I write with where it happened (REQ-GRAPH-42): `where` links the blurred cell,
+ * never the exact point (spec §31.7 — events never change, an exact point must be deletable).
+ * Returns the private `gps/<eventId>` sidecar write for the caller to batch with the event write.
+ */
+export async function stampEventWhere(location: ReturnType<typeof createLocationGraph>, prefix: string, point: GpsPoint, event: GraphNode, eventId: string): Promise<Promise<unknown>> {
+  event.where = link(`${prefix}cell/${await location.cell(point)}`);
+  return location.record(eventId, point);
+}
+
+/** Where the device currently is, as the host knows it (undefined: no fix / no provider). */
+export type Locator = () => Promise<GpsPoint | undefined>;
+
+/**
+ * Stamp an event with the current blurred cell when the host knows where the device is
+ * (REQ-GRAPH-42). A missing or failing locator never blocks the write. Returns the gps sidecar
+ * write to batch with the event, or undefined when there is nothing to record.
+ */
+export async function maybeStampWhere(store: NodeStore, options: { prefix?: string; locate?: Locator }, event: GraphNode, eventId: string): Promise<Promise<unknown> | undefined> {
+  if (!options.locate) return undefined;
+  let point: GpsPoint | undefined;
+  try { point = await options.locate(); } catch { return undefined; }
+  if (!point) return undefined;
+  return stampEventWhere(createLocationGraph(store, options), options.prefix ?? 'local/', point, event, eventId);
+}
+
 export function createLocationGraph(store: NodeStore, options: { prefix?: string; now?: () => number } = {}) {
   const prefix = options.prefix ?? 'local/';
   const now = options.now ?? Date.now;

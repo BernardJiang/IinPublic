@@ -11,6 +11,7 @@ import { commitResponse } from './response-commit';
 import type { CoreRequest } from './protocol';
 import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
+import type { Locator } from './device-graph/location-graph';
 import { createStorageBudget } from './device-graph/storage-budget';
 import { appTalkOf, createGraphHost } from './device-graph/sync/graph-host';
 import { createAppAnswers, type AppAnswers } from './device-graph/sync/app-answers';
@@ -38,12 +39,18 @@ export type DeviceGraphOptions = {
   crypto?: GraphCrypto;
   /** Bytes the store uses (1 GB limit, `storage-budget.ts`). */
   storageUsage?: () => Promise<number | undefined>;
+  /**
+   * Where the device is, as the host knows it (REQ-GRAPH-42): my Talk versions and answers are
+   * stamped with its blurred cell. Hosts without geolocation leave it unset (the web worker host
+   * gets its locator from the page in a follow-up).
+   */
+  locate?: Locator;
 };
 
 function deviceGraphGate(options: DeviceGraphOptions | undefined, localTalk?: (appTalkId: string) => Promise<Record<string, any> | undefined>) {
   if (!options) return { graph: undefined, ownTalks: undefined, host: undefined, appAnswers: undefined };
   const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
-  const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}) });
+  const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}), ...(options.locate ? { locate: options.locate } : {}) });
   // Exact GPS points older than 30 days are erased at start and once a day (spec §31.7).
   if (options.gun) {
     const sweep = () => { void graph.location.sweep().catch((error) => options.log?.(`[device-graph] GPS sweep failed: ${(error as Error).message}`)); };
