@@ -64,6 +64,11 @@ export type ChainVerification = { checked: number; ok: boolean; firstBadSeq?: nu
  * contiguity from 0, each prev, each signature, and the head. First bad seq reported; never rewrites.
  * Assumes one chain per store+prefix: events are deviceId-keyed, and two DeviceGraph instances over
  * the same store+prefix interleave on a single head.
+ *
+ * Portable (REQ-GRAPH-41 "a phone and a browser verify the same chain"): hashing and signing run
+ * on `portableSha256Hex`/`portable-ecdsa` — pure JS, no Node natives, no ICU — and `canonicalJson`
+ * orders keys with code-unit `<`/`>`, never `localeCompare`, so every platform hashes the same
+ * chain to the same bytes.
  */
 export async function verifyChain(
   store: NodeStore,

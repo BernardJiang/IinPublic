@@ -9,9 +9,11 @@ import { randomBytes } from 'crypto';
 import SEA from 'gun/sea';
 import { chainHeadSoul, eventHash, verifyChain } from '../../core/device-graph/chain';
 import { createDeviceGraph, type DeviceGraph } from '../../core/device-graph/device-graph';
-import { putEvent } from '../../core/device-graph/events';
+import { putEvent, rebuildIndexes } from '../../core/device-graph/events';
 import { readIndex } from '../../core/device-graph/index-buckets';
 import { link, memoryNodeStore, type GraphNode, type NodeStore } from '../../core/device-graph/node-store';
+import { createGraphHost, type GraphHostStatus } from '../../core/device-graph/sync/graph-host';
+import type { GraphCrypto, SeaPair as GraphSeaPair } from '../../core/device-graph/sync/graph-sync';
 import { graphSouls } from '../../core/device-graph/talk-structure';
 import { portableEcdsaSign, portableEcdsaVerify } from '../../shared/portable-ecdsa';
 
@@ -171,5 +173,73 @@ describe('device event chain (REQ-GRAPH-40)', () => {
     const head = await store.get(chainHeadSoul(souls));
     expect(head?.seq).toBe(mine.length - 1);
     expect(await verify()).toEqual({ checked: 3, ok: true });
+  });
+});
+
+describe('verified at start (REQ-GRAPH-41, OPEN-108 slice 2)', () => {
+
+  it('rebuild reports the break and repairs nothing', async () => {
+    const { store, graph, pair } = await setup();
+    const deviceId = await graph.ids.deviceId();
+    const talkId = await graph.talks.create(tennis());
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));
+    await graph.talks.remove(talkId);
+    const chainOption = { chain: { verify: portableEcdsaVerify, pub: pair.pub, deviceId } };
+
+    // An intact chain verifies as the indexes rebuild.
+    const intact = await rebuildIndexes(store as NodeStore, chainOption);
+    expect(intact.chain).toEqual({ checked: 3, ok: true });
+
+    // Tamper one stored event: the rebuild reports the break and leaves the event as it is.
+    await store.put(graphSouls(graph.prefix).event(talkId), { title: 'Hacked title' });
+    const broken = await rebuildIndexes(store as NodeStore, chainOption);
+    expect(broken.chain).toMatchObject({ ok: false, firstBadSeq: 0, reason: 'sig', checked: 0 });
+    expect((await store.get(graphSouls(graph.prefix).event(talkId)))?.title).toBe('Hacked title');
+
+    // Without `options.chain` the return carries no chain result.
+    const plain = await rebuildIndexes(store as NodeStore);
+    expect(plain).not.toHaveProperty('chain');
+  });
+
+  it('rebuildIndexes refuses fromDay combined with chain verification', async () => {
+    const { store, graph, pair } = await setup();
+    graph.setChain({ sign: (message) => portableEcdsaSign(message, (pair as GraphSeaPair).priv), pub: (pair as GraphSeaPair).pub });
+    await graph.talks.create(tennis());
+    await expect(rebuildIndexes(store as NodeStore, {
+      fromDay: '2000-01-01',
+      chain: { verify: portableEcdsaVerify, pub: (pair as GraphSeaPair).pub, deviceId: await graph.ids.deviceId() },
+    })).rejects.toThrow('chain verification needs the full event log');
+  });
+
+  it('graph.status reports chainBreaks once an identity is installed', async () => {
+    const { store, graph, pair, souls } = await setup();
+    const crypto: GraphCrypto = {
+      secret: async (epub, p) => (await (SEA as any).secret(epub, p)) || undefined,
+      encrypt: async (data, key) => String(await (SEA as any).encrypt(data, key)),
+      decrypt: async (data, key) => (SEA as any).decrypt(data, key),
+      sign: portableEcdsaSign,
+      verify: portableEcdsaVerify,
+      randomHex: (bytes) => randomBytes(bytes).toString('hex'),
+    };
+    // No links are opened, so the fake Gun is never driven past its options object.
+    const gun = { _: { opt: {} } };
+    const host = createGraphHost({ gun, store: store as NodeStore, graph, crypto });
+
+    // No identity yet: no chain in the status.
+    const anonymous = (await host.handle({ name: 'graph.status' })) as GraphHostStatus;
+    expect(anonymous).not.toHaveProperty('chain');
+
+    await host.handle({ name: 'graph.identity', userId: 'me', pair: pair as GraphSeaPair });
+    const talkId = await graph.talks.create(tennis());
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));
+
+    const intact = (await host.handle({ name: 'graph.status' })) as GraphHostStatus;
+    expect(intact.chain).toMatchObject({ ok: true, checked: 2, chainBreaks: 0 });
+
+    await store.put(souls.event(talkId), { title: 'Hacked title' });
+    const broken = (await host.handle({ name: 'graph.status' })) as GraphHostStatus;
+    expect(broken.chain).toMatchObject({ ok: false, chainBreaks: 1, firstBadSeq: 0, reason: 'sig' });
+    // Reported, never repaired: the tampered value is still what is stored.
+    expect((await store.get(souls.event(talkId)))?.title).toBe('Hacked title');
   });
 });

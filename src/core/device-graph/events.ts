@@ -20,7 +20,7 @@ import { keyBucket, keyedBucketSoul } from './keyed-buckets';
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
 import { addToIndex, bucketOf, readIndex, type BucketSize } from './index-buckets';
 import { personIdOf } from './people-graph';
-import { chainAndPut, type EventChainSigner } from './chain';
+import { chainAndPut, verifyChain, type ChainVerification, type EventChainSigner } from './chain';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { builtInValues, graphSouls, questionKeysOf, readTalkStructure, typedIndexKey } from './talk-structure';
 
@@ -61,7 +61,16 @@ export function parseAnswerExtras(raw: unknown): AnswerExtras {
   } catch { return {}; }
 }
 
-export async function rebuildIndexes(store: NodeStore, options: { prefix?: string; fromDay?: string } = {}): Promise<{ events: number; repaired: number }> {
+/**
+ * Rebuild every index from the stored events. With `options.chain` set (REQ-GRAPH-41 "verified at
+ * start"), the events already loaded for the replay are also walked as my chain and the result is
+ * reported as `chain`; a break is REPORTED, never repaired — stored events are never altered.
+ * Chain verification needs the whole log, so `fromDay` and `chain` may not be combined.
+ */
+export async function rebuildIndexes(store: NodeStore, options: { prefix?: string; fromDay?: string;
+  chain?: { verify(signature: string, message: string, pub: string): Promise<boolean>; pub: string; deviceId: string };
+} = {}): Promise<{ events: number; repaired: number; chain?: ChainVerification }> {
+  if (options.chain && options.fromDay) throw new Error('chain verification needs the full event log (no fromDay)');
   const souls = graphSouls(options.prefix);
   const prefix = options.prefix ?? 'local/';
   const idOf = (soul: string | undefined) => (soul || '').slice(souls.event('').length);
@@ -239,5 +248,9 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
     await addToIndex(store, entry.listSoul, entry, entry.size);
     repaired += 1;
   }
-  return { events: loaded.length, repaired };
+  // The chain check reuses the loaded events (no second read) and never touches the store.
+  const chain = options.chain
+    ? await verifyChain(store, souls, { verify: options.chain.verify }, { pub: options.chain.pub, deviceId: options.chain.deviceId }, async () => loaded)
+    : undefined;
+  return { events: loaded.length, repaired, ...(chain ? { chain } : {}) };
 }

@@ -11,7 +11,9 @@ import { allSituations } from '../answers';
 import { answerKey, type AnswerSetEntry } from '../keys';
 import { answeredAtoms } from '../exchanged';
 import { putKeyed } from '../keyed-buckets';
-import { builtInFromValues, type Perspective, type TalkStructure } from '../talk-structure';
+import { verifyChain } from '../chain';
+import { readIndex } from '../index-buckets';
+import { builtInFromValues, graphSouls, type Perspective, type TalkStructure } from '../talk-structure';
 import type { GraphNode } from '../node-store';
 import { formatTypedAnswerValue, typedAnswerValueFromBuiltIn, type TypedAnswerValue } from '../../../shared/typed-preference-store';
 import { createGraphSync, type GraphCrypto, type GraphLinkStatus, type PeerKeys, type SeaPair } from './graph-sync';
@@ -45,7 +47,9 @@ export type GraphHostRequest =
 export type AppAnswer = { questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string; typedValue?: TypedAnswerValue };
 
 export type GraphPull = { out: Array<{ to: string; raw: string }>; events: GraphEvent[] };
-export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown };
+export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown;
+  /** My event chain as verified on this call (REQ-GRAPH-41); absent until an identity is set. */
+  chain?: { ok: boolean; checked: number; chainBreaks: number; firstBadSeq?: number; reason?: 'gap' | 'prev' | 'sig' | 'head' } };
 
 const MAX_PULL_WAIT_MS = 25_000;
 
@@ -88,6 +92,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
   const { store, graph } = options;
   let sync: ReturnType<typeof createGraphSync> | undefined;
   let userId: string | undefined;
+  // The installed identity as the chain is verified with (set at `graph.identity`).
+  let chainMe: { pub: string; deviceId: string } | undefined;
   const events: GraphEvent[] = [];
   const keys = new Map<string, PeerKeys>();
   const push = (event: GraphEvent) => { events.push(event); sync?.wakePull(); };
@@ -164,6 +170,7 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           });
           // My event chain (REQ-GRAPH-40) is signed with the same identity as the sync log.
           graph.setChain({ sign: (message) => options.crypto.sign(message, request.pair.priv), pub: request.pair.pub });
+          chainMe = { pub: request.pair.pub, deviceId: await graph.ids.deviceId() };
           await sync.start();
           push({ type: 'owed', peers: sync.owed() });
           return { ok: true };
@@ -202,6 +209,27 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           const status: GraphHostStatus = { links: sync ? await Promise.all(sync.openLinks().map((peer) => sync!.status(peer))) : [] };
           if (userId) status.userId = userId;
           if (graph.budget) status.storage = await graph.budget.status();
+          if (chainMe) {
+            // Verify my event chain over the day index, as rebuildIndexes loads it (REQ-GRAPH-41).
+            // A failure is reported in the status, never thrown out of it — and never repaired.
+            // The walk deliberately re-reads the events on every call: tampering with a stored
+            // event does not move ix/head, so a head-keyed cache would hide exactly what this
+            // check exists to catch. The designed cost bound is checkpoint-scoped verification
+            // (REQ-GRAPH-46, OPEN-109), which starts from the newest checkpoint instead.
+            try {
+              const souls = graphSouls(graph.prefix);
+              const readEvents = async () => {
+                const loaded: Array<{ id: string; event: GraphNode }> = [];
+                for (const entry of await readIndex(store, souls.index('day'))) {
+                  const event = await store.get(entry.target);
+                  if (event) loaded.push({ id: entry.key, event });
+                }
+                return loaded;
+              };
+              const result = await verifyChain(store, souls, { verify: options.crypto.verify }, chainMe, readEvents);
+              status.chain = { ...result, chainBreaks: result.ok ? 0 : 1 };
+            } catch { /* a verification error leaves `chain` unset, not a broken status */ }
+          }
           return status;
         }
         default:
