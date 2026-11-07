@@ -89,9 +89,8 @@ its ID.
     **Web part done 2026-11-06** (`edd5eaea`, stage2/97-signed-exchange-chain, passes ~50 s).
     Remaining: phone path and real phones.
 
-- [ ] **OPEN-109 — Trim old history with signed checkpoints (spec §31.13 REQ-GRAPH-46..48).** Today the
-  1 GB store only refuses other people's data when full (REQ-GRAPH-36) and erases exact GPS after 30
-  days. Needs OPEN-108's chain.
+- [x] **OPEN-109 — Trim old history with signed checkpoints (spec §31.13 REQ-GRAPH-46..48).** Done
+  2026-11-06: checkpoints `0028493d`, history trimming `5c951863`, pair-log trimming `6c64e3a5`.
   - [x] Signed checkpoint `cp/<seq>` `{ seq, hash, when, counts }`, chained like an event;
     verification starts from the newest.
     Done 2026-11-06 (`0028493d`): `writeCheckpoint` + `prevCp` chain; `verifyChain` scopes from
