@@ -162,6 +162,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
               onOwedChange: (peers) => push({ type: 'owed', peers }),
             },
           });
+          // My event chain (REQ-GRAPH-40) is signed with the same identity as the sync log.
+          graph.setChain({ sign: (message) => options.crypto.sign(message, request.pair.priv), pub: request.pair.pub });
           await sync.start();
           push({ type: 'owed', peers: sync.owed() });
           return { ok: true };

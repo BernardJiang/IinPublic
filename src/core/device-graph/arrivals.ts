@@ -17,6 +17,7 @@
  * structure is not stored.
  */
 import { putEvent } from './events';
+import type { EventChainSigner } from './chain';
 import type { StorageBudget } from './storage-budget';
 import { personIdOf, personSoul, personWrites } from './people-graph';
 import { talkGrammarErrors } from '../../shared/grammar-filter';
@@ -44,7 +45,7 @@ export type IncomingTalk = {
   talk: any;
 };
 
-export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number; budget?: Pick<StorageBudget, 'acceptsIncoming'> } = {}) {
+export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number; chain?: EventChainSigner; budget?: Pick<StorageBudget, 'acceptsIncoming'> } = {}) {
   const souls = graphSouls(options.prefix);
   const prefix = options.prefix ?? 'local/';
   const person = (userId: string) => personSoul(prefix, userId);
@@ -79,7 +80,7 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
         }
         if (incoming.versionId !== incoming.talkId) version.talk = link(souls.event(incoming.talkId));
         if (incoming.previousVersionId) version.re = link(souls.event(incoming.previousVersionId));
-        batch.push(putEvent(store, souls, incoming.versionId, version));
+        batch.push(putEvent(store, souls, incoming.versionId, version, options.chain));
       }
       const arrivalId = await ids.next(when);
       const arrival: GraphNode = {
@@ -92,7 +93,7 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
       if (ignored) arrival.ignored = ignored;
       await Promise.all([
         ...batch,
-        putEvent(store, souls, arrivalId, arrival),
+        putEvent(store, souls, arrivalId, arrival, options.chain),
         ...(deleted ? [] : [
           store.put(souls.index(`received/${incoming.talkId}`), { [from.userId]: link(souls.event(arrivalId)) }),
           addToIndex(store, souls.index('incoming'), { key: incoming.talkId, target: souls.index(`received/${incoming.talkId}`), when }, 'day'),
@@ -124,7 +125,7 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
       if (deletion.versionId) event.re = link(souls.event(deletion.versionId));
       await Promise.all([
         ...people.map(([soul, node]) => store.put(soul, node)),
-        putEvent(store, souls, deletion.eventId, event),
+        putEvent(store, souls, deletion.eventId, event, options.chain),
         store.put(souls.index(`deleted/${deletion.talkId}`), { ev: link(souls.event(deletion.eventId)) }),
         ...Object.keys(at || {}).filter((bucket) => at![bucket] === true).map((bucket) =>
           store.put(`${souls.index('incoming')}/${bucket}`, { [deletion.talkId]: null })),

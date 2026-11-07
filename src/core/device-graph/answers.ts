@@ -23,6 +23,7 @@
  * Repeating the same answers writes one new answer event and no content (REQ-GRAPH-22).
  */
 import { answerExtrasSoul, answerQuestionsSoul, putEvent, type AnswerExtras } from './events';
+import type { EventChainSigner } from './chain';
 import { personIdOf, personSoul, personWrites } from './people-graph';
 import { ageRangeMutuallyAcceptable, intervalsOverlap, quantitySufficient } from '../../shared/built-in-comparisons';
 import { pickBuiltInAnswer } from '../../shared/built-in-question-resolution';
@@ -434,7 +435,7 @@ export async function theirAnswerClears(store: Pick<NodeStore, 'get'>, souls: Re
   return out;
 }
 
-export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number } = {}) {
+export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number; chain?: EventChainSigner } = {}) {
   const souls = graphSouls(options.prefix);
   const now = options.now ?? Date.now;
   const v = GRAPH_SCHEMA_VERSION;
@@ -456,7 +457,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
    */
   async function recordPreference(fields: GraphNode): Promise<void> {
     const when = now();
-    await putEvent(store, souls, await ids.next(when), { v, when, device: await ids.deviceId(), ...fields });
+    await putEvent(store, souls, await ids.next(when), { v, when, device: await ids.deviceId(), ...fields }, options.chain);
   }
 
   /** Write a question's Whenever list (answer souls, first preference first), and record it. */
@@ -564,7 +565,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       const at = link(souls.event(eventId));
       // The event and every index it implies, in one batch (all rebuildable from the event).
       await Promise.all([
-        putEvent(store, souls, eventId, event),
+        putEvent(store, souls, eventId, event, options.chain),
         ...whenever.flat(),
         ...situated.flatMap((s, i) => [
           // A Whenever offered answer replaces what was remembered for this exact situation.
@@ -601,7 +602,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       };
       if (answerEvent?.with) event.with = answerEvent.with;
       const clears = await answerIndexClears(store, souls, latest);
-      await Promise.all([putEvent(store, souls, eventId, event), ...clears.map(([soul, node]) => store.put(soul, node))]);
+      await Promise.all([putEvent(store, souls, eventId, event, options.chain), ...clears.map(([soul, node]) => store.put(soul, node))]);
       return eventId;
     },
 
@@ -661,7 +662,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
         ...nodes.filter((_, i) => !exists[i]).map(([soul, node]) => store.put(soul, node)),
         ...people.map(([soul, node]) => store.put(soul, node)),
         store.put(theirQuestionsSoul(souls, params.eventId), Object.fromEntries(entries.map(([context]) => [context, known.get(context)!.questionKey]))),
-        putEvent(store, souls, params.eventId, event),
+        putEvent(store, souls, params.eventId, event, options.chain),
         putKeyed(store, souls.index(`theirs/${params.talkId}`), { [params.byUser]: at }),
         ...[...new Set(entries.map(([context]) => known.get(context)!.questionKey))].map((questionKey) =>
           addToIndex(store, souls.index(`q/${questionKey}/theirs`), { key: params.eventId, target: souls.event(params.eventId), when: params.when })),
@@ -684,7 +685,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
         talk: link(souls.event(params.talkId)), re: link(souls.event(params.answerEventId)), deleted: true,
       };
       const clears = await theirAnswerClears(store, souls, params.talkId, params.byUser, params.answerEventId);
-      await Promise.all([putEvent(store, souls, params.eventId, event), ...clears.map(([soul, node]) => store.put(soul, node))]);
+      await Promise.all([putEvent(store, souls, params.eventId, event, options.chain), ...clears.map(([soul, node]) => store.put(soul, node))]);
       return true;
     },
 

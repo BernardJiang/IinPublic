@@ -20,17 +20,22 @@ import { keyBucket, keyedBucketSoul } from './keyed-buckets';
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
 import { addToIndex, bucketOf, readIndex, type BucketSize } from './index-buckets';
 import { personIdOf } from './people-graph';
+import { chainAndPut, type EventChainSigner } from './chain';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { builtInValues, graphSouls, questionKeysOf, readTalkStructure, typedIndexKey } from './talk-structure';
 
 type Souls = ReturnType<typeof graphSouls>;
 
-/** Store an event and list it under its day. */
-export async function putEvent(store: NodeStore, souls: Souls, eventId: string, event: GraphNode): Promise<void> {
-  await Promise.all([
-    store.put(souls.event(eventId), event),
-    addToIndex(store, souls.index('day'), { key: eventId, target: souls.event(eventId), when: Number(event.when) }, 'hour'),
-  ]);
+/** Store an event and list it under its day. With `chain` set, chain it first (REQ-GRAPH-40). */
+export async function putEvent(store: NodeStore, souls: Souls, eventId: string, event: GraphNode, chain?: EventChainSigner): Promise<void> {
+  const put = async (chained: GraphNode) => {
+    await Promise.all([
+      store.put(souls.event(eventId), chained),
+      addToIndex(store, souls.index('day'), { key: eventId, target: souls.event(eventId), when: Number(chained.when) }, 'hour'),
+    ]);
+  };
+  if (!chain) return put(event);
+  await chainAndPut(store, souls, chain, event, put);
 }
 
 /**

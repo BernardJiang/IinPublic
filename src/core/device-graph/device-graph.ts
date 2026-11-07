@@ -5,6 +5,7 @@
  */
 import { createAnswerGraph } from './answers';
 import { createArrivalGraph } from './arrivals';
+import type { EventChainSigner } from './chain';
 import { createEventIdSource } from './event-id';
 import { createExchangeIndex } from './exchanged';
 import { createLocationGraph } from './location-graph';
@@ -31,18 +32,22 @@ export function createDeviceGraph(store: NodeStore, options: {
       save: async (state) => { await store.put(idsSoul, state); },
     },
   });
-  const graphOptions = { prefix, ...(options.now ? { now: options.now } : {}) };
+  const graphOptions: { prefix: string; now?: () => number; chain?: EventChainSigner } = { prefix, ...(options.now ? { now: options.now } : {}) };
+  // The arrival graph's options carry the budget too; setChain installs the signer on both.
+  const arrivalOptions: typeof graphOptions & { budget?: StorageBudget } = { ...graphOptions, ...(options.budget ? { budget: options.budget } : {}) };
   return {
     store,
     prefix,
     ids,
     talks: createTalkGraph(store, ids, graphOptions),
-    arrivals: createArrivalGraph(store, ids, { ...graphOptions, ...(options.budget ? { budget: options.budget } : {}) }),
+    arrivals: createArrivalGraph(store, ids, arrivalOptions),
     answers: createAnswerGraph(store, ids, graphOptions),
     location: createLocationGraph(store, graphOptions),
     /** Who I already exchanged what with (REQ-LEDGER-16). */
     exchange: createExchangeIndex(store, graphOptions),
     budget: options.budget,
+    /** Install my event-chain signer (REQ-GRAPH-40); the factories read it at write time. */
+    setChain(signer: EventChainSigner): void { graphOptions.chain = signer; arrivalOptions.chain = signer; },
   };
 }
 

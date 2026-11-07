@@ -11,6 +11,7 @@
  *   ix/mine-talks      bucketed list of my Talks, by the Talk's first event time
  */
 import { putEvent } from './events';
+import type { EventChainSigner } from './chain';
 import { addToIndex, readIndex, removeFromIndex } from './index-buckets';
 import { parseEventId } from './event-id';
 import { personIdOf } from './people-graph';
@@ -67,7 +68,7 @@ export function deliveryFields(talk: any): GraphNode {
   return out;
 }
 
-export function createTalkGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number } = {}) {
+export function createTalkGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number; chain?: EventChainSigner } = {}) {
   const souls = graphSouls(options.prefix);
   const now = options.now ?? Date.now;
   const talksList = souls.index('mine-talks');
@@ -110,7 +111,7 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
       event.talk = link(souls.event(previous.talkId));
       event.re = link(souls.event(previous.versionId));
     }
-    await Promise.all([putEvent(store, souls, eventId, event), declareBuiltIns(talk, eventId, when), ...alongside(eventId)]);
+    await Promise.all([putEvent(store, souls, eventId, event, options.chain), declareBuiltIns(talk, eventId, when), ...alongside(eventId)]);
     return eventId;
   }
 
@@ -187,7 +188,7 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
         talk: link(souls.event(talkId)), re: link(latestSoul), deleted: true,
       };
       await Promise.all([
-        putEvent(store, souls, eventId, event),
+        putEvent(store, souls, eventId, event, options.chain),
         store.put(souls.mine(`talk/${talkId}`), { deleted: true, active: false, deletedBy: link(souls.event(eventId)) }),
         removeFromIndex(store, talksList, { key: talkId, when: parseEventId(talkId)?.when ?? when }),
         ...alongside,
