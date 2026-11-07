@@ -51,7 +51,9 @@ export type PeerKeys = { pub: string; epub: string };
 /** What a log entry carries. No `kind`: what it is follows from the field present (REQ-GRAPH-20). */
 export type LogBody =
   | { offer: { talkId: string; versionId: string; talkTag: string; key: string; context?: Record<string, unknown> } }
-  | { answer: { talkId: string; versionId?: string; eventId: string; when: number; device: string; mode: string; set: Record<string, AnswerSetEntry>; replaces?: string; context?: Record<string, unknown> } }
+  | { answer: { talkId: string; versionId?: string; eventId: string; when: number; device: string; mode: string; set: Record<string, AnswerSetEntry>; replaces?: string; context?: Record<string, unknown>;
+    /** The offer log entry this answer replies to (`n` and hash), linking the exchange's sides (REQ-GRAPH-44). */
+    reEntry?: { n: number; hash: string } } }
   | { deleted: { talkId: string; eventId: string; when: number; device: string; versionId?: string } }
   | { deletedAnswer: { talkId: string; eventId: string; answerEventId: string; when: number; device: string } }
   /** My intake refused their Talk (its age gate, language, the receiving limit): it is not mine. */
@@ -79,6 +81,9 @@ export type GraphLinkStatus = {
   theirHead?: number; theirBlock?: string[];
   /** How far into my log they say they have applied (their head's `read`). */
   theirRead?: number;
+  /** The last signed acknowledgement of theirs I verified (REQ-GRAPH-45): their clock's `when`
+   * against my entry's (`skewMs` = ack.when − entry.when). */
+  lastAck?: { n: number; when: number; skewMs: number };
 };
 
 const entryHash = (entry: LogEntry) => portableSha256Hex(canonicalJson(entry));
@@ -133,6 +138,8 @@ export function createGraphSync(options: {
   };
   const links = new Map<string, Link>();
   const secrets = new Map<string, { keys: PeerKeys; secret: string; pairTag: string }>();
+  /** The last signed acknowledgement each person sent that verified (REQ-GRAPH-43/45). */
+  const lastAcks = new Map<string, { n: number; when: number; skewMs: number }>();
   const outbox: Array<{ to: string; raw: string }> = [];
   let wake: (() => void) | undefined;
   const queues = new Map<string, Promise<unknown>>();
@@ -277,7 +284,8 @@ export function createGraphSync(options: {
     return { head, talk };
   }
 
-  async function apply(fromUserId: string, keys: PeerKeys, body: LogBody, link: string): Promise<void> {
+  async function apply(fromUserId: string, keys: PeerKeys, entry: LogEntry, link: string): Promise<void> {
+    const body = entry.body;
     if ('offer' in body) {
       const fetched = await fetchVersion(fromUserId, body.offer);
       if (!fetched) throw new Error(`Talk ${body.offer.talkId} has not arrived yet`);
@@ -286,7 +294,11 @@ export function createGraphSync(options: {
         talkId: body.offer.talkId, versionId: body.offer.versionId,
         ...(head.previousVersionId ? { previousVersionId: head.previousVersionId } : {}),
         authorId: fromUserId, authorPub: keys.pub, when: Number(head.when), device: String(head.device), talk,
-      }, { userId: fromUserId, pub: keys.pub, link });
+      }, {
+        userId: fromUserId, pub: keys.pub, link,
+        // The log entry that carried the offer, so the answer can name it back (REQ-GRAPH-44).
+        entry: { n: entry.n, hash: entryHash(entry), when: Number(entry.when) },
+      });
       if (!result.ignored) options.events?.onTalk?.(body.offer.talkId, fromUserId, body.offer.context);
       else if (result.ignored === 'grammar') options.log?.(`[graph-sync] ignored Talk ${body.offer.talkId}: ${talkGrammarErrors(talk).length} grammar errors`);
     } else if ('answer' in body) {
@@ -296,6 +308,7 @@ export function createGraphSync(options: {
       const ok = await graph.answers.receiveAnswer({
         talkId: answer.talkId, structure: talk, eventId: answer.eventId, byUser: fromUserId, when: answer.when, device: answer.device,
         mode: answer.mode, set: answer.set, ...(answer.replaces ? { replaces: answer.replaces } : {}),
+        ...(answer.reEntry ? { reEntry: answer.reEntry } : {}),
       });
       if (ok) options.events?.onAnswer?.(answer.talkId, fromUserId, answer.eventId, answer.context);
       else options.log?.(`[graph-sync] answer ${answer.eventId} does not fit Talk ${answer.talkId}`);
@@ -358,7 +371,7 @@ export function createGraphSync(options: {
       return await readEntries();
     } finally {
       // My head says how far I applied their log: their device stops wanting a link for it.
-      await markRead(link, next - 1).catch(() => undefined);
+      await markRead(link, next - 1, prev).catch(() => undefined);
     }
     async function readEntries(): Promise<boolean> {
     while (next <= head!.n) {
@@ -382,7 +395,7 @@ export function createGraphSync(options: {
         options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
         return false;
       }
-      await apply(peerUserId, link.keys, entry.body, 'webrtc');
+      await apply(peerUserId, link.keys, entry, 'webrtc');
       prev = entryHash(entry);
       next += 1;
       await store.put(stateSoul, { next, hash: prev });
@@ -392,18 +405,48 @@ export function createGraphSync(options: {
     }
   }
 
-  /** Write `read` into my head for this pair, once per new value. */
-  async function markRead(link: Link, n: number): Promise<void> {
+  /**
+   * Write how far I applied their log into my head for this pair, once per new value (REQ-GRAPH-43):
+   * a signed acknowledgement (`ack`, naming the entry's hash) for modern peers, and the unsigned
+   * `read` for peers from before acknowledgements.
+   */
+  async function markRead(link: Link, n: number, hash: string): Promise<void> {
     if (n < 0 || link.readMarked === n) return;
     link.readMarked = n;
-    await store.put(mine.head(link.pairTag), { read: await encryptJson({ n }, link.secret) });
+    const ack = { n, hash, when: now() };
+    const signed = { ...ack, sig: await crypto.sign(canonicalJson(ack), me.pair.priv) };
+    await store.put(mine.head(link.pairTag), {
+      read: await encryptJson({ n }, link.secret),
+      ack: await encryptJson(signed, link.secret),
+    });
   }
 
-  /** Their head says how far they applied my log: clear what they owe me nothing more for. */
+  /**
+   * Their head says how far they applied my log: clear what they owe me nothing more for. A signed
+   * acknowledgement counts only when its signature verifies and its hash is my entry `n`'s hash;
+   * the unsigned legacy `read` is still honoured for peers from before acknowledgements.
+   */
   async function checkRead(peerUserId: string, link: Link): Promise<void> {
     const want = owed.get(peerUserId);
     if (want === undefined) return;
     const node = gun._.graph?.[graphWireSouls(peerUserId).head(link.pairTag)];
+    const ack = await decryptJson<{ n: number; hash: string; when: number; sig: string }>(node?.ack, link.secret).catch(() => undefined);
+    if (typeof ack?.n === 'number' && typeof ack.hash === 'string' && typeof ack.when === 'number' && typeof ack.sig === 'string'
+      && await crypto.verify(ack.sig, canonicalJson({ n: ack.n, hash: ack.hash, when: ack.when }), link.keys.pub).catch(() => false)) {
+      // The hash must commit to my own entry: read it back from my log and re-hash it.
+      const block = await store.get(mine.logBlock(link.pairTag, Math.floor(ack.n / LOG_BLOCK))).catch(() => null);
+      const entry = await decryptJson<LogEntry>(block?.[String(ack.n)], link.secret).catch(() => undefined);
+      if (entry && entryHash(entry) === ack.hash) {
+        await store.put(souls.index(`ack/${encodeURIComponent(peerUserId)}`), { [String(ack.n)]: JSON.stringify(ack) });
+        lastAcks.set(peerUserId, { n: ack.n, when: ack.when, skewMs: ack.when - Number(entry.when) });
+        if (ack.n >= want && owed.get(peerUserId) === want) {
+          owed.delete(peerUserId);
+          await store.put(owedSoul, { [peerUserId]: null });
+          options.events?.onOwedChange?.([...owed.keys()]);
+        }
+      }
+      return; // a modern peer's `ack` speaks; a tampered one clears nothing
+    }
     const read = await decryptJson<{ n: number }>(node?.read, link.secret).catch(() => undefined);
     if (typeof read?.n !== 'number' || read.n < want || owed.get(peerUserId) !== want) return;
     owed.delete(peerUserId);
@@ -519,11 +562,21 @@ export function createGraphSync(options: {
       const set = await graph.answers.answerSet(answerEventId);
       if (!set) throw new Error(`answer ${answerEventId} has no answer set`);
       const received = await graph.arrivals.read(talkId);
+      // Name the offer's log entry this answer replies to, so the author can link the sides
+      // (REQ-GRAPH-44): the arrival of the version answered carries it.
+      let reEntry: { n: number; hash: string } | undefined;
+      if (received) {
+        const arrival = await store.get(souls.event(received.latestArrival));
+        if (typeof arrival?.entryN === 'number' && typeof arrival.entryHash === 'string') {
+          reEntry = { n: arrival.entryN, hash: arrival.entryHash };
+        }
+      }
       const body: LogBody = {
         answer: {
           talkId, eventId: answerEventId, when: Number(event.when), device: String(event.device ?? ''), mode: String(event.mode ?? 'manual'), set,
           ...(received ? { versionId: received.versionId } : {}),
           ...(linkSoul(event.replaces) ? { replaces: linkSoul(event.replaces)!.slice(souls.event('').length) } : {}),
+          ...(reEntry ? { reEntry } : {}),
           ...(context ? { context } : {}),
         },
       };
@@ -578,6 +631,8 @@ export function createGraphSync(options: {
       if (typeof incoming?.broken === 'string') status.broken = incoming.broken;
       const link = links.get(peerUserId);
       if (link?.lastError) status.lastError = link.lastError;
+      const lastAck = lastAcks.get(peerUserId);
+      if (lastAck) status.lastAck = lastAck;
       if (link) {
         const theirs = graphWireSouls(peerUserId);
         const graphNode = (soul: string) => gun._.graph?.[soul];

@@ -627,6 +627,9 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       mode: string;
       set: Record<string, AnswerSetEntry>;
       replaces?: string;
+      /** The offer log entry (`n` and hash) this answer replies to, linking the exchange's sides
+       * (REQ-GRAPH-44). Stored flat: a graph node's values are scalars and links only. */
+      reEntry?: { n: number; hash: string };
     }): Promise<boolean> {
       // My Talk's situations as the responder computed them (a Pair tag reads from their side), by
       // walking every answer path it allows; indexed under my own key for each question.
@@ -661,6 +664,7 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
         talk: link(souls.event(params.talkId)), gave: link(souls.answerSet(key)), mode: params.mode,
       };
       if (params.replaces) event.replaces = link(souls.event(params.replaces));
+      if (params.reEntry) { event.reEntryN = params.reEntry.n; event.reEntryHash = params.reEntry.hash; }
       const at = link(souls.event(params.eventId));
       const userKey = encodeURIComponent(params.byUser);
       await Promise.all([

@@ -58,7 +58,11 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
      * `importing`: a Talk from today's collections (spec §31.10). Old texts predate the filter and
      * are kept for the owner's history, so they are not checked.
      */
-    async receive(incoming: IncomingTalk, from: { userId: string; pub?: string; link?: string; where?: string; importing?: boolean }): Promise<{ arrivalId?: string; ignored?: 'grammar' | 'deleted' | 'storage-full' }> {
+    async receive(incoming: IncomingTalk, from: { userId: string; pub?: string; link?: string; where?: string; importing?: boolean;
+      /** The sender's log entry that carried this offer (`n`, hash, `when`), so an answer can name
+       * it back (REQ-GRAPH-44). Stored flat (`entryN`/`entryHash`/`entryWhen`): a graph node's
+       * values are scalars and links only. */
+      entry?: { n: number; hash: string; when: number } }): Promise<{ arrivalId?: string; ignored?: 'grammar' | 'deleted' | 'storage-full' }> {
       // The store is full (1 GB): nothing someone sends is written, not even the arrival.
       if (options.budget && !(await options.budget.acceptsIncoming())) return { ignored: 'storage-full' };
       const when = now();
@@ -88,6 +92,7 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
         talk: link(souls.event(incoming.talkId)), re: link(souls.event(incoming.versionId)),
       };
       if (from.link) arrival.link = from.link;
+      if (from.entry) { arrival.entryN = from.entry.n; arrival.entryHash = from.entry.hash; arrival.entryWhen = from.entry.when; }
       if (from.importing) arrival.mode = 'import';
       if (from.where) arrival.where = link(`${prefix}cell/${from.where}`);
       if (ignored) arrival.ignored = ignored;
