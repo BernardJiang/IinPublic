@@ -41,6 +41,10 @@ export type GraphHostRequest =
   | { name: 'graph.trimLog'; peerUserId: string }
   /** A chat message to this person (OPEN-110): my chained event first, then the pair-log entry. */
   | { name: 'graph.sendMessage'; peerUserId: string; conv: string; text: string; re?: string }
+  /** A Nearby encounter as a chained event (OPEN-110 slice 2); `re`: the Talk that brought us together. */
+  | { name: 'graph.recordEncounter'; personUserId: string; re?: string }
+  /** A Place visit as a chained event (OPEN-110 slice 2); `outingId`: a sample of that outing. */
+  | { name: 'graph.recordVisit'; placeId: string; placeName?: string; outingId?: string }
   /** `answers[].mode`: the dialog's choice for each answer (`auto`, `manual` = Just once, `whenever`). */
   | { name: 'graph.answer'; talkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string; mode?: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
@@ -199,6 +203,11 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           return need().trimLog(request.peerUserId);
         case 'graph.sendMessage':
           return need().sendMessage(request.peerUserId, request.conv, request.text, request.re);
+        case 'graph.recordEncounter':
+          // A local record of who I crossed paths with: no link needed, only my graph.
+          return { eventId: await graph.nearby.recordEncounter({ personUserId: request.personUserId, ...(request.re ? { re: request.re } : {}) }) };
+        case 'graph.recordVisit':
+          return { eventId: await graph.nearby.recordVisit({ placeId: request.placeId, ...(request.placeName !== undefined ? { name: request.placeName } : {}), ...(request.outingId ? { outingId: request.outingId } : {}) }) };
         case 'graph.hear':
           for (const raw of request.raws) need().hear(request.peerUserId, raw);
           return { ok: true };

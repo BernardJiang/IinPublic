@@ -18,8 +18,13 @@
  *   conv and text       a chat message (OPEN-110): by → me when I sent it, with → the other
  *                       person                            → ix/conv/<convId>, ix/convs,
  *                       and (received only) the ix/conv-seen/<convId> dedupe marker
+ * Independently of the other shapes, a Nearby encounter or a Place visit (the events
+ * nearby-events.ts writes) is also listed under ix/cell/<region>/ev by its `where` cell,
+ * day-bucketed (§31.8). Rebuild mirrors write-time: Talk/answer events never write ix/cell,
+ * so the rebuild does not add it for them either.
  */
 import { keyBucket, keyedBucketSoul } from './keyed-buckets';
+import { isNearbyEventShape } from './nearby-events';
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
 import { addToIndex, bucketOf, readIndex, type BucketSize } from './index-buckets';
 import { personIdOf } from './people-graph';
@@ -116,6 +121,13 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
     }
     const talkSoul = linkSoul(event.talk);
     const withUser = personIdOf(prefix, linkSoul(event.with));
+    // A Nearby encounter or Place visit (the nearby-events.ts shapes, carrying `where`) is
+    // listed under its blurred cell (§31.8). Scoped to the shapes that write ix/cell at write
+    // time: a rebuild must put back what the writers write, no more (REQ-GRAPH-02).
+    const whereCell = linkSoul(event.where);
+    if (isNearbyEventShape(event, prefix) && whereCell?.startsWith(`${prefix}cell/`)) {
+      await ensureListed(souls.index(`cell/${whereCell.slice(`${prefix}cell/`.length)}/ev`), id, souls.event(id), when, 'day');
+    }
     const withKey = encodeURIComponent(withUser);
     if (event.deleted === true) {
       const target = linkSoul(event.re);

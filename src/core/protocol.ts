@@ -132,6 +132,7 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.deletedAt' } ? number | null
                           : R extends { name: 'graph.answer' } ? { sent: boolean; eventId?: string }
                           : R extends { name: 'graph.sendMessage' } ? { eventId: string }
+                          : R extends { name: 'graph.recordEncounter' | 'graph.recordVisit' } ? { eventId: string }
                           : R extends { name: 'graph.retract' } ? { sent: number }
                           : R extends { name: 'graph.answerHistory' } ? AppAnswerRecord[]
                           : R extends { name: 'graph.newTalkId' } ? string | null

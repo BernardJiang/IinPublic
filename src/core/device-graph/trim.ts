@@ -29,6 +29,7 @@ import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answ
 import { answerExtrasSoul, answerQuestionsSoul, rebuildIndexes } from './events';
 import { chainHeadSoul, checkpointIndexSoul, writeCheckpoint, type ChainCheckpoint, type EventChainSigner } from './chain';
 import { bucketOf, readIndex, removeFromIndex } from './index-buckets';
+import { isNearbyEventShape } from './nearby-events';
 import { parseEventId } from './event-id';
 import { personIdOf } from './people-graph';
 import { structureSouls } from './redact';
@@ -257,7 +258,12 @@ export async function trimHistory(
     if (gps) writes.push(store.put(`${prefix}gps/${id}`, gps));
     await Promise.all(writes);
 
-    // The index footprint, per event shape (the events.ts rebuild switch, inverted).
+    // The index footprint, per event shape (the events.ts rebuild switch, inverted). A Nearby
+    // encounter or Place visit also leaves its cell listing, the same scope the rebuild indexes.
+    const whereCell = linkSoul(event.where);
+    if (isNearbyEventShape(event, prefix) && whereCell?.startsWith(`${prefix}cell/`)) {
+      await removeFromIndex(store, souls.index(`cell/${whereCell.slice(`${prefix}cell/`.length)}/ev`), { key: id, when });
+    }
     if (event.deleted === true) {
       if (event.by && talkId) {
         const deleted = await store.get(souls.index(`deleted/${talkId}`));

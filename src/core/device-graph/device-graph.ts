@@ -9,6 +9,7 @@ import type { EventChainSigner } from './chain';
 import { createEventIdSource } from './event-id';
 import { createExchangeIndex } from './exchanged';
 import { createLocationGraph, type Locator } from './location-graph';
+import { createNearbyGraph } from './nearby-events';
 import type { NodeStore } from './node-store';
 import type { StorageBudget } from './storage-budget';
 import { createTalkGraph } from './talk-events';
@@ -46,6 +47,8 @@ export function createDeviceGraph(store: NodeStore, options: {
     talks: createTalkGraph(store, ids, graphOptions),
     arrivals: createArrivalGraph(store, ids, arrivalOptions),
     answers: createAnswerGraph(store, ids, graphOptions),
+    /** Nearby encounters and Place visits as chained events (OPEN-110 slice 2, REQ-GRAPH-49). */
+    nearby: createNearbyGraph(store, ids, graphOptions),
     location: createLocationGraph(store, graphOptions),
     /** Who I already exchanged what with (REQ-LEDGER-16). */
     exchange: createExchangeIndex(store, graphOptions),
