@@ -9,14 +9,12 @@ export const RELATIONSHIP_LABELS = [
   'friend', 'relative', 'coworker', 'acquaintance', 'partner', 'custom',
 ] as const;
 
-/** Seeds myTalks (OUT, all 4 types) + the Me tab's answer history (`__iinpublic_answer_history_seed`). */
+/** Seeds myTalks (OUT, all 4 types). The Me tab's answers: `seedAnswerHistory`, after any reload. */
 export async function seedLocalData(page: Page, userId: string): Promise<void> {
   await page.evaluate(
-    ({ answersCount, authorId, talksPerType }) => {
+    ({ authorId, talksPerType }) => {
       type TalkType = 'tag' | 'flow' | 'survey' | 'route';
       const talks: Record<string, unknown> = {};
-      const questionAnswers: Record<string, unknown> = {};
-      const answerHistory: Record<string, unknown> = {};
       const createdAt = new Date().toISOString();
 
       function questionsFor(type: TalkType, index: number) {
@@ -75,13 +73,25 @@ export async function seedLocalData(page: Page, userId: string): Promise<void> {
         }
       }
 
+      localStorage.setItem('myTalks', JSON.stringify(talks));
+    },
+    { authorId: userId, talksPerType: NUM_TALKS_PER_TYPE },
+  );
+}
+
+/**
+ * Seeds the Me tab's answer history as the app saves an answer (`__iinpublic_answer_history_seed`).
+ * The Me tab reads my answers from the device graph (OPEN-106), and an answer to a Talk the graph
+ * does not hold is kept only in this page's memory: seed after the last reload, or it is gone.
+ */
+export async function seedAnswerHistory(page: Page): Promise<void> {
+  await page.waitForFunction(() => typeof (window as any).__iinpublic_answer_history_seed === 'function', undefined, { timeout: 60_000 });
+  await page.evaluate(
+    ({ answersCount }) => {
+      const answerHistory: Record<string, unknown> = {};
+      const createdAt = new Date().toISOString();
       for (let i = 1; i <= answersCount; i++) {
         const key = `stress-answer-${i}`;
-        questionAnswers[`Stress answer question ${i}?`] = {
-          questionId: `${key}-q`, questionText: `Stress answer question ${i}?`,
-          answerId: `${key}-match`, answerText: `Answer ${i}`, mode: 'manual',
-          language: 'en', isIgnored: false, timestamp: createdAt,
-        };
         answerHistory[key] = {
           id: key, talkId: `stress-answer-talk-${i}`, title: `Stress answered talk ${i}`,
           type: 'survey', language: 'en', outcome: 'match', answeredAt: createdAt,
@@ -94,10 +104,9 @@ export async function seedLocalData(page: Page, userId: string): Promise<void> {
         };
       }
 
-      localStorage.setItem('myTalks', JSON.stringify(talks));
-      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, answerHistory);
+      (window as any).__iinpublic_answer_history_seed(answerHistory);
     },
-    { answersCount: NUM_ANSWERS, authorId: userId, talksPerType: NUM_TALKS_PER_TYPE },
+    { answersCount: NUM_ANSWERS },
   );
 }
 

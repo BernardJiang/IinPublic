@@ -3,7 +3,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from '@playwri
 import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless } from '../helpers/timing';
-import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, waitForIncomingTalkId } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { openCurrentChatroom } from '../helpers/chatroom-nav';
@@ -16,13 +16,15 @@ const GOLDEN = [
 
 function numberedFlow(authorId: string) {
   return {
-    title: 'flow', authorId, type: 'flow', language: 'en', isAdult: false, tags: [],
+    title: 'Mass flow exchange', authorId, type: 'flow', language: 'en', isAdult: false, tags: [],
     questions: [1, 2, 3, 4].map((n) => ({
-      id: `flowq${n}`, text: `flowq${n}`,
+      id: `flowq${n}`, text: `Flow question ${n}?`,
       answers: [1, 2, 3].map((m) => ({
-        id: `flowa${n}${m}`, text: `flowa${n}${m}`,
+        id: `flowa${n}${m}`, text: `Flow answer ${n}${m}`,
         isMatch: n === 4 && m === 1, isIgnore: (n === 1 && m !== 1) || (n === 2 && m !== 2) || (n === 3 && m !== 3) || (n === 4 && m !== 1),
         isTerminal: n === 4 || !((n === 1 && m === 1) || (n === 2 && m === 2) || (n === 3 && m === 3)),
+        // The device graph walks a flow along its choices: a choice that goes on names its next question.
+        ...((n === 1 && m === 1) || (n === 2 && m === 2) || (n === 3 && m === 3) ? { nextQuestionId: `flowq${n + 1}` } : {}),
       })),
     })),
   };
@@ -54,6 +56,8 @@ test.describe('M1 real flow mass exchange', () => {
       expect(delivery.receivers).toBe(9);
       for (let i = 0; i < GOLDEN.length; i += 1) {
         await waitForTabActive(pages[i + 1], 'talks');
+        // A Talk is answered once it has arrived (the device graph has nothing to answer before).
+        await waitForIncomingTalkId(pages[i + 1], created.talkId, { timeout: 60_000 });
         await completeTalksInAppByAnswerIds(pages[i + 1], [{ talkId: created.talkId, talkData: created.talkData, answerIds: [...GOLDEN[i]], outcome: GOLDEN[i].at(-1) === 'flowa41' ? 'match' : 'mismatch' }]);
       }
       await expect.poll(() => pages[0].evaluate((talkId) => Object.values(((window as any).__iinpublic_exchanges?.() ?? {})).filter((row: any) => row.talkId === talkId).length, created.talkId), { timeout: 120_000 }).toBe(9);

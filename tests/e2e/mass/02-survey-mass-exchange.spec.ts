@@ -7,7 +7,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from '@playwri
 import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless } from '../helpers/timing';
-import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, waitForIncomingTalkId } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { openCurrentChatroom } from '../helpers/chatroom-nav';
@@ -20,12 +20,12 @@ test.describe('M2 real survey mass exchange', () => {
     try {
       for (let i = 0; i < 8; i += 1) { const b = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS, '--disable-dev-shm-usage'] }); browsers.push(b); const x = await bootstrapUser(b, `M2-${i}`, `M2 User ${i}`, 60_000); contexts.push(x.context); pages.push(x.page); await openCurrentChatroom(x.page); await x.page.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true)); }
       const authorId = await pages[0].evaluate(() => (window as any).__iinpublic_app.getApp().currentUser.id);
-      const survey = { title: 'survey', authorId, type: 'survey', language: 'en', isAdult: false, tags: [], questions: Array.from({ length: 5 }, (_, q) => ({ id: `surveyq${q + 1}`, text: `surveyq${q + 1}`, answers: [1,2,3,4].map((a) => ({ id: `surveya${q + 1}${a}`, text: `surveya${q + 1}${a}`, isTerminal: q === 4 })) })) };
+      const survey = { title: 'Mass survey exchange', authorId, type: 'survey', language: 'en', isAdult: false, tags: [], questions: Array.from({ length: 5 }, (_, q) => ({ id: `surveyq${q + 1}`, text: `Survey question ${q + 1}?`, answers: [1,2,3,4].map((a) => ({ id: `surveya${q + 1}${a}`, text: `Survey answer ${q + 1}${a}`, isTerminal: q === 4 })) })) };
       const [created] = await createTalksFromCompanyPage(pages[0], [survey]);
       const users = await Promise.all(pages.slice(1).map((p) => p.evaluate(() => { const u = (window as any).__iinpublic_app.getApp().currentUser; return { userId:u.id, stageName:u.stageName }; })));
       const delivery = await pages[0].evaluate(async (receiverUsers) => (window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(0, { skipAudiencePreview:true, skipDeliveryAcks:true, receiverUsers }), users);
       expect(delivery.receivers).toBe(7);
-      for (let i=0;i<7;i+=1) { await waitForTabActive(pages[i+1], 'talks'); await completeTalksInAppByAnswerIds(pages[i+1], [{ talkId:created.talkId, talkData:created.talkData, answerIds:vector(i), outcome:'mismatch' }]); }
+      for (let i=0;i<7;i+=1) { await waitForTabActive(pages[i+1], 'talks'); await waitForIncomingTalkId(pages[i+1], created.talkId, { timeout: 60_000 }); await completeTalksInAppByAnswerIds(pages[i+1], [{ talkId:created.talkId, talkData:created.talkData, answerIds:vector(i), outcome:'mismatch' }]); }
       // Force-drain the author's mailbox on every poll tick (the 3s background timer lags a
       // CPU-starved event loop). The phase now runs SOLO in test:all, so 60s is ample —
       // solo-measured deliveries complete in seconds; per policy no poll exceeds one minute.

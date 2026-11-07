@@ -8,7 +8,7 @@ import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow'
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import {
   NUM_TALKS_PER_TYPE, NUM_ANSWERS, NUM_CONTACTS, RELATIONSHIP_LABELS,
-  seedLocalData, seedContactsAsUsers,
+  seedLocalData, seedContactsAsUsers, seedAnswerHistory,
 } from '../helpers/heavy-user-seed';
 
 export { NUM_TALKS_PER_TYPE, NUM_ANSWERS, NUM_CONTACTS };
@@ -88,6 +88,7 @@ test.describe('M4 heavy-user GUI stress', () => {
       // poll until at least some visible. Gun propagation of 500 writes can take a while in-memory mode.
       // Use reload to force the app to re-read knownPeople from Gun on cold start.
       await page.reload();
+      await seedAnswerHistory(page);
 
       console.log(`[contacts-warmup] reloading so adoptSessionUser picks up freshly seeded contacts`);
       const contactsTarget = Math.min(NUM_CONTACTS, 10); // at-least-a-few sanity check vs hard 500

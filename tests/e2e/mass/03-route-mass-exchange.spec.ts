@@ -3,7 +3,7 @@ import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { clearGunForStage1Spec } from '../helpers/e2e-stage-pipeline';
 import { headless } from '../helpers/timing';
-import { bootstrapUser, waitForTabActive } from '../helpers/talks-matching-flow';
+import { bootstrapUser, waitForTabActive, waitForIncomingTalkId } from '../helpers/talks-matching-flow';
 import { createTalksFromCompanyPage, completeTalksInAppByAnswerIds } from '../helpers/talk-demo-ui';
 import { computeTalkCIDv1 } from '../../../src/shared/talk-content-id';
 import { openCurrentChatroom } from '../helpers/chatroom-nav';
@@ -15,12 +15,12 @@ test.describe('M3 real route mass exchange', () => {
     try {
       for(let i=0;i<8;i+=1){const x=await bootstrapUser(browser,`M3-${i}`,`M3 User ${i}`,60_000);contexts.push(x.context);pages.push(x.page);await openCurrentChatroom(x.page);await x.page.evaluate(()=> (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));}
       const authorId=await pages[0].evaluate(()=> (window as any).__iinpublic_app.getApp().currentUser.id);
-      const talk={title:'route',authorId,type:'route',language:'en',isAdult:false,tags:[],questions:[1,2,3].map(q=>({id:`routeq${q}`,text:`routeq${q}`,answers:[1,2].map(a=>({id:`routea${q}${a}`,text:`routea${q}${a}`,isTerminal:q===3,isMatch:q===3&&a===1,isIgnore:q===3&&a===2}))}))};
+      const talk={title:'Mass route exchange',authorId,type:'route',language:'en',isAdult:false,tags:[],questions:[1,2,3].map(q=>({id:`routeq${q}`,text:`Route question ${q}?`,answers:[1,2].map(a=>({id:`routea${q}${a}`,text:`Route answer ${q}${a}`,isTerminal:q===3,...(q<3?{nextQuestionId:`routeq${q+1}`}:{}),isMatch:q===3&&a===1,isIgnore:q===3&&a===2}))}))};
       const cid=await computeTalkCIDv1(talk); const [created]=await createTalksFromCompanyPage(pages[0],[talk]);
       const users=await Promise.all(pages.slice(1).map(p=>p.evaluate(()=>{const u=(window as any).__iinpublic_app.getApp().currentUser;return {userId:u.id,stageName:u.stageName}})));
       const delivery = await pages[0].evaluate(async receiverUsers=>(window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(0,{skipAudiencePreview:true,skipDeliveryAcks:true,receiverUsers}),users);
       expect(delivery.receivers).toBe(7);
-      for(let i=0;i<7;i+=1){await waitForTabActive(pages[i+1],'talks');await completeTalksInAppByAnswerIds(pages[i+1],[{talkId:created.talkId,talkData:created.talkData,answerIds:GOLDEN[i],outcome:GOLDEN[i].at(-1)==='routea31'?'match':'mismatch'}]);}
+      for(let i=0;i<7;i+=1){await waitForTabActive(pages[i+1],'talks');await waitForIncomingTalkId(pages[i+1],created.talkId,{timeout:60_000});await completeTalksInAppByAnswerIds(pages[i+1],[{talkId:created.talkId,talkData:created.talkData,answerIds:GOLDEN[i],outcome:GOLDEN[i].at(-1)==='routea31'?'match':'mismatch'}]);}
       expect(new Set(GOLDEN.map(x=>x.join(','))).size).toBe(7); expect(await computeTalkCIDv1(talk)).toBe(cid);
       // M3-A: verify 7 responses landed in the author's local ledger (depth-3 paths encoded in GOLDEN)
       await expect.poll(() => pages[0].evaluate((talkId) => Object.values(((window as any).__iinpublic_exchanges?.() ?? {})).filter((row: any) => row.talkId === talkId).length, created.talkId), { timeout: 120_000 }).toBe(7);

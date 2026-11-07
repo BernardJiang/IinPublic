@@ -27,7 +27,7 @@ import {
 import { selectTalkEditorType } from '../helpers/talk-editor-e2e';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
 import { makeTagTalk, makeFlowTalk, makeSurveyTalk, makeRouteTalk } from '../talks-matching/lib/four-types-talks';
-import { NUM_CONTACTS, RELATIONSHIP_LABELS, seedLocalData, seedContactsAsUsers } from '../helpers/heavy-user-seed';
+import { NUM_CONTACTS, RELATIONSHIP_LABELS, seedLocalData, seedContactsAsUsers, seedAnswerHistory } from '../helpers/heavy-user-seed';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../../src/shared/techsupport';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../helpers/settings-nav';
 import { openCurrentChatroom } from '../helpers/chatroom-nav';
@@ -76,6 +76,7 @@ test.describe('M5 full-layout screenshot tour', () => {
       await seedLocalData(page, userId);
       await seedContactsAsUsers(page, userId);
       await page.reload();
+      await seedAnswerHistory(page);
       await expect
         .poll(() => page!.locator('#contacts-list .contact-item').count(), { timeout: 20_000, intervals: [1000] })
         .toBeGreaterThanOrEqual(Math.min(NUM_CONTACTS, 10))
