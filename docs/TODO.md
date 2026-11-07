@@ -81,7 +81,9 @@ its ID.
     sender's entry `{ n, hash, when }`. Shared time = both signed times; skew over 10 min shown.
     Done 2026-11-06 (`5fa208ae`): legacy `read` still written/cleared for old peers; skew exposed
     at `status(peer).lastAck.skewMs` — GUI skew display lands with the E2E slice.
-  - [ ] Redaction: erase a deleted record's content on request, keep its event and hash.
+  - [x] Redaction: erase a deleted record's content on request, keep its event and hash.
+    Done 2026-11-06 (`74919395`): `redactEvent` + `deviceGraph.redact` core request; chain still
+    verifies; shared q//a/ records never cleared.
   - [ ] E2e: two people exchange, each side proves the other's signed entry and acknowledgement;
     a tampered local event is reported after restart (web, phone path, real phones).
 
