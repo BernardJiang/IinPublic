@@ -117,6 +117,10 @@ its ID.
     request; two latent Gun-store chain bugs fixed en route. Remaining: the DM view reads the log
     and the old Gun message store is demoted to notify, then removed.
   - [ ] Nearby encounters and Place visits as events (`with`, `place`, `where`).
+    **Graph-core half done 2026-11-06** (`766b7dcb`): `recordEncounter`/`recordVisit` chained
+    events, `place`/`outing` state nodes, `ix/cell` index with one shared shape rule for
+    write/rebuild/trim, 15-min repeat dedupe, host requests. Remaining: wire the live
+    Nearby/Places flows to call them.
   - [ ] Talks tab from the graph indexes; `myTalks` reduced to device-local display state, then removed.
   - [ ] Contacts from people, exchanges and conversation events; the deal and key maps as events or
     indexes. Collections left only for settings and device-local state.
