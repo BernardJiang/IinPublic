@@ -20,6 +20,17 @@ export const chainHeadSoul = (souls: Souls) => souls.index('head');
  * A signed checkpoint (REQ-GRAPH-46): before old events are trimmed away, the device signs
  * `{ seq, hash, when, counts }` for the chain head, chained to the checkpoint before it. The
  * removed prefix is summarized by this signed record, not lost silently.
+ *
+ * ADVERSARIAL TRUST BOUNDARY (what verification does and does not prove): the model assumes the
+ * device's own signing key is safe and the store is tampered by someone WITHOUT it. Within that
+ * model: a checkpoint cannot be forged (signature) or altered (sig + the prevCp walk); tampering
+ * a still-stored post-checkpoint event is always caught; rolling ix/cp + ix/head back to an older
+ * checkpoint is caught while post-checkpoint events remain in the day index (the head check).
+ * Outside that model, by design: tampering with the TRIMMED prefix is accepted-undetectable —
+ * that is what "summarized, not lost silently" means; and an attacker who can rewrite the day
+ * index can censor post-checkpoint events so a rolled-back state verifies (any local hash chain
+ * without an external witness shares this limit — the pair log's signed acks are the cross-check
+ * against a second device).
  */
 export type ChainCheckpoint = {
   seq: number; hash: string; when: number;

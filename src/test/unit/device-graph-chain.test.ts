@@ -321,6 +321,28 @@ describe('signed chain checkpoints (REQ-GRAPH-46, OPEN-109 slice 1)', () => {
     expect(await verify()).toMatchObject({ ok: false, firstBadSeq: first.seq, reason: 'cp' });
   });
 
+  it('fails closed with reason cp when ix/cp names a missing checkpoint node', async () => {
+    const { store, graph, souls, verify, signer } = await setup();
+    const talkId = await graph.talks.create(tennis());
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));
+    await writeCheckpoint(store as NodeStore, souls, signer);     // cp at seq 1
+    // ix/cp still names it, but the cp/<seq> node is gone (e.g. a partial trim or corruption).
+    await store.put(checkpointSoul(souls, 1), Object.fromEntries(
+      Object.keys((await store.get(checkpointSoul(souls, 1)))!).map((k) => [k, null])));
+    expect(await verify()).toMatchObject({ ok: false, firstBadSeq: 1, reason: 'cp' });
+  });
+
+  it('fails with reason cp when the still-stored anchor event no longer matches the checkpoint', async () => {
+    const { store, graph, souls, verify, signer } = await setup();
+    const talkId = await graph.talks.create(tennis());            // seq 0
+    const editId = await graph.talks.edit(talkId, tennis('Tennis buddy')); // seq 1
+    await writeCheckpoint(store as NodeStore, souls, signer);     // cp at seq 1, anchored on the edit
+    // Tamper the ANCHOR event itself (still stored): its recomputed hash no longer equals
+    // cp.hash, so the checkpoint's summary is provably broken.
+    await store.put(souls.event(editId), { title: 'Hacked title' });
+    expect(await verify()).toMatchObject({ ok: false, firstBadSeq: 1, reason: 'cp' });
+  });
+
   it('refuses a second checkpoint at the same head and a checkpoint without any chain', async () => {
     const { store, graph, souls, verify, signer } = await setup();
     await expect(writeCheckpoint(store as NodeStore, souls, signer)).rejects.toThrow('no chain head');
