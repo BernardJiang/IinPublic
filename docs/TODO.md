@@ -92,8 +92,10 @@ its ID.
 - [ ] **OPEN-109 — Trim old history with signed checkpoints (spec §31.13 REQ-GRAPH-46..48).** Today the
   1 GB store only refuses other people's data when full (REQ-GRAPH-36) and erases exact GPS after 30
   days. Needs OPEN-108's chain.
-  - [ ] Signed checkpoint `cp/<seq>` `{ seq, hash, when, counts }`, chained like an event;
+  - [x] Signed checkpoint `cp/<seq>` `{ seq, hash, when, counts }`, chained like an event;
     verification starts from the newest.
+    Done 2026-11-06 (`0028493d`): `writeCheckpoint` + `prevCp` chain; `verifyChain` scopes from
+    `ix/cp` (reason `cp` on checkpoint tamper); `graph.status.chain.fromSeq`.
   - [ ] Trimming from 90% down to 80%: whole days, oldest first; their events, index entries that
     point only to them, unreferenced content. Kept: the last 30 days, my active Talks, anything an
     open conversation, a confirmed deal or an unacknowledged log entry points to, the chatbot's
