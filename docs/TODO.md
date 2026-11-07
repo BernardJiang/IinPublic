@@ -86,6 +86,8 @@ its ID.
     verifies; shared q//a/ records never cleared.
   - [ ] E2e: two people exchange, each side proves the other's signed entry and acknowledgement;
     a tampered local event is reported after restart (web, phone path, real phones).
+    **Web part done 2026-11-06** (`edd5eaea`, stage2/97-signed-exchange-chain, passes ~50 s).
+    Remaining: phone path and real phones.
 
 - [ ] **OPEN-109 — Trim old history with signed checkpoints (spec §31.13 REQ-GRAPH-46..48).** Today the
   1 GB store only refuses other people's data when full (REQ-GRAPH-36) and erases exact GPS after 30
