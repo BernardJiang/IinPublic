@@ -7,11 +7,11 @@
 
 import { randomBytes } from 'crypto';
 import SEA from 'gun/sea';
-import { chainHeadSoul, eventHash, verifyChain } from '../../core/device-graph/chain';
+import { chainHeadSoul, checkpointIndexSoul, checkpointSoul, eventHash, verifyChain, writeCheckpoint } from '../../core/device-graph/chain';
 import { createDeviceGraph, type DeviceGraph } from '../../core/device-graph/device-graph';
 import { putEvent, rebuildIndexes } from '../../core/device-graph/events';
 import { readIndex } from '../../core/device-graph/index-buckets';
-import { link, memoryNodeStore, type GraphNode, type NodeStore } from '../../core/device-graph/node-store';
+import { link, memoryNodeStore, type GraphLink, type GraphNode, type NodeStore } from '../../core/device-graph/node-store';
 import { createGraphHost, type GraphHostStatus } from '../../core/device-graph/sync/graph-host';
 import type { GraphCrypto, SeaPair as GraphSeaPair } from '../../core/device-graph/sync/graph-sync';
 import { graphSouls } from '../../core/device-graph/talk-structure';
@@ -85,7 +85,7 @@ describe('device event chain (REQ-GRAPH-40)', () => {
     // The head names the last event I wrote.
     const head = await store.get(chainHeadSoul(souls));
     expect(head).toEqual({ seq: mine.length - 1, hash: eventHash(mine.at(-1)!.event) });
-    expect(await verify()).toEqual({ checked: 3, ok: true });
+    expect(await verify()).toEqual({ checked: 3, ok: true, fromSeq: 0 });
   });
 
   it('detects a tampered event', async () => {
@@ -123,11 +123,11 @@ describe('device event chain (REQ-GRAPH-40)', () => {
     const deviceId = await graph.ids.deviceId();
     // Written as before the chain existed: through putEvent with no chain, carrying no seq.
     await putEvent(store as NodeStore, souls, 'legacy-event', { v: 1, when: Date.now(), device: deviceId });
-    expect(await verify()).toEqual({ checked: 0, ok: true });
+    expect(await verify()).toEqual({ checked: 0, ok: true, fromSeq: 0 });
     // My next chained write starts the chain at seq 0.
     const talkId = await graph.talks.create(tennis());
     expect((await store.get(souls.event(talkId)))?.seq).toBe(0);
-    expect(await verify()).toEqual({ checked: 1, ok: true });
+    expect(await verify()).toEqual({ checked: 1, ok: true, fromSeq: 0 });
   });
 
   it("never chains another author's record I hold locally (a `by` event)", async () => {
@@ -137,7 +137,7 @@ describe('device event chain (REQ-GRAPH-40)', () => {
     // Stored unchanged: no seq/prev/sig from my chain, and my head is untouched.
     expect(await store.get(souls.event('received-rev'))).toEqual(received);
     expect(await store.get(chainHeadSoul(souls))).toBeNull();
-    expect(await verify()).toEqual({ checked: 0, ok: true });
+    expect(await verify()).toEqual({ checked: 0, ok: true, fromSeq: 0 });
   });
 
   it("keeps another device's chained event out of mine", async () => {
@@ -147,7 +147,7 @@ describe('device event chain (REQ-GRAPH-40)', () => {
     // Stored unchanged, and it does not move my head.
     expect(await store.get(souls.event('synced-event'))).toEqual(synced);
     expect(await store.get(chainHeadSoul(souls))).toBeNull();
-    expect(await verify()).toEqual({ checked: 0, ok: true });
+    expect(await verify()).toEqual({ checked: 0, ok: true, fromSeq: 0 });
   });
 
   it('fails when all my events are stripped while the head still names a seq', async () => {
@@ -158,7 +158,7 @@ describe('device event chain (REQ-GRAPH-40)', () => {
     // Strip my ownership: every event's device field overwritten so none count as mine.
     for (const entry of await readIndex(store, souls.index('day')))
       await store.put(entry.target, { device: 'stripped-device' });
-    expect(await verify()).toEqual({ checked: 0, ok: false, firstBadSeq: 0, reason: 'head' });
+    expect(await verify()).toEqual({ checked: 0, ok: false, firstBadSeq: 0, reason: 'head', fromSeq: 0 });
   });
 
   it('chains concurrent writes without interleaving', async () => {
@@ -172,7 +172,7 @@ describe('device event chain (REQ-GRAPH-40)', () => {
     expect(mine.map(({ event }) => Number(event.seq))).toEqual([0, 1, 2]);
     const head = await store.get(chainHeadSoul(souls));
     expect(head?.seq).toBe(mine.length - 1);
-    expect(await verify()).toEqual({ checked: 3, ok: true });
+    expect(await verify()).toEqual({ checked: 3, ok: true, fromSeq: 0 });
   });
 });
 
@@ -188,7 +188,7 @@ describe('verified at start (REQ-GRAPH-41, OPEN-108 slice 2)', () => {
 
     // An intact chain verifies as the indexes rebuild.
     const intact = await rebuildIndexes(store as NodeStore, chainOption);
-    expect(intact.chain).toEqual({ checked: 3, ok: true });
+    expect(intact.chain).toEqual({ checked: 3, ok: true, fromSeq: 0 });
 
     // Tamper one stored event: the rebuild reports the break and leaves the event as it is.
     await store.put(graphSouls(graph.prefix).event(talkId), { title: 'Hacked title' });
@@ -241,5 +241,116 @@ describe('verified at start (REQ-GRAPH-41, OPEN-108 slice 2)', () => {
     expect(broken.chain).toMatchObject({ ok: false, chainBreaks: 1, firstBadSeq: 0, reason: 'sig' });
     // Reported, never repaired: the tampered value is still what is stored.
     expect((await store.get(souls.event(talkId)))?.title).toBe('Hacked title');
+  });
+});
+
+describe('signed chain checkpoints (REQ-GRAPH-46, OPEN-109 slice 1)', () => {
+
+  /** Simulate trimming: wipe every field of the events at or below `seq`, day index untouched. */
+  const trimThrough = async (store: NodeStore, souls: ReturnType<typeof graphSouls>, ids: string[], seq: number) => {
+    for (const id of ids) {
+      const soul = souls.event(id);
+      const event = await store.get(soul);
+      if (event && typeof event.seq === 'number' && Number(event.seq) <= seq)
+        await store.put(soul, Object.fromEntries(Object.keys(event).map((k) => [k, null])));
+    }
+  };
+
+  it('summarizes the pre-checkpoint prefix: tampering an old event still verifies', async () => {
+    const { store, graph, souls, verify, myEvents, signer } = await setup();
+    const talkId = await graph.talks.create(tennis());            // seq 0
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));       // seq 1
+    await graph.talks.remove(talkId);                             // seq 2
+    const cp = await writeCheckpoint(store as NodeStore, souls, signer);
+    expect(cp).toMatchObject({ seq: 2, counts: { events: 3, days: 0 } });
+    expect(typeof cp.sig).toBe('string');
+    expect(await store.get(checkpointIndexSoul(souls)))
+      .toEqual({ seq: 2, hash: eventHash((await store.get(checkpointSoul(souls, 2)))!) });
+
+    await graph.talks.create(tennis('After'));                    // seq 3
+    // Tamper an event BELOW the checkpoint: the signed checkpoint summarizes that prefix.
+    await store.put(souls.event(talkId), { title: 'Hacked title' });
+    expect(await verify()).toEqual({ checked: 1, ok: true, fromSeq: 3 });
+    expect((await myEvents()).map(({ event }) => event.seq)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('still detects a tampered POST-checkpoint event', async () => {
+    const { store, graph, souls, verify, signer } = await setup();
+    const talkId = await graph.talks.create(tennis());            // seq 0
+    await writeCheckpoint(store as NodeStore, souls, signer);     // cp at seq 0
+    const editId = await graph.talks.edit(talkId, tennis('Tennis buddy')); // seq 1
+    await graph.talks.remove(talkId);                             // seq 2
+    await store.put(souls.event(editId), { title: 'Hacked title' });
+    expect(await verify()).toMatchObject({ ok: false, firstBadSeq: 1, reason: 'sig', checked: 0, fromSeq: 1 });
+  });
+
+  it('verifies after the pre-checkpoint events are trimmed away', async () => {
+    const { store, graph, souls, verify, myEvents, signer } = await setup();
+    const talkId = await graph.talks.create(tennis());            // seq 0
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));       // seq 1
+    await writeCheckpoint(store as NodeStore, souls, signer);     // cp at seq 1
+    await graph.talks.remove(talkId);                             // seq 2
+    const ids = (await myEvents()).map(({ id }) => id);
+    await trimThrough(store as NodeStore, souls, ids, 1);         // events seq 0..1 gone
+    expect(await verify()).toEqual({ checked: 1, ok: true, fromSeq: 2 });
+    const head = await store.get(chainHeadSoul(souls));
+    expect(head).toMatchObject({ seq: 2 });
+    expect((await myEvents()).map(({ event }) => event.seq)).toEqual([2]);
+  });
+
+  it('fails with reason cp when the checkpoint node itself is tampered', async () => {
+    const { store, graph, souls, verify, signer } = await setup();
+    const talkId = await graph.talks.create(tennis());
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));
+    await writeCheckpoint(store as NodeStore, souls, signer);     // cp at seq 1
+    await store.put(checkpointSoul(souls, 1), { hash: 'not-the-real-hash' });
+    expect(await verify()).toMatchObject({ ok: false, firstBadSeq: 1, reason: 'cp' });
+  });
+
+  it('fails with reason cp when an older checkpoint in the chain is tampered', async () => {
+    const { store, graph, souls, verify, signer } = await setup();
+    const talkId = await graph.talks.create(tennis());            // seq 0
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));       // seq 1
+    const first = await writeCheckpoint(store as NodeStore, souls, signer);
+    await graph.talks.remove(talkId);                             // seq 2
+    const second = await writeCheckpoint(store as NodeStore, souls, signer);
+    expect(second.prevCp).toEqual({ seq: first.seq, hash: eventHash(first as unknown as GraphNode) });
+    expect(await verify()).toEqual({ checked: 0, ok: true, fromSeq: 3 });
+    // Tamper the older checkpoint: the prevCp link from the newer one no longer matches it.
+    await store.put(checkpointSoul(souls, first.seq), { prevCp: { seq: 99, hash: 'fake' } as unknown as GraphLink });
+    expect(await verify()).toMatchObject({ ok: false, firstBadSeq: first.seq, reason: 'cp' });
+  });
+
+  it('refuses a second checkpoint at the same head and a checkpoint without any chain', async () => {
+    const { store, graph, souls, verify, signer } = await setup();
+    await expect(writeCheckpoint(store as NodeStore, souls, signer)).rejects.toThrow('no chain head');
+    const talkId = await graph.talks.create(tennis());
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));
+    await writeCheckpoint(store as NodeStore, souls, signer);
+    await expect(writeCheckpoint(store as NodeStore, souls, signer)).rejects.toThrow('checkpoint already at head');
+    expect(await verify()).toEqual({ checked: 0, ok: true, fromSeq: 2 });
+  });
+
+  it('graph.status reports fromSeq after a checkpoint', async () => {
+    const { store, graph, pair, souls, signer } = await setup();
+    const crypto: GraphCrypto = {
+      secret: async (epub, p) => (await (SEA as any).secret(epub, p)) || undefined,
+      encrypt: async (data, key) => String(await (SEA as any).encrypt(data, key)),
+      decrypt: async (data, key) => (SEA as any).decrypt(data, key),
+      sign: portableEcdsaSign,
+      verify: portableEcdsaVerify,
+      randomHex: (bytes) => randomBytes(bytes).toString('hex'),
+    };
+    const gun = { _: { opt: {} } };
+    const host = createGraphHost({ gun, store: store as NodeStore, graph, crypto });
+    await host.handle({ name: 'graph.identity', userId: 'me', pair: pair as GraphSeaPair });
+
+    const talkId = await graph.talks.create(tennis());            // seq 0
+    await graph.talks.edit(talkId, tennis('Tennis buddy'));       // seq 1
+    await writeCheckpoint(store as NodeStore, souls, signer);     // cp at seq 1
+    await graph.talks.remove(talkId);                             // seq 2
+
+    const status = (await host.handle({ name: 'graph.status' })) as GraphHostStatus;
+    expect(status.chain).toMatchObject({ ok: true, checked: 1, chainBreaks: 0, fromSeq: 2 });
   });
 });

@@ -65,7 +65,9 @@ export function parseAnswerExtras(raw: unknown): AnswerExtras {
  * Rebuild every index from the stored events. With `options.chain` set (REQ-GRAPH-41 "verified at
  * start"), the events already loaded for the replay are also walked as my chain and the result is
  * reported as `chain`; a break is REPORTED, never repaired — stored events are never altered.
- * Chain verification needs the whole log, so `fromDay` and `chain` may not be combined.
+ * Chain verification needs the whole log, so `fromDay` and `chain` may not be combined. With a
+ * checkpoint written (REQ-GRAPH-46), verification is checkpoint-scoped: events at or below the
+ * checkpoint are summarized by its signature and only the post-checkpoint tail is re-verified.
  */
 export async function rebuildIndexes(store: NodeStore, options: { prefix?: string; fromDay?: string;
   chain?: { verify(signature: string, message: string, pub: string): Promise<boolean>; pub: string; deviceId: string };

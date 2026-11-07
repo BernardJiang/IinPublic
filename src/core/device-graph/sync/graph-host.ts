@@ -49,7 +49,9 @@ export type AppAnswer = { questionId: string; answerId: string; answerText: stri
 export type GraphPull = { out: Array<{ to: string; raw: string }>; events: GraphEvent[] };
 export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown;
   /** My event chain as verified on this call (REQ-GRAPH-41); absent until an identity is set. */
-  chain?: { ok: boolean; checked: number; chainBreaks: number; firstBadSeq?: number; reason?: 'gap' | 'prev' | 'sig' | 'head' } };
+  chain?: { ok: boolean; checked: number; chainBreaks: number; firstBadSeq?: number; reason?: 'gap' | 'prev' | 'sig' | 'head' | 'cp';
+    /** The first seq the verification walk covered: cp.seq + 1 with a checkpoint, else 0 (REQ-GRAPH-46). */
+    fromSeq?: number } };
 
 const MAX_PULL_WAIT_MS = 25_000;
 
