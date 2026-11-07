@@ -46,6 +46,7 @@
     "test:stage-autoupdate-manifest": "node --test scripts/test/stage-autoupdate-manifest.test.js",
     "build:embedded": "npm run build:web && node scripts/add-sri.js && npm run build:server && node scripts/stamp-build-id.js && node scripts/generate-web-checksums.js",
     "build:production": "npm run build:embedded",
+    "release": "bash scripts/release.sh",
     "release:verify-checksums": "node scripts/verify-release-checksums.js",
     "desktop:dev": "npm run build:embedded && cd platforms/desktop && npm install && npm start",
     "desktop:stage-deps": "node scripts/stage-desktop-prod-deps.mjs",
