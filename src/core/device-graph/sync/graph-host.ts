@@ -39,6 +39,8 @@ export type GraphHostRequest =
   | { name: 'graph.status' }
   /** Trim my pair log with this person below their signed acknowledgement (REQ-GRAPH-48). */
   | { name: 'graph.trimLog'; peerUserId: string }
+  /** A chat message to this person (OPEN-110): my chained event first, then the pair-log entry. */
+  | { name: 'graph.sendMessage'; peerUserId: string; conv: string; text: string; re?: string }
   /** `answers[].mode`: the dialog's choice for each answer (`auto`, `manual` = Just once, `whenever`). */
   | { name: 'graph.answer'; talkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string; mode?: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
@@ -126,9 +128,11 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           if (sync && userId === request.userId) return { ok: true };
           if (sync) for (const peer of sync.openLinks()) sync.close(peer);
           userId = request.userId;
+          // My event chain (REQ-GRAPH-40) is signed with the same identity as the sync log.
+          const signer = { sign: (message: string) => options.crypto.sign(message, request.pair.priv), pub: request.pair.pub };
           sync = createGraphSync({
             gun: options.gun, store, me: { userId: request.userId, pair: request.pair }, crypto: options.crypto,
-            peerKeys, graph, ...(options.log ? { log: options.log } : {}),
+            peerKeys, graph, ids: graph.ids, chain: signer, ...(options.log ? { log: options.log } : {}),
             events: {
               onTalk: (talkId, from, context) => {
                 // The page gets the Talk in the app's shape with the event: one read here, none there.
@@ -172,8 +176,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
               onOwedChange: (peers) => push({ type: 'owed', peers }),
             },
           });
-          // My event chain (REQ-GRAPH-40) is signed with the same identity as the sync log.
-          graph.setChain({ sign: (message) => options.crypto.sign(message, request.pair.priv), pub: request.pair.pub });
+          // The same signer chains my graph events (installed on the graph; the sync holds it too).
+          graph.setChain(signer);
           chainMe = { pub: request.pair.pub, deviceId: await graph.ids.deviceId() };
           await sync.start();
           push({ type: 'owed', peers: sync.owed() });
@@ -193,6 +197,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           return { ok: true };
         case 'graph.trimLog':
           return need().trimLog(request.peerUserId);
+        case 'graph.sendMessage':
+          return need().sendMessage(request.peerUserId, request.conv, request.text, request.re);
         case 'graph.hear':
           for (const raw of request.raws) need().hear(request.peerUserId, raw);
           return { ok: true };

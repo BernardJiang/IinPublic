@@ -15,6 +15,9 @@
  *   gave and by         someone's answer to my Talk → ix/theirs (keyed buckets), ix/q/<key>/theirs, ix/talk, ix/person
  *   deleted and by      the author deleted a Talk I received   → ix/deleted, off ix/incoming;
  *                       or (re → their answer) someone deleted their answer → off ix/theirs …
+ *   conv and text       a chat message (OPEN-110): by → me when I sent it, with → the other
+ *                       person                            → ix/conv/<convId>, ix/convs,
+ *                       and (received only) the ix/conv-seen/<convId> dedupe marker
  */
 import { keyBucket, keyedBucketSoul } from './keyed-buckets';
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
@@ -27,7 +30,7 @@ import { builtInValues, graphSouls, questionKeysOf, readTalkStructure, typedInde
 type Souls = ReturnType<typeof graphSouls>;
 
 /** Store an event and list it under its day. With `chain` set, chain it first (REQ-GRAPH-40). */
-export async function putEvent(store: NodeStore, souls: Souls, eventId: string, event: GraphNode, chain?: EventChainSigner): Promise<void> {
+export async function putEvent(store: NodeStore, souls: Souls, eventId: string, event: GraphNode, chain?: EventChainSigner, opts?: { ownBy?: boolean }): Promise<void> {
   const put = async (chained: GraphNode) => {
     await Promise.all([
       store.put(souls.event(eventId), chained),
@@ -35,7 +38,7 @@ export async function putEvent(store: NodeStore, souls: Souls, eventId: string, 
     ]);
   };
   if (!chain) return put(event);
-  await chainAndPut(store, souls, chain, event, put);
+  await chainAndPut(store, souls, chain, event, put, opts);
 }
 
 /**
@@ -185,6 +188,21 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       await ensure(souls.index(`answered/${talkId}`), { ev: link(souls.event(id)), when });
       await ensureListed(souls.index(`talk/${talkId}/ev`), id, souls.event(id), when);
       if (withUser) await ensureListed(souls.index(`person/${withKey}/ev`), id, souls.event(id), when);
+    } else if (linkSoul(event.conv) && typeof event.text === 'string') {
+      // A chat message (OPEN-110, REQ-GRAPH-49): `by` → me when I sent it, `with` → the other
+      // person; `conv` links the conversation's state node (`mine/conv/<convId>`).
+      const convSoul = linkSoul(event.conv)!;
+      const convHead = souls.mine('conv/');
+      const convId = convSoul.startsWith(convHead) ? convSoul.slice(convHead.length) : '';
+      if (convId) {
+        await ensureListed(souls.index(`conv/${convId}`), id, souls.event(id), when, 'day');
+        await ensure(souls.index('convs'), { [convId]: when });
+        // A received message names the sender's event in `re`: its dedupe marker rebuilds too.
+        const seen = linkSoul(event.re);
+        if (!event.by && seen?.startsWith(souls.event(''))) {
+          await ensure(souls.index(`conv-seen/${encodeURIComponent(convId)}`), { [seen.slice(souls.event('').length)]: link(souls.event(id)) });
+        }
+      }
     } else if (talkSoul && linkSoul(event.re) && withUser) {
       const talkId = idOf(talkSoul);
       // As `receive`: an arrival after the author deleted the Talk lists nothing but the person.

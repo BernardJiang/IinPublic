@@ -24,10 +24,13 @@ import type { AnswerSetEntry } from '../keys';
 import { canonicalJson, answerKey, questionKey } from '../keys';
 import type { createAnswerGraph } from '../answers';
 import type { createArrivalGraph } from '../arrivals';
-import type { createTalkGraph } from '../talk-events';
-import { gunNodeStore, linkSoul, type GraphNode, type NodeStore } from '../node-store';
-import { graphSouls, talkStructureKey, talkStructureOf, type StructureQuestion, type TalkStructure } from '../talk-structure';
-import { personIdOf } from '../people-graph';
+import type { createTalkGraph, EventIds } from '../talk-events';
+import type { EventChainSigner } from '../chain';
+import { putEvent } from '../events';
+import { addToIndex } from '../index-buckets';
+import { gunNodeStore, link, linkSoul, type GraphNode, type NodeStore } from '../node-store';
+import { GRAPH_SCHEMA_VERSION, graphSouls, talkStructureKey, talkStructureOf, type StructureQuestion, type TalkStructure } from '../talk-structure';
+import { personIdOf, personSoul, personWrites } from '../people-graph';
 import { createGraphAudience } from './audience';
 import { LOG_BLOCK, graphWireSouls, pairTagOf } from './wire-names';
 
@@ -57,7 +60,10 @@ export type LogBody =
   | { deleted: { talkId: string; eventId: string; when: number; device: string; versionId?: string } }
   | { deletedAnswer: { talkId: string; eventId: string; answerEventId: string; when: number; device: string } }
   /** My intake refused their Talk (its age gate, language, the receiving limit): it is not mine. */
-  | { declined: { talkId: string; versionId?: string; when: number } };
+  | { declined: { talkId: string; versionId?: string; when: number } }
+  /** A chat message (OPEN-110, REQ-GRAPH-49): `conv` is the conversation id, `eventId` the sender's
+   * own message event, `re` the sender's last seen message event (REQ-GRAPH-24 ordering hint). */
+  | { message: { conv: string; text: string; eventId: string; re?: string } };
 
 type LogEntry = { n: number; prev: string; when: number; by: string; body: LogBody; sig: string };
 
@@ -98,6 +104,10 @@ export function createGraphSync(options: {
   /** A person's public keys, from their public user record. */
   peerKeys: (userId: string) => Promise<PeerKeys | undefined>;
   graph: { talks: ReturnType<typeof createTalkGraph>; arrivals: ReturnType<typeof createArrivalGraph>; answers: ReturnType<typeof createAnswerGraph> };
+  /** The device's event id source and chain signer (chat message events, OPEN-110); without them
+   * `sendMessage` throws and an incoming message is logged and skipped. */
+  ids?: EventIds;
+  chain?: EventChainSigner;
   events?: GraphSyncEvents;
   prefix?: string;
   now?: () => number;
@@ -324,7 +334,44 @@ export function createGraphSync(options: {
       if (await graph.answers.receiveAnswerDeletion({ talkId: d.talkId, eventId: d.eventId, byUser: fromUserId, when: d.when, device: d.device, answerEventId: d.answerEventId })) {
         options.events?.onAnswerDeleted?.(d.talkId, fromUserId);
       }
+    } else if ('message' in body) {
+      await receiveMessage(fromUserId, keys, body.message);
     }
+  }
+
+  /**
+   * A chat message arrived (OPEN-110, REQ-GRAPH-49): like an arrival, the receiver writes its OWN
+   * private event with its own clock — never shared — linked to the conversation's state node and,
+   * through `re`, to the sender's message event (which this device never holds). The same sender
+   * event arriving twice writes one event (REQ-GRAPH-22), deduped by the marker the first write
+   * left under `ix/conv-seen/<convId>`.
+   */
+  async function receiveMessage(fromUserId: string, keys: PeerKeys, message: { conv: string; text: string; eventId: string; re?: string }): Promise<void> {
+    if (!options.ids) { options.log?.(`[graph-sync] message from ${fromUserId} without an event id source installed`); return; }
+    const ids = options.ids;
+    const convSoul = souls.mine(`conv/${message.conv}`);
+    const seenSoul = souls.index(`conv-seen/${encodeURIComponent(message.conv)}`);
+    const seen = message.eventId ? linkSoul((await store.get(seenSoul))?.[message.eventId]) : undefined;
+    if (seen) return; // applied already
+    const when = now();
+    const eventId = await ids.next(when);
+    const event: GraphNode = {
+      v: GRAPH_SCHEMA_VERSION, when, device: await ids.deviceId(),
+      with: link(personSoul(prefix, fromUserId)), conv: link(convSoul), text: message.text,
+    };
+    if (message.eventId) event.re = link(souls.event(message.eventId));
+    const [people, conv] = await Promise.all([
+      personWrites(store, prefix, [{ userId: fromUserId, pub: keys.pub }], when),
+      store.get(convSoul),
+    ]);
+    await Promise.all([
+      ...people.map(([soul, node]) => store.put(soul, node)),
+      putEvent(store, souls, eventId, event, options.chain),
+      ...(conv ? [] : [store.put(convSoul, { with: link(personSoul(prefix, fromUserId)), startedAt: when })]),
+      addToIndex(store, souls.index(`conv/${message.conv}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
+      store.put(souls.index('convs'), { [message.conv]: when }),
+      ...(message.eventId ? [store.put(seenSoul, { [message.eventId]: link(souls.event(eventId)) })] : []),
+    ]);
   }
 
   /** Apply every entry of their log I have not applied, in order, proving the chain. */
@@ -598,6 +645,42 @@ export function createGraphSync(options: {
         ...[...blocks].map(([block, fields]) => store.put(mine.logBlock(pairTag, block), fields)),
       ]);
       return { trimmed: ackN, checkpointN: cp.n };
+    },
+
+    /**
+     * Send a chat message (OPEN-110, REQ-GRAPH-49 message half). My own event is written FIRST,
+     * chained (`by` → me, asserted with `ownBy` — the original is written here, never copied):
+     * `{ by, with, conv, text, re? }` per §31.5, with `conv` a link to the conversation's state
+     * node (`mine/conv/<id>`, created once, never overwritten, per §31.6). Then the pair log
+     * carries `{ message: { conv, text, eventId, re? } }`, encrypted and signed like every entry.
+     * `re` is my last seen message event id of this conversation (REQ-GRAPH-24 ordering hint).
+     */
+    async sendMessage(peerUserId: string, conv: string, text: string, re?: string): Promise<{ eventId: string }> {
+      if (!options.ids) throw new Error('no event id source installed');
+      const ids = options.ids;
+      await pairWith(peerUserId); // the link (keys + pair secret) must exist, as sendAnswer requires
+      const when = now();
+      const eventId = await ids.next(when);
+      const convSoul = souls.mine(`conv/${conv}`);
+      const event: GraphNode = {
+        v: GRAPH_SCHEMA_VERSION, when, device: await ids.deviceId(),
+        by: link(personSoul(prefix, me.userId)), with: link(personSoul(prefix, peerUserId)),
+        conv: link(convSoul), text,
+      };
+      if (re) event.re = link(souls.event(re));
+      const [people, known] = await Promise.all([
+        personWrites(store, prefix, [{ userId: me.userId }, { userId: peerUserId }], when),
+        store.get(convSoul),
+      ]);
+      await Promise.all([
+        ...people.map(([soul, node]) => store.put(soul, node)),
+        putEvent(store, souls, eventId, event, options.chain, { ownBy: true }),
+        ...(known ? [] : [store.put(convSoul, { with: link(personSoul(prefix, peerUserId)), startedAt: when })]),
+        addToIndex(store, souls.index(`conv/${conv}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
+        store.put(souls.index('convs'), { [conv]: when }),
+      ]);
+      await append(peerUserId, { message: { conv, text, eventId, ...(re ? { re } : {}) } });
+      return { eventId };
     },
 
     /** Send my answer event to the Talk's author. */

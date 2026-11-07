@@ -61,9 +61,11 @@ export function serialized<T>(store: NodeStore, fn: () => Promise<T>): Promise<T
  * A corrupt head (non-finite or non-integer seq) throws rather than minting a bad event on top.
  * Crash window: a crash between the event put and the head put leaves the head one behind; that
  * is DETECTED by verifyChain ('gap'/'head'), not prevented.
+ * `opts.ownBy` asserts the event's `by` is THIS device (my chat message, OPEN-110: the sender's
+ * original carries `by` per §31.5 yet is written and chained here, never copied from a peer).
  */
-export async function chainAndPut(store: NodeStore, souls: Souls, signer: EventChainSigner, event: GraphNode, put: (chained: GraphNode) => Promise<void>): Promise<void> {
-  if (typeof event.seq === 'number' || linkSoul(event.by)) { await put(event); return; }
+export async function chainAndPut(store: NodeStore, souls: Souls, signer: EventChainSigner, event: GraphNode, put: (chained: GraphNode) => Promise<void>, opts?: { ownBy?: boolean }): Promise<void> {
+  if (typeof event.seq === 'number' || (linkSoul(event.by) && !opts?.ownBy)) { await put(event); return; }
   await serialized(store, async () => {
     const head = await store.get(chainHeadSoul(souls));
     if (head != null && !(Number.isSafeInteger(head.seq) && Number(head.seq) >= 0))
@@ -146,13 +148,30 @@ export async function verifyChain(
   const cpBreak = (seq: number, fromSeq: number, checked = 0): ChainVerification =>
     ({ checked, ok: false, firstBadSeq: seq, reason: 'cp', fromSeq });
 
+  // A checkpoint's `counts`/`prevCp` are nested objects; a Gun-backed store holds each as a
+  // sub-node link. Resolve that one level so the checkpoint hashes and verifies as the nested
+  // record that was signed (an in-memory store holds the object itself: nothing to resolve).
+  const readCheckpoint = async (soul: string): Promise<GraphNode | null> => {
+    const node = await store.get(soul);
+    if (!node) return null;
+    const out: GraphNode = { ...node };
+    for (const field of ['counts', 'prevCp'] as const) {
+      const sub = linkSoul(node[field]);
+      if (sub) {
+        const resolved = await store.get(sub);
+        if (resolved) out[field] = resolved as unknown as GraphNode[string];
+      }
+    }
+    return out;
+  };
+
   // Checkpoint scoping: trust the newest signed checkpoint for everything at or below its seq.
   let cp: GraphNode | null = null;
   let fromSeq = 0;
   const cpIndex = await store.get(checkpointIndexSoul(souls));
   if (cpIndex != null) {
     const cpSeq = Number(cpIndex.seq);
-    cp = await store.get(checkpointSoul(souls, cpSeq));
+    cp = await readCheckpoint(checkpointSoul(souls, cpSeq));
     if (cp == null) return cpBreak(cpSeq, 0);
     if (typeof cp.sig !== 'string' || !(await crypto.verify(cp.sig, signedEventPart(cp), me.pub)))
       return cpBreak(cpSeq, 0);
@@ -160,7 +179,7 @@ export async function verifyChain(
     // correctly hashed older checkpoint; a missing older checkpoint just ends the walk back.
     let link = cp.prevCp as { seq?: unknown; hash?: unknown } | undefined;
     while (link && typeof link.seq === 'number' && typeof link.hash === 'string') {
-      const older = await store.get(checkpointSoul(souls, link.seq));
+      const older = await readCheckpoint(checkpointSoul(souls, link.seq));
       if (older == null) break; // older checkpoints may eventually be trimmed — stop there
       if (typeof older.sig !== 'string' || !(await crypto.verify(older.sig, signedEventPart(older), me.pub)))
         return cpBreak(link.seq, 0);
