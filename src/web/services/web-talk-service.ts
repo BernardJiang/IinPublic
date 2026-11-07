@@ -203,8 +203,12 @@ export class WebTalkService {
   async getTalk(talkId: string): Promise<Talk | null> {
     if (!talkId) return null;
     const fromGraph = await this.graphTalk?.(talkId).catch(() => null);
-    if (fromGraph) return this.normalizeTalkFromStorage({ ...fromGraph, id: talkId });
     const entry = (getMyTalks() as Record<string, any>)[talkId];
+    // The graph's body is the Talk's content only: my own Talk read from my Talk versions carries
+    // no `authorId`, `tags` or `isTemplate`. The My Talks entry fills what the graph does not hold
+    // (the graph's content wins); without it a self-answer is saved with no sender and a copy
+    // loses its author (05-talks-edit, 00l, 82 after the graph started answering first).
+    if (fromGraph) return this.normalizeTalkFromStorage({ ...(entry?.fullTalk ?? {}), ...fromGraph, id: talkId });
     if (entry?.fullTalk && Array.isArray(entry.fullTalk.questions)) return this.normalizeTalkFromStorage({ ...entry.fullTalk, id: talkId });
     try {
       const raw = await this.gunService.get(`talks/${talkId}`);
