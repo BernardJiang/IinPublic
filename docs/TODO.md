@@ -101,8 +101,10 @@ its ID.
     open conversation, a confirmed deal or an unacknowledged log entry points to, the chatbot's
     remembered answers.
     Done 2026-11-06 (`5c951863`): `trimHistory`; fail-closed on unreadable owed logs; rebuild after.
-  - [ ] Pair logs trimmed only below the other person's signed acknowledgement, with a checkpoint
+  - [x] Pair logs trimmed only below the other person's signed acknowledgement, with a checkpoint
     entry they can verify.
+    Done 2026-11-06 (`6c64e3a5`): `trimLog` + signed `cp` in the pair head; readers behind it
+    verify the signature and fast-forward. Auto-trigger policy is a later product decision.
   - [x] Tests: a store filled past 90% trims to 80% and still verifies; nothing kept above is lost;
     the indexes rebuild from what remains. Covered by `device-graph-trim.test.ts` (`5c951863`).
 
