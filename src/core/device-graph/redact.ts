@@ -28,7 +28,7 @@ const erase = (node: GraphNode | null): GraphNode | undefined => {
  * `rev/<key>`, and the order/choices expansions build only `rev/<key>/q/…` souls, so a shared
  * text can never land in the result.
  */
-async function structureSouls(store: NodeStore, revSoul: string): Promise<string[]> {
+export async function structureSouls(store: NodeStore, revSoul: string): Promise<string[]> {
   const seen = new Set<string>([revSoul]);
   const out: string[] = [];
   const queue = [revSoul];
