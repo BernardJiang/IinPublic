@@ -289,6 +289,14 @@ export async function trimHistory(
     if (isNearbyEventShape(event, prefix) && whereCell?.startsWith(`${prefix}cell/`)) {
       await removeFromIndex(store, souls.index(`cell/${whereCell.slice(`${prefix}cell/`.length)}/ev`), { key: id, when });
     }
+    // A chat message (OPEN-110): its conversation day-bucket entry goes. The conv-seen dedupe
+    // marker is KEPT — it is a presence set keyed by the sender's event id: without it, a
+    // re-delivered old message would write a duplicate event (the sweep below skips it too).
+    const convSoulOfEvent = linkSoul(event.conv);
+    if (convSoulOfEvent?.startsWith(souls.mine('conv/')) && typeof event.text === 'string') {
+      const convId = convSoulOfEvent.slice(souls.mine('conv/').length);
+      await removeFromIndex(store, souls.index(`conv/${convId}`), { key: id, when });
+    }
     if (event.deleted === true) {
       if (event.by && talkId) {
         const deleted = await store.get(souls.index(`deleted/${talkId}`));
@@ -376,6 +384,9 @@ export async function trimHistory(
       for (const soul of allSouls.filter((s) => heads.some((head) => s.startsWith(head)))) {
         // Chain state and signed acks are never swept (today they hold no links — keep it structural).
         if (chainState.has(soul) || soul.startsWith(souls.index('ack/'))) continue;
+        // conv-seen markers are a presence set: a nulled VALUE would let a re-delivered trimmed
+        // message write a duplicate event. The dangling link is never followed — keep it.
+        if (soul.startsWith(souls.index('conv-seen/'))) continue;
         const node = await store.get(soul);
         const nulls: GraphNode = {};
         for (const [key, value] of Object.entries(node || {})) {

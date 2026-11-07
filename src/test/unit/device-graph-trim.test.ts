@@ -11,8 +11,9 @@ import SEA from 'gun/sea';
 import { chainHeadSoul, checkpointIndexSoul, verifyChain } from '../../core/device-graph/chain';
 import { createDeviceGraph } from '../../core/device-graph/device-graph';
 import { rebuildIndexes } from '../../core/device-graph/events';
-import { readIndex } from '../../core/device-graph/index-buckets';
-import { linkSoul, memoryNodeStore, type GraphNode, type NodeStore } from '../../core/device-graph/node-store';
+import { addToIndex, readIndex } from '../../core/device-graph/index-buckets';
+import { link, linkSoul, memoryNodeStore, type GraphNode, type NodeStore } from '../../core/device-graph/node-store';
+import { personSoul } from '../../core/device-graph/people-graph';
 import { graphSouls, talkStructureOf } from '../../core/device-graph/talk-structure';
 import { trimHistory, type TrimResult } from '../../core/device-graph/trim';
 import { portableEcdsaSign, portableEcdsaVerify } from '../../shared/portable-ecdsa';
@@ -237,6 +238,40 @@ describe('trim old history (REQ-GRAPH-47)', () => {
     expect(second.days).toEqual([]);
     expect(second.events).toBe(0);
     expect(second.content).toBe(0);
+  });
+
+  it('trims an old message event: its conv entry goes, its dedupe marker stays (a re-delivery must not duplicate)', async () => {
+    const { store, graph, souls, usage, at, trim } = await setup();
+    const prefix = graph.prefix;
+    // A 39-day-old received message (the receiveMessage shape): event, conv day-bucket entry,
+    // and the conv-seen marker keyed by the SENDER's event id pointing at my copy.
+    const when = BASE - 39 * DAY;
+    const msgId = `${String(when).padStart(13, '0')}-${'e'.repeat(32)}-0`;
+    const senderEventId = `${String(when - 1000).padStart(13, '0')}-${'f'.repeat(32)}-0`;
+    await at(39, async () => {
+      await store.put(souls.event(msgId), {
+        v: 1, when, device: 'dev', with: link(personSoul(prefix, 'adam')),
+        conv: link(souls.mine('conv/c9')), text: 'old hello', re: link(souls.event(senderEventId)),
+      });
+      await addToIndex(store as NodeStore, souls.index('day'), { key: msgId, target: souls.event(msgId), when }, 'hour');
+      await addToIndex(store as NodeStore, souls.index('conv/c9'), { key: msgId, target: souls.event(msgId), when }, 'day');
+      await store.put(souls.index('conv-seen/c9'), { [senderEventId]: link(souls.event(msgId)) });
+      // Volume so the trim has something to remove past the message.
+      await graph.talks.create(squash('Trim volume'));
+      await graph.talks.setState((await readIndex(store as NodeStore, souls.index('mine-talks')))[0]!.key, { active: false });
+    });
+
+    const before = await usage();
+    const limit = Math.floor(before / 0.92);
+    const result = await trim(limit);
+    expect(result.events).toBeGreaterThan(0);
+
+    // The message event is trimmed and its conversation entry is gone…
+    expect((await store.get(souls.event(msgId)))!.text).toBeNull();
+    expect(await readIndex(store as NodeStore, souls.index('conv/c9'))).toEqual([]);
+    // …but the dedupe marker KEEPS its link: a re-delivered copy still reads as seen.
+    const marker = await store.get(souls.index('conv-seen/c9'));
+    expect(linkSoul(marker![senderEventId])).toBe(souls.event(msgId));
   });
 
   it('reports blockedByOwedLogs when an owed peer\'s log is unreadable ciphertext (the production shape)', async () => {

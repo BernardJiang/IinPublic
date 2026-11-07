@@ -72,10 +72,14 @@ export function serialized<T>(store: NodeStore, fn: () => Promise<T>): Promise<T
  * A corrupt head (non-finite or non-integer seq) throws rather than minting a bad event on top.
  * Crash window: a crash between the event put and the head put leaves the head one behind; that
  * is DETECTED by verifyChain ('gap'/'head'), not prevented.
- * `opts.ownBy` asserts the event's `by` is THIS device (my chat message, OPEN-110: the sender's
- * original carries `by` per §31.5 yet is written and chained here, never copied from a peer).
+ * `opts.ownBy` is the expected soul of the event's `by` link (MY person), required to chain an
+ * event that carries `by` (my chat message, OPEN-110: the sender's original carries `by` per
+ * §31.5 yet is written and chained here, never copied from a peer). A mismatch throws — a caller
+ * can never chain another author's record as mine, even by mistake.
  */
-export async function chainAndPut(store: NodeStore, souls: Souls, signer: EventChainSigner, event: GraphNode, put: (chained: GraphNode) => Promise<void>, opts?: { ownBy?: boolean }): Promise<void> {
+export async function chainAndPut(store: NodeStore, souls: Souls, signer: EventChainSigner, event: GraphNode, put: (chained: GraphNode) => Promise<void>, opts?: { ownBy?: string }): Promise<void> {
+  if (opts?.ownBy !== undefined && linkSoul(event.by) !== opts.ownBy)
+    throw new Error("ownBy: the event's `by` is not the asserted device");
   if (typeof event.seq === 'number' || (linkSoul(event.by) && !opts?.ownBy)) { await put(event); return; }
   await serialized(store, async () => {
     const head = await store.get(chainHeadSoul(souls));

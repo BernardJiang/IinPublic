@@ -35,7 +35,7 @@ import { builtInValues, graphSouls, questionKeysOf, readTalkStructure, typedInde
 type Souls = ReturnType<typeof graphSouls>;
 
 /** Store an event and list it under its day. With `chain` set, chain it first (REQ-GRAPH-40). */
-export async function putEvent(store: NodeStore, souls: Souls, eventId: string, event: GraphNode, chain?: EventChainSigner, opts?: { ownBy?: boolean }): Promise<void> {
+export async function putEvent(store: NodeStore, souls: Souls, eventId: string, event: GraphNode, chain?: EventChainSigner, opts?: { ownBy?: string }): Promise<void> {
   const put = async (chained: GraphNode) => {
     await Promise.all([
       store.put(souls.event(eventId), chained),

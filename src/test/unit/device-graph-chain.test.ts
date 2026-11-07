@@ -7,7 +7,8 @@
 
 import { randomBytes } from 'crypto';
 import SEA from 'gun/sea';
-import { chainHeadSoul, checkpointIndexSoul, checkpointSoul, eventHash, verifyChain, writeCheckpoint } from '../../core/device-graph/chain';
+import { chainAndPut, chainHeadSoul, checkpointIndexSoul, checkpointSoul, eventHash, verifyChain, writeCheckpoint } from '../../core/device-graph/chain';
+import { personSoul } from '../../core/device-graph/people-graph';
 import { createDeviceGraph, type DeviceGraph } from '../../core/device-graph/device-graph';
 import { putEvent, rebuildIndexes } from '../../core/device-graph/events';
 import { readIndex } from '../../core/device-graph/index-buckets';
@@ -330,6 +331,20 @@ describe('signed chain checkpoints (REQ-GRAPH-46, OPEN-109 slice 1)', () => {
     await store.put(checkpointSoul(souls, 1), Object.fromEntries(
       Object.keys((await store.get(checkpointSoul(souls, 1)))!).map((k) => [k, null])));
     expect(await verify()).toMatchObject({ ok: false, firstBadSeq: 1, reason: 'cp' });
+  });
+
+  it("ownBy refuses to chain an event whose `by` is not the asserted device", async () => {
+    const { store, souls, signer } = await setup();
+    await expect(chainAndPut(store as NodeStore, souls, signer,
+      { v: 1, when: Date.now(), by: link(personSoul('local/', 'mallory')) },
+      async () => {}, { ownBy: personSoul('local/', 'me') })).rejects.toThrow('ownBy');
+    // The matching soul chains fine (the sendMessage shape).
+    let written: GraphNode | undefined;
+    await chainAndPut(store as NodeStore, souls, signer,
+      { v: 1, when: Date.now(), by: link(personSoul('local/', 'me')) },
+      async (chained) => { written = chained; }, { ownBy: personSoul('local/', 'me') });
+    expect(written?.seq).toBe(0);
+    expect(typeof written?.sig).toBe('string');
   });
 
   it('fails with reason cp when the still-stored anchor event no longer matches the checkpoint', async () => {

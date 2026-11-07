@@ -31,8 +31,20 @@ import { addToIndex } from '../index-buckets';
 import { gunNodeStore, link, linkSoul, type GraphNode, type NodeStore } from '../node-store';
 import { GRAPH_SCHEMA_VERSION, graphSouls, talkStructureKey, talkStructureOf, type StructureQuestion, type TalkStructure } from '../talk-structure';
 import { personIdOf, personSoul, personWrites } from '../people-graph';
+import { parseEventId } from '../event-id';
 import { createGraphAudience } from './audience';
 import { LOG_BLOCK, graphWireSouls, pairTagOf } from './wire-names';
+
+/** A chat message body is small and well-formed: bounded text, a sane conv id, a real event id. */
+export const MESSAGE_TEXT_MAX = 4000;
+export const MESSAGE_CONV_MAX = 200;
+const validMessage = (message: { conv?: unknown; text?: unknown; eventId?: unknown }): message is { conv: string; text: string; eventId: string; re?: string } =>
+  typeof message.conv === 'string' && message.conv.length > 0 && message.conv.length <= MESSAGE_CONV_MAX && !message.conv.includes('/')
+  && typeof message.text === 'string' && message.text.length <= MESSAGE_TEXT_MAX
+  && (message.eventId === undefined || (typeof message.eventId === 'string' && parseEventId(message.eventId) != null));
+
+/** Conversation state-node soul; conv ids are URL-encoded everywhere (state, indexes, markers). */
+const convSoulOf = (souls: ReturnType<typeof graphSouls>, conv: string): string => souls.mine(`conv/${encodeURIComponent(conv)}`);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -348,11 +360,19 @@ export function createGraphSync(options: {
    */
   async function receiveMessage(fromUserId: string, keys: PeerKeys, message: { conv: string; text: string; eventId: string; re?: string }): Promise<void> {
     if (!options.ids) { options.log?.(`[graph-sync] message from ${fromUserId} without an event id source installed`); return; }
+    if (!validMessage(message)) { options.log?.(`[graph-sync] invalid message from ${fromUserId} dropped`); return; }
     const ids = options.ids;
-    const convSoul = souls.mine(`conv/${message.conv}`);
+    const convSoul = convSoulOf(souls, message.conv);
     const seenSoul = souls.index(`conv-seen/${encodeURIComponent(message.conv)}`);
     const seen = message.eventId ? linkSoul((await store.get(seenSoul))?.[message.eventId]) : undefined;
     if (seen) return; // applied already
+    const conv = await store.get(convSoul);
+    // A conv id is sender-chosen: one colliding with a conversation I have with someone ELSE is
+    // an injection attempt (or an accident) — never merge a stranger's messages into it.
+    if (conv && personIdOf(prefix, linkSoul(conv.with)) !== fromUserId) {
+      options.log?.(`[graph-sync] message from ${fromUserId} names a conversation that is not theirs — dropped`);
+      return;
+    }
     const when = now();
     const eventId = await ids.next(when);
     const event: GraphNode = {
@@ -360,15 +380,12 @@ export function createGraphSync(options: {
       with: link(personSoul(prefix, fromUserId)), conv: link(convSoul), text: message.text,
     };
     if (message.eventId) event.re = link(souls.event(message.eventId));
-    const [people, conv] = await Promise.all([
-      personWrites(store, prefix, [{ userId: fromUserId, pub: keys.pub }], when),
-      store.get(convSoul),
-    ]);
+    const people = await personWrites(store, prefix, [{ userId: fromUserId, pub: keys.pub }], when);
     await Promise.all([
       ...people.map(([soul, node]) => store.put(soul, node)),
       putEvent(store, souls, eventId, event, options.chain),
       ...(conv ? [] : [store.put(convSoul, { with: link(personSoul(prefix, fromUserId)), startedAt: when })]),
-      addToIndex(store, souls.index(`conv/${message.conv}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
+      addToIndex(store, souls.index(`conv/${encodeURIComponent(message.conv)}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
       store.put(souls.index('convs'), { [message.conv]: when }),
       ...(message.eventId ? [store.put(seenSoul, { [message.eventId]: link(souls.event(eventId)) })] : []),
     ]);
@@ -667,11 +684,12 @@ export function createGraphSync(options: {
      */
     async sendMessage(peerUserId: string, conv: string, text: string, re?: string): Promise<{ eventId: string }> {
       if (!options.ids) throw new Error('no event id source installed');
+      if (!validMessage({ conv, text })) throw new Error('invalid message (conv id or text out of bounds)');
       const ids = options.ids;
       await pairWith(peerUserId); // the link (keys + pair secret) must exist, as sendAnswer requires
       const when = now();
       const eventId = await ids.next(when);
-      const convSoul = souls.mine(`conv/${conv}`);
+      const convSoul = convSoulOf(souls, conv);
       const event: GraphNode = {
         v: GRAPH_SCHEMA_VERSION, when, device: await ids.deviceId(),
         by: link(personSoul(prefix, me.userId)), with: link(personSoul(prefix, peerUserId)),
@@ -684,9 +702,9 @@ export function createGraphSync(options: {
       ]);
       await Promise.all([
         ...people.map(([soul, node]) => store.put(soul, node)),
-        putEvent(store, souls, eventId, event, options.chain, { ownBy: true }),
+        putEvent(store, souls, eventId, event, options.chain, { ownBy: personSoul(prefix, me.userId) }),
         ...(known ? [] : [store.put(convSoul, { with: link(personSoul(prefix, peerUserId)), startedAt: when })]),
-        addToIndex(store, souls.index(`conv/${conv}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
+        addToIndex(store, souls.index(`conv/${encodeURIComponent(conv)}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
         store.put(souls.index('convs'), { [conv]: when }),
       ]);
       await append(peerUserId, { message: { conv, text, eventId, ...(re ? { re } : {}) } });

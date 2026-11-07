@@ -262,6 +262,31 @@ describe('chat messages as chained graph events', () => {
     expect(chain.ok).toBe(true);
   });
 
+  it('a message naming someone else\'s conversation is dropped, never merged', async () => {
+    const [adam, eve] = [await device('adam-m6'), await device('eve-m6')];
+    void pump();
+    await Promise.all([adam.sync.open('eve-m6'), eve.sync.open('adam-m6')]);
+
+    // Eve already has a conversation 'shared-id' — with MALLORY, not Adam.
+    await eve.store.put(souls.mine('conv/shared-id'), {
+      with: { '#': personSoul('local/', 'mallory') }, startedAt: Date.now(),
+    });
+    await adam.sync.sendMessage('eve-m6', 'shared-id', 'inject me into their chat');
+    // The entry is acked (the pipe keeps flowing) but Eve never writes an event for it.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(await convEntries(eve, 'shared-id')).toEqual([]);
+    // Her conversation still belongs to Mallory.
+    expect(linkSoul((await eve.store.get(souls.mine('conv/shared-id')))!.with)).toBe(personSoul('local/', 'mallory'));
+  });
+
+  it('rejects out-of-bounds messages on send', async () => {
+    const adam = await device('adam-m7');
+    void pump();
+    await expect(adam.sync.sendMessage('eve-m7', 'c', 'x'.repeat(4001))).rejects.toThrow('invalid message');
+    await expect(adam.sync.sendMessage('eve-m7', 'has/slash', 'hi')).rejects.toThrow('invalid message');
+    await expect(adam.sync.sendMessage('eve-m7', '', 'hi')).rejects.toThrow('invalid message');
+  });
+
   it('the graph.sendMessage host request sends a message', async () => {
     const hostDevice = async (userId: string) => {
       const pair = (await (SEA as any).pair()) as SeaPair;
