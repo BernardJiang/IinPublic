@@ -62,12 +62,20 @@ its ID.
   content are a git-like DAG and each pair log is numbered, hash-linked and signed, but my own events
   are not chained or signed, the receiver's acknowledgement is an unsigned `read: { n }`, the two
   sides of an exchange are not linked by hash, and answers and Talk versions carry no `where`.
-  - [ ] Device chain: `seq`, `prev`, `sig` on every event I write; `ix/head`; canonical hashing
+  - [x] Device chain: `seq`, `prev`, `sig` on every event I write; `ix/head`; canonical hashing
     shared with the pair log (`keys.ts` `canonicalJson`); unit tests for order, tamper and a gap.
-  - [ ] Verification in the index rebuild: `chainBreaks` and the first bad `seq` in the graph
+    Done 2026-11-06 (`99149fcf`): `device-graph/chain.ts` + 9 tests; other-authored (`by`) records
+    and pre-sequenced events from my other devices never consume my seq.
+  - [x] Verification in the index rebuild: `chainBreaks` and the first bad `seq` in the graph
     status; never rewritten. A phone and a browser verify the same chain (no ICU-only code, see the
     2026-11-05 grammar-filter bug).
-  - [ ] `where` (blurred cell) on my answers and Talk versions; `mode` / `link` everywhere they are known.
+    Done 2026-11-06 (`944b0ad3`): `rebuildIndexes({ chain })` returns the verification (fromDay
+    rejected); `graph.status.chain` reports `chainBreaks`/`firstBadSeq`; deliberate full walk per
+    status call (a head-keyed cache would hide tampering — OPEN-109 checkpoints are the cost bound).
+  - [x] `where` (blurred cell) on my answers and Talk versions; `mode` / `link` everywhere they are known.
+    Done 2026-11-06 (`1bef6767`): locator hook stamps all my events (Talk create/edit/delete, my
+    answers/deletions) with the blurred cell + private gps sidecar, signed by the chain.
+    Remaining: wire a live locator into the web worker host (page-provided fix → worker).
   - [ ] Signed acknowledgement `ack: { n, hash, when, sig }` in the pair head; the sender keeps
     acknowledgements (`ix/ack/<peer>`); `reEntry` on answer entries; the arrival event keeps the
     sender's entry `{ n, hash, when }`. Shared time = both signed times; skew over 10 min shown.
