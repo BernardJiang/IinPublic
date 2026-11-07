@@ -112,6 +112,10 @@ its ID.
   Place visits (hub cards and Place records), the Talks tab's `myTalks`, and Contacts'
   `myConversations`, `dealTalkByConversation` and `needKeyByConversation`.
   - [ ] Chat messages as events (`conv`, `text`), in the pair log, with the DM transport as notify.
+    **Graph-core half done 2026-11-06** (`0f4fe730`): `sendMessage` writes + exchanges chained
+    message events, receiver's private copy, `ix/conv` + `ix/convs` indexes, `graph.sendMessage`
+    request; two latent Gun-store chain bugs fixed en route. Remaining: the DM view reads the log
+    and the old Gun message store is demoted to notify, then removed.
   - [ ] Nearby encounters and Place visits as events (`with`, `place`, `where`).
   - [ ] Talks tab from the graph indexes; `myTalks` reduced to device-local display state, then removed.
   - [ ] Contacts from people, exchanges and conversation events; the deal and key maps as events or
