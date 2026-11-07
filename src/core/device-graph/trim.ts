@@ -19,6 +19,11 @@
  * `cp/`, `ix/cp`, `ix/head`, pair-log blocks/heads/state, `person/`, `contact/` and settings are
  * never touched.
  *
+ * Concurrency: everything after the checkpoint runs under the store's `serialized` lock
+ * (chain.ts), so a chain write (a new answer, a new Talk version) queues behind the whole trim
+ * instead of landing between the keep-set snapshot and the removals — a mid-trim write could
+ * otherwise point a live index (e.g. ix/ctx) at an event already scheduled for removal.
+ *
  * Enumeration: a NodeStore reads by exact soul only, so two scans need a soul listing. With
  * `options.allSouls` given (the memory store's `souls()`, or the host listing Gun's graph keys)
  * the chatbot memories and the pair log are read exactly. Without it: chatbot-kept events are
@@ -27,7 +32,7 @@
  */
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
 import { answerExtrasSoul, answerQuestionsSoul, rebuildIndexes } from './events';
-import { chainHeadSoul, checkpointIndexSoul, writeCheckpoint, type ChainCheckpoint, type EventChainSigner } from './chain';
+import { chainHeadSoul, checkpointIndexSoul, serialized, writeCheckpoint, type ChainCheckpoint, type EventChainSigner } from './chain';
 import { bucketOf, readIndex, removeFromIndex } from './index-buckets';
 import { isNearbyEventShape } from './nearby-events';
 import { parseEventId } from './event-id';
@@ -65,6 +70,12 @@ export type TrimResult = {
   content: number;
   /** True when usage ended under 80% of the limit (or never reached 90%). */
   done: boolean;
+  /**
+   * True when an owed peer's unreadable (SEA ciphertext) log entries forced the keep-everything
+   * fallback: trimming is effectively DISABLED until those entries are acknowledged. Reported
+   * distinctly from `done: false` so a permanently blocked trim is diagnosable.
+   */
+  blockedByOwedLogs?: boolean;
 };
 
 const noop: TrimResult = { days: [], events: 0, content: 0, done: true };
@@ -108,15 +119,25 @@ export async function trimHistory(
     if (event) loaded.push({ id: entry.key, day: entry.bucket.slice(0, 10), bucket: entry.bucket, event });
   }
 
-  // REQ-GRAPH-46: a signed checkpoint at the current head BEFORE anything is removed.
+  // REQ-GRAPH-46: a signed checkpoint at the current head BEFORE anything is removed. A
+  // checkpoint landing between the pre-check and the write just means we are covered already.
   let checkpoint: ChainCheckpoint | undefined;
   const [head, cpIndex] = await Promise.all([store.get(chainHeadSoul(souls)), store.get(checkpointIndexSoul(souls))]);
   if (head != null && Number.isSafeInteger(Number(head.seq)) && Number(head.seq) >= 0 && Number(cpIndex?.seq) !== Number(head.seq)) {
-    checkpoint = await writeCheckpoint(store, souls, signer, {
-      now,
-      counts: { events: loaded.length, days: new Set(loaded.map((entry) => entry.day)).size },
-    });
+    try {
+      checkpoint = await writeCheckpoint(store, souls, signer, {
+        now,
+        counts: { events: loaded.length, days: new Set(loaded.map((entry) => entry.day)).size },
+      });
+    } catch (error) {
+      if (!(error instanceof Error && error.message === 'checkpoint already at head')) throw error;
+    }
   }
+
+  // Everything below holds the store lock: a chain write queues behind the trim instead of
+  // landing between the keep-set snapshot and the removals (see the header note).
+  return serialized(store, async () => {
+  let blockedByOwedLogs = false;
 
   // ---- KEEP sets, built before anything is removed ------------------------------------------
   const keepEvents = new Set<string>();
@@ -169,6 +190,7 @@ export async function trimHistory(
   if (needBodies) {
     if (!allSouls) {
       // The log's souls cannot be named without the pair tags: keep everything, trim nothing.
+      blockedByOwedLogs = true;
       for (const { id } of loaded) keepEvents.add(id);
     } else {
       // My log blocks, whoever the pair is with; entries from a modern peer are SEA ciphertext,
@@ -181,6 +203,9 @@ export async function trimHistory(
           let entry: { body?: unknown } | undefined;
           try { entry = JSON.parse(value) as { body?: unknown }; } catch { entry = undefined; }
           if (!entry || typeof entry.body !== 'object' || !entry.body) {
+            // Production entries are SEA ciphertext: an owed peer we cannot read keeps
+            // everything — safe, but it disables trimming until the peer acks (reported).
+            blockedByOwedLogs = true;
             for (const { id } of loaded) keepEvents.add(id);
             break;
           }
@@ -347,7 +372,10 @@ export async function trimHistory(
     if (allSouls) {
       const removedSouls = new Set([...removedIds].map((id) => souls.event(id)));
       const heads = [souls.index(''), souls.mine('')];
+      const chainState = new Set([chainHeadSoul(souls), checkpointIndexSoul(souls)]);
       for (const soul of allSouls.filter((s) => heads.some((head) => s.startsWith(head)))) {
+        // Chain state and signed acks are never swept (today they hold no links — keep it structural).
+        if (chainState.has(soul) || soul.startsWith(souls.index('ack/'))) continue;
         const node = await store.get(soul);
         const nulls: GraphNode = {};
         for (const [key, value] of Object.entries(node || {})) {
@@ -368,5 +396,7 @@ export async function trimHistory(
     events: removedIds.size,
     content: contentCleared,
     done,
+    ...(blockedByOwedLogs ? { blockedByOwedLogs: true } : {}),
   };
+  });
 }

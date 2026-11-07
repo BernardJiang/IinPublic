@@ -238,4 +238,28 @@ describe('trim old history (REQ-GRAPH-47)', () => {
     expect(second.events).toBe(0);
     expect(second.content).toBe(0);
   });
+
+  it('reports blockedByOwedLogs when an owed peer\'s log is unreadable ciphertext (the production shape)', async () => {
+    const { store, graph, souls, usage, at, trim } = await setup();
+    // An old, otherwise-removable Talk…
+    const old = await at(39, () => graph.talks.create(tennis('Old talk')));
+    await graph.talks.setState(old, { active: false });
+    // …and an owed peer whose log entries are SEA ciphertext (production shape): the keep-all
+    // fallback fires and the result SAYS trimming is blocked, instead of a silent done:false.
+    const prefix = graph.prefix;
+    await store.put(`${prefix}sync/out/${encodeURIComponent('carol')}`, { n: 0, hash: 'h0' });
+    await store.put(`${prefix}sync/owed`, { carol: 0 });
+    await store.put(`g/${'c'.repeat(32)}/p/${'d'.repeat(32)}/log/0`, { '0': 'SEA{"ct":"aXk9…","iv":"…","s":"…"}' });
+
+    const before = await usage();
+    const limit = Math.floor(before / 0.92);
+    const result = await trim(limit);
+    expect(result.blockedByOwedLogs).toBe(true);
+    expect(result.done).toBe(false);
+    expect(result.days).toEqual([]);
+    expect(result.events).toBe(0);
+    // Nothing was removed: the old Talk still reads, chain intact.
+    expect(await graph.talks.read(old)).toBeDefined();
+    expect(linkSoul((await store.get(souls.event(old)))?.rev)).toBeDefined();
+  });
 });
