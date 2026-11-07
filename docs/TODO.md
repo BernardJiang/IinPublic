@@ -76,9 +76,11 @@ its ID.
     Done 2026-11-06 (`1bef6767`): locator hook stamps all my events (Talk create/edit/delete, my
     answers/deletions) with the blurred cell + private gps sidecar, signed by the chain.
     Remaining: wire a live locator into the web worker host (page-provided fix → worker).
-  - [ ] Signed acknowledgement `ack: { n, hash, when, sig }` in the pair head; the sender keeps
+  - [x] Signed acknowledgement `ack: { n, hash, when, sig }` in the pair head; the sender keeps
     acknowledgements (`ix/ack/<peer>`); `reEntry` on answer entries; the arrival event keeps the
     sender's entry `{ n, hash, when }`. Shared time = both signed times; skew over 10 min shown.
+    Done 2026-11-06 (`5fa208ae`): legacy `read` still written/cleared for old peers; skew exposed
+    at `status(peer).lastAck.skewMs` — GUI skew display lands with the E2E slice.
   - [ ] Redaction: erase a deleted record's content on request, keep its event and hash.
   - [ ] E2e: two people exchange, each side proves the other's signed entry and acknowledgement;
     a tampered local event is reported after restart (web, phone path, real phones).
