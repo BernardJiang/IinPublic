@@ -1,7 +1,6 @@
 # 96-dating-multi-gender-match
 
-covers: §DD (reshaped Dating template — `buildDatingTemplate`, talk-templates.ts; the fan-out
-veto extension in `evaluateRouteFanOutMatch`, talk-engine.ts)
+covers: SPEC-30.5, SPEC-30.6
 
 Real cross-browser proof of docs/TODO.md §DD's multi-value gender preference matching, built
 this session as several independent Pair-tag branches fanning out (parallel, threshold 1 — any

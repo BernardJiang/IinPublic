@@ -1,5 +1,7 @@
 # Tag similarity scoring
 
+covers: SPEC-22.5
+
 This application-level E2E check builds Adam, Eve, Bob, and Alice with controlled tag sets and
 calls the same `FindSimilarIndex` used by the app. It verifies that both binary Jaccard and cosine
 similarity rank Eve above Bob above Alice, and covers identity, disjoint, empty, containment,

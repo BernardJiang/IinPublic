@@ -122,9 +122,12 @@ its ID.
   unknown: the planned force-stop test was not run before the reboot. Treat as an observation
   unless it recurs with a BLE-using Always mode.
 
-  - [ ] Tag/highlight remaining high-value untagged specs (next: stage1/stage2 navigation and
-    matching journeys) so
-    matrix traceability improves without broad one-shot churn.
+  - [ ] Tag/highlight remaining high-value untagged specs so matrix traceability improves
+    without broad one-shot churn. **2026-11-07 batch done:** all 27 stage1/stage2 navigation
+    and matching specs now carry `covers:` SPEC anchors (16 companion `.md` files created,
+    11 existing ones re-anchored; no spec changes); matrix untagged count dropped 62 → 42.
+    Next candidates: stage1 TechSupport flow (02–10, 78–79, 91), stage3–5 journeys,
+    native-app and mass leftovers — run `node scripts/coverage-matrix.mjs` for the live list.
 
 - [ ] **OPEN-92 — Message Send and navigation responsiveness on Android (reported
   2026-10-29).** Earlier freezes were fixed in `bd7427e8`, `2846414a` and 1.0.202/1.0.203. On

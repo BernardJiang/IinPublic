@@ -1,6 +1,6 @@
 # Test: Reciprocal Buy/Sell Matching with Overlapping Price Ranges
 
-covers: docs/TODO.md §BB ("price overlap" + "real cross-browser route matching")
+covers: SPEC-30.2, SPEC-30.3
 
 **File:** 87-price-overlap-buy-sell-match.spec.ts
 **Features tested:** `Talk.selfTag`/`preferenceSet` (spec §30.2, replaces the earlier

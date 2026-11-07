@@ -1,8 +1,6 @@
 # 94-dating-agerange-match
 
-covers: §DD (`ageRangeMutuallyAcceptable`, `built-in-comparisons.ts`; `ageRange` as a real
-`BuiltInQuestionKind`, wired into `resolveBuiltInQuestion`/`typed-preference-store.ts`/the talk
-editor's builtIn fields)
+covers: SPEC-30.3, SPEC-30.6
 
 The Dating template introduces a genuinely new comparator — `ageRange` — distinct from the
 already-proven `priceRange`/`timeFrame` interval-overlap: each side declares a single fact (their

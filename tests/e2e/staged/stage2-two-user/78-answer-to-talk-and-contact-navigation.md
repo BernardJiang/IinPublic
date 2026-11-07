@@ -1,5 +1,7 @@
 # 78-answer-to-talk-and-contact-navigation
 
+covers: SPEC-13.7, SPEC-26.2
+
 Extends the Contacts/Talks cross-navigation pattern to the Me tab's Answers list.
 
 docs/TODO.md §LL.2 follow-up: the Me tab dropped its expand-in-place detail popup entirely —

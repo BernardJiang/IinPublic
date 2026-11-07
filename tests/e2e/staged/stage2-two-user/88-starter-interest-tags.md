@@ -1,6 +1,6 @@
 # Test: Starter interest tags
 
-covers: OPEN-87 (docs/design/actionable-first-run-starter-talks.md)
+covers: SPEC-3.5, SPEC-12.4
 
 **File:** `88-starter-interest-tags.spec.ts`
 

@@ -1,6 +1,6 @@
 # Test: Copy Then Edit Transfers Authorship
 
-covers: docs/TODO.md §Y1 — a copy is not authorship; only a real content edit transfers credit.
+covers: SPEC-3.6, SPEC-6.4
 
 **File:** 82-copy-then-edit-transfers-authorship.spec.ts
 

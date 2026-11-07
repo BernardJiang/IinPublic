@@ -1,6 +1,6 @@
 # 95-builtin-ask-user-fallback
 
-covers: §BB (`resolveBuiltInQuestion`'s `ASK_USER` fallback, `built-in-question-resolution.ts`)
+covers: SPEC-30.3, SPEC-30.4
 
 Closes docs/TODO.md §BB's last open bullet: "Add E2E cases for location outside either radius and
 missing preference falling to the human inbox." Prior builtin specs (86, 87, 94) only ever

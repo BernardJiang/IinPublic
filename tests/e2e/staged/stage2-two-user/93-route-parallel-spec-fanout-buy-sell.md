@@ -1,8 +1,6 @@
 # 93-route-parallel-spec-fanout-buy-sell
 
-covers: `Answer.nextQuestionIds`/`parallelMatchThreshold` (types.ts), `evaluateRouteFanOutMatch`
-(talk-engine.ts), Pair-tag (`reciprocalTagContext`) + Simple-tag (`tagKind: 'simple'`) route
-questions together in one talk.
+covers: SPEC-30.2, SPEC-30.5
 
 A real "buy stuff" talk authored by hand through the Talk Editor's route (DAG) tree: root
 question "buy" is a Pair tag (accepts "sell"), chaining into "iPhone" — a Simple tag

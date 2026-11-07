@@ -1,5 +1,7 @@
 # Buy/sell talks match each other via chatbot cross-talk flattened matching (§KK)
 
+covers: SPEC-30.2, SPEC-12.3
+
 Two independently-authored talks — Adam's "Buy iPhone" and Eve's "Sell iPhone" — match each
 other with zero manual clicking. Neither ever answers the other's talk by hand. Each side's
 chatbot resolves the incoming talk entirely from its own flattened Q&A store: Adam declared

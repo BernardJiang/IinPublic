@@ -1,5 +1,7 @@
 # Asymmetric exact match + IPFS photo auto-share + mutual deal confirmation (§30.2)
 
+covers: SPEC-30.2
+
 Eve is selling an iPhone and wants to describe it fully — color, condition, storage — for buyers
 who care about the specifics, so she authors a detailed matchThreshold route talk (the same shape
 `80-route-multi-spec-match-percent.spec.ts` covers). But Adam just wants "an iPhone, any
