@@ -96,14 +96,15 @@ its ID.
     verification starts from the newest.
     Done 2026-11-06 (`0028493d`): `writeCheckpoint` + `prevCp` chain; `verifyChain` scopes from
     `ix/cp` (reason `cp` on checkpoint tamper); `graph.status.chain.fromSeq`.
-  - [ ] Trimming from 90% down to 80%: whole days, oldest first; their events, index entries that
+  - [x] Trimming from 90% down to 80%: whole days, oldest first; their events, index entries that
     point only to them, unreferenced content. Kept: the last 30 days, my active Talks, anything an
     open conversation, a confirmed deal or an unacknowledged log entry points to, the chatbot's
     remembered answers.
+    Done 2026-11-06 (`5c951863`): `trimHistory`; fail-closed on unreadable owed logs; rebuild after.
   - [ ] Pair logs trimmed only below the other person's signed acknowledgement, with a checkpoint
     entry they can verify.
-  - [ ] Tests: a store filled past 90% trims to 80% and still verifies; nothing kept above is lost;
-    the indexes rebuild from what remains.
+  - [x] Tests: a store filled past 90% trims to 80% and still verifies; nothing kept above is lost;
+    the indexes rebuild from what remains. Covered by `device-graph-trim.test.ts` (`5c951863`).
 
 - [ ] **OPEN-110 — All four tabs read the one log (spec §31.13 REQ-GRAPH-49, §31.12 #16).** Me already
   reads the graph. Still outside it: chat messages (own Gun message store), Nearby encounters and
