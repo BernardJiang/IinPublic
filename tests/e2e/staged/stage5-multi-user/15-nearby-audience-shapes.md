@@ -1,5 +1,7 @@
 # 15 — Nearby audience shapes at C = 3 (OPEN-86 E5)
 
+covers: SPEC-6.1, SPEC-6.3
+
 Eight browser users arrive one at a time with a page size of three, so the first San Diego user
 passes through every Nearby audience shape from §3.7:
 

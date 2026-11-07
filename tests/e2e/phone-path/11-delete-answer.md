@@ -1,5 +1,5 @@
 # 11 — Delete my answer across phones
-covers: OPEN-106 step 4
+covers: SPEC-7.7, SPEC-3.4
 
 **File:** `tests/e2e/phone-path/11-delete-answer.spec.ts`
 

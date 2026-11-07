@@ -1,5 +1,7 @@
 # stage2/73 — Mutual direct identity linking
 
+covers: SPEC-31.3, SPEC-7.8
+
 Covers identity architecture WP3 and the accepted v1 `LINK_IDENTITY` semantics.
 
 Two isolated browser installations create independent SEA identities. Device A displays a

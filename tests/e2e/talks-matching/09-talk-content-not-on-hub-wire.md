@@ -1,6 +1,6 @@
 # Test: Wire audit — talk content vs the hub
 
-covers: docs/testing/room-heartbeat-load-test.md (wire-audit finding)
+covers: SPEC-31.9, SPEC-23.5
 
 **File:** 09-talk-content-not-on-hub-wire.spec.ts
 **Features tested:** where talk content travels during a real two-user talk exchange (mesh vs relay/server)

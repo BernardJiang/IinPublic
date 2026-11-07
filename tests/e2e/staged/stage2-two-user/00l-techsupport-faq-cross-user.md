@@ -1,6 +1,6 @@
 # Test: A Different User Gets an Already-Answered Question Auto-Answered
 
-covers: docs/TODO.md K5 Item 6 (stage2 cross-user auto-answer)
+covers: SPEC-29.8, SPEC-19.7
 
 **File:** 00l-techsupport-faq-cross-user.spec.ts
 **Features tested:** the FAQ is genuinely global — once TechSupport answers a question for

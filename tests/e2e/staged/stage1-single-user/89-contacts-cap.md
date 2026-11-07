@@ -1,6 +1,6 @@
 # Test: Contacts cap
 
-covers: OPEN-87 S5
+covers: SPEC-7.9, SPEC-28
 
 **File:** `89-contacts-cap.spec.ts`
 

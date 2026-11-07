@@ -1,6 +1,6 @@
 # Test: Four tabs as graph views
 
-covers: OPEN-94 contextual graph traversal
+covers: SPEC-13.1, SPEC-26.2
 
 **File:** `95-four-tab-graph.spec.ts`
 

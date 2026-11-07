@@ -1,6 +1,6 @@
 # stage2/74 — Device handoff transfer (§J)
 
-covers: docs/TODO.md item J, spec §11.2/§11.3
+covers: SPEC-11.2, SPEC-11.3
 
 Two isolated browser installations first establish a real mutual `LINK_IDENTITY` link,
 exactly like `stage2-two-user/73-identity-link-mutual.spec.ts`. Device A then seeds one

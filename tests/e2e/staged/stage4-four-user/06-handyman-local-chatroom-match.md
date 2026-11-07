@@ -1,6 +1,6 @@
 # Test: Handyman ↔ Customer Matching in a Local Chatroom with Detailed Criteria
 
-covers: docs/TODO.md §HH
+covers: SPEC-30.3, SPEC-6.1
 
 **File:** 06-handyman-local-chatroom-match.spec.ts
 **Features tested:** Two-sided deal roles (`Talk.role`), a real MULTI-CRITERION `builtIn`

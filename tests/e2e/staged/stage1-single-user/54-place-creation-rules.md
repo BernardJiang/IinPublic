@@ -1,5 +1,7 @@
 # 54 — Place creation rules
 
+covers: SPEC-3.3, SPEC-6.1
+
 Covers the Place lifecycle and creation limits in
 `docs/design/nearby-and-place-chatrooms.md` §4.2.
 

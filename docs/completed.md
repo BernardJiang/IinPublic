@@ -2,6 +2,21 @@
 
 Last updated: 2026-11-06
 
+## 2026-11-06 — E2E spec tagging backlog closed (0 untagged)
+
+- Completed the remaining coverage-matrix tagging: all 331 E2E specs now carry a `covers:` line
+  with valid SPEC anchors — 0 untagged, 0 covers lines without resolvable anchors, 0 unknown
+  anchors (verified against the parser's exact token rules and the spec-doc anchor index).
+- Second batch covered the final 71 specs (42 without any covers line, 29 whose covers line held
+  only TODO/OPEN references the parser cannot resolve): TechSupport flow (stage1 02–10/78–79/91,
+  stage2 00l–00o), stage3–5 journeys, mass, native-app, talks-matching and phone-path leftovers.
+  Anchors verified per spec by reading its assertions (SPEC-19.7/29.8 for TechSupport, SPEC-30.x
+  for typed matching, SPEC-6.1/9.2 for nearby, SPEC-31.x for device-graph, etc.).
+- Matrix regenerated: 181 anchors, 331 specs, 0 untagged. Note: `--check` currently fails on
+  SPEC-31.9 vs the baseline because `talks-matching/05-mailbox-offline-response` failed in the
+  2026-11-06 nightly RED run — a real test failure tracked by the RED-streak investigation, not
+  a tagging artifact (proven by stashing the tagging changes and reproducing the same failure).
+
 ## 2026-11-06 — OPEN-107 delegate grant lookup and mailbox ingestion closed
 
 - The TechSupport delegate refresh now distinguishes an HTTP/transport failure from an authoritative

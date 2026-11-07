@@ -1,6 +1,6 @@
 # Test: Taxi Driver ↔ Passenger Matching in a Local Chatroom
 
-covers: docs/TODO.md §GG
+covers: SPEC-30.2, SPEC-6.1
 
 **File:** 05-taxi-local-chatroom-match.spec.ts
 **Features tested:** Two-sided deal roles (`Talk.role: 'offer' | 'request'`), chatbot

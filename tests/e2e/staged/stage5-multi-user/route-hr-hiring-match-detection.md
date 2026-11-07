@@ -1,5 +1,7 @@
 # route-hr-hiring-match-detection
 
+covers: SPEC-3.6, SPEC-30.5
+
 Regression coverage for a sender-side bug: `checkIfMatch`/`checkIfIgnore`
 unconditionally treated `type: 'route'` talks as non-matches, so a route talk's
 sender never registered a match no matter what the receiver answered, even though

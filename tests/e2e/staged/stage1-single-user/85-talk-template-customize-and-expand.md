@@ -1,7 +1,6 @@
 # 85-talk-template-customize-and-expand
 
-covers: more talk-template use cases (`src/web/ui/talk-templates.ts`), template editability —
-customizing pre-filled wording and expanding a template's DAG before saving
+covers: SPEC-13.2, SPEC-30.5
 
 Follow-up to 83-talk-template-picker.spec.ts: adds 4 more everyday-errand templates to the
 picker — 🏠 Roommate Search, 🔍 Lost & Found, 🐾 Pet Sitting, 📚 Study Buddy/Tutoring — alongside

@@ -1,6 +1,6 @@
 # Test: TechSupport Operator Answers a Pending Question From the Support Inbox
 
-covers: docs/TODO.md K5 (design note §Items 4+5)
+covers: SPEC-29.8, SPEC-19.7
 
 **File:** 07-support-inbox-answer-flow.spec.ts
 **Features tested:** the full operator loop — a pending question (delivered via the offline

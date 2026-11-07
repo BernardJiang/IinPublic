@@ -1,6 +1,6 @@
 # 82 — Tag graph tour
 
-covers: OPEN-87
+covers: SPEC-3.5, SPEC-13.6
 
 **File:** `tests/e2e/staged/stage3-three-user/82-tag-graph-tour.spec.ts`
 

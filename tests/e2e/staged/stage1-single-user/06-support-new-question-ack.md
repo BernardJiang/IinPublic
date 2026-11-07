@@ -1,6 +1,6 @@
 # Test: A Brand-New Support Question Renders a Signed Acknowledgement
 
-covers: docs/TODO.md K5 (design note §Item 2, miss path)
+covers: SPEC-29.8, SPEC-19.7
 
 **File:** 06-support-new-question-ack.spec.ts
 **Features tested:** the hit/miss branch that replaced the old blanket "Thanks for the message"

@@ -1,6 +1,6 @@
 # Test: Merkle-Checkpoint Pruning End to End (Ledger + Messages)
 
-covers: docs/design/section-s-merkle-checkpoint-pruning-design-note.md (TODO.md §S, Item 7)
+covers: SPEC-20.2, SPEC-20.4
 
 **File:** 30-ledger-message-pruning-e2e.spec.ts
 **Features tested:** Local encrypted interaction-ledger checkpoint creation + pruning, a lagging peer catching up through direct DataChannel delta-sync after a prune, local message checkpoint creation, hub non-retention, and message history still rendering after heavy activity.

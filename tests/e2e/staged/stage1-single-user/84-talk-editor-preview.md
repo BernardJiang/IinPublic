@@ -1,6 +1,6 @@
 # 84-talk-editor-preview
 
-covers: talk editor usability follow-up — live "what the responder sees" preview
+covers: SPEC-13.2, SPEC-6.4
 
 A new collapsible "👁 Preview: what the responder sees" section (`src/web/ui/talk-editor-preview.ts`)
 sits above the editor's Cancel/Create buttons. It starts collapsed; opening it reads the CURRENT

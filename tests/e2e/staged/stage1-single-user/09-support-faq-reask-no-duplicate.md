@@ -1,6 +1,6 @@
 # Test: A Re-Asked Known Question Is a Hit, Not a Re-Answer
 
-covers: docs/TODO.md K5 Item 6 (offline auto-answer + no duplicate FAQ row)
+covers: SPEC-29.8, SPEC-12.3
 
 **File:** 09-support-faq-reask-no-duplicate.spec.ts
 **Features tested:** two of K5's remaining Item 6 slices, combined into one flow since they share

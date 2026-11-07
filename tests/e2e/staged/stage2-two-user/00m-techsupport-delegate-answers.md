@@ -1,7 +1,6 @@
 # Test: A Delegate Answers a Support Question Without Ever Holding the Master Key
 
-covers: docs/TODO.md K7 (delegated TechSupport answers), design note
-docs/design/techsupport-k7-design-note.md
+covers: SPEC-5.3, SPEC-19.7
 
 **File:** 00m-techsupport-delegate-answers.spec.ts
 **Features tested:** the master TechSupport identity can extend "may answer support questions" to

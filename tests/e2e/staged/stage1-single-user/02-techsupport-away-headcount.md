@@ -1,6 +1,6 @@
 # Test: TechSupport — Contacts-only and Away With No Device Running
 
-covers: docs/TODO.md K1 item 7
+covers: SPEC-19.7, SPEC-3.3
 
 **File:** 02-techsupport-away-headcount.spec.ts
 **Features tested:** Nearby headcount stays 1 with one ordinary user; TechSupport remains a pinned

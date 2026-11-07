@@ -1,5 +1,7 @@
 # 05b — Edited talk is answered fully automatically
 
+covers: SPEC-7.6, SPEC-20.5
+
 Two users: Tom (author) and Jerry (receiver, chatbot on, default "Whenever offered" scope).
 
 ## Flow

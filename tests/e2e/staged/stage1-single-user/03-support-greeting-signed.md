@@ -1,6 +1,6 @@
 # Test: TechSupport — Signed Greeting Renders Once and Verifies
 
-covers: docs/TODO.md K2 items 1, 4, 5
+covers: SPEC-5.3, SPEC-19.7
 
 **File:** 03-support-greeting-signed.spec.ts
 **Features tested:** the pre-signed, per-locale welcome template renders and persists correctly

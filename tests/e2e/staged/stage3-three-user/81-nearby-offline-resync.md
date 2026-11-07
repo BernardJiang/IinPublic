@@ -1,6 +1,6 @@
 # Test: Three People Nearby — Concurrent Talks, One Offline, Catch-up on Return
 
-covers: docs/TODO.md OPEN-59 step 3; journeys J-NEARBY-04, J-NEARBY-05
+covers: SPEC-6.1, SPEC-5.2
 
 **File:** 81-nearby-offline-resync.spec.ts
 **Journey body:** `tests/e2e/journeys/nearby-ring-journey.ts` (shared with `native-app/13`, which

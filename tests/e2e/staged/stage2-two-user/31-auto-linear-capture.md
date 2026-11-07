@@ -1,7 +1,6 @@
 # Test: Auto Linear Capture from DM Shorthand
 
-covers: docs/TODO.md §V (FR-TK-7), full pipeline: parser → mandatory confirmation → chip
-rendering (sender + receiver) → chip-tap quick-reply → terminator → saved Talk.
+covers: SPEC-3.6, SPEC-7.6
 
 **File:** 31-auto-linear-capture.spec.ts
 

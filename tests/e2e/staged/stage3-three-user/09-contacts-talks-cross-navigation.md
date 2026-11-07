@@ -1,5 +1,7 @@
 # 09-contacts-talks-cross-navigation
 
+covers: SPEC-13.1, SPEC-13.6
+
 Covers three previously-missing pieces of the Contacts/Talks relationship, and the
 navigation between them:
 

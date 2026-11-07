@@ -1,6 +1,6 @@
 # Test: TechSupport Ignores Broadcast Talks Entirely
 
-covers: docs/TODO.md K5 invariant 1 ("TechSupport ignores all talks")
+covers: SPEC-19.7, SPEC-29.8
 
 **File:** 10-techsupport-ignores-broadcast-talks.spec.ts
 **Features tested:** the hard, type-agnostic exclusion of the TechSupport root from talk delivery

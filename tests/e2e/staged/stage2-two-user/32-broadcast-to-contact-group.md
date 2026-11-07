@@ -1,7 +1,6 @@
 # Test: Broadcast to a Contact Group
 
-covers: docs/TODO.md §U — group-picker dialog on the Contacts tab, group resolution, and
-delivery via the existing mesh-plus-mailbox broadcast path.
+covers: SPEC-3.7, SPEC-7.9
 
 **File:** 32-broadcast-to-contact-group.spec.ts
 

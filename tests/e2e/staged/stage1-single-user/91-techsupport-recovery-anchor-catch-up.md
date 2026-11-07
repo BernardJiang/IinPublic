@@ -1,5 +1,7 @@
 # 91 — TechSupport recovery anchor: stale-cache catch-up (OPEN-29)
 
+covers: SPEC-19.7, SPEC-5.3
+
 Signs real recovery-anchor records in the test process (key from the cold-storage vault named by
 `TECHSUPPORT_RECOVERY_KEY_FILE` plus `TECHSUPPORT_RECOVERY_KEY_PASSPHRASE_FILE`, or the legacy
 `TECHSUPPORT_RECOVERY_SEA_PAIR_JSON`; the spec skips without either) and checks the browser cache

@@ -1,6 +1,6 @@
 # Test: TechSupport — Tampered Greeting Suppressed, Never Rendered
 
-covers: docs/TODO.md K2 item 6 (decision K2-3)
+covers: SPEC-5.3, SPEC-19.7
 
 **File:** 04-support-greeting-tamper-suppressed.spec.ts
 **Features tested:** a stored greeting record whose text was altered after signing (signature

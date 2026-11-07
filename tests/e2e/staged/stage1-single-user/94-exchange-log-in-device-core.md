@@ -1,5 +1,7 @@
 # 94 — The exchange log in the device core
 
+covers: SPEC-31.5, SPEC-31.9
+
 **File:** `tests/e2e/staged/stage1-single-user/94-exchange-log-in-device-core.spec.ts`
 
 OPEN-91 P1 / OPEN-88 part 2 (`docs/design/device-core-architecture.md`): the exchange log lives

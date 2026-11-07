@@ -1,6 +1,6 @@
 # Test: Concurrent Room Visit Counter
 
-covers: docs/TODO.md L1 (CRDT G-Counter visit metrics)
+covers: SPEC-8.1, SPEC-3.3
 
 **File:** 35-concurrent-visit-counter.spec.ts
 **Features tested:** Place visit / unique-visitor accounting under simultaneous joins. Nearby is

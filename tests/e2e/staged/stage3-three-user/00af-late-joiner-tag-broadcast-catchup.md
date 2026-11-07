@@ -1,5 +1,7 @@
 # Test: Late Joiner Receives an Already-Broadcast Tag Talk (Catch-Up)
 
+covers: SPEC-6.2, SPEC-23.5
+
 **File:** 00af-late-joiner-tag-broadcast-catchup.spec.ts
 **Features tested:** automatic per-receiver catch-up delivery for a chatroom member who joins *after* a broadcast already happened, specifically for `type: 'tag'` talks.
 

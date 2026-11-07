@@ -1,5 +1,7 @@
 # 14 — 20 users: one tag per page in Nearby, a Place and another city
 
+covers: SPEC-6.1, SPEC-3.3
+
 Fourteen users in San Diego and six in Los Angeles, page size C = 3. Every San Diego user sees
 `13 nearby · 20 online`, every Los Angeles user `5 nearby · 20 online`.
 

@@ -1,6 +1,6 @@
 # Test: Stage 0 — Relay-Only Contacts-Only TechSupport, No Browser
 
-covers: docs/TODO.md OPEN-40 TechSupport Contacts-only migration
+covers: SPEC-19.7, SPEC-3.1
 
 **File:** 000-relay-only-techsupport-presence.spec.ts
 **Features tested:** relay boot/reset publishes the signed TechSupport identity while creating no

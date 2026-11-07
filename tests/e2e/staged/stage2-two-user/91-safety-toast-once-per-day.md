@@ -1,6 +1,6 @@
 # 91-safety-toast-once-per-day
 
-covers: SPEC-7.4 (FR-FIN-1), TODO §CC
+covers: SPEC-7.4
 
 Alice broadcasts a talk and Tom answers it to form a match. FR-FIN-1's mandatory
 financial-safety reminder must appear as a toast at most once per day per checkpoint:

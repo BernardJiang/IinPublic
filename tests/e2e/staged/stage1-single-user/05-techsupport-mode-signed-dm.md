@@ -1,6 +1,6 @@
 # Test: TechSupport-Mode Boot Authenticates With the Canonical DM Key
 
-covers: docs/TODO.md K3 item 5
+covers: SPEC-5.3, SPEC-19.7
 
 **File:** 05-techsupport-mode-signed-dm.spec.ts
 **Features tested:** booting the normal web client in TechSupport mode (K3) authenticates with the

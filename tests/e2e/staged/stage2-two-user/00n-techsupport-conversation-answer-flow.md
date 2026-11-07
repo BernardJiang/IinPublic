@@ -1,5 +1,7 @@
 # Test: TechSupport Conversation-UI Answer Flow
 
+covers: SPEC-19.7, SPEC-29.8
+
 **File:** 00n-techsupport-conversation-answer-flow.spec.ts
 **Features tested:** TechSupport operator replying to an ordinary user through the normal DM
 conversation UI (peer click → type → Send), as opposed to the dedicated Support Inbox panel.

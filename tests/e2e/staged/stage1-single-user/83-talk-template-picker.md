@@ -1,8 +1,6 @@
 # 83-talk-template-picker
 
-covers: talk editor usability follow-up, §DD (Dating template's `ageRange` built-in + adult lock),
-progressive disclosure (per-question advanced fields collapsed by default), route editor's
-`ageRange` built-in support (new — the route editor didn't have this kind before)
+covers: SPEC-13.2, SPEC-30.3
 
 Before this, "+ Create Talk" always opened a completely blank editor, with no way to start from
 a working example. "+ Create Talk" itself is unchanged (still opens the blank editor directly —

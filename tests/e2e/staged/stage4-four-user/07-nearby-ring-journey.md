@@ -1,6 +1,6 @@
 # Test: Four People Nearby — Personal Lists and a Talk Ring
 
-covers: docs/TODO.md OPEN-59 step 3; journeys J-NEARBY-01, J-NEARBY-02
+covers: SPEC-6.1, SPEC-9.2
 
 **File:** 07-nearby-ring-journey.spec.ts
 **Journey body:** `tests/e2e/journeys/nearby-ring-journey.ts` (shared with `native-app/30`, which

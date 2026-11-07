@@ -1,5 +1,7 @@
 # 96 — One device core across browser tabs
 
+covers: SPEC-31.3, SPEC-31.9
+
 OPEN-91 P6. The tests use actual worker bundles, Gun and IndexedDB in one browser context/origin.
 
 - Three tabs write different records concurrently, then each reads the complete set.

@@ -1,5 +1,7 @@
 # Route multi-spec matching — order-independent partial match, ranked results (§30.2)
 
+covers: SPEC-30.2, SPEC-30.5
+
 Adam is selling nothing — he's *buying* an iPhone, and wants to describe it with three
 independent specs (color, condition, item) without caring what order a seller happens to
 declare them in, and without requiring a seller to match every single spec to be worth talking

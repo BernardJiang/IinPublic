@@ -1,3 +1,7 @@
+# 06 — Map world operations showcase
+
+covers: SPEC-6.1, SPEC-6.3
+
 1. Start 6 users with deterministic world-spread coordinates and `e2e_capacity=3`; user 01 stays anchored.
 2. Arrange the first 6 headed Chromium windows in a non-overlapping 3x2 grid so they can be watched side-by-side.
 3. Open the Chatrooms map for all users, auto-scale around self, and verify each visible user can see all other 5 users.

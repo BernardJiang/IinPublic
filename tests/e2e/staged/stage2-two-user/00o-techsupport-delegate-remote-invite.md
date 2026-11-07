@@ -1,5 +1,7 @@
 # 00o — TechSupport delegate: remote invite (no code / QR)
 
+covers: SPEC-5.3, SPEC-19.7
+
 A redundant alternative to 00m's invite-code/QR handshake that needs no physical proximity.
 
 1. Dana registers as an ordinary user.
