@@ -37,6 +37,8 @@ export type GraphHostRequest =
   | { name: 'graph.hear'; peerUserId: string; raws: string[] }
   | { name: 'graph.pull'; waitMs?: number }
   | { name: 'graph.status' }
+  /** Trim my pair log with this person below their signed acknowledgement (REQ-GRAPH-48). */
+  | { name: 'graph.trimLog'; peerUserId: string }
   /** `answers[].mode`: the dialog's choice for each answer (`auto`, `manual` = Just once, `whenever`). */
   | { name: 'graph.answer'; talkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string; mode?: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
@@ -189,6 +191,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
         case 'graph.close':
           need().close(request.peerUserId);
           return { ok: true };
+        case 'graph.trimLog':
+          return need().trimLog(request.peerUserId);
         case 'graph.hear':
           for (const raw of request.raws) need().hear(request.peerUserId, raw);
           return { ok: true };

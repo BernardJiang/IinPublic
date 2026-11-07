@@ -367,6 +367,23 @@ export function createGraphSync(options: {
     if (typeof state?.broken === 'string') return false;
     let next = typeof state?.next === 'number' ? state.next : 0;
     let prev = typeof state?.hash === 'string' ? state.hash : '';
+    // A checkpoint the log owner signed after trimming (REQ-GRAPH-48): when I am behind it I can
+    // start from it — nothing below the other person's last acknowledgement is on the wire anymore.
+    const cp = await decryptJson<{ n: number; hash: string; when: number; sig: string }>(headNode?.cp, link.secret);
+    if (cp && typeof cp.n === 'number' && next <= cp.n) {
+      const ok = typeof cp.hash === 'string' && typeof cp.when === 'number' && typeof cp.sig === 'string'
+        && await crypto.verify(cp.sig, canonicalJson({ n: cp.n, hash: cp.hash, when: cp.when }), link.keys.pub).catch(() => false);
+      if (!ok) {
+        const broken = `checkpoint ${cp.n} has a bad signature`;
+        await store.put(stateSoul, { broken });
+        options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
+        return false;
+      }
+      next = cp.n + 1;
+      prev = cp.hash;
+      await store.put(stateSoul, { next, hash: prev });
+      state = { next, hash: prev };
+    }
     try {
       return await readEntries();
     } finally {
@@ -548,6 +565,39 @@ export function createGraphSync(options: {
         await putKeyed(store, sentSoul, { [peerUserId]: talk.versionId });
       }
       return fresh.length;
+    },
+
+    /**
+     * Trim my pair log with this person below their last signed acknowledgement (REQ-GRAPH-48):
+     * entries `n < ackN` go (Gun merge: null deletes), and a signed checkpoint
+     * `cp: { n: ackN - 1, hash, when }` on my head lets a reader behind it start from the boundary.
+     * Nothing they have not acknowledged is removed; without an ack, or with the boundary entry
+     * unreadable, nothing is trimmed. When to trim (e.g. near a storage budget) is a later product
+     * decision — this is the mechanism, triggered by the app or ops (`graph.trimLog`).
+     */
+    async trimLog(peerUserId: string): Promise<{ trimmed: number; checkpointN?: number }> {
+      const ackNode = await store.get(souls.index(`ack/${encodeURIComponent(peerUserId)}`));
+      const ackN = Math.max(-1, ...Object.keys(ackNode ?? {}).filter((k) => k !== '_' && /^\d+$/.test(k)).map(Number));
+      if (ackN < 1) return { trimmed: 0 };
+      const { secret, pairTag } = await pairWith(peerUserId);
+      // The boundary entry is the last trimmed one: its hash is what the checkpoint commits to.
+      const boundaryBlock = await store.get(mine.logBlock(pairTag, Math.floor((ackN - 1) / LOG_BLOCK)));
+      const boundary = await decryptJson<LogEntry>(boundaryBlock?.[String(ackN - 1)], secret);
+      if (!boundary) return { trimmed: 0 };
+      const cp = { n: ackN - 1, hash: entryHash(boundary), when: now() };
+      const sig = await crypto.sign(canonicalJson(cp), me.pair.priv);
+      const blocks = new Map<number, Record<string, null>>();
+      for (let n = 0; n < ackN; n += 1) {
+        const block = Math.floor(n / LOG_BLOCK);
+        const fields = blocks.get(block) ?? {};
+        fields[String(n)] = null;
+        blocks.set(block, fields);
+      }
+      await Promise.all([
+        store.put(mine.head(pairTag), { cp: await encryptJson({ ...cp, sig }, secret) }),
+        ...[...blocks].map(([block, fields]) => store.put(mine.logBlock(pairTag, block), fields)),
+      ]);
+      return { trimmed: ackN, checkpointN: cp.n };
     },
 
     /** Send my answer event to the Talk's author. */
