@@ -391,6 +391,15 @@ export function createGraphSync(options: {
     ]);
   }
 
+  /**
+   * Ask their link for one of their souls now. Gun answers a read from its cache once it holds the
+   * soul, and a push sent while our link was down (reconnecting, or not yet open) is never sent
+   * again: without a fresh ask, an entry their head names stayed unread for good (e2e mass/02).
+   */
+  function askFresh(link: Link, soul: string): void {
+    try { root.opt.mesh.say({ '#': crypto.randomHex(9), get: { '#': soul } }, link.peer); } catch { /* the link is going away */ }
+  }
+
   /** Apply every entry of their log I have not applied, in order, proving the chain. */
   function catchUp(peerUserId: string): Promise<void> {
     const link = links.get(peerUserId);
@@ -411,7 +420,11 @@ export function createGraphSync(options: {
       if (stalled && links.get(peerUserId) === link) {
         // Not waiting for their next write: try again, backing off up to 30 s while the link is up.
         link.retryMs = Math.min(30_000, (link.retryMs ?? 500) * 2);
-        link.retryTimer = setTimeout(() => { link.retryTimer = undefined; void catchUp(peerUserId); }, link.retryMs);
+        link.retryTimer = setTimeout(() => {
+          link.retryTimer = undefined;
+          if (links.get(peerUserId) === link) askFresh(link, graphWireSouls(peerUserId).head(link.pairTag));
+          void catchUp(peerUserId);
+        }, link.retryMs);
         (link.retryTimer as { unref?: () => void }).unref?.();
       } else {
         link.retryMs = undefined;
@@ -465,7 +478,7 @@ export function createGraphSync(options: {
       }
       const block = await remote.get(blockSoul);
       const entry = await decryptJson<LogEntry>(block?.[String(next)], link.secret);
-      if (!entry) return true; // not arrived yet: tried again shortly
+      if (!entry) { askFresh(link, blockSoul); return true; } // not arrived yet: asked again, tried again shortly
       const broken = entry.n !== next ? `entry ${next} is numbered ${entry.n}`
         : entry.prev !== prev ? `entry ${next} does not follow entry ${next - 1}`
           : entry.by !== peerUserId ? `entry ${next} names another author`
@@ -566,6 +579,8 @@ export function createGraphSync(options: {
       const listener = () => { void catchUp(peerUserId); };
       chain.on(listener);
       link.off = () => chain.off();
+      // A head I hold from an earlier link may be stale: what they wrote while we were apart.
+      askFresh(link, graphWireSouls(peerUserId).head(pair.pairTag));
       await catchUp(peerUserId);
     },
 

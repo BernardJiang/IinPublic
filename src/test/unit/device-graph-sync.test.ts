@@ -79,12 +79,17 @@ async function device(userId: string) {
 }
 
 // Moves Gun messages between linked devices, as the page does over a WebRTC data channel.
+// `dropped` (`from>to`) loses them, as a data channel that is reconnecting does.
+const dropped = new Set<string>();
+// `droppedBlocks` loses only log-block writes: their head arrives, the entry it names does not.
+const droppedBlocks = new Set<string>();
 let pumping = true;
 async function pump() {
   while (pumping) {
     for (const from of devices) {
       for (const { to, raw } of await from.sync.pull(0)) {
         const target = devices.find((d) => d.userId === to);
+        if (dropped.has(`${from.userId}>${to}`) || (droppedBlocks.has(`${from.userId}>${to}`) && raw.includes('/log/'))) continue;
         if (target?.sync.openLinks().includes(from.userId)) { target.heard.push(raw); target.sync.hear(from.userId, raw); }
       }
     }
@@ -229,6 +234,23 @@ describe('Talk exchange by Gun sync', () => {
     await until(async () => !!(await ben.graph.arrivals.read(talkId)));
     await ben.sync.sendDecline('ann-d', talkId, (await ben.graph.arrivals.read(talkId))!.versionId);
     await until(() => ann.events.some((e) => e[0] === 'declined' && e[1] === talkId && e[2] === 'ben-d'));
+  });
+
+  it('an entry their head names but whose push was lost is asked for again (e2e mass/02)', async () => {
+    const [amy, bob] = [await device('amy-d'), await device('bob-d')];
+    void pump();
+    await Promise.all([amy.sync.open('bob-d'), bob.sync.open('amy-d')]);
+    const first = await amy.graph.talks.create(tennis('First tennis'));
+    expect(await amy.sync.offerTalk(first, ['bob-d'])).toBe(1);
+    await until(async () => !!(await bob.graph.arrivals.read(first)));
+    // Amy's next log entry is pushed while the link loses it, but her new head gets through. Gun
+    // never resends the entry, and Bob's reads were answered from the block he already holds.
+    droppedBlocks.add('amy-d>bob-d');
+    const second = await amy.graph.talks.create(tennis('Second tennis'));
+    expect(await amy.sync.offerTalk(second, ['bob-d'])).toBe(1);
+    await until(async () => (await bob.sync.status('amy-d')).theirHead === 1);
+    droppedBlocks.delete('amy-d>bob-d');
+    await until(async () => !!(await bob.graph.arrivals.read(second)));
   });
 
   it('knows only people whose keys it holds, so an offer to someone never linked can wait', async () => {

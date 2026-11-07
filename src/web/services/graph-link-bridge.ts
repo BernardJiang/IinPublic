@@ -102,7 +102,13 @@ export class GraphLinkBridge {
         const { out, events } = await this.options.core({ name: 'graph.pull', waitMs: 20_000 });
         const mesh = this.options.mesh();
         for (const { to, raw } of out) {
-          if (mesh && this.opened.has(to)) void mesh.sendGraphGun(to, raw).catch(() => false);
+          if (!mesh) continue;
+          if (this.opened.has(to)) { void mesh.sendGraphGun(to, raw).catch(() => false); continue; }
+          // The core writes its first reads (their head, the catch-up) while `graph.open` is still
+          // running, before this side marks the link open. Dropping them lost the subscription,
+          // and Gun never asks again: the other person's answers were never read (e2e mass/02).
+          const pending = this.opening.get(to);
+          if (pending) void pending.then((ok) => { if (ok) void this.options.mesh()?.sendGraphGun(to, raw).catch(() => false); });
         }
         for (const event of events) {
           try { this.options.onEvent(event); } catch (error) { this.options.log?.(`[graph-link] event handler failed: ${(error as Error).message}`); }
