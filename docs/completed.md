@@ -2,6 +2,24 @@
 
 Last updated: 2026-11-06
 
+## 2026-11-06 — OPEN-79 delegate roster watcher: log read, cache fallback caught in the act
+
+- Read the full VPS watcher log (`delegate-roster-monitor.jsonl`, 14,346 samples every 2 min,
+  2026-10-18 → 2026-11-07). The OPEN-32 cache fallback is no longer hypothetical:
+  **6,050 samples (42%) served the roster from the cache fallback** (`X-IinPublic-Roster-Source:
+  cache`), across 612 fresh↔cache transitions, from 2026-10-19T22:40 through 2026-11-06T03:11.
+  The watcher's catch criterion is met — the empty store read recurs regularly and the cache
+  keeps covering it.
+- The roster stayed correct throughout (grants/revocations stable at 5/5 except one genuine
+  4-grant window on 2026-10-20 and a faqEntries 5→4 change; both HTTP probes ok in all but the
+  11 startup `null` samples around the 2026-11-06 03:13 deploy restart). RSS flat at ~70 MB;
+  10 restarts in 20 days, all deploy/scheduled. Cache windows occur at all uptimes, so this is
+  not a slow-leak correlation.
+- Consequence: OPEN-32's underlying "store occasionally reads back empty" root cause is still
+  unfixed, but now quantified (~42% of reads fall back). A real fix should target the store
+  read path itself; the cache fallback is proven adequate as a safety net (zero incorrect
+  rosters served in 20 days).
+
 ## 2026-11-06 — E2E spec tagging backlog closed (0 untagged)
 
 - Completed the remaining coverage-matrix tagging: all 331 E2E specs now carry a `covers:` line

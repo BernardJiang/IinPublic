@@ -349,9 +349,10 @@ active feature development.
   verify restoration, and remove the working copies from the development machine when the release
   ceremony no longer needs them. K3 signed M3 and is spent; K4 signs M4, which must commit a newly
   generated K5. Do not call custody production-ready merely because the local encrypted files exist.
-- [ ] **OPEN-79 — Delegate roster watcher: read the log (from 2026-10-24; carried over from OPEN-32).**
-  Read `~/IinPublic/delegate-roster-monitor.jsonl` on the VPS after several days of uptime. OPEN-32's
-  root cause stays open until a `cache` line is caught; none caught means the cache keeps covering it.
+- [x] **OPEN-79 — Delegate roster watcher: log read 2026-11-06.** 20 days of samples show the
+  cache fallback serving 42% of roster reads (6,050 catches, 612 transitions) with zero
+  incorrect rosters — the catch criterion is met and OPEN-32's root cause is now quantified;
+  evidence in `docs/completed.md`.
 
 OPEN-13 and the website/Android portion of OPEN-06 were completed on physical Android hardware on
 2026-09-20; evidence is in `docs/completed.md`.
