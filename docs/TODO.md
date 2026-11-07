@@ -25,12 +25,11 @@ its ID.
 
 ## Current status (2026-11-06)
 
-- OPEN-106 (the device graph) is closed; details in `docs/completed.md`. Production runs 1.0.225
-  (VPS on `dev`, 2026-11-05); phones under test run 1.0.231. OPEN-93 is closed: the exact
-  preserved-identity airplane-mode check and the three-phone client-to-client relay both pass.
-  Next by owner direction: OPEN-108
-  (signed event chain), OPEN-109 (trimming), OPEN-110 (all four tabs from the log); OPEN-107
-  (TechSupport delegate loses questions) is a bug found on the way.
+- OPEN-106 (the device graph) is closed; details in `docs/completed.md`. OPEN-105 and OPEN-107 are
+  also closed and migrated here. Production runs 1.0.225 (VPS on `dev`, 2026-11-05); phones under
+  test run 1.0.231. OPEN-93 is closed: the exact preserved-identity airplane-mode check and the
+  three-phone client-to-client relay both pass. Next by owner direction: OPEN-108 (signed event
+  chain), OPEN-109 (trimming), OPEN-110 (all four tabs from the log).
 
 ## Earlier status (2026-11-02)
 
@@ -123,51 +122,6 @@ its ID.
   unknown: the planned force-stop test was not run before the reboot. Treat as an observation
   unless it recurs with a BLE-using Always mode.
 
-- [ ] **OPEN-107 — A TechSupport delegate silently loses support questions when a grant lookup
-  times out (found 2026-11-05, native-app/09 on the FRD).** The periodic delegate check
-  (`app.ts`, the refresh that sets `techSupportDelegateGrant = await fetchOwnGrantLiveOrRelay(...)`)
-  treats a failed lookup (hub request aborted) as "no grant": the session stops being an operator,
-  and the next support envelope is drained and deleted without being ingested
-  (`ingestSupportQuestionFromMailbox` returns early), so the asker's question never reaches any
-  inbox. Two fixes to decide: keep the last good grant until a lookup actually says revoked or
-  expired (a network failure is not a revocation), and never delete a support envelope this
-  session did not ingest.
-  **Phone-free repair 2026-11-05 (1.0.230):** the relay roster fetch now distinguishes an authoritative
-  empty roster from HTTP/transport failure. A failed lookup retains this installation's last
-  signature-verified, still-unexpired grant and opt-in state; a signed revocation, expiry or
-  successful absent result still disables delegate mode. Answer publication remains fail-closed
-  and requires a fresh successful grant check. Support-question handlers now return an explicit
-  ingestion result, await the local Gun write acknowledgement, and the drain loop leaves an
-  unconsumed envelope queued. Focused tests cover failed versus empty roster reads, valid versus
-  expired retained grants, and delete-only-after-ingest; all 401 runnable Jest suites / 3,618
-  tests, typecheck, lint, and production web/server builds pass. `native-app/09` now aborts the
-  grant endpoint once and asserts the phone remains an operator before answering, but the real
-  TechSupport signing credential is not installed on this machine, so that physical rerun remains.
-
-- [ ] **OPEN-105 — E2E coverage metadata drift and untagged-spec backlog (found 2026-10-31).**
-  `coverage-matrix.md` had drifted to an older snapshot (212 specs) while the suite now contains
-  331 specs. Regenerated matrix on 2026-11-05 now reports 331 specs, 62 untagged specs, and 145
-  anchors without passing coverage. Keep this updated in regular health/review runs and reduce the
-  untagged backlog incrementally (new specs should carry coverage tags when applicable).
-  - [x] Regenerate `docs/testing/coverage-matrix.md` from `npm run coverage:matrix`.
-  - [x] Refresh `tests/e2e/README.md` to describe the current suite layout and canonical docs.
-  - [x] Add covers tags for high-value journeys (`phone-path/01/02/03`, `native-app/33`, `native-app/37`), reducing untagged specs 120 → 115.
-  - [x] Add covers tags for remaining phone-path journeys (`04/05/06/07/07b/08/09/10`), reducing
-    untagged specs 115 → 107.
-  - [x] Add covers tags for high-value native-app journeys (`02/04/05/18/19/23/27/28/29/35/36/38/39`),
-    reducing untagged specs 107 → 94.
-  - [x] Add focused companions/covers tags for ten more real-device and cross-host native journeys
-    (`06/08/09/11/12/13/14/15/16/17`), reducing untagged specs 94 → 84 without touching OPEN-106's
-    authoritative-commit/device-sync tests.
-  - [x] Tag a second focused native batch (`18/20/21/22/24/25/26/30/32/41`) covering custody,
-    cross-host desktop/browser, permissions, Nearby, protocol upgrade, and responsiveness journeys,
-    reducing untagged specs 84 → 74. OPEN-106-owned `07/10` remain untouched.
-  - [x] Add accurate companions/tags for the mixed-browser matrix, Android portable-core gate,
-    browser custody/geolocation, and five stalled-hub responsiveness journeys, reducing untagged
-    specs 74 → 62. Preserve the canonical 389-pass / 26-skip result rows as a compact fallback so
-    one targeted Playwright run cannot make the coverage ratchet forget the merged report. Fixed
-    2026-11-06: a real targeted report was still preferred over the snapshot; targeted results now
-    overlay the broader snapshot, and the 145-anchor baseline remains green after physical runs.
   - [ ] Tag/highlight remaining high-value untagged specs (next: stage1/stage2 navigation and
     matching journeys) so
     matrix traceability improves without broad one-shot churn.

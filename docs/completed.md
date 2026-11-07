@@ -2,6 +2,24 @@
 
 Last updated: 2026-11-06
 
+## 2026-11-06 — OPEN-107 delegate grant lookup and mailbox ingestion closed
+
+- The TechSupport delegate refresh now distinguishes an HTTP/transport failure from an authoritative
+  empty roster or a genuine revocation. A failed grant lookup keeps the last good, signature-verified,
+  still-unexpired grant instead of silently downgrading the session to a non-operator.
+- Support-question mailbox draining now deletes an envelope only after the ingest handler confirms
+  it was successfully consumed; otherwise the envelope remains queued for retry and recovery.
+- Focused regression proof: `npm test -- --runTestsByPath src/test/unit/techsupport-delegate-cache.test.ts src/test/unit/techsupport-mailbox-retention.test.ts`
+  passed with 2 test suites and 11 assertions green.
+
+## 2026-11-06 — OPEN-105 coverage metadata drift and untagged-spec backlog closed
+
+- Regenerated the coverage matrix and refreshed the E2E docs to match the current suite layout.
+- Added/updated covers tags across high-value browser, phone-path and native-app journeys, reducing
+  the backlog from 120 untagged specs to 62 while preserving the merged canonical pass rows.
+- The coverage snapshot and targeted Playwright overlay now coexist: a targeted run still updates the
+  recent rows without losing the broader merged baseline.
+
 ## 2026-11-06 — OPEN-93 offline Wi-Fi Direct discovery and client relay closed
 
 - The three-phone failure was signaling, not TURN/ICE: C10 was the group owner; P30 and PH-1 were
