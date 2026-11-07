@@ -633,6 +633,10 @@ export function createGraphSync(options: {
       if (!boundary) return { trimmed: 0 };
       const cp = { n: ackN - 1, hash: entryHash(boundary), when: now() };
       const sig = await crypto.sign(canonicalJson(cp), me.pair.priv);
+      // Crash direction: the checkpoint lands BEFORE any entry is nulled. A crash after this put
+      // leaves entries retained with a cp present (readers fast-forward and re-read them); the
+      // reverse order could leave trimmed entries with no cp — a wiped reader stalls forever.
+      await store.put(mine.head(pairTag), { cp: await encryptJson({ ...cp, sig }, secret) });
       const blocks = new Map<number, Record<string, null>>();
       for (let n = 0; n < ackN; n += 1) {
         const block = Math.floor(n / LOG_BLOCK);
@@ -640,10 +644,16 @@ export function createGraphSync(options: {
         fields[String(n)] = null;
         blocks.set(block, fields);
       }
-      await Promise.all([
-        store.put(mine.head(pairTag), { cp: await encryptJson({ ...cp, sig }, secret) }),
-        ...[...blocks].map(([block, fields]) => store.put(mine.logBlock(pairTag, block), fields)),
-      ]);
+      await Promise.all([...blocks].map(([block, fields]) => store.put(mine.logBlock(pairTag, block), fields)));
+      // The ack index only needs its newest key: drop the ones the trim made useless. Housekeeping,
+      // not correctness — best-effort, never fails the trim.
+      store.put(souls.index(`ack/${encodeURIComponent(peerUserId)}`),
+        Object.fromEntries(Object.keys(ackNode ?? {}).filter((k) => /^\d+$/.test(k) && Number(k) < ackN).map((k) => [k, null])))
+        .catch(() => undefined);
+      // Compatibility note: a reader that ignores `cp` (a legacy build) with state at or behind
+      // the boundary stalls on the nulled entries — the ack gate means that peer APPLIED the data
+      // already, but a wiped/restored legacy device would need it. Deliberate versioning
+      // trade-off until capability negotiation exists.
       return { trimmed: ackN, checkpointN: cp.n };
     },
 
