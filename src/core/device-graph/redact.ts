@@ -6,9 +6,22 @@
  * The event node (ev/<id>) itself is NEVER written, and neither are the content-addressed text
  * records (q/<key>, a/<hash>): those are shared across Talks, so clearing them would damage a
  * Talk that was not redacted.
+ *
+ * Two structural safety rules (code review, OPEN-108 slice 5):
+ *   1. Prefix guards: only souls under this device's OWN `rev/` and `s/` prefixes are ever
+ *      cleared. The guards make "never touches ev/<id> or shared q//a/ records" hold against any
+ *      event, including a crafted one with a foreign `rev`/`gave` link — not just against the
+ *      links today's writers happen to build.
+ *   2. Shared content-addressed records are kept while any OTHER event still references them:
+ *      s/<hash> is keyed by content (REQ-GRAPH-22), so a deleted answer and an identical live
+ *      re-answer share one set; rev/<key> is shared between my version and a received Talk with
+ *      an identical structure. Clearing through the redacted event would destroy the live one.
+ *      The reference check scans the day index (all events) — conservative: when in doubt, the
+ *      content stays; trimming reclaims it later.
  */
 import { theirQuestionsSoul } from './answers';
 import { answerQuestionsSoul } from './events';
+import { readIndex } from './index-buckets';
 import { linkSoul, type GraphNode, type NodeStore } from './node-store';
 import type { graphSouls } from './talk-structure';
 
@@ -69,14 +82,33 @@ export async function redactEvent(
   if (!event) return { cleared: [] };
   const targets = new Set<string>();
   const gave = linkSoul(event.gave);
-  if (gave) {
-    targets.add(gave);
+  const rev = linkSoul(event.rev);
+  // Rule 1: only this device's own content prefixes are ever cleared (a crafted event with a
+  // foreign `gave`/`rev` link — e.g. pointing at another ev/<id> — clears nothing).
+  const ownGave = gave?.startsWith(souls.answerSet('')) ? gave : undefined;
+  const ownRev = rev?.startsWith(souls.rev('')) ? rev : undefined;
+  // Rule 2: content-addressed records another event still references are kept (a deleted answer
+  // and its identical live re-answer share one s/<hash>; my version and a received Talk with an
+  // identical structure share one rev/<key>). Any other event referencing the soul keeps it.
+  let sharedGave = false;
+  let sharedRev = false;
+  if (ownGave || ownRev) {
+    for (const entry of await readIndex(store, souls.index('day'))) {
+      if (entry.key === eventId) continue;
+      const other = await store.get(entry.target);
+      if (!other) continue;
+      if (ownGave && linkSoul(other.gave) === ownGave) sharedGave = true;
+      if (ownRev && linkSoul(other.rev) === ownRev) sharedRev = true;
+      if (sharedGave && sharedRev) break;
+    }
+  }
+  if (ownGave && !sharedGave) {
+    targets.add(ownGave);
     // The event's private sidecar lists the situations of the set (as answers.ts reads them).
     const sidecar = await store.get(event.by ? theirQuestionsSoul(souls, eventId) : answerQuestionsSoul(souls, eventId));
-    for (const context of Object.keys(sidecar || {})) targets.add(`${gave}/${context}`);
+    for (const context of Object.keys(sidecar || {})) targets.add(`${ownGave}/${context}`);
   }
-  const rev = linkSoul(event.rev);
-  if (rev) for (const soul of await structureSouls(store, rev)) targets.add(soul);
+  if (ownRev && !sharedRev) for (const soul of await structureSouls(store, ownRev)) targets.add(soul);
   if (options.gps !== false) targets.add(`${souls.event('').slice(0, -'ev/'.length)}gps/${eventId}`);
   const cleared: string[] = [];
   const writes: Array<Promise<void>> = [];

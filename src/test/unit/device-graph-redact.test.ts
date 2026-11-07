@@ -183,6 +183,75 @@ describe('redaction (spec §31.13)', () => {
     expect(await verify()).toMatchObject({ ok: true, checked: 3 });
   });
 
+  it('keeps a shared s/<hash>: a deleted answer and its identical live re-answer share one set', async () => {
+    const { store, graph, souls, verify } = await setup();
+    const talkId = await graph.talks.create(tennis());
+    const structure = (await graph.talks.read(talkId))!;
+    const steps = [{ questionId: 'q_0', answerIds: ['a_0_0'] }, { questionId: 'q_1', answerIds: ['a_1_0'] }];
+    const firstId = await graph.answers.answer({ talkId, structure, withUser: 'adam', mode: 'manual', re: talkId, steps });
+    const setSoul = linkSoul((await store.get(souls.event(firstId)))!.gave)!;
+    const setBefore = await store.get(setSoul);
+    await graph.answers.remove(talkId);
+    // Re-answer identically: REQ-GRAPH-22 keys the set by content, so the new event points at
+    // the same s/<hash>. Redacting the DELETED first answer must not clear the live one's set.
+    const secondId = await graph.answers.answer({ talkId, structure, withUser: 'adam', mode: 'manual', re: talkId, steps });
+    expect(linkSoul((await store.get(souls.event(secondId)))!.gave)).toBe(setSoul);
+
+    const { cleared } = await redactEvent(store, souls, firstId);
+    expect(cleared).not.toContain(setSoul);
+    expect(await store.get(setSoul)).toEqual(setBefore);
+    const sidecar = await store.get(`${souls.event(secondId)}/q`);
+    for (const context of Object.keys(sidecar!)) {
+      expect(cleared).not.toContain(`${setSoul}/${context}`);
+      expect(await store.get(`${setSoul}/${context}`)).not.toEqual({ a: null });
+    }
+    expect(await verify()).toMatchObject({ ok: true });
+  });
+
+  it('keeps a shared rev/<key>: two identical structures share one structure record', async () => {
+    const { store, graph, souls } = await setup();
+    const talkA = await graph.talks.create(tennis());
+    const talkB = await graph.talks.create(tennis());
+    const revSoul = linkSoul((await store.get(souls.event(talkA)))!.rev)!;
+    expect(linkSoul((await store.get(souls.event(talkB)))!.rev)).toBe(revSoul);
+
+    const { cleared } = await redactEvent(store, souls, talkA);
+    expect(cleared).not.toContain(revSoul);
+    // Talk B — which was never redacted — still reads its structure.
+    expect(await graph.talks.read(talkB)).toBeDefined();
+    expect((await store.get(revSoul))!.v).not.toBeNull();
+  });
+
+  it('a crafted event with a foreign rev link clears nothing and touches no other node', async () => {
+    const { store, graph, souls } = await setup();
+    const talkId = await graph.talks.create(tennis());
+    const victimBefore = JSON.stringify(await store.get(souls.event(talkId)));
+    // A crafted event whose `rev` points at ANOTHER EVENT (not a rev/<key>): the prefix guard
+    // must refuse it, so redaction can never null a chained, signed event.
+    await store.put(souls.event('crafted'), { v: 1, when: Date.now(), rev: { '#': souls.event(talkId) } } as any);
+
+    expect(await redactEvent(store, souls, 'crafted')).toEqual({ cleared: [] });
+    expect(JSON.stringify(await store.get(souls.event(talkId)))).toBe(victimBefore);
+    // A path-ish event id just misses (souls are literal strings) and clears nothing.
+    expect(await redactEvent(store, souls, '../q/x')).toEqual({ cleared: [] });
+  });
+
+  it('gps: false keeps the exact point while the content is cleared', async () => {
+    const { store, graph, souls } = await setup();
+    const talkId = await graph.talks.create(tennis());
+    const structure = (await graph.talks.read(talkId))!;
+    const eventId = await graph.answers.answer({
+      talkId, structure, withUser: 'adam', mode: 'manual', re: talkId,
+      steps: [{ questionId: 'q_0', answerIds: ['a_0_0'] }, { questionId: 'q_1', answerIds: ['a_1_0'] }],
+    });
+    const setSoul = linkSoul((await store.get(souls.event(eventId)))!.gave)!;
+
+    const { cleared } = await redactEvent(store, souls, eventId, { gps: false });
+    expect(cleared).toContain(setSoul);
+    expect(cleared).not.toContain(`${graph.prefix}gps/${eventId}`);
+    expect((await store.get(`${graph.prefix}gps/${eventId}`))!.latitude).toBe(POINT.latitude);
+  });
+
   it("the core request deviceGraph.redact returns the cleared souls", async () => {
     const store = memoryNodeStore();
     const graph = createDeviceGraph(store, { randomBytes: (n) => new Uint8Array(randomBytes(n)) });
