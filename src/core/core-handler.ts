@@ -11,7 +11,7 @@ import { commitResponse } from './response-commit';
 import type { CoreRequest } from './protocol';
 import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
-import type { Locator } from './device-graph/location-graph';
+import { createReportedLocation, type Locator } from './device-graph/location-graph';
 import { createStorageBudget } from './device-graph/storage-budget';
 import { appTalkOf, createGraphHost } from './device-graph/sync/graph-host';
 import { createAppAnswers, type AppAnswers } from './device-graph/sync/app-answers';
@@ -42,16 +42,17 @@ export type DeviceGraphOptions = {
   storageUsage?: () => Promise<number | undefined>;
   /**
    * Where the device is, as the host knows it (REQ-GRAPH-42): my Talk versions and answers are
-   * stamped with its blurred cell. Hosts without geolocation leave it unset (the web worker host
-   * gets its locator from the page in a follow-up).
+   * stamped with its blurred cell. Hosts without geolocation of their own leave it unset and the
+   * page reports its fixes instead (`deviceGraph.setLocation`).
    */
   locate?: Locator;
 };
 
-function deviceGraphGate(options: DeviceGraphOptions | undefined, localTalk?: (appTalkId: string) => Promise<Record<string, any> | undefined>) {
+function deviceGraphGate(options: DeviceGraphOptions | undefined, localTalk?: (appTalkId: string) => Promise<Record<string, any> | undefined>, reportedLocate?: Locator) {
   if (!options) return { graph: undefined, ownTalks: undefined, host: undefined, appAnswers: undefined };
   const budget = options.storageUsage ? createStorageBudget({ usage: options.storageUsage }) : undefined;
-  const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}), ...(options.locate ? { locate: options.locate } : {}) });
+  const locate = options.locate ?? reportedLocate;
+  const graph = createDeviceGraph(options.nodeStore, { randomBytes: options.randomBytes, ...(budget ? { budget } : {}), ...(locate ? { locate } : {}) });
   // Exact GPS points older than 30 days are erased at start and once a day (spec §31.7).
   if (options.gun) {
     const sweep = () => { void graph.location.sweep().catch((error) => options.log?.(`[device-graph] GPS sweep failed: ${(error as Error).message}`)); };
@@ -84,10 +85,12 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
   // A Talk only the app has is answered from the body its `myTalks` entry keeps (`app-answers.ts`).
   // Through My Talks' bodies: once such a Talk is also my graph Talk (a copy I sent), its stored
   // entry keeps only what the graph does not give back, and the body comes from the graph.
+  // Where the device is, as the page reports it (REQ-GRAPH-42), unless the host has its own locator.
+  const reportedLocation = createReportedLocation();
   const graph = deviceGraphGate(options.deviceGraph, async (appTalkId) => {
     const entry = await (myTalks ? myTalks.get(appTalkId) : collections.get('myTalks', appTalkId)) as { fullTalk?: Record<string, any> } | undefined;
     return entry?.fullTalk;
-  });
+  }, reportedLocation.locate);
   let fresh = options.freshDevice === true;
   const exchanges = new ExchangeStore(store);
   const delivery = new DeliveryStore(store);
@@ -160,6 +163,9 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       }
       case 'deviceGraph.status':
         return graph.ownTalks ? { enabled: true, ...(await graph.ownTalks.status()), bodies: myTalks?.status() } : null;
+      case 'deviceGraph.setLocation':
+        reportedLocation.set(request.point);
+        return { ok: true };
       case 'deviceGraph.redact':
         // Erase the record's content (spec §31.13); the event and its hash stay.
         return graph.graph && nodeStore ? redactEvent(nodeStore, souls, request.eventId) : null;
@@ -264,6 +270,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         if (!sync) return { sent: 0 };
         return { sent: await sync.sendTalkDeletion(talkId, deletionId) };
       }
+      // Graph-host requests, the encounter/visit/message/trim ones included (declared, but not
+      // forwarded until 2026-11-08: only graph-host's own tests could reach them).
       case 'graph.identity':
       case 'graph.open':
       case 'graph.close':
@@ -271,6 +279,10 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.pull':
       case 'graph.status':
       case 'graph.answer':
+      case 'graph.recordEncounter':
+      case 'graph.recordVisit':
+      case 'graph.sendMessage':
+      case 'graph.trimLog':
         if (!graph.host) throw new Error('this core has no graph links');
         return graph.host.handle(request);
       case 'collection.remove': {

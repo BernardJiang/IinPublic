@@ -35,6 +35,37 @@ export async function stampEventWhere(location: ReturnType<typeof createLocation
 /** Where the device currently is, as the host knows it (undefined: no fix / no provider). */
 export type Locator = () => Promise<GpsPoint | undefined>;
 
+/** A reported fix older than this is not used to stamp an event: the device may have moved since. */
+export const REPORTED_FIX_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * A locator fed by the app (REQ-GRAPH-42): a core with no geolocation of its own — the web
+ * worker, a phone's embedded node — learns where the device is from the page, which reports each
+ * new fix and `null` when location is off. A fix older than `maxAgeMs` is not used.
+ */
+export function createReportedLocation(options: { now?: () => number; maxAgeMs?: number } = {}) {
+  const now = options.now ?? Date.now;
+  const maxAgeMs = options.maxAgeMs ?? REPORTED_FIX_MAX_AGE_MS;
+  let fix: { point: GpsPoint; at: number } | undefined;
+  return {
+    /** The page's latest fix, or `null`: location is off or there is no fix. A malformed point clears it. */
+    set(point: unknown): void {
+      fix = undefined;
+      if (!point || typeof point !== 'object') return;
+      const p = point as Record<string, unknown>;
+      const latitude = Number(p.latitude);
+      const longitude = Number(p.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return;
+      const accuracy = Number(p.accuracy);
+      fix = {
+        point: { latitude, longitude, source: p.source === 'traveler' ? 'traveler' : 'gps', ...(Number.isFinite(accuracy) && accuracy >= 0 ? { accuracy } : {}) },
+        at: now(),
+      };
+    },
+    locate: (async () => (fix && now() - fix.at <= maxAgeMs ? { ...fix.point } : undefined)) as Locator,
+  };
+}
+
 /**
  * Stamp an event with the current blurred cell when the host knows where the device is
  * (REQ-GRAPH-42). A missing or failing locator never blocks the write. Returns the gps sidecar

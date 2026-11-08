@@ -388,6 +388,8 @@ export class IinPublicApp {
   /** Room members marked as Travelers (for the "Residents only" Talk audience). */
   private roomTravelerIds: ReadonlySet<string> = new Set();
   private nearbyPointShownKey = '';
+  /** The fix last reported to the device core (REQ-GRAPH-42), so an unchanged one is not resent. */
+  private coreLocationKey = '';
   /** Nearby (§3.7): my personal list, the audience of `NEARBY_V3_ROOM_ID`. */
   private nearbyV3: NearbyV3Runtime | null = null;
   /** Verified direct-link proof when this device shares another device's Nearby count key. */
@@ -2088,7 +2090,33 @@ export class IinPublicApp {
   }
 
   /** My point or travel state changed: reissue my card and redraw me (★) on the map. */
+  /**
+   * OPEN-108 (REQ-GRAPH-42): tell the device core where the device is, so the events I write carry
+   * their blurred cell. A Traveler's events happen at the point they appear at; with location off
+   * (Contacts only) or no real fix yet, the core is told there is none.
+   */
+  private reportLocationToCore(): void {
+    const core = this.coreRequest;
+    if (!core) return;
+    const travel = this.travelModeActive ? this.travelNearbyPoint : undefined;
+    const fix = travel ?? (this.locationConfirmed ? this.currentLocation : undefined);
+    const shared = fix && publicLocationPrecisionMeters(this.effectiveNearbyMode()) !== null;
+    const point = shared
+      ? {
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        ...(Number.isFinite(fix.accuracy) ? { accuracy: fix.accuracy } : {}),
+        source: (travel || usesSelfDefinedEncounterLocation() ? 'traveler' : 'gps') as 'gps' | 'traveler',
+      }
+      : null;
+    const key = JSON.stringify(point);
+    if (key === this.coreLocationKey) return;
+    this.coreLocationKey = key;
+    void core({ name: 'deviceGraph.setLocation', point }).catch(() => { this.coreLocationKey = ''; });
+  }
+
   private refreshNearbyPoint(): void {
+    this.reportLocationToCore();
     if (!this.initialized) return; // boot ends with one refresh (startNearbyV3)
     this.nearbyV3?.refresh();
     void this.refreshActiveRooms(); // Place distances follow where I now appear
@@ -5983,6 +6011,8 @@ export class IinPublicApp {
     }
     this.coreRequest = node ?? worker;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
+    this.coreLocationKey = '';
+    this.reportLocationToCore();
     // The chatbot and the Preferences dialog read the device graph (OPEN-106 step 2e v).
     const chatbotCore = this.coreRequest;
     setGraphChatbotSource(chatbotCore ? (request) => chatbotCore(request) : null);
@@ -9776,6 +9806,7 @@ export class IinPublicApp {
       const newLocation = nextLocation || (encounter ? encounterLocationCoordinate(encounter) : gpsFix!);
       this.currentLocation = newLocation;
       this.locationConfirmed = true;
+      this.reportLocationToCore();
 
       if (this.currentUser) {
         await this.userService.updateUserLocation(this.currentUser.id, this.publicHomeLocation());

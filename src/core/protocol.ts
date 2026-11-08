@@ -52,6 +52,8 @@ export type CoreRequest =
   | { name: 'device.get'; path: string }
   | { name: 'device.put'; path: string; value: unknown }
   | { name: 'deviceGraph.status' }
+  /** Where the device is now (REQ-GRAPH-42): the page's latest fix, `null` when location is off. */
+  | { name: 'deviceGraph.setLocation'; point: { latitude: number; longitude: number; accuracy?: number; source: 'gps' | 'traveler' } | null }
   /** Erase a record's content (redaction, spec §31.13): its event and the event's hash stay. */
   | { name: 'deviceGraph.redact'; eventId: string }
   | GraphHostRequest
@@ -116,7 +118,7 @@ export type CoreResponse<R extends CoreRequest> =
                   : R extends { name: 'private.get' } ? string | null
                     : R extends { name: 'private.keys' } ? string[]
                       : R extends { name: 'device.get' } ? unknown
-                        : R extends { name: 'private.put' | 'device.put' } ? { ok: true }
+                        : R extends { name: 'private.put' | 'device.put' | 'deviceGraph.setLocation' } ? { ok: true }
                           : R extends { name: 'deviceGraph.status' } ? (OwnTalksStatus & { enabled: boolean; bodies?: MyTalksBodiesStatus }) | null
                           : R extends { name: 'deviceGraph.redact' } ? { cleared: string[] } | null
                           : R extends { name: 'graph.pull' } ? GraphPull
