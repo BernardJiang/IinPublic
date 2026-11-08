@@ -49,7 +49,7 @@ const HUB = 'https://hub.example/gun';
 const keys = new Map<string, { pub: string; epub: string }>();
 const devices: any[] = [];
 
-async function device(userId: string) {
+async function device(userId: string, deviceCrypto: GraphCrypto = crypto) {
   const pair = (await (SEA as any).pair()) as SeaPair;
   keys.set(userId, { pub: pair.pub, epub: pair.epub });
   const gun = (Gun as any)({ peers: [], sharingRelayPeers: [HUB], localStorage: false, radisk: false, memoryStore: true, axe: false, multicast: false });
@@ -62,7 +62,7 @@ async function device(userId: string) {
   const graph = { talks: createTalkGraph(store, ids), arrivals: createArrivalGraph(store, ids), answers: createAnswerGraph(store, ids) };
   const events: Array<[string, string, string]> = [];
   const sync = createGraphSync({
-    gun, store, me: { userId, pair }, crypto, graph, remoteReadMs: 150,
+    gun, store, me: { userId, pair }, crypto: deviceCrypto, graph, remoteReadMs: 150,
     peerKeys: async (id) => keys.get(id),
     events: {
       onTalk: (talkId, from) => events.push(['talk', talkId, from]),
@@ -257,5 +257,47 @@ describe('Talk exchange by Gun sync', () => {
     const [kim, lee] = [await device('kim-d'), await device('lee-d')];
     expect(await kim.sync.knows(lee.userId)).toBe(true);
     expect(await kim.sync.knows('never-met-d')).toBe(false);
+  });
+
+  it('a read receipt that arrives while the last one is being checked still clears what is owed (e2e 05-mailbox)', async () => {
+    // Joe's checks of signed read receipts can be held, as a busy device's are.
+    let hold: Promise<void> | undefined;
+    let release = () => {};
+    let held = false;
+    const joeCrypto: GraphCrypto = {
+      ...crypto,
+      verify: async (sig, data, pub) => {
+        let receipt = false;
+        try { const parsed = JSON.parse(data); receipt = Object.keys(parsed).sort().join() === 'hash,n,when'; } catch { /* not JSON */ }
+        if (receipt && hold) { held = true; await hold; }
+        return crypto.verify(sig, data, pub);
+      },
+    };
+    const [joe, ivy] = [await device('joe-d', joeCrypto), await device('ivy-d')];
+    void pump();
+    await Promise.all([joe.sync.open('ivy-d'), ivy.sync.open('joe-d')]);
+    const first = await joe.graph.talks.create(tennis('First squash'));
+    expect(await joe.sync.offerTalk(first, ['ivy-d'])).toBe(1);
+    await until(() => !joe.sync.owed().includes('ivy-d'));
+
+    // Joe's second entry reaches Ivy's device only later, so Joe owes it to her.
+    droppedBlocks.add('joe-d>ivy-d');
+    const second = await joe.graph.talks.create(tennis('Second squash'));
+    expect(await joe.sync.offerTalk(second, ['ivy-d'])).toBe(1);
+    expect(joe.sync.owed()).toContain('ivy-d');
+
+    // Ivy writes to Joe: his device catches up and starts checking her old receipt, slowly.
+    hold = new Promise<void>((resolve) => { release = resolve; });
+    await ivy.sync.sendDecline('joe-d', first, (await ivy.graph.arrivals.read(first))!.versionId);
+    await until(() => held);
+
+    // Meanwhile Ivy reads the second entry and her new receipt reaches Joe.
+    droppedBlocks.delete('joe-d>ivy-d');
+    await until(async () => (await ivy.sync.status('joe-d')).appliedUpTo === 1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    hold = undefined;
+    release();
+    // At once, not on a retry timer (that fires a second or more later, and only after a stall).
+    await until(() => !joe.sync.owed().includes('ivy-d'), 600);
   });
 });

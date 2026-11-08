@@ -414,8 +414,10 @@ export function createGraphSync(options: {
           options.log?.(`[graph-sync] ${peerUserId}: ${link.lastError}`);
           return true;
         });
+        // Inside the loop: a receipt that lands while this check runs sets `again` too, and their
+        // device writes each receipt once — read after the loop, it was lost (e2e 05-mailbox).
+        await checkRead(peerUserId, link).catch(() => undefined);
       } while (link.again && links.get(peerUserId) === link);
-      await checkRead(peerUserId, link).catch(() => undefined);
       if (link.retryTimer) { clearTimeout(link.retryTimer); link.retryTimer = undefined; }
       if (stalled && links.get(peerUserId) === link) {
         // Not waiting for their next write: try again, backing off up to 30 s while the link is up.
