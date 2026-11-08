@@ -104,17 +104,28 @@ test.describe('manual pins across Contacts, Talks, and Me', () => {
           contextLabel: '', contextPath: [], contextHash: '',
         }],
       });
-      ((w: any, records: Record<string, unknown>) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window, {
-        // The older first: the graph dates each answer by when it is written.
-        'pin-answer-old-history': makeHistory(
-          'pin-answer-old-history', 'pin-answer-old-talk', 'pin-answer-old',
-          'Older question?', 'Older answer', oldest,
-        ),
-        'pin-answer-new-history': makeHistory(
-          'pin-answer-new-history', 'pin-answer-new-talk', 'pin-answer-new',
-          'Newer question?', 'Newer answer', newest,
-        ),
-      });
+      const seed = (records: Record<string, unknown>) => ((w: any) => { if (w.__iinpublic_answer_history_seed) w.__iinpublic_answer_history_seed(records); else w.__iinpublic_pending_answer_history = { ...(w.__iinpublic_pending_answer_history || {}), ...records }; })(window);
+      // The older first: the graph dates each answer by when it is written, so the newer one is
+      // written only once the older is in the graph — two in the same millisecond tie, and the
+      // unpinned order below is then whichever the list had (a full-suite flake).
+      seed({ 'pin-answer-old-history': makeHistory(
+        'pin-answer-old-history', 'pin-answer-old-talk', 'pin-answer-old',
+        'Older question?', 'Older answer', oldest,
+      ) });
+      return makeHistory(
+        'pin-answer-new-history', 'pin-answer-new-talk', 'pin-answer-new',
+        'Newer question?', 'Newer answer', newest,
+      );
+    }).then(async (newer) => {
+      const graphHas = (questionId: string) => page.evaluate(async (q) => {
+        const app = (window as any).__iinpublic_app?.getApp?.();
+        const rows = await app?.coreRequest?.({ name: 'graph.answerHistory' });
+        return JSON.stringify(rows ?? null).includes(q);
+      }, questionId);
+      await expect.poll(() => graphHas('pin-answer-old'), { message: 'older answer written to the graph' }).toBe(true);
+      await page.waitForTimeout(5);
+      await page.evaluate((record) => (window as any).__iinpublic_answer_history_seed({ 'pin-answer-new-history': record }), newer);
+      await expect.poll(() => graphHas('pin-answer-new'), { message: 'newer answer written to the graph' }).toBe(true);
     });
   }
 
