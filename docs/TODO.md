@@ -1,6 +1,6 @@
 # IinPublic TODO
 
-Last reconciled: 2026-11-06.
+Last reconciled: 2026-11-08.
 
 This file contains the current execution focus plus explicitly deferred open work. Completed
 implementation history is in
@@ -28,8 +28,9 @@ its ID.
 - OPEN-106 (the device graph) is closed; details in `docs/completed.md`. OPEN-105 and OPEN-107 are
   also closed and migrated here. Production runs 1.0.225 (VPS on `dev`, 2026-11-05); phones under
   test run 1.0.231. OPEN-93 is closed: the exact preserved-identity airplane-mode check and the
-  three-phone client-to-client relay both pass. Next by owner direction: OPEN-108 (signed event
-  chain), OPEN-109 (trimming), OPEN-110 (all four tabs from the log).
+  three-phone client-to-client relay both pass. OPEN-108 (signed event chain) and OPEN-109
+  (trimming) are closed (2026-11-08, `docs/completed.md`). Next by owner direction: OPEN-110 (all
+  four tabs from the log). Production runs 1.0.232 since 2026-11-08 (`npm run release`).
 
 ## Earlier status (2026-11-02)
 
@@ -53,66 +54,6 @@ its ID.
   OPEN-104. The walking/transit and unplugged battery gates remain unverified under OPEN-81.
 
 ## Active maintenance queue — website and Android first
-
-- [ ] **OPEN-108 — The event log as a signed chain; exchanges both people sign (owner direction
-  2026-11-05; spec §31.13 REQ-GRAPH-40..45).** The system is one log of ask and answer events (who,
-  where, when, how) on Gun; Talks are structured series of them; the user and the chatbot both
-  write them; the four tabs are views of it. History cannot be changed; the present and future stay
-  free (a change or deletion is a new event). Review 2026-11-05 against OPEN-106's code: events and
-  content are a git-like DAG and each pair log is numbered, hash-linked and signed, but my own events
-  are not chained or signed, the receiver's acknowledgement is an unsigned `read: { n }`, the two
-  sides of an exchange are not linked by hash, and answers and Talk versions carry no `where`.
-  - [x] Device chain: `seq`, `prev`, `sig` on every event I write; `ix/head`; canonical hashing
-    shared with the pair log (`keys.ts` `canonicalJson`); unit tests for order, tamper and a gap.
-    Done 2026-11-06 (`99149fcf`): `device-graph/chain.ts` + 9 tests; other-authored (`by`) records
-    and pre-sequenced events from my other devices never consume my seq.
-  - [x] Verification in the index rebuild: `chainBreaks` and the first bad `seq` in the graph
-    status; never rewritten. A phone and a browser verify the same chain (no ICU-only code, see the
-    2026-11-05 grammar-filter bug).
-    Done 2026-11-06 (`944b0ad3`): `rebuildIndexes({ chain })` returns the verification (fromDay
-    rejected); `graph.status.chain` reports `chainBreaks`/`firstBadSeq`; deliberate full walk per
-    status call (a head-keyed cache would hide tampering — OPEN-109 checkpoints are the cost bound).
-  - [x] `where` (blurred cell) on my answers and Talk versions; `mode` / `link` everywhere they are known.
-    Done 2026-11-06 (`1bef6767`): locator hook stamps all my events (Talk create/edit/delete, my
-    answers/deletions) with the blurred cell + private gps sidecar, signed by the chain.
-    Live locator wired 2026-11-08 (`9b50fb94`): the page reports its fix to the core
-    (`deviceGraph.setLocation`: real GPS, a Traveler's point, or null with location off), which
-    both the web worker and a phone's node use; a fix older than an hour stamps nothing. The core
-    handler now also forwards `graph.recordEncounter/recordVisit/sendMessage/trimLog` (declared,
-    but unreachable from the page before).
-  - [x] Signed acknowledgement `ack: { n, hash, when, sig }` in the pair head; the sender keeps
-    acknowledgements (`ix/ack/<peer>`); `reEntry` on answer entries; the arrival event keeps the
-    sender's entry `{ n, hash, when }`. Shared time = both signed times; skew over 10 min shown.
-    Done 2026-11-06 (`5fa208ae`): legacy `read` still written/cleared for old peers; skew exposed
-    at `status(peer).lastAck.skewMs` — GUI skew display lands with the E2E slice.
-  - [x] Redaction: erase a deleted record's content on request, keep its event and hash.
-    Done 2026-11-06 (`74919395`): `redactEvent` + `deviceGraph.redact` core request; chain still
-    verifies; shared q//a/ records never cleared.
-  - [ ] E2e: two people exchange, each side proves the other's signed entry and acknowledgement;
-    a tampered local event is reported after restart (web, phone path, real phones).
-    **Web part done 2026-11-06** (`edd5eaea`, stage2/97-signed-exchange-chain, passes ~50 s).
-    **Phone path done 2026-11-08**: `phone-path/12-signed-exchange-chain` (journey J-GRAPH-01/02,
-    `tests/e2e/journeys/signed-exchange-chain-journey.ts`; tamper in the stopped node's radata),
-    3/3. Real phones: `native-app/39-android-signed-exchange-chain` (tamper via `run-as`), in the
-    Android sweep's two-person journey step.
-
-- [x] **OPEN-109 — Trim old history with signed checkpoints (spec §31.13 REQ-GRAPH-46..48).** Done
-  2026-11-06: checkpoints `0028493d`, history trimming `5c951863`, pair-log trimming `6c64e3a5`.
-  - [x] Signed checkpoint `cp/<seq>` `{ seq, hash, when, counts }`, chained like an event;
-    verification starts from the newest.
-    Done 2026-11-06 (`0028493d`): `writeCheckpoint` + `prevCp` chain; `verifyChain` scopes from
-    `ix/cp` (reason `cp` on checkpoint tamper); `graph.status.chain.fromSeq`.
-  - [x] Trimming from 90% down to 80%: whole days, oldest first; their events, index entries that
-    point only to them, unreferenced content. Kept: the last 30 days, my active Talks, anything an
-    open conversation, a confirmed deal or an unacknowledged log entry points to, the chatbot's
-    remembered answers.
-    Done 2026-11-06 (`5c951863`): `trimHistory`; fail-closed on unreadable owed logs; rebuild after.
-  - [x] Pair logs trimmed only below the other person's signed acknowledgement, with a checkpoint
-    entry they can verify.
-    Done 2026-11-06 (`6c64e3a5`): `trimLog` + signed `cp` in the pair head; readers behind it
-    verify the signature and fast-forward. Auto-trigger policy is a later product decision.
-  - [x] Tests: a store filled past 90% trims to 80% and still verifies; nothing kept above is lost;
-    the indexes rebuild from what remains. Covered by `device-graph-trim.test.ts` (`5c951863`).
 
 - [ ] **OPEN-110 — All four tabs read the one log (spec §31.13 REQ-GRAPH-49, §31.12 #16).** Me already
   reads the graph. Still outside it: chat messages (own Gun message store), Nearby encounters and
