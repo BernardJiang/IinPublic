@@ -4,6 +4,7 @@
  * call takes the same route it takes on a real phone: WebView → embedded node → hub relay.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import * as net from 'node:net';
 import * as path from 'node:path';
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { injectIdbClear } from '../helpers/clear-database';
@@ -334,13 +335,45 @@ export type SpecPhoneNode = { url: string; stop: () => Promise<void> };
  * Start a phone node of the spec's own (scripts/e2e-phone-node.mjs) on `port`, relaying to the hub
  * on `hubPort`. With `dataDir`, its data survives `stop()`, so starting it again is an app restart.
  */
-export async function startPhoneNode(port: number, hubPort: number, dataDir?: string): Promise<SpecPhoneNode> {
+/** Whether nothing listens on this port, on loopback or on all addresses. */
+async function portIsFree(port: number): Promise<boolean> {
+  const tryListen = (host: string) => new Promise<boolean>((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.listen({ port, host, exclusive: true }, () => server.close(() => resolve(true)));
+  });
+  return (await tryListen('127.0.0.1')) && (await tryListen('::'));
+}
+
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen({ port: 0, host: '127.0.0.1' }, () => {
+      const { port } = server.address() as net.AddressInfo;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+export async function startPhoneNode(requestedPort: number, hubPort: number, dataDir?: string): Promise<SpecPhoneNode> {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  // A fixed port can be held by something outside the suite (an adb forward to a test phone, a
+  // node left by a killed run): the node then died with EADDRINUSE as "exit 7" (2026-11-07).
+  // Callers use `url`, so a free port serves as well.
+  let port = requestedPort;
+  if (!(await portIsFree(port))) {
+    port = await freePort();
+    console.warn(`[phone-path] port ${requestedPort} is in use; starting the phone node on ${port}`);
+  }
+  const logs = process.env.PHONE_PATH_SERVER_LOGS === '1';
   const child: ChildProcess = spawn(process.execPath, ['scripts/e2e-phone-node.mjs', String(port), String(hubPort)], {
     cwd: repoRoot,
     env: { ...process.env, ...(dataDir ? { PHONE_NODE_DATA_DIR: dataDir } : {}) },
-    stdio: process.env.PHONE_PATH_SERVER_LOGS === '1' ? 'inherit' : 'ignore',
+    stdio: logs ? 'inherit' : ['ignore', 'ignore', 'pipe'],
   });
+  let stderrTail = '';
+  child.stderr?.on('data', (chunk: Buffer) => { stderrTail = (stderrTail + chunk.toString()).slice(-2_000); });
   const url = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 120_000;
   for (;;) {
@@ -348,7 +381,7 @@ export async function startPhoneNode(port: number, hubPort: number, dataDir?: st
     if (up) break;
     if (child.exitCode != null || Date.now() > deadline) {
       child.kill('SIGKILL');
-      throw new Error(`phone node on ${port} did not start (exit ${child.exitCode})`);
+      throw new Error(`phone node on ${port} did not start (exit ${child.exitCode})${stderrTail ? `:\n${stderrTail.trim().split('\n').slice(-8).join('\n')}` : ''}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
