@@ -183,8 +183,15 @@ test.describe('M5 full-layout screenshot tour', () => {
             const target = rowLocator.first();
             await target.scrollIntoViewIfNeeded();
             await page!.waitForTimeout(100);
+            // A re-render can move the list between the scroll and the press, so the press
+            // lands on another row or on a part of the card that takes no long-press: only a
+            // popup that actually opened counts (failed test:all 2026-11-08, 3rd time).
             await longPressTalkRow(page!, target);
-            return true;
+            const popupOpened = await page!.locator('#item-details-popup')
+              .waitFor({ state: 'visible', timeout: 3_000 })
+              .then(() => true, () => false);
+            if (popupOpened) return true;
+            await page!.keyboard.press('Escape').catch(() => undefined);
           } catch {
             await page!.waitForTimeout(500);
           }
