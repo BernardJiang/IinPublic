@@ -1165,8 +1165,9 @@ real-phone run.
    rows in the same compact browser; opening Nearby starts with the group bar (2026-10-20: "Show
    more people here" was replaced by "Meet new people", see "Meeting new people in groups"). The
    current N-is-list headcount and unconditional paging eligibility are superseded by the formula
-   and gates above. Match collection is ambient and defaults on; its opt-out is under Settings
-   rather than a card on this list. Nearby has no chat feed. Web e2e
+   and gates above. Match collection is ambient and defaults on (opt-out under Settings); the
+   outing card (Start, Broadcast, Review, Stop) sits between the people and the rooms on this list
+   (OPEN-98, 2026-11-02: an outing ended mid-walk could otherwise only be reopened over USB). Nearby has no chat feed. Web e2e
    `stage2-two-user/95-nearby-screens`.
 5. **Places on lists.** Place-scoped cards, the hub's per-Place sample, bounded recent chat kept for
    Places; seat claims and cohorts go.

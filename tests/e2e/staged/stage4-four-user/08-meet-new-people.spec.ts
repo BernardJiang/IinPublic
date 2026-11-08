@@ -93,9 +93,11 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
     });
     await expect(adam.locator('[data-testid="nearby-headcount"]')).toHaveText('4 nearby · 5 online');
     const sections = adam.locator('[data-testid="nearby-browser-list"] > section');
-    await expect(sections).toHaveCount(2);
+    // People, then the outing card (OPEN-98: Start/Broadcast/Review/Stop without USB), then rooms.
+    await expect(sections).toHaveCount(3);
     await expect(sections.nth(0)).toHaveAttribute('data-testid', 'nearby-people-section');
-    await expect(sections.nth(1)).toHaveAttribute('data-testid', 'rooms-near-you-section');
+    await expect(sections.nth(1)).toHaveAttribute('data-testid', 'match-collection-card');
+    await expect(sections.nth(2)).toHaveAttribute('data-testid', 'rooms-near-you-section');
     const roomRows = adam.locator('[data-testid="room-list-row"]');
     await expect(roomRows).toHaveCount(3);
     await expect(adam.locator('[data-testid="room-list-sort"]')).toBeVisible();
