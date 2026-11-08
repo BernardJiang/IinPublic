@@ -259,6 +259,7 @@ export function showConversationDetail(
       const capturedLine = FlowCapture.parseChatLine(message);
       let outgoingMessage = message;
       let onStored: (() => void) | undefined;
+      let onFailed: (() => void) | undefined;
       if (capturedLine) {
         const confirmed = await deps.confirmCapturedQuestionDialog(capturedLine);
         if (confirmed) {
@@ -267,19 +268,33 @@ export function showConversationDetail(
             lines: [],
           };
           outgoingMessage = encodeCapturedQuestionMessage(capturedLine);
-          onStored = () => {
-            session.lines.push(message);
-            deps.captureSessionsByConversationId.set(conversationId, session);
+          // Joins the session at once, not when its save lands: the message shows and is
+          // delivered before the save, and a terminator sent in between found no session and
+          // the captured Talk was never made (e2e stage2/31). A failed save takes it out again.
+          session.lines.push(message);
+          deps.captureSessionsByConversationId.set(conversationId, session);
+          onFailed = () => {
+            const at = session.lines.lastIndexOf(message);
+            if (at >= 0) session.lines.splice(at, 1);
+            if (session.lines.length === 0 && deps.captureSessionsByConversationId.get(conversationId) === session) {
+              deps.captureSessionsByConversationId.delete(conversationId);
+            }
           };
         }
       } else {
         const activeSession = deps.captureSessionsByConversationId.get(conversationId);
         if (activeSession) {
-          // FR-TK-7: a non-captured message closes the capture — finalize what's been
-          // gathered so far only after this message has been stored.
+          // FR-TK-7: a non-captured message closes the capture at once — a captured line sent
+          // after it starts a new one — and what was gathered is finalized once this message is
+          // stored. If it is not stored, the capture is open again.
+          deps.captureSessionsByConversationId.delete(conversationId);
           onStored = () => {
-            deps.captureSessionsByConversationId.delete(conversationId);
             deps.emit('finalizeCaptureSession', { conversationId, ...activeSession });
+          };
+          onFailed = () => {
+            if (!deps.captureSessionsByConversationId.has(conversationId)) {
+              deps.captureSessionsByConversationId.set(conversationId, activeSession);
+            }
           };
         }
       }
@@ -292,7 +307,10 @@ export function showConversationDetail(
         message: outgoingMessage,
         ...(deps.getCurrentThreadTalkId() ? { talkId: deps.getCurrentThreadTalkId() } : {}),
         onPersisted: () => onStored?.(),
-        onError: () => { if (!messageInput.value) messageInput.value = message; },
+        onError: () => {
+          onFailed?.();
+          if (!messageInput.value) messageInput.value = message;
+        },
       });
     };
 

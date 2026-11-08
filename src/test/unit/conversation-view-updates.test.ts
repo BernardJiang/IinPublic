@@ -157,6 +157,70 @@ describe('conversation view and list update extraction', () => {
     expect(input.value).toBe('a newer draft');
   });
 
+  it('a terminator sent before the captured line is saved still makes the Talk (e2e stage2/31)', async () => {
+    document.body.innerHTML = `
+      <div id="conversation-detail-overlay" style="display:none"></div>
+      <button id="back-from-conversation"></button>
+      <textarea id="conversation-message-input"></textarea>
+      <button id="send-conversation-message"></button>`;
+    const emit = jest.fn();
+    const sessions = new Map<string, { scopeTalkId: string | undefined; lines: string[] }>();
+    const deps = {
+      getMyConversations: () => ({ c1: { conversationId: 'c1', otherUserId: 'peer', talkId: 'direct' } }),
+      closeMediaGallery: jest.fn(),
+      getCurrentConversationId: () => 'c1',
+      setCurrentConversationId: jest.fn(),
+      getCurrentThreadTalkId: () => undefined,
+      setCurrentThreadTalkId: jest.fn(),
+      captureSessionsByConversationId: sessions,
+      confirmCapturedQuestionDialog: async () => true,
+      currentUserId: 'me',
+      getPeerName: () => 'Peer',
+      resolvePeerStageNameLive: async () => null,
+      t: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
+      updateMatchBadge: jest.fn(),
+      refreshOpenPeerThreadList: jest.fn(),
+      allowOutgoingMessage: () => true,
+      emit,
+    } as unknown as ConversationDetailViewDeps;
+    showConversationDetail('c1', undefined, deps);
+    const input = document.getElementById('conversation-message-input') as HTMLTextAreaElement;
+    const button = document.getElementById('send-conversation-message') as HTMLButtonElement;
+    const sends = () => emit.mock.calls.filter(([event]) => event === 'sendConversationMessage')
+      .map(([, data]) => data as { message: string; onPersisted: () => void; onError: () => void });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    input.value = 'Do you like coffee? Yes; No.';
+    button.click();
+    await settle();
+    expect(sends()).toHaveLength(1); // its save has not landed yet
+    input.value = "Great, let's meet tomorrow.";
+    button.click();
+    await settle();
+    sends()[1].onPersisted();
+    sends()[0].onPersisted();
+    const finalized = emit.mock.calls.filter(([event]) => event === 'finalizeCaptureSession');
+    expect(finalized).toHaveLength(1);
+    expect(finalized[0][1]).toMatchObject({ conversationId: 'c1', lines: ['Do you like coffee? Yes; No.'] });
+    expect(sessions.has('c1')).toBe(false);
+
+    // A captured line whose save fails leaves no capture; a terminator that fails reopens it.
+    input.value = 'Tea? Yes; No.';
+    button.click();
+    await settle();
+    sends()[2].onError();
+    expect(sessions.has('c1')).toBe(false);
+    input.value = 'Milk? Yes; No.';
+    button.click();
+    await settle();
+    input.value = 'ok then';
+    button.click();
+    await settle();
+    expect(sessions.has('c1')).toBe(false);
+    sends()[4].onError();
+    expect(sessions.get('c1')?.lines).toEqual(['Milk? Yes; No.']);
+  });
+
   it('adds a conversation while preserving sticky match metadata', () => {
     const conversations: Record<string, any> = {
       c1: {
