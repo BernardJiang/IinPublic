@@ -6315,6 +6315,14 @@ export class IinPublicApp {
           (page.__iinpublic_graph_events ||= []).push({ ...event, at: Date.now() });
         }
       },
+      // A link that opened after the neighbor connected (their keys came late): what waited for it
+      // is offered now, as on connect — else it waited until they reconnected (native-app/12).
+      onOpened: (peerUserId) => {
+        if (!this.graphWaitingPeers.delete(peerUserId)) return;
+        this.pushGraphOwedToMesh();
+        const roomId = this.currentChatroomId;
+        if (roomId) this.catchUpPeerInActiveRoom(peerUserId, roomId, undefined, { ignoreInterval: true });
+      },
       log: (message) => console.warn(message),
     });
     try {
@@ -7415,6 +7423,20 @@ export class IinPublicApp {
       suppress: false, unlimitedForTesting: true,
     });
     if (!result.known) throw new Error(`offerTalkForE2e: ${talkId} could not be written to the graph`);
+    // As a broadcast does for someone whose link is not open yet: open it and offer again, for a
+    // while. Before, a waiting recipient was reported as offered and never got the Talk.
+    let waiting: string[] = result.waiting ?? [];
+    for (let attempt = 0; waiting.length && attempt < 15; attempt += 1) {
+      await Promise.all(waiting.map((id) => this.graphLinks?.open(id).catch(() => false)));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      const again = await this.coreRequest({
+        name: 'graph.offer', talkId, recipients: waiting, talk: body,
+        context: { roomId: this.chatroomService.getCurrentChatroomId() ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
+        suppress: false, unlimitedForTesting: true,
+      });
+      waiting = again.waiting ?? [];
+    }
+    if (waiting.length) console.warn(`[graph-link] offerTalkForE2e: ${talkId} still waits for a link to ${waiting.length} person(s)`);
     return recipients;
   }
 

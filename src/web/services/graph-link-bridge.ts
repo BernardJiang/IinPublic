@@ -17,6 +17,13 @@ export type GraphLinkMesh = {
 /** How often frames the mesh refused are tried again, and for how long they wait at most. */
 const GRAPH_LINK_RETRY_MS = 250;
 const GRAPH_LINK_HOLD_MS = 10_000;
+/**
+ * A link to a connected neighbor whose keys are not known yet is opened again later: first after
+ * this long, then doubling up to `GRAPH_LINK_KEYS_MAX_MS`, while they stay connected.
+ */
+export const GRAPH_LINK_KEYS_RETRY_MS = 1_000;
+const GRAPH_LINK_KEYS_MAX_MS = 15_000;
+const GRAPH_LINK_KEYS_ATTEMPTS = 12;
 
 export class GraphLinkBridge {
   private running = false;
@@ -27,12 +34,18 @@ export class GraphLinkBridge {
   /** Frames the mesh refused for an open link, oldest first, and since when (see `hold`). */
   private readonly unsent = new Map<string, { since: number; raws: string[] }>();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Neighbors whose link waits for their keys: the next try (see `openWhenKeysKnown`). */
+  private readonly keysWait = new Map<string, { attempt: number; timer: ReturnType<typeof setTimeout> }>();
+  /** How many times each neighbor's link has waited for their keys since they connected. */
+  private readonly keysTried = new Map<string, number>();
 
   constructor(private readonly options: {
     core: CoreRequester;
     mesh: () => GraphLinkMesh | null;
     keys: (userId: string) => Promise<{ pub: string; epub: string } | null>;
     onEvent: (event: GraphEvent) => void;
+    /** A link opened, on connect or later (their keys arrived): offers waiting for it can go. */
+    onOpened?: (userId: string) => void;
     log?: (message: string) => void;
   }) {}
 
@@ -49,6 +62,7 @@ export class GraphLinkBridge {
   stop(): void {
     this.running = false;
     this.unsent.clear();
+    for (const userId of [...this.keysWait.keys()]) this.clearKeysWait(userId);
     if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
   }
 
@@ -63,9 +77,14 @@ export class GraphLinkBridge {
       pending = (async () => {
         try {
           const keys = await this.options.keys(userId);
-          if (!keys?.pub || !keys.epub) return false;
+          if (!keys?.pub || !keys.epub) {
+            this.openWhenKeysKnown(userId);
+            return false;
+          }
           await this.options.core({ name: 'graph.open', peerUserId: userId, pub: keys.pub, epub: keys.epub });
           this.opened.add(userId);
+          this.clearKeysWait(userId);
+          try { this.options.onOpened?.(userId); } catch { /* the app's follow-up must not undo the open */ }
           return true;
         } catch (error) {
           this.options.log?.(`[graph-link] open ${userId.slice(0, 8)} failed: ${(error as Error).message}`);
@@ -79,9 +98,40 @@ export class GraphLinkBridge {
     return pending;
   }
 
+  /**
+   * A neighbor connected before their keys could be found (their public record had not reached the
+   * hub yet, and Nearby v3's hub keeps no roster to read them from). The link was never tried
+   * again: a Talk offered to them waited in my log for as long as the connection lasted, and they
+   * never read it (native-app/12 on every phone, 2026-11-08). Try again with backoff while they
+   * stay connected.
+   */
+  private openWhenKeysKnown(userId: string): void {
+    if (!this.running || this.keysWait.has(userId)) return;
+    const attempt = (this.keysTried.get(userId) ?? 0) + 1;
+    if (attempt > GRAPH_LINK_KEYS_ATTEMPTS) return;
+    this.keysTried.set(userId, attempt);
+    if (attempt === 1) this.options.log?.(`[graph-link] no keys yet for ${userId.slice(0, 8)}: trying again while connected`);
+    const delay = Math.min(GRAPH_LINK_KEYS_RETRY_MS * 2 ** (attempt - 1), GRAPH_LINK_KEYS_MAX_MS);
+    const timer = setTimeout(() => {
+      this.keysWait.delete(userId);
+      if (!this.running || this.opened.has(userId)) return;
+      if (!(this.options.mesh()?.liveNeighborIds() ?? []).includes(userId)) { this.keysTried.delete(userId); return; }
+      void this.open(userId);
+    }, delay);
+    this.keysWait.set(userId, { attempt, timer });
+  }
+
+  private clearKeysWait(userId: string): void {
+    const wait = this.keysWait.get(userId);
+    if (wait) clearTimeout(wait.timer);
+    this.keysWait.delete(userId);
+    this.keysTried.delete(userId);
+  }
+
   /** A direct neighbor's link dropped. */
   close(userId: string): void {
     this.unsent.delete(userId);
+    this.clearKeysWait(userId);
     if (!this.opened.delete(userId)) return;
     void this.options.core({ name: 'graph.close', peerUserId: userId }).catch(() => undefined);
   }

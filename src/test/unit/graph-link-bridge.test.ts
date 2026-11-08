@@ -90,3 +90,52 @@ describe('GraphLinkBridge', () => {
     bridge.stop();
   });
 });
+
+describe('GraphLinkBridge: a neighbor whose keys are not known yet (native-app/12, 2026-11-08)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  const idleCore = () => jest.fn(async (request: any) => {
+    if (request.name === 'graph.pull') return new Promise(() => undefined); // the loop waits
+    return {};
+  });
+
+  test('the link opens once their keys are found, while they stay connected', async () => {
+    const core = idleCore();
+    let keysKnown = false;
+    const mesh = { sendGraphGun: async () => true, liveNeighborIds: () => ['bob'] };
+    const onOpened: string[] = [];
+    const bridge = new GraphLinkBridge({
+      core: core as any, mesh: () => mesh,
+      keys: async () => (keysKnown ? { pub: 'bp', epub: 'be' } : null), onEvent: () => undefined,
+      onOpened: (id) => onOpened.push(id),
+    });
+    await bridge.start({ userId: 'me', pair });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(core.mock.calls.some(([r]) => r.name === 'graph.open')).toBe(false);
+    keysKnown = true; // their public record reached the hub
+    await jest.advanceTimersByTimeAsync(4_000);
+    expect(core.mock.calls.filter(([r]) => r.name === 'graph.open')).toEqual([[{ name: 'graph.open', peerUserId: 'bob', pub: 'bp', epub: 'be' }]]);
+    // …and the app hears it, so the offers that waited for this link go now.
+    expect(onOpened).toEqual(['bob']);
+    bridge.stop();
+  });
+
+  test('it stops trying when they disconnect, or when the bridge stops', async () => {
+    const core = idleCore();
+    let live = ['bob', 'carol'];
+    const keys = jest.fn(async (_userId: string): Promise<{ pub: string; epub: string } | null> => null);
+    const mesh = { sendGraphGun: async () => true, liveNeighborIds: () => live };
+    const bridge = new GraphLinkBridge({ core: core as any, mesh: () => mesh, keys, onEvent: () => undefined });
+    await bridge.start({ userId: 'me', pair });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(keys).toHaveBeenCalledTimes(2);
+    live = ['carol']; // bob dropped
+    bridge.close('bob');
+    await jest.advanceTimersByTimeAsync(1_500);
+    expect(keys.mock.calls.map(([id]) => id)).toEqual(['bob', 'carol', 'carol']);
+    bridge.stop();
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(keys).toHaveBeenCalledTimes(3);
+  });
+});
