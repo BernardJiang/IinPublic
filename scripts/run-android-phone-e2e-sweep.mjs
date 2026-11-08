@@ -381,9 +381,11 @@ try {
       const busyForCellular = new Set([cellular, wifiPeer, sims[1]].filter(Boolean));
       const idle = serials.filter((serial) => !busyForCellular.has(serial));
       const journeyPair = idle.length >= 2 ? idle.slice(0, 2) : firstTwo;
-      const journeyStep = nativeStep(`two-person journeys on ${journeyPair.join(' and ')}: match and chat, mismatch, block, leave`, [
+      const journeyStep = nativeStep(`two-person journeys on ${journeyPair.join(' and ')}: match and chat, mismatch, block, leave, signed chain`, [
         'tests/e2e/native-app/37-android-talk-match-chat-journey.spec.ts',
         'tests/e2e/native-app/38-android-mismatch-block-leave.spec.ts',
+        // OPEN-108: the signed exchange chain and the tamper report (also phone-path/12).
+        'tests/e2e/native-app/39-android-signed-exchange-chain.spec.ts',
       ], {
         ...commonEnv,
         NATIVE_APP_ANDROID_SERIALS: journeyPair.join(','),

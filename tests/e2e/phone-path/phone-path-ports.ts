@@ -19,6 +19,8 @@ export const PHONE_PATH_SPEC_PORTS = {
   /** Accepts connections and never answers: a hung network, not a refused one. */
   hungHub: 18198 + OFFSET,
   hungHubPhone: 18192 + OFFSET,
+  /** phone-path/12: a phone whose stored chain is tampered while it is stopped. */
+  chainPhone: 18193 + OFFSET,
 } as const;
 
 export type PhonePathOrigin = keyof typeof PHONE_PATH_PORTS;

@@ -93,6 +93,9 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-TALK-04 | Non-matching answer → no conversation for either | ✅ `stage3/11` | ✅ `phone-path/04` | — |
 | J-TALK-05 | Blocked person's Talks stop arriving | ✅ `stage2/15b` | ✅ `phone-path/04` | — |
 | J-ANS-01 | Delete my answer from Me: it leaves my Me tab at once; the author's device forgets it and withdraws our conversation ("They deleted their answer") | — | ✅ `phone-path/11` | — |
+| **Signed log (OPEN-108)** | | | | |
+| J-GRAPH-01 | After an exchange each device's own event chain verifies and each holds the other's signed acknowledgement | ✅ `stage2/97` | ✅ `phone-path/12` | ✅ `native-app/39` |
+| J-GRAPH-02 | One of my own events rewritten in the stopped device's store is reported after restart (first bad seq), never repaired | ✅ `stage2/97` | ✅ `phone-path/12` | ✅ `native-app/39` |
 | **Chat** | | | | |
 | J-CHAT-01 | A message sent appears on the other person's screen | ✅ `stage2/09` | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-CHAT-04 | Sending never makes anyone wait: own message at once, Send stays free, arrival within 2 s, even during a slow local save | — | ✅ `phone-path/02` | ✅ `native-app/37` |

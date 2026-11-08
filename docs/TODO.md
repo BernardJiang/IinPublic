@@ -75,7 +75,11 @@ its ID.
   - [x] `where` (blurred cell) on my answers and Talk versions; `mode` / `link` everywhere they are known.
     Done 2026-11-06 (`1bef6767`): locator hook stamps all my events (Talk create/edit/delete, my
     answers/deletions) with the blurred cell + private gps sidecar, signed by the chain.
-    Remaining: wire a live locator into the web worker host (page-provided fix → worker).
+    Live locator wired 2026-11-08 (`9b50fb94`): the page reports its fix to the core
+    (`deviceGraph.setLocation`: real GPS, a Traveler's point, or null with location off), which
+    both the web worker and a phone's node use; a fix older than an hour stamps nothing. The core
+    handler now also forwards `graph.recordEncounter/recordVisit/sendMessage/trimLog` (declared,
+    but unreachable from the page before).
   - [x] Signed acknowledgement `ack: { n, hash, when, sig }` in the pair head; the sender keeps
     acknowledgements (`ix/ack/<peer>`); `reEntry` on answer entries; the arrival event keeps the
     sender's entry `{ n, hash, when }`. Shared time = both signed times; skew over 10 min shown.
@@ -87,7 +91,10 @@ its ID.
   - [ ] E2e: two people exchange, each side proves the other's signed entry and acknowledgement;
     a tampered local event is reported after restart (web, phone path, real phones).
     **Web part done 2026-11-06** (`edd5eaea`, stage2/97-signed-exchange-chain, passes ~50 s).
-    Remaining: phone path and real phones.
+    **Phone path done 2026-11-08**: `phone-path/12-signed-exchange-chain` (journey J-GRAPH-01/02,
+    `tests/e2e/journeys/signed-exchange-chain-journey.ts`; tamper in the stopped node's radata),
+    3/3. Real phones: `native-app/39-android-signed-exchange-chain` (tamper via `run-as`), in the
+    Android sweep's two-person journey step.
 
 - [x] **OPEN-109 — Trim old history with signed checkpoints (spec §31.13 REQ-GRAPH-46..48).** Done
   2026-11-06: checkpoints `0028493d`, history trimming `5c951863`, pair-log trimming `6c64e3a5`.
