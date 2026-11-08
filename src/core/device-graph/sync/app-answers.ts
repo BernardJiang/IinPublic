@@ -288,23 +288,27 @@ export function createAppAnswers(options: {
     async questionMemory(text: string, language = 'en'): Promise<{ selfTag?: string; sourceTalkId?: string }> {
       const norm = (value: unknown) => String(value ?? '').trim().toLowerCase();
       const out: { selfTag?: string; sourceTalkId?: string } = {};
-      let sideFound = false;
       for (const row of await graph.answers.me()) {
         if (norm(row.text) !== norm(text)) continue;
         const question = await store.get(`${prefix}q/${row.questionKey}`);
         if (norm(question?.language || 'en') !== norm(language)) continue;
-        if (!sideFound) {
-          sideFound = true;
-          if (typeof question?.selfTag === 'string' && question.selfTag) out.selfTag = question.selfTag;
-        }
-        for (const { eventId } of row.contexts) {
-          if (out.sourceTalkId) break;
-          const talkSoul = linkSoul((await store.get(event(eventId)))?.talk);
-          const talkId = talkSoul ? talkSoul.slice(event('').length) : '';
-          const mine = talkId ? await store.get(`${prefix}mine/talk/${talkId}`) : null;
-          if (mine && mine.deleted !== true) out.sourceTalkId = await options.ownTalks.appTalkId(talkId);
-        }
-        if (out.sourceTalkId) break;
+        if (typeof question?.selfTag === 'string' && question.selfTag) out.selfTag = question.selfTag;
+        break;
+      }
+      // The source is looked up among my own Talks, not through my latest answer to the question:
+      // the chatbot answering the same question on someone else's Talk replaces that answer's
+      // pointer, and the listing was lost (e2e taxi §JJ: confirming one deal disabled both).
+      let newest = '';
+      for (const talkId of await graph.talks.list()) {
+        const mine = await store.get(`${prefix}mine/talk/${talkId}`);
+        if (!mine || mine.deleted === true) continue;
+        const answered = await graph.answers.answered(talkId);
+        if (!answered || answered <= newest) continue;
+        const talk = await graph.talks.read(talkId);
+        if (!talk || norm(talk.language || 'en') !== norm(language)) continue;
+        if (!talk.questions.some((q) => norm(q.text) === norm(text))) continue;
+        newest = answered;
+        out.sourceTalkId = await options.ownTalks.appTalkId(talkId);
       }
       return out;
     },

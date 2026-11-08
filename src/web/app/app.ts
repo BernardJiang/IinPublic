@@ -7210,10 +7210,16 @@ export class IinPublicApp {
    * active listing" fallback.
    */
   private async resolveResponderSourceTalkIdForAnswers(talkData: any, answers: any[]): Promise<string | undefined> {
-    const lastAnswer = answers?.[answers.length - 1];
-    const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
-    if (!question?.text) return undefined;
-    return this.uiManager.getMySourceTalkIdForQuestionText(question.text, talkData?.language);
+    // Last answered question first. A deal Talk ends with its Pair tag ("Sell" on a driver's Talk),
+    // the same word on every listing and never a question of mine ("Buy" on mine), so the
+    // questions before it are asked too (e2e taxi §JJ).
+    for (const answer of [...(answers ?? [])].reverse()) {
+      const question = talkData?.questions?.find((q: any) => q.id === answer?.questionId);
+      if (!question?.text) continue;
+      const source = await this.uiManager.getMySourceTalkIdForQuestionText(question.text, talkData?.language);
+      if (source) return source;
+    }
+    return undefined;
   }
 
   /** Resolve full talk using the receiver-owned local incoming-talk index. */

@@ -95,6 +95,34 @@ describe('app answers in the device graph', () => {
     expect(d.sync.sendAnswerDeletion).not.toHaveBeenCalled();
   });
 
+  it('which of my listings taught an answer: each question names its own Talk (e2e taxi §JJ)', async () => {
+    const d = setup();
+    const ride = (title: string, q0: string, q1: string) => ({ ...tennis(title), questions: [
+      { ...tennis().questions[0]!, text: q0 }, { ...tennis().questions[1]!, text: q1 }] });
+    const downtown = await d.graph.talks.create(ride('Downtown ride', 'Do you need a ride right now?', 'Do you accept cards?'));
+    const harbor = await d.graph.talks.create(ride('Harbor ride', 'Is the pickup in the Harbor?', 'Is a mobile payment app fine?'));
+    d.own.set('app-downtown', downtown);
+    d.own.set('app-harbor', harbor);
+    await d.app.recordHistory({ ...record('app-downtown', weekly), ...record('app-harbor', weekly) });
+    expect(await d.app.questionMemory('Do you accept cards?')).toMatchObject({ sourceTalkId: 'app-downtown' });
+    expect(await d.app.questionMemory('Is a mobile payment app fine?')).toMatchObject({ sourceTalkId: 'app-harbor' });
+    expect(await d.app.questionMemory('Is the pickup in the Harbor?', 'en')).toMatchObject({ sourceTalkId: 'app-harbor' });
+  });
+
+  it('my listing stays the source after the chatbot answers the same question on someone else\'s Talk (e2e taxi §JJ)', async () => {
+    const d = setup();
+    const listing = { ...tennis('Harbor ride'), questions: [
+      { ...tennis().questions[0]!, text: 'Is the pickup in the Harbor?' }, { ...tennis().questions[1]!, text: 'Is a mobile payment app fine?' }] };
+    const harbor = await d.graph.talks.create(listing);
+    d.own.set('app-harbor', harbor);
+    await d.app.recordHistory(record('app-harbor', weekly));
+    // Frank's driver Talk asks the same questions; my chatbot answers it the same way.
+    const franks = await received(d, 'frank', { ...listing, title: 'Driver - Harbor (Frank)' });
+    await d.app.answerAndSend(franks, 'frank', weekly, 'chatbot');
+    expect(await d.app.questionMemory('Is a mobile payment app fine?')).toMatchObject({ sourceTalkId: 'app-harbor' });
+    expect(await d.app.questionMemory('Is the pickup in the Harbor?')).toMatchObject({ sourceTalkId: 'app-harbor' });
+  });
+
   it('the same Talk from two authors (starter tags) is answered once in the app: each author gets their own answer', async () => {
     const d = setup();
     const fromAnn = await received(d, 'ann');
