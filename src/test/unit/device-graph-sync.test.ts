@@ -300,4 +300,30 @@ describe('Talk exchange by Gun sync', () => {
     // At once, not on a retry timer (that fires a second or more later, and only after a stall).
     await until(() => !joe.sync.owed().includes('ivy-d'), 600);
   });
+
+  it('a head asked for before the other side\'s link was open still arrives when it opens (e2e 05-mailbox)', async () => {
+    const [tom, jerry] = [await device('tom-d'), await device('jerry-d')];
+    void pump();
+    await Promise.all([tom.sync.open('jerry-d'), jerry.sync.open('tom-d')]);
+    const talkId = await tom.graph.talks.create(tennis('Mailbox tennis'));
+    expect(await tom.sync.offerTalk(talkId, ['jerry-d'])).toBe(1);
+    await until(async () => !!(await jerry.graph.arrivals.read(talkId)));
+    await until(async () => (await tom.sync.status('jerry-d')).theirRead === 0);
+
+    // Tom goes offline; Jerry answers, so his log owes Tom an entry.
+    tom.sync.close('jerry-d');
+    jerry.sync.close('tom-d');
+    const received = (await jerry.graph.arrivals.read(talkId))!;
+    const answerId = await jerry.graph.answers.answer({ talkId, structure: received, withUser: 'tom-d', mode: 'manual',
+      steps: [{ questionId: 'q_0', answerIds: ['a_0_0'] }, { questionId: 'q_1', answerIds: ['a_1_0'] }] });
+    await jerry.sync.sendAnswer(answerId);
+    expect(jerry.sync.owed()).toContain('tom-d');
+
+    // Tom's side of the link opens first: his ask for Jerry's head reaches nobody.
+    void tom.sync.open('jerry-d');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await jerry.sync.open('tom-d');
+    await until(async () => (await tom.graph.answers.theirs(talkId))['jerry-d'] === answerId, 5_000);
+    await until(() => !jerry.sync.owed().includes('tom-d'), 5_000);
+  });
 });

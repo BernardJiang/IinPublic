@@ -400,6 +400,15 @@ export function createGraphSync(options: {
     try { root.opt.mesh.say({ '#': crypto.randomHex(9), get: { '#': soul } }, link.peer); } catch { /* the link is going away */ }
   }
 
+  /** Send my head for this pair over the link as it is now (nothing when I have written none). */
+  async function pushMyHead(link: Link): Promise<void> {
+    const soul = mine.head(link.pairTag);
+    await store.get(soul).catch(() => undefined); // loads it into Gun's graph after a restart
+    const node = gun._.graph?.[soul];
+    if (!node) return;
+    try { root.opt.mesh.say({ '#': crypto.randomHex(9), put: { [soul]: node } }, link.peer); } catch { /* the link is going away */ }
+  }
+
   /** Apply every entry of their log I have not applied, in order, proving the chain. */
   function catchUp(peerUserId: string): Promise<void> {
     const link = links.get(peerUserId);
@@ -583,6 +592,9 @@ export function createGraphSync(options: {
       link.off = () => chain.off();
       // A head I hold from an earlier link may be stale: what they wrote while we were apart.
       askFresh(link, graphWireSouls(peerUserId).head(pair.pairTag));
+      // And mine, sent unasked: their ask for it is lost when their side of the link opened
+      // first (mine was not up to hear it), and their copy from before stays stale (e2e 05-mailbox).
+      await pushMyHead(link);
       await catchUp(peerUserId);
     },
 

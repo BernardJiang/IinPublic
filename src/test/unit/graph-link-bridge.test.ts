@@ -63,4 +63,30 @@ describe('GraphLinkBridge', () => {
     expect(sent).toEqual([]);
     bridge.stop();
   });
+
+  test('frames the mesh refuses for an open link are sent, in order, once it can (e2e 05-mailbox)', async () => {
+    let pulls = 0;
+    const core = jest.fn(async (request: any) => {
+      if (request.name === 'graph.pull') {
+        pulls += 1;
+        if (pulls === 2) return { out: [{ to: 'tom', raw: 'my-head' }, { to: 'tom', raw: 'reply' }], events: [] };
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { out: [], events: [] };
+      }
+      return {};
+    });
+    // Tom's new connection is not live on this side yet: the first sends are refused.
+    let live = false;
+    const sent: string[] = [];
+    const mesh = { sendGraphGun: async (_to: string, raw: string) => { if (!live) return false; sent.push(raw); return true; }, liveNeighborIds: () => [] };
+    const bridge = new GraphLinkBridge({ core: core as any, mesh: () => mesh, keys: async () => ({ pub: 'tp', epub: 'te' }), onEvent: () => undefined });
+    await bridge.start({ userId: 'me', pair });
+    await expect(bridge.open('tom')).resolves.toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sent).toEqual([]);
+    live = true;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(sent).toEqual(['my-head', 'reply']);
+    bridge.stop();
+  });
 });
