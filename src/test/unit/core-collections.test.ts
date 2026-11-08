@@ -55,6 +55,42 @@ describe('collections in the device core', () => {
     expect(await b.get('myTalks', 't2')).toEqual({ v: 2 });
   });
 
+  it('a later write of an entry wins in the read copy even when an earlier write is acknowledged last (e2e 00l copy/undo)', async () => {
+    const store = memoryGraphStore();
+    const collections = new CollectionStore(store);
+    await collections.upsert('myTalks', { other: { v: 0 } });
+    expect(await collections.all('myTalks')).toEqual({ other: { v: 0 } });
+    // Storage acknowledges the copy's write only after the undo's removal of the same entry.
+    const put = store.put.bind(store);
+    let releaseCopy: () => void = () => undefined;
+    const copyHeld = new Promise<void>((resolve) => { releaseCopy = resolve; });
+    jest.spyOn(store, 'put').mockImplementation(async (path, value) => {
+      if (value !== null && String(path).endsWith('/t1')) { await put(path, value); await copyHeld; return; }
+      return put(path, value);
+    });
+    const copy = collections.upsert('myTalks', { t1: { role: 'copied' } });
+    await flush();
+    await collections.remove('myTalks', ['t1']);
+    releaseCopy();
+    await copy;
+    expect(await collections.all('myTalks')).toEqual({ other: { v: 0 } });
+
+    // And the other way round: copied again after the undo, while the undo is still unacknowledged.
+    let releaseUndo: () => void = () => undefined;
+    const undoHeld = new Promise<void>((resolve) => { releaseUndo = resolve; });
+    (store.put as jest.Mock).mockImplementation(async (path: string, value: unknown) => {
+      if (value === null && String(path).endsWith('/t2')) { await put(path, value as null); await undoHeld; return; }
+      return put(path, value as Record<string, unknown>);
+    });
+    await collections.upsert('myTalks', { t2: { role: 'copied' } });
+    const undo = collections.remove('myTalks', ['t2']);
+    await flush();
+    await collections.upsert('myTalks', { t2: { role: 'copied', again: true } });
+    releaseUndo();
+    await undo;
+    expect(await collections.all('myTalks')).toEqual({ other: { v: 0 }, t2: { role: 'copied', again: true } });
+  });
+
   it('erases entries left in the layout before buckets, and keeps the bucketed ones', async () => {
     const store = memoryGraphStore();
     const collections = new CollectionStore(store);

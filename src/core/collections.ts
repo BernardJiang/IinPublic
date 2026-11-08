@@ -61,6 +61,35 @@ const caches = new WeakMap<GraphStore, Map<string, CachedCollection>>();
 export class CollectionStore {
   constructor(private readonly store: GraphStore) {}
 
+  /**
+   * The latest write issued per entry (`<name>/<key>`). Writes of one entry can be acknowledged
+   * out of order (an undo right after a copy, e2e 00l); the read copy takes only the latest
+   * issued one, as storage does (a later put wins).
+   */
+  private readonly issued = new Map<string, number>();
+  private issueSeq = 0;
+
+  /** A failed write leaves the copy unsure (an earlier write of its entries was skipped for it): read storage again. */
+  private async written(name: CoreCollection, seqs: Map<string, number>, puts: Promise<unknown>): Promise<void> {
+    try {
+      await puts;
+    } catch (error) {
+      for (const [key, seq] of seqs) if (this.issued.get(`${name}/${key}`) === seq) this.issued.delete(`${name}/${key}`);
+      this.cacheOf().delete(name);
+      throw error;
+    }
+  }
+
+  private issue(name: CoreCollection, keys: string[]): Map<string, number> {
+    const seqs = new Map<string, number>();
+    for (const key of keys) {
+      const seq = ++this.issueSeq;
+      this.issued.set(`${name}/${key}`, seq);
+      seqs.set(key, seq);
+    }
+    return seqs;
+  }
+
   private cacheOf(): Map<string, CachedCollection> {
     let cache = caches.get(this.store);
     if (!cache) { cache = new Map(); caches.set(this.store, cache); }
@@ -81,14 +110,18 @@ export class CollectionStore {
   }
 
   /** A write went to storage: the copy follows (after its first read, if one is under way). */
-  private async noted(name: CoreCollection, changes: Array<[string, string | null]>): Promise<void> {
+  private async noted(name: CoreCollection, changes: Array<[string, string | null]>, seqs: Map<string, number>): Promise<void> {
+    const latest = (key: string) => this.issued.get(`${name}/${key}`) === seqs.get(key);
+    const done = () => { for (const [key] of changes) if (latest(key)) this.issued.delete(`${name}/${key}`); };
     const state = this.cacheOf().get(name);
-    if (!state) return;
+    if (!state) { done(); return; }
     await state.ready.catch(() => undefined);
     for (const [key, json] of changes) {
+      if (!latest(key)) continue; // a later write of this entry was issued meanwhile: it decides
       if (json === null) state.entries.delete(key);
       else state.entries.set(key, json);
     }
+    done();
   }
 
   async all(name: string): Promise<Record<string, unknown>> {
@@ -136,15 +169,17 @@ export class CollectionStore {
   async upsert(name: string, entries: Record<string, unknown>): Promise<number> {
     assertCollection(name);
     const changes = Object.entries(entries).map(([key, value]) => [key, JSON.stringify(value)] as [string, string]);
-    await Promise.all(changes.map(([key, json]) => this.store.put(entryPath(name, key), { key, json })));
-    await this.noted(name, changes);
+    const seqs = this.issue(name, changes.map(([key]) => key));
+    await this.written(name, seqs, Promise.all(changes.map(([key, json]) => this.store.put(entryPath(name, key), { key, json }))));
+    await this.noted(name, changes, seqs);
     return changes.length;
   }
 
   async remove(name: string, keys: string[]): Promise<number> {
     assertCollection(name);
-    await Promise.all(keys.map((key) => this.store.put(entryPath(name, key), null)));
-    await this.noted(name, keys.map((key) => [key, null]));
+    const seqs = this.issue(name, keys);
+    await this.written(name, seqs, Promise.all(keys.map((key) => this.store.put(entryPath(name, key), null))));
+    await this.noted(name, keys.map((key) => [key, null]), seqs);
     return keys.length;
   }
 
