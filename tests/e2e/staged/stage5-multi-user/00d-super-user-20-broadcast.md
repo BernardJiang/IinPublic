@@ -16,7 +16,10 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.1  <!-- auto-seeded; refine by hand -->
    - 10 flow-type talks (from `TALK_TITLES` list)
    All are created with 1 question each, matching/ignoring answers, and self-answers set to match.
 
-3. **Tom joins Global.** Waits for pair-direct broadcast delivery and confirms Tom's local incoming index has received talks.
+3. **Tom joins Nearby; Alice broadcasts.** Creating a Talk does not send it: Alice broadcasts (📣) once
+   Tom is on her Nearby list. One author sends one person at most 10 distinct Talks a day
+   (`TALK_SEND_DAILY`), so the spec lifts Alice's limit (`setTalkLedgerQuotaUnlimitedForE2e`). The
+   spec waits until all 20 Talks are in Tom's incoming list (an answer given before arrival is dropped).
 
 4. **Tom completes all 20 talks** using `completeTalksInAppByAnswerIds` — each talk is opened and answered with the matching answer. Timeout extended to 120 seconds.
 
@@ -34,4 +37,4 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.1  <!-- auto-seeded; refine by hand -->
 
 ---
 
-**Helpers used:** `clearGunDatabases`, `bootstrapSuperUser`, `createTalksFromCompanyPage`, `completeTalksInAppByAnswerIds`, `waitForTabActive`, `countIncomingTalkSlots`
+**Helpers used:** `clearGunDatabases`, `bootstrapSuperUser`, `createTalksFromCompanyPage`, `deliverPendingBroadcastTalksForE2e`, `completeTalksInAppByAnswerIds`, `waitForTabActive`

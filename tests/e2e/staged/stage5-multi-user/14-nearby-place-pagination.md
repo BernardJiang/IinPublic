@@ -16,7 +16,7 @@ The first San Diego user then exchanges one tag Talk per page:
 
 For every tag: each person on the current page receives it and likes it, the author collects
 exactly those likes (one match conversation per person), then disables the tag (the Talks-tab
-broadcast toggle's action: withdraw + retract) before the next exchange. After a pause no one else among the 20 holds that tag, and no earlier
+broadcast toggle's action: withdraw + retract) before the next exchange. After a pause no one else among the 20 holds that tag (the retraction usually removes it from the page too), and no earlier
 (disabled) tag has reached anyone outside its own page — without disabling, a new page would catch
 up on the author's still-active older tags.
 

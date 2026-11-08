@@ -111,6 +111,9 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await ensureChatroomList(pageTechSupport);
     await openCurrentChatroom(pageTechSupport);
     await afterNav();
+    // One author sends one person at most 10 distinct Talks a day (TALK_SEND_DAILY); this spec
+    // sends Tom 20.
+    await pageTechSupport.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));
 
     console.log('\n📍 STEP 2–3: Alice creates 10 tags + 10 talks');
     const tagPayloads = TAG_NAMES.map((title) => ({
@@ -174,10 +177,47 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     );
     expect(tomUserId.length, 'Tom user id for end-of-flow checks').toBeGreaterThan(0);
 
+    // Creating a Talk does not send it: it reaches people only through a deliberate broadcast (📣),
+    // and catch-up later resends only Talks already broadcast here. Alice broadcasts once Tom is
+    // on her Nearby list.
+    let broadcast: { talksSent?: number; receivers?: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          broadcast = await pageTechSupport.evaluate(async () => {
+            try {
+              return await (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(1);
+            } catch {
+              return null;
+            }
+          });
+          return broadcast?.receivers ?? 0;
+        },
+        { message: 'Alice should broadcast her 20 Talks to Tom', timeout: 60_000, intervals: [1_000, 2_000] },
+      )
+      .toBe(1);
+    expect(broadcast!.talksSent, 'Alice broadcasts all 20 Talks').toBe(20);
+
     console.log('\n📍 STEP 6–7: Tom completes all 20 talks through the app completion path');
 
     await pageTom.click('.nav-btn[data-view="talks"]');
     await waitForTabActive(pageTom, 'talks');
+    // An answer given before the Talk reaches Tom's device graph is dropped (OPEN-106): wait for
+    // all 20 to arrive first.
+    const wanted = createdTalks.map((talk) => String(talk.talkId));
+    await expect
+      .poll(
+        async () => {
+          const held: string[] = await pageTom.evaluate(async () => {
+            const clusters = (await (window as any).__iinpublic_app?.getApp?.()?.getLocalIncomingClustersForE2e?.()) ?? [];
+            return clusters.flatMap((c: any) => [String(c?.latestTalkId || '').split('__')[0], ...Object.keys(c?.talkIds || {}).map((k) => k.split('__')[0])]);
+          });
+          const missing = createdTalks.filter((talk) => !held.includes(String(talk.talkId))).map((talk) => talk.talkData?.title);
+          return missing.length === 0 ? 'ok' : `arrived ${wanted.length - missing.length}/20; missing ${missing.join(', ')}`;
+        },
+        { message: 'all 20 of Alice\'s Talks should reach Tom', timeout: 90_000, intervals: [1_000] },
+      )
+      .toBe('ok');
     await completeTalksInAppByAnswerIds(
       pageTom,
       createdTalks.map((talk) => ({

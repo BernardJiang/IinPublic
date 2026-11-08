@@ -231,8 +231,11 @@ class TalkExchanges {
       person,
       titles: new Set((await incomingTalks(person.page)).map((entry) => entry.title)),
     })));
-    const holders = holdings.filter(({ titles }) => titles.has(title)).map(({ person }) => person.userId).sort();
-    expect(holders, `only the people on this page should hold ${title}`).toEqual([...pageIds].sort());
+    // Retraction works since OPEN-106, so the page usually no longer holds it either.
+    const outsiders = holdings
+      .filter(({ person, titles }) => titles.has(title) && !pageIds.includes(person.userId))
+      .map(({ person }) => person.name);
+    expect(outsiders, `only the people on this page may hold ${title}`).toEqual([]);
     for (const [earlier, itsPage] of this.sent) {
       if (earlier === title) continue;
       const leaked = holdings
