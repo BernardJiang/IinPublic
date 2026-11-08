@@ -97,7 +97,8 @@ const failures = [];
 if (files.length === 0) failures.push('No tests were found.');
 if ((byLane['host-jest-core'] || 0) !== jestFiles.length) failures.push('Some Jest tests were not classified.');
 if (!byLane['android-real-device']) failures.push('No existing Android real-device specs were found.');
-if (portableContractIds.length < 6) failures.push('Portable core contract set unexpectedly shrank below six cases.');
+// Five since Nearby v2's FIFO-capacity contract went with v2 (131ba846, OPEN-70).
+if (portableContractIds.length < 5) failures.push('Portable core contract set unexpectedly shrank below five cases.');
 if (new Set(portableContractIds).size !== portableContractIds.length) failures.push('Portable contract ids must be unique.');
 const missingPortable = [...portableJestFiles].filter((file) => !files.some((entry) => entry.file === file));
 if (missingPortable.length) failures.push(`suites.json lists unit files that no longer exist: ${missingPortable.join(', ')} (rerun --select)`);
