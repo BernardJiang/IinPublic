@@ -15,7 +15,15 @@ export interface GraphStore {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type GunReadOptions = { getTimeoutMs?: number; readWaitMs?: number; missWaitMs?: number };
+export type GunReadOptions = { getTimeoutMs?: number; readWaitMs?: number; missWaitMs?: number; reaskMs?: number };
+
+/**
+ * How long a read waits for storage before asking again. Gun 0.2020's radisk loses the answer to
+ * some of several concurrent reads of absent souls loaded from disk: the callback never comes,
+ * though the same read asked again answers at once (3 of 4 such reads in a fresh process,
+ * reproduced 2026-11-08; the Android sweep's matrix 06 failed on it on every native core).
+ */
+export const GUN_READ_REASK_MS = 500;
 
 /** One node by soul, as Gun's storage answers it: the raw node with `_`, or null when absent. */
 export function gunNodeReader(gun: any, options: GunReadOptions = {}): (soul: string) => Promise<any> {
@@ -26,15 +34,28 @@ export function gunNodeReader(gun: any, options: GunReadOptions = {}): (soul: st
   // A node that does not exist answers at once (undefined); no answer at all means storage is slow
   // or busy — an error, so the caller can retry rather than mistake it for "nothing here".
   // Gun's `once(cb, { wait })` always waits the whole `wait` before calling back, found or not.
+  // A read storage never answered is asked again (GUN_READ_REASK_MS) until the overall timeout.
   const onceWithin = (path: string, wait: number): Promise<any> => new Promise((resolve, reject) => {
     let done = false;
-    const timer = setTimeout(() => { if (!done) { done = true; reject(new Error(`storage did not answer for ${path}`)); } }, options.getTimeoutMs ?? 6000);
-    gun.get(soul(path)).once((data: any) => {
+    let reask: ReturnType<typeof setTimeout> | undefined;
+    const timer = setTimeout(() => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
-      resolve(data ?? null);
-    }, { wait });
+      if (reask) clearTimeout(reask);
+      reject(new Error(`storage did not answer for ${path}`));
+    }, options.getTimeoutMs ?? 6000);
+    const ask = (): void => {
+      gun.get(soul(path)).once((data: any) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (reask) clearTimeout(reask);
+        resolve(data ?? null);
+      }, { wait });
+      const every = options.reaskMs ?? GUN_READ_REASK_MS;
+      if (every > 0) reask = setTimeout(() => { if (!done) ask(); }, wait + every);
+    };
+    ask();
   });
   // So a read waits briefly, which is enough for a node in storage. Only a miss waits longer: a
   // cold worker reading IndexedDB through radisk can report "not found" before the node loads,
