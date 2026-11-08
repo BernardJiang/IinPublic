@@ -65,3 +65,28 @@ describe('LocationPrivacy.getCurrentLocation on Android', () => {
     expect(asked).not.toHaveBeenCalled();
   });
 });
+
+describe('LocationPrivacy.getCurrentLocation when nobody answers the permission prompt (native-app/06)', () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Firefox with a pending prompt: getCurrentPosition calls neither callback, its timeout never runs.
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { geolocation: { getCurrentPosition: () => undefined } } });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator);
+  });
+
+  it('gives up a little after its own timeout instead of waiting for good', async () => {
+    const read = LocationPrivacy.getCurrentLocation();
+    const outcome = read.then(() => 'resolved', (error) => `rejected ${error.code}`);
+    await jest.advanceTimersByTimeAsync(11_000);
+    let settled = false;
+    void outcome.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1_500);
+    await expect(outcome).resolves.toBe('rejected 3');
+  });
+});

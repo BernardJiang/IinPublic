@@ -37,6 +37,9 @@ export function nativeLastLocation(maxAgeMs: number, nowMs: number = Date.now())
   }
 }
 
+/** How long the browser's geolocation may take once permission is settled. */
+const GEOLOCATION_TIMEOUT_MS = 10_000;
+
 export class LocationPrivacy {
 
   /**
@@ -220,16 +223,33 @@ export class LocationPrivacy {
       if (fresh) return fresh;
       const nav = (globalThis as any).navigator;
       return new Promise((resolve, reject) => {
+        // The `timeout` option only runs once the person has answered the permission prompt: in
+        // Firefox a prompt nobody answers calls neither callback, and every caller waited for good
+        // (a browser's Broadcast hung, native-app/06 on 2026-11-08). Give up a little after it.
+        let settled = false;
+        const guard = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          const fallback = nativeLastLocation(NATIVE_FALLBACK_FIX_MS);
+          if (fallback) resolve(fallback);
+          else reject(Object.assign(new Error('Location error: no answer (permission prompt pending?)'), { code: 3 }));
+        }, GEOLOCATION_TIMEOUT_MS + 2_000);
+        const done = (finish: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(guard);
+          finish();
+        };
         nav.geolocation.getCurrentPosition(
-          (position: any) => {
+          (position: any) => done(() => {
             resolve({
               latitude: position.coords.latitude,
               longitude: position.coords.longitude,
               accuracy: position.coords.accuracy,
               timestamp: new Date()
             });
-          },
-          (error: any) => {
+          }),
+          (error: any) => done(() => {
             // A slow or failed WebView fix: take the platform's, if it has a reasonably recent one.
             const fallback = error?.code !== 1 ? nativeLastLocation(NATIVE_FALLBACK_FIX_MS) : null;
             if (fallback) {
@@ -239,10 +259,10 @@ export class LocationPrivacy {
             // Keep the GeolocationPositionError code: 1 (PERMISSION_DENIED) means a saved fix can
             // no longer be refreshed, which callers treat differently from a slow or failed fix.
             reject(Object.assign(new Error(`Location error: ${error.message}`), { code: error?.code }));
-          },
+          }),
           {
             enableHighAccuracy: true,
-            timeout: 10000,
+            timeout: GEOLOCATION_TIMEOUT_MS,
             maximumAge: 60000
           }
         );

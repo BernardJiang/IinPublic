@@ -332,6 +332,9 @@ function manifestRoomCheckpoint(controller: { roomCheckpoint(baseline: RoomProto
   return capacity === null ? checkpoint : { ...checkpoint, chatroomCapacity: capacity };
 }
 
+/** How long a Broadcast waits for a fresh location fix before using the confirmed one. */
+const BROADCAST_FIX_WAIT_MS = 3_000;
+
 export class IinPublicApp {
   private gunService: WebGunService;
   private userService: WebUserService;
@@ -1929,8 +1932,14 @@ export class IinPublicApp {
       const point = this.nearbyPublicPoint();
       return point ? { source: 'traveler', point } : { source: 'unavailable' };
     }
+    // A Broadcast does not wait long for a fresh fix: the one the app already confirmed stands in
+    // (a browser's location prompt nobody answered held every Broadcast, native-app/06).
+    const confirmed = this.locationConfirmed ? this.currentLocation : undefined;
     try {
-      const fix = await readDeviceLocation();
+      const fix = await Promise.race([
+        readDeviceLocation(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no fresh fix in time')), BROADCAST_FIX_WAIT_MS)),
+      ]).catch((error) => { if (confirmed) return confirmed; throw error; });
       const point = publicLocationFor(fix, this.effectiveNearbyMode());
       return point ? { source: 'gps', point } : { source: 'unavailable' };
     } catch {
