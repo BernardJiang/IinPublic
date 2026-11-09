@@ -8,6 +8,7 @@ import { afterCreateTalkBeforeBroadcast, afterSync, E2E_ASSERT_TIMEOUT_MS } from
 import {
   openIncomingTalkModal,
   openIncomingTalkModalByTalkId,
+  waitForIncomingTalkId,
   waitForResponseModalClosed,
   waitForTabActive,
 } from './talks-matching-flow';
@@ -1113,8 +1114,14 @@ export async function completeTalkInAppByAnswerIds(
   answerIds: string[],
   outcome: 'match' | 'mismatch',
   mode: 'manual' | 'auto' = 'manual',
+  options: { waitForArrival?: boolean | undefined } = {},
 ): Promise<void> {
   const answers = answersForIds(talkData, answerIds, mode);
+  // A person can only answer a Talk that reached their device. Answered from the author's copy
+  // before its offer landed, the answer had no received Talk to go to and was never sent (stage5
+  // HR route: one answer of four missing at the author). Specs that answer a Talk never sent to
+  // this page (the app's local completion path) leave this off.
+  if (options.waitForArrival && isDirectTalkDeliveryE2e()) await waitForIncomingTalkId(page, talkId);
   await page.evaluate(
     ({ talk, completedAnswers, completedOutcome }) => {
       const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
@@ -1154,10 +1161,12 @@ export async function completeTalkInAppByAnswerIds(
 
 export async function completeTalksInAppByAnswerIds(
   page: Page,
-  completions: Array<{ talkId: string; talkData: any; answerIds: string[]; outcome: 'match' | 'mismatch'; mode?: 'manual' | 'auto' }>,
+  completions: Array<{ talkId: string; talkData: any; answerIds: string[]; outcome: 'match' | 'mismatch'; mode?: 'manual' | 'auto';
+    /** The Talk was broadcast to this page: answer it only once it reached the device. */
+    waitForArrival?: boolean }>,
 ): Promise<void> {
-  for (const { talkId, talkData, answerIds, outcome, mode } of completions) {
-    await completeTalkInAppByAnswerIds(page, talkId, talkData, answerIds, outcome, mode ?? 'manual');
+  for (const { talkId, talkData, answerIds, outcome, mode, waitForArrival } of completions) {
+    await completeTalkInAppByAnswerIds(page, talkId, talkData, answerIds, outcome, mode ?? 'manual', { waitForArrival });
   }
 }
 

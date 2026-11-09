@@ -173,6 +173,7 @@ test.describe('Route talk: HR hiring — sender correctly detects match vs. mism
           talkData: talk.talkData,
           answerIds: c.path.map((id) => idMap[id] ?? id),
           outcome: c.expectMatch ? 'match' : 'mismatch',
+          waitForArrival: true,
         },
       ]);
     }
