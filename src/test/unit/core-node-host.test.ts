@@ -1,4 +1,7 @@
 /** OPEN-91 P5: the device core hosted by the embedded node, and the move from the WebView's worker. */
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import express from 'express';
 import request from 'supertest';
 import { localNodeToken, registerCoreRoutes } from '../../server/routes/core-routes';
@@ -33,10 +36,19 @@ describe('the node core route', () => {
     const server = express();
     server.use(express.json());
     const gun = { get: () => ({ once: () => undefined }), _: { next: { local: {}, 'local/device/x': {}, 'users/u1/private': {}, 'users/u1': {}, 'public/cards': {}, talks: {}, unreviewed: {}, '~pub/answers/private': {} } } };
-    const core = registerCoreRoutes(server, gun, TOKEN, '/nonexistent-data-dir');
-    core.resetForTesting();
-    // Unknown/legacy Talk roots and signed private answer memory are device-local too.
-    expect(Object.keys(gun._.next).sort()).toEqual(['public/cards', 'users/u1']);
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-node-host-'));
+    try {
+      fs.mkdirSync(path.join(dataDir, 'radata'));
+      fs.writeFileSync(path.join(dataDir, 'radata', '!'), 'previous user');
+      const core = registerCoreRoutes(server, gun, TOKEN, dataDir);
+      await core.resetForTesting();
+      // Unknown/legacy Talk roots and signed private answer memory are device-local too.
+      expect(Object.keys(gun._.next).sort()).toEqual(['public/cards', 'users/u1']);
+      // The previous user's files are gone too; the store folder stays for the next write.
+      expect(fs.readdirSync(path.join(dataDir, 'radata'))).toEqual([]);
+    } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
     const response = await request(server).post('/api/core').set('authorization', `Bearer ${TOKEN}`).send({ request: { name: 'exchanges.snapshot' } }).expect(200);
     expect(response.body.value).toEqual([]);
   });

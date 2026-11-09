@@ -114,8 +114,10 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
       // Writes still queued when the files go would recreate them: let radisk flush first
       // (it batches for `until`, 250 ms by default).
       await new Promise((resolve) => setTimeout(resolve, RADISK_FLUSH_WAIT_MS));
-      fs.rmSync(radata, { recursive: true, force: true });
-      fs.mkdirSync(radata, { recursive: true });
+      if (fs.existsSync(dataDir)) {
+        fs.rmSync(radata, { recursive: true, force: true });
+        fs.mkdirSync(radata, { recursive: true });
+      }
       const rad = (Radisk as any).has?.[String((gun as any)?._?.opt?.file ?? 'radata')];
       if (rad) rad.disk = {};
       forgetDeviceSouls(gun);
