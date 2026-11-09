@@ -15,6 +15,7 @@ import { createCoreHandler } from '../../core/core-handler';
 import { gunNodeStore } from '../../core/device-graph/node-store';
 import { seaGraphCrypto } from '../../core/device-graph/sync/sea-crypto';
 import SEA from 'gun/sea';
+import Radisk from 'gun/lib/radisk';
 import { gunGraphStore } from '../../core/graph-store';
 import type { CoreRequest } from '../../core/protocol';
 import { soulLeavesDevice } from '../../core/sharing-policy';
@@ -39,6 +40,9 @@ async function directoryBytes(dir: string): Promise<number | undefined> {
   }
 }
 
+/** Longer than radisk's write batch (`until`, 250 ms), so a test wipe never races a queued write. */
+const RADISK_FLUSH_WAIT_MS = 1000;
+
 /** A node whose Gun has never stored anything (no radata yet): snapshots are empty until a write. */
 function freshDataDir(dataDir: string): boolean {
   try {
@@ -59,7 +63,7 @@ function forgetDeviceSouls(gun: any): void {
 }
 
 /** The node's device core. `resetForTesting` is a wiped device (e2e clear-database). */
-export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): { resetForTesting: () => void } {
+export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): { resetForTesting: () => Promise<void> } {
   // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
   const store = () => gunGraphStore(gun, { missWaitMs: 0 });
   const allowTestOverrides = process.env.E2E_GUN_MEMORY_ONLY === '1';
@@ -100,7 +104,20 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   }
 
   return {
-    resetForTesting: () => {
+    resetForTesting: async () => {
+      // A wiped device has nothing in storage either. Left there, the previous user's device id,
+      // chain head and events were read back by the next user's core, whose chain then failed its
+      // signature check at seq 0 (phone-path 12 after any spec on the same phone). Three places hold
+      // them: Gun's memory, radisk's write queue and parsed-file cache, and this node's radata
+      // (under its data dir, which the hub's clear of radata under cwd may not reach).
+      forgetDeviceSouls(gun);
+      // Writes still queued when the files go would recreate them: let radisk flush first
+      // (it batches for `until`, 250 ms by default).
+      await new Promise((resolve) => setTimeout(resolve, RADISK_FLUSH_WAIT_MS));
+      fs.rmSync(radata, { recursive: true, force: true });
+      fs.mkdirSync(radata, { recursive: true });
+      const rad = (Radisk as any).has?.[String((gun as any)?._?.opt?.file ?? 'radata')];
+      if (rad) rad.disk = {};
       forgetDeviceSouls(gun);
       handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides, deviceGraph: deviceGraph() });
     },

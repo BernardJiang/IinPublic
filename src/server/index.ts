@@ -229,7 +229,7 @@ class IinPublicServer {
   }
 
   /** The device core on an embedded node (OPEN-91 P5); absent on the hub. */
-  private deviceCore: { resetForTesting: () => void } | null = null;
+  private deviceCore: { resetForTesting: () => Promise<void> } | null = null;
 
   private clearForTesting(): void {
     this.broadcastTagPopularityStore.resetForTesting();
@@ -254,7 +254,7 @@ class IinPublicServer {
         // from the ephemeral graph on purpose, so it needs its own explicit reset too.
         await this.presenceStore.resetForTesting();
         // An embedded node is a device: a wipe must also forget its owner (OPEN-91 P5 core).
-        this.deviceCore?.resetForTesting();
+        await this.deviceCore?.resetForTesting();
         await this.publishPublicBootstrap();
       },
       nodeEnv: process.env.NODE_ENV,
