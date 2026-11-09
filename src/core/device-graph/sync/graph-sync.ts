@@ -38,6 +38,10 @@ import { LOG_BLOCK, graphWireSouls, pairTagOf } from './wire-names';
 /** A chat message body is small and well-formed: bounded text, a sane conv id, a real event id. */
 export const MESSAGE_TEXT_MAX = 4000;
 export const MESSAGE_CONV_MAX = 200;
+/** While someone owes me an acknowledgement over an open link, my head is sent again: first after
+ * this many ms, doubling up to the max. */
+export const OWED_RESEND_MS = 3_000;
+export const OWED_RESEND_MAX_MS = 30_000;
 const validMessage = (message: { conv?: unknown; text?: unknown; eventId?: unknown }): message is { conv: string; text: string; eventId: string; re?: string } =>
   typeof message.conv === 'string' && message.conv.length > 0 && message.conv.length <= MESSAGE_CONV_MAX && !message.conv.includes('/')
   && typeof message.text === 'string' && message.text.length <= MESSAGE_TEXT_MAX
@@ -157,6 +161,8 @@ export function createGraphSync(options: {
     /** Log blocks with a live subscription: a once-read lease expires, and later writes to the
      * same block would then be refused as unasked-for and never fetched again from the cache. */
     watched?: Map<string, any>;
+    /** While they owe me an acknowledgement: my head is sent again after this many ms. */
+    owedMs?: number | undefined; owedTimer?: ReturnType<typeof setTimeout> | undefined;
   };
   const links = new Map<string, Link>();
   const secrets = new Map<string, { keys: PeerKeys; secret: string; pairTag: string }>();
@@ -214,8 +220,29 @@ export function createGraphSync(options: {
       ]);
       owed.set(peerUserId, n);
       options.events?.onOwedChange?.([...owed.keys()]);
+      const link = links.get(peerUserId);
+      if (link) { link.owedMs = undefined; resendWhileOwed(peerUserId, link); }
       return n;
     });
+  }
+
+  /**
+   * Gun sends a write over a link once. A push that left while the connection under the link was
+   * being replaced is lost without the link closing, so nothing caught up: their device never
+   * learned of my entry, and an answer to their Talk was missing there for good (stage5 HR route,
+   * 2 answers at once). While they owe me an acknowledgement, send my head again with backoff, and
+   * ask for theirs (their acknowledgement may have been lost the same way).
+   */
+  function resendWhileOwed(peerUserId: string, link: Link): void {
+    if (link.owedTimer || !owed.has(peerUserId)) return;
+    link.owedMs = Math.min(OWED_RESEND_MAX_MS, link.owedMs ? link.owedMs * 2 : OWED_RESEND_MS);
+    link.owedTimer = setTimeout(() => {
+      link.owedTimer = undefined;
+      if (links.get(peerUserId) !== link || !owed.has(peerUserId)) { link.owedMs = undefined; return; }
+      askFresh(link, graphWireSouls(peerUserId).head(link.pairTag));
+      void pushMyHead(link).catch(() => undefined).finally(() => resendWhileOwed(peerUserId, link));
+    }, link.owedMs);
+    (link.owedTimer as { unref?: () => void }).unref?.();
   }
 
   /** The wire nodes of one version of my Talk, written once; returns its tag and key. */
@@ -595,6 +622,7 @@ export function createGraphSync(options: {
       // And mine, sent unasked: their ask for it is lost when their side of the link opened
       // first (mine was not up to hear it), and their copy from before stays stale (e2e 05-mailbox).
       await pushMyHead(link);
+      resendWhileOwed(peerUserId, link);
       await catchUp(peerUserId);
     },
 
@@ -604,6 +632,7 @@ export function createGraphSync(options: {
       if (!link) return;
       links.delete(peerUserId);
       if (link.retryTimer) clearTimeout(link.retryTimer);
+      if (link.owedTimer) clearTimeout(link.owedTimer);
       for (const chain of link.watched?.values() ?? []) chain.off();
       link.off?.();
       root.opt.mesh.bye(link.peer);

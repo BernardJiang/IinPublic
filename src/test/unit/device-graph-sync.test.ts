@@ -253,6 +253,25 @@ describe('Talk exchange by Gun sync', () => {
     await until(async () => !!(await bob.graph.arrivals.read(second)));
   });
 
+  it('an entry whose every frame was lost while the link stayed open still arrives (stage5 HR route)', async () => {
+    const [eve, hal] = [await device('eve-d'), await device('hal-d')];
+    void pump();
+    await Promise.all([eve.sync.open('hal-d'), hal.sync.open('eve-d')]);
+    const first = await eve.graph.talks.create(tennis('First padel'));
+    expect(await eve.sync.offerTalk(first, ['hal-d'])).toBe(1);
+    await until(async () => !!(await hal.graph.arrivals.read(first)));
+    await until(() => !eve.sync.owed().includes('hal-d'));
+    // The connection under the link is replaced: Eve's head and entry are both lost, the link is
+    // never closed, and nothing else is written by either side afterwards.
+    dropped.add('eve-d>hal-d');
+    const second = await eve.graph.talks.create(tennis('Second padel'));
+    expect(await eve.sync.offerTalk(second, ['hal-d'])).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    dropped.delete('eve-d>hal-d');
+    await until(async () => !!(await hal.graph.arrivals.read(second)), 10_000);
+    await until(() => !eve.sync.owed().includes('hal-d'), 10_000);
+  });
+
   it('knows only people whose keys it holds, so an offer to someone never linked can wait', async () => {
     const [kim, lee] = [await device('kim-d'), await device('lee-d')];
     expect(await kim.sync.knows(lee.userId)).toBe(true);
