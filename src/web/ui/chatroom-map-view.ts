@@ -523,11 +523,22 @@ function addCurrentHierarchyMarker(maplibre: MapLibre, state: MapState): void {
   state.markers.push(marker);
 }
 
+/** My source's room/cluster points, one each, in a stable order. Not `queryRenderedFeatures`: its
+ *  symbol pass ignores the layer filter and decodes every basemap label tile (0.8 s on a Honor FRD
+ *  at start-up, 2026-11-09); my two circle layers cover the whole source anyway. */
+function roomSourceFeatures(state: MapState): import('maplibre-gl').GeoJSONFeature[] {
+  const byKey = new Map<string, import('maplibre-gl').GeoJSONFeature>();
+  for (const feature of state.map.querySourceFeatures(SOURCE_ID)) {
+    const props = feature.properties || {};
+    const key = props.cluster ? `cluster:${props.cluster_id}` : `room:${props.chatroomId}`;
+    if (!byKey.has(key)) byKey.set(key, feature);
+  }
+  return [...byKey.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, feature]) => feature);
+}
+
 function rebuildHtmlMarkers(maplibre: MapLibre, state: MapState): number {
   if (!state.loaded) return 0;
-  const renderedFeatures = state.map.queryRenderedFeatures({
-    layers: [CLUSTER_LAYER_ID, ROOM_LAYER_ID],
-  });
+  const renderedFeatures = roomSourceFeatures(state);
   const signature = JSON.stringify([
     state.options.currentChatroom,
     state.map.getZoom() < EMPTY_PLACE_MIN_ZOOM,

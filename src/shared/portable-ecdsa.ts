@@ -101,14 +101,85 @@ function privToScalar(priv: string): Uint8Array {
   return scalar;
 }
 
+/**
+ * Native WebCrypto when this process has it (browser page, worker, Android WebView on its loopback
+ * secure context, modern Node). Pure-JS P-256 costs ~0.7 s per verify on an older phone, and the
+ * page verifies every signalling envelope that arrives while the app starts: a 4–5 s main-thread
+ * freeze on a Honor FRD (2026-11-09) that swallowed tab taps. WebCrypto did 20 sign+verify pairs
+ * in 48 ms on the same phone. Signatures are the same 64-byte r||s (IEEE P1363) either way, and
+ * noble's P-256 verify accepts the high-S signatures WebCrypto may produce (`lowS: false`).
+ * The embedded nodejs-mobile server (no working WebCrypto) keeps the pure-JS path.
+ */
+let webCryptoAllowed = true;
+
+/** Tests only: force the pure-JS path (false) or allow WebCrypto again (true). */
+export function setPortableEcdsaWebCryptoForTests(allowed: boolean): void {
+  webCryptoAllowed = allowed;
+  verifyKeys.clear();
+  signKeys.clear();
+}
+
+function webCryptoSubtle(): SubtleCrypto | undefined {
+  if (!webCryptoAllowed) return undefined;
+  const subtle = (globalThis as { crypto?: { subtle?: SubtleCrypto } }).crypto?.subtle;
+  return subtle && typeof subtle.importKey === 'function' && typeof subtle.verify === 'function' ? subtle : undefined;
+}
+
+const ECDSA_P256 = { name: 'ECDSA', namedCurve: 'P-256' } as const;
+const ECDSA_SHA256 = { name: 'ECDSA', hash: 'SHA-256' } as const;
+const KEY_CACHE_MAX = 256;
+const verifyKeys = new Map<string, Promise<CryptoKey>>();
+const signKeys = new Map<string, Promise<CryptoKey>>();
+
+function cachedKey(cache: Map<string, Promise<CryptoKey>>, id: string, make: () => Promise<CryptoKey>): Promise<CryptoKey> {
+  let key = cache.get(id);
+  if (!key) {
+    if (cache.size >= KEY_CACHE_MAX) cache.delete(cache.keys().next().value as string);
+    key = make();
+    key.catch(() => cache.delete(id));
+    cache.set(id, key);
+  }
+  return key;
+}
+
+function verifyKey(subtle: SubtleCrypto, pub: string): Promise<CryptoKey> {
+  return cachedKey(verifyKeys, pub, async () => {
+    const point = pubToUncompressedPoint(pub);
+    return subtle.importKey('raw', point as Uint8Array<ArrayBuffer>, ECDSA_P256, false, ['verify']);
+  });
+}
+
+function signKey(subtle: SubtleCrypto, priv: string): Promise<CryptoKey> {
+  return cachedKey(signKeys, priv, async () => {
+    const scalar = privToScalar(priv);
+    const point = p256.getPublicKey(scalar, false);
+    const jwk: JsonWebKey = {
+      kty: 'EC',
+      crv: 'P-256',
+      d: bytesToBase64Url(scalar),
+      x: bytesToBase64Url(point.slice(1, 33)),
+      y: bytesToBase64Url(point.slice(33, 65)),
+      ext: false,
+    };
+    return subtle.importKey('jwk', jwk, ECDSA_P256, false, ['sign']);
+  });
+}
+
 /** Signs `message` (already-canonicalized, e.g. via `canonicalSerialize`) with a Gun SEA pair's
- *  `priv`. Returns a base64url-encoded compact (r||s, 64-byte) signature. Synchronous under the
- *  hood (no WebCrypto round-trip needed) — kept `async` only so existing `await`-ing callers
- *  (built around `SEA.sign`'s async signature) don't need to change. */
+ *  `priv`. Returns a base64url-encoded compact (r||s, 64-byte) signature. */
 export async function portableEcdsaSign(message: string, priv: string): Promise<string> {
-  const digest = sha256(new TextEncoder().encode(message));
+  const bytes = new TextEncoder().encode(message);
+  const subtle = webCryptoSubtle();
+  if (subtle) {
+    try {
+      const key = await signKey(subtle, priv);
+      return bytesToBase64Url(new Uint8Array(await subtle.sign(ECDSA_SHA256, key, bytes)));
+    } catch {
+      /* this runtime's WebCrypto refused: the pure-JS path below */
+    }
+  }
   const scalar = privToScalar(priv);
-  const signature = p256.sign(digest, scalar);
+  const signature = p256.sign(sha256(bytes), scalar);
   return bytesToBase64Url(signature.toCompactRawBytes());
 }
 
@@ -116,11 +187,20 @@ export async function portableEcdsaSign(message: string, priv: string): Promise<
  *  Never throws — a malformed signature/key is a verification failure, not an exception. */
 export async function portableEcdsaVerify(signature: string, message: string, pub: string): Promise<boolean> {
   try {
-    const digest = sha256(new TextEncoder().encode(message));
     const sigBytes = base64UrlToBytes(signature);
     if (sigBytes.length !== 64) return false;
+    const bytes = new TextEncoder().encode(message);
+    const subtle = webCryptoSubtle();
+    if (subtle) {
+      try {
+        const key = await verifyKey(subtle, pub);
+        return await subtle.verify(ECDSA_SHA256, key, sigBytes as Uint8Array<ArrayBuffer>, bytes);
+      } catch {
+        /* malformed key, or this runtime's WebCrypto refused: the pure-JS path decides */
+      }
+    }
     const point = pubToUncompressedPoint(pub);
-    return p256.verify(sigBytes, digest, point);
+    return p256.verify(sigBytes, sha256(bytes), point);
   } catch {
     return false;
   }
