@@ -34,12 +34,15 @@ export async function graphDeviceId(page: Page): Promise<string> {
 /** J-GRAPH-01: both chains verify, and each side holds the other's signed acknowledgement. */
 export async function expectSignedExchange(a: TestActor, aId: string, b: TestActor, bId: string, timeout = 90_000): Promise<void> {
   for (const [actor, peerId] of [[a, bId], [b, aId]] as const) {
+    let lastChain: ChainStatus | undefined;
     await expect.poll(async () => {
       const status = await graphStatus(actor.page);
+      lastChain = status?.chain;
       const link = status?.links.find((l) => l.peerUserId === peerId);
       return { chainOk: status?.chain?.ok ?? null, ack: typeof link?.lastAck?.n === 'number', skew: typeof link?.lastAck?.skewMs === 'number' };
     }, { timeout, message: `${actor.id}: own chain not verified, or no signed acknowledgement from ${peerId.slice(0, 8)}` })
-      .toEqual({ chainOk: true, ack: true, skew: true });
+      .toEqual({ chainOk: true, ack: true, skew: true })
+      .catch((err: Error) => { throw new Error(`${err.message}\nlast chain status: ${JSON.stringify(lastChain)}`); });
   }
 }
 
