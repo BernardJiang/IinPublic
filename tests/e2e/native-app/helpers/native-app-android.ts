@@ -604,3 +604,20 @@ export async function wakeAndroidScreen(serial: string): Promise<void> {
     await settleWithin(execFileAsync('adb', ['-s', serial, 'shell', ...args], { timeout: 5_000 }), 6_000);
   }
 }
+
+/**
+ * The focused window line (`mCurrentFocus=Window{… <package>/<activity>}`) of the display that has
+ * one. Asks for the current displays (`dumpsys window displays`; Android 7 lists the focus under
+ * `windows` instead), never the whole `dumpsys window`: after any app froze, that dump starts with
+ * a "LAST ANR" section holding the focus from the moment of the freeze (C10, 2026-11-08: a launcher
+ * ANR made a showing permission dialog read as the launcher). Some phones (Huawei P30) list a
+ * virtual display first whose focus is always null, so the first non-null line wins.
+ */
+export async function androidFocusedWindow(serial: string): Promise<string> {
+  for (const section of ['displays', 'windows']) {
+    const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'dumpsys', 'window', section], { timeout: 15_000 });
+    const lines = stdout.split('\n').filter((l) => /mCurrentFocus=/.test(l));
+    if (lines.length) return (lines.find((l) => !/mCurrentFocus=null/.test(l)) ?? lines[0]!).trim();
+  }
+  return '';
+}

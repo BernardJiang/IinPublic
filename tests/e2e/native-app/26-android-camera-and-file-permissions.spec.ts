@@ -26,6 +26,7 @@ import {
   closeAndroidUser,
   isAndroidDeviceReady,
   launchAndroidUserViaAdb,
+  androidFocusedWindow as focusedWindow,
   type AndroidUser,
 } from './helpers/native-app-android';
 import { configuredAndroidDevices } from './helpers/android-device-config';
@@ -51,16 +52,6 @@ function lanIp(): string {
 async function adb(serial: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('adb', ['-s', serial, ...args], { timeout: 15_000 });
   return stdout;
-}
-
-/** The window that currently has input focus, e.g. `com.iinpublic.app/com.iinpublic.app.MainActivity`. */
-async function focusedWindow(serial: string): Promise<string> {
-  const dump = await adb(serial, 'shell', 'dumpsys', 'window');
-  // Some phones (Huawei P30) list a virtual display first whose focus is always null, so prefer
-  // the display that actually has a focused window.
-  const lines = dump.split('\n').filter((l) => /mCurrentFocus=/.test(l));
-  const line = lines.find((l) => !/mCurrentFocus=null/.test(l)) ?? lines[0] ?? '';
-  return line.trim();
 }
 
 /** Dismiss the top dialog/picker (BACK = "not now" for a permission dialog and cancel for a picker). */

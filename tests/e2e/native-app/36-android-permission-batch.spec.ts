@@ -21,6 +21,7 @@ import {
   isAndroidDeviceReady,
   launchAndroidUserViaAdb,
   resetAndroidAppData,
+  androidFocusedWindow as focusedWindow,
   type AndroidUser,
 } from './helpers/native-app-android';
 import { resolveAndroidMatrixDevices } from './helpers/android-device-config';
@@ -58,12 +59,6 @@ function lanIp(): string {
 async function adb(serial: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('adb', ['-s', serial, ...args], { timeout: 15_000 });
   return stdout;
-}
-
-async function focusedWindow(serial: string): Promise<string> {
-  const dump = await adb(serial, 'shell', 'dumpsys', 'window');
-  const lines = dump.split('\n').filter((l) => /mCurrentFocus=/.test(l));
-  return (lines.find((l) => !/mCurrentFocus=null/.test(l)) ?? lines[0] ?? '').trim();
 }
 
 async function dialogMessage(serial: string): Promise<string> {
