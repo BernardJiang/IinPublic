@@ -3,10 +3,13 @@
   "included": [
     "active-exchange-room.test.ts",
     "active-rooms.test.ts",
+    "answer-history-storage.test.ts",
     "app-update-reminder-view.test.ts",
     "attachment-metadata.test.ts",
     "authoritative-data-invariants.test.ts",
+    "background-talk-agent.test.ts",
     "block-signal.test.ts",
+    "block-status-cache.test.ts",
     "broadcast-delivery-selection.test.ts",
     "broadcast-room-record.test.ts",
     "broadcast-tag-targeting.test.ts",
@@ -14,6 +17,7 @@
     "built-in-question-resolution.test.ts",
     "challenge-plugins.test.ts",
     "chatbot-talk-flow.test.ts",
+    "chatroom-browse-list.test.ts",
     "chatroom-capacity-test-override.test.ts",
     "chatroom-hierarchy-runtime.test.ts",
     "chatroom-map-geojson.test.ts",
@@ -29,13 +33,27 @@
     "content-filter-toast.test.ts",
     "conversation-reconcile.test.ts",
     "conversation-wakeup.test.ts",
+    "core-attachment-exchange.test.ts",
+    "core-chatbot-reply.test.ts",
+    "core-conversation-state.test.ts",
+    "core-deal-finalization.test.ts",
+    "core-mailbox-envelope.test.ts",
+    "core-my-talk-rules.test.ts",
+    "core-pair-response-crypto.test.ts",
+    "core-response-ingest.test.ts",
+    "core-response-rules.test.ts",
+    "core-retraction.test.ts",
+    "core-sharing-audience.test.ts",
+    "core-sharing-interests.test.ts",
+    "core-sharing-policy.test.ts",
+    "core-talk-intake.test.ts",
+    "core-talk-rules.test.ts",
     "deal-confirmation-merge.test.ts",
     "delivery-reason-labels.test.ts",
     "dev-stage-env.test.ts",
     "device-handoff.test.ts",
     "device-sync-authorization.test.ts",
     "device-sync-importer.test.ts",
-    "direct-p2p-conversation-transport.test.ts",
     "direct-talk-delivery-outbox.test.ts",
     "embedded-gun-browser-storage.test.ts",
     "embedded-node-config.test.ts",
@@ -45,23 +63,37 @@
     "find-similar.test.ts",
     "flattened-answer-keys.test.ts",
     "flow-capture.test.ts",
+    "friend-mark.test.ts",
+    "graph-answer-history.test.ts",
+    "graph-link-bridge.test.ts",
     "graph-size-report.test.ts",
     "gun-message-store.test.ts",
     "handoff-protocol.test.ts",
     "identity-custody-store.test.ts",
+    "incoming-talk-budget.test.ts",
+    "incoming-talk-ids.test.ts",
     "intake-filter-reasons.test.ts",
     "local-private-conversation-metadata-repository.test.ts",
-    "local-private-conversation-repository.test.ts",
+    "map-match-counts.test.ts",
+    "map-match-view.test.ts",
+    "map-user-layout.test.ts",
+    "match-collection-ranking.test.ts",
     "merkle-checkpoint.test.ts",
     "mesh-forwarding-policy.test.ts",
     "mesh-frame-policy.test.ts",
     "mesh-response-step4.test.ts",
     "message-content-filter.test.ts",
     "my-most-recent-location-talk.test.ts",
+    "native-last-location.test.ts",
     "native-password-free-custody.test.ts",
     "nearby-discovery-policy.test.ts",
     "nearby-offline.test.ts",
     "nearby-rooms.test.ts",
+    "nearby-v3-core.test.ts",
+    "nearby-v3-groups.test.ts",
+    "nearby-v3-link.test.ts",
+    "nearby-v3-local.test.ts",
+    "nearby-v3-position-watch.test.ts",
     "p2p-abuse-defense.test.ts",
     "p2p-handshake.test.ts",
     "p2p-ice-priority.test.ts",
@@ -74,13 +106,13 @@
     "p2p-runtime.test.ts",
     "p2p-schema-boot.test.ts",
     "p2p-schema-migrations.test.ts",
+    "p2p-session-ledger-dm.test.ts",
     "p2p-trust-neighbor-bridge.test.ts",
     "p2p-trust.test.ts",
     "peer-discovery-manager.test.ts",
     "peer-discovery-provider.test.ts",
     "peer-discovery-providers.test.ts",
     "peer-headshot-cache.test.ts",
-    "peer-mesh-service.test.ts",
     "peer-talk-delivery.test.ts",
     "place-descriptor.test.ts",
     "place-lifecycle.test.ts",
@@ -104,6 +136,7 @@
     "survey-completeness.test.ts",
     "tag-opposite-pairs.test.ts",
     "tag-similarity.test.ts",
+    "talk-completion-pipeline.test.ts",
     "talk-contact-policy.test.ts",
     "talk-content-id.test.ts",
     "talk-engine.test.ts",
@@ -126,7 +159,6 @@
     "web-chatroom-techsupport-floor.test.ts",
     "web-gun-service-add-peer.test.ts",
     "web-gun-service-hub-url.test.ts",
-    "web-gun-service-private-boundary.test.ts",
     "web-ledger-service.test.ts"
   ],
   "excluded": [
@@ -136,6 +168,10 @@
     },
     {
       "file": "android-api-compatibility.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "android-bounded-stdio-log.test.ts",
       "reason": "imports a Node built-in"
     },
     {
@@ -151,8 +187,8 @@
       "reason": "fails under the portable runtime in host Node as embedded Node 18: Android framework nearby adapter › starts vendor-independent sources and emits unauthenticated upgrade candidates: rejects.toThrow: expected the rejection ReferenceError: crypto is not defined to match \"not ready\""
     },
     {
-      "file": "answer-history-storage.test.ts",
-      "reason": "fails under the portable runtime in host Node as embedded Node 18: getTalkContentKey › is stable for the same question/answer content regardless of unrelated fields: localStorage is not defined"
+      "file": "answered-talks.test.ts",
+      "reason": "needs a DOM test environment"
     },
     {
       "file": "answers-view.test.ts",
@@ -187,6 +223,14 @@
       "reason": "imports a Node built-in"
     },
     {
+      "file": "background-agent-routes.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "background-talk-agent-service.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
       "file": "broadcast-audience-dialog.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -213,10 +257,6 @@
     {
       "file": "captured-question-dialog.test.ts",
       "reason": "needs a DOM test environment"
-    },
-    {
-      "file": "chatroom-browse-list.test.ts",
-      "reason": "does not bundle for embedded Node: Error: a Unicode property escape (\\p{...}) regex literal, which embedded Node without ICU cannot compile"
     },
     {
       "file": "chatroom-flat-map-view.test.ts",
@@ -259,6 +299,10 @@
       "reason": "uses the DOM or browser globals"
     },
     {
+      "file": "contacts-prune.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
       "file": "contacts-view.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -283,6 +327,22 @@
       "reason": "needs a DOM test environment"
     },
     {
+      "file": "core-boundary.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "core-collections.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "core-node-host.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "core-storage.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
       "file": "creator-replies-view.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -297,6 +357,94 @@
     {
       "file": "deterministic-connectivity-harness.test.ts",
       "reason": "imports host test helpers"
+    },
+    {
+      "file": "device-core-exchanges.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-ack.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-answers.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-app-answers.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-chain.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-chatbot-port.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-exchanged.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-host.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-incoming-list.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-keyed-buckets.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-location-budget.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-log-trim.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-messages.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-my-talks-bodies.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-nearby.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-own-talks.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "device-graph-redact.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-reported-location.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-sync.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-trim.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph-where.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "device-graph.test.ts",
+      "reason": "imports a Node built-in"
     },
     {
       "file": "device-sync-conflict-dialog.test.ts",
@@ -315,6 +463,10 @@
       "reason": "needs a DOM test environment"
     },
     {
+      "file": "direct-p2p-conversation-transport.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: DirectP2PConversationTransport (P2P-H) › starts the private-history write first, shows the message without waiting for it, and resolves once it is durable: Cannot read properties of undefined (reading '0')"
+    },
+    {
       "file": "dirty-word-editor.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -327,6 +479,10 @@
       "reason": "imports server code"
     },
     {
+      "file": "early-emit-buffer.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
       "file": "edit-profile-dialog-characterization.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -337,6 +493,10 @@
     {
       "file": "embedded-hub-relay-client.test.ts",
       "reason": "fails under the portable runtime in headless Chromium: (file failed to load): global is not defined"
+    },
+    {
+      "file": "embedded-node-fatal-error.test.ts",
+      "reason": "imports a Node built-in"
     },
     {
       "file": "embedded-node-hub-dial.test.ts",
@@ -355,12 +515,48 @@
       "reason": "uses jest.mock (module mocks stay host-only)"
     },
     {
+      "file": "fetch-with-timeout.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: (file failed to load): global is not defined"
+    },
+    {
+      "file": "first-run-skip-tour.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
       "file": "flow-answer-constraints.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "graph-chatbot-dialog.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "graph-focus-map.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "graph-focus-places.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "graph-traversal.test.ts",
       "reason": "needs a DOM test environment"
     },
     {
       "file": "gun-pubsub-signaler.test.ts",
       "reason": "fails under the portable runtime in host Node as embedded Node 18: deriveSignalingSharedKey › is a 64-hex SHA-256 digest: Cannot read properties of undefined (reading 'subtle')"
+    },
+    {
+      "file": "gun-radisk-concurrent-miss.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "gun-radisk-large-node.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "gun-rpc-stream-backlog.test.ts",
+      "reason": "imports a Node built-in"
     },
     {
       "file": "http-bootstrap-static.test.ts",
@@ -404,7 +600,7 @@
     },
     {
       "file": "lan-gun-discovery.test.ts",
-      "reason": "imports server code"
+      "reason": "uses jest.mock (module mocks stay host-only)"
     },
     {
       "file": "link-code-qr.test.ts",
@@ -413,6 +609,10 @@
     {
       "file": "linked-devices-dialog.test.ts",
       "reason": "uses jest.mock, jest.requireActual (module mocks stay host-only)"
+    },
+    {
+      "file": "list-broadcast-effects.test.ts",
+      "reason": "needs a DOM test environment"
     },
     {
       "file": "list-pins.test.ts",
@@ -429,6 +629,10 @@
     {
       "file": "local-peer-derivation.test.ts",
       "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "local-private-conversation-repository.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: LocalPrivateConversationRepository › stores and subscribes through private Gun without touching the public graph: setImmediate is not defined"
     },
     {
       "file": "local-statistics.test.ts",
@@ -455,6 +659,30 @@
       "reason": "fails under the portable runtime in headless Chromium: (file failed to load): global is not defined"
     },
     {
+      "file": "map-broadcast-effects.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "map-match-source.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "map-talk-connections.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "match-collection-review-dialog.test.ts",
+      "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "match-collection-scale.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "match-collection-session.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
       "file": "matrix-orchestrator.test.ts",
       "reason": "imports host test helpers"
     },
@@ -467,16 +695,48 @@
       "reason": "uses the DOM or browser globals"
     },
     {
+      "file": "native-background-events.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
       "file": "navigate-to-answer.test.ts",
       "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "nearby-at-pin.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "nearby-gossip-personal-lists.test.ts",
+      "reason": "scale simulation: host-only by design"
+    },
+    {
+      "file": "nearby-knock-mailbox.test.ts",
+      "reason": "imports server code"
     },
     {
       "file": "nearby-offline-service.test.ts",
       "reason": "fails under the portable runtime in host Node as embedded Node 18: NearbyOfflineService › starts LAN discovery with the rotating id and, offline, peers Gun with each LAN phone once: CustomEvent is not defined"
     },
     {
-      "file": "nearby-at-pin.test.ts",
+      "file": "nearby-v3-app-mesh-roster.test.ts",
       "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "nearby-v3-attestation.test.ts",
+      "reason": "imports a Node built-in"
+    },
+    {
+      "file": "nearby-v3-audience-map.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "nearby-v3-hub.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "nearby-v3-service.test.ts",
+      "reason": "imports server code"
     },
     {
       "file": "no-inline-baseline-graph.test.ts",
@@ -500,15 +760,27 @@
     },
     {
       "file": "onboarding-walkthrough.test.ts",
-      "reason": "uses require()"
+      "reason": "imports a Node built-in"
     },
     {
       "file": "p2p-secure-session.test.ts",
       "reason": "does not bundle for chrome61: Could not resolve \"node:crypto\""
     },
     {
+      "file": "p2p-session-fresh-offer.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: P2P session: a fresh offer from a rebuilt connection (OPEN-74) › answers a new offer on a fresh connection while the old one still looks connected: setImmediate is not defined"
+    },
+    {
+      "file": "p2p-session-handshake-race.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: P2P session encrypted handshake across a reconnect › agrees on one session on a fresh channel: toBeTruthy: expected null to be truthy"
+    },
+    {
       "file": "peer-controller.test.ts",
       "reason": "uses jest.mock (module mocks stay host-only)"
+    },
+    {
+      "file": "peer-mesh-service.test.ts",
+      "reason": "fails under the portable runtime in headless Chromium: PeerMeshService › does not drop a personal neighbor when a superseded connect promise has a live replacement: setImmediate is not defined"
     },
     {
       "file": "peer-name-cache.test.ts",
@@ -517,6 +789,14 @@
     {
       "file": "person-picker-dialogs.test.ts",
       "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "place-chat-client.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: PlaceChatClient › reads bounded pages with the cursor and posts messages through HTTP: File is not defined"
+    },
+    {
+      "file": "place-chat-store.test.ts",
+      "reason": "imports server code"
     },
     {
       "file": "presence-durable-row.test.ts",
@@ -535,6 +815,14 @@
       "reason": "uses the DOM or browser globals"
     },
     {
+      "file": "relay-member-touch-throttle.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "remote-gun-rpc.test.ts",
+      "reason": "fails under the portable runtime in host Node as embedded Node 18: RemoteGun over the device Gun RPC › writes and reads back a node, and reports a missing one as undefined: Cannot read properties of undefined (reading 'name')"
+    },
+    {
       "file": "render-list-progressively.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -551,6 +839,10 @@
       "reason": "needs a DOM test environment"
     },
     {
+      "file": "runtime-profiler.test.ts",
+      "reason": "imports server code"
+    },
+    {
       "file": "settings-section-view.test.ts",
       "reason": "needs a DOM test environment"
     },
@@ -561,6 +853,10 @@
     {
       "file": "stage0-fixture.test.ts",
       "reason": "imports a Node built-in"
+    },
+    {
+      "file": "starter-interest-tags.test.ts",
+      "reason": "needs a DOM test environment"
     },
     {
       "file": "starter-talk-seeds.test.ts",
@@ -605,6 +901,10 @@
     {
       "file": "system-announcements.test.ts",
       "reason": "imports a Node built-in"
+    },
+    {
+      "file": "tag-graph.test.ts",
+      "reason": "needs a DOM test environment"
     },
     {
       "file": "talk-broadcast-toggle.test.ts",
@@ -667,6 +967,10 @@
       "reason": "uses jest.isolateModules (module mocks stay host-only)"
     },
     {
+      "file": "talks-row-toolbar.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
       "file": "techsupport-baseline.test.ts",
       "reason": "imports host test helpers"
     },
@@ -719,6 +1023,10 @@
       "reason": "uses jest.requireActual (module mocks stay host-only)"
     },
     {
+      "file": "techsupport-mailbox-retention.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
       "file": "techsupport-onboarding-tips.test.ts",
       "reason": "imports host test helpers"
     },
@@ -731,6 +1039,10 @@
       "reason": "imports host test helpers"
     },
     {
+      "file": "throttle-while-hidden.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
       "file": "tls-mode.test.ts",
       "reason": "imports server code"
     },
@@ -740,6 +1052,10 @@
     },
     {
       "file": "transient-signal-store-filter.test.ts",
+      "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "ui-deal-confirmation.test.ts",
       "reason": "needs a DOM test environment"
     },
     {
@@ -761,6 +1077,18 @@
     {
       "file": "user-detail-view.test.ts",
       "reason": "needs a DOM test environment"
+    },
+    {
+      "file": "user-friend-mark.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "user-public-mirror.test.ts",
+      "reason": "imports server code"
+    },
+    {
+      "file": "user-service-public-read.test.ts",
+      "reason": "imports server code"
     },
     {
       "file": "verified-support-messages.test.ts",
@@ -803,10 +1131,19 @@
       "reason": "uses the DOM or browser globals"
     },
     {
+      "file": "web-gun-service-private-boundary.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
       "file": "web-identity-link-service.test.ts",
       "reason": "uses jest.mock (module mocks stay host-only)"
     },
     {
+      "file": "web-talk-service-graph-body-author.test.ts",
+      "reason": "uses the DOM or browser globals"
+    },
+    {
+      "file": "web-talk-service-retry-deadline.test.ts",
       "reason": "uses the DOM or browser globals"
     },
     {
@@ -815,7 +1152,7 @@
     },
     {
       "file": "web-user-service.test.ts",
-      "reason": "fails under the portable runtime in headless Chromium: WebUserService › persists block and unblock state in the public mirror and private profile data: Failed to fetch"
+      "reason": "fails under the portable runtime in headless Chromium: WebUserService › saves a block to private data without waiting for a hung hub: global is not defined"
     },
     {
       "file": "wifi-direct-link.test.ts",
