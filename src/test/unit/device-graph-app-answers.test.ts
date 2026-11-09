@@ -90,7 +90,7 @@ describe('app answers in the device graph', () => {
     expect(history.map((h) => [h.appTalkId, h.mine])).toEqual([['mine-1', true]]);
     expect(history[0]!.answers.map((a) => a.answerId)).toEqual(['a_0_0', 'a_1_0']);
     // Not received over a link: nothing to send, and removing tells no one.
-    expect(await d.app.answerAndSend('mine-1', 'adam', weekly, 'manual')).toEqual({ sent: false });
+    expect(await d.app.answerAndSend('mine-1', 'adam', weekly, 'manual')).toEqual({ sent: false, reason: 'Talk not received from this author' });
     expect(await d.app.forget('mine-1')).toEqual({ deleted: 1, sent: 0 });
     expect(d.sync.sendAnswerDeletion).not.toHaveBeenCalled();
   });
@@ -134,7 +134,7 @@ describe('app answers in the device graph', () => {
     expect(await d.app.answerAndSend(fromAnn, 'ann', weekly, 'manual')).toEqual({ sent: true, eventId: annEvent });
     expect(await d.app.answerAndSend(fromCy, 'cy', weekly, 'manual')).toEqual({ sent: true, eventId: cyEvent });
     // Not to the wrong author.
-    expect(await d.app.answerAndSend(fromAnn, 'cy', weekly, 'manual')).toEqual({ sent: false });
+    expect(await d.app.answerAndSend(fromAnn, 'cy', weekly, 'manual')).toEqual({ sent: false, reason: 'Talk not received from this author' });
     // The Me tab keeps one answer per question and situation: one row for the tag.
     expect(await d.app.history()).toHaveLength(1);
     expect(await d.app.forget(fromAnn, ['ann', 'cy'])).toEqual({ deleted: 2, sent: 2 });

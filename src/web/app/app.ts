@@ -6186,8 +6186,14 @@ export class IinPublicApp {
     // How I decided an answer to my Talk (the next one from them is compared with it).
     const decided = authorOutcomeFor(input);
     if (!decided || !this.coreRequest) return;
+    // The Talks tab's counts are read from these outcomes, so draw it again once this one is stored:
+    // the redraw above can run while the write still waits in the core's queue, and the counts then
+    // showed one answer fewer until something else redrew the list.
     void this.coreRequest({ name: 'graph.recordOutcome', ...decided })
-      .then(() => refreshExchangeState())
+      .then(() => {
+        this.scheduleTalksListRefresh();
+        return refreshExchangeState();
+      })
       .catch((error) => console.warn('[exchange] outcome record failed:', error));
   }
 
@@ -7116,8 +7122,11 @@ export class IinPublicApp {
             responderName: this.currentUser!.stageName, isChatbotResponse: params.isChatbotResponse,
             responseId: targetResponseId, version: targetVersion, submittedAt: meshPayload.submittedAt, respondedAt: meshPayload.respondedAt,
           },
-        }).then((result) => result.sent).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
-        : false;
+        }).then((result) => {
+          if (!result.sent) console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: ${result.reason ?? 'unknown'}`);
+          return result.sent;
+        }).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
+        : (console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: graph links not running`), false);
       if (sent) {
         await this.coreDelivery({ name: 'delivery.record', input: {
           objectId: targetResponseId,

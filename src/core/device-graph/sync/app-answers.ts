@@ -242,13 +242,15 @@ export function createAppAnswers(options: {
     },
 
     /** I answered a Talk that came over a graph link: write it once and send it to its author. */
-    answerAndSend(talkId: string, authorId: string, answers: AppAnswerInput[], mode: 'manual' | 'chatbot', context?: Record<string, unknown>): Promise<{ sent: boolean; eventId?: string }> {
+    answerAndSend(talkId: string, authorId: string, answers: AppAnswerInput[], mode: 'manual' | 'chatbot', context?: Record<string, unknown>): Promise<{ sent: boolean; eventId?: string; reason?: string }> {
       return locked(talkId, async () => {
         const sync = options.sync();
-        const target = sync && writable(answers) ? await received(talkId, authorId) : undefined;
-        if (!sync || !target) return { sent: false };
+        if (!sync) return { sent: false, reason: 'no graph identity yet' };
+        if (!writable(answers)) return { sent: false, reason: 'built-in values only' };
+        const target = await received(talkId, authorId);
+        if (!target) return { sent: false, reason: 'Talk not received from this author' };
         const written = await write(target, answers, mode);
-        if (!written.eventId) return { sent: false };
+        if (!written.eventId) return { sent: false, reason: 'no answer steps' };
         await sync.sendAnswer(written.eventId, context ?? {});
         await store.put(appAnswerSoul(prefix, target.talkId), { sent: true });
         return { sent: true, eventId: written.eventId };

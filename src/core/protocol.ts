@@ -132,7 +132,7 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.outcomes' } ? Record<string, Record<string, Outcome>>
                           : R extends { name: 'graph.respondedTo' } ? Record<string, OutcomeRecord>
                           : R extends { name: 'graph.deletedAt' } ? number | null
-                          : R extends { name: 'graph.answer' } ? { sent: boolean; eventId?: string }
+                          : R extends { name: 'graph.answer' } ? { sent: boolean; eventId?: string; reason?: string }
                           : R extends { name: 'graph.sendMessage' } ? { eventId: string }
                           : R extends { name: 'graph.recordEncounter' | 'graph.recordVisit' } ? { eventId: string }
                           : R extends { name: 'graph.retract' } ? { sent: number }
