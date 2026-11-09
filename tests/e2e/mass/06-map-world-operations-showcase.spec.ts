@@ -123,6 +123,14 @@ async function syncDemoRoomMembers(viewer: DemoUser, users: DemoUser[]): Promise
     const app = (window as any).__iinpublic_app?.getApp?.();
     const shell = app?.uiManager?.chatroomShellController;
     if (!shell) throw new Error('chatroom shell unavailable');
+    // The demo roster is the map's green set. All six people really stand at the delivery point,
+    // so the app's own member subscription keeps pushing the real roster (everyone) and redrawing
+    // the map with it, racing every count (M6 failed 6 of 9 runs on 2026-11-08: U01 and U02 green
+    // for U03). While the demo runs only the demo sets the roster; the shell is called directly.
+    if (!app.uiManager.__demoRosterOnly) {
+      app.uiManager.__demoRosterOnly = true;
+      app.uiManager.updateChatroomMembers = () => {};
+    }
     shell.updateChatroomMembers(members, currentUserId);
   }, { members: roomMembers, currentUserId: viewer.userId });
 }
@@ -132,35 +140,38 @@ async function waitForMapLoaded(page: Page): Promise<void> {
 }
 
 async function applyWorldMapDots(users: DemoUser[]): Promise<void> {
-  for (const viewer of users) {
-    const { dots, nearbyIds } = buildViewerDemoLayout(viewer, users);
-    const precisionMeters = mapPrecisionForViewer(viewer, users) as 400 | 1_000 | 10_000 | 50_000;
-    await syncDemoRoomMembers(viewer, users);
+  for (const viewer of users) await applyViewerDots(viewer, users);
+}
 
-    await viewer.page.evaluate(({ selfPoint, dots, nearbyIds, precisionMeters }) => {
-      const app = (window as any).__iinpublic_app?.getApp?.();
-      if (!app?.uiManager?.setMapUserDotSource) throw new Error('setMapUserDotSource unavailable');
-      app.uiManager.setMapUserDotSource({
-        selfPoint: { ...selfPoint, precisionMeters },
-        selfTraveler: false,
-        listPoints: () => dots.map((entry: { latitude: number; longitude: number }) => ({
+/** One viewer's demo roster and dot source; setting the source is what redraws the map. */
+async function applyViewerDots(viewer: DemoUser, users: DemoUser[]): Promise<void> {
+  const { dots, nearbyIds } = buildViewerDemoLayout(viewer, users);
+  const precisionMeters = mapPrecisionForViewer(viewer, users) as 400 | 1_000 | 10_000 | 50_000;
+  await syncDemoRoomMembers(viewer, users);
+
+  await viewer.page.evaluate(({ selfPoint, dots, nearbyIds, precisionMeters }) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    if (!app?.uiManager?.setMapUserDotSource) throw new Error('setMapUserDotSource unavailable');
+    app.uiManager.setMapUserDotSource({
+      selfPoint: { ...selfPoint, precisionMeters },
+      selfTraveler: false,
+      listPoints: () => dots.map((entry: { latitude: number; longitude: number }) => ({
+        latitude: entry.latitude,
+        longitude: entry.longitude,
+      })),
+      isCandidate: (dot: any) => nearbyIds.includes(String(dot?.userId || '')),
+      load: async () => ({
+        dots: dots.map((entry: { userId: string; latitude: number; longitude: number }) => ({
+          userId: entry.userId,
           latitude: entry.latitude,
           longitude: entry.longitude,
+          precisionMeters,
+          traveler: false,
         })),
-        isCandidate: (dot: any) => nearbyIds.includes(String(dot?.userId || '')),
-        load: async () => ({
-          dots: dots.map((entry: { userId: string; latitude: number; longitude: number }) => ({
-            userId: entry.userId,
-            latitude: entry.latitude,
-            longitude: entry.longitude,
-            precisionMeters,
-            traveler: false,
-          })),
-          density: [],
-        }),
-      });
-    }, { selfPoint: viewer.location, dots, nearbyIds, precisionMeters });
-  }
+        density: [],
+      }),
+    });
+  }, { selfPoint: viewer.location, dots, nearbyIds, precisionMeters });
 }
 
 async function openMapViewAndCenter(users: DemoUser[], centerOnSelf = false): Promise<void> {
@@ -190,13 +201,20 @@ async function assertAllUsersVisible(users: DemoUser[]): Promise<void> {
   }
 }
 
-async function ensureWorldMapView(user: DemoUser, expectedGreen: number, expectedYellow: number): Promise<void> {
+/** Dot counts right after drawing this viewer's demo layout again (roster and source). */
+async function demoDotCounts(user: DemoUser, users: DemoUser[]): Promise<{ green: number; yellow: number }> {
+  await applyViewerDots(user, users);
+  await user.page.waitForTimeout(300);
+  return user.page.evaluate(() => ({
+    green: document.querySelectorAll('[data-testid="map-user-dot-room"]').length,
+    yellow: document.querySelectorAll('[data-testid="map-user-dot-other"]').length,
+  }));
+}
+
+async function ensureWorldMapView(user: DemoUser, users: DemoUser[], expectedGreen: number, expectedYellow: number): Promise<void> {
   const zoomOutButton = user.page.locator('.maplibregl-ctrl-zoom-out');
   for (let round = 0; round < 10; round += 1) {
-    const visibleCounts = await user.page.evaluate(() => ({
-      green: document.querySelectorAll('[data-testid="map-user-dot-room"]').length,
-      yellow: document.querySelectorAll('[data-testid="map-user-dot-other"]').length,
-    }));
+    const visibleCounts = await demoDotCounts(user, users);
     if (visibleCounts.green >= expectedGreen && visibleCounts.yellow >= expectedYellow) {
       return;
     }
@@ -208,24 +226,13 @@ async function ensureWorldMapView(user: DemoUser, expectedGreen: number, expecte
     }
     break;
   }
-  await expect.poll(async () => {
-    return user.page.evaluate(() => ({
-      green: document.querySelectorAll('[data-testid="map-user-dot-room"]').length,
-      yellow: document.querySelectorAll('[data-testid="map-user-dot-other"]').length,
-    }));
-  }, { timeout: 30_000, intervals: [700, 1200] }).toEqual({ green: expectedGreen, yellow: expectedYellow });
+  await expect.poll(() => demoDotCounts(user, users), { timeout: 30_000, intervals: [700, 1200] }).toEqual({ green: expectedGreen, yellow: expectedYellow });
 }
 
 async function assertNearbyBalance(users: DemoUser[], expectedGreen: number, expectedYellow: number): Promise<void> {
   for (const user of users) {
-    await ensureWorldMapView(user, expectedGreen, expectedYellow);
-    await expect.poll(async () => {
-      return user.page.evaluate(() => {
-        const green = document.querySelectorAll('[data-testid="map-user-dot-room"]').length;
-        const yellow = document.querySelectorAll('[data-testid="map-user-dot-other"]').length;
-        return { green, yellow };
-      });
-    }, { timeout: 30_000, intervals: [700, 1200] }).toEqual({ green: expectedGreen, yellow: expectedYellow });
+    await ensureWorldMapView(user, users, expectedGreen, expectedYellow);
+    await expect.poll(() => demoDotCounts(user, users), { timeout: 30_000, intervals: [700, 1200] }).toEqual({ green: expectedGreen, yellow: expectedYellow });
   }
 }
 
@@ -279,6 +286,7 @@ async function travelUsersOneByOne(users: DemoUser[]): Promise<void> {
   const moveSteps = 20;
   const interStepDelayMs = 500;
 
+  await applyWorldMapDots(users);
   await assertNearbyBalance(users, STARTING_GREEN_COUNT, STARTING_YELLOW_COUNT);
 
   for (let idx = 1; idx < users.length; idx += 1) {
