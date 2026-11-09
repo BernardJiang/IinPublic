@@ -105,7 +105,10 @@ async function main() {
   // safe-to-ignore optional path, and should stop the build rather than
   // silently ship a broken embedded node. `gun`/`gun/sea` are deliberately
   // external (see the `external:` option above) — expected, not a gap.
-  const expectedExternal = new Set(['aws-sdk', 'bufferutil', 'utf-8-validate', 'gun', 'gun/sea']);
+  // `gun/lib/radisk` (core-routes' test wipe, 73532ce0) rides on the `gun` external: it must be the
+  // same module instance Gun's store uses (its `Radisk.has` cache is what gets cleared), and it is
+  // staged on the phone as nodejs-project/node_modules/gun/lib/radisk.js.
+  const expectedExternal = new Set(['aws-sdk', 'bufferutil', 'utf-8-validate', 'gun', 'gun/sea', 'gun/lib/radisk']);
   const builtins = new Set(require('module').builtinModules);
   const isNodeBuiltin = (name) => builtins.has(name) || builtins.has(name.replace(/^node:/, ''));
   const seen = new Set();
