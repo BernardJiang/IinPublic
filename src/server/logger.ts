@@ -57,6 +57,36 @@ export function protectStdioFromWriteFailures(): void {
   process.stderr.on('error', ignore);
 }
 
+const GUN_CHAIN_WARNING = 'chain not yet supported for';
+
+/**
+ * Gun prints `chain not yet supported for` with its whole root graph (util.inspect of the chain,
+ * thousands of lines) whenever a put arrives for a key whose stored state is missing — seen on a
+ * PH-1 group owner in the field, 2026-11-09, on stale `p2p-signal/…` links: about 4 MB of
+ * node-stdio.log a minute, which rotated every other diagnostic away. Gun drops that put either
+ * way; keep one short line naming the soul and key, at most one per `intervalMs`, with a count.
+ */
+export function compactGunChainWarnings(
+  target: Pick<Console, 'log'> = console,
+  now: () => number = Date.now,
+  intervalMs = 10_000,
+): void {
+  const original = target.log.bind(target);
+  let lastAt = -Infinity;
+  let suppressed = 0;
+  target.log = (...args: unknown[]) => {
+    if (args[0] !== GUN_CHAIN_WARNING) { original(...args); return; }
+    const t = now();
+    if (t - lastAt < intervalMs) { suppressed += 1; return; }
+    const put = (args[1] && typeof args[1] === 'object' ? args[1] : {}) as Record<string, unknown>;
+    const soul = typeof put['#'] === 'string' ? put['#'] : '?';
+    const key = typeof put['.'] === 'string' ? put['.'] : '?';
+    original(`[gun] ${GUN_CHAIN_WARNING} ${soul} . ${key}${suppressed ? ` (+${suppressed} more)` : ''}`);
+    lastAt = t;
+    suppressed = 0;
+  };
+}
+
 function buildEntry(
   level: LogLevel,
   bindings: Record<string, unknown>,
