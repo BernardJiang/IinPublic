@@ -264,6 +264,14 @@ test.describe('Native app: Android real-hardware lifecycle and network resilienc
     const chromiumUser = await bootstrapBrowserUserOnOrigin(browser, `http://127.0.0.1:${WEB_PORT}`, 'Resilience Chrome', 'Resilience Chrome', { waitForSupportGreeting: false });
     browserClose = chromiumUser.close;
     await forceJoinGlobal(chromiumUser.page);
+    // Where the offline message went (direct link, mailbox, drain): the failure log needs it.
+    const DELIVERY_LINE = /dm-notify|Mailbox|mailbox|Direct P2P|Message sent/;
+    chromiumUser.page.on('console', (message) => {
+      if (DELIVERY_LINE.test(message.text())) console.log(`[lifecycle][chrome] ${message.text().slice(0, 300)}`);
+    });
+    android.window.on('console', (message) => {
+      if (DELIVERY_LINE.test(message.text())) console.log(`[lifecycle][android] ${message.text().slice(0, 300)}`);
+    });
 
     const talkId = `resilience-wifi-${Date.now()}`;
     const conversationId = await establishRealMatchAndOpenConversation(
@@ -272,6 +280,7 @@ test.describe('Native app: Android real-hardware lifecycle and network resilienc
       talkId,
     );
 
+    console.log(`[lifecycle] ids android=${androidId} chrome=${chromiumUser.userId}`);
     console.log(`[lifecycle] disabling Wi-Fi on ${ANDROID_SERIAL}`);
     await setAndroidWifiEnabled(ANDROID_SERIAL, false);
 
@@ -284,7 +293,33 @@ test.describe('Native app: Android real-hardware lifecycle and network resilienc
     console.log(`[lifecycle] re-enabling Wi-Fi on ${ANDROID_SERIAL}`);
     await setAndroidWifiEnabled(ANDROID_SERIAL, true);
 
-    await waitForMessageVisible(android.window, offlineMessage, 60_000);
+    // Diagnostic until the ENETUNREACH-after-reconnect bug is fixed (2026-11-09): what the phone's
+    // own node answers for its mailbox each 5 s after reconnecting, next to what the hub holds.
+    const probeWindow = android.window;
+    let probing = true;
+    const probe = (async () => {
+      const start = Date.now();
+      while (probing && Date.now() - start < 70_000) {
+        const r = await probeWindow.evaluate(async (id) => {
+          const t = performance.now();
+          try {
+            const res = await fetch(`/api/mailbox/${encodeURIComponent(id)}`);
+            const body = await res.json();
+            return { status: res.status, count: body.count, ms: Math.round(performance.now() - t) };
+          } catch (e) { return { error: String(e), ms: Math.round(performance.now() - t) }; }
+        }, androidId).catch((e) => ({ evalError: String(e).slice(0, 80) }));
+        const hubCount = await fetch(`http://127.0.0.1:${HUB_GUN_PORT}/api/mailbox/${encodeURIComponent(androidId)}`)
+          .then((res) => res.json()).then((b: any) => b.count).catch((e) => String(e).slice(0, 60));
+        console.log(`[lifecycle][probe] +${Math.round((Date.now() - start) / 1000)}s phone=${JSON.stringify(r)} hub=${hubCount}`);
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+    })();
+    try {
+      await waitForMessageVisible(android.window, offlineMessage, 60_000);
+    } finally {
+      probing = false;
+      await probe;
+    }
   });
 
   test('background/foreground: a message sent while the app is backgrounded is already there on return', async () => {
