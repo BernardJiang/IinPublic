@@ -6,7 +6,7 @@
  * P2P_RATE_LIMIT_MAX_EVENTS within P2P_RATE_LIMIT_WINDOW_MS. The normal E2E servers
  * raise the cap to 5000 so parallel suites never trip it — which also means the
  * limiter itself was never exercised. This spec boots its OWN server with a tiny
- * budget (5 events / 2s window) on a dedicated port and asserts:
+ * budget (5 events / 8s window) on a dedicated port and asserts:
  *   - requests under the budget are not rate-limited,
  *   - the budget-exceeding request gets 429,
  *   - the budget is per-peer (another peer is still allowed),
@@ -17,7 +17,11 @@ import path from 'node:path';
 import { test, expect } from '../../helpers/fixtures';
 
 const MAX_EVENTS = 5;
-const WINDOW_MS = 2_000;
+// The limiter uses a fixed window: if the burst takes longer than the window (a loaded
+// machine during test:all, each ack verifies a signature), the window resets and the
+// budget-exceeding request gets a plain 400 instead of 429. Keep the window well above
+// the burst time and send the burst at once.
+const WINDOW_MS = 8_000;
 
 function rateLimitPort(): number {
   // Own port band well above the per-worker 8080+N servers; unique per worker.
@@ -74,17 +78,15 @@ test.describe('P2P rate limiting — 429 past the per-peer budget (spec §3.8)',
         },
       });
 
-    // Under budget: none of the first MAX_EVENTS requests may be rate-limited.
-    // (They may fail payload validation with 4xx≠429 — the limiter runs first and
-    // counts them either way; only 429 signals throttling.)
-    for (let i = 0; i < MAX_EVENTS; i++) {
-      const res = await ack('burst-peer');
-      expect(res.status(), `request ${i + 1} of ${MAX_EVENTS} must not be throttled`).not.toBe(429);
-    }
-
-    // Budget exceeded → 429.
-    const throttled = await ack('burst-peer');
-    expect(throttled.status()).toBe(429);
+    // Burst MAX_EVENTS + 1 at once: exactly one is over budget. The others may fail
+    // payload validation with 4xx≠429 — the limiter runs first and counts them anyway.
+    const startedAt = Date.now();
+    const burst = await Promise.all(Array.from({ length: MAX_EVENTS + 1 }, () => ack('burst-peer')));
+    const burstMs = Date.now() - startedAt;
+    expect(burstMs, 'the burst must fit inside one window for this test to mean anything').toBeLessThan(WINDOW_MS);
+    const statuses = burst.map((res) => res.status());
+    expect(statuses.filter((status) => status === 429), `burst statuses ${statuses.join(',')}`).toHaveLength(1);
+    const throttled = burst.find((res) => res.status() === 429)!;
     const body = (await throttled.json().catch(() => ({}))) as { error?: string };
     expect(String(body.error || '')).not.toBe('');
 

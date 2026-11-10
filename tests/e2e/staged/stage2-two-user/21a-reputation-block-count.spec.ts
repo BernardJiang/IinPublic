@@ -13,18 +13,21 @@ import {
   getReputation,
 } from '../../helpers/reputation-e2e-helpers';
 import { waitForContactDetailReady } from '../../helpers/durable-ui';
-import { gunBaseURL } from '../../helpers/ports';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 
-async function setBlockViaApi(page: Page, blockerId: string, targetId: string, blocked: boolean): Promise<void> {
-  const base = gunBaseURL();
-  const url = blocked
-    ? `${base}/api/users/${encodeURIComponent(blockerId)}/blocks`
-    : `${base}/api/users/${encodeURIComponent(blockerId)}/blocks/${encodeURIComponent(targetId)}`;
-  const res = blocked
-    ? await page.request.post(url, { data: { targetId } })
-    : await page.request.delete(url);
-  expect(res.ok(), `setBlockViaApi(${blocked}) failed with ${res.status()}`).toBeTruthy();
+/**
+ * Unblock the way the app does it (WebUserService.unblockUser). A raw DELETE to the hub left the
+ * page's own pending block retry in place, which could post the block again after the unblock
+ * (test:all 2026-11-09: blockCount stayed 1).
+ */
+async function unblockInApp(page: Page, targetId: string): Promise<void> {
+  const ok = await page.evaluate(async (otherId) => {
+    const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
+    if (!app?.currentUser?.id || !app.userService?.unblockUser) return false;
+    await app.userService.unblockUser(app.currentUser.id, otherId);
+    return true;
+  }, targetId);
+  expect(ok, 'the app must expose userService.unblockUser').toBe(true);
 }
 
 test.describe('Reputation system — block count propagation', () => {
@@ -106,7 +109,7 @@ test.describe('Reputation system — block count propagation', () => {
       }, { timeout: 30_000 })
       .toBe(1);
 
-    await setBlockViaApi(pageTom, tomUserId, jerryUserId, false);
+    await unblockInApp(pageTom, jerryUserId);
 
     await expect
       .poll(async () => {

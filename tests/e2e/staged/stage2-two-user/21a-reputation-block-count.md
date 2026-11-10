@@ -12,7 +12,7 @@ covers: SPEC-3.8  <!-- auto-seeded; refine by hand -->
 2. **Tom opens Jerry's contact relationship modal.**
 3. **Tom blocks Jerry.**
 4. **Reputation API poll:** Jerry's `reputation.blockCount` becomes `1`.
-5. **Tom opens the modal again** and unblocks Jerry.
+5. **Tom unblocks Jerry** through the app (`userService.unblockUser`, the same call the modal makes), so the page's own pending block retry is cancelled.
 6. **Reputation API poll:** Jerry's `reputation.blockCount` returns to `0`.
 
 ## Verifications:
