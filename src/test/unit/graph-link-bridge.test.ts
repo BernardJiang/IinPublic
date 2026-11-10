@@ -138,4 +138,27 @@ describe('GraphLinkBridge: a neighbor whose keys are not known yet (native-app/1
     await jest.advanceTimersByTimeAsync(60_000);
     expect(keys).toHaveBeenCalledTimes(3);
   });
+
+  test('a replaced connection reopens the link in the core: close, then open (stage5 HR route 2026-11-10)', async () => {
+    // Frames sent on the connection that was replaced are lost; the core's open pushes my head and
+    // catches up at once instead of waiting for the owed-resend backoff.
+    const calls: string[] = [];
+    const core = jest.fn(async (request: any) => {
+      if (request.name === 'graph.pull') { await new Promise((resolve) => setTimeout(resolve, 20)); return { out: [], events: [] }; }
+      calls.push(request.name);
+      return {};
+    });
+    const mesh = { sendGraphGun: async () => true, liveNeighborIds: () => [] };
+    const bridge = new GraphLinkBridge({ core: core as any, mesh: () => mesh, keys: async () => ({ pub: 'bp', epub: 'be' }), onEvent: () => undefined });
+    await bridge.start({ userId: 'me', pair });
+    await expect(bridge.open('bob')).resolves.toBe(true);
+    await expect(bridge.open('bob')).resolves.toBe(true);
+    expect(calls).toEqual(['graph.identity', 'graph.open']);
+    await expect(bridge.reopen('bob')).resolves.toBe(true);
+    expect(calls).toEqual(['graph.identity', 'graph.open', 'graph.close', 'graph.open']);
+    // A neighbor never opened is simply opened.
+    await expect(bridge.reopen('carol')).resolves.toBe(true);
+    expect(calls.slice(-1)).toEqual(['graph.open']);
+    bridge.stop();
+  });
 });

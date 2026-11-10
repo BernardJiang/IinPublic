@@ -446,6 +446,43 @@ describe('PeerMeshService', () => {
     }
   });
 
+  it('says a neighbor reconnected when its live connection was replaced, not on the first connect (stage5 HR route 2026-11-10)', async () => {
+    jest.useFakeTimers();
+    try {
+      const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+      const users = { alice: { pub: alicePair.pub }, bob: { pub: bobPair.pub } };
+      let state = 'connected';
+      const reconnected: string[] = [];
+      const connected: string[] = [];
+      const alice = new PeerMeshService(mockGunService(alicePair, users), {
+        apiBase: 'http://127.0.0.1:8080',
+        localUserId: 'alice',
+        localStageName: 'Alice',
+        onNeighborReconnected: (userId) => reconnected.push(userId),
+        onNeighborConnected: (userId) => connected.push(userId),
+        createSession: () => ({
+          ensureConnected: jest.fn(async () => { state = 'connected'; }),
+          getState: () => state,
+          setOnRemoteMeshFrame: jest.fn(),
+          sendMeshFrame: jest.fn(async () => undefined),
+        }),
+      });
+      await alice.joinRoom('global', [{ userId: 'alice', stageName: 'Alice' }, { userId: 'bob', stageName: 'Bob' }]);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(alice.getDiagnostics().connectedNeighborCount).toBe(1);
+      expect(reconnected).toEqual([]);
+
+      state = 'connecting'; // the connection is being replaced
+      expect(alice.getDiagnostics().connectedNeighborCount).toBe(0);
+      await jest.advanceTimersByTimeAsync(2_500);
+      expect(alice.getDiagnostics().connectedNeighborCount).toBe(1);
+      expect(reconnected).toEqual(['bob']);
+      alice.leaveRoom();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   /**
    * Content-collision regression (find-similar-people 8/9): talk ids are content-addressed
    * (computeTalkCIDv1, no authorId), so two authors who create identical content share the

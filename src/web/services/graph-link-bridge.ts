@@ -72,10 +72,29 @@ export class GraphLinkBridge {
   open(userId: string): Promise<boolean> {
     if (!this.running) return Promise.resolve(false);
     if (this.opened.has(userId)) return Promise.resolve(true);
+    return this.startOpen(userId);
+  }
+
+  /**
+   * The connection under an open link was replaced. What went out on the old one is lost, and Gun
+   * sends a write once: a Talk offered just before the swap waited for the owed-resend backoff
+   * (~9 s, stage5 HR route 2026-11-10). Opening the link again pushes my head and catches up now.
+   */
+  reopen(userId: string): Promise<boolean> {
+    if (!this.running) return Promise.resolve(false);
+    if (!this.opened.has(userId)) return this.open(userId);
+    this.opened.delete(userId);
+    this.unsent.delete(userId);
+    const closed = this.options.core({ name: 'graph.close', peerUserId: userId }).catch(() => undefined);
+    return this.startOpen(userId, closed);
+  }
+
+  private startOpen(userId: string, after?: Promise<unknown>): Promise<boolean> {
     let pending = this.opening.get(userId);
     if (!pending) {
       pending = (async () => {
         try {
+          if (after) await after;
           const keys = await this.options.keys(userId);
           if (!keys?.pub || !keys.epub) {
             this.openWhenKeysKnown(userId);

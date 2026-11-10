@@ -3316,6 +3316,7 @@ export class IinPublicApp {
         });
       },
       onNeighborDisconnected: (userId) => this.graphLinks?.close(userId),
+      onNeighborReconnected: (userId) => { void this.graphLinks?.reopen(userId).catch(() => false); },
       onGraphGun: (fromUserId, _fromPub, raw) => this.graphLinks?.hear(fromUserId, raw),
       knockPeer: async (peer) => { await this.nearbyV3?.knock(peer); },
       onNearbyGossip: async (fromUserId, fromPub, message) => this.nearbyV3?.handleGossip(fromUserId, fromPub, message) ?? null,
