@@ -231,6 +231,11 @@ describe('staged discovery policy', () => {
     expect(decision).toMatchObject({ stage: 'offline-peers', wifiDirectDiscovery: true, bleAdvertise: true, bleScan: false });
   });
 
+  it('owning an offline group nobody joined yet keeps the BLE scan on to hear another owner', () => {
+    const decision = new DiscoveryPolicy().decide(input({ hubForDiscovery: false, inGroup: true, ownsEmptyGroup: true }));
+    expect(decision).toMatchObject({ stage: 'offline-peers', wifiDirectDiscovery: true, bleAdvertise: true, bleScan: true });
+  });
+
   it('a switched-off provider never runs', () => {
     const decision = new DiscoveryPolicy().decide(input({ hubForDiscovery: false, lan: false, bluetooth: false, wifiDirect: false, radioPeers: 2, groupCandidates: 2 }));
     expect(decision).toMatchObject({ lanNsd: false, bleAdvertise: false, bleScan: false, wifiDirectDiscovery: false, groupFormation: false });

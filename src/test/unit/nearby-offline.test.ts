@@ -10,6 +10,7 @@ import {
   nearbyRoomProof,
   parseNearbyTxt,
   planOfflineGroup,
+  planOwnerConflict,
   verifyNearbyTxtProof,
   planWifiOnlyFallback,
   rotatingNearbyId,
@@ -176,6 +177,31 @@ describe('planOfflineGroup', () => {
 
   it('waits when this phone cannot host', () => {
     expect(plan(self({ canHost: false }), [record()])).toEqual({ action: 'wait', reason: 'cannot-host' });
+  });
+});
+
+describe('planOwnerConflict', () => {
+  const owner = (id: string, extra: Partial<NearbyRecord> = {}): NearbyRecord => ({
+    id, port: 8088, joinByCredential: true, hostScore: 1, seenAt: NOW, group: { networkName: 'DIRECT-iP-x', passphrase: 'p'.repeat(32) }, ...extra,
+  });
+  const decide = (selfId: string, records: NearbyRecord[], lanIds: string[] = []) =>
+    planOwnerConflict({ selfId, records, lanIds: new Set(lanIds), now: NOW });
+
+  it('exactly one of two owners yields: the higher id, to the lowest-id owner', () => {
+    const a = '111111111111'; const b = '222222222222'; const c = '333333333333';
+    expect(decide(a, [owner(b)]).action).toBe('keep');
+    expect(decide(b, [owner(a)])).toMatchObject({ action: 'yield', record: { id: a } });
+    expect(decide(c, [owner(b), owner(a)])).toMatchObject({ action: 'yield', record: { id: a } });
+  });
+
+  it('ignores host scores, non-owners, stale records, LAN phones and its own id', () => {
+    const self = '555555555555';
+    expect(decide(self, [owner('111111111111', { hostScore: 0 })]).action).toBe('yield');
+    expect(decide(self, [record({ id: '111111111111' })]).action).toBe('keep');
+    expect(decide(self, [owner('111111111111', { seenAt: NOW - NEARBY_RECORD_TTL_MS - 1 })]).action).toBe('keep');
+    expect(decide(self, [owner('111111111111')], ['111111111111']).action).toBe('keep');
+    expect(decide(self, [owner(self)]).action).toBe('keep');
+    expect(decide(self, [owner('111111111111', { joinByCredential: false })]).action).toBe('keep');
   });
 });
 

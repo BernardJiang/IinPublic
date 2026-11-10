@@ -223,6 +223,28 @@ export function planOfflineGroup(input: {
 }
 
 /**
+ * Two phones that both host (each started a group before hearing the other's hosting flag, or both
+ * ran the singleton probe) must settle on one owner, or neither ever joins — seen in the field,
+ * P30 + PH-1, 2026-11-09. Every room group uses the same derived credentials, so the loser just
+ * leaves and joins by credential. The rule uses the rotating id alone (lowest id keeps hosting):
+ * both sides see the same two ids, while host scores change with charging and arrive stale.
+ */
+export function planOwnerConflict(input: {
+  selfId: string;
+  records: readonly NearbyRecord[];
+  lanIds: ReadonlySet<string>;
+  now: number;
+}): { action: 'keep' } | { action: 'yield'; record: NearbyRecord & { group: WifiDirectGroupCredentials } } {
+  const owners = input.records
+    .filter((record): record is NearbyRecord & { group: WifiDirectGroupCredentials } =>
+      !!record.group && record.joinByCredential && record.id !== input.selfId
+      && input.now - record.seenAt <= NEARBY_RECORD_TTL_MS && !input.lanIds.has(record.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const winner = owners[0];
+  return winner && winner.id.localeCompare(input.selfId) < 0 ? { action: 'yield', record: winner } : { action: 'keep' };
+}
+
+/**
  * BLE presence payload (hex, 12 bytes max — the native bridge refuses longer): version, 6-byte
  * rotating id, 4-byte room field, flags — bit 0 hosting the offline group, bit 1 joins by
  * credential, bits 2–3 host score, bit 4 online (reaches the hub — older

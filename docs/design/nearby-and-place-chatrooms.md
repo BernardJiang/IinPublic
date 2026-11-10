@@ -422,6 +422,23 @@ The current offline Wi-Fi Direct credential join remains an Android 10+ transpor
 build, Android 10 and 14 formed an owner/client group with the hub unreachable and completed
 bidirectional plus post-background Talk delivery; the available Android 7 phone could not join.
 This is not evidence for a three-phone Wi-Fi Direct cohort, isolated BLE, or long-term battery cost.
+
+**One owner per room group.** Before any group exists, phones elect a host (higher host score, then
+lowest rotating id) and the others wait and join. Two phones can still both end up hosting: each
+starts its group before it hears the other's hosting flag, or both run the 45 s singleton probe. That
+happened in the field on 2026-11-09 (P30 + PH-1). Both stayed owners for 45 minutes, because owners
+stopped scanning BLE and skipped planning, so nobody joined.
+
+The rule now (`planOwnerConflict`):
+- An owner whose group nobody has joined yet keeps scanning BLE.
+- An owner that sees another same-room owner with a lower rotating id leaves its group, and then
+  joins with the shared room credentials. Members of the group it leaves follow.
+- Only the id decides, because both phones see the same two ids, while host scores change with
+  charging and arrive stale. So exactly one phone yields.
+
+Android's own group-owner negotiation (`connect` with `groupOwnerIntent`) is not used, because
+credential groups bypass it and it can prompt the user.
+
 The deterministic four-controller no-server flow, tamper rejection, bounded peer payloads, and
 post-outage index import are automated; physical multi-phone validation remains required.
 

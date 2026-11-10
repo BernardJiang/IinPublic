@@ -9,6 +9,7 @@ import {
   parseBlePresence,
   parseNearbyTxt,
   planOfflineGroup,
+  planOwnerConflict,
   planWifiOnlyFallback,
   type WifiDirectPeerSighting,
   type WifiOnlyPlan,
@@ -82,6 +83,7 @@ export type NearbyOfflineEvent =
   | { type: 'group'; state: WifiDirectNativeState['state']; localIp?: string; ownerIp?: string }
   | { type: 'wifi-direct'; active: boolean; reason?: string }
   | { type: 'stale-group-left'; networkName: string }
+  | { type: 'owner-yield'; to: string }
   | { type: 'stage'; stage: DiscoveryStage; lanNsd: boolean; bleScan: boolean; wifiDirectDiscovery: boolean };
 
 export type NearbyOfflineServiceOptions = {
@@ -469,6 +471,7 @@ export class NearbyOfflineService {
       const state = this.opts.native.getState();
       const inGroup = state.state === 'owner' || state.state === 'client';
       const ourGroup = inGroup && state.networkName === this.currentCredentials()?.networkName;
+      const soleOwner = this.isSoleOwner(state);
       // A room group from an earlier room token or app process (the OS keeps a Wi-Fi Direct group
       // after the app is killed or its data cleared) is never ours: leave it, or it blocks hosting
       // and joining the current room's group forever. Other apps' groups are left alone.
@@ -507,6 +510,7 @@ export class NearbyOfflineService {
         radioPeers: this.registry.freshCount(now),
         groupCandidates,
         inGroup: ourGroup,
+        ownsEmptyGroup: soleOwner,
       });
       if (decision.stage !== this.lastDecision?.stage || decision.lanNsd !== this.lastDecision.lanNsd
         || decision.bleScan !== this.lastDecision.bleScan || decision.wifiDirectDiscovery !== this.lastDecision.wifiDirectDiscovery) {
@@ -516,7 +520,7 @@ export class NearbyOfflineService {
       this.dutyMetrics.record({
         lanNsd: decision.lanNsd,
         bleAdvertise: decision.bleAdvertise && !this.permissionDenied,
-        bleScan: decision.bleScan && !(inGroup && offline),
+        bleScan: decision.bleScan && !(inGroup && offline && !soleOwner),
         wifiDirectDiscovery: decision.wifiDirectDiscovery,
       }, now);
       this.applyLan(decision.lanNsd);
@@ -537,10 +541,11 @@ export class NearbyOfflineService {
         this.stopWifiDirect(offline ? 'quiet-backoff' : 'hub-reachable');
       }
       if (this.disposed) return;
-      this.applyBle(decision.bleAdvertise && !this.permissionDenied, decision.bleScan && !(inGroup && offline));
+      this.applyBle(decision.bleAdvertise && !this.permissionDenied, decision.bleScan && !(inGroup && offline && !soleOwner));
       if (!this.wifiDirectActive) return;
       this.advertise();
       if (inGroup) {
+        if (state.state === 'owner' && this.ownsGroup && this.yieldToOtherOwner(now)) return;
         if (state.state === 'owner' && this.ownsGroup && this.fallback(offline, state)) return;
         return this.maybeTearDown(state);
       }
@@ -709,6 +714,34 @@ export class NearbyOfflineService {
     }
   }
 
+  /** Owns the room's group and nobody has joined it yet. */
+  private isSoleOwner(state: WifiDirectNativeState): boolean {
+    return state.state === 'owner' && (state.clientCount ?? 0) === 0
+      && !!state.networkName && state.networkName === this.currentCredentials()?.networkName;
+  }
+
+  /**
+   * Another phone hosts the same room group and outranks this one (`planOwnerConflict`): leave, and
+   * the next idle tick joins it with the shared credentials. Members of the group we leave fall
+   * back to idle and join the remaining owner the same way.
+   */
+  private yieldToOtherOwner(now: number): boolean {
+    const plan = planOwnerConflict({
+      selfId: this.id,
+      records: this.registry.eligibleRecords(now),
+      lanIds: this.registry.lanIds(now),
+      now,
+    });
+    if (plan.action !== 'yield') return false;
+    this.opts.onEvent?.({ type: 'owner-yield', to: plan.record.id });
+    this.emptySince = null;
+    this.ownsGroup = false;
+    this.singletonProbeGroup = false;
+    this.busyUntil = now + 3_000;
+    this.opts.native.leaveGroup();
+    return true;
+  }
+
   private maybeTearDown(state: WifiDirectNativeState): void {
     if (!this.ownsGroup || state.state !== 'owner') { this.emptySince = null; return; }
     if ((state.clientCount ?? 0) > 0) {
@@ -779,7 +812,7 @@ export class NearbyOfflineService {
     const advertisementState = txt + (inGroup ? '|in-group' : '');
     // Keep the same scan policy as tick(): an online group member watches for offline peers.
     // Unconditionally stopping here makes every tick start the scanner and immediately stop it.
-    if (this.bleState) this.applyBle(true, (this.lastDecision?.bleScan ?? true) && (!inGroup || this.isOnlineStage()));
+    if (this.bleState) this.applyBle(true, (this.lastDecision?.bleScan ?? true) && (!inGroup || this.isOnlineStage() || this.isSoleOwner(state)));
     if (advertisementState === this.lastAdvertised) return;
     this.lastAdvertised = advertisementState;
     this.opts.bridge.advertiseWifiDirectService(txt);

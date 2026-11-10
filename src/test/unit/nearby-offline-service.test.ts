@@ -338,10 +338,43 @@ describe('NearbyOfflineService BLE presence', () => {
     expect(t.calls).toContain(`ble:${scopedBle({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: false })}`);
     t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...TEST_GROUP_CREDENTIALS });
     await flush();
-    // In a group: still advertising (now as host), no longer scanning.
+    // Owner of a group nobody joined yet: advertising as host and still scanning, so it can hear
+    // another owner (field 2026-11-09: two owners with scans off never met).
+    expect(t.calls.at(-1)).toBe(`ble:${scopedBle({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: true })}`);
+    // Once someone joined: no more scanning (battery).
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 1, ...TEST_GROUP_CREDENTIALS });
+    await flush();
     expect(t.calls.at(-1)).toBe(`ble:${scopedBle({ id, canHost: true, joinByCredential: true, hostScore: 1, hosting: true })}:no-scan`);
     t.service.dispose();
     expect(t.calls).toContain('ble-stop');
+  });
+
+  it('two owners settle on one: the higher id leaves its group and joins the other', async () => {
+    const t = setup();
+    await t.service.start();
+    // Both phones hosted before hearing each other (the singleton probe, or a missed hosting flag).
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...TEST_GROUP_CREDENTIALS });
+    await flush();
+    t.emitBle(scopedBle({ id: '000000000000', canHost: true, joinByCredential: true, hostScore: 0, hosting: true }));
+    await t.tick();
+    expect(t.native.left).toBe(1);
+    expect(t.native.state.state).toBe('idle');
+    t.advance(3_001);
+    await t.tick();
+    expect(t.native.joined).toEqual([TEST_GROUP_CREDENTIALS]);
+    t.service.dispose();
+  });
+
+  it('two owners settle on one: the lower id keeps hosting, whatever the host scores say', async () => {
+    const t = setup();
+    await t.service.start();
+    t.native.set({ state: 'owner', localIp: '192.168.49.1', clientCount: 0, ...TEST_GROUP_CREDENTIALS });
+    await flush();
+    t.emitBle(scopedBle({ id: 'ffffffffffff', canHost: true, joinByCredential: true, hostScore: 3, hosting: true }));
+    await t.tick();
+    expect(t.native.left).toBe(0);
+    expect(t.native.joined).toEqual([]);
+    t.service.dispose();
   });
 
   it('joins the room-scoped rotating group when a BLE peer says it is hosting', async () => {

@@ -265,6 +265,11 @@ export type DiscoveryPolicyInput = {
   groupCandidates: number;
   /** Currently in the room's offline Wi-Fi Direct group. */
   inGroup: boolean;
+  /**
+   * This phone owns the room group and nobody has joined yet. It keeps scanning so it can hear
+   * another owner and settle on one (`planOwnerConflict`); a group with members stops (battery).
+   */
+  ownsEmptyGroup?: boolean;
 };
 
 export type DiscoveryPolicyDecision = {
@@ -342,9 +347,9 @@ export class DiscoveryPolicy {
       // The free IP path: only worth multicast wake-ups when there is somebody to find.
       lanNsd: input.lan && (offline || roomHasPeers || input.radioPeers > 0),
       bleAdvertise: input.bluetooth,
-      // An offline group member stops scanning (battery); an online bridge keeps bounded scans so it
-      // notices when the offline phones it serves are gone.
-      bleScan: input.bluetooth && scanning && !(input.inGroup && offline),
+      // An offline group member stops scanning (battery) unless it owns a group nobody joined yet;
+      // an online bridge keeps bounded scans so it notices when the offline phones it serves are gone.
+      bleScan: input.bluetooth && scanning && !(input.inGroup && offline && !input.ownsEmptyGroup),
       // Offline: Wi-Fi Direct DNS-SD runs in scan windows. Online it stays idle (it takes the radio
       // off the Wi-Fi channel) until an offline same-room phone needs it.
       wifiDirectDiscovery: input.wifiDirect && (input.inGroup || input.groupCandidates > 0 || (offline && scanning)),
