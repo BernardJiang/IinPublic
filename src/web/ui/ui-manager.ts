@@ -1333,7 +1333,6 @@ export class UIManager extends EventEmitter {
       },
       answerTag: (talkId, liked) => (liked ? this.quickAnswerIncomingTag(talkId, undefined, true) : this.quickIgnoreIncomingTalk(talkId)),
       deleteAnswers: (talkIds) => this.deleteMyAnswers(talkIds),
-      showPreferencesDialog: this.showPreferencesDialog.bind(this),
       showItemDetailsPopup: this.showDetailsPopupFor.bind(this),
       getTalkContentKey,
       text: this.t.bind(this),

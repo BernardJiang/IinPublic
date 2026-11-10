@@ -7,6 +7,7 @@ import type { User } from '../../shared/types';
 import type { UiTranslationKey } from './ui-translations';
 import { appDataLoaded } from '../services/core-storage';
 import { settingsStorage } from '../services/core-storage';
+import { openMatchCollectionContacts } from './graph-focus';
 
 const chatroomActionDelegationDocuments = new WeakSet<Document>();
 
@@ -359,8 +360,26 @@ function bindBottomNavigation(deps: AppShellControlsDeps): void {
   });
 }
 
+/** The Nearby status line opens the current match collection in Contacts (graph-focus.ts). */
+function bindNearbyStatusLink(deps: AppShellControlsDeps): void {
+  const status = document.getElementById('status-bar-text');
+  if (!status || status.dataset.collectionLink) return;
+  status.dataset.collectionLink = '1';
+  status.setAttribute('role', 'link');
+  status.tabIndex = 0;
+  status.setAttribute('aria-label', deps.t('matchCollectionOpenContacts'));
+  status.addEventListener('click', () => openMatchCollectionContacts());
+  status.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openMatchCollectionContacts();
+    }
+  });
+}
+
 export function bindAppShellControls(deps: AppShellControlsDeps): void {
   bindPrimaryControls(deps);
+  bindNearbyStatusLink(deps);
   bindAnswerFilters(deps);
   bindBroadcastButton(deps);
   bindTalkFilters(deps);

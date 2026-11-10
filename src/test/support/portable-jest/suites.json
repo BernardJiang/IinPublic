@@ -671,10 +671,6 @@
       "reason": "needs a DOM test environment"
     },
     {
-      "file": "match-collection-review-dialog.test.ts",
-      "reason": "uses jest.mock (module mocks stay host-only)"
-    },
-    {
       "file": "match-collection-scale.test.ts",
       "reason": "needs a DOM test environment"
     },

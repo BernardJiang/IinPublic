@@ -15,6 +15,7 @@ import { readExchanges } from '../services/exchange-view';
 import { getFlatAnswerHistory } from './answer-history-storage';
 import { uiText, type UiTranslationKey } from './ui-translations';
 import { escapeHtml } from './ui-formatters';
+import { getActiveMatchCollectionSession, getLatestMatchCollectionSession } from '../services/match-collection-session';
 
 /** `peerIds`, when set, are the people themselves (a place's), not derived from the Talks. */
 export type GraphTopic = { label: string; talkIds: string[]; isTag: boolean; peerIds?: string[]; roomId?: string };
@@ -311,6 +312,21 @@ export function openContactsTopic(label: string, fallback?: GraphTopic): void {
   const input = document.getElementById(TOPIC_INPUT_ID) as HTMLInputElement | null;
   if (input) input.value = label;
   openTab('contacts', { record: false });
+}
+
+/**
+ * The Nearby status line (AppBar, Chatrooms tab) leads to the current match collection: Contacts
+ * narrowed to the people its Talks reached, behind the usual ✕ chip. No collection yet: Contacts.
+ * Owner rule 2026-11-09: no extra buttons inside views, so this is the collection's only entry.
+ */
+export function openMatchCollectionContacts(): void {
+  const session = getActiveMatchCollectionSession() ?? getLatestMatchCollectionSession();
+  if (!session) {
+    openTab('contacts');
+    return;
+  }
+  const label = `📣 ${session.label}`;
+  openContactsTopic(label, { label, talkIds: [], isTag: false, peerIds: [...session.reachedPeerIds] });
 }
 
 export function clearContactsFocus(): void {

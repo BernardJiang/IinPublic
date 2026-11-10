@@ -40,7 +40,6 @@ type AnswersViewDeps = {
   answerTag?: (talkId: string, liked: boolean) => void;
   /** 🗑 Delete my answers to these Talks (a Me row's Talks I did not create); asks first. */
   deleteAnswers?: (talkIds: string[]) => void;
-  showPreferencesDialog: () => void;
   /** Reuses ui-manager.ts's shared reparent-into-popup mechanism (showDetailsPopupFor) so
    *  the moved-out metadata/context/variant list keeps working without a second popup
    *  convention — the same mechanism the Talks tab's long-press details popup uses. */
@@ -529,11 +528,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       const currentDeps = (liveContainer as unknown as { __answersDeps?: AnswersViewDeps } | null)?.__answersDeps;
       if (!currentDeps) return;
 
-      if (target.closest('#view-preferences-btn')) {
-        currentDeps.showPreferencesDialog();
-        return;
-      }
-
       // A row is a link through the graph (owner design 2026-10-25): it opens Contacts narrowed to
       // the people who exchanged this question with me (for a tag, who like it), the most recent
       // first. A question nobody asked me about stays alone. Its Talk opens from the AppBar's 💬.
@@ -568,7 +562,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       ${identityHeaderHtml}
       <div style="padding: 20px; text-align: center; color: #999;">
         <p>${deps.text('meNoAnswers')}</p>
-        <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
       </div>
     `;
     deps.onRowsRendered?.();
@@ -583,7 +576,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')} Every distinct question is listed once, with each context's answer below it.</p>
       <input id="answers-search-input" class="form-input" type="search" placeholder="${deps.text('meSearchAnswers')}" style="width:100%; margin-bottom:12px;">
       <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
-      <button class="btn primary-btn" id="view-preferences-btn" style="margin-top: 20px;">${deps.text('preferences')}</button>
     </div>
   `;
 

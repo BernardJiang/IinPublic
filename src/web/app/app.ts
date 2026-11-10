@@ -22,7 +22,6 @@ import { WebAttestationService } from '../services/web-attestation-service';
 import { OFFICIAL_APPLICATION_ID, OFFICIAL_SIGNING_IDENTITY_HASH } from '../../shared/official-build-credential';
 import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
-import { showMatchCollectionReviewDialog } from '../ui/match-collection-review-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import {
   WebChatroomService,
@@ -8595,31 +8594,6 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on(
-      'startMatchCollection',
-      (data: { label?: string; scopeId?: string }) => {
-        const scopeId = String(data.scopeId || this.chatroomService.getCurrentChatroomId() || '').trim();
-        if (!scopeId) return;
-        setMatchCollectionEnabled(true);
-        const point = this.nearbyPublicPoint();
-        startMatchCollectionSession({
-          label: String(data.label || this.uiText('matchCollectionDefaultLabel')),
-          scopeId,
-          talkIds: this.uiManager.getBroadcastableTalkIds(),
-          ...(point ? { point } : {}),
-        });
-        this.syncNativeBackgroundAgent();
-        this.uiManager.showChatroomList();
-        this.uiManager.showNotification(this.uiText('matchCollectionStarted'), 'success');
-      },
-    );
-    this.uiManager.on('endMatchCollection', () => {
-      setMatchCollectionEnabled(false);
-      if (!endMatchCollectionSession()) return;
-      this.syncNativeBackgroundAgent();
-      this.uiManager.showChatroomList();
-      this.uiManager.showNotification(this.uiText('matchCollectionEnded'), 'success');
-    });
     this.uiManager.on('matchCollectionSettingChanged', (data: { enabled?: boolean }) => {
       const enabled = data.enabled === true;
       setMatchCollectionEnabled(enabled);
@@ -8627,19 +8601,6 @@ export class IinPublicApp {
       else endMatchCollectionSession();
       this.syncNativeBackgroundAgent();
     });
-    this.uiManager.on('broadcastMatchCollection', () => {
-      this.uiManager.broadcastTalksFromCurrentRoom();
-    });
-    this.uiManager.on('reviewMatchCollection', (data: { sessionId?: string }) => {
-      const sessionId = String(data.sessionId || '').trim();
-      if (!sessionId) return;
-      showMatchCollectionReviewDialog({
-        sessionId,
-        text: (key) => this.uiText(key),
-        openPerson: (peerId) => this.uiManager.openUserConversationFirst(peerId, peerId),
-      });
-    });
-
     // Broadcast broadcastable OUT talks: server register + Gun announce (current chatroom only)
     this.uiManager.on(
       'broadcastTalk',

@@ -19,12 +19,6 @@ import { getL1TileInfo, parseTileId, tileBounds, tileCenter, TILE_BOTTOM_LAYER }
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
 import { hideTransientMapHint, showTransientMapHint } from './transient-map-hint';
-import {
-  formatMatchCollectionDuration,
-  getActiveMatchCollectionSession,
-  getLatestMatchCollectionSession,
-  summarizeMatchCollectionSession,
-} from '../services/match-collection-session';
 
 type ChatroomMember = {
   userId: string;
@@ -110,46 +104,6 @@ export function syncStatusBroadcastButtonVisibility(currentChatroom: string): vo
   const button = document.getElementById('broadcast-talk-btn') as HTMLButtonElement | null;
   if (!button) return;
   button.disabled = !currentChatroom;
-}
-
-function formatMatchCollectionText(template: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
-    template,
-  );
-}
-
-function renderMatchCollectionCard(deps: ChatroomsViewDeps): string {
-  const active = getActiveMatchCollectionSession();
-  const session = active ?? getLatestMatchCollectionSession();
-  const summary = session ? summarizeMatchCollectionSession(session.id) : null;
-  const title = active
-    ? deps.text('matchCollectionActiveTitle')
-    : session
-      ? deps.text('matchCollectionFinishedTitle')
-      : deps.text('matchCollectionTitle');
-  const summaryText = session && summary
-    ? formatMatchCollectionText(
-        deps.text(active ? 'matchCollectionActiveSummary' : 'matchCollectionFinishedSummary'),
-        {
-          elapsed: formatMatchCollectionDuration(summary.elapsedMs),
-          people: summary.reached,
-          replies: summary.replies,
-          pending: summary.pending,
-          matches: summary.matches,
-        },
-      )
-    : deps.text('matchCollectionHelp');
-  return `<section class="chatroom-flat-section match-collection-card" data-testid="match-collection-card"${session ? ` data-session-id="${deps.escapeHtml(session.id)}"` : ''}>
-    <h2 class="chatroom-flat-heading">${deps.escapeHtml(title)}</h2>
-    ${session ? `<div class="match-collection-label">${deps.escapeHtml(session.label)}</div>` : ''}
-    <p class="match-collection-summary" data-testid="match-collection-card-summary">${deps.escapeHtml(summaryText)}</p>
-    <div class="match-collection-actions">
-      ${active ? `<button type="button" class="btn primary-btn" data-testid="match-collection-broadcast">${deps.escapeHtml(deps.text('matchCollectionBroadcast'))}</button>` : `<button type="button" class="btn primary-btn" data-testid="match-collection-start">${deps.escapeHtml(deps.text('matchCollectionStart'))}</button>`}
-      ${session ? `<button type="button" class="btn" data-testid="match-collection-review">${deps.escapeHtml(deps.text('matchCollectionReview'))}</button>` : ''}
-      ${active ? `<button type="button" class="btn" data-testid="match-collection-stop">${deps.escapeHtml(deps.text('matchCollectionStop'))}</button>` : ''}
-    </div>
-  </section>`;
 }
 
 export function markChatroomMemberMatched(
@@ -398,7 +352,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
       </div>
       ${placeLinksHtml(deps.currentChatroom || NEARBY_V3_ROOM_ID, currentNode?.name || '', deps)}
     </section>
-    ${renderMatchCollectionCard(deps)}
     ${showRoomsSection ? `<section class="chatroom-flat-section nearby-browser-rooms" data-testid="rooms-near-you-section">
         <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
         ${renderRoomListHeader(sort, deps.text, showRoomsSection)}
@@ -411,20 +364,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
   renderGraphPlaceView();
   bindSelfRow(chatroomList);
   syncNearbyPagingActions(deps, nearbyPeople.length);
-
-  chatroomList.querySelector<HTMLButtonElement>('[data-testid="match-collection-start"]')?.addEventListener('click', () => {
-    deps.emit('startMatchCollection', { scopeId: deps.currentChatroom });
-  });
-  chatroomList.querySelector<HTMLButtonElement>('[data-testid="match-collection-broadcast"]')?.addEventListener('click', () => {
-    deps.emit('broadcastMatchCollection', {});
-  });
-  chatroomList.querySelector<HTMLButtonElement>('[data-testid="match-collection-review"]')?.addEventListener('click', () => {
-    const sessionId = chatroomList.querySelector<HTMLElement>('[data-testid="match-collection-card"]')?.dataset.sessionId;
-    if (sessionId) deps.emit('reviewMatchCollection', { sessionId });
-  });
-  chatroomList.querySelector<HTMLButtonElement>('[data-testid="match-collection-stop"]')?.addEventListener('click', () => {
-    deps.emit('endMatchCollection', {});
-  });
 
   document.getElementById('room-list-sort')?.addEventListener('change', (event) => {
     setRoomListSort((event.currentTarget as HTMLSelectElement).value as ActiveRoomSort);

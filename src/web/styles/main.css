@@ -554,6 +554,10 @@ button:focus:not(:focus-visible) {
 }
 
 /* The selected folder/detail heading already names the scope; the AppBar shows changing counts. */
+#status-bar-text[data-collection-link] {
+  cursor: pointer;
+}
+
 #status-bar-text {
   display: inline-flex;
   align-items: center;
@@ -2348,32 +2352,6 @@ button:focus:not(:focus-visible) {
 .talk-tag-broadcast-toggle {
   padding: 1px 4px;
   background: var(--surface);
-}
-
-.match-collection-card {
-  display: grid;
-  gap: 6px;
-}
-
-.match-collection-label {
-  font-weight: 650;
-}
-
-.match-collection-summary {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.88rem;
-}
-
-.match-collection-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.match-collection-actions .btn {
-  min-height: 44px;
 }
 
 /* Me tab — merged-by-question answer rows */

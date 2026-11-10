@@ -107,7 +107,7 @@ describe('flat Nearby and Places list', () => {
     );
     const browserSections = Array.from(document.querySelectorAll('[data-testid="nearby-browser-list"] > section'));
     expect(browserSections.map((section) => section.getAttribute('data-testid')))
-      .toEqual(['nearby-people-section', 'match-collection-card', 'rooms-near-you-section']);
+      .toEqual(['nearby-people-section', 'rooms-near-you-section']);
     expect(rows.every((row) => row.querySelector('button') === null)).toBe(true);
     expect(document.querySelector('[data-testid="nearby-group-bar"]')).toBeNull();
     expect((document.querySelector('[data-testid="nearby-meet-new-people-action"]') as HTMLElement).style.display)
@@ -116,28 +116,13 @@ describe('flat Nearby and Places list', () => {
     expect(document.body.textContent).not.toContain('Loading rooms');
   });
 
-  it('restores start, broadcast, review, and stop controls for an outing', () => {
-    const emit = jest.fn();
-    render({ emit });
-    (document.querySelector('[data-testid="match-collection-start"]') as HTMLButtonElement).click();
-    expect(emit).toHaveBeenCalledWith('startMatchCollection', { scopeId: NEARBY_ID });
-
-    const session = startMatchCollectionSession({ label: 'Mall walk', scopeId: NEARBY_ID });
-    emit.mockClear();
-    render({ emit });
-    expect(document.querySelector('[data-testid="match-collection-card"]')).toHaveAttribute('data-session-id', session.id);
-    expect(document.querySelector('[data-testid="match-collection-card-summary"]')).toHaveTextContent('pending');
-    (document.querySelector('[data-testid="match-collection-broadcast"]') as HTMLButtonElement).click();
-    (document.querySelector('[data-testid="match-collection-review"]') as HTMLButtonElement).click();
-    (document.querySelector('[data-testid="match-collection-stop"]') as HTMLButtonElement).click();
-    expect(emit).toHaveBeenCalledWith('broadcastMatchCollection', {});
-    expect(emit).toHaveBeenCalledWith('reviewMatchCollection', { sessionId: session.id });
-    expect(emit).toHaveBeenCalledWith('endMatchCollection', {});
-
+  it('puts no outing card or collection buttons in the list (owner rule: no buttons inside views)', () => {
+    startMatchCollectionSession({ label: 'Mall walk', scopeId: NEARBY_ID });
+    render({});
+    expect(document.querySelector('[data-testid="match-collection-card"]')).toBeNull();
+    expect(document.querySelector('[data-testid^="match-collection-"]')).toBeNull();
+    expect(document.querySelector('[data-testid="nearby-browser-list"] .btn')).toBeNull();
     endMatchCollectionSession();
-    render({ emit });
-    expect(document.querySelector('[data-testid="match-collection-start"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="match-collection-review"]')).not.toBeNull();
   });
 
   it('does not turn a map-selected Nearby audience into a visible room', () => {
@@ -218,9 +203,8 @@ describe('flat Nearby and Places list', () => {
     expect(document.querySelector('.chatroom-item.current-room')?.textContent).toContain('Bean There Café');
   });
 
-  it('keeps the outing card separate from obsolete Nearby progress/toggle UI', () => {
+  it('shows no obsolete Nearby progress/toggle UI', () => {
     render({ nearbyBroadcastProgress: { sent: 3, total: 7 } });
-    expect(document.querySelector('[data-testid="match-collection-card"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="match-collection-toggle"]')).toBeNull();
     expect(document.querySelector('[data-testid="nearby-broadcast-progress"]')).toBeNull();
   });

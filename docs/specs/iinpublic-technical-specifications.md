@@ -4830,11 +4830,21 @@ A single horizontal bar directly under the OS chrome, replacing the current `top
 - **Left** — a contextual control: the screen title when at a list root, or a **back icon** (`‹` / chevron) when inside a sub-view (chatroom detail, peer detail, conversation, contact detail). The text "‹ Back" buttons (`#back-to-chatrooms`, `#back-to-contacts-list`, `#talks-nav-back`, `#back-from-peer-detail`, `#back-from-conversation`) all collapse into this one left-corner icon.
 - **Center** — the status / context line (single line, truncates with ellipsis). On Chatrooms it
   shows only changing counts (`N users · M matches`); the selected folder or detail heading already
-  names the scope, so the AppBar does not repeat the static `📍 Nearby` label. Other tabs reuse their
+  names the scope, so the AppBar does not repeat the static `📍 Nearby` label. Tapping it opens
+  Contacts narrowed to the current match collection's people. Other tabs reuse their
   existing per-view status text (`#contacts-status-text`, etc.).
 - **Right** — a row of **action icons**, contextual to the screen. Icons render inline until they no longer fit; overflow collapses into a single **`⋯` (more) button** that opens a small menu with the remaining actions and their labels.
 
 Every screen uses the same component so spacing, height, icon size, and the overflow behavior are identical everywhere.
+
+**Hard rule — no extra buttons inside views (owner, 2026-11-09).** A screen's actions live in the
+AppBar's right zone (or its `⋯` menu); a view's body holds content only — rows, the filter
+disclosure, and form fields on Settings pages. Never add a card or section with its own action
+buttons in the middle of a list or page. A new action is an AppBar icon, or a tap on something
+already shown (a row, the status line). Example: the match collection's Start/Broadcast/Review/Stop
+card was removed — Broadcast is the existing AppBar icon and fills the current collection, the
+Chatrooms status line opens Contacts narrowed to the collection's people (`📣 <label>` chip), and
+collecting on/off is the Settings switch.
 
 ##### 2. Chatrooms tab
 

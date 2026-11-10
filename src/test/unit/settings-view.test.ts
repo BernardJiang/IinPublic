@@ -301,18 +301,12 @@ describe('settings view extraction', () => {
     expect(deps.applySettingsSectionView).toHaveBeenCalledWith('settings-section-profile');
   });
 
-  it('opens the latest outing review from Settings, once there has been an outing', () => {
+  it('has no outing review button: the Nearby status line opens the collection in Contacts', () => {
     localStorage.removeItem(MATCH_COLLECTION_STORE_KEY);
+    startMatchCollectionSession({ label: 'Walk', scopeId: 'nearby-v3' });
     document.body.innerHTML = '<div id="settings-content"></div>';
     renderSettingsView(makeUser(), viewDeps());
     expect(document.getElementById('settings-match-collection-review')).toBeNull();
-
-    const session = startMatchCollectionSession({ label: 'Walk', scopeId: 'nearby-v3' });
-    renderSettingsView(makeUser(), viewDeps());
-    const emit = jest.fn();
-    bindSettingsControls(controlsDeps({ emit }));
-    document.getElementById('settings-match-collection-review')?.click();
-    expect(emit).toHaveBeenCalledWith('reviewMatchCollection', { sessionId: session.id });
     localStorage.removeItem(MATCH_COLLECTION_STORE_KEY);
   });
 

@@ -9,7 +9,6 @@ import { getDistanceUnit } from './distance-units';
 import { normalizeProfileAttributeVisibility } from '../../shared/profile-privacy';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { escapeHtml } from './ui-formatters';
-import { getLatestMatchCollectionSession } from '../services/match-collection-session';
 import { deviceHasGps, getEncounterLocation, isGpsFixUnavailable, usesSelfDefinedEncounterLocation } from '../services/encounter-location';
 import {
   discoveryProviderAvailability,
@@ -535,7 +534,6 @@ export function renderSettingsView(user: User, deps: SettingsViewDeps): void {
             <span>${deps.t('settingsMatchCollection')}</span>
           </label>
           <div style="font-size:0.82em;color:var(--text-tertiary);margin:2px 0 0 26px;">${deps.t('settingsMatchCollectionHelp')}</div>
-          ${renderMatchCollectionReviewButton(deps.t)}
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.95em;margin-top:12px;">
             <input type="checkbox" id="settings-chatbot-enabled" ${getChatbotEnabled() ? 'checked' : ''}>
             <span>${deps.t('settingsChatbot')}</span>
@@ -848,13 +846,6 @@ const PROVIDER_STATE_KEYS: Record<DiscoveryProviderAvailability, UiTranslationKe
   'permission-denied': 'settingsProviderPermissionDenied',
   'radio-off': 'settingsProviderRadioOff',
 };
-
-/** The latest outing's review; hidden until there has been an outing. */
-function renderMatchCollectionReviewButton(t: (key: UiTranslationKey) => string): string {
-  const session = getLatestMatchCollectionSession();
-  if (!session) return '';
-  return `<button type="button" class="btn" id="settings-match-collection-review" data-testid="settings-match-collection-review" data-session-id="${escapeHtml(session.id)}" style="margin:6px 0 0 26px;">${t('matchCollectionReview')}</button>`;
-}
 
 /** One discovery provider switch with its live availability (unsupported, permission, radio off). */
 function renderNearbyProviderRow(

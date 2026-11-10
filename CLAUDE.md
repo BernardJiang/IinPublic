@@ -225,6 +225,10 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 
 ## Key invariants
 
+- **No extra buttons inside views (owner hard rule, 2026-11-09).** Actions go in the AppBar (right
+  zone or `⋯`), or on a tap of something already shown (a row, the status line). Never add a card or
+  section with its own buttons in the middle of a list or page. Spec §1 "One top bar per screen".
+
 - **Match logic is in `src/shared/talk-engine.ts`** — never duplicate it in routes or UI.
 - **TechSupport is the built-in first user and counts as exactly 1 in every headcount** (status bar, room badges) — see spec `docs/specs/iinpublic-technical-specifications.md` §19.7.1 (merged from the former `docs/design/techsupport-bootstrap-contract.md`, now in `docs/archive/consolidated-2026-07-29/`).
 - **Incoming-talk rows are device-side only, no server map** — built from the receiver's device

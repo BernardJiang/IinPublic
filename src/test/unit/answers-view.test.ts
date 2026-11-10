@@ -122,7 +122,6 @@ describe('answers view models', () => {
       getFlatAnswerHistory: () => ({ history: baseRecord }),
       escapeHtml: (value) => value,
       showTalkDetail: jest.fn(),
-      showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(),
       text: (key) => uiText('en', key),
@@ -169,7 +168,6 @@ describe('answers view models', () => {
       }])),
       escapeHtml: (value) => value,
       showTalkDetail: jest.fn(),
-      showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(),
       text: (key) => uiText('en', key),
@@ -229,7 +227,6 @@ describe('answers view models', () => {
       }),
       escapeHtml: (value) => value,
       showTalkDetail: jest.fn(),
-      showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(),
       text: (key) => uiText('en', key),
@@ -289,7 +286,6 @@ describe('answers view models', () => {
       }),
       escapeHtml: (value) => value,
       showTalkDetail: jest.fn(),
-      showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(),
       text: (key) => uiText('en', key),
@@ -409,7 +405,6 @@ describe('answers view models', () => {
       }),
       escapeHtml: (value) => value,
       showTalkDetail: jest.fn(),
-      showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(),
       text: (key) => uiText('en', key),
@@ -454,7 +449,6 @@ describe('answers view models', () => {
       }),
       escapeHtml: (value) => value,
       showTalkDetail: jest.fn(),
-      showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(),
       text: (key) => uiText('en', key),
@@ -506,7 +500,6 @@ describe('answers view models', () => {
       }),
       escapeHtml: (value) => value,
       showTalkDetail: jest.fn(),
-      showPreferencesDialog: jest.fn(),
       showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(),
       text: (key) => uiText('en', key),
@@ -566,7 +559,6 @@ describe('answers view models', () => {
         getFlatAnswerHistory: () => buildFlatHistory(count),
         escapeHtml: (value: string) => value,
         showTalkDetail: jest.fn(),
-        showPreferencesDialog: jest.fn(),
         showItemDetailsPopup: jest.fn(),
         getTalkContentKey: jest.fn(),
         text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
@@ -677,14 +669,12 @@ describe('answers view models', () => {
       expect(showTalkDetail).not.toHaveBeenCalled();
     });
 
-    it('preferences button works from the empty state too, exactly once', () => {
-      const showPreferencesDialog = jest.fn();
+    it('puts no Preferences button inside the Me view (it is an AppBar icon)', () => {
       displayAnswersList({
         getMyTalks: () => ({}),
         getFlatAnswerHistory: () => ({}),
         escapeHtml: (value: string) => value,
         showTalkDetail: jest.fn(),
-        showPreferencesDialog,
         showItemDetailsPopup: jest.fn(),
         getTalkContentKey: jest.fn(),
         text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
@@ -693,8 +683,8 @@ describe('answers view models', () => {
         formatLanguage: () => 'English',
       } as any);
 
-      document.getElementById('view-preferences-btn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      expect(showPreferencesDialog).toHaveBeenCalledTimes(1);
+      expect(document.querySelector('#answers-content #view-preferences-btn')).toBeNull();
+      expect(document.querySelector('#answers-content .btn')).toBeNull();
     });
   });
 
@@ -709,7 +699,6 @@ describe('answers view models', () => {
         getFlatAnswerHistory: () => ({}),
         escapeHtml: (value: string) => value,
         showTalkDetail: jest.fn(),
-        showPreferencesDialog: jest.fn(),
         showItemDetailsPopup: jest.fn(),
         getTalkContentKey: jest.fn(),
         text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
@@ -1005,7 +994,6 @@ describe('Me rows lead through the graph (owner design 2026-10-25)', () => {
     getFlatAnswerHistory: () => history,
     escapeHtml: (value: string) => value,
     showTalkDetail: jest.fn(),
-    showPreferencesDialog: jest.fn(),
     showItemDetailsPopup: jest.fn(),
     getTalkContentKey: jest.fn(),
     text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
@@ -1115,7 +1103,7 @@ describe('Me focus: a person page or a Talks tag shows only its answers (graph-f
     displayAnswersList({
       getMyTalks: () => ({}),
       getFlatAnswerHistory: () => ({ ...tag('Pizza', 'tag-pizza', true), ...tag('Horror', 'tag-horror', false), ...tag('Jazz', 'tag-jazz', true) }),
-      escapeHtml: (value: string) => value, showTalkDetail: jest.fn(), showPreferencesDialog: jest.fn(), showItemDetailsPopup: jest.fn(),
+      escapeHtml: (value: string) => value, showTalkDetail: jest.fn(), showItemDetailsPopup: jest.fn(),
       getTalkContentKey: jest.fn(), text: (key: Parameters<typeof uiText>[1]) => uiText('en', key),
       formatDate: () => 'date', formatType: () => 'Tag', formatLanguage: () => 'English',
     } as any);
