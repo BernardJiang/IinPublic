@@ -159,6 +159,7 @@ export function registerMailboxRoutes(
     }
   });
 
+  let lastHubListWarnAt = Number.NEGATIVE_INFINITY;
   // ── GET /api/mailbox/:recipientId ─────────────────────────────────────────
   // List all non-expired envelopes for a recipient (full ciphertext included).
   app.get('/api/mailbox/:recipientId', async (req, res) => {
@@ -177,8 +178,16 @@ export function registerMailboxRoutes(
             if (envelope?.id) byId.set(envelope.id, envelope);
           }
           envelopes = Array.from(byId.values());
-        } catch {
+        } catch (error) {
           // Embedded nodes remain usable offline; local/already-cached envelopes still return.
+          // Say why, at most every 30 s: after a Wi-Fi flap a phone answered "no envelopes" for a
+          // minute while the hub held one (native-app/12, 2026-11-09) and nothing logged the cause.
+          const now = Date.now();
+          if (now - lastHubListWarnAt >= 30_000) {
+            lastHubListWarnAt = now;
+            const cause = (error as { cause?: { code?: string; message?: string } })?.cause;
+            console.warn(`[mailbox] hub list failed: ${(error as Error)?.message ?? error}${cause ? ` (cause: ${cause.code ?? ''} ${cause.message ?? ''})` : ''}`);
+          }
         }
       }
       res.json({ recipientId, envelopes, count: envelopes.length });

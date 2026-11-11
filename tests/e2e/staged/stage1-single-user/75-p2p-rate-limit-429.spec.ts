@@ -13,23 +13,37 @@
  *   - the window expiring restores service for the throttled peer.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import net from 'node:net';
 import path from 'node:path';
 import { test, expect } from '../../helpers/fixtures';
 
 const MAX_EVENTS = 5;
 const WINDOW_MS = 2_000;
 
-function rateLimitPort(): number {
-  // Own port band well above the per-worker 8080+N servers; unique per worker.
-  return 18_300 + Number(process.env.TEST_PARALLEL_INDEX || 0);
+/**
+ * A port nobody listens on. The old fixed 18300+worker band collided with long-running local
+ * servers (18301/18302 on the dev Mac): our server failed to bind, the health poll reached the
+ * other server with the normal cap, and every burst request got 400 (test:all 2026-11-10).
+ */
+async function freePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      probe.close(() => resolve(port));
+    });
+  });
 }
 
 test.describe('P2P rate limiting — 429 past the per-peer budget (spec §3.8)', () => {
   let server: ChildProcess | undefined;
-  const port = rateLimitPort();
-  const base = `http://localhost:${port}`;
+  let base = '';
 
   test.beforeAll(async ({ request }) => {
+    const port = await freePort();
+    base = `http://localhost:${port}`;
     const serverEntry = path.resolve(__dirname, '../../../../dist/server/server/index.js');
     server = spawn('node', [serverEntry], {
       env: {
@@ -41,9 +55,12 @@ test.describe('P2P rate limiting — 429 past the per-peer budget (spec §3.8)',
       },
       stdio: 'ignore',
     });
+    let exitCode: number | null = null;
+    server.once('exit', (code) => { exitCode = code ?? -1; });
     await expect
       .poll(
         async () => {
+          if (exitCode !== null) throw new Error(`rate-limit server on ${base} exited with ${exitCode} before it was ready`);
           try {
             const res = await request.get(`${base}/health`);
             return res.ok();

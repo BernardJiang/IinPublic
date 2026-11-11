@@ -100,6 +100,12 @@ export type PeerMeshServiceOptions = {
   onGraphGun?: (fromUserId: string, fromPub: string, raw: string) => void;
   /** A direct link went down or was replaced (the graph link closes with it). */
   onNeighborDisconnected?: (userId: string) => void;
+  /**
+   * The WebRTC connection under a neighbor that was already live was replaced (both sides opened
+   * one at once, or it dropped and came back). Frames sent on the old connection were reported as
+   * sent and are lost; the graph link should start fresh (stage5 HR route, 2026-11-10).
+   */
+  onNeighborReconnected?: (userId: string) => void;
 };
 
 type PeerMeshTransportMetrics = {
@@ -118,6 +124,8 @@ type Neighbor = {
   pub: string;
   session: MeshSession;
   connected: boolean;
+  /** This neighbor's session has been live at least once (a later connect is a reconnect). */
+  wasLive?: boolean;
 };
 
 /**
@@ -306,8 +314,11 @@ export class PeerMeshService {
             new Promise((_, reject) => setTimeout(() => reject(new Error('mesh neighbor wait timeout')), 750)),
           ]);
           const newlyConnected = !neighbor.connected;
+          const reconnected = newlyConnected && !!neighbor.wasLive;
           neighbor.connected = true;
+          neighbor.wasLive = true;
           void this.sendProtocolManifestSummary(neighbor);
+          if (reconnected) this.notifyNeighborReconnected(userId);
           if (newlyConnected) this.notifyNeighborConnected(userId);
           return true;
         } catch {
@@ -696,6 +707,14 @@ export class PeerMeshService {
     this.notifyNeighborConnected(userId);
   }
 
+  private notifyNeighborReconnected(userId: string): void {
+    try {
+      this.opts.onNeighborReconnected?.(userId);
+    } catch (error) {
+      console.warn('[mesh] neighbor-reconnected handler failed:', error);
+    }
+  }
+
   private notifyNeighborDisconnected(userId: string): void {
     try {
       this.opts.onNeighborDisconnected?.(userId);
@@ -755,8 +774,11 @@ export class PeerMeshService {
     void neighbor.session.ensureConnected()
       .then(() => {
         const newlyConnected = !neighbor.connected;
-        if (newlyConnected) console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} connected (${Date.now() - startedAt} ms this attempt)`);
+        const reconnected = newlyConnected && !!neighbor.wasLive;
+        if (newlyConnected) console.info(`[mesh] neighbor ${neighbor.userId.slice(0, 8)} ${reconnected ? 'reconnected' : 'connected'} (${Date.now() - startedAt} ms this attempt)`);
         neighbor.connected = true;
+        neighbor.wasLive = true;
+        if (reconnected) this.notifyNeighborReconnected(neighbor.userId);
         this.connectFailures.delete(neighbor.userId);
         this.gaveUpAt.delete(neighbor.userId);
         void this.sendProtocolManifestSummary(neighbor);
@@ -774,6 +796,9 @@ export class PeerMeshService {
         const replacementState = neighbor.session.getState?.();
         if (replacementState === 'connected') {
           neighbor.connected = true;
+          // The replacement is already up, but frames sent on the connection it replaced are lost.
+          if (neighbor.wasLive) this.notifyNeighborReconnected(neighbor.userId);
+          neighbor.wasLive = true;
           return;
         }
         neighbor.connected = false;

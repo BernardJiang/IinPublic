@@ -417,7 +417,9 @@ export async function launchAndroidUserViaAdb(options: LaunchAndroidUserOptions 
   let lastError: unknown;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      return await attachAndroidProcess(serial);
+      const user = await attachAndroidProcess(serial);
+      await waitForAndroidPageDrawing(serial, user.window);
+      return user;
     } catch (error) {
       lastError = error;
       if (attempt < 3) {
@@ -585,6 +587,36 @@ export async function closeAndroidUser(user: AndroidUser | undefined): Promise<v
   // The phones sit on USB with "stay awake while charging" on, so a screen left on stays on
   // between runs and wears the battery (user request 2026-10-18). The next launch wakes it.
   await sleepAndroidScreen(user.deviceSerial);
+}
+
+/**
+ * Playwright's clicks wait until the target is "stable" over two animation frames, so on a page
+ * that is not drawing every click stalls for its whole timeout. After a screen-off, the Honor
+ * FCP-AN10 (Android 17) kept its WebView hidden and frameless for 10 s to over a minute after
+ * KEYCODE_WAKEUP (2026-11-09: native-app/07, 06 and 33 failed on it, never on the other phones).
+ * Wait until the page is visible and drawing, waking the screen again while it is not.
+ */
+export async function waitForAndroidPageDrawing(serial: string, page: Page, timeoutMs = 60_000): Promise<void> {
+  const startedAt = Date.now();
+  for (;;) {
+    const state = await page.evaluate(() => new Promise<{ frames: number; visible: boolean }>((resolve) => {
+      let frames = 0;
+      const done = () => resolve({ frames, visible: document.visibilityState === 'visible' });
+      const timer = setTimeout(done, 600);
+      const tick = () => { frames += 1; if (frames >= 3) { clearTimeout(timer); done(); } else requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    })).catch(() => ({ frames: 0, visible: false }));
+    if (state.visible && state.frames >= 3) {
+      const waited = Date.now() - startedAt;
+      if (waited > 2_000) console.log(`[android] ${serial}: page started drawing ${waited} ms after launch`);
+      return;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`${serial}: the app page was not drawing ${timeoutMs} ms after launch (screen off or locked?)`);
+    }
+    await wakeAndroidScreen(serial);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
 }
 
 /** Turn the screen off now (it stays off until something wakes it). */

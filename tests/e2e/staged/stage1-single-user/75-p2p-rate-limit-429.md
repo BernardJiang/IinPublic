@@ -7,7 +7,7 @@ per-peer rate budget (P2PAbuseDefenseContext), returning 429 past
 P2P_RATE_LIMIT_MAX_EVENTS per P2P_RATE_LIMIT_WINDOW_MS.
 
 The regular E2E servers raise the cap to 5000, so this spec boots its own
-`dist/server` on a dedicated port (18300+worker) with a 5-event / 2s budget and
+`dist/server` on a free port the OS picks (a fixed 18300+worker band collided with other local servers) with a 5-event / 2s budget and
 asserts: under-budget requests pass, the budget-exceeding request is 429 with an
 error body, a different peer keeps its own budget, and the throttled peer recovers
 after the window expires.

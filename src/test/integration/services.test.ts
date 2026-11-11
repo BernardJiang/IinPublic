@@ -332,6 +332,42 @@ describe('Service Integration Tests', () => {
       expect(mockGetOptional).toHaveBeenCalledWith('user-talk-filters/user123', 800);
     });
 
+    it('counts a block once when a retried block request overlaps the first (spec 21a, test:all 2026-11-09)', async () => {
+      // The client re-posts a block whose first request timed out on its side; the first may
+      // still be writing on the hub. Both used to read "not blocked" and both added 1, so the
+      // later unblock left blockCount at 1.
+      const pairHash = blockPairHash('viewer', 'target');
+      let pairNode: unknown = null;
+      jest.spyOn(gunService, 'getPath').mockImplementation(async (path: string[]) => {
+        const key = path.join('/');
+        if (key === `block-pairs/${pairHash}`) return pairNode;
+        if (key === 'users/target/reputation') return { blockCount: 0 };
+        return null;
+      });
+      let slowFirstWrite = true;
+      jest.spyOn(gunService, 'putPath').mockImplementation(async (path: string[], data: unknown) => {
+        if (slowFirstWrite) {
+          slowFirstWrite = false;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        if (path.join('/') === `block-pairs/${pairHash}`) pairNode = data;
+        return undefined;
+      });
+      const blockCount = async () =>
+        Number((await (userService as unknown as { readReputation(id: string): Promise<{ blockCount: number }> })
+          .readReputation('target')).blockCount);
+
+      const first = userService.blockUser('viewer', 'target');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const retried = userService.blockUser('viewer', 'target');
+      const results = await Promise.all([first, retried]);
+      expect(results.filter((result) => result.changed)).toHaveLength(1);
+      expect(await blockCount()).toBe(1);
+
+      await userService.unblockUser('viewer', 'target');
+      expect(await blockCount()).toBe(0);
+    });
+
     it('should persist block mirrors and update block count when blocking and unblocking', async () => {
       const baseUser = {
         id: 'viewer',

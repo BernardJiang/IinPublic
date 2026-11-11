@@ -41,6 +41,9 @@ export class UserService {
   private readonly recentAgeVerificationWrites = new Map<string, { votes: number; verified: boolean }>();
   private readonly recentFriendMarkStates = new Map<string, Map<string, { active: boolean; updatedAt: string }>>();
 
+  /** Block changes per target, one at a time (see serializeBlockChange). */
+  private readonly blockChangeQueue = new Map<string, Promise<unknown>>();
+
   constructor(private gunService: GunService) {}
 
   /** E2E / test-only: in-memory block overrides survive Gun graph clears. */
@@ -467,6 +470,22 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     return !!(node && typeof node === 'object' && (node as { userId?: string }).userId);
   }
 
+  /**
+   * Block and unblock read the current state, write, then adjust the target's blockCount. Two
+   * overlapping requests (a client retrying a block whose first request it gave up on, or two
+   * people blocking the same person) both read the old state and both counted
+   * (spec 21a, test:all 2026-11-09). Changes for one target now run one after another.
+   */
+  private serializeBlockChange<T>(targetId: string, change: () => Promise<T>): Promise<T> {
+    const previous = this.blockChangeQueue.get(targetId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(change);
+    this.blockChangeQueue.set(targetId, next);
+    void next.catch(() => undefined).then(() => {
+      if (this.blockChangeQueue.get(targetId) === next) this.blockChangeQueue.delete(targetId);
+    });
+    return next;
+  }
+
   private blockMutationKey(blockerId: string, targetId: string): string {
     return `${blockerId}\0${targetId}`;
   }
@@ -519,6 +538,10 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     }
     // TechSupport is unblockable (docs/TODO.md K6). Refuse before any edge is written.
     assertBlockTargetAllowed(targetId);
+    return this.serializeBlockChange(targetId, () => this.applyBlock(blockerId, targetId));
+  }
+
+  private async applyBlock(blockerId: string, targetId: string): Promise<{ changed: boolean }> {
     const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
     const blockedAt = new Date().toISOString();
     // A single node now holds the whole pair relationship (see src/shared/block-pair.ts), so
@@ -542,6 +565,10 @@ private static readonly DEFAULT_REPUTATION: Reputation = {
     if (!blockerId || !targetId) {
       throw new Error('blockerId and targetId required');
     }
+    return this.serializeBlockChange(targetId, () => this.applyUnblock(blockerId, targetId));
+  }
+
+  private async applyUnblock(blockerId: string, targetId: string): Promise<{ changed: boolean }> {
     const alreadyBlocked = await this.readEffectiveBlockState(blockerId, targetId);
     if (!alreadyBlocked) {
       return { changed: false };
