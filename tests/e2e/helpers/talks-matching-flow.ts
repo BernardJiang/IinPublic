@@ -892,8 +892,14 @@ export async function finalCleanupPages(
  * `pointerdown`/`pointerup` listeners fire exactly as they would for a user.
  */
 export async function longPressTalkRow(page: Page, row: import('@playwright/test').Locator): Promise<void> {
-  await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
-  const box = await row.boundingBox();
+  // The Talks list re-renders when a row's stats or broadcast state arrive, so the row can be
+  // detached for a frame between scrolling and measuring: measure again rather than fail.
+  let box: Awaited<ReturnType<typeof row.boundingBox>> = null;
+  for (const deadline = Date.now() + 5_000; !box && Date.now() < deadline; ) {
+    await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' })).catch(() => undefined);
+    box = await row.boundingBox().catch(() => null);
+    if (!box) await page.waitForTimeout(100);
+  }
   if (!box) throw new Error('longPressTalkRow: row has no bounding box (not visible?)');
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
