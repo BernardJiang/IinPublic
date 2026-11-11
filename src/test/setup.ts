@@ -87,3 +87,34 @@ beforeEach(() => {
   resetExchangeViewForTests();
   resetCoreViewsForTests();
 });
+
+// supertest's `request(app)` binds `app.listen(0)` (every address, `::`) and then connects to
+// 127.0.0.1:<port>. On macOS another process may hold 127.0.0.1 on that same port number — during
+// test:all the e2e servers and browsers hold many — and the request reaches that process instead
+// (404s and "socket hang up" in system-routes.test.ts). Bind 127.0.0.1 itself, where the OS only
+// picks a port nobody holds there; that bind is asynchronous, so the port goes into the URL just
+// before the request is sent. Node-environment suites only (jsdom suites cannot load supertest).
+if (typeof window === 'undefined') {
+  const Test = require('supertest/lib/test');
+  const serverAddress = Test.prototype.serverAddress;
+  Test.prototype.serverAddress = function loopbackServerAddress(app, path) {
+    if (app.address()) return serverAddress.call(this, app, path);
+    this._server = app.listen(0, '127.0.0.1');
+    this._loopbackPath = path;
+    return `http://127.0.0.1:0${path}`;
+  };
+  const end = Test.prototype.end;
+  Test.prototype.end = function loopbackEnd(fn) {
+    const server = this._server;
+    if (this._loopbackPath === undefined || !server) return end.call(this, fn);
+    const send = () => {
+      this.url = `http://127.0.0.1:${server.address().port}${this._loopbackPath}`;
+      this._loopbackPath = undefined;
+      return end.call(this, fn);
+    };
+    if (server.listening) return send();
+    server.once('listening', send);
+    server.once('error', (error) => fn?.(error));
+    return this;
+  };
+}
