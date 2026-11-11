@@ -10,6 +10,7 @@ import type { GraphStore } from './graph-store';
 
 export const SENT_RESPONSES_PATH = 'local/sentResponses';
 export const DELIVERY_JOURNAL_PATH = 'local/deliveryJournal';
+export const ANSWER_OUTBOX_PATH = 'local/answerOutbox';
 
 export type DeliveryState = 'committed' | 'sent' | 'persisted-receipt';
 export type DeliveryJournalRecord = {
@@ -58,6 +59,29 @@ export class DeliveryStore {
     if (previous?.objectKind === input.objectKind && rank[previous.state] >= rank[input.state]) return;
     const record: DeliveryJournalRecord = { version: 1, ...input, updatedAt: new Date().toISOString() };
     await this.store.put(`${DELIVERY_JOURNAL_PATH}/${key(input.objectId, input.recipientId)}`, { json: JSON.stringify(record) });
+  }
+
+  /**
+   * An answer waiting to go into its author's pair log (`graph.answer`). Kept until it is in the
+   * log, so an answer whose send failed (no keys for the author yet, no graph identity, the
+   * process killed) is sent again later instead of staying only on this device (OPEN-96 a).
+   * One entry per Talk and author: a newer answer replaces the waiting one.
+   */
+  async queueAnswer(talkId: string, authorId: string, request: Record<string, unknown>): Promise<void> {
+    await this.store.put(`${ANSWER_OUTBOX_PATH}/${key(talkId, authorId)}`, { json: JSON.stringify({ version: 1, talkId, authorId, request }) });
+  }
+
+  async unqueueAnswer(talkId: string, authorId: string): Promise<void> {
+    await this.store.put(`${ANSWER_OUTBOX_PATH}/${key(talkId, authorId)}`, null);
+  }
+
+  async queuedAnswers(): Promise<Array<{ talkId: string; authorId: string; request: Record<string, unknown> }>> {
+    const out: Array<{ talkId: string; authorId: string; request: Record<string, unknown> }> = [];
+    for (const child of await this.store.childKeys(ANSWER_OUTBOX_PATH)) {
+      const entry = decode<{ version: number; talkId: string; authorId: string; request: Record<string, unknown> }>(await this.store.get(`${ANSWER_OUTBOX_PATH}/${child}`));
+      if (entry?.version === 1 && entry.talkId && entry.authorId && entry.request) out.push({ talkId: entry.talkId, authorId: entry.authorId, request: entry.request });
+    }
+    return out;
   }
 
   async get(objectId: string, recipientId: string): Promise<DeliveryJournalRecord | null> {

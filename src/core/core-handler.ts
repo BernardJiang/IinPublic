@@ -8,6 +8,7 @@ import { DeliveryStore } from './delivery';
 import { PrivateStore } from './private-store';
 import { ExchangeStore } from './exchanges';
 import { commitResponse } from './response-commit';
+import { createAnswerOutbox } from './answer-outbox';
 import type { CoreRequest } from './protocol';
 import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
@@ -125,6 +126,15 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
     if (!soul) return null;
     return Number((await nodeStore.get(soul))?.when ?? 0) || Date.now();
   }
+  // `graph.answer` goes through the answer outbox (`answer-outbox.ts`, OPEN-96 a).
+  const answerOutbox = createAnswerOutbox({
+    delivery,
+    send: async (request) => {
+      if (!graph.host) throw new Error('this core has no graph links');
+      return graph.host.handle(request) as Promise<{ sent: boolean; eventId?: string; reason?: string }>;
+    },
+    ...(options.deviceGraph?.log ? { log: options.deviceGraph.log } : {}),
+  });
   const execute = async (request: CoreRequest): Promise<unknown> => {
     if (fresh) {
       if (request.name === 'exchanges.snapshot') return [];
@@ -273,12 +283,20 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       // Graph-host requests, the encounter/visit/message/trim ones included (declared, but not
       // forwarded until 2026-11-08: only graph-host's own tests could reach them).
       case 'graph.identity':
-      case 'graph.open':
+      case 'graph.open': {
+        if (!graph.host) throw new Error('this core has no graph links');
+        const result = await graph.host.handle(request);
+        // An identity or a link can be what a waiting answer lacked (OPEN-96 a).
+        void answerOutbox.resend();
+        return result;
+      }
+      case 'graph.answer':
+        if (!graph.host) throw new Error('this core has no graph links');
+        return answerOutbox.send(request);
       case 'graph.close':
       case 'graph.hear':
       case 'graph.pull':
       case 'graph.status':
-      case 'graph.answer':
       case 'graph.recordEncounter':
       case 'graph.recordVisit':
       case 'graph.recordNearbyScope':
@@ -304,6 +322,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         return { ok: !!graph.appAnswers };
       case 'graph.forgetAnswers':
         // My answers to a Talk are removed: a deletion event, sent to its author when it was sent.
+        // An answer still waiting to be sent is not sent any more.
+        await answerOutbox.forget(request.talkId);
         return graph.appAnswers ? graph.appAnswers.forget(request.talkId, request.senders ?? []) : { deleted: 0, sent: 0 };
       case 'collection.eraseRetired':
         return { erased: await collections.eraseRetired() };

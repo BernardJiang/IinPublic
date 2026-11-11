@@ -7215,7 +7215,9 @@ export class IinPublicApp {
       // There is no response frame or mailbox: a Talk that did not come over a graph link cannot be
       // answered (every Talk does since the Talk frames were removed).
       if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
-      const sent = this.coreRequest && this.graphLinks?.isRunning()
+      // Sent to the core even when the links are not running: the core keeps an answer it could
+      // not send yet in its outbox and sends it once an identity or link arrives (OPEN-96 a).
+      const sent = this.coreRequest
         ? await this.coreRequest({
           name: 'graph.answer', talkId: targetTalkId, authorId: targetAuthorId,
           answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
@@ -7228,7 +7230,7 @@ export class IinPublicApp {
           if (!result.sent) console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: ${result.reason ?? 'unknown'}`);
           return result.sent;
         }).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
-        : (console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: graph links not running`), false);
+        : (console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: no device core`), false);
       if (sent) {
         await this.coreDelivery({ name: 'delivery.record', input: {
           objectId: targetResponseId,
