@@ -95,6 +95,7 @@ beforeEach(() => {
 // picks a port nobody holds there; that bind is asynchronous, so the port goes into the URL just
 // before the request is sent. Node-environment suites only (jsdom suites cannot load supertest).
 if (typeof window === 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const Test = require('supertest/lib/test');
   const serverAddress = Test.prototype.serverAddress;
   Test.prototype.serverAddress = function loopbackServerAddress(app, path) {
