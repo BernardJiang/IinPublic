@@ -73,7 +73,7 @@ class FakeGunNode {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+async function waitUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error(`Condition not met within ${timeoutMs}ms`);
@@ -232,15 +232,25 @@ describe('GunPubSubSignaler', () => {
       recipientPub: localPair.pub,
       payload: { type: 'answer' },
     });
+    // Delivery waits on an async signature check, which takes longer than a couple of ticks
+    // under a loaded full Jest run (failed there 2 of 3 runs, 2026-11-10): wait for it.
     await remote.post('conv1', remoteBody);
-    await flush();
-    await flush();
+    await waitUntil(() => count >= 1);
     expect(count).toBe(1);
 
+    // The repeated nonce is dropped before any await, so a later distinct frame is a marker:
+    // once it has arrived the duplicate has been handled too.
     await remote.post('conv1', remoteBody);
+    const markerBody = await buildSignedBody({
+      pair: remotePair,
+      conversationId: 'conv1',
+      recipientPub: localPair.pub,
+      payload: { type: 'candidate' },
+    });
+    await remote.post('conv1', markerBody);
+    await waitUntil(() => count >= 2);
     await flush();
-    await flush();
-    expect(count).toBe(1);
+    expect(count).toBe(2);
     stop();
   });
 });
