@@ -22,6 +22,7 @@ import {
   launchAndroidUserViaAdb,
   resetAndroidAppData,
   androidFocusedWindow as focusedWindow,
+  dismissAndroidCompatWarning,
   type AndroidUser,
 } from './helpers/native-app-android';
 import { resolveAndroidMatrixDevices } from './helpers/android-device-config';
@@ -94,6 +95,11 @@ async function firstLaunchAllowingAll(serial: string): Promise<number> {
   const quietUntil = (): number => Date.now() + 8_000;
   let deadline = quietUntil();
   while (Date.now() < deadline) {
+    // Not a permission dialog: the debug build's 16 KB warning, which would time the sheet out.
+    if (await dismissAndroidCompatWarning(serial).catch(() => false)) {
+      deadline = quietUntil();
+      continue;
+    }
     if (PERMISSION_DIALOG.test(await focusedWindow(serial).catch(() => ''))) {
       const message = await dialogMessage(serial);
       expect(await tapById(serial, ALLOW_IDS), 'no Allow button on a permission dialog').toBe(true);

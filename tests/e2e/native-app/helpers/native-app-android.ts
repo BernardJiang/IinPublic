@@ -606,6 +606,8 @@ export async function waitForAndroidPageDrawing(serial: string, page: Page, time
       const tick = () => { frames += 1; if (frames >= 3) { clearTimeout(timer); done(); } else requestAnimationFrame(tick); };
       requestAnimationFrame(tick);
     })).catch(() => ({ frames: 0, visible: false }));
+    // The debug build's 16 KB warning sits over a drawing page and holds focus (Android 16+).
+    if (await dismissAndroidCompatWarning(serial).catch(() => false)) continue;
     if (state.visible && state.frames >= 3) {
       const waited = Date.now() - startedAt;
       if (waited > 2_000) console.log(`[android] ${serial}: page started drawing ${waited} ms after launch`);
@@ -635,6 +637,20 @@ export async function wakeAndroidScreen(serial: string): Promise<void> {
   for (const args of [['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) {
     await settleWithin(execFileAsync('adb', ['-s', serial, 'shell', ...args], { timeout: 5_000 }), 6_000);
   }
+}
+
+/**
+ * Android 16+ shows debuggable builds an "Android app compatibility" warning at launch (our
+ * libnode/libnative-lib/libc++_shared are not 16 KB aligned). It is a system overlay (window
+ * "android", owner uid 1000) that takes focus, and on the Honor FCP (Android 17) the first-launch
+ * permission sheet behind it times out after ~1.5 s and reports every permission denied (spec 36,
+ * 2026-11-10). "Don't show again" does not survive `pm clear`. BACK closes it at once and leaves
+ * the sheet up; a UI dump to find its button was too slow (1 of 3 runs). Returns whether it was up.
+ */
+export async function dismissAndroidCompatWarning(serial: string): Promise<boolean> {
+  if (!/ u0 android\}/.test(await androidFocusedWindow(serial).catch(() => ''))) return false;
+  await execFileAsync('adb', ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], { timeout: 15_000 });
+  return true;
 }
 
 /**
