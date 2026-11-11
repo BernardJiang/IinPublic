@@ -7,6 +7,7 @@ import type { ChatbotTemplate } from '../ui/ui-settings-storage';
 import { CoreCollectionView, sectionEntries, type CollectionCoreLink } from './core-collection-view';
 import type { CoreCollection } from '../../core/collections';
 import type { GunBridge } from './gun-bridge';
+import { graphConversationsForView, graphTalksForView } from './graph-tab-projection';
 
 /** Answer templates the chatbot reuses, by Talk id (and content id). Old key: `chatbotTemplates`. */
 export const chatbotTemplatesView = new CoreCollectionView<ChatbotTemplate>('chatbotTemplates', 'chatbotTemplates');
@@ -84,11 +85,23 @@ export function resetCoreViewsForTests(): void {
  * Tests and diagnostics reach a collection from the page: `window.__iinpublic_collection('myTalks')`
  * reads it (the old blob's shape); `window.__iinpublic_collection_edit('myTalks', { remove: [id] })`
  * changes it (`set`, `remove`, `clear`) as the app would.
+ *
+ * My Talks and My Conversations read as the app shows them (OPEN-110): the stored records keep
+ * only device-local display state for rows the device graph projects, and the graph fills in the
+ * rest (`getMyTalks` / `getMyConversations` do the same).
  */
+const PROJECTED_READS: Record<string, (stored: Record<string, any>) => Record<string, any>> = {
+  myTalks: graphTalksForView,
+  myConversations: graphConversationsForView,
+};
 if (typeof window !== 'undefined') {
   const find = (name: string): CoreCollectionView<unknown> | undefined => VIEWS.find((view) => view.collection === name);
   Object.assign(window, {
-    __iinpublic_collection: (name: string) => find(name)?.all() ?? {},
+    __iinpublic_collection: (name: string) => {
+      const stored = (find(name)?.all() ?? {}) as Record<string, any>;
+      const project = PROJECTED_READS[name];
+      return project ? project(stored) : stored;
+    },
     __iinpublic_collection_edit: (name: string, edit: { set?: Record<string, unknown>; remove?: string[]; clear?: boolean }) => {
       const view = find(name);
       if (!view) return;

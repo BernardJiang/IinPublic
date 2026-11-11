@@ -114,9 +114,19 @@ function graphPeer(person: GraphTabPerson): PeerSummary {
   };
 }
 
-/** Contacts membership from graph exchange/conversation indexes. Editable contacts merge later. */
-export function graphContactPeers(): PeerSummary[] {
-  return (snapshot?.people ?? []).map(graphPeer);
+/**
+ * Contacts membership from graph exchange/conversation indexes. Editable contacts merge later.
+ * `ignoreConversationIds`: conversations that do not make a Contact (support channels — the
+ * built-in TechSupport row stands for them, as in `deriveLocalPeers`); a person known only
+ * through those is left out.
+ */
+export function graphContactPeers(options: { ignoreConversationIds?: ReadonlySet<string> } = {}): PeerSummary[] {
+  const ignore = options.ignoreConversationIds;
+  return (snapshot?.people ?? []).flatMap((person) => {
+    const conversationIds = ignore ? person.conversationIds.filter((id) => !ignore.has(id)) : person.conversationIds;
+    if (!conversationIds.length && !(person.exchanged > 0) && !(person.answered > 0)) return [];
+    return [graphPeer({ ...person, conversationIds })];
+  });
 }
 
 export function graphPersonHistory(userId: string): GraphPersonHistoryItem[] {

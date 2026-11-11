@@ -34,7 +34,11 @@ export function peersFromLocalTalkExchanges(currentUserId: string): PeerSummary[
 }
 
 export function deriveLocalPeers(opts: { currentUserId: string; conversations: Record<string, any>; knownPeople: KnownPerson[] }): PeerSummary[] {
-  const graphPeers = graphContactPeers().filter((peer) => peer.peerId !== opts.currentUserId);
+  const supportChannels = new Set(Object.entries(opts.conversations ?? {})
+    .filter(([, conversation]) => conversation?.supportChannel === true)
+    .map(([conversationId]) => conversationId));
+  const graphPeers = graphContactPeers({ ignoreConversationIds: supportChannels })
+    .filter((peer) => peer.peerId !== opts.currentUserId);
   const transitional = core.deriveLocalPeers({ ...opts, exchanges: readExchanges() });
   return core.mergePeerSummaryLists(graphPeers, transitional);
 }
