@@ -22,13 +22,16 @@ android {
         applicationId "com.iinpublic.app"
         minSdk 24
         targetSdk 36
-        versionCode 1000240
-        versionName "1.0.240"
+        versionCode 1000245
+        versionName "1.0.245"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // NDK: embed only the ABIs we have libnode.so for and ship with CMake glue
-        ndkVersion = "25.1.8937393"
+        // r27+: libc++_shared.so is 16 KB aligned, and native-lib is linked for 16 KB pages
+        // (ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES below). Google Play requires 16 KB page support
+        // for 64-bit native code (2026-11-10).
+        ndkVersion = "27.3.13750724"
         ndk {
             // A phone sweep sets IINPUBLIC_ANDROID_ABIS to its phones' ABIs (all arm64-v8a so
             // far): libnode.so is ~50 MB per ABI, so a one-ABI test APK is ~55 MB instead of 204 MB
@@ -46,8 +49,17 @@ android {
                 // System.loadLibrary("native-lib") crashed with
                 // UnsatisfiedLinkError: dlopen failed: library "libc++_shared.so" not found
                 // (confirmed on a real arm64-v8a/SDK 24 device, 2026-08-08).
-                arguments "-DANDROID_STL=c++_shared"
+                arguments "-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
+        }
+    }
+
+    // Native libraries stay uncompressed and AGP 8.5.1+ places them at 16 KB-aligned offsets in
+    // the APK, so they load in place on 16 KB-page devices (the default; stated so nobody turns
+    // legacy compressed packaging back on for size).
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 

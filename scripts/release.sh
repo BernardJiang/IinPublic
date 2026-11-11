@@ -11,7 +11,7 @@
 #   2. test:all    type-check, lint, jest, both builds, every e2e phase — must exit 0
 #   3. bump        npm version patch (syncs Android/desktop/iOS), commit "release: <v>"
 #   4. build       build:production, then signed Android .aab (Play) + .apk (website download)
-#   5. verify      both artifacts signed with CN=IinPublic, versionName == <v>
+#   5. verify      both artifacts signed with CN=IinPublic, versionName == <v>, 16 KB page aligned
 #   6. push        origin/dev fast-forwarded to HEAD, tag v<v>, current branch pushed
 #   7. deploy      VPS: ff to origin/dev, stop service, npm ci, build:production, start
 #   8. check       https://iinpublic.com/api/downloads reports <v>; APK published to downloads
@@ -108,6 +108,9 @@ if [ -x "$AAPT" ]; then
   APK_VER="$("$AAPT" dump badging "$OUT/IinPublic-$VERSION-android.apk" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
   [ "$APK_VER" = "$VERSION" ] || die ".apk versionName '$APK_VER' != $VERSION"
 fi
+# Google Play rejects 64-bit native code without 16 KB page support (libnode, native-lib, libc++).
+bash scripts/check-android-16kb.sh "$OUT/IinPublic-$VERSION.aab" "$OUT/IinPublic-$VERSION-android.apk" \
+  || die "native libraries are not 16 KB page aligned (scripts/check-android-16kb.sh)"
 (cd "$OUT" && shasum -a 256 IinPublic-* > SHA256SUMS)
 ls -lh "$OUT"
 

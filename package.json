@@ -1,6 +1,6 @@
 {
   "name": "iinpublic",
-  "version": "1.0.240",
+  "version": "1.0.245",
   "description": "IinPublic - Location-Based Chatbot Matching & Talk System",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -48,6 +48,7 @@
     "build:production": "npm run build:embedded",
     "release": "bash scripts/release.sh",
     "release:verify-checksums": "node scripts/verify-release-checksums.js",
+    "check:android-16kb": "bash scripts/check-android-16kb.sh android/app/build/outputs/apk/debug/app-debug.apk",
     "desktop:dev": "npm run build:embedded && cd platforms/desktop && npm install && npm start",
     "desktop:stage-deps": "node scripts/stage-desktop-prod-deps.mjs",
     "desktop:dist:dir": "npm run build:embedded && npm run desktop:stage-deps && cd platforms/desktop && npm install && npm run dist:dir",

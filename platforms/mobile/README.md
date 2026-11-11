@@ -78,6 +78,18 @@ dependency coordinate for nodejs-mobile):**
    `android/app/libnode/lib/<abi>/`.
 3. Keep `android/app/libnode/` local: it is ignored by git because it is a
    large third-party binary payload.
+4. **16 KB pages (Google Play requirement for 64-bit native code, 2026-11-10).**
+   The v18.20.4 release ZIP's libraries are 4 KB aligned. Use the 64-bit
+   `libnode.so` built from nodejs-mobile `main` (v18.20.4 plus #154,
+   `-Wl,-z,max-page-size=16384`; no official release yet, see upstream issue
+   #161). It was built by upstream's own `Build` workflow in the fork
+   `BernardJiang/nodejs-mobile-1`, run 42957487508 (artifacts
+   `node-android-arm64`, `node-android-x86_64`). To rebuild: push a commit to
+   that fork's `main` and download the artifacts with
+   `gh run download <run> --repo BernardJiang/nodejs-mobile-1 -n node-android-arm64`.
+   `armeabi-v7a` keeps the release ZIP's library (32-bit devices use 4 KB
+   pages). `npm run check:android-16kb` checks a built APK; `npm run release`
+   runs the same check on the signed .aab and .apk.
 
 ```bash
 npm run mobile:stage
