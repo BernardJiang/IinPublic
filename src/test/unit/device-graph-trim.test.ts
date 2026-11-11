@@ -255,6 +255,7 @@ describe('trim old history (REQ-GRAPH-47)', () => {
       });
       await addToIndex(store as NodeStore, souls.index('day'), { key: msgId, target: souls.event(msgId), when }, 'hour');
       await addToIndex(store as NodeStore, souls.index('conv/c9'), { key: msgId, target: souls.event(msgId), when }, 'day');
+      await addToIndex(store as NodeStore, souls.index('person/adam/ev'), { key: msgId, target: souls.event(msgId), when });
       await store.put(souls.index('conv-seen/c9'), { [senderEventId]: link(souls.event(msgId)) });
       // Volume so the trim has something to remove past the message.
       await graph.talks.create(squash('Trim volume'));
@@ -269,6 +270,7 @@ describe('trim old history (REQ-GRAPH-47)', () => {
     // The message event is trimmed and its conversation entry is gone…
     expect((await store.get(souls.event(msgId)))!.text).toBeNull();
     expect(await readIndex(store as NodeStore, souls.index('conv/c9'))).toEqual([]);
+    expect(await readIndex(store as NodeStore, souls.index('person/adam/ev'))).toEqual([]);
     // …but the dedupe marker KEEPS its link: a re-delivered copy still reads as seen.
     const marker = await store.get(souls.index('conv-seen/c9'));
     expect(linkSoul(marker![senderEventId])).toBe(souls.event(msgId));

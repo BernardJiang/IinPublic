@@ -35,6 +35,7 @@ import { answerExtrasSoul, answerQuestionsSoul, rebuildIndexes } from './events'
 import { chainHeadSoul, checkpointIndexSoul, serialized, writeCheckpoint, type ChainCheckpoint, type EventChainSigner } from './chain';
 import { bucketOf, readIndex, removeFromIndex } from './index-buckets';
 import { isNearbyEventShape } from './nearby-events';
+import { isConversationMessageEvent } from './message-events';
 import { parseEventId } from './event-id';
 import { personIdOf } from './people-graph';
 import { structureSouls } from './redact';
@@ -286,8 +287,12 @@ export async function trimHistory(
     // The index footprint, per event shape (the events.ts rebuild switch, inverted). A Nearby
     // encounter or Place visit also leaves its cell listing, the same scope the rebuild indexes.
     const whereCell = linkSoul(event.where);
-    if (isNearbyEventShape(event, prefix) && whereCell?.startsWith(`${prefix}cell/`)) {
+    if ((isNearbyEventShape(event, prefix) || isConversationMessageEvent(event, prefix))
+      && whereCell?.startsWith(`${prefix}cell/`)) {
       await removeFromIndex(store, souls.index(`cell/${whereCell.slice(`${prefix}cell/`.length)}/ev`), { key: id, when });
+    }
+    if (isNearbyEventShape(event, prefix) && withUser) {
+      await removeFromIndex(store, souls.index(`person/${encodeURIComponent(withUser)}/ev`), { key: id, when });
     }
     // A chat message (OPEN-110): its conversation day-bucket entry goes. The conv-seen dedupe
     // marker is KEPT — it is a presence set keyed by the sender's event id: without it, a
@@ -296,6 +301,7 @@ export async function trimHistory(
     if (convSoulOfEvent?.startsWith(souls.mine('conv/')) && typeof event.text === 'string') {
       const convId = convSoulOfEvent.slice(souls.mine('conv/').length);
       await removeFromIndex(store, souls.index(`conv/${convId}`), { key: id, when });
+      if (withUser) await removeFromIndex(store, souls.index(`person/${encodeURIComponent(withUser)}/ev`), { key: id, when });
     }
     if (event.deleted === true) {
       if (event.by && talkId) {
@@ -337,6 +343,7 @@ export async function trimHistory(
         const gone = erase(at);
         if (gone) await store.put(souls.index(`incoming-at/${talkId}`), gone);
       }
+      await removeFromIndex(store, souls.index(`talk/${talkId}/ev`), { key: id, when });
       await removeFromIndex(store, souls.index(`person/${encodeURIComponent(withUser)}/ev`), { key: id, when });
     }
   };
@@ -384,9 +391,9 @@ export async function trimHistory(
       for (const soul of allSouls.filter((s) => heads.some((head) => s.startsWith(head)))) {
         // Chain state and signed acks are never swept (today they hold no links — keep it structural).
         if (chainState.has(soul) || soul.startsWith(souls.index('ack/'))) continue;
-        // conv-seen markers are a presence set: a nulled VALUE would let a re-delivered trimmed
-        // message write a duplicate event. The dangling link is never followed — keep it.
-        if (soul.startsWith(souls.index('conv-seen/'))) continue;
+        // Message markers are presence sets: a nulled VALUE would let a replayed trimmed message
+        // write a duplicate event. The dangling links are never followed — keep them.
+        if (soul.startsWith(souls.index('conv-seen/')) || soul.startsWith(souls.index('conv-source/'))) continue;
         const node = await store.get(soul);
         const nulls: GraphNode = {};
         for (const [key, value] of Object.entries(node || {})) {

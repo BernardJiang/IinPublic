@@ -152,6 +152,7 @@ describe('chat messages as chained graph events', () => {
     expect((await adam.store.get(souls.mine('conv/c-1')))!.startedAt).toBe(convNode.startedAt);
     expect((await convEntries(adam, 'c-1')).length).toBe(2);
     expect((await adam.store.get(souls.index('convs')))!['c-1']).toBeDefined();
+    expect((await readIndex(adam.store, souls.index('person/eve-m1/ev'))).map((entry) => entry.key)).toContain(eventId);
 
     // The receiver applies: its OWN private event, its own clock, no `by`, `re` → my event.
     await until(async () => (await convEntries(eve, 'c-1')).length === 2);
@@ -166,6 +167,7 @@ describe('chat messages as chained graph events', () => {
     expect(Math.abs(Number(received.when) - Date.now())).toBeLessThan(30_000);
     expect(Number(received.when)).toBeGreaterThanOrEqual(started - 1_000);
     expect(linkSoul((await eve.store.get(souls.mine('conv/c-1')))!.with)).toBe(personSoul('local/', 'adam-m1'));
+    expect((await readIndex(eve.store, souls.index('person/adam-m1/ev'))).map((entry) => entry.key)).toContain(receivedId);
 
     // The signed ack covers the message entry (n 0 and 1: two sends) and clears what Adam owed.
     await until(() => !adam.sync.owed().includes('eve-m1'));
@@ -204,7 +206,7 @@ describe('chat messages as chained graph events', () => {
     expect((await convEntries(eve, 'c-2')).length).toBe(2);
   });
 
-  it('rebuildIndexes puts ix/conv, ix/convs and the dedupe marker back after the index is wiped', async () => {
+  it('rebuildIndexes puts ix/conv, ix/convs, ix/person and the dedupe marker back after the index is wiped', async () => {
     const [adam, eve] = [await device('adam-m3'), await device('eve-m3')];
     await Promise.all([adam.sync.open('eve-m3'), eve.sync.open('adam-m3')]);
     await adam.sync.sendMessage('eve-m3', 'c-3', 'rebuild me');
@@ -224,13 +226,23 @@ describe('chat messages as chained graph events', () => {
     const seenSoul = souls.index('conv-seen/c-3');
     const seen = (await eve.store.get(seenSoul))!;
     await eve.store.put(seenSoul, Object.fromEntries(Object.keys(seen).map((key) => [key, null])));
+    const personListSoul = souls.index('person/adam-m3/ev');
+    const personDirectory = (await eve.store.get(personListSoul))!;
+    for (const value of Object.values(personDirectory)) {
+      const bucketSoul = linkSoul(value);
+      const node = bucketSoul ? await eve.store.get(bucketSoul) : null;
+      if (bucketSoul && node) await eve.store.put(bucketSoul, Object.fromEntries(Object.keys(node).map((key) => [key, null])));
+    }
+    await eve.store.put(personListSoul, Object.fromEntries(Object.keys(personDirectory).map((key) => [key, null])));
     expect(await convEntries(eve, 'c-3')).toEqual([]);
+    expect(await readIndex(eve.store, personListSoul)).toEqual([]);
 
     await rebuildIndexes(eve.store, {});
     expect((await convEntries(eve, 'c-3')).map((entry) => entry.key)).toEqual(before.map((entry) => entry.key));
     expect((await eve.store.get(souls.index('convs')))!['c-3']).toBeDefined();
     const restored = (await eve.store.get(seenSoul))!;
     expect(Object.values(restored).some((value) => linkSoul(value) === souls.event(before[0]!.key))).toBe(true);
+    expect((await readIndex(eve.store, personListSoul)).map((entry) => entry.key)).toEqual(before.map((entry) => entry.key));
   });
 
   it('a message event trims like any other event and the chain still verifies', async () => {
@@ -308,9 +320,92 @@ describe('chat messages as chained graph events', () => {
     ]);
     const result = await adam.host.handle({ name: 'graph.sendMessage', peerUserId: 'eve-m5', conv: 'c-5', text: 'hi via host' });
     expect(typeof (result as { eventId: string }).eventId).toBe('string');
+    const sentHistory = await adam.host.handle({ name: 'graph.personHistory', userId: 'eve-m5', limit: 1 }) as Array<Record<string, unknown>>;
+    expect(sentHistory).toEqual([expect.objectContaining({
+      eventId: (result as { eventId: string }).eventId,
+      kind: 'message',
+      withUserId: 'eve-m5',
+      conversationId: 'c-5',
+      text: 'hi via host',
+    })]);
+    const sentMessages = await adam.host.handle({ name: 'graph.conversationMessages', conversationId: 'c-5', limit: 1 }) as Array<Record<string, unknown>>;
+    expect(sentMessages).toEqual([expect.objectContaining({
+      eventId: (result as { eventId: string }).eventId,
+      direction: 'sent',
+      otherUserId: 'eve-m5',
+      text: 'hi via host',
+    })]);
     await until(async () => (await convEntries(eve, 'c-5')).length === 1);
     const received = (await eve.store.get(souls.event((await convEntries(eve, 'c-5'))[0]!.key)))!;
     expect(received.text).toBe('hi via host');
     expect(linkSoul(received.with)).toBe(personSoul('local/', 'adam-m5'));
+    const receivedHistory = await eve.host.handle({ name: 'graph.personHistory', userId: 'adam-m5' }) as Array<Record<string, unknown>>;
+    expect(receivedHistory).toEqual([expect.objectContaining({
+      kind: 'message',
+      withUserId: 'adam-m5',
+      conversationId: 'c-5',
+      text: 'hi via host',
+      reEventId: (result as { eventId: string }).eventId,
+    })]);
+    const receivedMessages = await eve.host.handle({ name: 'graph.conversationMessages', conversationId: 'c-5' }) as Array<Record<string, unknown>>;
+    expect(receivedMessages).toEqual([expect.objectContaining({
+      direction: 'received',
+      otherUserId: 'adam-m5',
+      text: 'hi via host',
+      reEventId: (result as { eventId: string }).eventId,
+    })]);
+
+    // The app's existing transport can be mirrored without sending a second copy. A replay of
+    // the whole subscription batch resolves to the same immutable event through sourceMessageId.
+    const imported = await adam.host.handle({
+      name: 'graph.recordMessages',
+      conversationId: 'legacy-c-5',
+      otherUserId: 'eve-m5',
+      messages: [{
+        sourceMessageId: 'legacy-msg-1',
+        senderId: 'adam-m5',
+        text: 'mirrored from transport',
+        when: Date.now(),
+        talkId: 'thread-5',
+        channel: 'mutual',
+      }],
+    }) as { recorded: number; eventIds: Record<string, string> };
+    expect(imported.recorded).toBe(1);
+    const replay = await adam.host.handle({
+      name: 'graph.recordMessages',
+      conversationId: 'legacy-c-5',
+      otherUserId: 'eve-m5',
+      messages: [{
+        sourceMessageId: 'legacy-msg-1',
+        senderId: 'adam-m5',
+        text: 'mirrored from transport',
+        when: Date.now(),
+      }],
+    }) as { recorded: number; eventIds: Record<string, string> };
+    expect(replay).toEqual({ recorded: 0, eventIds: imported.eventIds });
+    expect(await adam.host.handle({ name: 'graph.conversationMessages', conversationId: 'legacy-c-5' })).toEqual([
+      expect.objectContaining({
+        eventId: imported.eventIds['legacy-msg-1'],
+        sourceMessageId: 'legacy-msg-1',
+        direction: 'sent',
+        otherUserId: 'eve-m5',
+        text: 'mirrored from transport',
+        talkId: 'thread-5',
+        channel: 'mutual',
+      }),
+    ]);
+
+    const talkId = await adam.graph.talks.create({
+      title: 'Coffee', type: 'survey', language: 'en', isAdult: false,
+      questions: [{ id: 'q0', text: 'Coffee?', answerSelectionMode: 'single', answers: [{ id: 'a0', text: 'Yes' }] }],
+    });
+    await adam.sync.offerTalk(talkId, ['eve-m5']);
+    await until(async () => !!(await eve.graph.arrivals.read(talkId)));
+    expect(await adam.host.handle({ name: 'graph.talkPeople', talkId })).toEqual([
+      expect.objectContaining({ userId: 'eve-m5', roles: ['recipient'] }),
+    ]);
+    expect(await eve.host.handle({ name: 'graph.talkPeople', talkId })).toEqual([
+      expect.objectContaining({ userId: 'adam-m5', roles: ['sender'] }),
+    ]);
   });
 });

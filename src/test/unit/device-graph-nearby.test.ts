@@ -94,6 +94,7 @@ describe('Nearby encounters and Place visits as events (REQ-GRAPH-49)', () => {
     expect(JSON.stringify(event)).not.toContain(String(POINT.latitude));
     // The person is known now; a first encounter for someone new writes their node once.
     expect(await store.get(personSoul(graph.prefix, 'zoe'))).toMatchObject({ userId: 'zoe' });
+    expect((await readIndex(store, souls.index('person/zoe/ev'))).map((entry) => entry.key)).toContain(eventId);
   });
 
   it('a visit links the place, creates its state node once with the cell anchor, and an outing once', async () => {
@@ -215,6 +216,7 @@ describe('Nearby encounters and Place visits as events (REQ-GRAPH-49)', () => {
     expect((await store.get(`${graph.prefix}gps/${eventId}`))?.latitude).toBeNull();
     // The cell index entry went with it.
     expect((await readIndex(store, souls.index('day'))).length).toBe(0);
+    expect(await readIndex(store, souls.index('person/zoe/ev'))).toEqual([]);
   });
 
   it('the graph.recordEncounter and graph.recordVisit host requests record events', async () => {
@@ -231,6 +233,12 @@ describe('Nearby encounters and Place visits as events (REQ-GRAPH-49)', () => {
 
     const encounter = (await host.handle({ name: 'graph.recordEncounter', personUserId: 'zoe' })) as { eventId: string };
     expect(linkSoul((await store.get(souls.event(encounter.eventId)))!.with)).toBe(personSoul(graph.prefix, 'zoe'));
+    const history = await host.handle({ name: 'graph.personHistory', userId: 'zoe' }) as Array<Record<string, unknown>>;
+    expect(history).toEqual([expect.objectContaining({
+      eventId: encounter.eventId,
+      kind: 'encounter',
+      withUserId: 'zoe',
+    })]);
     const visit = (await host.handle({ name: 'graph.recordVisit', placeId: 'cafe-blue', placeName: 'Blue Café' })) as { eventId: string };
     expect(linkSoul((await store.get(souls.event(visit.eventId)))!.place)).toBe(`${graph.prefix}place/cafe-blue`);
     expect((await store.get(`${graph.prefix}place/cafe-blue`))!.name).toBe('Blue Café');

@@ -17,6 +17,7 @@
  * id collision.
  */
 import { settingsStorage } from './core-storage';
+import type { GraphConversationMessage } from '../../core/device-graph/sync/graph-host';
 
 export interface SyncedMessage {
   id: string;
@@ -93,5 +94,40 @@ export function mergeMessagesWithSynced(conversationId: string, liveMessages: re
     const byTime = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
     if (byTime !== 0) return byTime;
     return String(a.id).localeCompare(String(b.id));
+  });
+}
+
+/**
+ * Adds immutable device-graph history to the existing live/device-sync union. The transport's
+ * copy wins an id collision because it carries transient delivery state; a graph-only event is
+ * still a complete `Message` projection for rendering after the transport store is unavailable.
+ */
+export function mergeMessagesWithGraph(
+  conversationId: string,
+  liveMessages: readonly any[],
+  graphMessages: readonly GraphConversationMessage[],
+  currentUserId: string,
+): any[] {
+  const current = mergeMessagesWithSynced(conversationId, liveMessages);
+  const byId = new Map<string, any>();
+  for (const row of graphMessages) {
+    const id = row.sourceMessageId || `graph:${row.eventId}`;
+    byId.set(id, {
+      id,
+      graphEventId: row.eventId,
+      senderId: row.direction === 'sent' ? currentUserId : row.otherUserId,
+      text: row.text,
+      isFromChatbot: row.isFromChatbot === true,
+      timestamp: new Date(row.when),
+      readBy: [],
+      channel: row.channel || 'public',
+      ...(row.talkId ? { talkId: row.talkId } : {}),
+    });
+  }
+  // The live/synced shape contains delivery metadata and is authoritative for the same source id.
+  for (const message of current) if (message?.id) byId.set(String(message.id), message);
+  return [...byId.values()].sort((a, b) => {
+    const byTime = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    return byTime || String(a.id).localeCompare(String(b.id));
   });
 }

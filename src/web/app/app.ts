@@ -20,7 +20,7 @@ import { WebDeviceHandoffService } from '../services/web-device-handoff-service'
 import { WebDeviceSyncService } from '../services/web-device-sync-service';
 import { WebAttestationService } from '../services/web-attestation-service';
 import { OFFICIAL_APPLICATION_ID, OFFICIAL_SIGNING_IDENTITY_HASH } from '../../shared/official-build-credential';
-import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
+import { addSyncedMessage, mergeMessagesWithGraph, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import {
@@ -241,13 +241,14 @@ import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionRece
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
 import { GraphLinkBridge } from '../services/graph-link-bridge';
-import type { GraphEvent } from '../../core/device-graph/sync/graph-host';
+import type { GraphConversationMessage, GraphEvent } from '../../core/device-graph/sync/graph-host';
 import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
 import { markStartupPhase } from '../performance/startup-metrics';
 import { filterTalkForRecipient } from '../../shared/tag-identity';
 import { tagAtom } from '../../core/device-graph/exchanged';
+import { NEARBY_REPEAT_WINDOW_MS } from '../../core/device-graph/nearby-events';
 import { getMyConversations } from '../ui/my-conversations-storage';
 
 /** Private records that held Talk bodies before the device graph (erased, never read): the SEA
@@ -392,6 +393,13 @@ export class IinPublicApp {
   private nearbyPointShownKey = '';
   /** The fix last reported to the device core (REQ-GRAPH-42), so an unchanged one is not resent. */
   private coreLocationKey = '';
+  /** The current location write settles before encounter/visit events use it. */
+  private coreLocationWrite: Promise<void> = Promise.resolve();
+  /** Serialize the local presence events so event ids and their chain are committed in order. */
+  private graphPresenceWrites: Promise<void> = Promise.resolve();
+  /** App-side request throttle; the graph has the same durable 15-minute dedupe. */
+  private readonly graphEncounterRequestedAt = new Map<string, number>();
+  private readonly graphPlaceVisitRequestedAt = new Map<string, number>();
   /** Nearby (§3.7): my personal list, the audience of `NEARBY_V3_ROOM_ID`. */
   private nearbyV3: NearbyV3Runtime | null = null;
   /** Verified direct-link proof when this device shares another device's Nearby count key. */
@@ -416,6 +424,8 @@ export class IinPublicApp {
   /** The hub's either-way block answer per peer, for a minute (every incoming Talk asks). */
   private readonly blockStatusCache = new BlockStatusCache({ fetchStatus: (peerId) => this.fetchBlockStatusEitherWay(peerId) });
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
+  /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
+  private readonly graphMessageWrites = new Map<string, Promise<void>>();
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
   private talkSendQuotaUnlimitedForE2e = false;
@@ -1989,6 +1999,7 @@ export class IinPublicApp {
       onRoster: (members) => {
         const scopeId = this.currentChatroomId;
         if (!scopeId || !isPersonalListScope(scopeId)) return;
+        this.recordNearbyRosterInGraph(members);
         // Like a shared room's roster, the roster includes me.
         const me = this.currentUser;
         const roster = me ? [...members, { userId: me.id, stageName: me.stageName || me.id, isTraveler: this.appearsAsTraveler() }] : members;
@@ -2120,11 +2131,65 @@ export class IinPublicApp {
     const key = JSON.stringify(point);
     if (key === this.coreLocationKey) return;
     this.coreLocationKey = key;
-    void core({ name: 'deviceGraph.setLocation', point }).catch(() => { this.coreLocationKey = ''; });
+    this.coreLocationWrite = core({ name: 'deviceGraph.setLocation', point })
+      .then(() => undefined)
+      .catch(() => { if (this.coreLocationKey === key) this.coreLocationKey = ''; });
+  }
+
+  /**
+   * The live Nearby/Place roster is mutable projection state. Each person it shows also leaves a
+   * bounded immutable encounter event, so Person → location and cell → people can be rebuilt from
+   * the graph even after that roster changes. The core performs the authoritative dedupe; this
+   * throttle prevents every roster repaint from crossing the worker/native bridge.
+   */
+  private recordNearbyRosterInGraph(members: ReadonlyArray<{ userId: string }>): void {
+    const core = this.coreRequest;
+    const me = this.currentUser?.id;
+    if (!core || !me) return;
+    const now = Date.now();
+    const due = [...new Set(members.map((member) => String(member.userId || '').trim()))]
+      .filter((peerId) => peerId && peerId !== me)
+      .filter((peerId) => now - (this.graphEncounterRequestedAt.get(peerId) ?? -Infinity) >= NEARBY_REPEAT_WINDOW_MS);
+    if (!due.length) return;
+    for (const peerId of due) this.graphEncounterRequestedAt.set(peerId, now);
+    const locationReady = this.coreLocationWrite;
+    this.graphPresenceWrites = this.graphPresenceWrites.then(async () => {
+      await locationReady;
+      for (const peerId of due) {
+        try {
+          await core({ name: 'graph.recordEncounter', personUserId: peerId });
+        } catch (error) {
+          if (this.graphEncounterRequestedAt.get(peerId) === now) this.graphEncounterRequestedAt.delete(peerId);
+          console.warn(`[graph] Nearby encounter for ${peerId.slice(0, 8)} was not recorded:`, error);
+        }
+      }
+    });
+  }
+
+  /** Record the active Place independently from its mutable roster/list projection. */
+  private recordActivePlaceVisitInGraph(): void {
+    const core = this.coreRequest;
+    const placeId = this.currentChatroomId;
+    if (!core || !placeId || !isPlaceRoomId(placeId)) return;
+    const now = Date.now();
+    if (now - (this.graphPlaceVisitRequestedAt.get(placeId) ?? -Infinity) < NEARBY_REPEAT_WINDOW_MS) return;
+    this.graphPlaceVisitRequestedAt.set(placeId, now);
+    const locationReady = this.coreLocationWrite;
+    const placeName = this.getChatroomDisplayName(placeId);
+    this.graphPresenceWrites = this.graphPresenceWrites.then(async () => {
+      await locationReady;
+      try {
+        await core({ name: 'graph.recordVisit', placeId, placeName });
+      } catch (error) {
+        if (this.graphPlaceVisitRequestedAt.get(placeId) === now) this.graphPlaceVisitRequestedAt.delete(placeId);
+        console.warn(`[graph] Place visit for ${placeId} was not recorded:`, error);
+      }
+    });
   }
 
   private refreshNearbyPoint(): void {
     this.reportLocationToCore();
+    this.recordActivePlaceVisitInGraph();
     if (!this.initialized) return; // boot ends with one refresh (startNearbyV3)
     this.nearbyV3?.refresh();
     void this.refreshActiveRooms(); // Place distances follow where I now appear
@@ -7982,6 +8047,7 @@ export class IinPublicApp {
     const unsubscribe = this.conversationService.subscribeToMessages(
       conversationId,
       (messages) => {
+        this.recordConversationMessagesInGraph(conversationId, String(conversation.otherUserId), messages);
         this.uiManager.syncConversationMessageSummary(conversationId, messages, this.currentUser!.id);
         // Runs continuously in the background for every conversation (not just the currently
         // open thread), so this is the one place that reliably observes every message this
@@ -8005,6 +8071,61 @@ export class IinPublicApp {
       conversation.otherUserId,
     );
     this.conversationPreviewUnsubscribers.set(conversationId, unsubscribe);
+  }
+
+  /**
+   * Migration bridge for OPEN-110: delivery/decryption still comes from the current transport,
+   * but every plaintext message becomes one immutable event. The core's source-id marker makes
+   * full subscription replays safe; chunks keep the command and its storage burst bounded.
+   */
+  private recordConversationMessagesInGraph(conversationId: string, otherUserId: string, messages: readonly any[]): void {
+    const core = this.coreRequest;
+    const me = this.currentUser?.id;
+    if (!core || !me || !otherUserId || otherUserId === me || messages.length === 0) return;
+    const imports = messages.flatMap((message) => {
+      const sourceMessageId = String(message?.id || '');
+      const senderId = String(message?.senderId || '');
+      const text = String(message?.text ?? '');
+      const when = (message?.timestamp instanceof Date
+        ? message.timestamp
+        : new Date(message?.timestamp)).getTime();
+      // GunMessageStore keeps an undecryptable SEA payload so a later read can retry. Never make
+      // that retryable ciphertext immutable or claim its source id before plaintext is available.
+      if (!sourceMessageId || sourceMessageId.length > 500
+        || (senderId !== me && senderId !== otherUserId)
+        || !Number.isFinite(when)
+        || text.length > 4_000
+        || text.startsWith('SEA{')) return [];
+      return [{
+        sourceMessageId,
+        senderId,
+        text,
+        when,
+        ...(message?.talkId ? { talkId: String(message.talkId) } : {}),
+        ...(message?.channel === 'public' || message?.channel === 'known' || message?.channel === 'mutual'
+          ? { channel: message.channel }
+          : {}),
+        ...(message?.isFromChatbot === true ? { isFromChatbot: true } : {}),
+      }];
+    });
+    if (imports.length === 0) return;
+    const previous = this.graphMessageWrites.get(conversationId) ?? Promise.resolve();
+    const write = previous.catch(() => undefined).then(async () => {
+      await this.coreLocationWrite.catch(() => undefined);
+      for (let offset = 0; offset < imports.length; offset += 200) {
+        await core({
+          name: 'graph.recordMessages',
+          conversationId,
+          otherUserId,
+          messages: imports.slice(offset, offset + 200),
+        });
+      }
+    }).catch((error) => {
+      console.warn('[graph] conversation message import failed:', error);
+    }).finally(() => {
+      if (this.graphMessageWrites.get(conversationId) === write) this.graphMessageWrites.delete(conversationId);
+    });
+    this.graphMessageWrites.set(conversationId, write);
   }
 
   /**
@@ -9053,6 +9174,32 @@ export class IinPublicApp {
         console.log('📖 Loading conversation:', data.conversationId);
         const conversation = this.uiManager.getMyConversations()[data.conversationId] as any;
         const otherUserId = conversation?.otherUserId ? String(conversation.otherUserId) : undefined;
+        let graphMessages: GraphConversationMessage[] = [];
+        let latestLiveMessages: any[] = [];
+        const displayMergedMessages = () => {
+          const messages = mergeMessagesWithGraph(
+            data.conversationId,
+            latestLiveMessages,
+            graphMessages,
+            this.currentUser?.id || '',
+          );
+          void this.uiManager.displayConversationMessages(data.conversationId, messages);
+          return messages;
+        };
+
+        // The immutable log is the durable history. The live subscription below remains the
+        // delivery/decryption notification source during migration and wins duplicate ids only
+        // for transient fields such as deliveryState.
+        if (this.coreRequest && this.currentUser?.id) {
+          void this.coreRequest({
+            name: 'graph.conversationMessages',
+            conversationId: data.conversationId,
+            limit: 200,
+          }).then((rows) => {
+            graphMessages = rows as GraphConversationMessage[];
+            displayMergedMessages();
+          }).catch((error) => console.warn('[graph] conversation history read failed:', error));
+        }
 
         // Subscribe to messages for this conversation (pass myUserId for prevSeen DAG tracking)
         this.conversationService.subscribeToMessages(data.conversationId, (liveMessages) => {
@@ -9061,8 +9208,9 @@ export class IinPublicApp {
           // WebDeviceSyncService's `messages` category) has no live Gun messages at all — the
           // pair path is keyed by the two ORIGINAL participant ids, not this device's — so its
           // history lives only in the synced-plaintext cache. Live copies win any id collision.
-          const messages = mergeMessagesWithSynced(data.conversationId, liveMessages);
-          this.uiManager.displayConversationMessages(data.conversationId, messages);
+          latestLiveMessages = liveMessages;
+          if (otherUserId) this.recordConversationMessagesInGraph(data.conversationId, otherUserId, liveMessages);
+          const messages = displayMergedMessages();
           for (const message of messages) {
             const sharePayload = parseAttachmentShareMessageText(String(message.text || ''));
             if (!sharePayload) continue;

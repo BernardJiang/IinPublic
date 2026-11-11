@@ -104,6 +104,7 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
           addToIndex(store, souls.index('incoming'), { key: incoming.talkId, target: souls.index(`received/${incoming.talkId}`), when }, 'day'),
           store.put(souls.index(`incoming-at/${incoming.talkId}`), { [bucketOf(when, 'day')]: true }),
         ]),
+        addToIndex(store, souls.index(`talk/${incoming.talkId}/ev`), { key: arrivalId, target: souls.event(arrivalId), when }),
         addToIndex(store, souls.index(`person/${encodeURIComponent(from.userId)}/ev`), { key: arrivalId, target: souls.event(arrivalId), when }),
       ]);
       return ignored ? { arrivalId, ignored } : { arrivalId };

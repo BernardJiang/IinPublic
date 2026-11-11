@@ -32,12 +32,11 @@ import { gunNodeStore, link, linkSoul, type GraphNode, type NodeStore } from '..
 import { GRAPH_SCHEMA_VERSION, graphSouls, talkStructureKey, talkStructureOf, type StructureQuestion, type TalkStructure } from '../talk-structure';
 import { personIdOf, personSoul, personWrites } from '../people-graph';
 import { parseEventId } from '../event-id';
+import { MESSAGE_CONV_MAX, MESSAGE_TEXT_MAX } from '../message-events';
 import { createGraphAudience } from './audience';
 import { LOG_BLOCK, graphWireSouls, pairTagOf } from './wire-names';
 
 /** A chat message body is small and well-formed: bounded text, a sane conv id, a real event id. */
-export const MESSAGE_TEXT_MAX = 4000;
-export const MESSAGE_CONV_MAX = 200;
 /** While someone owes me an acknowledgement over an open link, my head is sent again: first after
  * this many ms, doubling up to the max. */
 export const OWED_RESEND_MS = 3_000;
@@ -413,6 +412,7 @@ export function createGraphSync(options: {
       putEvent(store, souls, eventId, event, options.chain),
       ...(conv ? [] : [store.put(convSoul, { with: link(personSoul(prefix, fromUserId)), startedAt: when })]),
       addToIndex(store, souls.index(`conv/${encodeURIComponent(message.conv)}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
+      addToIndex(store, souls.index(`person/${encodeURIComponent(fromUserId)}/ev`), { key: eventId, target: souls.event(eventId), when }),
       store.put(souls.index('convs'), { [message.conv]: when }),
       ...(message.eventId ? [store.put(seenSoul, { [message.eventId]: link(souls.event(eventId)) })] : []),
     ]);
@@ -763,6 +763,7 @@ export function createGraphSync(options: {
         putEvent(store, souls, eventId, event, options.chain, { ownBy: personSoul(prefix, me.userId) }),
         ...(known ? [] : [store.put(convSoul, { with: link(personSoul(prefix, peerUserId)), startedAt: when })]),
         addToIndex(store, souls.index(`conv/${encodeURIComponent(conv)}`), { key: eventId, target: souls.event(eventId), when }, 'day'),
+        addToIndex(store, souls.index(`person/${encodeURIComponent(peerUserId)}/ev`), { key: eventId, target: souls.event(eventId), when }),
         store.put(souls.index('convs'), { [conv]: when }),
       ]);
       await append(peerUserId, { message: { conv, text, eventId, ...(re ? { re } : {}) } });

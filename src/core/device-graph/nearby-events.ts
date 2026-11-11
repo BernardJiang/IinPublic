@@ -8,6 +8,7 @@
  *   outing/<id>        { startedAt }                                      state, written once
  *   mine/enc/<person>  { ev: →the last encounter event, when }            repeat marker
  *   mine/visit/<id>    { ev: →the last visit event, when }                repeat marker
+ *   ix/person/<userId>/ev  bucketed: every encounter with that person
  *   ix/cell/<region>/ev   bucketed by day: every event carrying `where` (rebuilt in events.ts)
  *
  * Both events are chained like arrivals (no `by` → mine, REQ-GRAPH-40) and take the blurred-cell
@@ -97,6 +98,7 @@ export function createNearbyGraph(store: NodeStore, ids: EventIds, options: { pr
         ...people.map(([soul, node]) => store.put(soul, node)),
         putEvent(store, souls, eventId, event, options.chain),
         store.put(markerSoul, { ev: link(souls.event(eventId)), when }),
+        addToIndex(store, souls.index(`person/${encodeURIComponent(encounter.personUserId)}/ev`), { key: eventId, target: souls.event(eventId), when }),
         ...(whereSidecar ? [whereSidecar] : []),
         ...cellIndex(event, eventId, when),
       ]);

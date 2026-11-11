@@ -25,6 +25,7 @@
  */
 import { keyBucket, keyedBucketSoul } from './keyed-buckets';
 import { isNearbyEventShape } from './nearby-events';
+import { isConversationMessageEvent } from './message-events';
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
 import { addToIndex, bucketOf, readIndex, type BucketSize } from './index-buckets';
 import { personIdOf } from './people-graph';
@@ -125,8 +126,12 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
     // listed under its blurred cell (§31.8). Scoped to the shapes that write ix/cell at write
     // time: a rebuild must put back what the writers write, no more (REQ-GRAPH-02).
     const whereCell = linkSoul(event.where);
-    if (isNearbyEventShape(event, prefix) && whereCell?.startsWith(`${prefix}cell/`)) {
+    if ((isNearbyEventShape(event, prefix) || isConversationMessageEvent(event, prefix))
+      && whereCell?.startsWith(`${prefix}cell/`)) {
       await ensureListed(souls.index(`cell/${whereCell.slice(`${prefix}cell/`.length)}/ev`), id, souls.event(id), when, 'day');
+    }
+    if (isNearbyEventShape(event, prefix) && withUser) {
+      await ensureListed(souls.index(`person/${encodeURIComponent(withUser)}/ev`), id, souls.event(id), when);
     }
     const withKey = encodeURIComponent(withUser);
     if (event.deleted === true) {
@@ -209,10 +214,14 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
       if (convId) {
         await ensureListed(souls.index(`conv/${convId}`), id, souls.event(id), when, 'day');
         await ensure(souls.index('convs'), { [convId]: when });
+        if (withUser) await ensureListed(souls.index(`person/${withKey}/ev`), id, souls.event(id), when);
         // A received message names the sender's event in `re`: its dedupe marker rebuilds too.
         const seen = linkSoul(event.re);
         if (!event.by && seen?.startsWith(souls.event(''))) {
           await ensure(souls.index(`conv-seen/${encodeURIComponent(convId)}`), { [seen.slice(souls.event('').length)]: link(souls.event(id)) });
+        }
+        if (typeof event.sourceId === 'string') {
+          await ensure(souls.index(`conv-source/${convId}/${encodeURIComponent(event.sourceId)}`), { ev: link(souls.event(id)) });
         }
       }
     } else if (talkSoul && linkSoul(event.re) && withUser) {
@@ -223,6 +232,7 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
         await ensureListed(souls.index('incoming'), talkId, souls.index(`received/${talkId}`), when, 'day');
         await ensure(souls.index(`incoming-at/${talkId}`), { [bucketOf(when, 'day')]: true });
       }
+      await ensureListed(souls.index(`talk/${talkId}/ev`), id, souls.event(id), when);
       await ensureListed(souls.index(`person/${withKey}/ev`), id, souls.event(id), when);
     }
   }

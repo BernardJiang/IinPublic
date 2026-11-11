@@ -59,16 +59,51 @@ its ID.
   reads the graph. Still outside it: chat messages (own Gun message store), Nearby encounters and
   Place visits (hub cards and Place records), the Talks tab's `myTalks`, and Contacts'
   `myConversations`, `dealTalkByConversation` and `needKeyByConversation`.
+  - [ ] **Interlinked graph views implementation list (owner clarification 2026-11-09).** Mutable
+    Contact records, Nearby/home/travel/Place lists, conversation state and screen projections are
+    allowed. Their membership and history must remain traversable through immutable events and
+    rebuildable indexes in both directions.
+    - [x] Person history indexes include Talk arrivals/answers, Nearby encounters, and sent/received
+      DM events; write, rebuild and trim paths are symmetric.
+    - [x] Wire each live Nearby roster to `graph.recordEncounter` and each active Place scope to
+      `graph.recordVisit`; never treat the current user as their own encounter. Writes are
+      bridge-throttled, serialized, and wait for the current location write (2026-11-09).
+    - [x] Add bounded newest-first graph reads for Person → events/Talks/conversations/locations,
+      Talk → people, and Conversation → messages: `graph.personHistory`, `graph.talkPeople`, and
+      `graph.conversationMessages` (2026-11-09).
+    - [ ] Make Contacts derive membership and history from people/exchange/conversation indexes while
+      retaining `contact/<userId>` as editable private relationship state.
+    - [ ] Make the DM view read immutable `ix/conv` message events; keep the current transport only as
+      delivery notification during migration, then remove its duplicate message store.
+      **Read migration landed 2026-11-09:** decrypted transport batches are mirrored idempotently
+      through `graph.recordMessages`; source ids prevent replay duplicates; `ix/conv` history is
+      merged into the screen while the live copy contributes transient delivery state. Remaining:
+      demote/remove the transport's durable duplicate store after compatibility coverage.
+    - [ ] Persist Nearby list state by scope (home/travel/Place or one explicitly refreshed list),
+      linked to Person and encounter events; define UI ranking for nearby/recent/online without
+      changing the privacy-preserving network membership rank accidentally.
+    - [ ] Complete UI traversal: map/list → Person; Person/Contact → exchanged Talks, conversations,
+      and the map cells/Places where exchanges occurred; Talk → people; Me → Talks/people/places.
+    - [ ] Make Talks read graph indexes and preserve version lineage so edit/retire/replace never
+      leaves Contacts, answers, conversations, map links, or statistics pointing at a stale copy.
+    - [ ] Validate locally with unit/type/lint tests and on C10 only (`PADC100013000534`).
+      **2026-11-10:** latest focused routing/graph/UI run passes 26 tests plus typecheck and targeted
+      lint. Android embedded build `79a84707` built and installed in place only on C10; cold launch,
+      preserved session, `graph.personHistory`, `graph.conversationMessages`, `graph.talkPeople`,
+      empty idempotent `graph.recordMessages`, graph-chain verification (zero breaks), storage health,
+      and process/error smoke checks pass. C10 has no graph links/Nearby peer available, so live
+      two-person delivery and traversal remain unverified; do not use the other attached devices.
   - [ ] Chat messages as events (`conv`, `text`), in the pair log, with the DM transport as notify.
     **Graph-core half done 2026-11-06** (`0f4fe730`): `sendMessage` writes + exchanges chained
     message events, receiver's private copy, `ix/conv` + `ix/convs` indexes, `graph.sendMessage`
-    request; two latent Gun-store chain bugs fixed en route. Remaining: the DM view reads the log
-    and the old Gun message store is demoted to notify, then removed.
+    request; two latent Gun-store chain bugs fixed en route. **Read migration added 2026-11-09:**
+    existing transport history is now imported once as chained events and the DM view reads the
+    graph/live union. Remaining: demote the old Gun message store to notify, then remove it.
   - [ ] Nearby encounters and Place visits as events (`with`, `place`, `where`).
     **Graph-core half done 2026-11-06** (`766b7dcb`): `recordEncounter`/`recordVisit` chained
     events, `place`/`outing` state nodes, `ix/cell` index with one shared shape rule for
-    write/rebuild/trim, 15-min repeat dedupe, host requests. Remaining: wire the live
-    Nearby/Places flows to call them.
+    write/rebuild/trim, 15-min repeat dedupe, host requests. Live Nearby rosters and active Place
+    scopes now call them (2026-11-09); C10 validation remains in the validation item above.
   - [ ] Talks tab from the graph indexes; `myTalks` reduced to device-local display state, then removed.
   - [ ] Contacts from people, exchanges and conversation events; the deal and key maps as events or
     indexes. Collections left only for settings and device-local state.

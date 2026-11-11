@@ -5,16 +5,17 @@
  * send and the events the GUI shows (a Talk arrived, someone answered, a deletion).
  */
 import type { DeviceGraph } from '../device-graph';
-import type { NodeStore } from '../node-store';
-import { personSoul } from '../people-graph';
+import { linkSoul, type GraphNode, type NodeStore } from '../node-store';
+import { personIdOf, personSoul } from '../people-graph';
 import { allSituations } from '../answers';
 import { answerKey, type AnswerSetEntry } from '../keys';
 import { answeredAtoms } from '../exchanged';
-import { putKeyed } from '../keyed-buckets';
+import { putKeyed, readKeyed } from '../keyed-buckets';
 import { verifyChain } from '../chain';
 import { readIndex } from '../index-buckets';
+import { parseEventId } from '../event-id';
+import type { ImportedMessage } from '../message-events';
 import { builtInFromValues, graphSouls, type Perspective, type TalkStructure } from '../talk-structure';
-import type { GraphNode } from '../node-store';
 import { formatTypedAnswerValue, typedAnswerValueFromBuiltIn, type TypedAnswerValue } from '../../../shared/typed-preference-store';
 import { createGraphSync, type GraphCrypto, type GraphLinkStatus, type PeerKeys, type SeaPair } from './graph-sync';
 
@@ -45,6 +46,14 @@ export type GraphHostRequest =
   | { name: 'graph.recordEncounter'; personUserId: string; re?: string }
   /** A Place visit as a chained event (OPEN-110 slice 2); `outingId`: a sample of that outing. */
   | { name: 'graph.recordVisit'; placeId: string; placeName?: string; outingId?: string }
+  /** Idempotently mirror already-decrypted transport messages into immutable local events. */
+  | { name: 'graph.recordMessages'; conversationId: string; otherUserId: string; messages: Array<Omit<ImportedMessage, 'conversationId' | 'otherUserId'>> }
+  /** Newest-first events involving one person, from the rebuildable person-history index. */
+  | { name: 'graph.personHistory'; userId: string; limit?: number; beforeEventId?: string }
+  /** Newest-first immutable messages in one conversation. */
+  | { name: 'graph.conversationMessages'; conversationId: string; limit?: number; beforeEventId?: string }
+  /** People linked to a Talk by arrivals, answers, or offers, newest relationship first. */
+  | { name: 'graph.talkPeople'; talkId: string; limit?: number; beforeWhen?: number; beforeUserId?: string }
   /** `answers[].mode`: the dialog's choice for each answer (`auto`, `manual` = Just once, `whenever`). */
   | { name: 'graph.answer'; talkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string; mode?: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
@@ -55,6 +64,37 @@ export type GraphHostRequest =
 export type AppAnswer = { questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string; typedValue?: TypedAnswerValue };
 
 export type GraphPull = { out: Array<{ to: string; raw: string }>; events: GraphEvent[] };
+export type GraphPersonHistoryItem = {
+  eventId: string;
+  when: number;
+  kind: 'message' | 'answer' | 'arrival' | 'encounter' | 'event';
+  byUserId?: string;
+  withUserId?: string;
+  talkId?: string;
+  conversationId?: string;
+  placeId?: string;
+  cellId?: string;
+  reEventId?: string;
+  text?: string;
+};
+export type GraphConversationMessage = {
+  eventId: string;
+  when: number;
+  direction: 'sent' | 'received';
+  otherUserId: string;
+  text: string;
+  reEventId?: string;
+  sourceMessageId?: string;
+  talkId?: string;
+  channel?: 'public' | 'known' | 'mutual';
+  isFromChatbot?: boolean;
+};
+export type GraphTalkPerson = {
+  userId: string;
+  lastWhen: number;
+  lastEventId?: string;
+  roles: Array<'sender' | 'author' | 'responder' | 'recipient'>;
+};
 export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown;
   /** My event chain as verified on this call (REQ-GRAPH-41); absent until an identity is set. */
   chain?: { ok: boolean; checked: number; chainBreaks: number; firstBadSeq?: number; reason?: 'gap' | 'prev' | 'sig' | 'head' | 'cp';
@@ -62,6 +102,47 @@ export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; stora
     fromSeq?: number } };
 
 const MAX_PULL_WAIT_MS = 25_000;
+
+/** A storage event as a stable GUI traversal row; storage remains typeless, this projection isn't. */
+export function graphPersonHistoryItem(prefix: string, eventId: string, event: GraphNode): GraphPersonHistoryItem {
+  const souls = graphSouls(prefix);
+  const eventHead = souls.event('');
+  const convHead = souls.mine('conv/');
+  const placeHead = `${prefix}place/`;
+  const cellHead = `${prefix}cell/`;
+  const idOf = (value: unknown, head: string): string | undefined => {
+    const soul = linkSoul(value);
+    return soul?.startsWith(head) ? decodeURIComponent(soul.slice(head.length)) : undefined;
+  };
+  const talkId = idOf(event.talk, eventHead);
+  const conversationId = idOf(event.conv, convHead);
+  const placeId = idOf(event.place, placeHead);
+  const withUserId = personIdOf(prefix, linkSoul(event.with));
+  const byUserId = personIdOf(prefix, linkSoul(event.by));
+  const reEventId = idOf(event.re, eventHead);
+  const kind: GraphPersonHistoryItem['kind'] = conversationId && typeof event.text === 'string'
+    ? 'message'
+    : linkSoul(event.gave) && talkId
+      ? 'answer'
+      : talkId && reEventId
+        ? 'arrival'
+        : withUserId && !talkId && !conversationId
+          ? 'encounter'
+          : 'event';
+  return {
+    eventId,
+    when: Number(event.when) || parseEventId(eventId)?.when || 0,
+    kind,
+    ...(byUserId ? { byUserId } : {}),
+    ...(withUserId ? { withUserId } : {}),
+    ...(talkId ? { talkId } : {}),
+    ...(conversationId ? { conversationId } : {}),
+    ...(placeId ? { placeId } : {}),
+    ...(idOf(event.where, cellHead) ? { cellId: idOf(event.where, cellHead)! } : {}),
+    ...(reEventId ? { reEventId } : {}),
+    ...(typeof event.text === 'string' ? { text: event.text } : {}),
+  };
+}
 
 /** An answer set on my Talk as the app's answers: each situation's question, each chosen choice. */
 export function appAnswersOf(talk: TalkStructure, set: Record<string, AnswerSetEntry>, mode: string, perspective: Perspective = 'responder'): AppAnswer[] {
@@ -124,6 +205,23 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
     if (!sync) throw new Error('graph identity not set');
     return sync;
   };
+
+  /** A bounded event-index page, newest first. All indexed event ids on this device share its clock. */
+  async function eventPage(listSoul: string, limit: number | undefined, beforeEventId: string | undefined): Promise<Array<{ key: string; event: GraphNode }>> {
+    const take = Math.max(1, Math.min(200, Math.floor(limit ?? 50)));
+    const beforeWhen = beforeEventId ? parseEventId(beforeEventId)?.when : undefined;
+    if (beforeEventId && beforeWhen === undefined) throw new Error('invalid event cursor');
+    const to = beforeWhen === undefined ? undefined : new Date(beforeWhen).toISOString().slice(0, 7);
+    const entries = await readIndex(store, listSoul, { ...(to ? { to } : {}), limitBuckets: 12 });
+    const rows: Array<{ key: string; event: GraphNode }> = [];
+    for (const entry of entries) {
+      if (beforeEventId && entry.key >= beforeEventId) continue;
+      const event = await store.get(entry.target);
+      if (event) rows.push({ key: entry.key, event });
+      if (rows.length >= take) break;
+    }
+    return rows;
+  }
 
   return {
     async handle(request: GraphHostRequest): Promise<unknown> {
@@ -208,6 +306,98 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           return { eventId: await graph.nearby.recordEncounter({ personUserId: request.personUserId, ...(request.re ? { re: request.re } : {}) }) };
         case 'graph.recordVisit':
           return { eventId: await graph.nearby.recordVisit({ placeId: request.placeId, ...(request.placeName !== undefined ? { name: request.placeName } : {}), ...(request.outingId ? { outingId: request.outingId } : {}) }) };
+        case 'graph.recordMessages': {
+          if (!userId) throw new Error('graph identity not set');
+          let recorded = 0;
+          const eventIds: Record<string, string> = {};
+          for (const message of request.messages.slice(0, 200)) {
+            const result = await graph.messages.importMessage(userId, {
+              ...message,
+              conversationId: request.conversationId,
+              otherUserId: request.otherUserId,
+            });
+            eventIds[message.sourceMessageId] = result.eventId;
+            if (result.created) recorded += 1;
+          }
+          return { recorded, eventIds };
+        }
+        case 'graph.personHistory': {
+          return (await eventPage(
+            graphSouls(graph.prefix).index(`person/${encodeURIComponent(request.userId)}/ev`),
+            request.limit,
+            request.beforeEventId,
+          )).map(({ key, event }) => graphPersonHistoryItem(graph.prefix, key, event));
+        }
+        case 'graph.conversationMessages': {
+          const rows = await eventPage(
+            graphSouls(graph.prefix).index(`conv/${encodeURIComponent(request.conversationId)}`),
+            request.limit,
+            request.beforeEventId,
+          );
+          return rows.flatMap(({ key, event }): GraphConversationMessage[] => {
+            if (typeof event.text !== 'string') return [];
+            const otherUserId = personIdOf(graph.prefix, linkSoul(event.with));
+            if (!otherUserId) return [];
+            const reSoul = linkSoul(event.re);
+            const eventHead = graphSouls(graph.prefix).event('');
+            const reEventId = reSoul?.startsWith(eventHead) ? reSoul.slice(eventHead.length) : undefined;
+            return [{
+              eventId: key,
+              when: Number(event.when) || parseEventId(key)?.when || 0,
+              direction: event.by ? 'sent' : 'received',
+              otherUserId,
+              text: event.text,
+              ...(reEventId ? { reEventId } : {}),
+              ...(typeof event.sourceId === 'string' ? { sourceMessageId: event.sourceId } : {}),
+              ...(typeof event.scopeTalk === 'string' ? { talkId: event.scopeTalk } : {}),
+              ...(event.channel === 'public' || event.channel === 'known' || event.channel === 'mutual'
+                ? { channel: event.channel }
+                : {}),
+              ...(event.bot === true ? { isFromChatbot: true } : {}),
+            }];
+          });
+        }
+        case 'graph.talkPeople': {
+          const take = Math.max(1, Math.min(200, Math.floor(request.limit ?? 50)));
+          const souls = graphSouls(graph.prefix);
+          const byUser = new Map<string, GraphTalkPerson>();
+          const add = (person: string, role: GraphTalkPerson['roles'][number], when: number, eventId?: string) => {
+            if (!person || person === userId) return;
+            const current = byUser.get(person) ?? { userId: person, lastWhen: 0, roles: [] };
+            if (!current.roles.includes(role)) current.roles.push(role);
+            if (when >= current.lastWhen) {
+              current.lastWhen = when;
+              if (eventId) current.lastEventId = eventId;
+            }
+            byUser.set(person, current);
+          };
+          const beforeWhen = Number.isFinite(request.beforeWhen) ? Number(request.beforeWhen) : undefined;
+          const to = beforeWhen === undefined ? undefined : new Date(beforeWhen).toISOString().slice(0, 7);
+          const entries = await readIndex(store, souls.index(`talk/${request.talkId}/ev`), { ...(to ? { to } : {}), limitBuckets: 12 });
+          for (const entry of entries) {
+            const event = await store.get(entry.target);
+            if (!event) continue;
+            const when = Number(event.when) || parseEventId(entry.key)?.when || 0;
+            const by = personIdOf(graph.prefix, linkSoul(event.by));
+            const withPerson = personIdOf(graph.prefix, linkSoul(event.with));
+            if (linkSoul(event.gave)) {
+              if (by) add(by, 'responder', when, entry.key);
+              if (withPerson) add(withPerson, 'author', when, entry.key);
+            } else if (withPerson) add(withPerson, 'sender', when, entry.key);
+          }
+          // Offers are currently represented by their rebuildable sent-version index. Until offer
+          // events land, this preserves Talk → recipients without reading the legacy app ledger.
+          for (const [recipient, version] of Object.entries(await readKeyed(store, `${graph.prefix}sync/sent/${request.talkId}`))) {
+            if (typeof version !== 'string') continue;
+            add(recipient, 'recipient', parseEventId(version)?.when ?? 0);
+          }
+          return [...byUser.values()]
+            .sort((a, b) => b.lastWhen - a.lastWhen || a.userId.localeCompare(b.userId))
+            .filter((row) => beforeWhen === undefined
+              || row.lastWhen < beforeWhen
+              || (row.lastWhen === beforeWhen && row.userId > String(request.beforeUserId ?? '')))
+            .slice(0, take);
+        }
         case 'graph.hear':
           for (const raw of request.raws) need().hear(request.peerUserId, raw);
           return { ok: true };

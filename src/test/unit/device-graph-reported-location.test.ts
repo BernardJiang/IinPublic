@@ -74,6 +74,17 @@ describe('a location the page reports (REQ-GRAPH-42)', () => {
     const during = await handle({ name: 'graph.recordEncounter', personUserId: 'ben' }) as { eventId: string };
     expect(await whereOf(during.eventId)).toMatch(/^local\/cell\/cell_/);
     expect(await nodeStore.get(`local/gps/${during.eventId}`)).toMatchObject({ latitude: POINT.latitude, source: 'gps' });
+    expect(await handle({ name: 'graph.personHistory', userId: 'ben', limit: 5 })).toEqual([
+      expect.objectContaining({ eventId: during.eventId, kind: 'encounter', withUserId: 'ben' }),
+    ]);
+    expect(await handle({ name: 'graph.conversationMessages', conversationId: 'empty', limit: 5 })).toEqual([]);
+    expect(await handle({ name: 'graph.talkPeople', talkId: 'empty', limit: 5 })).toEqual([]);
+    await expect(handle({
+      name: 'graph.recordMessages',
+      conversationId: 'empty',
+      otherUserId: 'ben',
+      messages: [],
+    })).rejects.toThrow('graph identity not set');
 
     await handle({ name: 'deviceGraph.setLocation', point: null });
     const after = await handle({ name: 'graph.recordEncounter', personUserId: 'cy' }) as { eventId: string };
