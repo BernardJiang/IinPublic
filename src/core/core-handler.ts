@@ -281,10 +281,13 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'graph.answer':
       case 'graph.recordEncounter':
       case 'graph.recordVisit':
+      case 'graph.recordNearbyScope':
+      case 'graph.recordConversation':
       case 'graph.recordMessages':
       case 'graph.personHistory':
       case 'graph.conversationMessages':
       case 'graph.talkPeople':
+      case 'graph.tabSnapshot':
       case 'graph.sendMessage':
       case 'graph.trimLog':
         if (!graph.host) throw new Error('this core has no graph links');

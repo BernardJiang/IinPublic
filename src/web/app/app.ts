@@ -241,7 +241,8 @@ import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionRece
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
 import { GraphLinkBridge } from '../services/graph-link-bridge';
-import type { GraphConversationMessage, GraphEvent } from '../../core/device-graph/sync/graph-host';
+import type { GraphConversationMessage, GraphEvent, GraphTabSnapshot } from '../../core/device-graph/sync/graph-host';
+import { setGraphTabSnapshot } from '../services/graph-tab-projection';
 import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
 import { getPinnedIds } from '../ui/list-pins';
@@ -426,6 +427,8 @@ export class IinPublicApp {
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
   private readonly graphMessageWrites = new Map<string, Promise<void>>();
+  /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
+  private graphTabRefresh: Promise<void> | null = null;
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
   private talkSendQuotaUnlimitedForE2e = false;
@@ -1996,10 +1999,10 @@ export class IinPublicApp {
         this.uiManager.setNearbyCount(nearby, scope === 'nearby' ? NEARBY_V3_ROOM_ID : scope.slice('place:'.length));
         this.uiManager.setNearbyOnline(online);
       },
-      onRoster: (members) => {
+      onRoster: (members, entries) => {
         const scopeId = this.currentChatroomId;
         if (!scopeId || !isPersonalListScope(scopeId)) return;
-        this.recordNearbyRosterInGraph(members);
+        this.recordNearbyRosterInGraph(members, entries.map((entry) => entry.card.userId));
         // Like a shared room's roster, the roster includes me.
         const me = this.currentUser;
         const roster = me ? [...members, { userId: me.id, stageName: me.stageName || me.id, isTraveler: this.appearsAsTraveler() }] : members;
@@ -2142,19 +2145,34 @@ export class IinPublicApp {
    * the graph even after that roster changes. The core performs the authoritative dedupe; this
    * throttle prevents every roster repaint from crossing the worker/native bridge.
    */
-  private recordNearbyRosterInGraph(members: ReadonlyArray<{ userId: string }>): void {
+  private recordNearbyRosterInGraph(
+    members: ReadonlyArray<{ userId: string }>,
+    rankedUserIds: readonly string[] = members.map((member) => member.userId),
+  ): void {
     const core = this.coreRequest;
     const me = this.currentUser?.id;
     if (!core || !me) return;
+    const scopeId = this.currentChatroomId;
+    if (!scopeId || !isPersonalListScope(scopeId)) return;
     const now = Date.now();
     const due = [...new Set(members.map((member) => String(member.userId || '').trim()))]
       .filter((peerId) => peerId && peerId !== me)
       .filter((peerId) => now - (this.graphEncounterRequestedAt.get(peerId) ?? -Infinity) >= NEARBY_REPEAT_WINDOW_MS);
-    if (!due.length) return;
     for (const peerId of due) this.graphEncounterRequestedAt.set(peerId, now);
     const locationReady = this.coreLocationWrite;
     this.graphPresenceWrites = this.graphPresenceWrites.then(async () => {
       await locationReady;
+      const kind = isPlaceRoomId(scopeId) ? 'place'
+        : this.appearsAsTraveler() ? 'travel'
+          : scopeId === NEARBY_V3_ROOM_ID ? 'home' : 'nearby';
+      await core({
+        name: 'graph.recordNearbyScope',
+        scopeId,
+        kind,
+        members: [...new Set(rankedUserIds.map(String))]
+          .filter((userId) => userId && userId !== me)
+          .map((userId) => ({ userId, online: true })),
+      });
       for (const peerId of due) {
         try {
           await core({ name: 'graph.recordEncounter', personUserId: peerId });
@@ -2163,7 +2181,8 @@ export class IinPublicApp {
           console.warn(`[graph] Nearby encounter for ${peerId.slice(0, 8)} was not recorded:`, error);
         }
       }
-    });
+      await this.refreshGraphTabSnapshot();
+    }).catch((error) => console.warn('[graph] Nearby scope projection was not recorded:', error));
   }
 
   /** Record the active Place independently from its mutable roster/list projection. */
@@ -6372,6 +6391,22 @@ export class IinPublicApp {
     this.peerMeshService?.setGraphOwed([...new Set([...this.graphOwedPeers, ...this.graphWaitingPeers])]);
   }
 
+  /** Load the graph-owned read model used synchronously by the four tab renderers. */
+  private refreshGraphTabSnapshot(): Promise<void> {
+    if (this.graphTabRefresh) return this.graphTabRefresh;
+    const core = this.coreRequest;
+    if (!core) return Promise.resolve();
+    const refresh = core({ name: 'graph.tabSnapshot' })
+      .then((next: GraphTabSnapshot) => {
+        setGraphTabSnapshot(next);
+        if (typeof window !== 'undefined') (window as any).__iinpublic_graph_tab_snapshot = () => next;
+      })
+      .catch((error) => console.warn('[graph] tab projection refresh failed:', error))
+      .finally(() => { if (this.graphTabRefresh === refresh) this.graphTabRefresh = null; });
+    this.graphTabRefresh = refresh;
+    return refresh;
+  }
+
   private async startGraphLinks(): Promise<void> {
     this.pushGraphOwedToMesh();
     const core = this.coreRequest;
@@ -6407,6 +6442,7 @@ export class IinPublicApp {
     });
     try {
       await this.graphLinks.start({ userId, pair: { pub: pair.pub, priv: pair.priv, epub: pair.epub, epriv: pair.epriv } });
+      await this.refreshGraphTabSnapshot();
       if (typeof window !== 'undefined') {
         (window as any).__iinpublic_graph_status = () => this.coreRequest?.({ name: 'graph.status' }) ?? null;
         (window as any).__iinpublic_graph_answer_history = () => this.coreRequest?.({ name: 'graph.answerHistory' }) ?? [];
@@ -6430,6 +6466,7 @@ export class IinPublicApp {
    * list and chatbot as one that arrived in a Talk frame, under its graph id (OPEN-106 step 2e).
    */
   private handleGraphEvent(event: GraphEvent): void {
+    if (event.type !== 'owed') void this.refreshGraphTabSnapshot();
     if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.pushGraphOwedToMesh(); return; }
     if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
     if (event.type === 'answer-deleted') { this.handleGraphAnswerDeleted(event.appTalkId ?? event.talkId, event.from); return; }
@@ -8013,6 +8050,36 @@ export class IinPublicApp {
         ...(conversationData.matchTotal !== undefined ? { matchTotal: conversationData.matchTotal } : {}),
       });
 
+      // Conversation state is a mutable graph projection, but its participant and originating
+      // Talks are graph links. This makes Contact ↔ conversation ↔ Talk traversal available even
+      // before either person sends the first DM.
+      if (this.coreRequest && conversationData.conversationId) {
+        const related = Array.isArray(conversationData.relatedTalkIds)
+          ? conversationData.relatedTalkIds
+          : (() => {
+            try {
+              const parsed = JSON.parse(String(conversationData.relatedTalkIdsJson || '[]'));
+              return Array.isArray(parsed) ? parsed : [];
+            } catch { return []; }
+          })();
+        const talkIds = [...new Set([conversationData.talkId, ...related].map(String)
+          .filter((talkId) => talkId && talkId !== 'direct'))];
+        const hasTalkProjection = conversationData.talkId !== undefined
+          || conversationData.relatedTalkIds !== undefined
+          || conversationData.relatedTalkIdsJson !== undefined;
+        void this.coreRequest({
+          name: 'graph.recordConversation',
+          conversationId: String(conversationData.conversationId),
+          otherUserId: String(otherUserId),
+          ...(hasTalkProjection ? { talkIds } : {}),
+          ...(Number.isFinite(Date.parse(String(conversationData.createdAt || '')))
+            ? { startedAt: Date.parse(String(conversationData.createdAt)) }
+            : {}),
+        }).then(() => this.refreshGraphTabSnapshot()).catch((error) => {
+          console.warn('[graph] conversation projection was not recorded:', error);
+        });
+      }
+
       if (typeof conversationData.dealConfirmedByJson === 'string') {
         try {
           const dealConfirmedBy = JSON.parse(conversationData.dealConfirmedByJson);
@@ -8121,6 +8188,7 @@ export class IinPublicApp {
           messages: imports.slice(offset, offset + 200),
         });
       }
+      await this.refreshGraphTabSnapshot();
     }).catch((error) => {
       console.warn('[graph] conversation message import failed:', error);
     }).finally(() => {

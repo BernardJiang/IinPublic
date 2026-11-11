@@ -16,7 +16,7 @@ import type { Outcome, OutcomeRecord } from './device-graph/exchanged';
 import type { OwnTalksStatus } from './device-graph/sync/own-talks';
 import type { IncomingTalkClusterWire } from '../shared/peer-talk-delivery';
 import type { MyTalksBodiesStatus } from './device-graph/sync/my-talks-bodies';
-import type { GraphConversationMessage, GraphHostRequest, GraphHostStatus, GraphPersonHistoryItem, GraphPull, GraphTalkPerson } from './device-graph/sync/graph-host';
+import type { GraphConversationMessage, GraphHostRequest, GraphHostStatus, GraphPersonHistoryItem, GraphPull, GraphTabSnapshot, GraphTalkPerson } from './device-graph/sync/graph-host';
 import type { AppAnswerRecord } from './device-graph/sync/app-answers';
 import type { AppChatbotAnswer } from './device-graph/sync/app-chatbot';
 import type { ChatbotView, RememberedAnswer } from './device-graph/answers';
@@ -136,9 +136,12 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.sendMessage' } ? { eventId: string }
                           : R extends { name: 'graph.recordMessages' } ? { recorded: number; eventIds: Record<string, string> }
                           : R extends { name: 'graph.recordEncounter' | 'graph.recordVisit' } ? { eventId: string }
+                          : R extends { name: 'graph.recordNearbyScope' } ? { updatedAt: number; members: number }
+                          : R extends { name: 'graph.recordConversation' } ? { updatedAt: number; talks: number }
                           : R extends { name: 'graph.personHistory' } ? GraphPersonHistoryItem[]
                           : R extends { name: 'graph.conversationMessages' } ? GraphConversationMessage[]
                           : R extends { name: 'graph.talkPeople' } ? GraphTalkPerson[]
+                          : R extends { name: 'graph.tabSnapshot' } ? GraphTabSnapshot
                           : R extends { name: 'graph.retract' } ? { sent: number }
                           : R extends { name: 'graph.answerHistory' } ? AppAnswerRecord[]
                           : R extends { name: 'graph.newTalkId' } ? string | null

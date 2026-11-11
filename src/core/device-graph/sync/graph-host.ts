@@ -6,7 +6,7 @@
  */
 import type { DeviceGraph } from '../device-graph';
 import { linkSoul, type GraphNode, type NodeStore } from '../node-store';
-import { personIdOf, personSoul } from '../people-graph';
+import { personIdOf, personSoul, personWrites } from '../people-graph';
 import { allSituations } from '../answers';
 import { answerKey, type AnswerSetEntry } from '../keys';
 import { answeredAtoms } from '../exchanged';
@@ -46,6 +46,10 @@ export type GraphHostRequest =
   | { name: 'graph.recordEncounter'; personUserId: string; re?: string }
   /** A Place visit as a chained event (OPEN-110 slice 2); `outingId`: a sample of that outing. */
   | { name: 'graph.recordVisit'; placeId: string; placeName?: string; outingId?: string }
+  /** Replace one mutable Nearby/home/travel/Place roster projection. Encounters stay events. */
+  | { name: 'graph.recordNearbyScope'; scopeId: string; kind: 'home' | 'travel' | 'place' | 'nearby'; members: Array<{ userId: string; online?: boolean }> }
+  /** Upsert mutable conversation membership and link it to the Talks that created/scoped it. */
+  | { name: 'graph.recordConversation'; conversationId: string; otherUserId: string; talkIds?: string[]; startedAt?: number }
   /** Idempotently mirror already-decrypted transport messages into immutable local events. */
   | { name: 'graph.recordMessages'; conversationId: string; otherUserId: string; messages: Array<Omit<ImportedMessage, 'conversationId' | 'otherUserId'>> }
   /** Newest-first events involving one person, from the rebuildable person-history index. */
@@ -54,6 +58,8 @@ export type GraphHostRequest =
   | { name: 'graph.conversationMessages'; conversationId: string; limit?: number; beforeEventId?: string }
   /** People linked to a Talk by arrivals, answers, or offers, newest relationship first. */
   | { name: 'graph.talkPeople'; talkId: string; limit?: number; beforeWhen?: number; beforeUserId?: string }
+  /** Bounded graph-owned read model for the Talks, Contacts and Nearby tab projections. */
+  | { name: 'graph.tabSnapshot'; talkLimit?: number; conversationLimit?: number; peopleLimit?: number; scopeLimit?: number }
   /** `answers[].mode`: the dialog's choice for each answer (`auto`, `manual` = Just once, `whenever`). */
   | { name: 'graph.answer'; talkId: string; authorId: string; answers: Array<{ questionId: string; answerId: string; mode?: string }>; mode: 'manual' | 'chatbot'; context?: Record<string, unknown> };
 
@@ -94,6 +100,43 @@ export type GraphTalkPerson = {
   lastWhen: number;
   lastEventId?: string;
   roles: Array<'sender' | 'author' | 'responder' | 'recipient'>;
+};
+export type GraphTabTalk = {
+  talkId: string;
+  versionId: string;
+  versionHistory: string[];
+  talk: Record<string, unknown>;
+};
+export type GraphTabConversation = {
+  conversationId: string;
+  otherUserId: string;
+  startedAt: number;
+  lastWhen: number;
+  lastEventId?: string;
+  lastMessage?: string;
+  talkIds: string[];
+};
+export type GraphTabPerson = {
+  userId: string;
+  lastWhen: number;
+  conversationIds: string[];
+  exchanged: number;
+  answered: number;
+  /** Bounded newest-first traversal rows; the indexes remain authoritative. */
+  history: GraphPersonHistoryItem[];
+};
+export type GraphNearbyScope = {
+  scopeId: string;
+  kind: 'home' | 'travel' | 'place' | 'nearby';
+  updatedAt: number;
+  members: Array<{ userId: string; online: boolean; rank: number }>;
+};
+export type GraphTabSnapshot = {
+  generatedAt: number;
+  talks: GraphTabTalk[];
+  conversations: GraphTabConversation[];
+  people: GraphTabPerson[];
+  nearbyScopes: GraphNearbyScope[];
 };
 export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown;
   /** My event chain as verified on this call (REQ-GRAPH-41); absent until an identity is set. */
@@ -223,6 +266,109 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
     return rows;
   }
 
+  const bounded = (value: number | undefined, fallback: number, maximum: number) =>
+    Math.max(1, Math.min(maximum, Math.floor(value ?? fallback)));
+
+  async function tabSnapshot(request: Extract<GraphHostRequest, { name: 'graph.tabSnapshot' }>): Promise<GraphTabSnapshot> {
+    const souls = graphSouls(graph.prefix);
+    const talkLimit = bounded(request.talkLimit, 500, 1_000);
+    const conversationLimit = bounded(request.conversationLimit, 500, 1_000);
+    const peopleLimit = bounded(request.peopleLimit, 500, 1_000);
+    const scopeLimit = bounded(request.scopeLimit, 20, 100);
+
+    const talkIds = (await graph.talks.list()).slice(0, talkLimit);
+    const talks = (await Promise.all(talkIds.map(async (talkId): Promise<GraphTabTalk | undefined> => {
+      const talk = await graph.talks.read(talkId);
+      if (!talk) return undefined;
+      return {
+        talkId,
+        versionId: talk.versionId,
+        versionHistory: await graph.talks.history(talkId),
+        talk: { ...appTalkOf(talk as Record<string, any>), active: talk.active, isTemplate: talk.isTemplate },
+      };
+    }))).filter((row): row is GraphTabTalk => !!row);
+
+    const convIndex = await store.get(souls.index('convs'));
+    const conversationIds = Object.entries(convIndex || {})
+      .filter(([, when]) => typeof when === 'number')
+      .sort((a, b) => Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0]))
+      .slice(0, conversationLimit)
+      .map(([key]) => decodeURIComponent(key));
+    const conversations = (await Promise.all(conversationIds.map(async (conversationId): Promise<GraphTabConversation | undefined> => {
+      const state = await store.get(souls.mine(`conv/${encodeURIComponent(conversationId)}`));
+      const otherUserId = personIdOf(graph.prefix, linkSoul(state?.with));
+      if (!otherUserId) return undefined;
+      const newest = (await eventPage(souls.index(`conv/${encodeURIComponent(conversationId)}`), 1, undefined))[0];
+      const talkLinksSoul = linkSoul(state?.talks);
+      const talkLinks = talkLinksSoul ? await store.get(talkLinksSoul) : null;
+      return {
+        conversationId,
+        otherUserId,
+        startedAt: Number(state?.startedAt) || Number(newest?.event.when) || 0,
+        lastWhen: Number(newest?.event.when) || 0,
+        ...(newest ? { lastEventId: newest.key } : {}),
+        ...(typeof newest?.event.text === 'string' ? { lastMessage: newest.event.text } : {}),
+        talkIds: Object.values(talkLinks || {}).flatMap((value) => {
+          const soul = linkSoul(value);
+          return soul?.startsWith(souls.event('')) ? [soul.slice(souls.event('').length)] : [];
+        }),
+      };
+    }))).filter((row): row is GraphTabConversation => !!row);
+
+    const exchangeState = await graph.exchange.state();
+    const personIds = [...new Set([
+      ...Object.keys(exchangeState),
+      ...conversations.map((conversation) => conversation.otherUserId),
+    ])].filter((id) => id && id !== userId);
+    const conversationsByPerson = new Map<string, GraphTabConversation[]>();
+    for (const conversation of conversations) {
+      const rows = conversationsByPerson.get(conversation.otherUserId) ?? [];
+      rows.push(conversation);
+      conversationsByPerson.set(conversation.otherUserId, rows);
+    }
+    const people = (await Promise.all(personIds.map(async (personId): Promise<GraphTabPerson> => {
+      const historyRows = await eventPage(souls.index(`person/${encodeURIComponent(personId)}/ev`), 50, undefined);
+      const history = historyRows.map(({ key, event }) => graphPersonHistoryItem(graph.prefix, key, event));
+      const personConversations = conversationsByPerson.get(personId) ?? [];
+      const exchanged = exchangeState[personId];
+      return {
+        userId: personId,
+        lastWhen: Math.max(history[0]?.when ?? 0, ...personConversations.map((row) => row.lastWhen), 0),
+        conversationIds: personConversations.map((row) => row.conversationId),
+        exchanged: exchanged?.exchanged.length ?? 0,
+        answered: exchanged?.answered.length ?? 0,
+        history,
+      };
+    }))).sort((a, b) => b.lastWhen - a.lastWhen || a.userId.localeCompare(b.userId)).slice(0, peopleLimit);
+
+    const scopeIndex = await store.get(souls.index('nearby-scopes'));
+    const nearbyScopes = (await Promise.all(Object.entries(scopeIndex || {})
+      .filter(([, when]) => typeof when === 'number')
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, scopeLimit)
+      .map(async ([encodedScopeId]): Promise<GraphNearbyScope | undefined> => {
+        const scopeId = decodeURIComponent(encodedScopeId);
+        const node = await store.get(souls.mine(`nearby/${encodedScopeId}`));
+        const membersSoul = linkSoul(node?.members);
+        if (!node || !membersSoul || typeof node.order !== 'string') return undefined;
+        try {
+          const order = JSON.parse(node.order) as string[];
+          const online = new Set(JSON.parse(typeof node.online === 'string' ? node.online : '[]') as string[]);
+          if (!Array.isArray(order)) return undefined;
+          const memberLinks = await store.get(membersSoul);
+          const members = order.flatMap((userId, rank) =>
+            personIdOf(graph.prefix, linkSoul(memberLinks?.[encodeURIComponent(userId)])) === userId
+              ? [{ userId, online: online.has(userId), rank }]
+              : []);
+          const kind = node.kind;
+          if (kind !== 'home' && kind !== 'travel' && kind !== 'place' && kind !== 'nearby') return undefined;
+          return { scopeId, kind, updatedAt: Number(node.updatedAt) || 0, members };
+        } catch { return undefined; }
+      }))).filter((row): row is GraphNearbyScope => !!row);
+
+    return { generatedAt: Date.now(), talks, conversations, people, nearbyScopes };
+  }
+
   return {
     async handle(request: GraphHostRequest): Promise<unknown> {
       switch (request.name) {
@@ -306,6 +452,75 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           return { eventId: await graph.nearby.recordEncounter({ personUserId: request.personUserId, ...(request.re ? { re: request.re } : {}) }) };
         case 'graph.recordVisit':
           return { eventId: await graph.nearby.recordVisit({ placeId: request.placeId, ...(request.placeName !== undefined ? { name: request.placeName } : {}), ...(request.outingId ? { outingId: request.outingId } : {}) }) };
+        case 'graph.recordNearbyScope': {
+          if (!request.scopeId || request.scopeId.length > 500) throw new Error('invalid Nearby scope id');
+          const seen = new Set<string>();
+          const members = request.members.slice(0, 1_000).flatMap((member, rank) => {
+            const person = String(member.userId || '').trim();
+            if (!person || person === userId || seen.has(person)) return [];
+            seen.add(person);
+            return [{ userId: person, online: member.online === true, rank }];
+          });
+          const updatedAt = Date.now();
+          const encodedScopeId = encodeURIComponent(request.scopeId);
+          const souls = graphSouls(graph.prefix);
+          const scopeSoul = souls.mine(`nearby/${encodedScopeId}`);
+          const membersSoul = `${scopeSoul}/members`;
+          const previousMembers = await store.get(membersSoul);
+          const memberLinks: GraphNode = Object.fromEntries([
+            ...Object.keys(previousMembers || {}).map((key) => [key, null] as const),
+            ...members.map((member) => [encodeURIComponent(member.userId), { '#': personSoul(graph.prefix, member.userId) }] as const),
+          ]);
+          const people = await personWrites(store, graph.prefix, members.map((member) => ({ userId: member.userId })), updatedAt);
+          await Promise.all([
+            ...people.map(([soul, node]) => store.put(soul, node)),
+            store.put(membersSoul, memberLinks),
+            store.put(scopeSoul, {
+              kind: request.kind,
+              updatedAt,
+              members: { '#': membersSoul },
+              order: JSON.stringify(members.map((member) => member.userId)),
+              online: JSON.stringify(members.filter((member) => member.online).map((member) => member.userId)),
+            }),
+            store.put(souls.index('nearby-scopes'), { [encodedScopeId]: updatedAt }),
+          ]);
+          return { updatedAt, members: members.length };
+        }
+        case 'graph.recordConversation': {
+          if (!request.conversationId || request.conversationId.length > 200 || request.conversationId.includes('/')) {
+            throw new Error('invalid conversation id');
+          }
+          if (!request.otherUserId || request.otherUserId === userId) throw new Error('invalid conversation participant');
+          const souls = graphSouls(graph.prefix);
+          const encodedConversationId = encodeURIComponent(request.conversationId);
+          const conversationSoul = souls.mine(`conv/${encodedConversationId}`);
+          const known = await store.get(conversationSoul);
+          const knownPerson = personIdOf(graph.prefix, linkSoul(known?.with));
+          if (knownPerson && knownPerson !== request.otherUserId) throw new Error('conversation belongs to another person');
+          const talkIds = request.talkIds === undefined ? undefined
+            : [...new Set(request.talkIds)].filter((talkId) => parseEventId(talkId) !== undefined).slice(0, 200);
+          const talksSoul = `${conversationSoul}/talks`;
+          const oldTalks = talkIds === undefined ? null : await store.get(talksSoul);
+          const talkLinks: GraphNode | undefined = talkIds === undefined ? undefined : Object.fromEntries([
+            ...Object.keys(oldTalks || {}).map((key) => [key, null] as const),
+            ...talkIds.map((talkId) => [encodeURIComponent(talkId), { '#': souls.event(talkId) }] as const),
+          ]);
+          const updatedAt = Date.now();
+          const startedAt = Number.isFinite(request.startedAt) ? Number(request.startedAt) : updatedAt;
+          const people = await personWrites(store, graph.prefix, [{ userId: request.otherUserId }], updatedAt);
+          await Promise.all([
+            ...people.map(([soul, node]) => store.put(soul, node)),
+            ...(talkLinks ? [store.put(talksSoul, talkLinks)] : []),
+            store.put(conversationSoul, {
+              with: { '#': personSoul(graph.prefix, request.otherUserId) },
+              ...(known?.startedAt === undefined ? { startedAt } : {}),
+              ...(talkIds !== undefined ? { talks: { '#': talksSoul } as const } : {}),
+              updatedAt,
+            }),
+            store.put(souls.index('convs'), { [encodedConversationId]: updatedAt }),
+          ]);
+          return { updatedAt, talks: talkIds?.length ?? Object.values(oldTalks || {}).filter((value) => !!linkSoul(value)).length };
+        }
         case 'graph.recordMessages': {
           if (!userId) throw new Error('graph identity not set');
           let recorded = 0;
@@ -398,6 +613,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
               || (row.lastWhen === beforeWhen && row.userId > String(request.beforeUserId ?? '')))
             .slice(0, take);
         }
+        case 'graph.tabSnapshot':
+          return tabSnapshot(request);
         case 'graph.hear':
           for (const raw of request.raws) need().hear(request.peerUserId, raw);
           return { ok: true };

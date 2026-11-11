@@ -16,6 +16,7 @@ import { getFlatAnswerHistory } from './answer-history-storage';
 import { uiText, type UiTranslationKey } from './ui-translations';
 import { escapeHtml } from './ui-formatters';
 import { getActiveMatchCollectionSession, getLatestMatchCollectionSession } from '../services/match-collection-session';
+import { graphPeopleForPlace, graphPeopleForTalk, graphPlaceScopesForPerson, graphTalkIdsForPerson } from '../services/graph-tab-projection';
 
 /** `peerIds`, when set, are the people themselves (a place's), not derived from the Talks. */
 export type GraphTopic = { label: string; talkIds: string[]; isTag: boolean; peerIds?: string[]; roomId?: string };
@@ -174,6 +175,11 @@ export function answerTopics(): Map<string, GraphTopic> {
 export function peopleWhoExchanged(talkIds: Iterable<string>, likedOnly: boolean): string[] {
   const ids = new Set(talkIds);
   const latest = new Map<string, number>();
+  if (!likedOnly) {
+    for (const talkId of ids) {
+      for (const person of graphPeopleForTalk(talkId)) latest.set(person.userId, Math.max(person.when, latest.get(person.userId) ?? 0));
+    }
+  }
   for (const exchange of readLocalTalkExchanges()) {
     const peerId = String(exchange?.peerId || '');
     if (!peerId || peerId === STARTER_TAGS_SOURCE_ID || !ids.has(String(exchange?.talkId || ''))) continue;
@@ -198,9 +204,12 @@ export function getContactsFocus(): ContactsFocus | null {
 }
 
 function resolveFocus(focus: TalksFocus | null): TalksFocus | null {
-  if (focus?.peerId || focus?.roomId) return { ...focus, talkIds: [...new Set(readExchanges()
+  if (focus?.peerId || focus?.roomId) return { ...focus, talkIds: [...new Set([
+    ...(focus.peerId ? graphTalkIdsForPerson(focus.peerId) : []),
+    ...readExchanges()
     .filter((exchange) => (!focus.peerId || exchange.peerId === focus.peerId) && (!focus.roomId || exchange.roomId === focus.roomId))
-    .map((exchange) => exchange.talkId))] };
+    .map((exchange) => exchange.talkId),
+  ])] };
   return focus;
 }
 
@@ -473,6 +482,11 @@ export function tagText(title: string, keyword: string): string {
 export function placesOf(filter: { talkIds?: Iterable<string>; peerId?: string }): GraphPlace[] {
   const ids = filter.talkIds ? new Set(filter.talkIds) : null;
   const places = new Map<string, GraphPlace>();
+  if (filter.peerId && !ids) {
+    for (const scope of graphPlaceScopesForPerson(filter.peerId)) {
+      places.set(scope.scopeId, { roomId: scope.scopeId, roomName: scope.scopeId, at: scope.at });
+    }
+  }
   for (const exchange of readLocalTalkExchanges()) {
     const roomId = String(exchange?.roomId || '');
     if (!roomId) continue;
@@ -489,7 +503,7 @@ export function placesOf(filter: { talkIds?: Iterable<string>; peerId?: string }
 
 /** What happened in one place: the people I exchanged with there (latest first) and the Talks. */
 export function placeSummary(roomId: string): { peerIds: string[]; talkIds: string[] } {
-  const latest = new Map<string, number>();
+  const latest = new Map<string, number>(graphPeopleForPlace(roomId).map((peerId) => [peerId, 0]));
   const talkIds = new Set<string>();
   for (const exchange of readLocalTalkExchanges()) {
     if (String(exchange?.roomId || '') !== roomId) continue;
