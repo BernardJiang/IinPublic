@@ -243,4 +243,54 @@ describe('Nearby encounters and Place visits as events (REQ-GRAPH-49)', () => {
     expect(linkSoul((await store.get(souls.event(visit.eventId)))!.place)).toBe(`${graph.prefix}place/cafe-blue`);
     expect((await store.get(`${graph.prefix}place/cafe-blue`))!.name).toBe('Blue Café');
   });
+
+  it('persists ranked Nearby scopes and builds the tab snapshot only from graph indexes', async () => {
+    const { store, graph } = await setup({ locate: async () => POINT });
+    const crypto = {
+      secret: async (epub: string, pair: any) => (await (SEA as any).secret(epub, pair)) || undefined,
+      encrypt: async (data: unknown, key: string) => String(await (SEA as any).encrypt(data, key)),
+      decrypt: async (data: unknown, key: string) => (SEA as any).decrypt(data, key),
+      sign: portableEcdsaSign, verify: portableEcdsaVerify,
+      randomHex: (bytes: number) => randomBytes(bytes).toString('hex'),
+    };
+    const host = createGraphHost({ gun: {} as any, store, graph, crypto });
+    const talkId = await graph.talks.create(tennis());
+    const edited = await graph.talks.edit(talkId, { ...tennis(), title: 'Tennis this weekend' });
+    await graph.messages.importMessage('me', {
+      conversationId: 'dm-zoe', otherUserId: 'zoe', sourceMessageId: 'message-1',
+      senderId: 'zoe', text: 'Saturday?', when: Date.now(),
+    });
+    expect(await host.handle({
+      name: 'graph.recordConversation', conversationId: 'dm-zoe', otherUserId: 'zoe', talkIds: [talkId],
+    })).toMatchObject({ talks: 1 });
+    await host.handle({ name: 'graph.recordConversation', conversationId: 'dm-zoe', otherUserId: 'zoe' });
+
+    expect(await host.handle({
+      name: 'graph.recordNearbyScope', scopeId: 'nearby-v3', kind: 'home',
+      members: [{ userId: 'zoe', online: true }, { userId: 'max' }, { userId: 'zoe' }],
+    })).toMatchObject({ members: 2 });
+    const scope = (await store.get(`${graph.prefix}mine/nearby/nearby-v3`))!;
+    const scopeMembers = (await store.get(linkSoul(scope.members)!))!;
+    expect(linkSoul(scopeMembers.zoe)).toBe(personSoul(graph.prefix, 'zoe'));
+    expect(linkSoul(scopeMembers.max)).toBe(personSoul(graph.prefix, 'max'));
+
+    const snapshot = await host.handle({ name: 'graph.tabSnapshot' }) as any;
+    expect(snapshot.talks).toEqual([expect.objectContaining({
+      talkId, versionId: edited, versionHistory: [edited, talkId],
+      talk: expect.objectContaining({ title: 'Tennis this weekend', graphVersionId: edited }),
+    })]);
+    expect(snapshot.conversations).toEqual([expect.objectContaining({
+      conversationId: 'dm-zoe', otherUserId: 'zoe', lastMessage: 'Saturday?', talkIds: [talkId],
+    })]);
+    expect(snapshot.people).toEqual([expect.objectContaining({
+      userId: 'zoe', conversationIds: ['dm-zoe'],
+    })]);
+    expect(snapshot.nearbyScopes).toEqual([{
+      scopeId: 'nearby-v3', kind: 'home', updatedAt: expect.any(Number),
+      members: [
+        { userId: 'zoe', online: true, rank: 0 },
+        { userId: 'max', online: false, rank: 1 },
+      ],
+    }]);
+  });
 });

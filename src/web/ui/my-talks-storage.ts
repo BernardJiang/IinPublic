@@ -1,4 +1,5 @@
 import { myTalksView } from '../services/core-views';
+import { graphTalkProjection, graphTalksForView } from '../services/graph-tab-projection';
 
 export type MyTalkRole = 'created' | 'answered' | 'copied' | 'ignored';
 
@@ -36,21 +37,31 @@ export type MyTalkMap = Record<string, MyTalkEntry>;
  * and hand it back to `setMyTalks`, so this is a copy: the view keeps its own entries.
  */
 export function getMyTalks(): MyTalkMap {
-  return JSON.parse(JSON.stringify(myTalksView.all())) as MyTalkMap;
+  return JSON.parse(JSON.stringify(graphTalksForView(myTalksView.all()))) as MyTalkMap;
 }
 
 /** One entry without copying the map. The caller must not change it. */
 export function getMyTalk(talkId: string): MyTalkEntry | undefined {
-  return myTalksView.get(talkId);
+  return getMyTalks()[talkId];
 }
 
 /** Replaces My Talks with this map; only what changed is written. */
 export function setMyTalks(myTalks: MyTalkMap): void {
   const current = myTalksView.all();
-  const changed = Object.fromEntries(Object.entries(myTalks)
+  const persisted = Object.fromEntries(Object.entries(myTalks).flatMap(([talkId, entry]) => {
+    if (!graphTalkProjection(talkId)) return [[talkId, entry]];
+    // The graph owns the Talk body/version. Keep only editable display state in the transitional
+    // collection, so a normal write also retires its stale duplicate body.
+    const {
+      talkId: _talkId, title: _title, type: _type, language: _language, timestamp: _timestamp,
+      role: _role, fullTalk: _fullTalk, ...displayState
+    } = entry;
+    return Object.keys(displayState).length ? [[talkId, displayState]] : [];
+  })) as MyTalkMap;
+  const changed = Object.fromEntries(Object.entries(persisted)
     .filter(([talkId, entry]) => JSON.stringify(current[talkId]) !== JSON.stringify(entry)));
   myTalksView.set(JSON.parse(JSON.stringify(changed)) as MyTalkMap);
-  myTalksView.remove(Object.keys(current).filter((talkId) => !(talkId in myTalks)));
+  myTalksView.remove(Object.keys(current).filter((talkId) => !(talkId in persisted)));
 }
 
 export function clearMyTalks(): void {

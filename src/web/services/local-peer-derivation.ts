@@ -8,6 +8,7 @@ import type { PeerRelationshipStats, PeerSummary } from '../../shared/peer-summa
 import * as core from '../../core/peer-derivation';
 import type { LocalCreatorReplyRow, LocalTalkExchange, LocalTalkHistoryItem } from '../../core/peer-derivation';
 import { readExchanges } from './exchange-view';
+import { graphContactPeers, graphPersonHistory } from './graph-tab-projection';
 
 export {
   buildAllLocalTalkResponses,
@@ -33,7 +34,9 @@ export function peersFromLocalTalkExchanges(currentUserId: string): PeerSummary[
 }
 
 export function deriveLocalPeers(opts: { currentUserId: string; conversations: Record<string, any>; knownPeople: KnownPerson[] }): PeerSummary[] {
-  return core.deriveLocalPeers({ ...opts, exchanges: readExchanges() });
+  const graphPeers = graphContactPeers().filter((peer) => peer.peerId !== opts.currentUserId);
+  const transitional = core.deriveLocalPeers({ ...opts, exchanges: readExchanges() });
+  return core.mergePeerSummaryLists(graphPeers, transitional);
 }
 
 export function localTalkHistoryForPeer(
@@ -42,7 +45,20 @@ export function localTalkHistoryForPeer(
   myTalks: Record<string, any>,
   fallbackTalkTitle: string,
 ): LocalTalkHistoryItem[] {
-  return core.localTalkHistoryForPeer(peerId, conversations, myTalks, fallbackTalkTitle, readExchanges());
+  const transitional = core.localTalkHistoryForPeer(peerId, conversations, myTalks, fallbackTalkTitle, readExchanges());
+  const byTalk = new Map(transitional.map((row) => [row.talkId, row]));
+  for (const event of graphPersonHistory(peerId)) {
+    if (!event.talkId || byTalk.has(event.talkId)) continue;
+    const local = myTalks[event.talkId];
+    byTalk.set(event.talkId, {
+      talkId: event.talkId,
+      title: String(local?.title || local?.fullTalk?.title || fallbackTalkTitle),
+      direction: event.kind === 'arrival' || event.withUserId === peerId ? 'received' : 'sent',
+      outcome: event.kind === 'answer' ? 'match' : 'pending',
+      date: new Date(event.when || 0).toISOString(),
+    });
+  }
+  return [...byTalk.values()].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
 }
 
 export function deriveLocalCreatorReplies(currentUserId: string): LocalCreatorReplyRow[] {
