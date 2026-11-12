@@ -55,23 +55,6 @@ its ID.
 
 ## Active maintenance queue — website and Android first
 
-- [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** Retest first on the current build: the
-  OPEN-100 memory crash may explain (a) and (b), but a clean rerun has not shown that. After that
-  crash Android delayed the background service's restart by about 35 minutes, and "Stopping
-  service due to app idle" followed, so a crash can also pause background delivery. (a) A late auto-answer was
-  lost: PH-1 recorded `walk-late` as outcome match/answeredBy chatbot, but P30's ledger and outing
-  never received it, more than 45 minutes later with both online. The PH-1 process had died at
-  airplane-mode-on, and the phone was then rebooted, so isolate whether that caused it.
-  (b) P30's Nearby list was empty after `walk-return`'s 13:29:50 Broadcast; replies arrived
-  10 minutes later (13:39:39, 13:40:15), exactly once. Likely tied to the FRD crash loop and hub
-  timeouts, but the logs from that minute were overwritten. (c) The outing review reports
-  0 pending although journey-bob's `walk-late` reply never arrived.
-  **Phone-free repair 2026-11-02:** rebroadcasting the same peer/Talk pair in a later outing no
-  longer deletes the earlier outing's delivery association, so its pending count stays honest.
-  Native reply reconciliation now uses the journaled original outing id instead of whichever
-  outing is newest when the WebView resumes. Deterministic unit coverage exercises both paths.
-  The lost delivery and ten-minute field delay still require the carried rerun.
-
 - [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
   The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
   let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
@@ -99,21 +82,6 @@ its ID.
   - [x] Spec tagging backlog closed 2026-11-06 — all 331 E2E specs now carry valid `covers:`
     SPEC anchors (0 untagged, 0 unresolvable); details in `docs/completed.md`.
 
-- [ ] **OPEN-92 — Message Send and navigation responsiveness on Android (reported
-  2026-10-29).** Earlier freezes were fixed in `bd7427e8`, `2846414a` and 1.0.202/1.0.203. On
-  2026-10-31 the owner asked for an instant local message and a Send button that never blocks, and
-  reported delays of 10 s or more and a lost message. App 1.0.214 changes the send path: the message
-  shows and the composer clears at once; encryption and delivery no longer wait for the local save
-  (one shared private-write queue took 0.6 s on P30 and 7.9 s on FRD-L04); the mailbox goes at
-  once when no direct link is open; a failed save returns the text to the composer. Measured with
-  `npm run test:android:dm -- <a> <b> --no-launch`, P30 ↔ FRD, both directions, link connected:
-  own message 69–335 ms, arrival 0.4–0.8 s, exactly once. Own message on FRD misses the script's
-  200 ms budget (about 300 ms). The owner confirmed 1.0.214 feels fast, including the first message.
-  J-CHAT-04 (`tests/e2e/journeys/dm-speed-journey.ts`) now guards this inside `native-app/37`, so the
-  Android sweep runs it: it passed on PH-1 + FRD-L04, app 1.0.217 (own message 56 ms, worst arrival
-  178 ms, with a 4 s slow-save case), and in `phone-path/02`. **Remaining gate:** FCP-AN10 when
-  attached. C10 is excluded.
-
 - [ ] **OPEN-101 — Open DM defects from the 2026-10-31 timing session.** (a) Private saves are
   slow because every private write shares one queue and each DM rewrites and re-encrypts the whole
   conversation; FRD-L04 took 7.9 s for one write and saw repeated main-thread stalls of about 1 s.
@@ -139,6 +107,12 @@ its ID.
   coordinated replacement connection within its original deadline instead of treating that
   internal handoff as a delivery failure; phone proof remains. (f) `getUserPub` gave up on
   the first missing peer record instead of retrying; fixed in 1.0.215 with a unit test.
+  **Phone run 2026-11-11, app 1.0.246 (DMs now in the device graph, OPEN-110):** FCP-AN10 ↔ P30
+  `test:android:dm` both ways, each message received exactly once; `native-app/12` (lifecycle +
+  network loss, mailbox after WebRTC timeout) 3/3 on FCP; `native-app/13` three-phone offline
+  catch-up and `native-app/37` match → chat passed. (a) no longer applies: ordinary DMs are not in
+  the private history segments any more. (b)(c)(e) were not reproduced but were not forced either;
+  (d) is still unexplained.
 
 ## Paused implementation and field qualification — track, but do not start new features
 
@@ -247,7 +221,7 @@ active feature development.
       outing mid-run (13:08:08) and it was reopened by editing its record over USB; `walk-return`
       took 10 minutes; journey-bob's `walk-late` reply never arrived, with the PH-1 rebooted and
       its app opened by hand during that step; distance walked and GPS loss were not recorded.
-      See OPEN-96 and OPEN-99; OPEN-95, OPEN-97, OPEN-98, OPEN-100 and OPEN-102 are complete. Rerun after OPEN-96. Transit remains not run.
+      See OPEN-99; OPEN-95, OPEN-96 (closed 2026-11-11 on phone journeys, no walk), OPEN-97, OPEN-98, OPEN-100 and OPEN-102 are complete. Rerun after OPEN-96. Transit remains not run.
   - [ ] **G8 — Adoption and abuse edges.** Measure the cold-start case where receivers lack saved
     auto-answers, add actionable pending states, carry the completed starter credit/block-count
     policy into launch review, and treat iOS as unsupported until its native background/discovery

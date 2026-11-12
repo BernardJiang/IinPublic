@@ -2,6 +2,23 @@
 
 Last updated: 2026-11-11
 
+## 2026-11-11 — OPEN-92 and OPEN-96 closed on 1.0.246
+
+- **OPEN-92 (Android message Send and navigation responsiveness):** the remaining FCP-AN10 gate
+  passed on app 1.0.246. `npm run test:android:dm` FCP → P30: own message 11 ms, Send ready, Back
+  1 ms, tab 2 ms, longest freeze 23 ms, received once in 24.8 s; P30 → FCP: 36 ms, 2 ms, 26 ms,
+  48 ms, received once in 27.9 s. `native-app/37` (J-CHAT-04) on FCP + P30: own message 36 ms,
+  worst arrival 107 ms. C10 excluded as before. The ~25 s arrivals in the DM check (first message
+  after launch, link still opening) are inside its 60 s budget but slow; watch them.
+- **OPEN-96 (field delivery gaps from the 2026-10-31 walk):** (a) a late answer whose send failed is
+  kept in the device core's answer outbox (`local/answerOutbox`) and resent when an identity or link
+  arrives, also after a restart (`f469391d`, `src/core/answer-outbox.ts`, unit tests). (b) The
+  10-minute delay came from the hub mailbox path, which no longer carries Talks or answers; a stalled
+  graph link is retried within 30 s. (c) The outing pending count was fixed on 2026-11-02. Phone
+  proof on 1.0.246: `native-app/37` (broadcast → answer → match → chat) on FCP + P30,
+  `native-app/13` three-phone offline catch-up (FRD offline) and `native-app/12` lifecycle and
+  network loss 3/3 on FCP all passed. Not done: a field walk rerun; reopen if a walk loses an answer.
+
 ## 2026-11-11 — OPEN-110 one log, four tab projections closed
 
 - Talks, Contacts, DM history, Nearby/Place lists and Me now derive their durable relationships and
