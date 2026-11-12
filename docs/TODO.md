@@ -83,6 +83,11 @@ its ID.
   (b) `[graph] Nearby scope projection was not recorded: storage did not acknowledge write for
   local/mine/nearby/nearby-v3/members` — 108 times in 10 HR runs, on every user. The Nearby list
   projection (2026-11-09) fails its write under e2e load; find out whether it also fails on phones.
+  (c) A manual answer records my exchange only after `sendToAuthor` commits it to the author's log
+  (`newVersion` comes from `response.commit`), so when the first link to the author waits out the
+  10 s WebRTC connect, the answer's 📍 place link shows ~12 s late. stage3 82 tag-graph-tour fails
+  on it every run on 2026-11-11 evening (also at 5c5005bd), waiting 10 s for `answer-place`.
+  Record the exchange before the send, or let it update once the version is known.
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no
