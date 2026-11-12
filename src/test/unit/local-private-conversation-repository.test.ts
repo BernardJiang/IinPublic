@@ -116,4 +116,21 @@ describe('LocalPrivateConversationRepository', () => {
       totalCount: 3,
     });
   });
+
+  test('clears every obsolete segment and manifest after graph migration', async () => {
+    const h = harness();
+    const repo = new LocalPrivateConversationRepository(h.gun, 50, 200, 2);
+    for (let i = 1; i <= 5; i += 1) await repo.append('conv-cutover', wire(`m${i}`, i));
+    h.put.mockClear();
+
+    await repo.clear('conv-cutover');
+
+    expect(h.put.mock.calls).toEqual([
+      ['conversationHistorySegments/conv-cutover/0', null],
+      ['conversationHistorySegments/conv-cutover/1', null],
+      ['conversationHistorySegments/conv-cutover/2', null],
+      ['conversations/conv-cutover/history', null],
+    ]);
+    await expect(repo.list('conv-cutover')).resolves.toEqual([]);
+  });
 });

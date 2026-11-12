@@ -3,14 +3,13 @@
  *
  * P2P-messaging Phase 5 (spec §19.3 step 5 / §19.4): once a WebRTC DataChannel is up
  * between two matched peers, each side exchanges a digest of the message ids it holds
- * for the conversation and backfills whatever the other is missing. Both peers' local
- * Gun graphs (`conversations/<id>/messages`, `pairConversations/...`) then converge
- * directly — the hub is not a data path even as an in-memory relay.
+ * for the conversation and backfills whatever the other is missing. Both peers' device-graph
+ * conversation event indexes then converge directly — the hub is not a data path even as an
+ * in-memory relay.
  *
  * This module is the pure, single source of truth for "what to send / what to keep":
  * no DOM, no Gun, no WebRTC, so the convergence logic is fully unit-tested. The
- * transport (P2PConversationSession) and the store (GunMessageStore) only move bytes
- * and apply results.
+ * transport (P2PConversationSession) only moves bytes; the device graph applies results.
  */
 
 /** The wire a reconciliation backfill carries — identical shape to a live DM wire. */
@@ -24,6 +23,7 @@ export type ReconcileMessage = {
   encryption?: 'sea-ecdh-v1';
   prevSeen?: string;
   isFromChatbot?: boolean;
+  talkId?: string;
 };
 
 /** "Here are the message ids I already hold for this conversation." */
@@ -36,7 +36,7 @@ export type ConversationDigest = {
  * Default cap on how many of the most-recent messages a single reconciliation pass
  * considers. Very long conversations have effectively converged for their old history;
  * bounding the digest/backfill to a recent window keeps the digest frame small and the
- * `listLocalWires` enumeration cheap, while still closing any recent gap. Older messages
+ * bounded graph enumeration cheap, while still closing any recent gap. Older messages
  * are assumed already replicated (they were reconciled when they were recent).
  */
 export const DEFAULT_RECONCILE_WINDOW = 500;

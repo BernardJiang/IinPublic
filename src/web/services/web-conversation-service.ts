@@ -5,7 +5,10 @@ import type { LedgerState } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { StarGunConversationTransport } from './star-gun-conversation-transport';
 import type { ConversationMessageWire } from './star-gun-conversation-transport';
-import { DirectP2PConversationTransport } from './direct-p2p-conversation-transport';
+import {
+  DirectP2PConversationTransport,
+  type ConversationMessageLogHooks,
+} from './direct-p2p-conversation-transport';
 import { TechSupportConversationTransport } from './techsupport-conversation-transport';
 import { getSEA, type GunPair } from '../sea-gun';
 import {
@@ -41,6 +44,13 @@ type DirectCapableTransport = ConversationTransport & {
       recipientEpub?: string,
     ) => boolean | void | Promise<boolean | void>,
   ): void;
+  setMessageLogHooks?(hooks: ConversationMessageLogHooks): void;
+  ingestMessageWire?(
+    conversationId: string,
+    localUserId: string,
+    otherUserId: string,
+    wire: ConversationMessageWire,
+  ): Promise<void>;
   setAttachmentHooks?(hooks: {
     // KNOWN RESIDUAL GAP: this hook is invoked with only a bare cid, never the requesting
     // peer's identity, so the block-enforcement work covering attachment share messages
@@ -141,13 +151,14 @@ export class WebConversationService {
   private transport: ConversationTransport;
   private readonly supportTransport: TechSupportConversationTransport;
   /**
-   * Gun-backed message store — used only for local Gun writes (e.g. offline mailbox
-   * ingestion via upsertMessageRecord). NOT used as a conversation transport.
+   * Support/synthetic-message store plus the one-time ordinary-DM cutover reader. The direct
+   * transport never writes or reads ordinary history here after OPEN-110.
    */
   private readonly gunMessageStore: StarGunConversationTransport;
   private readonly metadataRepository: LocalPrivateConversationMetadataRepository;
   private localUserId = '';
   private localUserName = '';
+  private messageLogHooks?: ConversationMessageLogHooks;
   private ledgerHooks: {
     getLedgerState?: () => LedgerState;
     onRemoteLedgerState?: (otherUserId: string, state: LedgerState) => void | Promise<void>;
@@ -223,6 +234,7 @@ export class WebConversationService {
   private createOrdinaryTransport(): DirectP2PConversationTransport {
     const direct = new DirectP2PConversationTransport(this.gunService);
     direct.setLedgerHandshakeHooks(this.ledgerHooks);
+    if (this.messageLogHooks) direct.setMessageLogHooks(this.messageLogHooks);
     direct.setConversationControlHooks({
       getConversationControlSnapshot: async (conversationId, localUserId, otherUserId) => {
         const metadata = await this.metadataRepository.get(localUserId, conversationId);
@@ -303,7 +315,7 @@ export class WebConversationService {
 
   /**
    * Phase 4: register the offline-mailbox fallback. The handler fires when an
-   * ordinary DM is persisted to local Gun but can't be delivered over WebRTC (peer
+   * ordinary DM is persisted to the graph but can't be delivered over WebRTC (peer
    * offline); the app queues it into the recipient's encrypted mailbox. No-op for
    * transports without the hook (e.g. TechSupport / injected test transports).
    */
@@ -316,6 +328,37 @@ export class WebConversationService {
     ) => boolean | void | Promise<boolean | void>,
   ): void {
     (this.transport as DirectCapableTransport).setUndeliverableHandler?.(handler);
+  }
+
+  /** OPEN-110: ordinary-DM durable state lives in the device event graph. */
+  setMessageLogHooks(hooks: ConversationMessageLogHooks): void {
+    this.messageLogHooks = hooks;
+    (this.transport as DirectCapableTransport).setMessageLogHooks?.(hooks);
+  }
+
+  /** Apply a live or mailbox ordinary-DM wire to the graph-owned message log. */
+  async ingestOrdinaryMessageWire(
+    conversationId: string,
+    wire: ConversationMessageWire,
+    otherUserId: string,
+  ): Promise<void> {
+    if (!this.localUserId) throw new Error('Local user is not set');
+    const ingest = (this.transport as DirectCapableTransport).ingestMessageWire;
+    if (!ingest) throw new Error('Ordinary-DM transport cannot ingest message wires');
+    await ingest.call(this.transport, conversationId, this.localUserId, otherUserId, wire);
+  }
+
+  /** Read and then erase pre-OPEN-110 ordinary history; the caller must persist it first. */
+  readLegacyOrdinaryMessages(
+    conversationId: string,
+    myUserId: string,
+    otherUserId: string,
+  ): Promise<Message[]> {
+    return this.gunMessageStore.readLegacyMessages(conversationId, myUserId, otherUserId);
+  }
+
+  clearLegacyOrdinaryMessages(conversationId: string): Promise<void> {
+    return this.gunMessageStore.clearLegacyMessages(conversationId);
   }
 
   private isSupportConversation(conversationId: string, otherUserId?: string): boolean {

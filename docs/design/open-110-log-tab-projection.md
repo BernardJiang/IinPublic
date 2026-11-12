@@ -42,10 +42,15 @@ The projection supplies these traversals in both directions:
 their authoritative Talk body/version and conversation membership/message-summary fields are
 stripped; only device-local display/edit state remains.
 
-## Remaining closure work
+## Closure
 
-The ordinary-DM `GunMessageStore` is no longer the screen's durable read model, but Direct P2P still
-uses its encrypted wires to compute reconciliation digests, backfill a reconnecting peer, and queue
-an offline mailbox delivery. Removing it before those operations read equivalent pair-log entries
-would lose offline messages. OPEN-110 therefore remains open only for that transport cutover and
-its compatibility coverage; the four tab projections themselves are graph-backed.
+Closed 2026-11-11. Ordinary Direct P2P now records plaintext graph events as its durable write,
+reads `graph.conversationMessages` for the screen and previews, and builds reconnect digests and
+encrypted backfill wires from those graph rows. WebRTC and encrypted mailbox envelopes are delivery
+mechanisms only; delivery status is session UI state.
+
+On upgrade, each old ordinary-DM encrypted history is decrypted and imported idempotently before
+its manifest and segments are cleared. Any undecryptable row aborts deletion and leaves the cache
+for a later retry. `GunMessageStore` remains only as a wire-crypto/key helper, the guarded cutover
+reader, and storage for separate TechSupport synthetic records; it is not an ordinary-DM history
+source or reconciliation source.

@@ -10,6 +10,8 @@ async function waitForMockCall(mockFn: jest.Mock, timeoutMs = 1000): Promise<voi
 }
 
 describe('DirectP2PConversationTransport (P2P-H)', () => {
+  let graphRecord: jest.Mock<Promise<void>, any[]>;
+  let graphList: jest.Mock<Promise<any[]>, any[]>;
   const wire = {
     id: 'msg_test_1',
     senderId: 'alice',
@@ -21,6 +23,12 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
 
   beforeEach(() => {
     jest.spyOn(GunMessageStore.prototype, 'putMessageRecord').mockResolvedValue(undefined);
+    graphRecord = jest.fn(async () => undefined);
+    graphList = jest.fn(async () => []);
+    jest.spyOn(
+      DirectP2PConversationTransport.prototype as unknown as { requireMessageLog: () => unknown },
+      'requireMessageLog',
+    ).mockReturnValue({ recordMessage: graphRecord, listMessages: graphList });
   });
 
   const mockGun = {
@@ -36,7 +44,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     getPublicUser: async () => ({ pub: 'pub_bob' }),
   } as unknown as WebGunService;
 
-  it('buildAndPersistMessage on Gun store before WebRTC sendDm', async () => {
+  it('records plaintext in the graph log before completing a WebRTC send', async () => {
     const buildSpy = jest
       .spyOn(GunMessageStore.prototype, 'buildMessage')
       .mockResolvedValue(wire);
@@ -59,6 +67,11 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       expect.objectContaining({ transport: 'direct-p2p' }),
     );
     expect(sendDm).toHaveBeenCalledWith('alice', 'hello', 'public', wire);
+    expect(graphRecord).toHaveBeenCalledWith('conv1', 'bob', expect.objectContaining({
+      id: wire.id,
+      senderId: 'alice',
+      text: 'hello',
+    }));
 
     buildSpy.mockRestore();
   });
@@ -82,7 +95,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     putSpy.mockRestore();
   });
 
-  it('passes explicit messageId to Gun store for idempotent sends', async () => {
+  it('passes an explicit message id to the wire codec and graph for idempotent sends', async () => {
     const buildSpy = jest
       .spyOn(GunMessageStore.prototype, 'buildMessage')
       .mockResolvedValue({ ...wire, id: 'bafy-auto-share-msg' });
@@ -110,6 +123,11 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
         messageId: 'bafy-auto-share-msg',
         channel: 'known',
       }),
+    );
+    expect(graphRecord).toHaveBeenCalledWith(
+      'conv1',
+      'bob',
+      expect.objectContaining({ id: 'bafy-auto-share-msg', text: 'ipfs://bafy...' }),
     );
 
     buildSpy.mockRestore();
@@ -174,7 +192,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       expect(buildSpy).toHaveBeenCalled();
     });
 
-    it('marks a direct delivery sent and persists the terminal state', async () => {
+    it('marks a direct delivery sent without persisting UI delivery state', async () => {
       jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
       const putSpy = jest.spyOn(GunMessageStore.prototype, 'putMessageRecord').mockResolvedValue(undefined);
       const transport = new DirectP2PConversationTransport(mockGun);
@@ -188,7 +206,7 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       await Promise.resolve();
 
       expect(deliveryState(transport)).toBe('sent');
-      expect(putSpy).toHaveBeenCalledWith('conv1', expect.objectContaining({ id: wire.id, deliveryState: 'sent' }));
+      expect(putSpy).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -207,15 +225,12 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       await Promise.resolve();
 
       expect(deliveryState(transport)).toBe(expectedState);
-      expect(putSpy).toHaveBeenCalledWith(
-        'conv1',
-        expect.objectContaining({ id: wire.id, deliveryState: expectedState }),
-      );
+      expect(putSpy).not.toHaveBeenCalled();
     });
 
     it('delivers without waiting for a slow save', async () => {
       jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
-      jest.spyOn(GunMessageStore.prototype, 'putMessageRecord').mockReturnValue(new Promise(() => undefined));
+      graphRecord.mockReturnValue(new Promise(() => undefined));
       const sendDm = jest.fn(async () => undefined);
       const transport = new DirectP2PConversationTransport(mockGun);
       jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
@@ -232,11 +247,11 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
 
     it('takes it back and reports when saving fails', async () => {
       jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
-      jest.spyOn(GunMessageStore.prototype, 'putMessageRecord').mockRejectedValue(new Error('no epub'));
+      graphRecord.mockRejectedValue(new Error('graph write failed'));
       const transport = new DirectP2PConversationTransport(mockGun);
       sessionless(transport);
 
-      await expect(transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' })).rejects.toThrow('no epub');
+      await expect(transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' })).rejects.toThrow('graph write failed');
 
       expect(shown(transport)).toEqual([]);
     });
@@ -371,30 +386,27 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     buildSpy.mockRestore();
   });
 
-  it('subscribeToMessages delegates to Gun store subscription after participant resolution fallback', async () => {
-    const subSpy = jest
-      .spyOn(GunMessageStore.prototype, 'subscribeToMessages')
-      .mockReturnValue(() => undefined);
-
+  it('subscribeToMessages reads durable history from the graph log', async () => {
+    graphList.mockResolvedValue([{
+      id: 'logged-1', senderId: 'bob', text: 'from graph',
+      timestamp: '2026-11-11T00:00:00.000Z', channel: 'known',
+    }]);
     const transport = new DirectP2PConversationTransport(mockGun);
     const cb = jest.fn();
-    transport.subscribeToMessages('conv1', cb, 'alice');
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockRejectedValue(new Error('offline'));
+    transport.subscribeToMessages('conv1', cb, 'alice', 'bob');
 
-    for (let i = 0; i < 5 && subSpy.mock.calls.length === 0; i++) {
+    for (let i = 0; i < 5 && graphList.mock.calls.length === 0; i++) {
       await Promise.resolve();
     }
-    expect(subSpy).toHaveBeenCalledWith('conv1', expect.any(Function), 'alice');
-    subSpy.mockRestore();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(graphList).toHaveBeenCalledWith('conv1', 'bob', 500);
+    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'logged-1', text: 'from graph' })]);
   });
 
-  it('does not let an older Gun snapshot erase a message already echoed locally', async () => {
-    let emitGunSnapshot: ((messages: any[]) => void) | undefined;
-    const subSpy = jest
-      .spyOn(GunMessageStore.prototype, 'subscribeToMessages')
-      .mockImplementation((_conversationId, callback) => {
-        emitGunSnapshot = callback;
-        return () => undefined;
-      });
+  it('does not let an older graph snapshot erase a message already echoed locally', async () => {
+    let finishGraphRead!: (messages: any[]) => void;
+    graphList.mockReturnValue(new Promise((resolve) => { finishGraphRead = resolve; }));
     const buildSpy = jest
       .spyOn(GunMessageStore.prototype, 'buildMessage')
       .mockResolvedValue(wire);
@@ -408,24 +420,21 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     });
     const cb = jest.fn();
     transport.subscribeToMessages('conv1', cb, 'alice', 'bob');
-    for (let i = 0; i < 5 && !emitGunSnapshot; i++) await Promise.resolve();
 
     await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob', messageId: wire.id });
     expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: wire.id, text: 'hello' })]);
 
-    emitGunSnapshot?.([]);
+    finishGraphRead([]);
+    await Promise.resolve();
     expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: wire.id, text: 'hello' })]);
 
     buildSpy.mockRestore();
-    subSpy.mockRestore();
   });
 
-  it('starts the private-history write first, shows the message without waiting for it, and resolves once it is durable', async () => {
+  it('starts the graph write first, shows an inbound message without waiting, and resolves once durable', async () => {
     let finishPersist!: () => void;
     const persisted = new Promise<void>((resolve) => { finishPersist = resolve; });
-    const putSpy = jest
-      .spyOn(GunMessageStore.prototype, 'putMessageRecord')
-      .mockReturnValue(persisted);
+    graphRecord.mockReturnValue(persisted);
     const transport = new DirectP2PConversationTransport(mockGun);
     const publishSpy = jest.spyOn(
       transport as unknown as { pushLiveMessage: (conversationId: string, message: unknown) => void },
@@ -436,38 +445,34 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       transport as unknown as {
         persistAndPublishRemoteMessage: (
           conversationId: string,
+          localUserId: string,
           otherUserId: string,
           remoteWire: typeof wire,
         ) => Promise<void>;
       }
-    ).persistAndPublishRemoteMessage('conv1', 'bob', { ...wire, senderId: 'bob' });
+    ).persistAndPublishRemoteMessage('conv1', 'alice', 'bob', { ...wire, senderId: 'bob' });
 
     let settled = false;
     void receive.then(() => { settled = true; });
-    expect(putSpy).toHaveBeenCalled();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(graphRecord).toHaveBeenCalledWith('conv1', 'bob', expect.objectContaining({
+      id: wire.id, senderId: 'bob', text: wire.text,
+    }));
     // Shown while the write is still in flight (arrival must not wait for the core's write queue).
     expect(publishSpy).toHaveBeenCalledWith(
       'conv1',
       expect.objectContaining({ id: wire.id, senderId: 'bob', text: wire.text }),
     );
-    expect(putSpy.mock.invocationCallOrder[0]!).toBeLessThan(publishSpy.mock.invocationCallOrder[0]!);
+    expect(graphRecord.mock.invocationCallOrder[0]!).toBeLessThan(publishSpy.mock.invocationCallOrder[0]!);
     expect(settled).toBe(false);
 
     finishPersist();
     await receive;
     expect(settled).toBe(true);
-    putSpy.mockRestore();
   });
 
-  it('a record rewritten under the same id replaces the cached copy (renamed TechSupport welcome)', async () => {
-    let emitGunSnapshot: ((messages: any[]) => void) | undefined;
-    const subSpy = jest
-      .spyOn(GunMessageStore.prototype, 'subscribeToMessages')
-      .mockImplementation((_conversationId, callback) => {
-        emitGunSnapshot = callback;
-        return () => undefined;
-      });
+  it('a later graph row under the same id replaces the cached copy', async () => {
+    graphList.mockResolvedValue([{ id: 'same', senderId: 'bob', text: 'new', timestamp: new Date().toISOString() }]);
     const transport = new DirectP2PConversationTransport(mockGun);
     jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
       ensureConnected: jest.fn(async () => undefined),
@@ -475,18 +480,12 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
       setOnRemoteDm: jest.fn(),
     });
     const cb = jest.fn();
+    (transport as unknown as { mergeLiveMessages: (id: string, messages: any[]) => void }).mergeLiveMessages('conv1', [{
+      id: 'same', senderId: 'bob', text: 'old', timestamp: new Date(), readBy: [], channel: 'public',
+    }]);
     transport.subscribeToMessages('conv1', cb, 'alice', 'bob');
-    for (let i = 0; i < 5 && !emitGunSnapshot; i++) await Promise.resolve();
-
-    const timestamp = new Date();
-    emitGunSnapshot?.([{ id: 'support_welcome_alice', senderId: 'ts', text: 'Welcome, User123', timestamp }]);
-    emitGunSnapshot?.([{ id: 'support_welcome_alice', senderId: 'ts', text: 'Welcome, Alice', timestamp }]);
-    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'support_welcome_alice', text: 'Welcome, Alice' })]);
-
-    // A later, unrelated emit must not bring the old text back.
-    emitGunSnapshot?.([]);
-    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ text: 'Welcome, Alice' })]);
-    subSpy.mockRestore();
+    for (let i = 0; i < 5 && cb.mock.calls.length < 2; i++) await Promise.resolve();
+    expect(cb).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'same', text: 'new' })]);
   });
   it('looks up a peer\'s keys once, not before every send and every decrypt (OPEN-66)', async () => {
     const getPublicUser = jest.fn(async () => ({ pub: 'pub_bob', epub: 'epub_bob' }));

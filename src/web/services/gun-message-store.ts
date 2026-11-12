@@ -133,7 +133,7 @@ export function planMessagePruning(
   return { deletableThrough };
 }
 
-/** Wire shape shared by P2P transports when persisting to Gun (REQ-P2P-01). */
+/** Wire shape shared by P2P delivery plus the legacy/support private store (REQ-P2P-01). */
 export type ConversationMessageWire = {
   id: string;
   senderId: string;
@@ -142,7 +142,7 @@ export type ConversationMessageWire = {
   channel: string;
   transport?: string;
   encryption?: 'sea-ecdh-v1';
-  /** Sender-local status persisted after transport/mailbox completion; never trusted remotely. */
+  /** Legacy sender-local status; ordinary OPEN-110 delivery state is session-only. */
   deliveryState?: 'sent' | 'queued' | 'failed';
   prevSeen?: string;
   isFromChatbot?: boolean;
@@ -197,8 +197,9 @@ export type ConversationMessageWire = {
  * paths are read only
  * for one mixed-release import and never receive new writes.
  *
- * This is the store that `DirectP2PConversationTransport` writes through (WebRTC is
- * notify/sync only). It is intentionally NOT a `ConversationTransport`: the
+ * OPEN-110 removed ordinary history writes/reads from `DirectP2PConversationTransport`; that
+ * class now uses only this store's wire crypto/key helpers. This class remains for support and a
+ * one-time mixed-release import. It is intentionally NOT a `ConversationTransport`: the
  * `mode`/`sendMessage` "transport" facade lives in `StarGunConversationTransport`,
  * which extends this class. Splitting the two keeps endpoint persistence distinct from
  * live delivery and reconciliation over the authenticated DataChannel.
@@ -435,6 +436,21 @@ export class GunMessageStore {
   ): Promise<ReconcileMessage[]> {
     const local = await this.privateRepository.list(conversationId);
     return boundRecentWires(local as ReconcileMessage[], limit);
+  }
+
+  /** Mixed-release OPEN-110 import only; ordinary runtime reads the device graph. */
+  async readLegacyMessages(
+    conversationId: string,
+    myUserId: string,
+    otherUserId: string,
+  ): Promise<Message[]> {
+    const wires = await this.privateRepository.list(conversationId);
+    return this.decryptLocalWires(conversationId, wires, myUserId, otherUserId);
+  }
+
+  /** Delete the obsolete ordinary-DM cache after every plaintext row is in the graph. */
+  clearLegacyMessages(conversationId: string): Promise<void> {
+    return this.privateRepository.clear(conversationId);
   }
 
   subscribeToMessages(

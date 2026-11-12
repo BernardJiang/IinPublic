@@ -371,7 +371,7 @@ export type P2PSessionConfig = {
   getLedgerDelta?: (remoteState: LedgerState) => Promise<InteractionEvent[]>;
   onRemoteLedgerEvents?: (otherUserId: string, events: InteractionEvent[]) => void | Promise<void>;
   onRemoteMeshFrame?: (otherUserId: string, frame: P2PMeshFrame) => void | Promise<void>;
-  /** REQ-P2P-01: persist inbound DMs to local Gun before UI notify. */
+  /** REQ-P2P-01 / OPEN-110: persist inbound DMs to the device graph before completion. */
   onRemoteDm?: (wire: DmWirePayload['message']) => void | Promise<void>;
   getConversationControlSnapshot?: () => Promise<Record<string, unknown> | null>;
   onRemoteConversationControl?: (

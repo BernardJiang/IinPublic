@@ -250,6 +250,7 @@ import { markStartupPhase } from '../performance/startup-metrics';
 import { filterTalkForRecipient } from '../../shared/tag-identity';
 import { tagAtom } from '../../core/device-graph/exchanged';
 import { NEARBY_REPEAT_WINDOW_MS } from '../../core/device-graph/nearby-events';
+import type { ImportedMessage } from '../../core/device-graph/message-events';
 import { getMyConversations } from '../ui/my-conversations-storage';
 
 /** Private records that held Talk bodies before the device graph (erased, never read): the SEA
@@ -273,8 +274,8 @@ type MailboxAttachmentSharePayload = {
 /**
  * Phase 4: an ordinary DM queued to the recipient's offline mailbox because WebRTC
  * delivery failed. The `wire` is already SEA-ECDH-encrypted between the two users
- * (the mailbox additionally wraps it); on drain the recipient writes it idempotently
- * into local Gun via `conversationService.upsertMessageRecord`.
+ * (the mailbox additionally wraps it); on drain the recipient decrypts it and writes the
+ * plaintext idempotently into the immutable device graph.
  */
 type MailboxConversationMessagePayload = {
   kind: 'conversation-message-v1';
@@ -427,6 +428,8 @@ export class IinPublicApp {
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
   private readonly graphMessageWrites = new Map<string, Promise<void>>();
+  /** One mixed-release encrypted-cache import per ordinary conversation. */
+  private readonly legacyDmMigrations = new Map<string, Promise<void>>();
   /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
   private graphTabRefresh: Promise<void> | null = null;
   private peerEpubByUserId = new Map<string, string>();
@@ -613,6 +616,40 @@ export class IinPublicApp {
     // Phase 4: queue undeliverable DMs to the recipient's offline mailbox.
     this.conversationService.setMessageUndeliverableHandler((wire, conversationId, recipientUserId, recipientEpub) => {
       return this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, recipientEpub);
+    });
+    this.conversationService.setMessageLogHooks({
+      recordMessage: async (conversationId, otherUserId, message) => {
+        const me = this.currentUser?.id;
+        if (!me) throw new Error('Current user is unavailable');
+        await this.writeConversationMessagesToGraph(conversationId, otherUserId, [{
+          sourceMessageId: message.id,
+          senderId: message.senderId,
+          text: message.text,
+          when: new Date(message.timestamp).getTime(),
+          ...(message.talkId ? { talkId: message.talkId } : {}),
+          ...(message.channel === 'public' || message.channel === 'known' || message.channel === 'mutual'
+            ? { channel: message.channel }
+            : {}),
+          ...(message.isFromChatbot ? { isFromChatbot: true } : {}),
+        }]);
+      },
+      listMessages: async (conversationId, otherUserId, limit = 500) => {
+        const core = this.coreRequest;
+        const me = this.currentUser?.id;
+        if (!core || !me) throw new Error('Device graph is unavailable');
+        const rows = await core({ name: 'graph.conversationMessages', conversationId, limit }) as GraphConversationMessage[];
+        return rows
+          .filter((row) => row.otherUserId === otherUserId)
+          .map((row) => ({
+            id: row.sourceMessageId || row.eventId,
+            senderId: row.direction === 'sent' ? me : row.otherUserId,
+            text: row.text,
+            timestamp: new Date(row.when).toISOString(),
+            ...(row.channel ? { channel: row.channel } : {}),
+            ...(row.isFromChatbot ? { isFromChatbot: true } : {}),
+            ...(row.talkId ? { talkId: row.talkId } : {}),
+          }));
+      },
     });
     if (!this.ledgerService) return;
     const ledger = this.ledgerService;
@@ -935,7 +972,7 @@ export class IinPublicApp {
     // from, a blocked-either-way sender.
     if (await this.resolveBlockStatusEitherWay(payload.senderId)) return;
 
-    await this.conversationService.upsertMessageRecord(
+    await this.conversationService.ingestOrdinaryMessageWire(
       payload.conversationId,
       {
         id: messageId,
@@ -945,7 +982,7 @@ export class IinPublicApp {
         channel: 'pair',
         transport: this.conversationService.getTransportMode(),
       },
-      { otherUserId: this.currentUser.id },
+      payload.senderId,
     );
     const sharePayload = parseAttachmentShareMessageText(payload.text);
     if (sharePayload) {
@@ -3953,8 +3990,7 @@ export class IinPublicApp {
 
   /**
    * Phase 4: drain handler for an offline DM — writes the wire idempotently into the
-   * recipient's local Gun (same pair-private path the live transport uses), so the UI
-   * renders it via the existing conversation subscription.
+   * recipient's immutable graph log (the same path as a live DataChannel wire).
    */
   private async ingestConversationMessageFromMailbox(payload: MailboxConversationMessagePayload): Promise<void> {
     if (!this.currentUser?.id) return;
@@ -3966,10 +4002,10 @@ export class IinPublicApp {
       ...(payload.senderName ? { senderUserName: payload.senderName } : {}),
       createdAt: payload.wire.timestamp,
     });
-    await this.conversationService.upsertMessageRecord(
+    await this.conversationService.ingestOrdinaryMessageWire(
       payload.conversationId,
       payload.wire,
-      { otherUserId: payload.senderId },
+      payload.senderId,
     );
     console.log('[Mailbox] Ingested offline DM', payload.wire.id, 'in', payload.conversationId);
   }
@@ -8114,53 +8150,71 @@ export class IinPublicApp {
     if (!this.currentUser || this.conversationPreviewUnsubscribers.has(conversationId)) return;
     const conversation = this.uiManager.getMyConversations()[conversationId];
     if (!conversation?.otherUserId) return;
-    const unsubscribe = this.conversationService.subscribeToMessages(
-      conversationId,
-      (messages) => {
-        this.recordConversationMessagesInGraph(conversationId, String(conversation.otherUserId), messages);
-        this.uiManager.syncConversationMessageSummary(conversationId, messages, this.currentUser!.id);
-        // Runs continuously in the background for every conversation (not just the currently
-        // open thread), so this is the one place that reliably observes every message this
-        // device ever decrypts for any of its own conversations — see WebDeviceSyncService's
-        // own doc comment for why the `messages` device-sync category needs plaintext (already
-        // decrypted here) rather than raw Gun ciphertext.
-        void this.deviceSyncService.enqueueMessagesForConversation(
-          conversationId,
-          this.currentUser!.pub || this.currentUser!.id,
-          messages.map((message: any): SyncedMessage => ({
-            id: String(message.id),
-            senderId: String(message.senderId),
-            text: String(message.text ?? ''),
-            timestamp: (message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)).toISOString(),
-            ...(message.talkId ? { talkId: String(message.talkId) } : {}),
-            ...(message.channel ? { channel: message.channel } : {}),
-          })),
-        ).catch(() => {});
-      },
-      this.currentUser.id,
-      conversation.otherUserId,
-    );
-    this.conversationPreviewUnsubscribers.set(conversationId, unsubscribe);
+    let disposed = false;
+    let unsubscribe: () => void = () => undefined;
+    this.conversationPreviewUnsubscribers.set(conversationId, () => {
+      disposed = true;
+      unsubscribe();
+    });
+    const subscribe = () => {
+      if (disposed || !this.currentUser) return;
+      unsubscribe = this.conversationService.subscribeToMessages(
+        conversationId,
+        (messages) => {
+          // Support/device-sync compatibility records still enter the graph here. Ordinary direct
+          // DMs are already graph events before this live notification fires (idempotent either way).
+          if (conversationId.startsWith('conv_support_')) {
+            this.recordConversationMessagesInGraph(conversationId, String(conversation.otherUserId), messages);
+          }
+          this.uiManager.syncConversationMessageSummary(conversationId, messages, this.currentUser!.id);
+          void this.deviceSyncService.enqueueMessagesForConversation(
+            conversationId,
+            this.currentUser!.pub || this.currentUser!.id,
+            messages.map((message: any): SyncedMessage => ({
+              id: String(message.id),
+              senderId: String(message.senderId),
+              text: String(message.text ?? ''),
+              timestamp: (message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)).toISOString(),
+              ...(message.talkId ? { talkId: String(message.talkId) } : {}),
+              ...(message.channel ? { channel: message.channel } : {}),
+            })),
+          ).catch(() => {});
+        },
+        this.currentUser.id,
+        conversation.otherUserId,
+      );
+    };
+    if (conversationId.startsWith('conv_support_')) {
+      subscribe();
+      return;
+    }
+    void this.migrateLegacyOrdinaryMessageHistory(conversationId, String(conversation.otherUserId))
+      .catch((error) => console.warn('[graph] legacy DM cutover deferred:', error))
+      .finally(subscribe);
   }
 
-  /**
-   * Migration bridge for OPEN-110: delivery/decryption still comes from the current transport,
-   * but every plaintext message becomes one immutable event. The core's source-id marker makes
-   * full subscription replays safe; chunks keep the command and its storage burst bounded.
-   */
+  /** Compatibility importer for support/device-sync batches; ordinary DMs write the graph directly. */
   private recordConversationMessagesInGraph(conversationId: string, otherUserId: string, messages: readonly any[]): void {
-    const core = this.coreRequest;
+    const imports = this.graphImportsForMessages(otherUserId, messages);
+    if (imports.length === 0) return;
+    void this.writeConversationMessagesToGraph(conversationId, otherUserId, imports)
+      .catch((error) => console.warn('[graph] conversation message import failed:', error));
+  }
+
+  private graphImportsForMessages(
+    otherUserId: string,
+    messages: readonly any[],
+  ): Array<Omit<ImportedMessage, 'conversationId' | 'otherUserId'>> {
     const me = this.currentUser?.id;
-    if (!core || !me || !otherUserId || otherUserId === me || messages.length === 0) return;
-    const imports = messages.flatMap((message) => {
+    if (!me || !otherUserId || otherUserId === me) return [];
+    return messages.flatMap((message) => {
       const sourceMessageId = String(message?.id || '');
       const senderId = String(message?.senderId || '');
       const text = String(message?.text ?? '');
       const when = (message?.timestamp instanceof Date
         ? message.timestamp
         : new Date(message?.timestamp)).getTime();
-      // GunMessageStore keeps an undecryptable SEA payload so a later read can retry. Never make
-      // that retryable ciphertext immutable or claim its source id before plaintext is available.
+      // Never make retryable ciphertext immutable or claim its source id before plaintext exists.
       if (!sourceMessageId || sourceMessageId.length > 500
         || (senderId !== me && senderId !== otherUserId)
         || !Number.isFinite(when)
@@ -8178,7 +8232,39 @@ export class IinPublicApp {
         ...(message?.isFromChatbot === true ? { isFromChatbot: true } : {}),
       }];
     });
-    if (imports.length === 0) return;
+  }
+
+  /** Import every pre-cutover plaintext row before deleting that conversation's old cache. */
+  private migrateLegacyOrdinaryMessageHistory(conversationId: string, otherUserId: string): Promise<void> {
+    const existing = this.legacyDmMigrations.get(conversationId);
+    if (existing) return existing;
+    const me = this.currentUser?.id;
+    if (!me) return Promise.reject(new Error('Current user is unavailable'));
+    const migration = (async () => {
+      const messages = await this.conversationService.readLegacyOrdinaryMessages(conversationId, me, otherUserId);
+      const imports = this.graphImportsForMessages(otherUserId, messages);
+      if (messages.length !== imports.length) {
+        throw new Error('Legacy conversation still contains undecryptable messages');
+      }
+      if (imports.length) await this.writeConversationMessagesToGraph(conversationId, otherUserId, imports);
+      await this.conversationService.clearLegacyOrdinaryMessages(conversationId);
+    })();
+    this.legacyDmMigrations.set(conversationId, migration);
+    void migration.catch(() => this.legacyDmMigrations.delete(conversationId));
+    return migration;
+  }
+
+  /** Serialized graph write shared by live delivery, mailbox ingestion, and legacy import. */
+  private writeConversationMessagesToGraph(
+    conversationId: string,
+    otherUserId: string,
+    imports: Array<Omit<ImportedMessage, 'conversationId' | 'otherUserId'>>,
+  ): Promise<void> {
+    const core = this.coreRequest;
+    const me = this.currentUser?.id;
+    if (!core || !me) return Promise.reject(new Error('Device graph is unavailable'));
+    if (!otherUserId || otherUserId === me) return Promise.reject(new Error('Invalid conversation participant'));
+    if (imports.length === 0) return Promise.resolve();
     const previous = this.graphMessageWrites.get(conversationId) ?? Promise.resolve();
     const write = previous.catch(() => undefined).then(async () => {
       await this.coreLocationWrite.catch(() => undefined);
@@ -8191,12 +8277,11 @@ export class IinPublicApp {
         });
       }
       await this.refreshGraphTabSnapshot();
-    }).catch((error) => {
-      console.warn('[graph] conversation message import failed:', error);
     }).finally(() => {
       if (this.graphMessageWrites.get(conversationId) === write) this.graphMessageWrites.delete(conversationId);
     });
     this.graphMessageWrites.set(conversationId, write);
+    return write;
   }
 
   /**
@@ -8204,7 +8289,7 @@ export class IinPublicApp {
    * WebDeviceSyncService's one-time backfill at link/sync-activation time (see
    * `backfillExistingDataToPeer`). Wraps the ongoing `subscribeToMessages` API — the only message
    * read surface `WebConversationService` exposes — in a promise that resolves on its first
-   * callback firing rather than duplicating GunMessageStore's decrypt logic here.
+   * callback firing so the same graph-backed read path serves device sync too.
    */
   private snapshotLocalMessagesForSync(conversationId: string, otherUserId: string): Promise<SyncedMessage[]> {
     return new Promise((resolve) => {
@@ -9280,7 +9365,9 @@ export class IinPublicApp {
           // pair path is keyed by the two ORIGINAL participant ids, not this device's — so its
           // history lives only in the synced-plaintext cache. Live copies win any id collision.
           latestLiveMessages = liveMessages;
-          if (otherUserId) this.recordConversationMessagesInGraph(data.conversationId, otherUserId, liveMessages);
+          if (otherUserId && data.conversationId.startsWith('conv_support_')) {
+            this.recordConversationMessagesInGraph(data.conversationId, otherUserId, liveMessages);
+          }
           const messages = displayMergedMessages();
           for (const message of messages) {
             const sharePayload = parseAttachmentShareMessageText(String(message.text || ''));
