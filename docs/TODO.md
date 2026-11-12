@@ -72,6 +72,18 @@ its ID.
   outing is newest when the WebView resumes. Deterministic unit coverage exercises both paths.
   The lost delivery and ten-minute field delay still require the carried rerun.
 
+- [ ] **OPEN-111 — Two delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
+  The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
+  let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
+  runs, was ~1 in 10). Found on the way, not fixed:
+  (a) An offer that comes back `waiting` (no keys yet) after the person's link has already opened
+  is not offered again until they reconnect: `onNeighborConnected` checked the waiting set before
+  the offer finished, and `onOpened` had already fired (`app.ts`, `graph.offer` result handling).
+  Not seen to cause a failure in 30 HR runs; fix with a re-check when `waiting` is added.
+  (b) `[graph] Nearby scope projection was not recorded: storage did not acknowledge write for
+  local/mine/nearby/nearby-v3/members` — 108 times in 10 HR runs, on every user. The Nearby list
+  projection (2026-11-09) fails its write under e2e load; find out whether it also fails on phones.
+
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no
   crash in the 30 minutes after it. Storage was fine (72% free). IinPublic's involvement is

@@ -6422,6 +6422,9 @@ export class IinPublicApp {
    */
   private graphWaitingPeers = new Set<string>();
 
+  /** The newest Talks-tab count request (`needTalkStats`); older answers are dropped. */
+  private talkStatsRequest = 0;
+
   /** The people the mesh should link to for my log: owed entries, and offers waiting for keys. */
   private pushGraphOwedToMesh(): void {
     this.peerMeshService?.setGraphOwed([...new Set([...this.graphOwedPeers, ...this.graphWaitingPeers])]);
@@ -9224,10 +9227,15 @@ export class IinPublicApp {
         return;
       }
       const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
+      // Requests overlap (every redraw asks): one that read fewer outcomes could answer after a newer
+      // one and leave the row an answer short until something redrew it (stage5 HR route, "Responses:
+      // 3" of 4 for 30 s, ~1 run in 10). Only the newest request's counts are shown.
+      const request = ++this.talkStatsRequest;
       // Each answer to my Talks as I decided it, from the device graph (`ix/outcome`).
       const outcomes = this.coreRequest
         ? await this.coreRequest({ name: 'graph.outcomes', talkIds: data.talkIds }).catch(() => ({} as Record<string, Record<string, string>>))
         : {};
+      if (request !== this.talkStatsRequest) return;
       for (const talkId of data.talkIds) {
         const rows = Object.values(outcomes[talkId] ?? {});
         statsMap[talkId] = {
