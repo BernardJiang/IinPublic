@@ -7,7 +7,7 @@ import type { ChatbotTemplate } from '../ui/ui-settings-storage';
 import { CoreCollectionView, sectionEntries, type CollectionCoreLink } from './core-collection-view';
 import type { CoreCollection } from '../../core/collections';
 import type { GunBridge } from './gun-bridge';
-import { graphConversationsForView, graphTalksForView } from './graph-tab-projection';
+import { forgetGraphTalks, graphConversationsForView, graphTalksForView, keepGraphTalks } from './graph-tab-projection';
 
 /** Answer templates the chatbot reuses, by Talk id (and content id). Old key: `chatbotTemplates`. */
 export const chatbotTemplatesView = new CoreCollectionView<ChatbotTemplate>('chatbotTemplates', 'chatbotTemplates');
@@ -105,9 +105,20 @@ if (typeof window !== 'undefined') {
     __iinpublic_collection_edit: (name: string, edit: { set?: Record<string, unknown>; remove?: string[]; clear?: boolean }) => {
       const view = find(name);
       if (!view) return;
-      if (edit.clear) view.remove(Object.keys(view.all()));
-      if (edit.remove) view.remove(edit.remove);
-      if (edit.set) view.set(edit.set);
+      // A removed My Talk leaves the projected list too, as `setMyTalks` does.
+      const talks = name === 'myTalks';
+      if (edit.clear) {
+        if (talks) forgetGraphTalks(Object.keys(graphTalksForView(view.all() as Record<string, any>)));
+        view.remove(Object.keys(view.all()));
+      }
+      if (edit.remove) {
+        view.remove(edit.remove);
+        if (talks) forgetGraphTalks(edit.remove);
+      }
+      if (edit.set) {
+        view.set(edit.set);
+        if (talks) keepGraphTalks(Object.keys(edit.set));
+      }
     },
   });
 }

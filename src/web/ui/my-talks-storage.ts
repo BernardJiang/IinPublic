@@ -1,5 +1,5 @@
 import { myTalksView } from '../services/core-views';
-import { graphTalkProjection, graphTalksForView } from '../services/graph-tab-projection';
+import { forgetGraphTalks, getGraphTabSnapshot, graphTalksForView, keepGraphTalks } from '../services/graph-tab-projection';
 
 export type MyTalkRole = 'created' | 'answered' | 'copied' | 'ignored';
 
@@ -45,27 +45,25 @@ export function getMyTalk(talkId: string): MyTalkEntry | undefined {
   return getMyTalks()[talkId];
 }
 
-/** Replaces My Talks with this map; only what changed is written. */
+/**
+ * Replaces My Talks with this map; only what changed is written. Rows are kept whole: the graph
+ * snapshot is read later than this write, so it cannot stand in for the row (`graph-tab-projection`).
+ * A Talk left out is removed, and its graph copy hidden until the graph drops it.
+ */
 export function setMyTalks(myTalks: MyTalkMap): void {
   const current = myTalksView.all();
-  const persisted = Object.fromEntries(Object.entries(myTalks).flatMap(([talkId, entry]) => {
-    if (!graphTalkProjection(talkId)) return [[talkId, entry]];
-    // The graph owns the Talk body/version. Keep only editable display state in the transitional
-    // collection, so a normal write also retires its stale duplicate body.
-    const {
-      talkId: _talkId, title: _title, type: _type, language: _language, timestamp: _timestamp,
-      role: _role, fullTalk: _fullTalk, ...displayState
-    } = entry;
-    return Object.keys(displayState).length ? [[talkId, displayState]] : [];
-  })) as MyTalkMap;
-  const changed = Object.fromEntries(Object.entries(persisted)
+  const shown = graphTalksForView(current);
+  const changed = Object.fromEntries(Object.entries(myTalks)
     .filter(([talkId, entry]) => JSON.stringify(current[talkId]) !== JSON.stringify(entry)));
   myTalksView.set(JSON.parse(JSON.stringify(changed)) as MyTalkMap);
-  myTalksView.remove(Object.keys(current).filter((talkId) => !(talkId in persisted)));
+  keepGraphTalks(Object.keys(myTalks));
+  myTalksView.remove(Object.keys(current).filter((talkId) => !(talkId in myTalks)));
+  forgetGraphTalks(Object.keys(shown).filter((talkId) => !(talkId in myTalks)));
 }
 
 export function clearMyTalks(): void {
   myTalksView.remove(Object.keys(myTalksView.all()));
+  forgetGraphTalks((getGraphTabSnapshot()?.talks ?? []).map((row) => row.appTalkId || row.talkId));
 }
 
 export function upsertMyTalk(talkId: string, value: MyTalkEntry): MyTalkMap {

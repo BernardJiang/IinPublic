@@ -103,6 +103,8 @@ export type GraphTalkPerson = {
 };
 export type GraphTabTalk = {
   talkId: string;
+  /** The app's id for this Talk (`myTalks` key): the id it was copied from, else `talkId`. */
+  appTalkId?: string;
   versionId: string;
   versionHistory: string[];
   talk: Record<string, unknown>;
@@ -280,8 +282,10 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
     const talks = (await Promise.all(talkIds.map(async (talkId): Promise<GraphTabTalk | undefined> => {
       const talk = await graph.talks.read(talkId);
       if (!talk) return undefined;
+      const appTalkId = options.appTalkId ? await options.appTalkId(talkId).catch(() => talkId) : talkId;
       return {
         talkId,
+        ...(appTalkId !== talkId ? { appTalkId } : {}),
         versionId: talk.versionId,
         versionHistory: await graph.talks.history(talkId),
         talk: { ...appTalkOf(talk as Record<string, any>), active: talk.active, isTemplate: talk.isTemplate },
@@ -308,10 +312,11 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
         lastWhen: Number(newest?.event.when) || 0,
         ...(newest ? { lastEventId: newest.key } : {}),
         ...(typeof newest?.event.text === 'string' ? { lastMessage: newest.event.text } : {}),
-        talkIds: Object.values(talkLinks || {}).flatMap((value) => {
+        // The app's ids, as `myConversations` and `myTalks` know them.
+        talkIds: await Promise.all(Object.values(talkLinks || {}).flatMap((value) => {
           const soul = linkSoul(value);
           return soul?.startsWith(souls.event('')) ? [soul.slice(souls.event('').length)] : [];
-        }),
+        }).map((talkId) => (options.appTalkId ? options.appTalkId(talkId).catch(() => talkId) : talkId))),
       };
     }))).filter((row): row is GraphTabConversation => !!row);
 
