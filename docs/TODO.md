@@ -118,10 +118,20 @@ its ID.
     scopes now call them (2026-11-09); C10 validation remains in the validation item above.
   - [x] Talks tab from the graph indexes; `myTalks` is now a compatibility/device-local display
     overlay and graph-backed writes strip its stale body/version fields (2026-11-10).
+    **Changed 2026-11-11 (`5c5005bd`):** the snapshot is read after the app's write and is not
+    refreshed for my own Talk writes, so "graph wins" brought back deleted Talks, showed edits as the
+    old version, and listed a copied Talk twice (graph id + app id) — 17 test:all specs failed. The
+    app's row now wins and is stored whole; the graph fills in what it lacks; the snapshot carries the
+    app's Talk ids; a Talk the app removes stays hidden until the graph drops it. Making the graph
+    the owner again needs a snapshot that is refreshed (or patched) on every own-Talk write.
   - [x] Contacts from people, exchanges and conversation events; `myConversations` is now a
     compatibility/device-local display overlay and graph-backed writes strip membership and
     immutable message-summary fields. Deal/key UI maps remain private conversation state, not
     Contact membership or event history (2026-11-10).
+    **Changed 2026-11-11 (`5c5005bd`):** conversation rows are stored whole again; the app's state
+    wins, the newer last message wins, Talk links are the union and use the app's Talk ids (a
+    withdrawal note, matched-talk threads and deal finalising had broken). Graph people known only
+    through support channels are not Contacts (`c22ac0f6`, TechSupport was listed twice).
 
 - [ ] **OPEN-96 — Field delivery gaps from the 2026-10-31 walk.** Retest first on the current build: the
   OPEN-100 memory crash may explain (a) and (b), but a clean rerun has not shown that. After that
