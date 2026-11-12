@@ -109,11 +109,18 @@ test.describe('Messaging: dirty-word filter blocks on send and hides on receive'
     // --- RECEIVE HIDE: B turns its own filter OFF so it can send a blocked word;
     //     A keeps the filter ON, so A hides it at render. ---
     await setFilters(pageB, { blockDirtyWords: false, requireGoodGrammar: false, dirtyWords: DEFAULTS });
-    await sendConversationMessage(pageB, conversationId, userIdB, 'you cock');
+    // OPEN-110 delivers to the peer immediately but resolves the sender call only after the
+    // sender's device-graph write is durable. Observe the receiver concurrently: otherwise a
+    // slow local graph write can outlast the intentionally short-lived (3 s) receive toast even
+    // though the toast was correctly shown as soon as the hidden message arrived.
+    await Promise.all([
+      sendConversationMessage(pageB, conversationId, userIdB, 'you cock'),
+      expect(pageA.locator('[data-content-filter-notification="receive"]').first())
+        .toBeVisible({ timeout: 20_000 }),
+    ]);
 
     // A shows a collapsed placeholder + a receive toast, and never the raw text.
     await expect(pageA.locator('[data-testid="hidden-message-placeholder"]').first()).toBeVisible({ timeout: 20_000 });
-    await expect(pageA.locator('[data-content-filter-notification="receive"]').first()).toBeVisible({ timeout: 5000 });
     expect(
       await pageA.locator('#conversation-messages .message-text').filter({ hasText: 'you cock' }).count(),
     ).toBe(0);

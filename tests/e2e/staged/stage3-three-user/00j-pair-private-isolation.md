@@ -17,7 +17,7 @@ Three users share one automatic Nearby room. Bob broadcasts a flow talk that bot
 4. **Pair-private enforcement (two paths):**
    - **Mesh delivery mode (`isMeshTalkDeliveryE2e`):** Pair responses are ephemeral — Bob's `pairTalkResponses` is empty and Tom sees 0 rows, 0 decrypted payloads. Legacy graph paths absent.
    - **Legacy Gun storage mode:** Bob can read exactly 1 pair response with `encryption: "sea-ecdh-v1"` and base64 ciphertext. Raw JSON does NOT contain Alice's answer text, stage names — plaintext is sealed. Tom attempts to decrypt using both Bob's and Alice's epub keys → `decrypted` array is empty (SEA decryption fails).
-5. **P2P DM between Alice↔Bob:** Alice sends a timestamped private DM. Bob's encrypted peerless local envelope receives it (`assertLocalPrivateMessageBodies`); the exported hub graph contains no pair-message soul or plaintext.
+5. **P2P DM between Alice↔Bob:** Alice sends a timestamped private DM. Bob's immutable device graph receives one message event (`assertDeviceGraphMessageBodies`); the exported hub graph contains no pair-message soul or plaintext.
 6. **Tom sees talk in IN list** (proving broadcast delivery works) but has zero access to Alice↔Bob private data.
 7. **Talk body dedup check:** Exports Gun graph snapshot → verifies `peerTalkOffers` nodes contain only `talkRef` pointers, not full `talkData` payloads — confirming canonical talk body deduplication.
 
@@ -25,4 +25,4 @@ Three users share one automatic Nearby room. Bob broadcasts a flow talk that bot
 
 ---
 
-**Helpers used:** `bootstrapUser`, `openCurrentChatroom`, `prepareDirectP2PConversation`, `assertLocalPrivateMessageBodies`, `clickBroadcastUntilBulkAck`, `completeTalkInAppByAnswerIds`, `waitForIncomingTalkClusterOnLocalGun`, `gunBaseURL`
+**Helpers used:** `bootstrapUser`, `openCurrentChatroom`, `prepareDirectP2PConversation`, `assertDeviceGraphMessageBodies`, `clickBroadcastUntilBulkAck`, `completeTalkInAppByAnswerIds`, `waitForIncomingTalkClusterOnLocalGun`, `gunBaseURL`

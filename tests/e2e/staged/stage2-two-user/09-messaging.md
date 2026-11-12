@@ -21,7 +21,7 @@ covers: SPEC-7.6, SPEC-19.4  <!-- auto-seeded; refine by hand -->
 
 6. **Jerry replies** with "Sounds great! Meet at the courts at 9am?" — Jerry sees the reply, and Tom (still on his conversation overlay) also sees Jerry's reply arrive.
 
-7. **Storage boundary:** Tom's endpoint has encrypted message wires in its peerless local Gun envelope, while the exported hub graph has no current or legacy message-body souls and contains neither plaintext message.
+7. **Storage boundary:** Tom's endpoint projects both plaintext messages from its immutable device event graph (with source IDs), while the exported hub graph has no current or legacy message-body souls and contains neither plaintext message.
 
 > **Why this matters:** Verifies the complete messaging flow: match → conversation created → bidirectional real-time messaging works with correct message delivery in both directions.
 

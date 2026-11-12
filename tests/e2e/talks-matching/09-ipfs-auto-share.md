@@ -21,8 +21,8 @@ covers: SPEC-20.3  <!-- auto-seeded; refine by hand -->
 11. **Share-message assertions:** both Tom and Jerry receive exactly one `IPFS_SHARE:` message in their subscription callback — `ids.length === 1`, payload contains `cid` matching the attachment, `link === ipfs://<cid>`, and a non-empty `keyCiphertext`.
 12. **Fetch + decrypt assertion:** Jerry calls `maybeFetchSharedAttachmentBytes(payload, tomId)` then reads back the decrypted byte length via `getFetchedAttachmentBytesLengthForE2e(cid)`. Expected length equals the UTF-8 encoded original attachment text.
 13. **Bob suppression assertion:** Bob's GUN `users/<bobId>/conversations` map is queried for any message containing the attachment CID — count must be 0, proving the share link never reached a non-matching peer.
-14. Durable mailbox envelope (`mbx_share_<messageId>`) is verified present on the server even though Jerry's live GUN held the message.
-15. **Idempotent redrain sub-case:** Jerry's conversation-message node in GUN (`pairConversations/<pairId>/<cid>/messages/<messageId>`) is set to `null` (deleting it). Jerry's page is closed and a new page opened on the same context. `drainMailbox()` is called — the share message is re-materialized with identical content, and the server mailbox ends up with 0 envelopes after the drain.
+14. Durable mailbox envelope (`mbx_share_<messageId>`) is verified present on the server even though Jerry's device graph already holds the message event.
+15. **Idempotent redrain sub-case:** Jerry's graph is verified to contain exactly one event with the deterministic share source ID. Jerry's page is closed and a new page opened on the same context. `drainMailbox()` is called — the same source ID still resolves to exactly one immutable event, and the server mailbox ends up with 0 envelopes after the drain.
 
 ## Key assertions / verifications
 
@@ -30,7 +30,7 @@ covers: SPEC-20.3  <!-- auto-seeded; refine by hand -->
 - Share payload carries the correct attachment CID and `ipfs://<cid>` link plus non-empty `keyCiphertext`.
 - Jerry can successfully fetch + decrypt and recover byte length of original plaintext.
 - Bob receives zero messages containing the attachment CID (suppression).
-- After deleting the live GUN node + reopening + mailbox drain, the share message re-materializes identically (idempotency).
+- After reopening + mailbox drain, the share source ID still maps to exactly one device-graph event (idempotency).
 
 ## Helper functions used
 
@@ -48,5 +48,5 @@ covers: SPEC-20.3  <!-- auto-seeded; refine by hand -->
 
 - Auto-share fires **exactly once** per matched pair — no duplicates even when both sides subscribe.
 - Non-matching peers (Bob) never receive the IPFS link or key ciphertext.
-- The durable mailbox envelope backs up the live GUN share message; draining it after deletion proves idempotent re-materialization.
+- The durable mailbox envelope backs up the live share event; redraining proves source-ID idempotency without mutating history.
 - Jerry's intercepted mailbox (`GET /api/mailbox/* → 200 { envelopes: [] }`) proves no fallback traffic was needed while both sides are online.

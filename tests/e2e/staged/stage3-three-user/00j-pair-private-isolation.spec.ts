@@ -22,7 +22,7 @@ import {
   findIncomingTalkIdByTitle,
   waitForDistinctGunPeersExcludingSelf,
 } from '../../helpers/talk-demo-ui';
-import { prepareDirectP2PConversation, assertLocalPrivateMessageBodies } from '../../helpers/p2p-transport-e2e';
+import { prepareDirectP2PConversation, assertDeviceGraphMessageBodies } from '../../helpers/p2p-transport-e2e';
 import { gunBaseURL, isMeshTalkDeliveryE2e } from '../../helpers/ports';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
@@ -325,7 +325,7 @@ test.describe('Pair-private graph isolation', () => {
       { cid: conversationId, text: dmText },
     );
 
-    await assertLocalPrivateMessageBodies(pageBob, conversationId, 1, [dmText]);
+    await assertDeviceGraphMessageBodies(pageBob, conversationId, 1, [dmText]);
     if (isMeshTalkDeliveryE2e()) {
       await assertNoLegacyTalkDeliveryGraph(pageBob, bobUser.id, talkId, [aliceUser.id, tomUser.id]);
     } else {

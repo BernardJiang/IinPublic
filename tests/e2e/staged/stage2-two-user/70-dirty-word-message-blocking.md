@@ -20,11 +20,14 @@ the default word list (`fuck`, `cunt`, `bitch`, `cock`).
 4. **Receive hide.** B disables its own filter and sends `you cock`. A (filter on)
    renders a collapsed `hidden-message-placeholder` row + a
    `data-content-filter-notification="receive"` toast, and never shows the raw
-   text. The message still exists in the pair's Gun graph.
+   text. The message still exists in A's immutable device graph.
 5. **Reveal.** A disables its filter; the previously hidden message becomes visible
    and the placeholder disappears.
 
 ## Notes
 
 The sender is never told the receiver filtered them (receiver-side privacy). The
-send-side block concerns only the sender's own outgoing content.
+send-side block concerns only the sender's own outgoing content. The receive-toast
+assertion runs concurrently with the send because delivery is immediate while the
+sender call waits for its device-graph durability write; the toast intentionally
+auto-dismisses after three seconds.

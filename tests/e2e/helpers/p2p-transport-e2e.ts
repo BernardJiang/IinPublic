@@ -196,28 +196,52 @@ export async function readLocalConversationMessages(page: Page, conversationId: 
 }
 
 /**
- * Direct-mode DM bodies persist in this endpoint's encrypted, peerless local Gun only.
- * The shared relay graph must contain neither the current pair path nor the legacy path.
+ * OPEN-110: ordinary direct-message history is projected from this endpoint's immutable
+ * device graph. The graph is device-local; the shared relay must still contain neither the
+ * old pair path nor the legacy conversation path.
  */
-export async function assertLocalPrivateMessageBodies(
+export async function readDeviceGraphConversationMessages(
+  page: Page,
+  conversationId: string,
+): Promise<any[]> {
+  return page.evaluate(async (cid) => {
+    const app = (window as any).__iinpublic_app?.getApp?.();
+    const coreRequest = app?.coreRequest;
+    if (typeof coreRequest !== 'function') return [];
+    const rows = await coreRequest({
+      name: 'graph.conversationMessages',
+      conversationId: cid,
+      limit: 500,
+    });
+    return Array.isArray(rows) ? rows : [];
+  }, conversationId);
+}
+
+export async function assertDeviceGraphMessageBodies(
   page: Page,
   conversationId: string,
   minMessageNodes = 1,
-  forbiddenPlaintext: string[] = [],
+  expectedPlaintext: string[] = [],
 ): Promise<void> {
-  const readLocal = () => readLocalConversationMessages(page, conversationId);
-  await expect.poll(async () => (await readLocal()).length, {
+  const readGraph = () => readDeviceGraphConversationMessages(page, conversationId);
+  await expect.poll(async () => (await readGraph()).length, {
     timeout: P2P_E2E_TIMEOUT_MS,
-    message: `Expected ${minMessageNodes} local private message(s) for ${conversationId}`,
+    message: `Expected ${minMessageNodes} device-graph message event(s) for ${conversationId}`,
   }).toBeGreaterThanOrEqual(minMessageNodes);
-  const local = await readLocal();
-  for (const raw of local) {
-    expect(raw?.encryption).toBe('sea-ecdh-v1');
-    expect(typeof raw?.text).toBe('string');
-    const serialized = JSON.stringify(raw);
-    for (const snippet of forbiddenPlaintext) {
-      expect(serialized.includes(snippet)).toBe(false);
-    }
+  await expect.poll(async () => {
+    const serialized = JSON.stringify(await readGraph());
+    return expectedPlaintext.every((snippet) => serialized.includes(snippet));
+  }, {
+    timeout: P2P_E2E_TIMEOUT_MS,
+    message: `Expected device-graph message bodies for ${conversationId}`,
+  }).toBe(true);
+
+  const local = await readGraph();
+  for (const row of local) {
+    expect(typeof row?.eventId).toBe('string');
+    expect(typeof row?.sourceMessageId).toBe('string');
+    expect(typeof row?.text).toBe('string');
+    expect(['sent', 'received']).toContain(row?.direction);
   }
 
   const res = await page.request.get(`${gunBaseURL()}/api/test/export-snapshot`);
@@ -238,13 +262,10 @@ export async function assertLocalPrivateMessageBodies(
   expect(stored.length).toBe(0);
   expect(legacyStored.length).toBe(0);
   const relaySerialized = JSON.stringify(graph);
-  for (const snippet of forbiddenPlaintext) {
+  for (const snippet of expectedPlaintext) {
     expect(relaySerialized.includes(snippet)).toBe(false);
   }
 }
-
-/** @deprecated Use assertLocalPrivateMessageBodies. */
-export const assertGunStoredMessageBodies = assertLocalPrivateMessageBodies;
 
 /**
  * P2P-Y: Read the handshake diagnostics for a specific conversation/user from
@@ -275,12 +296,4 @@ export async function waitForHandshakeOk(
       { timeout: timeoutMs, message: `Expected handshake ok on ${conversationId}` },
     )
     .toMatchObject({ handshakeState: 'ok', selectedProtocol: 'iinpublic-p2p-v2' });
-}
-
-/** @deprecated Superseded by assertLocalPrivateMessageBodies. */
-export async function assertNoGunStoredMessageBodies(
-  page: Page,
-  conversationId: string,
-): Promise<void> {
-  return assertLocalPrivateMessageBodies(page, conversationId, 0);
 }
