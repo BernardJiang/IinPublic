@@ -1,6 +1,31 @@
 # IinPublic Completed Work
 
-Last updated: 2026-11-08
+Last updated: 2026-11-11
+
+## 2026-11-11 — OPEN-110 one log, four tab projections closed
+
+- Talks, Contacts, DM history, Nearby/Place lists and Me now derive their durable relationships and
+  history from the device graph. `graph.tabSnapshot` owns the bounded tab projections; direct
+  traversal remains available through person history, Talk→people and conversation-message indexes.
+- Talk edits remain immutable replacement events. The stable first Talk event stays the identity;
+  current content and full `re` lineage are projected together, so contacts, answers, conversations,
+  Places and statistics never need to point at a mutable or retired copy.
+- Ordinary direct DMs now write plaintext to the immutable graph before completing the send. The DM
+  screen, preview subscription and reconnect digest/backfill all read `ix/conv`; WebRTC and encrypted
+  mailbox envelopes carry delivery only. Sender-local delivery state remains in memory.
+- Mixed-release safety is ordered import-then-delete: every old encrypted ordinary-DM row must decrypt
+  and be idempotently recorded through `graph.recordMessages` before its private history manifest and
+  segments are cleared. A failed/undecryptable import retains the cache and retries next time. Support
+  conversation synthetic records keep their separate authenticated local storage.
+- Contacts are graph exchange/conversation peers with editable relationship/UI overlays. Nearby
+  scopes are mutable graph projections linked to Person nodes and immutable encounter/visit events.
+  Traversal works Person/Contact↔Talk/conversation/Place, Talk→people, and Me→Talks/people/places.
+- Verification for the closure slice: TypeScript passed; targeted ESLint passed; 57 focused graph,
+  reconciliation, transport, projection and private-repository tests passed; web and server production
+  builds passed (webpack emitted only the existing bundle-size warnings). The prior authorized
+  four-phone sweep passed 18/20; its two failures were the separately tracked Nearby radio/permission
+  convergence cases, not graph projection or DM-log failures. Design record:
+  `docs/design/open-110-log-tab-projection.md`.
 
 ## 2026-11-08 — OPEN-108 signed event chain and OPEN-109 trimming closed
 

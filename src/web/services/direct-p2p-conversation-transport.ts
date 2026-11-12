@@ -5,7 +5,7 @@ import { deriveBackendApiBaseFromLocation, WebGunService } from './web-gun-servi
 import { getOrCreateP2PSession, getP2PSession } from './p2p-webrtc-session';
 import type { P2PConnectionState } from './p2p-webrtc-session';
 import { GunMessageStore, type ConversationMessageWire } from './gun-message-store';
-import { buildConversationDigest, computeMissingForPeer } from '../../shared/conversation-reconcile';
+import { boundRecentWires, buildConversationDigest, computeMissingForPeer } from '../../shared/conversation-reconcile';
 import { getSEA, type GunPair } from '../sea-gun';
 import type { OfficialBuildCredential } from '../../shared/official-build-credential';
 
@@ -19,6 +19,25 @@ export const DM_OPEN_LINK_GRACE_MS = 1_500;
 /** Encrypting needs the peer's key. If that lookup stalls the send fails, returning the text. */
 export const DM_PREPARE_TIMEOUT_MS = 30_000;
 
+export type ConversationLogMessage = {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: string;
+  channel?: Message['channel'];
+  isFromChatbot?: boolean;
+  talkId?: string;
+};
+
+export type ConversationMessageLogHooks = {
+  recordMessage(
+    conversationId: string,
+    otherUserId: string,
+    message: ConversationLogMessage,
+  ): Promise<void>;
+  listMessages(conversationId: string, otherUserId: string, limit?: number): Promise<ConversationLogMessage[]>;
+};
+
 const within = <T>(work: Promise<T>, timeoutMs: number): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Preparing the message timed out')), timeoutMs);
@@ -29,13 +48,15 @@ export class DirectP2PConversationTransport implements ConversationTransport {
   mode: ConversationTransportMode = 'direct-p2p';
 
   private readonly apiBase: string;
-  /** Authoritative store — WebRTC is notify/sync only (spec §19.4, P2P-H). */
+  /** Wire codec only. Durable ordinary-DM history belongs to the device graph. */
   private readonly gunStore: GunMessageStore;
+  private messageLogHooks?: ConversationMessageLogHooks;
   private readonly participantCache = new Map<string, string>();
   private readonly liveMessagesByConversation = new Map<string, Message[]>();
   private readonly listenersByConversation = new Map<string, Set<(messages: Message[]) => void>>();
+  private readonly lastSeenFromOther = new Map<string, string>();
   /**
-   * Fired when a message is persisted to local Gun but could NOT be delivered over
+   * Fired when a message is persisted to the graph but could NOT be delivered over
    * the WebRTC DataChannel (peer offline / channel not connected). The app uses this
    * to queue the message into the recipient's encrypted offline mailbox so removing
    * the hub archive (P2P-messaging Phase 3) never drops an offline message (Phase 4).
@@ -147,6 +168,11 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     ) => boolean | void | Promise<boolean | void>,
   ): void {
     this.onUndeliverable = handler;
+  }
+
+  /** OPEN-110: the event log owns durable DM writes, reads, and reconnect backfill. */
+  setMessageLogHooks(hooks: ConversationMessageLogHooks): void {
+    this.messageLogHooks = hooks;
   }
 
   /** Wire P2P media providers (serve/receive attachment bytes over the DataChannel). */
@@ -319,6 +345,43 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     this.mergeLiveMessages(conversationId, [message]);
   }
 
+  private requireMessageLog(): ConversationMessageLogHooks {
+    if (!this.messageLogHooks) throw new Error('Device graph message log is unavailable');
+    return this.messageLogHooks;
+  }
+
+  private async recordPlaintextMessage(
+    conversationId: string,
+    otherUserId: string,
+    message: ConversationLogMessage,
+  ): Promise<void> {
+    await this.requireMessageLog().recordMessage(conversationId, otherUserId, message);
+  }
+
+  private async loggedMessages(
+    conversationId: string,
+    otherUserId: string,
+    limit = 500,
+  ): Promise<ConversationLogMessage[]> {
+    return boundRecentWires(
+      await this.requireMessageLog().listMessages(conversationId, otherUserId, limit),
+      limit,
+    );
+  }
+
+  private logMessageToUi(message: ConversationLogMessage): Message {
+    return {
+      id: message.id,
+      senderId: message.senderId,
+      text: message.text,
+      timestamp: new Date(message.timestamp),
+      channel: message.channel ?? 'public',
+      readBy: [],
+      isFromChatbot: message.isFromChatbot === true,
+      ...(message.talkId ? { talkId: message.talkId } : {}),
+    };
+  }
+
   private removeLiveMessage(conversationId: string, messageId: string): void {
     const bucket = this.liveMessagesByConversation.get(conversationId) ?? [];
     const remaining = bucket.filter((message) => message.id !== messageId);
@@ -339,15 +402,13 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     for (const listener of this.listenersByConversation.get(conversationId) ?? []) listener([...bucket]);
   }
 
-  /** Persist only terminal sender-local state; `sending` is intentionally session-only. */
+  /** Delivery state is device-local session UI, never immutable message history. */
   private recordDeliveryState(
     conversationId: string,
     wire: ConversationMessageWire,
     state: 'sent' | 'queued' | 'failed',
   ): void {
     this.updateLiveMessage(conversationId, wire.id, { deliveryState: state });
-    void this.gunStore.putMessageRecord(conversationId, { ...wire, deliveryState: state })
-      .catch((error) => console.warn(`[dm-notify] could not persist ${state} state for ${wire.id}:`, error));
   }
 
   /**
@@ -360,23 +421,26 @@ export class DirectP2PConversationTransport implements ConversationTransport {
    */
   private async persistAndPublishRemoteMessage(
     conversationId: string,
+    localUserId: string,
     otherUserId: string,
     wire: ConversationMessageWire,
   ): Promise<void> {
-    const persisted = this.gunStore.putMessageRecord(conversationId, {
+    const text = await this.decryptWireText(wire, wire.senderId);
+    if (wire.encryption === 'sea-ecdh-v1' && text === wire.text) {
+      throw new Error(`Could not decrypt message ${wire.id}`);
+    }
+    const persisted = this.recordPlaintextMessage(conversationId, otherUserId, {
       id: wire.id,
       senderId: wire.senderId,
-      text: wire.text,
+      text,
       timestamp: wire.timestamp,
-      channel: wire.channel,
-      transport: wire.transport ?? this.mode,
-      ...(wire.encryption ? { encryption: wire.encryption } : {}),
-      ...(wire.prevSeen !== undefined ? { prevSeen: wire.prevSeen } : {}),
+      ...(wire.channel ? { channel: wire.channel as Message['channel'] } : {}),
       ...(wire.isFromChatbot ? { isFromChatbot: true } : {}),
       ...(wire.talkId ? { talkId: wire.talkId } : {}),
-    }, { otherUserId });
-    const decrypted = this.decryptWireText(wire, wire.senderId);
-    const text = await decrypted;
+    });
+    if (wire.senderId !== localUserId) {
+      this.lastSeenFromOther.set(`${conversationId}:${localUserId}`, wire.id);
+    }
 
     this.pushLiveMessage(conversationId, {
       id: wire.id,
@@ -390,6 +454,16 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       ...(wire.talkId ? { talkId: wire.talkId } : {}),
     });
     await persisted;
+  }
+
+  /** Mailbox delivery enters the same graph-first receive path as a live DataChannel frame. */
+  async ingestMessageWire(
+    conversationId: string,
+    localUserId: string,
+    otherUserId: string,
+    wire: ConversationMessageWire,
+  ): Promise<void> {
+    await this.persistAndPublishRemoteMessage(conversationId, localUserId, otherUserId, wire);
   }
 
   /**
@@ -415,7 +489,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       }
     }
     if (messages.length > 0) {
-      // Same (timestamp, id) ordering as GunMessageStore's decrypt path: without the id
+      // Same (timestamp, id) ordering as the graph read path: without the id
       // tie-break, two peers sending within the same millisecond sort in peer-local
       // ARRIVAL order (stable sort keeps insertion order on ties), so the two sides'
       // live views can converge to different message orders.
@@ -448,6 +522,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     if (otherEpub) this.gunStore.rememberEpub(otherId, otherEpub);
     onStage?.('connect');
     const isInitiator = localUserId.localeCompare(otherId) < 0;
+    const readLogged = () => this.loggedMessages(conversationId, otherId);
     const session = getOrCreateP2PSession({
       apiBase: this.apiBase,
       conversationId,
@@ -469,13 +544,37 @@ export class DirectP2PConversationTransport implements ConversationTransport {
       // backfill whatever the peer is missing, straight over the DataChannel (no hub).
       getLocalMessageDigest: async () => buildConversationDigest(
         conversationId,
-        await this.gunStore.listLocalWires(conversationId),
+        await readLogged(),
       ).messageIds,
-      getMessagesForBackfill: async (remoteMessageIds: string[]) => computeMissingForPeer(
-        conversationId,
-        await this.gunStore.listLocalWires(conversationId),
-        { conversationId, messageIds: remoteMessageIds },
-      ),
+      getMessagesForBackfill: async (remoteMessageIds: string[]) => {
+        const missing = computeMissingForPeer(
+          conversationId,
+          (await readLogged()).map((message) => ({
+            ...message,
+            channel: message.channel ?? 'public',
+            transport: this.mode,
+          })),
+          { conversationId, messageIds: remoteMessageIds },
+        );
+        return Promise.all(missing.map(async (message) => ({
+          ...await this.gunStore.buildMessage(
+            conversationId,
+            message.senderId,
+            message.text,
+            {
+              otherUserId: otherId,
+              messageId: message.id,
+              sentAt: new Date(message.timestamp),
+              channel: message.channel as Message['channel'],
+              transport: this.mode,
+              ...(message.isFromChatbot ? { isFromChatbot: true } : {}),
+              ...(message.talkId ? { talkId: message.talkId } : {}),
+            },
+          ),
+          channel: message.channel,
+          transport: this.mode,
+        })));
+      },
       getConversationControlSnapshot: () =>
         this.conversationControlHooks.getConversationControlSnapshot?.(
           conversationId,
@@ -508,7 +607,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     session.setBuildTrustHooks(this.buildTrustHooks);
     session.setOnRemoteDm(async (wire) => {
       if (wire.senderId === localUserId) return;
-      await this.persistAndPublishRemoteMessage(conversationId, otherId, wire);
+      await this.persistAndPublishRemoteMessage(conversationId, localUserId, otherId, wire);
     });
     return session;
   }
@@ -548,9 +647,20 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         this.gunStore.buildMessage(conversationId, senderId, text, { ...opts, messageId, transport: this.mode, sentAt }),
         DM_PREPARE_TIMEOUT_MS,
       );
-      // Saved alongside delivery, not before it: private writes share one queue, which took
-      // about 8 s on an older phone, and a link that could deliver in milliseconds waited behind it.
-      saved = this.gunStore.putMessageRecord(conversationId, wire, opts?.otherUserId ? { otherUserId: opts.otherUserId } : {});
+      const prevSeen = this.lastSeenFromOther.get(`${conversationId}:${senderId}`);
+      if (prevSeen) wire.prevSeen = prevSeen;
+      const otherUserId = opts?.otherUserId ?? await this.resolveOtherUserId(conversationId, senderId);
+      // Start the immutable event write before delivery, but do not make a fast link wait for the
+      // device-core queue. If it fails, sendMessage still rejects and removes the optimistic echo.
+      saved = this.recordPlaintextMessage(conversationId, otherUserId, {
+        id: wire.id,
+        senderId,
+        text,
+        timestamp: wire.timestamp,
+        channel: channel as Message['channel'],
+        ...(opts?.isFromChatbot ? { isFromChatbot: true } : {}),
+        ...(opts?.talkId && opts.talkId !== 'direct' ? { talkId: opts.talkId } : {}),
+      });
     } catch (error) {
       this.removeLiveMessage(conversationId, messageId);
       throw error;
@@ -622,7 +732,7 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         console.info(`[dm-notify] ${wire.id} delivered over WebRTC in ${Date.now() - startedAt} ms`);
       } catch (err) {
         console.warn(
-          `Direct P2P WebRTC notify failed for ${conversationId}; Gun record is authoritative, queueing to mailbox:`,
+          `Direct P2P WebRTC notify failed for ${conversationId}; graph event is authoritative, queueing to mailbox:`,
           err,
         );
         // Phase 4: peer unreachable over WebRTC → queue the (already-encrypted) wire to
@@ -647,7 +757,6 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     }
 
     let disposed = false;
-    let unsubscribeGun: (() => void) = () => undefined;
     const listeners = this.listenersByConversation.get(conversationId) || new Set<(messages: Message[]) => void>();
     listeners.add(callback);
     this.listenersByConversation.set(conversationId, listeners);
@@ -667,30 +776,20 @@ export class DirectP2PConversationTransport implements ConversationTransport {
     void (otherUserIdHint
       ? Promise.resolve(otherUserIdHint)
       : this.resolveOtherUserId(conversationId, myUserId))
-      .then((otherUserId) => {
+      .then(async (otherUserId) => {
+        const messages = await this.loggedMessages(conversationId, otherUserId, 500);
         if (disposed) return;
-        unsubscribeGun = this.gunStore.subscribeToMessages(
-          conversationId,
-          (messages) => this.mergeLiveMessages(conversationId, messages),
-          myUserId,
-          otherUserId,
-        );
+        const latestFromOther = [...messages].reverse().find((message) => message.senderId !== myUserId);
+        if (latestFromOther) this.lastSeenFromOther.set(`${conversationId}:${myUserId}`, latestFromOther.id);
+        this.mergeLiveMessages(conversationId, messages.map((message) => this.logMessageToUi(message)));
       })
       .catch((err) => {
-        console.warn(`Direct P2P message subscription setup failed for ${conversationId}:`, err);
-        if (!disposed) {
-          unsubscribeGun = this.gunStore.subscribeToMessages(
-            conversationId,
-            (messages) => this.mergeLiveMessages(conversationId, messages),
-            myUserId,
-          );
-        }
+        console.warn(`Direct P2P graph history read failed for ${conversationId}:`, err);
       });
 
     return () => {
       disposed = true;
       listeners.delete(callback);
-      unsubscribeGun();
       console.log(`👋 Unsubscribed from conversation ${conversationId} messages (${this.mode})`);
     };
   }

@@ -206,6 +206,19 @@ export class LocalPrivateConversationRepository {
     });
   }
 
+  /** OPEN-110 cutover: remove an ordinary conversation only after its graph import succeeds. */
+  async clear(conversationId: string): Promise<void> {
+    const current = await this.load(conversationId);
+    await Promise.all([
+      ...Array.from(
+        { length: current.manifest.segmentCount },
+        (_, index) => this.gun.putPrivate(this.segmentKey(conversationId, index), null),
+      ),
+      this.gun.putPrivate(this.key(conversationId), null),
+    ]);
+    this.loaded.delete(conversationId);
+  }
+
   subscribe(
     conversationId: string,
     callback: (wires: LocalConversationWire[]) => void,
