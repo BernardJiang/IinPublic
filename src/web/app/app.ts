@@ -7202,7 +7202,7 @@ export class IinPublicApp {
       !isMatch;
 
     // Helper: send mesh+mailbox to a single target authorId
-    const sentResponseByAuthor = new Map<string, { talkId: string; responseId: string; version: number }>();
+    const deliveries: Promise<void>[] = [];
     const sendToAuthor = async (
       targetAuthorId: string,
       targetAuthorName: string,
@@ -7250,40 +7250,40 @@ export class IinPublicApp {
         newVersion = targetVersion;
         isContentChange = committed.isContentChange;
       }
-      // OPEN-106: an answer is an answer event in our pair log, read by the author when connected.
-      // There is no response frame or mailbox: a Talk that did not come over a graph link cannot be
-      // answered (every Talk does since the Talk frames were removed).
-      if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
-      // Sent to the core even when the links are not running: the core keeps an answer it could
-      // not send yet in its outbox and sends it once an identity or link arrives (OPEN-96 a).
-      const sent = this.coreRequest
-        ? await this.coreRequest({
-          name: 'graph.answer', talkId: targetTalkId, authorId: targetAuthorId,
-          answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
-          mode: params.isChatbotResponse ? 'chatbot' : 'manual',
-          context: {
-            responderName: this.currentUser!.stageName, isChatbotResponse: params.isChatbotResponse,
-            responseId: targetResponseId, version: targetVersion, submittedAt: meshPayload.submittedAt, respondedAt: meshPayload.respondedAt,
-          },
-        }).then((result) => {
-          if (!result.sent) console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: ${result.reason ?? 'unknown'}`);
-          return result.sent;
-        }).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
-        : (console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: no device core`), false);
-      if (sent) {
-        await this.coreDelivery({ name: 'delivery.record', input: {
-          objectId: targetResponseId,
-          recipientId: targetAuthorId,
-          objectKind: 'talk-response',
-          state: 'sent',
-        } });
-      }
-      console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} graph=${sent}`);
-      sentResponseByAuthor.set(targetAuthorId, {
-        talkId: targetTalkId,
-        responseId: targetResponseId,
-        version: targetVersion,
-      });
+      // The send waits for the link to the author (up to the 10 s WebRTC connect). My own exchange
+      // record does not: it is written once every commit is done, while the sends go on, and the
+      // caller still waits for them below (OPEN-111 c: the answer's 📍 place link showed ~12 s late).
+      deliveries.push((async () => {
+        // OPEN-106: an answer is an answer event in our pair log, read by the author when connected.
+        // There is no response frame or mailbox: a Talk that did not come over a graph link cannot be
+        // answered (every Talk does since the Talk frames were removed).
+        if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+        // Sent to the core even when the links are not running: the core keeps an answer it could
+        // not send yet in its outbox and sends it once an identity or link arrives (OPEN-96 a).
+        const sent = this.coreRequest
+          ? await this.coreRequest({
+            name: 'graph.answer', talkId: targetTalkId, authorId: targetAuthorId,
+            answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
+            mode: params.isChatbotResponse ? 'chatbot' : 'manual',
+            context: {
+              responderName: this.currentUser!.stageName, isChatbotResponse: params.isChatbotResponse,
+              responseId: targetResponseId, version: targetVersion, submittedAt: meshPayload.submittedAt, respondedAt: meshPayload.respondedAt,
+            },
+          }).then((result) => {
+            if (!result.sent) console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: ${result.reason ?? 'unknown'}`);
+            return result.sent;
+          }).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
+          : (console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: no device core`), false);
+        if (sent) {
+          await this.coreDelivery({ name: 'delivery.record', input: {
+            objectId: targetResponseId,
+            recipientId: targetAuthorId,
+            objectKind: 'talk-response',
+            state: 'sent',
+          } });
+        }
+        console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} graph=${sent}`);
+      })().catch((error) => console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} failed:`, error)));
     };
 
     if (!skipE2eLocalOnlyReject) {
@@ -7338,6 +7338,8 @@ export class IinPublicApp {
         direction: 'received',
       },
     );
+    await Promise.all(deliveries);
+    void refreshExchangeState();
 
     if (!isMatch) return;
     const conversationId = await this.conversationService.createConversation({

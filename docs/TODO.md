@@ -72,7 +72,7 @@ its ID.
   outing is newest when the WebView resumes. Deterministic unit coverage exercises both paths.
   The lost delivery and ten-minute field delay still require the carried rerun.
 
-- [ ] **OPEN-111 — Two delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
+- [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
   The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
   let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
   runs, was ~1 in 10). Found on the way, not fixed:
@@ -87,7 +87,8 @@ its ID.
   (`newVersion` comes from `response.commit`), so when the first link to the author waits out the
   10 s WebRTC connect, the answer's 📍 place link shows ~12 s late. stage3 82 tag-graph-tour fails
   on it every run on 2026-11-11 evening (also at 5c5005bd), waiting 10 s for `answer-place`.
-  Record the exchange before the send, or let it update once the version is known.
+  Fixed 2026-11-11 (same day): the sends run while the exchange is recorded, and the answer still
+  waits for them before a match conversation; 82 passes again.
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no
