@@ -23,7 +23,7 @@ import {
   finalCleanupPages,
 } from '../helpers/talks-matching-flow';
 import { WEBRTC_CHROMIUM_ARGS } from '../helpers/webrtc-chromium';
-import { readLocalConversationMessages } from '../helpers/p2p-transport-e2e';
+import { readDeviceGraphConversationMessages } from '../helpers/p2p-transport-e2e';
 import { gunBaseURL, webAppURLStableChatroom } from '../helpers/ports';
 import { newGraphTalkId } from '../helpers/device-graph';
 
@@ -368,45 +368,13 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: durable share envelope was not queued' },
     ).toBe(true);
 
-    // Lose Jerry's local copy of the share. Pair messages live only in each endpoint's encrypted,
-    // peerless local history now (not a shared pairConversations soul).
-    await pageJerry.evaluate(async ({ cid, messageId }) => {
-      const app = (window as any).__iinpublic_app?.getApp?.() as any;
-      const key = `conversations/${encodeURIComponent(cid)}/history`;
-      const manifest = await app.gunService.getPrivate(key);
-      if (manifest?.version === 1) {
-        const messages = JSON.parse(String(manifest.messagesJson || '[]')) as Array<{ id: string }>;
-        await app.gunService.putPrivate(key, {
-          ...manifest,
-          messagesJson: JSON.stringify(messages.filter((message) => message.id !== messageId)),
-        });
-        return;
-      }
-      if (manifest?.version !== 2) throw new Error('local conversation manifest missing');
-      let changed = false;
-      for (let index = 0; index < Number(manifest.segmentCount || 0); index += 1) {
-        const segmentKey = `conversationHistorySegments/${encodeURIComponent(cid)}/${index}`;
-        const segment = await app.gunService.getPrivate(segmentKey);
-        const messages = JSON.parse(String(segment?.messagesJson || '[]')) as Array<{ id: string }>;
-        const filtered = messages.filter((message) => message.id !== messageId);
-        if (filtered.length === messages.length) continue;
-        changed = true;
-        await app.gunService.putPrivate(segmentKey, {
-          ...segment,
-          messagesJson: JSON.stringify(filtered),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      if (!changed) throw new Error(`local message ${messageId} not found`);
-      await app.gunService.putPrivate(key, {
-        ...manifest,
-        revision: Number(manifest.revision || 0) + 1,
-        updatedAt: new Date().toISOString(),
-      });
-    }, { cid: conversationId, messageId: shareMessageId });
-    await afterAction();
-    expect((await readLocalConversationMessages(pageJerry, conversationId)).map((message) => message.id))
-      .not.toContain(shareMessageId);
+    // OPEN-110 makes the device event log immutable, so reconnect/redrain must preserve the
+    // existing source-id event rather than deleting and re-materializing an old store record.
+    await expect.poll(
+      async () => (await readDeviceGraphConversationMessages(pageJerry!, conversationId))
+        .filter((message) => message.sourceMessageId === shareMessageId).length,
+      { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: live share should be one immutable event' },
+    ).toBe(1);
 
     await pageJerry.close();
     pageJerry = undefined;
@@ -423,6 +391,11 @@ test.describe('L5 matched-talk IPFS auto-share', () => {
       async () => (await getShareSnapshot(pageJerry!)).payloads.map((payload) => payload.cid),
       { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: mailbox share not materialized after reconnect' },
     ).toContain(attachment.cid);
+    await expect.poll(
+      async () => (await readDeviceGraphConversationMessages(pageJerry!, conversationId))
+        .filter((message) => message.sourceMessageId === shareMessageId).length,
+      { timeout: MESH_E2E_TIMEOUT_MS, message: 'Jerry: mailbox redrain should remain one immutable event' },
+    ).toBe(1);
     await expect.poll(
       async () => {
         const response = await fetch(`${gunBaseURL()}/api/mailbox/${encodeURIComponent(jerryId)}`);

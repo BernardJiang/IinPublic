@@ -17,7 +17,7 @@ import {
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import {
-  assertLocalPrivateMessageBodies,
+  assertDeviceGraphMessageBodies,
   prepareDirectP2PConversation,
 } from '../../helpers/p2p-transport-e2e';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
@@ -225,7 +225,7 @@ test.describe('Direct messaging between matched users', () => {
       )
       .toBe(true);
 
-    await assertLocalPrivateMessageBodies(pageTom, conversationId, 1, [TOM_MESSAGE, JERRY_REPLY]);
+    await assertDeviceGraphMessageBodies(pageTom, conversationId, 2, [TOM_MESSAGE, JERRY_REPLY]);
 
     // Generic conversation metadata is endpoint-private too. The hub may hold the bounded
     // first-contact wake-up, but never the conversation row, per-user row, Talk title, deal
