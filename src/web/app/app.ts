@@ -52,6 +52,7 @@ import { setGraphChatbotSource } from '../ui/graph-chatbot';
 import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
 import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { receiversExcludingAuthor } from '../../core/broadcast-selection';
+import { invalidateTagPopularity } from '../ui/graph-focus';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
@@ -6237,7 +6238,7 @@ export class IinPublicApp {
           await Promise.all([connectExchangeCore(link), connectCoreCollections(collections, bridge)]);
           // Who I already exchanged what with, from the device graph (OPEN-106 step 3).
           void connectExchangeState(() => core({ name: 'graph.exchangeState' }), bridge);
-          onExchangeStateChanged(() => this.scheduleTalksListRefresh());
+          onExchangeStateChanged(() => this.scheduleStatsViewsRefresh());
           // The Me tab's answers are the graph's; saving and removing them are core requests.
           setGraphAnswerHistorySource(() => core({ name: 'graph.answerHistory' }));
           setAnswerHistoryCore((request) => core(request));
@@ -6299,6 +6300,8 @@ export class IinPublicApp {
     // A new exchange brings a pruned person back; the cap is checked again shortly after.
     unprunePeer(peerId);
     this.scheduleContactsPrune();
+    // Live statistics (OPEN-113): the open tab recounts with this exchange in.
+    this.scheduleStatsViewsRefresh();
     const collectionTag = meta?.direction === 'received'
       ? null
       : meta?.collectionSessionId
@@ -6605,6 +6608,23 @@ export class IinPublicApp {
    * withdrawn, unless our deal on it was confirmed by both.
    */
   private talksListRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Live statistics (OPEN-113): an exchange changed who likes which tag, so whichever of Talks,
+   * Contacts or Me is open redraws with the new counts (debounced; no tap).
+   */
+  private statsViewsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private scheduleStatsViewsRefresh(): void {
+    invalidateTagPopularity();
+    this.scheduleTalksListRefresh();
+    if (this.statsViewsRefreshTimer) return;
+    this.statsViewsRefreshTimer = setTimeout(() => {
+      this.statsViewsRefreshTimer = null;
+      invalidateTagPopularity();
+      if (document.getElementById('contacts-view')?.classList.contains('active')) this.uiManager.displayContactsList();
+      if (document.getElementById('me-view')?.classList.contains('active')) this.uiManager.displayAnswersList();
+    }, 600);
+  }
+
   private scheduleTalksListRefresh(): void {
     if (this.talksListRefreshTimer) return;
     this.talksListRefreshTimer = setTimeout(() => {
@@ -6633,6 +6653,8 @@ export class IinPublicApp {
     const me = this.currentUser?.id;
     const context = event.context ?? {};
     if (!me || !event.answers) return;
+    // Receiving stays visible (OPEN-112): an answer to my Talk just arrived from this person.
+    if (event.from) this.uiManager.showExchangeActivity('incoming', [event.from]);
     const at = new Date(event.when ?? Date.now()).toISOString();
     const payload = {
       responseId: typeof context.responseId === 'string' ? context.responseId : event.eventId,
@@ -6890,6 +6912,8 @@ export class IinPublicApp {
     }).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
     if (!offer?.known) return false;
     for (const recipientId of offer.sent) this.noteNearbyDelivery(talkId, recipientId);
+    // Sending stays visible without a Broadcast button (OPEN-112): only when it really went out.
+    if (offer.sent.length > 0) this.uiManager.showExchangeActivity('outgoing', offer.sent);
     if (offer.waiting?.length) {
       for (const recipientId of offer.waiting) this.graphWaitingPeers.add(recipientId);
       this.pushGraphOwedToMesh();
@@ -7298,6 +7322,7 @@ export class IinPublicApp {
           }).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
           : (console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: no device core`), false);
         if (sent) {
+          this.uiManager.showExchangeActivity('outgoing', [targetAuthorId]);
           await this.coreDelivery({ name: 'delivery.record', input: {
             objectId: targetResponseId,
             recipientId: targetAuthorId,

@@ -61,6 +61,7 @@ describe('Contacts ranking and relationship filters', () => {
         <option value="weighted">Relevance score</option>
         <option value="matches">Matched talks</option>
         <option value="relationship">Relationship</option>
+        <option value="shared-tags">Most tags in common</option>
       </select>
       <div id="contacts-status-text"></div>
       <div id="contacts-list"></div>
@@ -405,10 +406,37 @@ describe('Contacts ranking and relationship filters', () => {
     });
     try {
       await displayContactsList(deps());
-      const meta = (id: string) => document.querySelector(`.contact-item[data-contact-user-id="${id}"] .contact-item-meta`)?.textContent || '';
-      expect(meta('strong')).toContain('2 common tags');
-      expect(meta('weak')).not.toContain('common tag');
+      // OPEN-113: every row states the relationship (in common · % alike · rank), whatever the sort.
+      const chip = (id: string) => document.querySelector<HTMLElement>(`.contact-item[data-contact-user-id="${id}"] [data-testid="contact-shared-tags"]`);
+      expect(chip('strong')?.textContent).toBe('🏷️ 2 in common · 100% alike · #1 most alike');
+      expect(chip('strong')?.dataset).toMatchObject({ sharedTags: '2', similarity: '100', similarityRank: '1' });
+      expect(chip('weak')).toBeNull();
     } finally {
+      configureTagGraphView({ graphInput: () => ({ currentUserId: '', incoming: [], myTalks: {}, exchanges: {} }), t: (key) => uiText('en', key) });
+    }
+  });
+
+  it('breaks a tie in tags in common by % alike, so the top row is "#1 most alike" (OPEN-113)', async () => {
+    localStorage.clear();
+    const row = (peerId: string, peerName: string, talkId: string) => ({ peerId, peerName, talkId, type: 'tag', title: talkId, outcome: 'match', direction: 'sent', date: '2026-05-21T00:00:00.000Z' });
+    const exchanges: Record<string, unknown> = {};
+    for (const [peerId, name, talkId] of [['broad', 'Broad', 'tag-coffee'], ['broad', 'Broad', 'tag-jazz'], ['broad', 'Broad', 'tag-rock'], ['close', 'Close', 'tag-coffee']]) {
+      exchanges[`${peerId}::${talkId}`] = row(peerId!, name!, talkId!);
+    }
+    localStorage.setItem('localTalkExchanges', JSON.stringify(exchanges));
+    configureTagGraphView({
+      graphInput: () => ({ currentUserId: 'me', incoming: [], myTalks: { 'tag-coffee': { role: 'created', fullTalk: { id: 'tag-coffee', type: 'tag', title: 'tag-coffee' } } }, exchanges: exchanges as any }),
+      t: (key) => uiText('en', key),
+    });
+    const sort = document.getElementById('contacts-sort-order') as HTMLSelectElement;
+    try {
+      sort.value = 'shared-tags';
+      await displayContactsList(deps());
+      const items = Array.from(document.querySelectorAll<HTMLElement>('.contact-item'));
+      expect(items.map((item) => item.dataset.contactUserId).slice(0, 2)).toEqual(['close', 'broad']);
+      expect(items[0]!.querySelector<HTMLElement>('[data-testid="contact-shared-tags"]')?.dataset.similarityRank).toBe('1');
+    } finally {
+      sort.value = 'weighted';
       configureTagGraphView({ graphInput: () => ({ currentUserId: '', incoming: [], myTalks: {}, exchanges: {} }), t: (key) => uiText('en', key) });
     }
   });

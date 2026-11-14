@@ -905,6 +905,20 @@ chatbot do the rest, for every pair of people on each other's list.
   the people on *my* list; it keeps its original author (§Y1) and is never offered back to that
   author (`receiversExcludingAuthor`).
 - The T1 safety toast (§7.4) fires when a Talk becomes public (created public or switched on).
+- **Sending and receiving stay visible** (owner, 2026-11-13): when my Talks or my answer actually
+  reach people, their rows light up (`broadcast-sent-to`, 2.5 s) and the map rings out from me;
+  when a Talk or an answer arrives, the sender's row flashes and the map rings in
+  (`UIManager.showExchangeActivity`). Nothing plays for an attempt that sent nothing.
+
+### 6.1b Live tag statistics (OPEN-113, 2026-11-14)
+
+One model, three views, all from what this device exchanged (no hub counts): `src/core/tag-graph.ts`
+(who likes and who passed each tag; a tag I like is mine whether I share it or not) and
+`src/core/tag-stats.ts` (`tagPopularity`: likes, passes, rank by likes; `personSimilarity`: tags in
+common, % alike = shared ÷ union of liked tags, rank by tags in common then % alike).
+- **Contacts:** every person row: "🏷️ N in common · X% alike · #k most alike" (rank for the top 3).
+- **Talks and Me:** every rated tag shows "#rank · ✕ passes" next to its 👥 likes (one tag face).
+- The open tab redraws when an exchange arrives (`scheduleStatsViewsRefresh`).
 - The contact-group send (Contacts ⋯ → broadcast to a group) is unchanged: it is a deliberate
   send to known people, outside the room.
 

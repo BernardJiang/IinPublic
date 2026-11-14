@@ -3,7 +3,10 @@
  * - a person likes a tag when they sent it to me (they own that tag Talk: the senders of my incoming
  *   cluster for its identity key), or when a tag exchange with them matched (they liked my copy, or
  *   I liked theirs);
- * - I like a tag when it is one of my own active tag Talks (created or copied, not disabled).
+ * - I like a tag when it is one of my tag Talks that I like: a copy made by liking it (shared or
+ *   private), a bare copy while it is on, or a tag I created and checked (`likesTag`), public or
+ *   private alike (OPEN-113). Older entries
+ *   without `likesTag` fall back to "not disabled".
  * A tag is its content identity key, so identical tags from different people are one node, whatever
  * Talk ids they came under (my starter tag's `qa_…` id and a peer's graph id, OPEN-106 step 2e).
  * A node keeps each of those Talk ids; any of them finds it (`tagNodeFor`).
@@ -23,7 +26,7 @@ export type TagGraphInput = {
 };
 
 /** `key`: a Talk id of the tag (mine first); `talkIds`: every Talk id it came under. */
-export type TagNode = { key: string; label: string; likers: Map<string, string>; mine: boolean; talkIds: string[] };
+export type TagNode = { key: string; label: string; likers: Map<string, string>; passers: Map<string, string>; mine: boolean; talkIds: string[] };
 /** `tags` by content identity; `byId` by any Talk id or identity key of a tag. */
 export type TagGraph = { tags: Map<string, TagNode>; byId: Map<string, TagNode> };
 
@@ -37,13 +40,25 @@ const isTag = (value: any): boolean => String(value?.type || '').toLowerCase() =
 const isPerson = (id: string, me: string): boolean =>
   !!id && id !== me && id !== STARTER_TAGS_SOURCE_ID && id !== TECHSUPPORT_ROOT_USER_ID && !id.startsWith('iinpublic-demo-');
 
+/** Whether this entry of my Talks is a tag I like (sharing it or not). */
+export function likesMyTag(entry: any): boolean {
+  if (entry?.role === 'copied') {
+    // I liked it (a matching answer made the copy): mine, shared or private. A bare Copy (no answer)
+    // is mine while it is on.
+    const answered = Array.isArray(entry?.completedAnswers) && entry.completedAnswers.length > 0;
+    return answered ? entry?.outcome === 'match' : !entry?.disabled;
+  }
+  if (entry?.role !== 'created') return false;
+  return typeof entry?.likesTag === 'boolean' ? entry.likesTag : !entry?.disabled;
+}
+
 export function buildTagGraph(input: TagGraphInput): TagGraph {
   const tags = new Map<string, TagNode>();
   const byId = new Map<string, TagNode>();
   const node = (identity: string, talkIds: string[], label: string): TagNode => {
     let found = tags.get(identity) ?? byId.get(identity) ?? talkIds.map((id) => byId.get(id)).find(Boolean);
     if (!found) {
-      found = { key: talkIds[0] || identity, label: label || talkIds[0] || identity, likers: new Map(), mine: false, talkIds: [] };
+      found = { key: talkIds[0] || identity, label: label || talkIds[0] || identity, likers: new Map(), passers: new Map(), mine: false, talkIds: [] };
       tags.set(identity, found);
     } else if (!found.label || found.label === found.key) {
       found.label = label || found.key;
@@ -62,7 +77,7 @@ export function buildTagGraph(input: TagGraphInput): TagGraph {
 
   for (const [id, entry] of Object.entries(input.myTalks || {})) {
     const talk = entry?.fullTalk;
-    if (!isTag(talk) || (entry?.role !== 'created' && entry?.role !== 'copied') || entry?.disabled) continue;
+    if (!isTag(talk) || !likesMyTag(entry)) continue;
     const talkId = String(talk?.id || id);
     node(identityOf(talk, talkId), [talkId], String(talk?.title || entry?.title || '')).mine = true;
   }
@@ -80,11 +95,15 @@ export function buildTagGraph(input: TagGraphInput): TagGraph {
   }
   for (const exchange of Object.values<any>(input.exchanges || {})) {
     const peerId = String(exchange?.peerId || '');
-    if (!isTag(exchange) || String(exchange?.outcome || '') !== 'match' || !isPerson(peerId, input.currentUserId)) continue;
+    const outcome = String(exchange?.outcome || '');
+    if (!isTag(exchange) || (outcome !== 'match' && outcome !== 'mismatch') || !isPerson(peerId, input.currentUserId)) continue;
     const talkId = String(exchange.talkId || '');
     if (!talkId) continue;
     const tag = byId.get(talkId) ?? node(talkId, [talkId], String(exchange.title || ''));
-    if (!tag.likers.has(peerId)) tag.likers.set(peerId, String(exchange.peerName || peerId));
+    const name = String(exchange.peerName || peerId);
+    // A pass (OPEN-113 statistics) counts only while that person has not also liked it.
+    if (outcome === 'match') { tag.likers.set(peerId, tag.likers.get(peerId) ?? name); tag.passers.delete(peerId); }
+    else if (!tag.likers.has(peerId)) tag.passers.set(peerId, name);
   }
   return { tags, byId };
 }

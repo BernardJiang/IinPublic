@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 /** OPEN-87 S4: the person↔tag graph from local data, and the tag page / directory / person tags. */
-import { buildTagGraph, likersOfTag, sharedTagCount, tagDirectory, tagsOfPeer } from '../../core/tag-graph';
+import { buildTagGraph, likersOfTag, likesMyTag, sharedTagCount, tagDirectory, tagsOfPeer } from '../../core/tag-graph';
 import { configureTagGraphView, renderPeerTagsInto } from '../../web/ui/tag-graph-view';
-import { clearContactsFocus, clearMeFocus, clearTalksFocus, getContactsFocus, getMeFocus, getTalksFocus, peopleWhoLike } from '../../web/ui/graph-focus';
+import { clearContactsFocus, clearMeFocus, clearTalksFocus, getContactsFocus, getMeFocus, getTalksFocus, invalidateTagPopularity, peopleWhoLike, popularityHtml } from '../../web/ui/graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 
@@ -128,5 +128,46 @@ describe('tag graph view', () => {
 
     container.querySelector<HTMLElement>('[data-testid="peer-talks-link"]')!.click();
     expect(getTalksFocus()).toEqual({ label: '💬 Carol', peerId: 'carol', talkIds: ['qa_hike'] });
+  });
+});
+
+describe('a tag I like is mine whether or not I share it (OPEN-113)', () => {
+  const tag = (id: string) => ({ id, type: 'tag', title: id });
+  it('counts a liked copy that is still private, and a private tag I created and checked', () => {
+    expect(likesMyTag({ role: 'copied', disabled: true, outcome: 'match', completedAnswers: [{}], fullTalk: tag('a') })).toBe(true);
+    expect(likesMyTag({ role: 'created', disabled: true, likesTag: true, fullTalk: tag('b') })).toBe(true);
+  });
+  it('does not count a tag I left unchecked, a passed copy, or a bare copy switched off', () => {
+    expect(likesMyTag({ role: 'created', disabled: true, likesTag: false, fullTalk: tag('c') })).toBe(false);
+    expect(likesMyTag({ role: 'copied', outcome: 'mismatch', completedAnswers: [{}], fullTalk: tag('d') })).toBe(false);
+    expect(likesMyTag({ role: 'copied', disabled: true, fullTalk: tag('e') })).toBe(false);
+  });
+});
+
+describe('a tag shows its popularity on Talks and Me (OPEN-113)', () => {
+  const tagTalk = (id: string, title: string) => ({ id, type: 'tag', title, questions: [{ id: 'q_0', text: title, answers: [{ id: 'm', text: title, isMatch: true }] }] });
+  const ex = (peerId: string, talkId: string, title: string, outcome: string) => ({ peerId, peerName: peerId, talkId, type: 'tag', title, outcome });
+  afterEach(() => {
+    invalidateTagPopularity();
+    configureTagGraphView({ graphInput: () => ({ currentUserId: '', incoming: [], myTalks: {}, exchanges: {} }), t: (key) => key });
+  });
+
+  it('"#rank · ✕ passes" with the counts in data attributes; nothing for a tag nobody rated', () => {
+    configureTagGraphView({
+      graphInput: () => ({
+        currentUserId: 'me',
+        incoming: [],
+        myTalks: { hike: { role: 'created', likesTag: true, fullTalk: tagTalk('hike', 'Hiking') }, lone: { role: 'created', likesTag: true, fullTalk: tagTalk('lone', 'Lone') } },
+        exchanges: { a: ex('ann', 'hike', 'Hiking', 'match'), b: ex('ben', 'hike', 'Hiking', 'mismatch') },
+      }),
+      t: (key) => key,
+    });
+    invalidateTagPopularity();
+    const deps = { escapeHtml: (text: string) => text, text: (key: string) => (key === 'tagPopularityTitle' ? '{likes}/{passes}/{rank}' : key) } as any;
+    const html = popularityHtml(['hike'], deps);
+    expect(html).toContain('#1 · ✕ 1');
+    expect(html).toContain('data-likes="1" data-passes="1" data-rank="1"');
+    expect(html).toContain('title="1/1/1"');
+    expect(popularityHtml(['lone'], deps)).toBe('');
   });
 });

@@ -9,6 +9,7 @@
  */
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
 import { buildTagGraph, tagNodeFor, type TagGraph, type TagGraphInput } from '../../core/tag-graph';
+import { tagPopularity, type TagPopularity } from '../../core/tag-stats';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
 import { readExchanges } from '../services/exchange-view';
@@ -111,6 +112,29 @@ export function configureTagGraphSource(input: () => TagGraphInput): void {
 
 export function currentTagGraph(): TagGraph | null {
   return tagGraphInput ? buildTagGraph(tagGraphInput()) : null;
+}
+
+/** One popularity table per render (rows ask one by one); rebuilt after half a second. */
+let popularityCache: { at: number; graph: TagGraph; table: Map<unknown, TagPopularity> } | null = null;
+
+/** A tag's likes, passes and rank among the tags I know of (OPEN-113); null for an unknown tag. */
+export function tagPopularityFor(talkIds: readonly string[]): TagPopularity | null {
+  const now = Date.now();
+  if (!popularityCache || now - popularityCache.at > 500) {
+    const graph = currentTagGraph();
+    if (!graph) return null;
+    popularityCache = { at: now, graph, table: tagPopularity(graph) };
+  }
+  for (const id of talkIds) {
+    const node = tagNodeFor(popularityCache.graph, id);
+    if (node) return popularityCache.table.get(node) ?? null;
+  }
+  return null;
+}
+
+/** The cached table goes when an exchange arrives, so the next render counts it. */
+export function invalidateTagPopularity(): void {
+  popularityCache = null;
 }
 
 /** A tag's keyword from its title: "🍕 Pizza" → "Pizza". */
@@ -398,7 +422,23 @@ export function tagFaceHtml(
   const mark = face.state === 'open'
     ? ''
     : `<span class="answer-tag-mark${face.markLinksToAnswer && face.talkIds?.length ? ' graph-link graph-answer-link' : ''}" data-testid="answer-tag-mark"${face.markLinksToAnswer && face.talkIds?.length ? ` data-topic="${deps.escapeHtml(face.topic)}" data-talk-ids="${deps.escapeHtml(face.talkIds.join(' '))}" role="link" tabindex="0" title="${deps.escapeHtml(deps.text('talksViewInMyAnswers'))}"` : ''} aria-label="${deps.escapeHtml(deps.text(face.state === 'liked' ? 'meFilterLiked' : 'meFilterPassed'))}">${face.state === 'liked' ? '♡' : '✕'}</span>`;
-  return `${mark}<span class="talk-tag-text">${deps.escapeHtml(face.text)}${face.suffixHtml ?? ''}</span>${peopleLinkHtml(face.topic, face.people, deps, face.talkIds, true)}`;
+  return `${mark}<span class="talk-tag-text">${deps.escapeHtml(face.text)}${face.suffixHtml ?? ''}</span>${peopleLinkHtml(face.topic, face.people, deps, face.talkIds, true)}${popularityHtml(face.talkIds ?? [], deps)}`;
+}
+
+/**
+ * A tag's popularity among the people I exchanged with (OPEN-113): "#2" when anyone likes it, and
+ * "✕ N" when people passed it. The same numbers on Talks and Me, from the tag graph.
+ */
+export function popularityHtml(
+  talkIds: readonly string[],
+  deps: { escapeHtml: (text: string) => string; text: (key: UiTranslationKey) => string },
+): string {
+  const stats = tagPopularityFor(talkIds);
+  if (!stats || (stats.rank === 0 && stats.passes === 0)) return '';
+  const parts = [...(stats.rank > 0 ? [`#${stats.rank}`] : []), ...(stats.passes > 0 ? [`✕ ${stats.passes}`] : [])];
+  const title = deps.text('tagPopularityTitle')
+    .replace('{likes}', String(stats.likes)).replace('{passes}', String(stats.passes)).replace('{rank}', String(stats.rank || '–'));
+  return `<span class="tag-popularity" data-testid="tag-popularity" data-likes="${stats.likes}" data-passes="${stats.passes}" data-rank="${stats.rank}" title="${deps.escapeHtml(title)}">${parts.join(' · ')}</span>`;
 }
 
 /** "👥 N" — a link to the people who exchanged a question with me; nothing when nobody did. */

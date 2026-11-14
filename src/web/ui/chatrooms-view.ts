@@ -115,14 +115,33 @@ export function markChatroomMemberMatched(
   if (status) status.textContent = matchedText;
 }
 
+/** A person's rows: a room member row or a Nearby/Place person row. */
+function personRows(userId: string): HTMLElement[] {
+  const safe = userId.replace(/["\\]/g, '\\$&');
+  return Array.from(document.querySelectorAll<HTMLElement>(
+    `.chatroom-member-item[data-user-id="${safe}"], .nearby-person-item[data-user-id="${safe}"]`,
+  ));
+}
+
+function flashRows(userIds: readonly string[], className: string, ms: number): void {
+  for (const userId of new Set(userIds)) {
+    for (const item of personRows(userId)) {
+      item.classList.remove(className);
+      void item.offsetWidth;
+      item.classList.add(className);
+      setTimeout(() => item.classList.remove(className), ms);
+    }
+  }
+}
+
+/** Something arrived from this person (a Talk or an answer). */
 export function flashChatroomMemberForNewTalk(authorId: string): void {
-  const item = document.getElementById('chatroom-members-list')
-    ?.querySelector(`.chatroom-member-item[data-user-id="${authorId}"]`);
-  if (!item) return;
-  item.classList.remove('flash-new-talk');
-  void (item as HTMLElement).offsetWidth;
-  item.classList.add('flash-new-talk');
-  setTimeout(() => item.classList.remove('flash-new-talk'), 1000);
+  flashRows([authorId], 'flash-new-talk', 1000);
+}
+
+/** My Talks or my answer just went to these people (automatic exchange, OPEN-112). */
+export function flashChatroomMembersSentTo(userIds: readonly string[]): void {
+  flashRows(userIds, 'broadcast-sent-to', 2500);
 }
 
 function customRoomIcon(type: string): string {

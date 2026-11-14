@@ -57,7 +57,7 @@ import type { GraphNodeTarget } from './graph-navigation';
 import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './answers-view';
 import {
   type CustomChatroomRow,
-  resolveChatroomTitle, markChatroomMemberMatched, flashChatroomMemberForNewTalk, nearbyHeadcountText,
+  resolveChatroomTitle, markChatroomMemberMatched, flashChatroomMemberForNewTalk, flashChatroomMembersSentTo, nearbyHeadcountText,
 } from './chatrooms-view';
 import {
   showCreateCustomChatroomDialog as openCreateCustomChatroomDialog,
@@ -2815,6 +2815,22 @@ export class UIManager extends EventEmitter {
   flashMemberForNewTalk(authorId: string): void {
     flashChatroomMemberForNewTalk(authorId);
     this.animateMapBroadcast('incoming', authorId);
+  }
+
+  /**
+   * Communication in progress (OPEN-112): with no Broadcast button, this is how sending and
+   * receiving stay visible. Outgoing — my Talks or answer reached these people: a ring from me on
+   * the map and their rows light up. Incoming — something arrived from this person.
+   */
+  showExchangeActivity(direction: 'outgoing' | 'incoming', peerIds: readonly string[]): void {
+    const people = peerIds.filter(Boolean);
+    if (people.length === 0) return;
+    if (direction === 'outgoing') {
+      flashChatroomMembersSentTo(people);
+      this.animateMapBroadcast('outgoing', this.currentUserId, undefined, people);
+      return;
+    }
+    for (const peerId of people) this.flashMemberForNewTalk(peerId);
   }
 
   /**

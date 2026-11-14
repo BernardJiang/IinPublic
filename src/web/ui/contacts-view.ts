@@ -14,7 +14,7 @@ import type { StarterPracticeContact, StarterPracticeContactId } from './starter
 import { renderStarterContactRows } from './starter-contacts-view';
 import { contactsRowSelection } from './contacts-row-selection';
 import { clearContactsFocus, getContactsFocus, syncFocusChip, syncTopicOptions } from './graph-focus';
-import { sharedTagCounter, sharedTagsChipHtml } from './tag-graph-view';
+import { sharedTagCounter, sharedTagsChipHtml, similarityCounter } from './tag-graph-view';
 import { publicProfileFromFoundation } from './public-profile-foundation';
 import { getPrunedPeerIds } from '../services/contacts-prune';
 import { settingsStorage } from '../services/core-storage';
@@ -738,6 +738,8 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       deps.getPeerName(a.peerId, a.stageName).localeCompare(deps.getPeerName(b.peerId, b.stageName));
     // OPEN-87: one graph snapshot per render, for the "Most tags in common" sort and each row.
     const sharedTags = sharedTagCounter();
+    const similarity = similarityCounter();
+    const similarityText = { alike: deps.text('contactsAlike'), mostAlike: deps.text('contactsMostAlike') };
     const visiblePeersByCurrentSort = peers
       .filter((peer) => {
         // Never show the current user as their own contact.
@@ -760,6 +762,9 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         if (sortOrder === 'shared-tags') {
           const shared = sharedTags(b.peerId) - sharedTags(a.peerId);
           if (shared !== 0) return shared;
+          // Same tie-break as the "#k most alike" rank (OPEN-113), so the top row is #1.
+          const alike = similarity(b.peerId).score - similarity(a.peerId).score;
+          if (alike !== 0) return alike;
         }
         const aKnown = knownMap.get(a.peerId);
         const bKnown = knownMap.get(b.peerId);
@@ -856,10 +861,10 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
               <span class="contact-item-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;overflow:hidden;">${headshotHtml}</span>
               <div style="min-width: 0;">
                 <div class="contact-item-name" style="font-weight: 700; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; display: inline-block; cursor: pointer;" title="${deps.escapeHtml(deps.text('contactsOpenDm'))}">${deps.escapeHtml(displayName)}</div>${presenceIndicator}${blockedBadge}
-                <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps, sortOrder === 'shared-tags' ? 0 : sharedTags(peer.peerId)))}</div>
+                <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps, 0))}</div>
                 <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks}</div>
                 ${sortOrder === 'match-rate' ? matchRateChip : ''}
-                ${sortOrder === 'shared-tags' ? sharedTagsChipHtml(sharedTags(peer.peerId), deps.text('tagsInCommon')) : ''}
+                ${sharedTagsChipHtml(sharedTags(peer.peerId), deps.text('tagsInCommon'), similarity(peer.peerId), similarityText)}
                 ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
               </div>
             </div>

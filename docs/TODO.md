@@ -81,6 +81,10 @@ its ID.
     "Most like me" order. Talks: each tag row shows likes · passes · popularity rank. Me: my tag
     rows show how many people share each and its rank.
   - Views redraw when an exchange arrives (no tap). Hard rule: no new buttons in views.
+  Done in code 2026-11-14 (spec §6.1b): model + Contacts chip + Talks/Me popularity + live redraw;
+  unit tests, stage5 starter-tags checks the #1 rank. Open: a phone look at the three tabs; whether
+  redrawing Contacts/Me on every exchange burst disturbs someone scrolling (debounced 600 ms).
+  Also done: sending/receiving animation without the Broadcast button (spec §6.1a).
 - [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
   The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
   let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20

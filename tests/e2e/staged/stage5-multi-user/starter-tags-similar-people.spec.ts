@@ -104,7 +104,7 @@ async function backToContactsList(page: Page): Promise<void> {
 }
 
 /** Contacts sorted by "Most tags in common": each row's peer id and shared-tag count, top first. */
-async function sharedTagRows(page: Page): Promise<Array<{ peerId: string; shared: number }>> {
+async function sharedTagRows(page: Page): Promise<Array<{ peerId: string; shared: number; rank: number; alike: number }>> {
   await backToContactsList(page);
   const sort = page.locator('#contacts-sort-order');
   if (!(await sort.isVisible())) await openCollapsedFilters(page, 'contacts-filter-toggle');
@@ -117,6 +117,9 @@ async function sharedTagRows(page: Page): Promise<Array<{ peerId: string; shared
     rows.map((row) => ({
       peerId: (row as HTMLElement).dataset.contactUserId || '',
       shared: Number((row.querySelector('[data-testid="contact-shared-tags"]') as HTMLElement | null)?.dataset.sharedTags ?? 0),
+      // OPEN-113: the same chip states how alike we are and the rank.
+      rank: Number((row.querySelector('[data-testid="contact-shared-tags"]') as HTMLElement | null)?.dataset.similarityRank ?? 0),
+      alike: Number((row.querySelector('[data-testid="contact-shared-tags"]') as HTMLElement | null)?.dataset.similarity ?? 0),
     })));
 }
 
@@ -259,6 +262,9 @@ test.describe('Find similar people with starter tags', () => {
       const counts = known.map((row) => row.shared);
       expect(counts).toEqual([...counts].sort((a, b) => b - a));
       expect(known[0]!.shared).toBe(Math.max(...expected.values()));
+      // Live statistics (OPEN-113): the top row (most tags in common) is "#1 most alike".
+      expect(rows[0]!.rank, `${NAMES[index]}: the top of "Most tags in common" ranks #1`).toBe(1);
+      expect(rows[0]!.alike).toBeGreaterThan(0);
       // The chatbot answered every tag people sent: liked ones matched, passed ones passed again,
       // so none waits in Incoming.
       await page.locator('.nav-btn[data-view="talks"]').click();

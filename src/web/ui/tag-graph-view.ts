@@ -5,6 +5,7 @@
  * first, and leads to the Me rows and Talks we share. Configured once by the peer controller.
  */
 import { sharedTagCount, tagsOfPeer, type TagGraphInput } from '../../core/tag-graph';
+import { personSimilarity, type PersonSimilarity } from '../../core/tag-stats';
 import {
   configureGraphPersonPage,
   configureTagGraphSource,
@@ -62,10 +63,32 @@ export function sharedTagCounter(): (peerId: string) => number {
   };
 }
 
-/** "🏷️ N in common" under a Contacts row; nothing when no tag is shared. */
-export function sharedTagsChipHtml(count: number, template: string): string {
+/** Each person's similarity to me against one graph snapshot (OPEN-113), memoized per render. */
+export function similarityCounter(): (peerId: string) => PersonSimilarity {
+  const graph = currentTagGraph();
+  const table = graph ? personSimilarity(graph) : new Map<string, PersonSimilarity>();
+  return (peerId) => table.get(peerId) ?? { shared: 0, score: 0, rank: 0 };
+}
+
+/**
+ * "🏷️ N in common · 60% alike · #1 most alike" under a Contacts row (OPEN-113): the person's
+ * relationship with me from the tag graph; nothing when no tag is shared. The rank shows for the
+ * three most alike.
+ */
+export function sharedTagsChipHtml(
+  count: number,
+  template: string,
+  similarity?: PersonSimilarity,
+  text?: { alike: string; mostAlike: string },
+): string {
   if (count <= 0) return '';
-  return `<div class="contact-item-shared-tags" data-testid="contact-shared-tags" data-shared-tags="${count}">🏷️ ${escapeHtml(fill(template, count))}</div>`;
+  const percent = similarity ? Math.round(similarity.score * 100) : 0;
+  const alike = similarity && text ? ` · ${escapeHtml(text.alike.replace('{percent}', String(percent)))}` : '';
+  const rank = similarity && text && similarity.rank > 0 && similarity.rank <= 3
+    ? ` · <span class="contact-similarity-rank">${escapeHtml(text.mostAlike.replace('{rank}', String(similarity.rank)))}</span>`
+    : '';
+  const data = similarity ? ` data-similarity="${percent}" data-similarity-rank="${similarity.rank}"` : '';
+  return `<div class="contact-item-shared-tags" data-testid="contact-shared-tags" data-shared-tags="${count}"${data}>🏷️ ${escapeHtml(fill(template, count))}${alike}${rank}</div>`;
 }
 
 /**

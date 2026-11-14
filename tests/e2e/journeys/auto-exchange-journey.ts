@@ -3,8 +3,9 @@
  * Broadcast step, and the chatbot answers what it has learnt. Written once against TestActor so a
  * browser spec and two real phones (native-app/42) run the same body. Checked on the other side.
  *
- *   J-AUTO-01  A switches a private Talk to Broadcast On from its Talks row; B gets it with no
- *              send step and answers it with "Auto", so B's chatbot learns the answer;
+ *   J-AUTO-01  A switches a private Talk to Broadcast On from its Talks row; B's row on A's list
+ *              lights up as it goes out (sending stays visible); B gets it with no send step and
+ *              answers it with "Auto", so B's chatbot learns the answer;
  *   J-AUTO-02  A answers her own (private) Talk asking Q2; B publishes a Talk asking Q2. Nobody
  *              touches an answer: A's chatbot answers it from her own answer and B's device
  *              records the match. (Asking A's first question again would not be sent at all:
@@ -70,6 +71,9 @@ export async function autoExchangeJourney(alice: TestActor, bob: TestActor): Pro
   await expect(toggle).not.toBeChecked();
   await toggle.check();
   await expect(row).toHaveClass(/talk-broadcast-enabled/);
+  // Sending stays visible with no Broadcast button: Bob's row on Alice's list lights up as the
+  // Talk goes out to him (a 2.5 s highlight, so watch for it rather than read it once).
+  await expect(memberItem(alice.page, bobId)).toHaveClass(/broadcast-sent-to/, { timeout: 60_000 });
   lap('published');
 
   await openIncomingTalkModal(bob.page, first);

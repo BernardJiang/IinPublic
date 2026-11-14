@@ -53,6 +53,8 @@ export function saveCreatedTalk(
     role: 'created',
     fullTalk: talk,
     disabled: uncheckedTag || isPrivate,
+    // A tag I like is mine whether or not I share it: Broadcast Off no longer says which (OPEN-113).
+    ...(talk.type === 'tag' ? { likesTag: !uncheckedTag } : {}),
     expiresAt: talk.expiresAt ?? undefined,
     locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
     collectionImportance: talk.collectionImportance,

@@ -1951,8 +1951,9 @@ button:focus:not(:focus-visible) {
   color: var(--success);
 }
 
-/* Broadcast sent: highlight members who received the broadcast */
-.chatroom-member-item.broadcast-sent-to {
+/* Sent: highlight the people my Talks or answer just went to (automatic exchange) */
+.chatroom-member-item.broadcast-sent-to,
+.nearby-person-item.broadcast-sent-to {
   background: var(--success-soft) !important;
   border-radius: var(--radius-md);
   transition: background 0.3s ease;
@@ -1970,8 +1971,9 @@ button:focus:not(:focus-visible) {
   content: 'Matched';
 }
 
-/* Flash when new talk received from this user */
-.chatroom-member-item.flash-new-talk {
+/* Flash when a Talk or an answer arrives from this person */
+.chatroom-member-item.flash-new-talk,
+.nearby-person-item.flash-new-talk {
   animation: flashMember 1s ease-out;
 }
 
@@ -5700,6 +5702,10 @@ body.iinpublic-debug .conversation-health-status {
 .tag-graph-shared { font-size: 0.8em; color: var(--accent); }
 .tag-graph-empty { color: var(--text-tertiary); text-align: center; margin: 8px 0; }
 .contact-item-shared-tags { font-size: 0.8em; color: var(--accent); font-weight: 700; margin-top: 4px; }
+.contact-similarity-rank { color: var(--success); }
+/* A tag's popularity among the people I exchanged with (OPEN-113): plain text, not a link. */
+.tag-popularity { font-size: 0.8em; color: var(--text-secondary); margin-left: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.talk-tag-chip .tag-popularity { display: inline-flex; align-items: center; min-height: 32px; font-size: 0.875rem; }
 
 /* Talks rows without per-row buttons (owner design 2026-10-24). */
 .talk-tag-chip-flow { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
