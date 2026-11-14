@@ -10,6 +10,8 @@
  *              touches an answer: A's chatbot answers it from her own answer and B's device
  *              records the match. (Asking A's first question again would not be sent at all:
  *              what a pair already exchanged is not offered twice, REQ-LEDGER-16.)
+ *   J-AUTO-03  Both like the same starter tag; it is exchanged within seconds, not at the next
+ *              catch-up (1.0.248 phones).
  */
 import { expect } from '@playwright/test';
 import { createSimpleFlowTalk } from '../helpers/broadcast-cancellation-helpers';
@@ -50,6 +52,14 @@ export async function autoExchangeJourney(alice: TestActor, bob: TestActor): Pro
   const timings: Record<string, number> = {};
   const lap = (() => { let last = Date.now(); return (name: string) => { timings[name] = Date.now() - last; last = Date.now(); }; })();
   const [aliceId, bobId] = [await userId(alice.page), await userId(bob.page)];
+  // J-AUTO-03 likes a starter tag. The browser harness turns starter seeds off, and they are only
+  // offered to a user with no Talks yet, so opt back in now (no-op on phones).
+  for (const { page } of [alice, bob]) {
+    await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_starter_contacts_disabled'] }), localStorage.removeItem('iinpublic_starter_contacts_disabled')));
+    await page.click('.nav-btn[data-view="talks"]');
+    await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
+    await expect(page.locator('#talks-list .talk-tag-chip[data-starter-tag="true"]').first()).toBeAttached({ timeout: 30_000 });
+  }
 
   // Both on each other's Nearby list: that is the whole audience.
   await expect.poll(async () => (await currentRoomId(alice.page)) === (await currentRoomId(bob.page)) && (await currentRoomId(bob.page)) !== '',
@@ -111,5 +121,25 @@ export async function autoExchangeJourney(alice: TestActor, bob: TestActor): Pro
     throw new Error(`${String(error)}\n${alice.id} state: ${JSON.stringify(onAlice)}`);
   }
   lap('chatbotMatch');
+
+  // J-AUTO-03: a like is exchanged at once. Both like the same starter tag; each device records the
+  // tag exchanged with the other within seconds, so "in common" on Contacts is right straight away.
+  // (Found on 1.0.248 phones: a like waited for the next catch-up, about three minutes.)
+  const starterChip = (page: Page) => page.locator('#talks-list .talk-tag-chip[data-role="incoming"][data-starter-tag="true"]');
+  for (const { page } of [alice, bob]) {
+    await page.click('.nav-btn[data-view="talks"]');
+    await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
+  }
+  const tagKey = (await starterChip(alice.page).first().getAttribute('data-identity-key', { timeout: 30_000 })) || '';
+  expect(tagKey, 'no starter tag to like').not.toBe('');
+  await starterChip(alice.page).and(alice.page.locator(`[data-identity-key="${tagKey}"]`)).click();
+  await starterChip(bob.page).and(bob.page.locator(`[data-identity-key="${tagKey}"]`)).click();
+  const exchangedWith = (page: Page, peerId: string) => page.evaluate(async ([peer, key]) => {
+    const doc = await (window as any).__iinpublic_exchanges?.();
+    return Object.keys(doc ?? {}).some((entry) => entry.startsWith(`${peer}::${key}::`));
+  }, [peerId, tagKey] as const);
+  await expect.poll(() => exchangedWith(alice.page, bobId), { timeout: 60_000, message: `${alice.id}: liked tag ${tagKey} not exchanged with ${bob.id} at once` }).toBe(true);
+  await expect.poll(() => exchangedWith(bob.page, aliceId), { timeout: 60_000, message: `${bob.id}: liked tag ${tagKey} not exchanged with ${alice.id} at once` }).toBe(true);
+  lap('tagLikeExchanged');
   return { timings };
 }

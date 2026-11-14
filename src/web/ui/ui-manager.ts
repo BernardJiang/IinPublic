@@ -1744,7 +1744,12 @@ export class UIManager extends EventEmitter {
       checked ? 'match' : 'mismatch',
       checked ? { forceCopyToMyTalks: true } : undefined,
     );
-    if (checked) adoptLikedStarterTag(talk, { id: this.currentUserId, name: this.currentUser?.stageName || '' });
+    if (checked) {
+      adoptLikedStarterTag(talk, { id: this.currentUserId, name: this.currentUser?.stageName || '' });
+      // A liked tag is public (a starter tag at once, OPEN-112): exchange it with my list now, not
+      // at the next periodic catch-up minutes later. Private copies are skipped by the exchange.
+      this.emit('publishTalk', { talkId: talk.id });
+    }
   }
 
   private quickIgnoreIncomingTalk(talkId: string, identityKeyFallback?: string): void {

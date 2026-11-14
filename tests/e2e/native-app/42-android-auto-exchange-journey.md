@@ -12,6 +12,9 @@ There is no Broadcast button. Two people on each other's Nearby list:
    Talk from her own answer, and Bob's device records the match. (Asking Alice's first question
    again would not be sent at all: what a pair already exchanged is not offered twice,
    REQ-LEDGER-16.)
+3. **J-AUTO-03** — Both like the same starter tag. Each device records the tag exchanged with the
+   other within a minute: a like is exchanged at once, not at the next catch-up (found on 1.0.248
+   phones, where it took about three minutes).
 
 The same journey (`tests/e2e/journeys/auto-exchange-journey.ts`) runs in browsers in
 `staged/stage2-two-user/98-auto-exchange.spec.ts`. Clears both phones' app data.
