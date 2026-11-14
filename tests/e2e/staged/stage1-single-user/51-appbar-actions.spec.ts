@@ -8,7 +8,6 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
-import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
 
 test.describe('AppBar actions', () => {
@@ -34,9 +33,11 @@ test.describe('AppBar actions', () => {
     const p = page!;
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    for (const testid of ['create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn']) {
+    for (const testid of ['create-custom-chatroom-btn', 'return-home-btn']) {
       await expect(p.locator(`[data-testid="${testid}"]`)).toHaveCount(1);
     }
+    // Talk exchange is automatic (OPEN-112): no Broadcast button anywhere.
+    await expect(p.locator('[data-testid="broadcast-talk-btn"]')).toHaveCount(0);
     await expect(p.locator('[data-testid="bottom-navigation-button-chat"]')).toBeVisible();
   });
 
@@ -58,14 +59,6 @@ test.describe('AppBar actions', () => {
     await expect(p.locator('[data-testid="custom-room-name-input"]')).toBeVisible();
     await p.locator('#cancel-custom-room-btn').click();
     await expect(p.locator('[data-testid="custom-room-name-input"]')).toHaveCount(0);
-  });
-
-  test('📣 broadcast keeps its guard behavior with an empty OUT list', async () => {
-    const p = page!;
-    await openCurrentChatroom(p);
-    await p.locator('#broadcast-talk-btn').click();
-    // Empty OUT list → guard toast, same handler as the old text button.
-    await expect(p.locator('.notification', { hasText: /no talks to broadcast/i })).toBeVisible({ timeout: 10_000 });
   });
 
   test('🏠 return-home enable state carries over and back icon pops one level', async () => {

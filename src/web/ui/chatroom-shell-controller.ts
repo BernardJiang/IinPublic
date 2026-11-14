@@ -19,7 +19,7 @@ import { filterProfileAttributesForViewer } from '../../shared/profile-privacy';
 import type { QuestionAnswer } from '../../shared/types';
 import { MAP_BROADCAST_DURATION_MS, type MapBroadcastEvent } from './map-broadcast-effects';
 import { openMapMe, openMapPerson, openPeerTalks } from './graph-focus';
-import { isLocalOnlyRoomScope, isPersonalListScope } from '../../shared/nearby-rooms';
+import { isPersonalListScope } from '../../shared/nearby-rooms';
 type ChatroomsViewDeps = Parameters<typeof renderChatrooms>[0];
 
 export type ChatroomShellControllerDeps = {
@@ -197,9 +197,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
   const showChatroomDetail = (chatroomId: string): void => {
     openChatroomDetail(viewDeps(), chatroomId);
     const createRoomButton = document.getElementById('create-custom-chatroom-btn');
-    const broadcastButton = document.getElementById('broadcast-talk-btn');
     if (createRoomButton) createRoomButton.style.display = 'none';
-    if (broadcastButton) broadcastButton.style.display = 'inline-flex';
     deps.syncReturnHomeButton();
     deps.syncAppBarOverflow();
   };
@@ -324,14 +322,6 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
         event.stopPropagation();
         void handleCreateCustomChatroomClick();
       };
-    }
-    // Broadcast stays on the list (owner, 2026-10-24): Nearby's people are listed right here, so
-    // this is where a Nearby user broadcasts. Contacts-only has no audience to broadcast to.
-    const broadcastButton = document.getElementById('broadcast-talk-btn') as HTMLButtonElement | null;
-    if (broadcastButton) {
-      broadcastButton.style.display = 'inline-flex';
-      const current = deps.getCurrentChatroom();
-      broadcastButton.disabled = !current || isLocalOnlyRoomScope(current);
     }
     const ownerBar = document.getElementById('chatroom-owner-bar');
     if (ownerBar) {

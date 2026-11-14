@@ -4,8 +4,36 @@ import { isDirectTalkDeliveryE2e } from './ports';
 import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { E2E_ASSERT_TIMEOUT_MS } from './timing';
 
-/** OUT rows exist and at least one talk can be sent (pending or broadcastable). */
+/**
+ * Make my held Talks public: talk exchange is automatic (OPEN-112), so switching a Talk to
+ * Broadcast On is the user's only step left. Talks created with `isPublic: false` (or the editor's
+ * Public box unchecked) are held until this runs. Expired Talks stay as they are.
+ */
+export async function publishHeldTalks(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const ui = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.()?.uiManager;
+    if (!ui?.setTalkDisabled || !ui?.getMyTalks) throw new Error('uiManager not ready to publish Talks');
+    const mine = ui.getMyTalks() as Record<string, any>;
+    const now = Date.now();
+    const held = Object.entries(mine)
+      .filter(([, talk]) => talk?.disabled && (talk.role === 'created' || talk.role === 'copied'))
+      .filter(([, talk]) => {
+        const raw = talk.expiresAt ?? talk.fullTalk?.expiresAt;
+        const at = typeof raw === 'number' ? raw : raw ? new Date(raw).getTime() : NaN;
+        return !(Number.isFinite(at) && now > at);
+      })
+      .map(([id]) => id);
+    for (const id of held) ui.setTalkDisabled(id, false);
+    return held;
+  });
+}
+
+/**
+ * OUT rows exist and at least one talk can be sent (pending or broadcastable). Held Talks are made
+ * public first: that is the user's only step now that exchange is automatic (OPEN-112).
+ */
 export async function waitForPendingBroadcastTalkIds(page: Page, timeoutMs: number): Promise<void> {
+  await publishHeldTalks(page).catch(() => []);
   await expect
     .poll(
       async () => {
@@ -26,9 +54,9 @@ export async function waitForPendingBroadcastTalkIds(page: Page, timeoutMs: numb
 }
 
 /**
- * Confirm the audience-preview modal shown before manual Broadcast delivery. When
- * the caller already clicked Broadcast and talks are sendable, this waits for the
- * preamble and bulk-ack — it does not silently return if delivery never starts.
+ * Deliver my public Talks to the current list now. Exchange is automatic (OPEN-112) and there is no
+ * Broadcast button or audience dialog any more; this drives the same delivery path the automatic
+ * exchange uses, so a spec knows when its Talks have gone out. (Name kept for the many callers.)
  */
 export async function confirmBroadcastTagPreambleIfVisible(
   page: Page,
@@ -36,103 +64,7 @@ export async function confirmBroadcastTagPreambleIfVisible(
   opts?: { minGunPeers?: number; requirePreambleUi?: boolean },
 ): Promise<void> {
   const minPeers = opts?.minGunPeers ?? 1;
-  if (isDirectTalkDeliveryE2e() && !opts?.requirePreambleUi && minPeers > 0) {
-    await waitForPendingBroadcastTalkIds(page, timeoutMs);
-    await waitForChatroomMemberCountViaApi(page, minPeers, timeoutMs);
-    await deliverBroadcastViaAppPath(page, { minReceivers: minPeers });
-    return;
-  }
-  try {
-    await confirmBroadcastTagPreambleCore(page, timeoutMs, opts);
-  } catch {
-    await waitForPendingBroadcastTalkIds(page, timeoutMs);
-    await deliverBroadcastViaAppPath(page, { minReceivers: minPeers });
-  }
-}
-
-async function confirmBroadcastTagPreambleCore(
-  page: Page,
-  timeoutMs = E2E_ASSERT_TIMEOUT_MS,
-  opts?: { minGunPeers?: number },
-): Promise<void> {
-  const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
-  const editor = page.locator('#talk-editor-modal');
-  const sendBtn = page.locator('[data-testid="broadcast-preamble-send"]');
-
-  // A just-submitted editor can overlap the async audience lookup briefly. If
-  // Broadcast opened a new editor because there are no sendable talks, it
-  // remains visible and there is intentionally nothing to confirm.
-  if (await editor.isVisible().catch(() => false)) {
-    await editor.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
-    if (await editor.isVisible().catch(() => false)) return;
-  }
-
   await waitForPendingBroadcastTalkIds(page, timeoutMs);
-
-  const sendVisible = await sendBtn
-    .waitFor({ state: 'visible', timeout: 3_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!sendVisible) {
-    if (isDirectTalkDeliveryE2e()) {
-      const minPeers = opts?.minGunPeers ?? 1;
-      if (minPeers > 0) {
-        await waitForChatroomMemberCountViaApi(page, minPeers, timeoutMs);
-      }
-    }
-    const broadcastBtn = page.locator('#broadcast-talk-btn');
-    await expect(broadcastBtn).toBeVisible({ timeout: timeoutMs });
-    await broadcastBtn.click({ timeout: E2E_ASSERT_TIMEOUT_MS });
-  }
-
-  const preambleVisible = await preamble
-    .waitFor({ state: 'visible', timeout: 3_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!preambleVisible) {
-    await page.evaluate(async () => {
-      const app = (window as unknown as { __iinpublic_app?: { getApp: () => any } }).__iinpublic_app?.getApp?.();
-      const ui = app?.uiManager;
-      if (!ui?.emit || !ui.getPendingBroadcastTalkIds) {
-        throw new Error('broadcastTalk emit unavailable');
-      }
-      const chatroomId =
-        ui.currentChatroom || app?.chatroomService?.getCurrentChatroomId?.() || 'global';
-      const talkIds = ui.getPendingBroadcastTalkIds() as string[];
-      if (!Array.isArray(talkIds) || talkIds.length === 0) {
-        throw new Error('no pending broadcast talk ids');
-      }
-      const members = (ui.getCurrentChatroomMembers?.() || ui.currentChatroomMembers || []) as Array<{
-        userId: string;
-        stageName: string;
-      }>;
-      ui.emit('broadcastTalk', { chatroomId, members, talkIds });
-    });
-  }
-
-  await preamble.waitFor({ state: 'visible', timeout: timeoutMs });
-  await sendBtn.waitFor({ state: 'visible', timeout: timeoutMs });
-
-  if (isDirectTalkDeliveryE2e()) {
-    const minPeers = opts?.minGunPeers ?? 1;
-    if (minPeers > 0) {
-      await waitForChatroomMemberCountViaApi(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
-    }
-  }
-  const ack = page.locator('[data-testid="broadcast-bulk-ack"]');
-  const genBefore = Number(await ack.getAttribute('data-broadcast-bulk-gen')) || 0;
-  await sendBtn.click({ timeout: E2E_ASSERT_TIMEOUT_MS });
-  await expect
-    .poll(
-      async () => {
-        const gen = Number(await ack.getAttribute('data-broadcast-bulk-gen'));
-        const sent = Number(await ack.getAttribute('data-broadcast-talks-sent'));
-        const receivers = Number(await ack.getAttribute('data-broadcast-receivers'));
-        const sentOk = Number.isFinite(sent) && sent >= 1;
-        const recvOk = Number.isFinite(receivers) && receivers >= 1;
-        return Number.isFinite(gen) && gen > genBefore && sentOk && recvOk;
-      },
-      { timeout: E2E_ASSERT_TIMEOUT_MS, intervals: [100, 200, 400] },
-    )
-    .toBe(true);
+  if (minPeers > 0) await waitForChatroomMemberCountViaApi(page, minPeers, timeoutMs);
+  await deliverBroadcastViaAppPath(page, { minReceivers: minPeers });
 }

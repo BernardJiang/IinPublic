@@ -26,11 +26,11 @@ function makeDeps(overrides: Partial<BroadcastControllerDeps> = {}): BroadcastCo
     getKnownPeople: () => [],
     getBlockedUserIds: () => [],
     getBroadcastableTalkIds: () => ['talk-1'],
+    getGroupSendableTalkIds: () => ['talk-1'],
     getMyTalks: () => ({ 'talk-1': { title: 'First talk' } }),
     getPeerName: (userId) => userId,
     showNotification: jest.fn(),
     showTalkEditorDialog: jest.fn(),
-    maybeShowPreSendSafetyToast: jest.fn(),
     emit: jest.fn(),
     t: (key) => String(key),
     tf: (key, vars) => `${String(key)}:${vars.count}`,
@@ -84,84 +84,6 @@ describe('broadcast controller', () => {
       members: [{ userId: 'peer-1', stageName: 'One' }],
       automatic: true,
     }));
-  });
-
-  it('shows the open-room notice when neither manager nor app supplies a room', async () => {
-    const showNotification = jest.fn();
-    const controller = createBroadcastController(makeDeps({
-      getCurrentChatroom: () => '',
-      showNotification,
-    }));
-
-    await controller.runBroadcastFromCurrentRoom(false);
-
-    expect(showNotification).toHaveBeenCalledWith('chatroomOpenFirst', 'info');
-  });
-
-  it('emits a manual room broadcast with per-talk receiver narrowing', async () => {
-    document.body.innerHTML = `<div id="chatroom-members-list">
-      <div class="chatroom-member-item" data-user-id="peer-1" data-stage-name="One"></div>
-    </div>`;
-    const emit = jest.fn();
-    const maybeShowPreSendSafetyToast = jest.fn();
-    const controller = createBroadcastController(makeDeps({ emit, maybeShowPreSendSafetyToast }));
-
-    await controller.runBroadcastFromCurrentRoom(false);
-
-    expect(receiversByTalk).toHaveBeenCalledWith(['talk-1'], ['peer-1']);
-    expect(maybeShowPreSendSafetyToast).toHaveBeenCalledTimes(1);
-    expect(emit).toHaveBeenCalledWith('broadcastTalk', expect.objectContaining({
-      chatroomId: 'global',
-      talkIds: ['talk-1'],
-      talkReceiverIds: { 'talk-1': ['peer-1'] },
-      automatic: false,
-    }));
-  });
-
-  it('does not open the delayed no-Talk editor after the user moves to another control', async () => {
-    jest.useFakeTimers();
-    document.body.innerHTML = `
-      <button id="outing-broadcast">Broadcast into this collection</button>
-      <button id="next-control">List</button>
-      <button class="nav-btn active" data-view="chatrooms"></button>`;
-    const showTalkEditorDialog = jest.fn();
-    const controller = createBroadcastController(makeDeps({
-      getBroadcastableTalkIds: () => [],
-      showTalkEditorDialog,
-    }));
-    const trigger = document.getElementById('outing-broadcast') as HTMLButtonElement;
-    trigger.focus();
-
-    const run = controller.runBroadcastFromCurrentRoom(false);
-    (document.getElementById('next-control') as HTMLButtonElement).focus();
-    await jest.advanceTimersByTimeAsync(1_600);
-    await run;
-
-    expect(showTalkEditorDialog).not.toHaveBeenCalled();
-  });
-
-  it('keeps the no-Talk guard when disabling the initiating button moves focus to the body', async () => {
-    jest.useFakeTimers();
-    document.body.innerHTML = `
-      <button id="broadcast-talk-btn">Broadcast</button>
-      <button class="nav-btn active" data-view="chatrooms"></button>`;
-    const showTalkEditorDialog = jest.fn();
-    const showNotification = jest.fn();
-    const controller = createBroadcastController(makeDeps({
-      getBroadcastableTalkIds: () => [],
-      showTalkEditorDialog,
-      showNotification,
-    }));
-    const trigger = document.getElementById('broadcast-talk-btn') as HTMLButtonElement;
-    trigger.focus();
-
-    const run = controller.runBroadcastFromCurrentRoom(false);
-    await jest.advanceTimersByTimeAsync(1_600);
-    await run;
-    await jest.runOnlyPendingTimersAsync();
-
-    expect(showTalkEditorDialog).toHaveBeenCalledTimes(1);
-    expect(showNotification).toHaveBeenCalledWith('chatroomNoTalksToBroadcast', 'info');
   });
 
   it('renders group membership excluding blocked peers and emits the selected target', () => {

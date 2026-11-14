@@ -16,8 +16,8 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.1  <!-- auto-seeded; refine by hand -->
    - 10 flow-type talks (from `TALK_TITLES` list)
    All are created with 1 question each, matching/ignoring answers, and self-answers set to match.
 
-3. **Tom joins Nearby; Alice broadcasts.** Creating a Talk does not send it: Alice broadcasts (📣) once
-   Tom is on her Nearby list. One author sends one person at most 10 distinct Talks a day
+3. **Tom joins Nearby; Alice's Talks reach him by themselves.** Exchange is automatic (OPEN-112):
+   all 20 public Talks go to Tom once he is on her Nearby list, with no Broadcast step. One author sends one person at most 10 distinct Talks a day
    (`TALK_SEND_DAILY`), so the spec lifts Alice's limit (`setTalkLedgerQuotaUnlimitedForE2e`). The
    spec waits until all 20 Talks are in Tom's incoming list (an answer given before arrival is dropped).
 

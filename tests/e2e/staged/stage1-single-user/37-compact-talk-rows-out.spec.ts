@@ -85,13 +85,14 @@ test.describe('Compact talk rows (M2) — OUT row 2-line collapse + popup detail
       await expect(row.locator('.talk-item-details')).toBeHidden();
       await expect(row.locator('.talk-item-details')).toHaveCount(1);
 
-      // Broadcast-toggle checkbox fires immediately on 'change' — no prior selection step.
+      // Broadcast-toggle checkbox fires immediately on 'change' — no prior selection step. The
+      // editor helper creates Talks private (Public unchecked, OPEN-112), so it starts off.
       const checkbox = row.locator('.talk-broadcast-toggle-checkbox');
-      await expect(checkbox).toBeChecked();
-      await checkbox.uncheck();
-      await expect(row).toHaveClass(/talk-broadcast-disabled/);
+      await expect(checkbox).not.toBeChecked();
       await checkbox.check();
       await expect(row).toHaveClass(/talk-broadcast-enabled/);
+      await checkbox.uncheck();
+      await expect(row).toHaveClass(/talk-broadcast-disabled/);
     }
 
     // Survey-stats: only reachable now from inside the long-press details popup.

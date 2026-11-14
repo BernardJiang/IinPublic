@@ -34,11 +34,15 @@ export type SaveCreatedTalkDeps = {
  */
 export function saveCreatedTalk(
   talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null; collectionImportance?: 'important' | 'must-have' },
-  options: { selfAnswers: { questionId: string; answerId: string }[] },
+  options: { selfAnswers: { questionId: string; answerId: string }[]; isPublic?: boolean },
   deps: SaveCreatedTalkDeps,
 ): void {
   const myTalks = getMyTalks();
   const uncheckedTag = talk.type === 'tag' && options.selfAnswers.some((answer) => answer.answerId === 'ignore' || answer.answerId.includes('ignore'));
+  // Public (Broadcast On) is what the app exchanges automatically (OPEN-112). A new Talk takes the
+  // editor's choice; an edit keeps the Talk's current choice instead of making it public again.
+  const existing = myTalks[talk.id];
+  const isPrivate = options.isPublic !== undefined ? !options.isPublic : !!existing?.disabled;
   myTalks[talk.id] = {
     ...myTalks[talk.id],
     talkId: talk.id,
@@ -48,7 +52,7 @@ export function saveCreatedTalk(
     timestamp: new Date().toISOString(),
     role: 'created',
     fullTalk: talk,
-    disabled: uncheckedTag,
+    disabled: uncheckedTag || isPrivate,
     expiresAt: talk.expiresAt ?? undefined,
     locationRadiusMiles: talk.locationRadiusMiles ?? undefined,
     collectionImportance: talk.collectionImportance,

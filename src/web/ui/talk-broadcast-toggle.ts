@@ -22,6 +22,9 @@ export function setTalkDisabled(talkId: string, disabled: boolean, deps: TalkBro
   if (disabled) {
     deps.emit('withdrawTalk', { talkId });
     deps.emit('retractTalk', { talkId, retractedAt: Date.now() });
+  } else {
+    // Public again: the app offers it to everyone on my current list (OPEN-112).
+    deps.emit('publishTalk', { talkId });
   }
   // Patch visible rows so checkboxes stay in DOM and keep responding (no full list re-render)
   const talksList = document.getElementById('talks-list');

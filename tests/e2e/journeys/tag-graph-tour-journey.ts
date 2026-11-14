@@ -176,7 +176,7 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
   // writes can keep the asynchronous Talk save beyond the global 10 s fail-fast budget even
   // though the editor submission succeeds; keep the larger allowance local to this heavy step.
   await createSimpleFlowTalk(a, flowTitle, yes, 'Not this time', {
-    sendToChatroom: false,
+    isPublic: false,
     timeoutMs: 30_000,
   });
   await send(ann, [{ userId: cyId, stageName: cyName }]);

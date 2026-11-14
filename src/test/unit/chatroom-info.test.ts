@@ -5,7 +5,6 @@ import { updateChatroomInfo, type ChatroomInfoDeps } from '../../web/ui/chatroom
 function deps(overrides: Partial<ChatroomInfoDeps> = {}): ChatroomInfoDeps {
   return {
     setCurrentChatroom: jest.fn(),
-    syncStatusBroadcastButtonVisibility: jest.fn(),
     ...overrides,
   };
 }
@@ -32,12 +31,6 @@ describe('updateChatroomInfo', () => {
     const d = deps();
     updateChatroomInfo({ name: 'Global' }, d);
     expect(d.setCurrentChatroom).not.toHaveBeenCalled();
-  });
-
-  it('always syncs the status broadcast button visibility', () => {
-    const d = deps();
-    updateChatroomInfo({}, d);
-    expect(d.syncStatusBroadcastButtonVisibility).toHaveBeenCalledTimes(1);
   });
 
   it('renders the chatroom title and connected status when id and name are both present', () => {

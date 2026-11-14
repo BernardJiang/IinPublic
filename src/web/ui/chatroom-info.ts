@@ -1,6 +1,5 @@
 export type ChatroomInfoDeps = {
   setCurrentChatroom: (id: string) => void;
-  syncStatusBroadcastButtonVisibility: () => void;
 };
 
 export function updateChatroomInfo(info: { id: string; name: string } | any, deps: ChatroomInfoDeps): void {
@@ -8,7 +7,6 @@ export function updateChatroomInfo(info: { id: string; name: string } | any, dep
   if (info.id) {
     deps.setCurrentChatroom(info.id);
   }
-  deps.syncStatusBroadcastButtonVisibility();
 
   const chatroomInfo = document.getElementById('chatroom-info');
   if (chatroomInfo && info.id && info.name) {

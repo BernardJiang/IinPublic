@@ -19,9 +19,16 @@ export function resolveExpiresAtMs(value: unknown): number {
 
 /** My Talks I can broadcast or send: created or copied, not disabled, not expired. */
 export function broadcastableTalkIds(myTalks: Record<string, any>, nowMs: number): string[] {
+  return sendableTalkIds(myTalks, nowMs).filter((id) => !myTalks[id]?.disabled);
+}
+
+/**
+ * My Talks I may send on purpose to people I know (a contact group): created or copied, not
+ * expired, public or private. Public only decides the automatic exchange nearby (OPEN-112).
+ */
+export function sendableTalkIds(myTalks: Record<string, any>, nowMs: number): string[] {
   return Object.entries(myTalks)
     .filter(([, talk]) => {
-      if (talk?.disabled) return false;
       if (talk?.role !== 'created' && talk?.role !== 'copied') return false;
       const expiresAt = resolveExpiresAtMs(talk?.expiresAt ?? talk?.fullTalk?.expiresAt);
       return !(Number.isFinite(expiresAt) && nowMs > expiresAt);
@@ -57,4 +64,14 @@ export function getUnsentBroadcastTalkReceiverIds(talkIds: string[], receiverIds
   const result: Record<string, string[]> = {};
   for (const talkId of talkIds) result[talkId] = receiverIds.filter((receiverId) => isBroadcastUnsentForReceiver(receiverId, talkId, deps));
   return result;
+}
+
+/**
+ * A Talk never goes back to its author. A copied Talk keeps its original author (docs/TODO.md §Y1),
+ * and automatic exchange shares my copies with everyone on my list (OPEN-112), so without this the
+ * author would receive their own Talk from whoever copied it.
+ */
+export function receiversExcludingAuthor(receiverIds: string[], authorId: unknown): string[] {
+  const author = String(authorId ?? '').trim();
+  return author ? receiverIds.filter((id) => id !== author) : receiverIds;
 }

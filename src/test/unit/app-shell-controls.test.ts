@@ -20,7 +20,6 @@ function deps(overrides: Partial<AppShellControlsDeps> = {}): AppShellControlsDe
     handleCreateCustomChatroomClick: jest.fn().mockResolvedValue(undefined),
     showContactsList: noop,
     resetSettingsSection: noop,
-    handleBroadcastTalkFromCurrentRoom: noop,
     restoreTalksTabState: noop,
     setTalksShowIncoming: noop,
     setTalksShowOutgoing: noop,
@@ -59,7 +58,6 @@ beforeEach(() => {
     <button id="dm-inbox-btn"></button><button id="back-to-chatrooms"></button>
     <button id="return-home-btn"></button><button id="settings-refresh-location-btn"></button>
     <button id="back-to-contacts-list"></button><button id="back-to-settings-menu"></button>
-    <button id="broadcast-talk-btn"></button>
     <input id="talks-filter-incoming" type="checkbox" checked>
     <input id="talks-filter-outgoing" type="checkbox" checked>
     <input class="talks-type-checkbox" value="tag" type="checkbox" checked>

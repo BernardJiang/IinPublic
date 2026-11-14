@@ -59,7 +59,7 @@ test.describe('Nearby screens', () => {
     // A broadcast still delivers; its progress is intentionally not another control/status card
     // in the file-browser list.
     const title = `Nearby screens ${Date.now()}`;
-    await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { sendToChatroom: false });
+    await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { isPublic: false });
     // The real Broadcast button: it waits for each recipient's acknowledgement (the e2e delivery
     // shortcut floods without acks, so it could never report progress).
     await broadcastFromGlobalChatroom(pageTom, { requirePreambleUi: true, minGunPeers: 1 });

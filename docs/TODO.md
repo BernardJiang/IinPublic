@@ -55,6 +55,32 @@ its ID.
 
 ## Active maintenance queue — website and Android first
 
+- [ ] **OPEN-112 — Automatic Talk exchange, no Broadcast button (owner, 2026-11-13).** Users only
+  decide which Talks are public (Broadcast On); each public Talk goes to everyone on my list
+  (capped at room capacity) and the chatbot answers. Spec §6.1a. Done in code: catch-up no longer
+  needs a Broadcast in the room, create/edit/switch-on offer at once, editor box is "Public",
+  edits keep the choice, capture drafts start private, T1 toast on publish, button removed.
+  Phone check passed 2026-11-13 on 1.0.247, C10 + FRD (native-app/42, browser twin stage2/98):
+  publish → arrival 30 s with no tap → match 11 s; the other's chatbot answered a Talk with nobody
+  tapping → match 49 s. Note: a question a pair already exchanged is not offered again
+  (REQ-LEDGER-16), and one author reaches a person with at most 10 distinct Talks a day.
+  Open: (a) when a link opens with many public Talks owed (stage5/00d: 20 at once), 1–4 sometimes
+  never arrived (5 of ~12 runs, all while the machine was busy; 0 of 6 when idle). No receiving-limit
+  declines were logged (`[intake]` warning added). Next: find where they stop (sender's pair log vs
+  receiver's intake). (b) The audience-preview dialog (`broadcast-audience-dialog.ts`) is no longer
+  reachable from the UI — remove or repurpose. (c) Done: copies stay as received (private) until
+  the copier switches them on (owner, 2026-11-13); a Talk is never sent back to its author (copies
+  used to return to the author, mass/06).
+- [ ] **OPEN-113 — Live tag statistics in Contacts, Talks and Me (owner, 2026-11-14).** One model,
+  three views, all from what this device holds (people I exchanged with; no hub counts):
+  - Model (`src/core/tag-graph.ts` + a pure `tag-stats`): per tag — who likes it, who passed it,
+    popularity rank; per person — tags in common, similarity (shared ÷ union of liked tags), rank.
+    A tag I liked counts as mine whether or not I share it (today `mine` needs an active, not
+    disabled, Talk — wrong now that copies start private, OPEN-112).
+  - Contacts: each person's relationship with me (in common, % alike, "#1 most like you"),
+    "Most like me" order. Talks: each tag row shows likes · passes · popularity rank. Me: my tag
+    rows show how many people share each and its rank.
+  - Views redraw when an exchange arrives (no tap). Hard rule: no new buttons in views.
 - [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
   The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
   let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20

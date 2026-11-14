@@ -17,11 +17,12 @@ export type BroadcastControllerDeps = {
   getKnownPeople: () => KnownPerson[];
   getBlockedUserIds: () => string[];
   getBroadcastableTalkIds: () => string[];
+  /** Public or private: a contact-group send is deliberate (OPEN-112). */
+  getGroupSendableTalkIds: () => string[];
   getMyTalks: () => Record<string, any>;
   getPeerName: (userId: string) => string;
   showNotification: (message: string, type: 'info' | 'warning') => void;
   showTalkEditorDialog: () => void;
-  maybeShowPreSendSafetyToast: () => void;
   emit: (event: string, payload: unknown) => void;
   t: (key: any) => string;
   tf: (key: any, vars: Record<string, string | number>) => string;
@@ -54,16 +55,6 @@ function readRosterMembers(): BroadcastMember[] {
       stageName: (node.dataset.stageName || 'User').trim() || 'User',
     };
   });
-}
-
-function uniqueMembers(members: BroadcastMember[]): BroadcastMember[] {
-  const byId = new Map<string, BroadcastMember>();
-  for (const member of members) {
-    const userId = String(member.userId || '').trim();
-    if (!userId || byId.has(userId)) continue;
-    byId.set(userId, { userId, stageName: member.stageName || userId });
-  }
-  return [...byId.values()];
 }
 
 export function createBroadcastController(deps: BroadcastControllerDeps) {
@@ -101,95 +92,10 @@ export function createBroadcastController(deps: BroadcastControllerDeps) {
     broadcastPendingTalksToMembers(deps.getCurrentChatroomMembers());
   };
 
-  const runBroadcastFromCurrentRoom = async (automatic: boolean): Promise<void> => {
-    // A no-Talk broadcast waits briefly for an editor save that may still be landing. Remember
-    // the control that initiated that wait: if the user focuses another control or the screen is
-    // re-rendered meanwhile, the original intent has been superseded and must not pop an editor
-    // over their newer action.
-    const triggerAtStart = document.activeElement as HTMLElement | null;
-    let chatroomId = deps.getCurrentChatroom();
-    if (!chatroomId) {
-      const fromApp = (
-        window as unknown as {
-          __iinpublic_app?: { getApp: () => { chatroomService?: { getCurrentChatroomId: () => string } } };
-        }
-      ).__iinpublic_app?.getApp?.()?.chatroomService?.getCurrentChatroomId?.();
-      if (fromApp) {
-        chatroomId = fromApp;
-        deps.setCurrentChatroom(fromApp);
-      }
-    }
-    if (!chatroomId) {
-      deps.showNotification(deps.t('chatroomOpenFirst'), 'info');
-      return;
-    }
-
-    // Saving a newly-created talk finishes asynchronously after the editor closes. Give that
-    // local write a short bounded window before treating the room as having no outgoing talks.
-    let broadcastableIds = deps.getBroadcastableTalkIds();
-    const activeTab = (): string => (document.querySelector('.nav-btn.active') as HTMLElement | null)?.dataset.view ?? '';
-    const tappedFrom = activeTab();
-    if (broadcastableIds.length === 0) {
-      // A tap must show something during this wait (gui-responsiveness-audit.md F10).
-      const button = document.getElementById('broadcast-talk-btn') as HTMLButtonElement | null;
-      if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
-      try {
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 75));
-          broadcastableIds = deps.getBroadcastableTalkIds();
-          if (broadcastableIds.length > 0) break;
-        }
-      } finally {
-        if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
-      }
-    }
-    if (broadcastableIds.length === 0) {
-      // The user may have moved on during the wait: never pop the editor over another screen.
-      // Disabling the initiating button during the wait makes browsers move focus to <body>;
-      // that is not a newer user intent and must not suppress the normal empty-list guard.
-      const focusedAfterWait = document.activeElement;
-      if (
-        activeTab() !== tappedFrom
-        || (triggerAtStart && !triggerAtStart.isConnected)
-        || (triggerAtStart
-          && focusedAfterWait !== triggerAtStart
-          && focusedAfterWait !== document.body)
-      ) return;
-      deps.showTalkEditorDialog();
-      setTimeout(() => deps.showNotification(deps.t('chatroomNoTalksToBroadcast'), 'info'), 0);
-      return;
-    }
-
-    const members = uniqueMembers([...deps.getCurrentChatroomMembers(), ...readRosterMembers()]);
-    const talkIds = getPendingBroadcastTalkIds();
-    if (talkIds.length === 0) {
-      deps.showNotification(deps.t('chatroomAlreadyBroadcast'), 'info');
-      return;
-    }
-    const talkReceiverIds = getUnsentTalkReceiverIds(
-      talkIds,
-      members.map((member) => member.userId),
-    );
-    deps.maybeShowPreSendSafetyToast();
-    deps.emit('broadcastTalk', { chatroomId, members, talkIds, talkReceiverIds, automatic });
-
-    const list = document.getElementById('chatroom-members-list');
-    if (list) {
-      list.querySelectorAll('.chatroom-member-item').forEach((element) => {
-        element.classList.add('broadcast-sent-to');
-      });
-      setTimeout(() => {
-        list.querySelectorAll('.chatroom-member-item').forEach((element) => {
-          element.classList.remove('broadcast-sent-to');
-        });
-      }, 2500);
-    }
-  };
-
   const showBroadcastToGroupDialog = (): void => {
     const knownPeople = deps.getKnownPeople();
     const groups = listContactGroups(knownPeople);
-    const talkIds = deps.getBroadcastableTalkIds();
+    const talkIds = deps.getGroupSendableTalkIds();
     if (talkIds.length === 0) {
       deps.showNotification(deps.t('chatroomNoTalksToBroadcast'), 'info');
       return;
@@ -264,7 +170,6 @@ export function createBroadcastController(deps: BroadcastControllerDeps) {
     getPendingBroadcastTalkIds,
     getUnsentTalkIds,
     getUnsentTalkReceiverIds,
-    runBroadcastFromCurrentRoom,
     showBroadcastToGroupDialog,
   };
 }

@@ -39,7 +39,7 @@ async function sameRoomAndVisible(alice: TestActor, bob: TestActor): Promise<{ a
 }
 
 async function broadcastTalk(page: Page, title: string): Promise<void> {
-  await createSimpleFlowTalk(page, title, MATCH, MISMATCH, { sendToChatroom: false });
+  await createSimpleFlowTalk(page, title, MATCH, MISMATCH, { isPublic: false });
   await goToChatrooms(page);
   await openCurrentRoom(page);
   try {
@@ -53,9 +53,6 @@ async function broadcastTalk(page: Page, title: string): Promise<void> {
       const ack = document.querySelector('[data-testid="broadcast-bulk-ack"]');
       const app = (window as any).__iinpublic_app?.getApp?.();
       return {
-        broadcastBtn: visible('#broadcast-talk-btn'),
-        statusBroadcastBtn: visible('#status-broadcast-talk-btn'),
-        preamble: visible('[data-testid="broadcast-preamble-modal"]'),
         gen: ack?.getAttribute('data-broadcast-bulk-gen'),
         sent: ack?.getAttribute('data-broadcast-talks-sent'),
         pending: app?.uiManager?.getBroadcastableTalkIds?.(),

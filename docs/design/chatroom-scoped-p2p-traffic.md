@@ -316,10 +316,10 @@ jitter and exponential backoff.
 - The same signed Talk object keeps a stable object ID across Internet, LAN, Wi-Fi Aware, and
   Wi-Fi Direct paths; multipath arrival is deduplicated.
 - Peers exchange compact inventory/checkpoint summaries and request only missing accepted objects.
-- Pending room broadcasts remain associated with their originating room. Switching rooms does not
-  rebroadcast them into the new room.
-- A user who wants to reach another population switches to that room and deliberately broadcasts
-  there. The UI should make the current audience unmistakable before sending.
+- **Superseded 2026-11-13 (OPEN-112, spec §6.1a):** there is no deliberate broadcast any more.
+  Every public (Broadcast On) Talk is offered automatically to each person on my current list,
+  capped at the room capacity, in whichever scope I am in (Nearby or a Place). Switching rooms
+  changes the list, and the new list receives my public Talks it does not have yet.
 - Responses and resulting one-to-one conversations may continue after either user leaves the
   original room because they are pair-private traffic, not continued room reach.
 

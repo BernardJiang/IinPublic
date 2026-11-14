@@ -3,64 +3,36 @@ import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage2Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
-import { afterLoad, afterSync, afterNav, headless, E2E_ASSERT_TIMEOUT_MS } from '../../helpers/timing';
+import { afterLoad, afterSync, afterNav, headless } from '../../helpers/timing';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../../helpers/talks-matching-flow';
 import { createSimpleFlowTalk } from '../../helpers/broadcast-cancellation-helpers';
-import { confirmBroadcastTagPreambleIfVisible } from '../../helpers/broadcast-preamble';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
+import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
-import { openCurrentChatroom } from '../../helpers/chatroom-nav';
 
 /**
- * Deliberately NOT `clickBroadcastUntilBulkAck` (talk-demo-ui.ts): that helper's
- * direct-talk-delivery-e2e branch calls `deliverBroadcastViaAppPath` — an E2E-only shortcut
- * that invokes `app.deliverPendingBroadcastTalksForE2e` directly — WITHOUT ever clicking
- * `#broadcast-talk-btn`, which is exactly the click handler that fires the T1 safety toast
- * (`runBroadcastFromCurrentRoom`, ui-manager.ts). This test needs the real click every time.
+ * Switch one of my Talks to Broadcast On from its row in the Talks tab — the real control. Talk
+ * exchange is automatic (OPEN-112), so making a Talk public is the moment T1 fires.
  *
- * Only clicks and returns — deliberately does not also wait for full delivery confirmation.
- * The toast is created synchronously very early inside the click handler and auto-dismisses
- * after 3s, so a caller that wants to assert on it must check immediately after this
- * resolves, before spending any of that 3s budget on delivery-confirmation network calls.
+ * Only toggles and returns: the toast is created synchronously by the toggle and auto-dismisses
+ * after 3s, so a caller must check it immediately after this resolves.
  */
-async function navigateToRoomAndClickBroadcast(page: Page): Promise<void> {
-  await page.click('.nav-btn[data-view="chatrooms"]');
+async function makeTalkPublic(page: Page, title: string): Promise<void> {
+  await page.click('.nav-btn[data-view="talks"]');
   await afterNav();
-  const inDetail = await page.locator('#chatroom-members-list').isVisible().catch(() => false);
-  if (!inDetail) {
-    await openCurrentChatroom(page);
-    await afterSync();
-  }
-  const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
-  await expect(broadcastBtn).toBeVisible({ timeout: 10_000 });
-  await broadcastBtn.click({ timeout: 8_000 });
-}
-
-/** Real click + reliable delivery confirmation, for broadcasts a peer must actually receive. */
-async function realBroadcastClickAndDeliver(page: Page, minGunPeers = 1): Promise<void> {
-  const ackLoc = page.locator('[data-testid="broadcast-bulk-ack"]');
-  const genBefore = Number(await ackLoc.getAttribute('data-broadcast-bulk-gen'));
-  const start = Number.isFinite(genBefore) ? genBefore : 0;
-  await navigateToRoomAndClickBroadcast(page);
-  await afterSync();
-  await confirmBroadcastTagPreambleIfVisible(page, E2E_ASSERT_TIMEOUT_MS, { minGunPeers });
-  await expect
-    .poll(
-      async () => {
-        const gen = Number(await ackLoc.getAttribute('data-broadcast-bulk-gen'));
-        return Number.isFinite(gen) && gen > start;
-      },
-      { timeout: 30_000, intervals: [100, 200, 400, 800] },
-    )
-    .toBe(true);
+  const row = page.locator('.talk-list-item[data-role="created"]').filter({ hasText: title }).first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  const toggle = row.locator('.talk-broadcast-toggle-checkbox');
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
 }
 
 // FR-FIN-1 (spec §7.4, TODO §CC): the mandatory financial-safety reminder is a toast that
-// fires at most once per day per checkpoint — T1 before a talk is sent/broadcast, T2 right
+// fires at most once per day per checkpoint — T1 when a talk becomes public, T2 right
 // after a match is found. `shouldShowCooldownToast` (ui-manager.ts) gates both on a
-// `localStorage` timestamp; this spec drives the real UI triggers (a real broadcast, a real
+// `localStorage` timestamp; this spec drives the real UI triggers (a real publish, a real
 // match) and time-travels only that one durable timestamp key to prove the day boundary,
 // rather than faking the whole system clock.
 test.describe.configure({ timeout: 120_000 });
@@ -150,8 +122,8 @@ test.describe('FR-FIN-1: once-per-day pre-send and post-match safety toasts', ()
     // T1, step 1: first broadcast of the session,
     // no prior cooldown entry, toast must appear. Checked immediately after the click,
     // before it can auto-dismiss (3s lifetime).
-    await createSimpleFlowTalk(pageAlice, 'CC Talk 1', 'Match', 'Ignore', { sendToChatroom: false });
-    await navigateToRoomAndClickBroadcast(pageAlice);
+    await createSimpleFlowTalk(pageAlice, 'CC Talk 1', 'Match', 'Ignore', { isPublic: false });
+    await makeTalkPublic(pageAlice, 'CC Talk 1');
     await expect(t1Toast).toBeVisible({ timeout: 2_500 });
     await expect
       .poll(() => pageAlice.evaluate((k) => localStorage.getItem(k), T1_KEY))
@@ -161,9 +133,9 @@ test.describe('FR-FIN-1: once-per-day pre-send and post-match safety toasts', ()
     // T1, step 2: second broadcast immediately after — cooldown active, toast must not reappear.
     await pageAlice.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await createSimpleFlowTalk(pageAlice, 'CC Talk 2', 'Match', 'Ignore', { sendToChatroom: false });
+    await createSimpleFlowTalk(pageAlice, 'CC Talk 2', 'Match', 'Ignore', { isPublic: false });
     const lastShownBefore = await pageAlice.evaluate((k) => localStorage.getItem(k), T1_KEY);
-    await navigateToRoomAndClickBroadcast(pageAlice);
+    await makeTalkPublic(pageAlice, 'CC Talk 2');
     await pageAlice.waitForTimeout(1_000);
     await expect(t1Toast).toHaveCount(0);
     const lastShownAfter = await pageAlice.evaluate((k) => localStorage.getItem(k), T1_KEY);
@@ -173,18 +145,17 @@ test.describe('FR-FIN-1: once-per-day pre-send and post-match safety toasts', ()
     await expireCooldown(pageAlice, T1_KEY);
     await pageAlice.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await createSimpleFlowTalk(pageAlice, 'CC Talk 3', 'Match', 'Ignore', { sendToChatroom: false });
-    await navigateToRoomAndClickBroadcast(pageAlice);
+    await createSimpleFlowTalk(pageAlice, 'CC Talk 3', 'Match', 'Ignore', { isPublic: false });
+    await makeTalkPublic(pageAlice, 'CC Talk 3');
     await expect(t1Toast).toBeVisible({ timeout: 2_500 });
 
     const t2Toast = pageTom.locator('[data-safety-toast="post-match"]');
     const MATCH_ANSWER = 'Yes match';
 
-    // Alice broadcasts a fresh matching talk to Tom.
+    // Alice creates a fresh public matching talk: it reaches Tom with no Broadcast tap.
     await pageAlice.click('.nav-btn[data-view="chatrooms"]');
     await afterNav();
-    await createSimpleFlowTalk(pageAlice, 'CC Match Talk A', MATCH_ANSWER, 'No mismatch', { sendToChatroom: false });
-    await realBroadcastClickAndDeliver(pageAlice);
+    await createSimpleFlowTalk(pageAlice, 'CC Match Talk A', MATCH_ANSWER, 'No mismatch');
 
     // Tom answers with the match answer: this is his first-ever match this session, no prior
     // T2 cooldown entry, so the toast must appear.

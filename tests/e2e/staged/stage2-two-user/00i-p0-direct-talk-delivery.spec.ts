@@ -61,7 +61,7 @@ test.describe('Pair-direct talk delivery over Gun mesh', () => {
       await openCurrentChatroom(pageJerry);
       await afterSync();
 
-      await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { sendToChatroom: false });
+      await createSimpleFlowTalk(pageTom, title, 'Yes', 'No', { isPublic: false });
       await goToChatrooms(pageTom);
       await openCurrentChatroom(pageTom);
       await afterSync();

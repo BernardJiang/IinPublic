@@ -288,8 +288,8 @@ export function showTalkEditorDialog(options: TalkEditorDialogOptions): void {
           </div>
           <div class="form-group" id="talk-send-chatroom-group" style="display: ${isEdit ? 'none' : 'block'};">
             <label class="talk-send-chatroom-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-              <input type="checkbox" id="talk-send-to-chatroom" checked aria-label="Send to Chatroom">
-              <span>${text('editorSendChatroom', 'Send to Chatroom')}</span>
+              <input type="checkbox" id="talk-send-to-chatroom" checked aria-label="Public">
+              <span>${text('editorSendChatroom', 'Public — exchanged automatically with people nearby')}</span>
             </label>
           </div>
           <div class="form-group" id="talk-adult-group">

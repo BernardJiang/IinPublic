@@ -58,24 +58,6 @@ async function waitForBroadcastableCount(page: Page, min: number): Promise<void>
     .toBeGreaterThanOrEqual(min);
 }
 
-async function sendBroadcastAndOpenPreview(page: Page, expectedReason?: RegExp): Promise<void> {
-  await page.click('.nav-btn[data-view="chatrooms"]');
-  await waitForTabActive(page, 'chatrooms');
-  await waitForBroadcastableCount(page, 1);
-  await page.click('#broadcast-talk-btn');
-  const modal = page.locator('[data-testid="broadcast-preamble-modal"]');
-  await expect(modal).toBeVisible({ timeout: 60_000 });
-  if (expectedReason) {
-    await expect
-      .poll(async () => {
-        const text = await modal.innerText();
-        if (/Preview unavailable/i.test(text)) return null;
-        return expectedReason.test(text) ? text : null;
-      }, { timeout: 45_000 })
-      .not.toBeNull();
-  }
-}
-
 test.describe('Incoming talk language intake filtering', () => {
   let browsers: ThreeBrowsers;
   let browserTom: Browser;

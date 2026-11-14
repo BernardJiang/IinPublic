@@ -60,14 +60,13 @@ test.describe('Native app: shell responsiveness after launch', () => {
     }
 
     // Top app-bar controls must remain responsive immediately after launch. Keep the same
-    // priority as the shipped shell: map/list, create talk, DM inbox, and the primary room
-    // broadcast action should all react without waiting for the background recovery storm.
+    // priority as the shipped shell: map/list, create talk and DM inbox should all react without
+    // waiting for the background recovery storm (no Broadcast button since OPEN-112).
     const topSelectors = [
       '#chatroom-map-view-btn',
       '#chatroom-list-view-btn',
       '#create-talk-btn',
       '#dm-inbox-btn',
-      '#broadcast-talk-btn',
     ];
 
     const visibleTopButtons = await Promise.all(topSelectors.map(async (selector) => ({
@@ -89,7 +88,7 @@ test.describe('Native app: shell responsiveness after launch', () => {
       expect(elapsed).toBeLessThan(1_500);
     }
 
-    for (const selector of ['#create-talk-btn', '#dm-inbox-btn', '#broadcast-talk-btn']) {
+    for (const selector of ['#create-talk-btn', '#dm-inbox-btn']) {
       const button = user.window.locator(selector);
       if (!(await button.isVisible().catch(() => false))) continue;
       const startedAt = await user.window.evaluate(() => performance.now());

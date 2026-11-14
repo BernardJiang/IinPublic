@@ -881,6 +881,33 @@ export function deriveNearbyCounts(viewer: Presence, live: Presence[], C: number
 }
 ```
 
+### 6.1a Automatic Talk exchange (OPEN-112, 2026-11-13)
+
+There is no Broadcast button. The user only decides which Talks are public; the app and the
+chatbot do the rest, for every pair of people on each other's list.
+
+- **Public = Broadcast On.** Each of my Talks has the Broadcast On/Off toggle (Talks tab row, My
+  Talks dialog). The Talk editor's "Public" box sets it for a new Talk (`isPublic`, default on);
+  an edit keeps the Talk's current choice. Talks assembled from a DM capture start private.
+- **Audience = my current list,** capped at the room capacity `C` (Nearby, or the Place I am in).
+  A person enters the audience by being on *my* list; a link opened from their side alone does not
+  count (`isCatchUpRecipient`, §3.7 of the Nearby design).
+- **When it goes out:** every public, unexpired Talk is owed to each person on my list who does
+  not have that version yet (`getUnsentBroadcastTalkIdsForReceiver`). It is offered when a link
+  to them comes up, when my list changes, and at once when I create a public Talk, edit one, or
+  switch one to Broadcast On (`exchangeWithCurrentList`, `publishTalk`). An edit is a new version
+  and is owed again. Switching a Talk off withdraws and retracts it as before.
+- **Answering:** the receiver's chatbot answers from saved rules and templates (on by default);
+  a Talk it cannot answer waits in that person's Incoming list. Responses, matches and the
+  resulting conversation follow as before.
+- **Copies stay as received:** a Talk I copy (the Copy action, or copy-on-answer) starts private
+  (Broadcast Off) and goes nowhere until I switch it on (owner, 2026-11-13). Switched on, it goes to
+  the people on *my* list; it keeps its original author (§Y1) and is never offered back to that
+  author (`receiversExcludingAuthor`).
+- The T1 safety toast (§7.4) fires when a Talk becomes public (created public or switched on).
+- The contact-group send (Contacts ⋯ → broadcast to a group) is unchanged: it is a deliberate
+  send to known people, outside the room.
+
 ### 6.2 Bulk Send Architecture (Batched Delivery)
 
 ```javascript

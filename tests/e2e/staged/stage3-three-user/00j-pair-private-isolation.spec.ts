@@ -254,7 +254,7 @@ test.describe('Pair-private graph isolation', () => {
     await expect.poll(() => pageAlice!.evaluate(() => !!(window as any).__iinpublic_app?.getApp?.()?.isDirectTalkDeliveryEnabled?.())).toBe(true);
     await expect.poll(() => pageTom!.evaluate(() => !!(window as any).__iinpublic_app?.getApp?.()?.isDirectTalkDeliveryEnabled?.())).toBe(true);
 
-    await createSimpleFlowTalk(pageBob, title, aliceAnswerText, 'No', { sendToChatroom: false });
+    await createSimpleFlowTalk(pageBob, title, aliceAnswerText, 'No', { isPublic: false });
     await goToChatrooms(pageBob);
     await openCurrentChatroom(pageBob);
     await waitForDistinctGunPeersExcludingSelf(pageBob, 2, 120_000);

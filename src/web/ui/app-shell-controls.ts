@@ -22,7 +22,6 @@ export interface AppShellControlsDeps {
   handleCreateCustomChatroomClick: () => Promise<void>;
   showContactsList: () => void;
   resetSettingsSection: () => void;
-  handleBroadcastTalkFromCurrentRoom: (automatic: boolean) => void;
   restoreTalksTabState: () => void;
   setTalksShowIncoming: (value: boolean) => void;
   setTalksShowOutgoing: (value: boolean) => void;
@@ -78,38 +77,6 @@ function bindAnswerFilters(deps: AppShellControlsDeps): void {
       if (input) input.value = value;
     }
     applyAnswerFilter(deps);
-  });
-}
-
-function bindBroadcastButton(deps: AppShellControlsDeps): void {
-  const button = document.getElementById('broadcast-talk-btn');
-  if (!button) return;
-  const longPressMs = 500;
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  let longPressFired = false;
-  const clearLongPressTimer = () => {
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-    }
-  };
-  button.addEventListener('pointerdown', () => {
-    longPressFired = false;
-    clearLongPressTimer();
-    longPressTimer = setTimeout(() => {
-      longPressFired = true;
-      deps.handleBroadcastTalkFromCurrentRoom(false);
-    }, longPressMs);
-  });
-  button.addEventListener('pointerup', clearLongPressTimer);
-  button.addEventListener('pointerleave', clearLongPressTimer);
-  button.addEventListener('pointercancel', clearLongPressTimer);
-  button.addEventListener('click', () => {
-    if (longPressFired) {
-      longPressFired = false;
-      return;
-    }
-    deps.handleBroadcastTalkFromCurrentRoom(true);
   });
 }
 
@@ -381,7 +348,6 @@ export function bindAppShellControls(deps: AppShellControlsDeps): void {
   bindPrimaryControls(deps);
   bindNearbyStatusLink(deps);
   bindAnswerFilters(deps);
-  bindBroadcastButton(deps);
   bindTalkFilters(deps);
   bindCreatorReplyFilters(deps);
   bindBottomNavigation(deps);

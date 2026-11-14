@@ -177,26 +177,9 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     );
     expect(tomUserId.length, 'Tom user id for end-of-flow checks').toBeGreaterThan(0);
 
-    // Creating a Talk does not send it: it reaches people only through a deliberate broadcast (📣),
-    // and catch-up later resends only Talks already broadcast here. Alice broadcasts once Tom is
-    // on her Nearby list.
-    let broadcast: { talksSent?: number; receivers?: number } | null = null;
-    await expect
-      .poll(
-        async () => {
-          broadcast = await pageTechSupport.evaluate(async () => {
-            try {
-              return await (window as any).__iinpublic_app?.getApp?.()?.deliverPendingBroadcastTalksForE2e?.(1);
-            } catch {
-              return null;
-            }
-          });
-          return broadcast?.receivers ?? 0;
-        },
-        { message: 'Alice should broadcast her 20 Talks to Tom', timeout: 60_000, intervals: [1_000, 2_000] },
-      )
-      .toBe(1);
-    expect(broadcast!.talksSent, 'Alice broadcasts all 20 Talks').toBe(20);
+    // Exchange is automatic (OPEN-112): Alice's 20 public Talks go to Tom as soon as he is on her
+    // Nearby list, with no Broadcast step. The arrival check below waits for all 20.
+
 
     console.log('\n📍 STEP 6–7: Tom completes all 20 talks through the app completion path');
 

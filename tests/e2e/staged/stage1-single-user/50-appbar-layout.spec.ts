@@ -54,13 +54,14 @@ test.describe('AppBar layout', () => {
     // Chatrooms root: only view switching and New Room are relevant.
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    // Broadcast sits right after the List toggle: Nearby's people are on this list (owner, 2026-10-24).
-    for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'broadcast-talk-btn', 'create-custom-chatroom-btn']) {
+    // No Broadcast button: talk exchange is automatic (OPEN-112).
+    for (const id of ['chatroom-map-view-btn', 'chatroom-list-view-btn', 'create-custom-chatroom-btn']) {
       await expect(p.locator(`#app-bar-actions #${id}`)).toBeVisible();
     }
     for (const id of ['create-talk-btn', 'return-home-btn']) {
       await expect(p.locator(`#${id}`)).toBeHidden();
     }
+    await expect(p.locator('#broadcast-talk-btn')).toHaveCount(0);
     await expect(p.locator('#settings-refresh-location-btn')).toBeHidden();
 
     // Talks: ➕ plus ✕ Pass · ♡ Like · 📌 Pin, grayed out until a row is long-pressed.
@@ -70,7 +71,6 @@ test.describe('AppBar layout', () => {
     for (const action of ['pass', 'like', 'pin']) {
       await expect(p.locator(`#talks-tap-${action}-btn`)).toBeDisabled();
     }
-    await expect(p.locator('#broadcast-talk-btn')).toBeHidden();
     await expect(p.locator('#create-custom-chatroom-btn')).toBeHidden();
 
     // Contacts / Me: no action icons.
@@ -78,7 +78,6 @@ test.describe('AppBar layout', () => {
       await p.locator(`.nav-btn[data-view="${view}"]`).click();
       await afterNav();
       await expect(p.locator('#create-talk-btn')).toBeHidden();
-      await expect(p.locator('#broadcast-talk-btn')).toBeHidden();
     }
 
     // Settings: 📍 refresh location.
@@ -102,7 +101,6 @@ test.describe('AppBar layout', () => {
     await expect(back).toBeVisible();
     await expect(back).toHaveText('‹');
     await expect(back).toHaveClass(/app-bar-back-btn/);
-    await expect(p.locator('#broadcast-talk-btn')).toBeVisible();
     await expect(p.locator('#create-custom-chatroom-btn')).toBeHidden();
 
     await back.click();

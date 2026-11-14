@@ -55,7 +55,7 @@ export async function createSimpleFlowTalk(
   title: string,
   matchAnswer = 'Yes',
   ignoreAnswer = 'No',
-  options?: { sendToChatroom?: boolean; timeoutMs?: number },
+  options?: { isPublic?: boolean; timeoutMs?: number; questionText?: string },
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await afterSync();
@@ -65,15 +65,15 @@ export async function createSimpleFlowTalk(
   await page.selectOption('#talk-type', 'flow');
 
   const q = page.locator('.question-item').first();
-  await q.locator('.question-text').fill(`Want a partner? ${title}`);
+  await q.locator('.question-text').fill(options?.questionText ?? `Want a partner? ${title}`);
   await q.locator('.answer-item').nth(0).locator('.answer-text').fill(matchAnswer);
   await q.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await q.locator('.answer-item').nth(1).locator('.answer-text').fill(ignoreAnswer);
   await q.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
 
   const sendToChatroomCheck = page.locator('#talk-send-to-chatroom');
-  if (options?.sendToChatroom !== undefined) {
-    const wanted = options.sendToChatroom;
+  if (options?.isPublic !== undefined) {
+    const wanted = options.isPublic;
     // On a phone the tap can land while the on-screen keyboard from the answer fields is still
     // moving the layout, and the box keeps its state (PH-1, native-app/38). Then set it the way
     // the click would and fire the change event the editor listens to.
@@ -87,6 +87,17 @@ export async function createSimpleFlowTalk(
   }
 
   await submitTalkEditorAndWaitForOut(page, title, options?.timeoutMs);
+  if (options?.isPublic === false) {
+    // Held so the caller decides when it goes out: the app's e2e delivery hook makes it public
+    // when it sends (OPEN-112; same registry as talk-demo-ui's editor helpers).
+    await page.evaluate((expectedTitle) => {
+      const mine = ((window as any).__iinpublic_collection?.('myTalks') ?? {}) as Record<string, any>;
+      const id = Object.keys(mine).find((key) => mine[key]?.role === 'created' && mine[key]?.title === expectedTitle);
+      if (!id) return;
+      const w = window as unknown as { __e2eHeldTalkIds?: string[] };
+      w.__e2eHeldTalkIds = [...(w.__e2eHeldTalkIds ?? []), id];
+    }, title);
+  }
 }
 
 export async function goToChatrooms(page: Page): Promise<void> {

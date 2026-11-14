@@ -51,11 +51,12 @@ describe('setTalkDisabled', () => {
     expect(d.emit).toHaveBeenCalledWith('retractTalk', expect.objectContaining({ talkId: 't1' }));
   });
 
-  it('emits nothing when re-enabling', () => {
+  it('publishes the Talk to the current list when re-enabling (OPEN-112), with no retraction', () => {
     seedTalk('t1', true);
     const d = deps();
     setTalkDisabled('t1', false, d);
-    expect(d.emit).not.toHaveBeenCalled();
+    expect(d.emit).toHaveBeenCalledTimes(1);
+    expect(d.emit).toHaveBeenCalledWith('publishTalk', { talkId: 't1' });
   });
 
   it('patches an already-rendered row in place instead of re-rendering the full list', () => {

@@ -103,7 +103,7 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
     await clearGunForStage5Spec();
   });
 
-  test('chatroom detail keeps one broadcast action and the member list can scroll', async () => {
+  test('chatroom detail has no broadcast action and the member list can scroll', async () => {
     test.setTimeout(420_000);
     const owner = await bootstrapCompactUser(browser, 'Owner', 'Owner', 30_000);
     contexts.push(owner.context);
@@ -127,9 +127,8 @@ test.describe('Chatroom UX: member list scroll and unified broadcast bar', () =>
       await expect(peers.filter({ hasText: `Peer${i}` })).toHaveCount(1);
     }
 
-    await expect(owner.page.locator('#broadcast-talk-btn')).toHaveCount(1);
-    await expect(owner.page.locator('#top-header #broadcast-talk-btn')).toBeVisible();
-    await expect(owner.page.locator('#broadcast-talk-btn')).toHaveAttribute('title', /Broadcast|OUT list/);
+    // Talk exchange is automatic (OPEN-112): no Broadcast action at all.
+    await expect(owner.page.locator('#broadcast-talk-btn')).toHaveCount(0);
     await expect(owner.page.getByText('Broadcast talk to everyone here')).toHaveCount(0);
 
     const membersList = owner.page.locator('#chatroom-members-list');

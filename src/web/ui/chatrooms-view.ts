@@ -100,12 +100,6 @@ type ChatroomsViewDeps = {
   onChatroomDetailOpened?: (chatroomId: string) => void;
 };
 
-export function syncStatusBroadcastButtonVisibility(currentChatroom: string): void {
-  const button = document.getElementById('broadcast-talk-btn') as HTMLButtonElement | null;
-  if (!button) return;
-  button.disabled = !currentChatroom;
-}
-
 export function markChatroomMemberMatched(
   userId: string,
   matchedUserIds: Set<string>,
@@ -499,7 +493,6 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   const listContainer = document.getElementById('chatroom-list-container');
   const detailContainer = document.getElementById('chatroom-detail-container');
   const createRoomButton = document.getElementById('create-custom-chatroom-btn');
-  const broadcastButton = document.getElementById('broadcast-talk-btn');
   const nearbyMeetButton = document.getElementById('nearby-meet-new-people-btn');
   const nearbyBackButton = document.getElementById('nearby-back-to-first-group-btn');
 
@@ -507,7 +500,6 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   // Keep flex column layout from CSS (#chatroom-detail-container) so #chatroom-members-list can scroll.
   if (detailContainer) detailContainer.style.display = 'flex';
   if (createRoomButton) createRoomButton.style.display = 'none';
-  if (broadcastButton) broadcastButton.style.display = 'inline-flex';
   if (nearbyMeetButton) nearbyMeetButton.style.display = 'none';
   if (nearbyBackButton) nearbyBackButton.style.display = 'none';
   document.body.dataset.chatroomDetail = 'open';
@@ -534,7 +526,6 @@ export function showChatroomDetail(deps: ChatroomsViewDeps, chatroomId: string):
   renderCustomRoomMetadata(deps, custom);
 
   deps.setCurrentChatroom(chatroomId);
-  syncStatusBroadcastButtonVisibility(chatroomId);
 
   const ownerBar = document.getElementById('chatroom-owner-bar');
   if (ownerBar) {
@@ -612,7 +603,6 @@ export function updateChatroomMembers(
 
   if (chatroomMembersList) bindSelfRow(chatroomMembersList);
   syncPeopleListEffects(deps);
-  syncStatusBroadcastButtonVisibility(deps.currentChatroom);
 }
 
 /**

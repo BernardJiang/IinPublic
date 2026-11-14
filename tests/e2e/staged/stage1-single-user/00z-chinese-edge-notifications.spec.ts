@@ -45,7 +45,7 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     await clearGunForStage1Spec();
   });
 
-  test('status bar, broadcast modal, response dialog, and chatroom create modal render in Chinese', async () => {
+  test('status bar, Public box, response dialog, and chatroom create modal render in Chinese', async () => {
     test.setTimeout(180_000);
     const p = page!;
 
@@ -77,10 +77,10 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     const statusText = await p.locator('#status-bar-text').textContent();
     expect(statusText ?? '').not.toMatch(/\b(user(s)?|nearby|online)\b/i);
 
-    // --- Broadcast preamble modal: verify Cancel / Send labels are in Chinese ---
-    // First create a talk so there is something to broadcast
+    // --- Talk editor: the Public box (automatic exchange, OPEN-112) is labelled in Chinese ---
     await openTalkEditor(p);
     await p.waitForSelector('#talk-editor-form');
+    await expect(p.locator('#talk-send-chatroom-group')).toContainText('公开');
     await p.fill('#talk-title', 'D2 Edge Test Talk');
     await p.click('#talk-submit-btn');
     // Talk must propagate to the OUT list before Broadcast.
@@ -93,64 +93,7 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     ).toBeVisible({ timeout: 20_000 });
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-
-    // Single-user runs can skip the preview modal when no receivers exist.
-    // Inject one synthetic peer so the broadcast preamble path is exercised.
     await p.evaluate(() => {
-      const app = (window as any).__iinpublic_app?.getApp?.();
-      const ui = app?.uiManager;
-      if (!ui) return;
-      const peers = Array.isArray((ui as any).currentChatroomMembers)
-        ? (ui as any).currentChatroomMembers
-        : [];
-      if (!peers.some((m: any) => m?.userId === 'localized-peer')) {
-        peers.push({ userId: 'localized-peer', stageName: 'Ming' });
-      }
-      (ui as any).currentChatroomMembers = peers;
-
-      const list = document.getElementById('chatroom-members-list');
-      if (list && !list.querySelector('.chatroom-member-item[data-user-id="localized-peer"]')) {
-        const item = document.createElement('div');
-        item.className = 'chatroom-member-item';
-        item.setAttribute('data-user-id', 'localized-peer');
-        item.setAttribute('data-stage-name', 'Ming');
-        list.appendChild(item);
-      }
-    });
-
-    const statusBtn = p.locator('#status-broadcast-talk-btn');
-    const roomBtn = p.locator('#broadcast-talk-btn');
-    if (await statusBtn.isVisible().catch(() => false)) {
-      await statusBtn.click();
-    } else {
-      await roomBtn.click();
-    }
-    const broadcastModal = p.locator('[data-testid="broadcast-preamble-modal"]');
-    const modalVisible = await broadcastModal.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
-
-    if (modalVisible) {
-      // Cancel button should say 取消, Send Broadcast should say 发送广播
-      await expect(p.locator('[data-testid="broadcast-preamble-cancel"]')).toHaveText('取消');
-      await expect(p.locator('[data-testid="broadcast-preamble-send"]')).toHaveText('发送广播');
-
-      // Dismiss modal
-      await p.locator('[data-testid="broadcast-preamble-cancel"]').click();
-      await expect(broadcastModal).not.toBeVisible({ timeout: 10_000 });
-    } else {
-      // Single-user branch can no-op without showing a modal or toast.
-      await afterSync();
-    }
-
-    // The preview modal may appear slightly after the initial branch check; always close it if present.
-    const lingeringBroadcastModal = p.locator('[data-testid="broadcast-preamble-modal"]');
-    if (await lingeringBroadcastModal.isVisible().catch(() => false)) {
-      await p.locator('[data-testid="broadcast-preamble-cancel"]').click().catch(async () => {
-        await p.keyboard.press('Escape').catch(() => {});
-      });
-      await expect(lingeringBroadcastModal).not.toBeVisible({ timeout: 10_000 }).catch(() => {});
-    }
-    await p.evaluate(() => {
-      document.getElementById('broadcast-preamble-modal')?.remove();
       document.querySelectorAll('.modal-overlay').forEach((node) => {
         const el = node as HTMLElement;
         if (el.id !== 'chatroom-create-modal') el.remove();

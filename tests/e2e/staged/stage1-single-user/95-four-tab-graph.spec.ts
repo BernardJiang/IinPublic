@@ -87,7 +87,6 @@ test('four tabs traverse people, non-tag Talks, answers and historical Places wi
     await active('chatrooms');
     const history = page.getByTestId('graph-place-panel');
     await expect(history).toBeVisible();
-    await expect(page.locator('#broadcast-talk-btn')).toBeHidden();
     // Chatrooms → Talks, Contacts, Me through the history's contextual links.
     for (const [link, view] of [['place-talks', 'talks'], ['place-people', 'contacts'], ['graph-my-answers', 'me']]) {
       await history.getByTestId(link!).click();

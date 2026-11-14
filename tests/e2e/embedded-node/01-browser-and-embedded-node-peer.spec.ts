@@ -276,7 +276,7 @@ test.describe('S3 embedded-node: browser peer <-> embedded-node desktop peer', (
 
       // Tom creates and broadcasts a simple flow talk from the dev-server origin.
       await createSimpleFlowTalk(pageTom, title, MATCH_ANSWER, 'No mismatch', {
-        sendToChatroom: false,
+        isPublic: false,
       });
       await goToChatrooms(pageTom);
       await openCurrentChatroom(pageTom);

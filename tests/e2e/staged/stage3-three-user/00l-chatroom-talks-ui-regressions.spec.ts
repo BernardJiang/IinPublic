@@ -184,7 +184,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     contextJerry = jerry.context;
     pageJerry = jerry.page;
 
-    await createSimpleFlowTalk(pageTom, copiedTitle, 'Yes copy me', 'No thanks', { sendToChatroom: false });
+    await createSimpleFlowTalk(pageTom, copiedTitle, 'Yes copy me', 'No thanks', { isPublic: false });
     await broadcastFromChatroom(pageTom, 1);
 
     await pageJerry.click('.nav-btn[data-view="talks"]');
@@ -212,14 +212,18 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     const copiedBadge = () => copiedCheckbox().locator('xpath=ancestor::label[contains(@class,"talk-icon-badge")]');
     const copiedOut = pageJerry.locator('.talk-list-item[data-role="copied"]').filter({ hasText: copiedTitle }).first();
     await expect(copiedOut).toBeVisible({ timeout: 30_000 });
-    await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
+    // A copy stays as received — private — until its copier switches it on (OPEN-112).
+    await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
     await expect(copiedOut.locator('.talk-badge-broadcast-enabled, .talk-badge-broadcast-disabled')).toHaveCount(0);
     // The broadcast toggle is a real checkbox now (unified with the tag pill's own checkbox) —
     // its label lives in the wrapping badge's title attribute, not visible text.
-    await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast On');
-    await expect(copiedCheckbox()).toBeChecked();
+    await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast Off');
+    await expect(copiedCheckbox()).not.toBeChecked();
     await expect(copiedOut.locator('.edit-talk-btn')).toHaveCount(0);
 
+    await toggleCheckboxWithRetry(pageJerry, copiedId, 'check');
+    await expect(copiedOut).toHaveClass(/talk-broadcast-enabled/);
+    await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast On');
     await toggleCheckboxWithRetry(pageJerry, copiedId, 'uncheck');
     await expect(copiedOut).toHaveClass(/talk-broadcast-disabled/);
     await expect(copiedBadge()).toHaveAttribute('title', 'Broadcast Off');
@@ -250,9 +254,9 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     expect(await pageJerry.evaluate(() => localStorage.getItem('copyTalkAutoSave'))).not.toBe('false');
 
     await createSimpleFlowTalk(pageTom, answeredTitle, 'Match without copy', 'Skip without copy', {
-      sendToChatroom: false,
+      isPublic: false,
     });
-    await createSimpleFlowTalk(pageTom, copiedTitle, 'Match with copy', 'Skip with copy', { sendToChatroom: false });
+    await createSimpleFlowTalk(pageTom, copiedTitle, 'Match with copy', 'Skip with copy', { isPublic: false });
     await broadcastFromChatroom(pageTom, 2);
 
     const roleOf = (title: string) => pageJerry!.evaluate((t) => {
@@ -311,7 +315,7 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     contextJerry = jerry.context;
     pageJerry = jerry.page;
 
-    await createSimpleFlowTalk(pageTom, ignoredTitle, 'Yes please', 'Ignore this copy', { sendToChatroom: false });
+    await createSimpleFlowTalk(pageTom, ignoredTitle, 'Yes please', 'Ignore this copy', { isPublic: false });
     await broadcastFromChatroom(pageTom, 1);
     await openIncomingTalkModal(pageJerry, ignoredTitle);
     await pageJerry

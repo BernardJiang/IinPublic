@@ -58,7 +58,6 @@ import { displayAnswersList as renderAnswersList, applyMeAnswerFilter } from './
 import {
   type CustomChatroomRow,
   resolveChatroomTitle, markChatroomMemberMatched, flashChatroomMemberForNewTalk, nearbyHeadcountText,
-  syncStatusBroadcastButtonVisibility as syncChatroomBroadcastVisibility,
 } from './chatrooms-view';
 import {
   showCreateCustomChatroomDialog as openCreateCustomChatroomDialog,
@@ -132,6 +131,7 @@ import { showSystemAnnouncement as renderSystemAnnouncement } from './system-ann
 import { showDetailsPopupFor as renderItemDetailsPopup } from './item-details-popup';
 import { setTalkDisabled as setTalkDisabledImpl } from './talk-broadcast-toggle';
 import { saveCreatedTalk as saveCreatedTalkImpl } from './talk-creation-storage';
+import { sendableTalkIds } from '../../core/broadcast-selection';
 import { deliveryReasonLabel, formatReasonCounts } from './delivery-reason-labels';
 import {
   updateConversationTransportMode as updateConversationTransportModeImpl,
@@ -635,9 +635,6 @@ export class UIManager extends EventEmitter {
         this.settingsActiveSectionId = null;
         this.applySettingsSectionView(null);
       },
-      handleBroadcastTalkFromCurrentRoom: (automatic) => {
-        this.handleBroadcastTalkFromCurrentRoom(automatic);
-      },
       restoreTalksTabState: () => this.restoreTalksTabState(),
       setTalksShowIncoming: (value) => { this.talksShowIncoming = value; },
       setTalksShowOutgoing: (value) => { this.talksShowOutgoing = value; },
@@ -718,18 +715,6 @@ export class UIManager extends EventEmitter {
     syncAppBarOverflow();
   }
 
-  /**
-   * Send all broadcastable OUT talks to everyone in the current chatroom (Gun announce + server IN registration).
-   */
-  private handleBroadcastTalkFromCurrentRoom(automatic: boolean): void {
-    void this.broadcast().runBroadcastFromCurrentRoom(automatic);
-  }
-
-  /** Explicit outing-card action; uses the same audited broadcast path as the app bar. */
-  public broadcastTalksFromCurrentRoom(): void {
-    this.handleBroadcastTalkFromCurrentRoom(false);
-  }
-
   /** Auto-send only the OUT talk revisions not yet delivered to each individual peer. */
   public broadcastPendingTalksOnRoomEntry(): void {
     this.broadcast().broadcastPendingTalksOnRoomEntry();
@@ -744,10 +729,6 @@ export class UIManager extends EventEmitter {
     members: Array<{ userId: string; stageName: string }>,
   ): void {
     this.broadcast().broadcastPendingTalksToMembers(members);
-  }
-
-  private syncStatusBroadcastButtonVisibility(): void {
-    syncChatroomBroadcastVisibility(this.currentChatroom);
   }
 
   private syncHeaderStatusView(viewName: string): void {
@@ -856,11 +837,11 @@ export class UIManager extends EventEmitter {
         getKnownPeople: () => this.peer().getKnownPeople(),
         getBlockedUserIds: () => this.currentUser?.blockedUserIds || [],
         getBroadcastableTalkIds: () => this.getBroadcastableTalkIds(),
+        getGroupSendableTalkIds: () => sendableTalkIds(getMyTalks(), Date.now()),
         getMyTalks: () => this.getMyTalks(),
         getPeerName: (userId) => this.peer().getPeerName(userId),
         showNotification: (message, type) => this.showNotification(message, type),
         showTalkEditorDialog: () => this.showTalkEditorDialog(),
-        maybeShowPreSendSafetyToast: () => this.maybeShowPreSendSafetyToast(),
         emit: (event, payload) => this.emit(event, payload),
         t: (key) => this.t(key),
         tf: (key, vars) => this.tf(key, vars),
@@ -1438,8 +1419,11 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  /** T1 (spec §7.4 FR-FIN-1): before a talk is sent/broadcast, at most once per day. */
-  private maybeShowPreSendSafetyToast(): void {
+  /**
+   * T1 (spec §7.4 FR-FIN-1): when a Talk becomes public (created public or switched to Broadcast
+   * On) — the moment it starts going out automatically (OPEN-112) — at most once per day.
+   */
+  maybeShowPreSendSafetyToast(): void {
     if (!shouldShowCooldownToast(SAFETY_TOAST_T1_KEY)) return;
     this.showNotification(this.t('safetyToastPreSend'), 'warning', { safetyToast: 'pre-send' });
   }
@@ -2200,7 +2184,6 @@ export class UIManager extends EventEmitter {
   updateChatroomInfo(info: { id: string; name: string } | any): void {
     updateChatroomInfoImpl(info, {
       setCurrentChatroom: (id) => { this.currentChatroom = id; },
-      syncStatusBroadcastButtonVisibility: () => this.syncStatusBroadcastButtonVisibility(),
     });
   }
 
@@ -2498,7 +2481,7 @@ export class UIManager extends EventEmitter {
 
   saveCreatedTalk(
     talk: { id: string; title: string; type: string; questions: any[]; language?: string; expiresAt?: number | null; locationRadiusMiles?: number | null },
-    options: { selfAnswers: { questionId: string; answerId: string }[] },
+    options: { selfAnswers: { questionId: string; answerId: string }[]; isPublic?: boolean },
   ): void {
     this.revealCreatedTalk(talk.type);
     saveCreatedTalkImpl(talk, options, {
@@ -2565,6 +2548,7 @@ export class UIManager extends EventEmitter {
    * and will not be sent to anyone when broadcasting.
    */
   setTalkDisabled(talkId: string, disabled: boolean): void {
+    if (!disabled) this.maybeShowPreSendSafetyToast();
     setTalkDisabledImpl(talkId, disabled, {
       emit: (event, payload) => this.emit(event, payload),
       t: this.t.bind(this),

@@ -35,7 +35,8 @@ describe('startup chatroom first paint', () => {
         .map((button) => button.id),
     ).toEqual(['chatroom-map-view-btn', 'chatroom-list-view-btn']);
     expect(document.querySelector('#header-actions')?.lastElementChild?.id).toBe('dm-inbox-btn');
-    expect(document.querySelector('#broadcast-talk-btn')?.classList.contains('status-broadcast-btn')).toBe(false);
+    // Talk exchange is automatic (OPEN-112): there is no Broadcast button.
+    expect(document.querySelector('#broadcast-talk-btn')).toBeNull();
     expect(document.querySelector('.chatroom-view-toolbar')).toBeNull();
     expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(false);
   });

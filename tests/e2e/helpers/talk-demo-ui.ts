@@ -13,7 +13,7 @@ import {
   waitForTabActive,
 } from './talks-matching-flow';
 import { selectTalkEditorType } from './talk-editor-e2e';
-import { confirmBroadcastTagPreambleIfVisible } from './broadcast-preamble';
+import { confirmBroadcastTagPreambleIfVisible, publishHeldTalks } from './broadcast-preamble';
 import { deliverBroadcastViaAppPath, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 import { gunBaseURL, isDirectTalkDeliveryE2e, isMeshTalkDeliveryE2e } from './ports';
 import { openCurrentChatroom } from './chatroom-nav';
@@ -54,29 +54,12 @@ async function clickWithPhysicalWebViewFallback(
 
 // (waitForChatroomMemberCountViaApi is re-exported once at the bottom of this file.)
 
-async function clickChatroomBroadcastButton(page: Page, opts?: { minGunPeers?: number }): Promise<void> {
-  const preamble = page.locator('[data-testid="broadcast-preamble-modal"]');
-  const broadcastBtn = page.locator('#broadcast-talk-btn').or(page.locator('#status-broadcast-talk-btn')).first();
+export { publishHeldTalks };
 
-  if (!(await preamble.isVisible().catch(() => false))) {
-    // On a phone-width screen the app bar moves Broadcast (priority 3) into the "…" overflow
-    // panel, as it does New Room and Return Home (phone-path helpers' clickAppBarAction).
-    const overflow = page.locator('#app-bar-overflow-btn');
-    if (!(await broadcastBtn.isVisible().catch(() => false)) && await overflow.isVisible().catch(() => false)) {
-      await overflow.evaluate((element) => (element as HTMLButtonElement).click());
-      await expect(page.locator('#app-bar-overflow-panel')).toHaveClass(/\bopen\b/);
-    }
-    await expect(broadcastBtn).toBeVisible({ timeout: 10_000 });
-    await broadcastBtn.click({ timeout: 8_000 }).catch(async () => {
-      // Audience preview can open the preamble while the click is in flight. Otherwise the click
-      // timed out on actionability: a phone's bottom bar keeps resizing with presence updates, so
-      // fire the production listener directly (as the nav helpers do).
-      if (await preamble.isVisible().catch(() => false)) return;
-      await broadcastBtn.evaluate((element) => (element as HTMLButtonElement).click()).catch(() => {});
-    });
-    await afterSync();
-  }
-
+/** Publish held Talks, then deliver them to the current list (what used to be a Broadcast tap). */
+async function publishAndDeliver(page: Page, opts?: { minGunPeers?: number }): Promise<void> {
+  await publishHeldTalks(page);
+  await afterSync();
   await confirmBroadcastTagPreambleIfVisible(page, E2E_ASSERT_TIMEOUT_MS, opts);
 }
 
@@ -177,7 +160,7 @@ export async function broadcastFromGlobalChatroom(
     await afterSync();
   }
   if (opts?.requirePreambleUi) {
-    await clickChatroomBroadcastButton(page, { minGunPeers: opts.minGunPeers });
+    await publishAndDeliver(page, { minGunPeers: opts.minGunPeers });
     return;
   }
   await clickBroadcastUntilBulkAck(page, opts);
@@ -235,6 +218,7 @@ export async function clickBroadcastUntilBulkAck(
     await waitForChatroomMemberCountViaApi(page, minPeers, E2E_ASSERT_TIMEOUT_MS);
   }
   perfMark('member-count');
+  await publishHeldTalks(page);
   await waitForBroadcastableTalkIds(page, E2E_ASSERT_TIMEOUT_MS);
   perfMark('broadcastable-ids');
   if (isDirectTalkDeliveryE2e() && minPeers > 0) {
@@ -259,7 +243,7 @@ export async function clickBroadcastUntilBulkAck(
     }
   } else {
     try {
-      await clickChatroomBroadcastButton(page, opts);
+      await publishAndDeliver(page, opts);
     } catch {
       if (isDirectTalkDeliveryE2e() && minPeers > 0) {
         await deliverBroadcastViaAppPath(page, { minReceivers: minPeers });
@@ -394,6 +378,20 @@ export async function waitForOutgoingTalkRow(page: Page, titleSubstring: string,
 
 /** Same shape `createTalksFromCompanyPage` already returns — lets UI-driven creation slot into
  *  existing call sites that read `{ title, talkId, talkData }` afterward. */
+/**
+ * The editor helpers create Talks private (Public unchecked) so the caller decides when they go
+ * out. Register them as held: the app's e2e delivery hook (`deliverPendingBroadcastTalksForE2e`)
+ * and `publishHeldTalks` make them public when the caller sends (OPEN-112).
+ */
+async function readHeldCreatedTalk(page: Page, title: string): Promise<{ title: string; talkId: string; talkData: any }> {
+  const created = await readCreatedTalkFromMyTalks(page, title);
+  await page.evaluate((talkId) => {
+    const w = window as unknown as { __e2eHeldTalkIds?: string[] };
+    w.__e2eHeldTalkIds = [...(w.__e2eHeldTalkIds ?? []), talkId];
+  }, created.talkId);
+  return created;
+}
+
 export async function readCreatedTalkFromMyTalks(
   page: Page,
   title: string,
@@ -600,11 +598,11 @@ export async function createFlowOrSurveyTalkViaEditor(
     });
   }
   // Delivery stays explicit (broadcast step owned by the caller), matching the script-supplied
-  // helpers this replaces (`sendToChatroom: false`).
+  // helpers this replaces (`sendToChatroom: false`). The Talk is then held private until published.
   await page.locator('#talk-send-to-chatroom').setChecked(false, { force: true });
 
   await submitTalkEditorAndWaitForOut(page, opts.title, opts.timeoutMs);
-  return readCreatedTalkFromMyTalks(page, opts.title);
+  return readHeldCreatedTalk(page, opts.title);
 }
 
 export type CreateTagTalkViaEditorOpts = {
@@ -644,7 +642,7 @@ export async function createTagTalkViaEditor(
   });
 
   await submitTalkEditorAndWaitForOut(page, opts.title, opts.timeoutMs);
-  return readCreatedTalkFromMyTalks(page, opts.title);
+  return readHeldCreatedTalk(page, opts.title);
 }
 
 /** Converts a script-authored `Talk.questions` array (author-typed semantic ids like `bg_mc`)
@@ -822,7 +820,7 @@ export async function createRouteTalkViaEditor(
   await page.locator('#talk-send-to-chatroom').setChecked(false, { force: true });
 
   await submitTalkEditorAndWaitForOut(page, opts.title, opts.timeoutMs);
-  return readCreatedTalkFromMyTalks(page, opts.title);
+  return readHeldCreatedTalk(page, opts.title);
 }
 
 /** Converts a script-authored route `Talk.questions` array (`nextQuestionId` chain, author-typed

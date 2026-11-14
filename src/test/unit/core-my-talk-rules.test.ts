@@ -6,7 +6,8 @@ const NOW = '2026-10-26T10:00:00.000Z';
 describe('my Talk rules', () => {
   it('a copy carries its senders; undoing it keeps an answered Talk as history and drops an unanswered one', () => {
     const entry = copiedTalkEntry({ id: 't1', title: 'Pizza', type: 'tag' }, 't1', { senders: { a: { senderId: 'ann' }, b: { senderId: 'ann' } } }, NOW);
-    expect(entry).toMatchObject({ talkId: 't1', role: 'copied', senders: ['ann'] });
+    // A copy stays as received — private — until I switch it on (OPEN-112).
+    expect(entry).toMatchObject({ talkId: 't1', role: 'copied', senders: ['ann'], disabled: true });
     expect(uncopiedTalkEntry({ role: 'copied', completedAnswers: [{}] }, NOW)).toMatchObject({ role: 'answered' });
     expect(uncopiedTalkEntry({ role: 'copied' }, NOW)).toBeNull();
     expect(uncopiedTalkEntry({ role: 'created' }, NOW)).toBeUndefined();

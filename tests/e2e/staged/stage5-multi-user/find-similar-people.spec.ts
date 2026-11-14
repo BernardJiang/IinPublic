@@ -42,6 +42,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
+import { publishHeldTalks } from '../../helpers/broadcast-preamble';
 
 // ─── Test data (not app logic) ──────────────────────────────────────────────────
 
@@ -216,8 +217,8 @@ test.describe('Find similar people', () => {
           await page.locator('input[name="talk-type-radio"][value="tag"]').check();
           await afterAction();
           await page.fill('#talk-title', keyword);
-          // Phase 4 sends these together after every user's chatbot is enabled.
-          // The editor defaults to sending immediately, which floods the mesh during setup.
+          // Phase 4 publishes these after every user's chatbot is enabled. The editor defaults to
+          // Public (sent at once), which floods the mesh during setup.
           await page.locator('#talk-send-to-chatroom').evaluate((checkbox: HTMLInputElement) => { checkbox.checked = false; });
           await page.click('#talk-submit-btn');
           await page.waitForSelector('#talk-editor-form', { state: 'detached', timeout: 15_000 });
@@ -281,6 +282,9 @@ test.describe('Find similar people', () => {
     // convergence handling, NOT retry-masking — gating on full connectedNeighborCount
     // is wrong here because the overlay never connects all NUM_USERS-1 peers at once.)
     await mapWithConcurrency(setups, 2, async ({ page, idx }) => {
+      // The tags were created private (Public unchecked); making them public is the user's step
+      // now that exchange is automatic (OPEN-112).
+      await publishHeldTalks(page);
       await page.waitForTimeout(3_000);
       await afterSync();
       const t0 = Date.now();

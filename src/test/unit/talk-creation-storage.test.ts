@@ -64,6 +64,22 @@ describe('saveCreatedTalk', () => {
     expect(getMyTalks().t1.disabled).toBe(false);
   });
 
+  it('creates a private Talk (Broadcast Off) when the editor unchecks Public (OPEN-112)', () => {
+    saveCreatedTalk(talk(), { selfAnswers: [], isPublic: false }, deps());
+    expect(getMyTalks().t1.disabled).toBe(true);
+    saveCreatedTalk(talk({ id: 't2' }), { selfAnswers: [], isPublic: true }, deps());
+    expect(getMyTalks().t2.disabled).toBe(false);
+  });
+
+  it('an edit keeps a private Talk private and a public Talk public', () => {
+    saveCreatedTalk(talk(), { selfAnswers: [], isPublic: false }, deps());
+    saveCreatedTalk(talk({ title: 'Edited' }), { selfAnswers: [] }, deps());
+    expect(getMyTalks().t1.disabled).toBe(true);
+    saveCreatedTalk(talk({ id: 't2' }), { selfAnswers: [] }, deps());
+    saveCreatedTalk(talk({ id: 't2', title: 'Edited' }), { selfAnswers: [] }, deps());
+    expect(getMyTalks().t2.disabled).toBe(false);
+  });
+
   it('records each self-answer in the answer history (the device graph learns from it)', () => {
     const d = deps();
     saveCreatedTalk(talk(), { selfAnswers: [{ questionId: 'q1', answerId: 'a1' }] }, d);

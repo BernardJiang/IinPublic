@@ -12,7 +12,10 @@ export function ignoreAnswersFor(fullTalk: any): Array<{ questionId: string; ans
   return question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
 }
 
-/** A received Talk copied into my own list, without answering it; its senders come along. */
+/**
+ * A received Talk copied into my own list, without answering it; its senders come along. A copy
+ * stays as received — private (Broadcast Off) — until I switch it on (owner, 2026-11-13, OPEN-112).
+ */
 export function copiedTalkEntry(fullTalk: any, talkId: string, cluster: any, nowIso: string): Entry {
   const senders = cluster?.senders && typeof cluster.senders === 'object'
     ? Array.from(new Set(Object.values(cluster.senders).map((s: any) => String(s?.senderId || '')).filter(Boolean)))
@@ -23,6 +26,7 @@ export function copiedTalkEntry(fullTalk: any, talkId: string, cluster: any, now
     type: fullTalk.type,
     timestamp: nowIso,
     role: 'copied',
+    disabled: true,
     fullTalk,
     ...(senders && senders.length > 0 ? { senders } : {}),
   };

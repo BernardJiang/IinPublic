@@ -2091,35 +2091,6 @@ button:focus:not(:focus-visible) {
   color: var(--text-tertiary);
 }
 
-.status-bar-actions #broadcast-talk-btn {
-  margin: 0;
-  padding: 12px 14px;
-  background: var(--gradient-success);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 0.98em;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.status-bar-actions #broadcast-talk-btn:hover {
-  background: var(--gradient-success-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.4);
-}
-
-.status-bar-actions #broadcast-talk-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
-}
-
 /* Talks View */
 .talks-nav-bar {
   display: flex;

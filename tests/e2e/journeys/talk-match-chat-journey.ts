@@ -56,7 +56,7 @@ export async function talkMatchChatJourney(alice: TestActor, bob: TestActor): Pr
   lap('sameRoom');
 
   const title = `Journey talk ${Date.now()}`;
-  await createSimpleFlowTalk(alice.page, title, MATCH_ANSWER, 'No mismatch', { sendToChatroom: false });
+  await createSimpleFlowTalk(alice.page, title, MATCH_ANSWER, 'No mismatch', { isPublic: false });
   await goToChatrooms(alice.page);
   await openCurrentRoom(alice.page);
   await clickBroadcastUntilBulkAck(alice.page);

@@ -182,7 +182,8 @@ async function openMapViewAndCenter(users: DemoUser[], centerOnSelf = false): Pr
     if (centerOnSelf) {
       const selfButton = user.page.locator('.chatroom-map-locate-self');
       if (await selfButton.isVisible().catch(() => false)) {
-        await selfButton.click();
+        // Chatbot toasts (one per Talk it answers) can sit over the map's corner.
+        await selfButton.evaluate((el) => (el as HTMLButtonElement).click());
       }
       await user.page.waitForTimeout(500);
     }
@@ -275,7 +276,8 @@ async function recenterMapForUser(user: DemoUser): Promise<void> {
   await waitForMapLoaded(user.page);
   const selfButton = user.page.locator('.chatroom-map-locate-self');
   if (await selfButton.isVisible().catch(() => false)) {
-    await selfButton.click();
+    // Chatbot toasts (one per Talk it answers) can sit over the map's corner.
+    await selfButton.evaluate((el) => (el as HTMLButtonElement).click());
   }
   await afterSync();
   await user.page.waitForTimeout(250);

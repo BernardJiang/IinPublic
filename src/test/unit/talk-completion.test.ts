@@ -2,7 +2,7 @@
 import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage';
 
 import { completeTalk, saveMyTalk, type TalkCompletionDeps } from '../../web/ui/talk-completion';
-import { getMyTalks } from '../../web/ui/my-talks-storage';
+import { getMyTalks, setMyTalks } from '../../web/ui/my-talks-storage';
 import { answeredTalkIdsByContent } from '../../web/ui/answered-talks';
 import { getFlatAnswerHistory } from '../../web/ui/answer-history-storage';
 import { starterTagsFor, starterTagTalk } from '../../shared/starter-tags';
@@ -143,6 +143,17 @@ describe('completeTalk', () => {
     expect(getMyTalks().t1.role).toBe('copied');
   });
 
+  it('a new copy starts private (Broadcast Off); answering again keeps what the copier chose (OPEN-112)', () => {
+    const d = deps();
+    completeTalk(talk(), [{ questionId: 'q1', answerId: 'yes' }], 'match', { forceCopyToMyTalks: true }, d);
+    expect(getMyTalks().t1.disabled).toBe(true);
+    const mine = getMyTalks();
+    mine.t1.disabled = false;
+    setMyTalks(mine);
+    completeTalk(talk(), [{ questionId: 'q1', answerId: 'yes' }], 'match', {}, d);
+    expect(getMyTalks().t1.disabled).toBe(false);
+  });
+
   it('forces an accepted incoming tag into My Talks even when global auto-save is off', () => {
     const d = deps();
     completeTalk(
@@ -254,5 +265,17 @@ describe('starter tags have no sender (OPEN-87)', () => {
     // A person sending the same tag later is still recorded.
     completeTalk({ ...starter, authorId: 'person-1', starterContactId: undefined }, [{ questionId: 'q_0', answerId: 'q_0_ignore', answerText: 'ignore' }], 'mismatch', undefined, deps());
     expect(getMyTalks()[starter.id]?.senders).toEqual(['person-1']);
+  });
+
+  it('a liked starter tag is my own interest and public; a liked tag from a person starts private (OPEN-112)', () => {
+    const starter = starterTagTalk(starterTagsFor('en')[0]!);
+    const like = [{ questionId: 'q_0', answerId: 'q_0_match', answerText: 'Match.' }];
+    completeTalk(starter, like, 'match', { forceCopyToMyTalks: true }, deps());
+    expect(getMyTalks()[starter.id]).toMatchObject({ role: 'copied', disabled: false });
+
+    const fromPerson = starterTagTalk(starterTagsFor('en')[1]!);
+    const personTag = { ...fromPerson, id: 'person-tag', authorId: 'person-1', starterContactId: undefined };
+    completeTalk(personTag, like, 'match', { forceCopyToMyTalks: true }, deps());
+    expect(getMyTalks()['person-tag']).toMatchObject({ role: 'copied', disabled: true });
   });
 });

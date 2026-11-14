@@ -354,7 +354,8 @@ test.describe('Taxi driver ↔ passenger matching in a local chatroom (§GG)', (
 async function isOwnTalkDisabled(page: Page, title: string): Promise<boolean> {
   return page.evaluate((needle: string) => {
     const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
-    return Object.values(talks).some((t: any) => t?.title === needle && t?.disabled === true);
+    // My own Talk, not a copy of the other side's same-titled tag (copies start private, OPEN-112).
+    return Object.values(talks).some((t: any) => t?.title === needle && t?.role === 'created' && t?.disabled === true);
   }, title);
 }
 

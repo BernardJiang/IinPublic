@@ -161,7 +161,6 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
     await ensureChatroomList(pageTom);
     await openCurrentChatroom(pageTom);
     await afterNav();
-    await expect(pageTom.locator('#broadcast-talk-btn')).toBeVisible({ timeout: 10000 });
     const disabledSend = await deliverBroadcastViaAppPath(pageTom, { minReceivers: 0 });
     expect(disabledSend.talksSent).toBe(0);
     await waitForTabActive(pageTom, 'chatrooms');

@@ -105,14 +105,7 @@ test.describe('Broadcast cancellation — clear all mid-flight', () => {
       await pageTom.click('.nav-btn[data-view="chatrooms"]');
       await afterNav();
       await afterSync();
-      if (isDirectTalkDeliveryE2e()) {
-        await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
-      } else {
-        await pageTom.locator('#broadcast-talk-btn').click({ timeout: 10_000 });
-        await afterAction();
-        await confirmBroadcastTagPreambleIfVisible(pageTom);
-        await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
-      }
+      await waitForBroadcastBulkAckMinSent(pageTom, { receivers: 1, minSent: 0 });
 
       const talksLeft = await pageTom.evaluate(() => Object.keys((window as any).__iinpublic_collection?.('myTalks') ?? {}));
       expect(talksLeft).toEqual([]);

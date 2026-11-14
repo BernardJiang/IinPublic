@@ -23,7 +23,7 @@ import { openTalkEditor } from '../../helpers/open-talk-editor';
 async function createExpiringFlowTalk(
   page: Page,
   title: string,
-  opts: { sendToChatroom?: boolean } = {},
+  opts: { isPublic?: boolean } = {},
 ): Promise<void> {
   await page.click('.nav-btn[data-view="chatrooms"]');
   await afterSync();
@@ -38,11 +38,10 @@ async function createExpiringFlowTalk(
   await question.locator('.answer-item').nth(0).locator('.answer-next').selectOption('noticed');
   await question.locator('.answer-item').nth(1).locator('.answer-text').fill('No');
   await question.locator('.answer-item').nth(1).locator('.answer-next').selectOption('ignore');
-  if (opts.sendToChatroom === false) {
-    // Talk creation delivers to the current room over mesh by default. The to-be-expired
-    // talk must stay undelivered: it is VALID at creation time (the clock fake comes after),
-    // so a creation-time delivery legitimately reaches the receiver and the final
-    // "receiver must not have it" assertion can never hold.
+  if (opts.isPublic === false) {
+    // A public Talk is delivered at once (OPEN-112). The to-be-expired talk must stay
+    // undelivered: it is VALID at creation time (the clock fake comes after), so it is created
+    // private and only made public after it has expired.
     await page.uncheck('#talk-send-to-chatroom');
   }
   await page.click('#talk-submit-btn');
@@ -119,7 +118,7 @@ test.describe('Talk expiration broadcast behavior', () => {
     await waitForIncomingTalkClusterOnServer(pageJerry, liveTitle);
 
     const expiredTitle = 'Expiration Blocked Delivery';
-    await createExpiringFlowTalk(pageTom, expiredTitle, { sendToChatroom: false });
+    await createExpiringFlowTalk(pageTom, expiredTitle, { isPublic: false });
     await pageTom.evaluate(() => {
       const realNow = Date.now.bind(Date);
       Date.now = () => realNow() + 2 * 24 * 60 * 60 * 1000;
@@ -128,12 +127,16 @@ test.describe('Talk expiration broadcast behavior', () => {
     await afterSync();
     await expect(pageTom.locator('#talks-list').filter({ hasText: expiredTitle })).toContainText('Expired');
 
+    // Making the expired Talk public must still send nothing: automatic exchange skips expired Talks.
+    await pageTom.evaluate((title) => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      const mine = ui?.getMyTalks?.() ?? {};
+      const id = Object.keys(mine).find((key) => mine[key]?.title === title);
+      if (!id) throw new Error(`no Talk titled ${title}`);
+      ui.setTalkDisabled(id, false);
+    }, expiredTitle);
     await pageTom.click('.nav-btn[data-view="chatrooms"]');
     await afterSync();
-    await pageTom.click('#broadcast-talk-btn');
-    await expect(pageTom.locator('.notification').filter({ hasText: 'You have no talks to broadcast' })).toBeVisible({
-      timeout: 15_000,
-    });
     await afterSync();
     expect(await receiverHasIncomingTitle(pageJerry, expiredTitle)).toBe(false);
   });

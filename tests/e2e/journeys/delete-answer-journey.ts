@@ -70,7 +70,7 @@ export async function deleteAnswerJourney(alice: TestActor, bob: TestActor): Pro
 
   // J-TALK-01/02: A's Talk reaches B, who answers it as a match.
   const title = `Delete answer ${Date.now()}`;
-  await createSimpleFlowTalk(alice.page, title, MATCH_ANSWER, 'No mismatch', { sendToChatroom: false });
+  await createSimpleFlowTalk(alice.page, title, MATCH_ANSWER, 'No mismatch', { isPublic: false });
   const talkId = await myTalkId(alice.page, title);
   expect(talkId, `${alice.id}: the Talk is not in My Talks`).toBeTruthy();
   await goToChatrooms(alice.page);

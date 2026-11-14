@@ -59,7 +59,6 @@ export function renderAppShell(
               <button type="button" class="header-btn app-bar-action-btn" id="me-like-btn" data-testid="me-like-btn" data-appbar-view="me" data-appbar-priority="2" disabled title="${text('meActionLike')}" aria-label="${text('meActionLike')}"><span class="app-bar-btn-icon" aria-hidden="true">♡</span><span class="app-bar-btn-label">${text('talksTagLike')}</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="me-delete-answer-btn" data-testid="me-delete-answer-btn" data-appbar-view="me" data-appbar-priority="3" disabled title="${text('meActionDeleteAnswer')}" aria-label="${text('meActionDeleteAnswer')}"><span class="app-bar-btn-icon" aria-hidden="true">🗑</span><span class="app-bar-btn-label">${text('meDeleteAnswer')}</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="me-talk-btn" data-testid="me-talk-btn" data-appbar-view="me" data-appbar-priority="3" disabled title="${text('meActionTalk')}" aria-label="${text('meActionTalk')}"><span class="app-bar-btn-icon" aria-hidden="true">💬</span><span class="app-bar-btn-label">${text('meOpenTalk')}</span></button>
-              <button type="button" class="header-btn app-bar-action-btn" id="broadcast-talk-btn" data-testid="broadcast-talk-btn" data-appbar-view="chatrooms" data-appbar-priority="3" title="Send every talk in your OUT list to everyone in this chatroom"><span class="app-bar-btn-icon">📣</span><span class="app-bar-btn-label">Broadcast</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="return-home-btn" data-testid="return-home-btn" data-appbar-view="chatrooms" data-appbar-priority="4" disabled title="Return Home"><span class="app-bar-btn-icon">🏠</span><span class="app-bar-btn-label">Return Home</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="create-custom-chatroom-btn" data-testid="create-custom-chatroom-btn" data-appbar-view="chatrooms" data-appbar-priority="5" title="New Room"><span class="app-bar-btn-icon">🆕</span><span class="app-bar-btn-label">New Room</span></button>
               <button type="button" class="header-btn app-bar-action-btn" id="settings-refresh-location-btn" data-testid="settings-refresh-location-btn" data-appbar-view="settings" data-appbar-priority="4" title="Refresh Location"><span class="app-bar-btn-icon">📍</span><span class="app-bar-btn-label">Refresh Location</span></button>
@@ -530,7 +529,6 @@ export function applyAppShellTranslations(
     ['#settings-status-text', 'statusSettings'],
     ['#create-custom-chatroom-btn .app-bar-btn-label', 'newRoom'],
     ['#return-home-btn .app-bar-btn-label', 'returnHome'],
-    ['#broadcast-talk-btn .app-bar-btn-label', 'broadcast'],
     ['#chatroom-list-view-btn .app-bar-btn-label', 'chatroomListView'],
     ['#chatroom-map-view-btn .app-bar-btn-label', 'chatroomMapView'],
     ['#nearby-meet-new-people-btn .app-bar-btn-label', 'nearbyMeetNewPeople'],
@@ -555,7 +553,7 @@ export function applyAppShellTranslations(
   const chatroomMap = root.getElementById('chatroom-map');
   if (chatroomMap) chatroomMap.setAttribute('aria-label', text('chatroomMapAriaLabel'));
   // AppBar icon buttons: translated label doubles as the tooltip.
-  for (const id of ['chatroom-list-view-btn', 'chatroom-map-view-btn', 'nearby-meet-new-people-btn', 'nearby-back-to-first-group-btn', 'create-custom-chatroom-btn', 'return-home-btn', 'broadcast-talk-btn', 'settings-refresh-location-btn']) {
+  for (const id of ['chatroom-list-view-btn', 'chatroom-map-view-btn', 'nearby-meet-new-people-btn', 'nearby-back-to-first-group-btn', 'create-custom-chatroom-btn', 'return-home-btn', 'settings-refresh-location-btn']) {
     const btn = root.getElementById(id);
     const label = btn?.querySelector<HTMLElement>('.app-bar-btn-label');
     if (btn && label && id !== 'return-home-btn') btn.title = label.textContent || '';

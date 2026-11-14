@@ -78,7 +78,8 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
     locationSelect?.value === '' || locationSelect?.value == null
       ? null
       : parseInt(locationSelect.value, 10);
-  const sendToChatroom = sendToChatroomCheck?.checked !== false;
+  // Public = Broadcast On: exchanged automatically with everyone on my list (OPEN-112).
+  const isPublic = sendToChatroomCheck?.checked !== false;
   const collectionImportanceValue = (document.getElementById('talk-collection-importance') as HTMLSelectElement | null)?.value;
   const collectionImportance = collectionImportanceValue === 'important' || collectionImportanceValue === 'must-have'
     ? collectionImportanceValue
@@ -253,7 +254,7 @@ export function processTalkForm(form: HTMLFormElement, deps: ProcessTalkFormDeps
       questions,
       language,
       tags,
-      sendToChatroom,
+      isPublic,
       expiresAt,
       locationRadiusMiles,
       matchThreshold,

@@ -69,7 +69,7 @@ test.describe('P2P-Q handshake E2E', () => {
 
       // Tom creates and broadcasts a simple flow talk
       await createSimpleFlowTalk(pageTom, title, MATCH_ANSWER, 'No mismatch', {
-        sendToChatroom: false,
+        isPublic: false,
       });
       await goToChatrooms(pageTom);
       await openCurrentChatroom(pageTom);

@@ -11,7 +11,7 @@
     "block-signal.test.ts",
     "block-status-cache.test.ts",
     "broadcast-delivery-selection.test.ts",
-    "broadcast-room-record.test.ts",
+    "broadcast-selection-sendable.test.ts",
     "broadcast-tag-targeting.test.ts",
     "built-in-comparisons.test.ts",
     "built-in-question-resolution.test.ts",

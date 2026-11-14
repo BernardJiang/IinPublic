@@ -54,7 +54,7 @@ test.describe('Direct link rebuilt: phone A reconnects to phone B, then sends a 
     }
 
     const title = `After reconnect ${Date.now()}`;
-    await createSimpleFlowTalk(alice.page, title, 'Yes match', 'No mismatch', { sendToChatroom: false });
+    await createSimpleFlowTalk(alice.page, title, 'Yes match', 'No mismatch', { isPublic: false });
     const talkId = await alice.page.evaluate((expectedTitle) => {
       const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
       return Object.entries(talks).find(([, value]: [string, any]) => value?.role === 'created' && value?.title === expectedTitle)?.[0] ?? '';

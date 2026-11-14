@@ -66,7 +66,7 @@ test.describe('Broadcast — chatroom boundary matching', () => {
       await afterSync();
 
       await createSimpleFlowTalk(pageTom, talkTitle, MATCH_ANSWER, IGNORE_ANSWER, {
-        sendToChatroom: false,
+        isPublic: false,
       });
 
       await goToChatrooms(pageTom);

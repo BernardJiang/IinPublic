@@ -51,8 +51,8 @@ import { getAnsweredTalkId } from '../ui/answered-talks';
 import { setGraphChatbotSource } from '../ui/graph-chatbot';
 import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
 import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
+import { receiversExcludingAuthor } from '../../core/broadcast-selection';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
-import { recordTalksBroadcastInRoom, talksBroadcastInRoom } from '../ui/broadcast-room-record';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
@@ -3575,6 +3575,23 @@ export class IinPublicApp {
     };
   }
 
+  /**
+   * Automatic exchange (OPEN-112): offer my public Talks to everyone on my current list now, after
+   * a Talk is created, edited or switched to Broadcast On. Each person gets only what they are owed.
+   */
+  private exchangeWithCurrentList(): void {
+    const roomId = this.currentChatroomId;
+    if (!roomId) return;
+    const people = new Map<string, string | undefined>();
+    for (const member of this.uiManager.getCurrentChatroomMembers()) people.set(member.userId, member.stageName);
+    for (const entry of this.nearbyV3?.service.entries() ?? []) {
+      if (!people.has(entry.card.userId)) people.set(entry.card.userId, undefined);
+    }
+    for (const [userId, stageName] of people) {
+      this.catchUpPeerInActiveRoom(userId, roomId, stageName, { ignoreInterval: true });
+    }
+  }
+
   private catchUpPeerInActiveRoom(
     userId: string,
     roomId: string,
@@ -3594,8 +3611,9 @@ export class IinPublicApp {
     const key = `${roomId}|${peerId}`;
     const now = Date.now();
     if (!options.ignoreInterval && now - (this.roomCatchupSentAt.get(key) ?? 0) < ROOM_CATCHUP_MIN_INTERVAL_MS) return;
-    const broadcastHere = talksBroadcastInRoom(roomId);
-    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId).filter((talkId) => broadcastHere.has(talkId));
+    // Automatic exchange (OPEN-112): every Talk I keep public (Broadcast On) is owed to each person
+    // on my current list, capped at the room's capacity. No Broadcast tap is needed.
+    const candidates = getUnsentBroadcastTalkIdsForReceiver(peerId);
     // A Talk still being broadcast is left to that broadcast; re-check this peer when it settles.
     if (candidates.some((talkId) => this.talkBroadcastsInFlight.has(talkId))) {
       this.catchUpDeferredByInFlight.set(peerId, { roomId, ...(stageName ? { stageName } : {}) });
@@ -6530,7 +6548,11 @@ export class IinPublicApp {
     // A Talk my intake refuses is declined to its author (their record of passing it to me goes,
     // so it can come again once my filters or my age verification allow it).
     const decline = () => { void this.coreRequest?.({ name: 'graph.declineArrival', talkId: event.talkId, from: event.from }).catch(() => undefined); };
-    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) { decline(); return; }
+    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) {
+      console.warn(`[intake] receiving limit full: declined ${event.talkId} from ${event.from}`);
+      decline();
+      return;
+    }
     const authorName = String(context.authorName || talk.authorName || 'Unknown');
     const payload = {
       roomId: typeof context.roomId === 'string' ? context.roomId : '',
@@ -6833,6 +6855,7 @@ export class IinPublicApp {
       me.knownPeople,
       this.roomTravelerIds,
     );
+    receiverIds = receiversExcludingAuthor(receiverIds, (talk as { authorId?: unknown }).authorId);
     if (receiverIds.length === 0) return false;
 
     const mesh = this.ensurePeerMeshService();
@@ -7614,6 +7637,16 @@ export class IinPublicApp {
     if (!this.currentUser) throw new Error('App not ready for E2E broadcast delivery');
     const chatroomId = this.chatroomService.getCurrentChatroomId();
     if (!chatroomId) throw new Error('No current chatroom for E2E broadcast delivery');
+    // Talks an e2e editor helper created private only to time their sending (`__e2eHeldTalkIds`)
+    // become public here, quietly: this delivery is their send (OPEN-112). Talks a spec switched
+    // off itself are not listed and stay private.
+    const held = (window as unknown as { __e2eHeldTalkIds?: string[] }).__e2eHeldTalkIds;
+    if (Array.isArray(held) && held.length > 0) {
+      const mine = getMyTalks();
+      for (const talkId of held) if (mine[talkId]?.disabled) mine[talkId].disabled = false;
+      setMyTalks(mine);
+      (window as unknown as { __e2eHeldTalkIds?: string[] }).__e2eHeldTalkIds = [];
+    }
     const members = this.uiManager.getCurrentChatroomMembers();
     let broadcastableIds = this.uiManager.getBroadcastableTalkIds();
     if (broadcastableIds.length === 0) {
@@ -7632,8 +7665,6 @@ export class IinPublicApp {
       this.uiManager.setBroadcastBulkAck(0, targetCount);
       return { talksSent: 0, receivers: targetCount };
     }
-    // Same as the Broadcast button: these Talks are now owed to anyone who links into this room.
-    recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
     const activeCollection = this.ensureMatchCollectionSession(chatroomId);
     const collectionLocation = activeCollection
       ? await this.matchCollectionSendLocation(chatroomId)
@@ -8781,8 +8812,10 @@ export class IinPublicApp {
           language: talk.language,
         });
 
+        const isPublic = (talkData as { isPublic?: boolean }).isPublic !== false;
         this.uiManager.saveCreatedTalk(talk, {
           selfAnswers: talkData.selfAnswers ?? [],
+          isPublic,
         });
 
         // Deliver to the current room over mesh — fire-and-forget. deliverTalkToReceiversOverMesh
@@ -8793,10 +8826,12 @@ export class IinPublicApp {
         // room member before this even reaches the mailbox fallback. The talk is already
         // genuinely created and saved locally the moment createTalk() above resolved; delivering
         // it to the room is a background concern, not a precondition for reporting success.
-        const wantSendToChatroom = (talkData as { sendToChatroom?: boolean }).sendToChatroom !== false;
+        // `sendToChatroom: false` (API/script callers) keeps a public Talk from going out at creation;
+        // it is then offered on the next link, list change or edit like any public Talk.
+        const wantSendToChatroom = isPublic && (talkData as { sendToChatroom?: boolean }).sendToChatroom !== false;
+        if (isPublic) this.uiManager.maybeShowPreSendSafetyToast();
         const chatroomId = this.chatroomService.getCurrentChatroomId();
         if (chatroomId && wantSendToChatroom) {
-          recordTalksBroadcastInRoom(chatroomId, [talk.id], Object.keys(getMyTalks()));
           const releaseInFlight = this.markTalkBroadcastsInFlight([talk.id]);
           void (async () => {
             const receivers = await this.resolveBroadcastReceivers(
@@ -8827,7 +8862,7 @@ export class IinPublicApp {
     // line, or any non-captured message sent while one was active). Assemble whatever was
     // gathered into a real Talk — a new draft in the plain DM thread, or an appended question
     // on the existing talk if this session started inside that talk's thread. Deliberately
-    // does NOT auto-broadcast to the current chatroom (unlike the Talk Editor's `createTalk`
+    // starts private (Broadcast Off), so it is not exchanged until the user makes it public (unlike the Talk Editor's `createTalk`
     // handler above) — FR-TK-7's own wording is "a linear talk draft ... to reuse and
     // broadcast later," not immediately, and a DM capture has no chatroom context to begin
     // with.
@@ -8854,7 +8889,7 @@ export class IinPublicApp {
               ...draft,
               ...(authorLocation ? { authorLocation } : {}),
             });
-            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [] });
+            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [], isPublic: false });
             this.uiManager.applyTalkRevisionPolicy(data.scopeTalkId);
             this.uiManager.showNotification(this.uiManager.formatCaptureTalkAppended(), 'success');
           } else {
@@ -8866,7 +8901,7 @@ export class IinPublicApp {
               authorId: this.currentUser!.id,
               ...(authorLocation ? { authorLocation } : {}),
             });
-            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [] });
+            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [], isPublic: false });
             this.uiManager.showNotification(this.uiManager.formatCaptureTalkCreated(), 'success');
           }
         } catch (error) {
@@ -8934,13 +8969,7 @@ export class IinPublicApp {
             this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
             return;
           }
-          // A deliberate broadcast is what makes these Talks owed to anyone who links into this
-          // room later (catchUpPeerInActiveRoom); it never carries them into another room.
-          // (A plain Broadcast tap arrives as `automatic` — it only skips the confirm dialog.)
-          if (!data.catchUp) {
-            recordTalksBroadcastInRoom(chatroomId, broadcastableIds, Object.keys(getMyTalks()));
-            releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
-          }
+          if (!data.catchUp) releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
 
           // Immediate feedback before the slow work below (resolving receivers, fetching
           // talk payloads) — without this, a tap that shows nothing for a few seconds reads
@@ -9136,6 +9165,8 @@ export class IinPublicApp {
           oldTalkId: data.id,
           newTalkId: data.id,
         });
+        // The new version is owed again to everyone on my list.
+        this.exchangeWithCurrentList();
       } catch (error) {
         console.error('Failed to update talk:', error);
         this.uiManager.showNotification(this.uiManager.formatTalkUpdateFailed((error as Error).message), 'error');
@@ -9158,6 +9189,9 @@ export class IinPublicApp {
     // Step 10: TALK_RETRACTED — hard retraction on delete or tag-uncheck.
     // Emits the audit-feed event, writes the local tombstone, floods the mesh frame,
     // and posts mailbox envelopes to all known responders (outcomes + exchanged).
+    // A Talk switched to Broadcast On goes out to my current list at once (OPEN-112).
+    this.uiManager.on('publishTalk', () => this.exchangeWithCurrentList());
+
     this.uiManager.on('retractTalk', (data: { talkId: string; retractedAt: number }) => {
       void this.handleRetractTalk(data.talkId, data.retractedAt);
     });
