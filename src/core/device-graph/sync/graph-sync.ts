@@ -1,21 +1,19 @@
 /**
- * Talk exchange by Gun sync (spec §31.9, REQ-GRAPH-30..35; design: docs/design/device-graph.md,
- * "Talk exchange by Gun sync"). The direct link between two people (WebRTC, LAN, Wi-Fi Direct) is
- * a Gun peer of the device core's Gun, so Gun itself carries the graph; the hub never does (D1, D3).
+ * Talk exchange between two people (spec §31.9, REQ-GRAPH-30..35; design: docs/design/device-graph.md,
+ * OPEN-114). Gun is each device's store; between devices the pair log travels in our own frames over
+ * any direct link that carries strings (WebRTC, LAN, Wi-Fi Direct, later BLE), never via the hub.
  *
- * What travels, all encrypted (owner decision 2026-11-03):
- * - A Talk version is written once, as nodes, under a random tag and a random key `K`
- *   (`wire-names.ts`). Each step is two values: `ref` (ids, choice keys, routing; no text) and
- *   `text`. A receiver that already holds a question and its choices skips the text (D4, D5).
  * - Everything I send one person goes into that pair's log, encrypted with the pair secret (ECDH of
- *   our keys): an offer (the version's tag and `K`), my answer to their Talk (keys only), my deletion
- *   of a Talk or an answer. Entries are numbered from 0, each carries the hash of the one before
- *   and my signature, so the receiver can prove order and completeness (REQ-GRAPH-34).
+ *   our keys): offers (each carrying its Talk version), my answers to their Talks, deletions,
+ *   declines, chat messages. Entries are numbered from 0, each carries the hash of the one before and
+ *   my signature, so the receiver can prove order and completeness (REQ-GRAPH-34).
+ * - What I queue for one person while an entry is being written goes into the next entry together
+ *   (`{ batch }`): a first meeting's catch-up is a few entries, not one per Talk (OPEN-114).
+ * - Frames: `hi` (where each side stands), `log` (entries, pushed), `ack` (signed, REQ-GRAPH-43),
+ *   `cp` (a signed checkpoint after a trim, REQ-GRAPH-48) and `part` (a frame larger than the link
+ *   carries, in pieces). What they have not acknowledged is sent again while the link is up.
  *
- * Nothing is sent while two people are apart (D2): on connect each side subscribes to the other's
- * log head and reads the entries it has not applied (REQ-GRAPH-31); Gun answers only what is asked.
- * The outgoing audience filter (`sharing-policy.ts`, `audience.ts`) keeps every soul on its pair's
- * link (REQ-GRAPH-32).
+ * Nothing is sent while two people are apart (D2): the log waits on my device until their link opens.
  */
 import { getKeyedMany, putKeyed, readKeyed } from '../keyed-buckets';
 import { portableSha256Hex } from '../../../shared/portable-sha256';
@@ -28,8 +26,8 @@ import type { createTalkGraph, EventIds } from '../talk-events';
 import type { EventChainSigner } from '../chain';
 import { putEvent } from '../events';
 import { addToIndex } from '../index-buckets';
-import { gunNodeStore, link, linkSoul, type GraphNode, type NodeStore } from '../node-store';
-import { GRAPH_SCHEMA_VERSION, graphSouls, talkStructureKey, talkStructureOf, type StructureQuestion, type TalkStructure } from '../talk-structure';
+import { link, linkSoul, type GraphNode, type NodeStore } from '../node-store';
+import { GRAPH_SCHEMA_VERSION, graphSouls, readTalkStructure, talkStructureKey, talkStructureOf, type StructureQuestion, type TalkStructure } from '../talk-structure';
 import { personIdOf, personSoul, personWrites } from '../people-graph';
 import { parseEventId } from '../event-id';
 import { MESSAGE_CONV_MAX, MESSAGE_TEXT_MAX } from '../message-events';
@@ -41,6 +39,22 @@ import { BATCH_MAX_CHARS, BATCH_MAX_ITEMS, INLINE_ENTRY_MAX_CHARS } from './batc
 export { BATCH_MAX_CHARS, BATCH_MAX_ITEMS, INLINE_ENTRY_MAX_CHARS };
 /** A block field naming a large entry's own node. Encrypted like every graph value (the sharing
  * policy sends nothing else on a `g/` soul); `{ ptr: n }` names entry `n`. */
+/** Frames (OPEN-114): our own, carried by any link that carries strings. */
+const FRAME_VERSION = 1;
+/** The largest frame sent in one piece unless the link says less (the mesh's graph frames carry 256 KB). */
+export const FRAME_MAX_CHARS = 60_000;
+/** A frame larger than this is refused; parts of one frame at most, and how long a partial one waits. */
+const FRAME_RAW_MAX = 256 * 1024;
+const FRAME_PARTS_MAX = 4_096;
+const FRAME_PARTS_TTL_MS = 120_000;
+
+/** Content asked for and not arrived is asked for again after this long. */
+const CONTENT_ASK_AGAIN_MS = 5_000;
+/** Content blobs (OPEN-114): how many hashes one `want` names, and how many blobs a device keeps in
+ * memory (a blob is also stored, so a `want` after a restart is still answered). */
+const WANT_MAX = 512;
+const BLOBS_IN_MEMORY = 4_000;
+
 /** Items of one batch entry applied side by side (each a Talk's arrival or an answer). */
 const BATCH_APPLY_PARALLEL = 8;
 
@@ -93,7 +107,16 @@ export type PeerKeys = { pub: string; epub: string };
 export type LogBody =
   /** A Talk version offered. `talk` carries the version itself (OPEN-114): the receiver needs no
    * read of mine. An offer without it (older devices) names wire nodes to read (`talkTag`, `key`). */
-  | { offer: { talkId: string; versionId: string; talk?: VersionBody; talkTag?: string; key?: string; context?: Record<string, unknown> } }
+  | { offer: {
+    talkId: string; versionId: string;
+    /** The version's head fields (ids, structure key, title, meta) and where its steps are: a
+     * content blob made once per version, named by its hash `h`, encrypted with `k` (OPEN-114). The
+     * receiver asks for the blob only when it does not hold that structure already. */
+    head?: Record<string, unknown>; content?: { h: string; k: string };
+    /** Step 1 of OPEN-114 carried the whole version here; still read. */
+    talk?: VersionBody;
+    talkTag?: string; key?: string; context?: Record<string, unknown>;
+  } }
   /** Several bodies in one entry (OPEN-114), applied in order. */
   | { batch: LogBody[] }
   | { answer: { talkId: string; versionId?: string; eventId: string; when: number; device: string; mode: string; set: Record<string, AnswerSetEntry>; replaces?: string; context?: Record<string, unknown>;
@@ -157,8 +180,10 @@ export function createGraphSync(options: {
   prefix?: string;
   now?: () => number;
   log?: (message: string) => void;
-  /** How long a read of the other person's souls waits for their link to answer. */
+  /** Unused since OPEN-114 (nothing is read over a link); kept so callers need not change. */
   remoteReadMs?: number;
+  /** The largest frame a link carries in one piece unless `open` says otherwise. */
+  frameMaxChars?: number;
 }) {
   const { gun, store, me, crypto, graph } = options;
   const prefix = options.prefix ?? 'local/';
@@ -174,25 +199,35 @@ export function createGraphSync(options: {
    */
   const owedSoul = `${prefix}sync/owed`;
   const owed = new Map<string, number>();
-  // Reads of the other person's souls go over the link, so they wait longer than local reads.
-  // On a phone a read crosses page → frame → the other page → its core and back, often over 1.5 s.
-  const remote = gunNodeStore(gun, { readWaitMs: options.remoteReadMs ?? 400, missWaitMs: options.remoteReadMs ?? 4000, getTimeoutMs: 12_000, remembersReads: false });
   const mine = graphWireSouls(me.userId);
-  /** A large entry's own node, under the pair's part (the audience sends it to the pair only). */
+  /** A large entry's own node, under the pair's part. */
   const entrySoul = (senderUserId: string, pairTag: string, n: number) => `${graphWireSouls(senderUserId).head(pairTag).slice(0, -'/head'.length)}/e/${n}`;
+  const frameMaxDefault = options.frameMaxChars ?? FRAME_MAX_CHARS;
 
   type Link = {
-    peer: any; keys: PeerKeys; secret: string; pairTag: string; off?: () => void;
+    keys: PeerKeys; secret: string; pairTag: string;
+    /** The largest frame this link carries; a larger one goes in parts (a BLE link sets a small one). */
+    frameMax: number;
     processing?: Promise<void> | undefined; again?: boolean;
-    /** A stalled log (an entry or its Talk not readable yet) is read again after this many ms. */
+    /** A stalled log (an entry missing) is asked for again after this many ms. */
     retryMs?: number | undefined; retryTimer?: ReturnType<typeof setTimeout> | undefined;
     lastError?: string | undefined;
-    /** The `read` value last written to my head for this pair. */
-    readMarked?: number;
-    /** Log blocks with a live subscription: a once-read lease expires, and later writes to the
-     * same block would then be refused as unasked-for and never fetched again from the cache. */
-    watched?: Map<string, any>;
-    /** While they owe me an acknowledgement: my head is sent again after this many ms. */
+    /** Their entries that arrived and are not applied yet, by number (ciphertext). */
+    pending: Map<number, string>;
+    /** The last entry their frames named (their head), and my own last entry with them. */
+    theirHead?: number;
+    myHead: number;
+    /** The last of my entries their signed acknowledgement covers. */
+    theirAck?: number;
+    /** The acknowledgement I last sent them, and when I last asked them for an entry. */
+    ackSent?: number | undefined; asked?: { next: number; at: number } | undefined;
+    /** Their entries decrypted already (a scan for missing content reads them before applying). */
+    decoded: Map<number, LogEntry>;
+    /** Content I asked them for, and when. */
+    wanted: Map<string, number>;
+    /** Frames that arrive in parts, by id. */
+    parts: Map<string, { count: number; got: Map<number, string>; at: number }>;
+    /** While they owe me an acknowledgement: my entries are sent again after this many ms. */
     owedMs?: number | undefined; owedTimer?: ReturnType<typeof setTimeout> | undefined;
   };
   const links = new Map<string, Link>();
@@ -298,16 +333,19 @@ export function createGraphSync(options: {
     owed.set(peerUserId, n);
     options.events?.onOwedChange?.([...owed.keys()]);
     const link = links.get(peerUserId);
-    if (link) { link.owedMs = undefined; resendWhileOwed(peerUserId, link); }
+    // Pushed at once when we are linked; otherwise it waits in my log until they say hello.
+    if (link) {
+      link.myHead = n;
+      sendFrame(peerUserId, link, { t: 'log', from: n, e: [cipher] });
+      link.owedMs = undefined;
+      resendWhileOwed(peerUserId, link);
+    }
     return n;
   }
 
   /**
-   * Gun sends a write over a link once. A push that left while the connection under the link was
-   * being replaced is lost without the link closing, so nothing caught up: their device never
-   * learned of my entry, and an answer to their Talk was missing there for good (stage5 HR route,
-   * 2 answers at once). While they owe me an acknowledgement, send my head again with backoff, and
-   * ask for theirs (their acknowledgement may have been lost the same way).
+   * A frame can be lost while the link stays up (a connection replaced under it). While they owe me
+   * an acknowledgement, send what they have not acknowledged again, backing off.
    */
   function resendWhileOwed(peerUserId: string, link: Link): void {
     if (link.owedTimer || !owed.has(peerUserId)) return;
@@ -315,8 +353,7 @@ export function createGraphSync(options: {
     link.owedTimer = setTimeout(() => {
       link.owedTimer = undefined;
       if (links.get(peerUserId) !== link || !owed.has(peerUserId)) { link.owedMs = undefined; return; }
-      askFresh(link, graphWireSouls(peerUserId).head(link.pairTag));
-      void pushMyHead(link).catch(() => undefined).finally(() => resendWhileOwed(peerUserId, link));
+      void sendLog(peerUserId, link, (link.theirAck ?? -1) + 1).catch(() => undefined).finally(() => resendWhileOwed(peerUserId, link));
     }, link.owedMs);
     (link.owedTimer as { unref?: () => void }).unref?.();
   }
@@ -352,6 +389,55 @@ export function createGraphSync(options: {
     return built;
   }
 
+  /**
+   * One version as offers carry it (OPEN-114): its head, and its steps as a content blob encrypted
+   * once with a random key and named by its hash. Every person it is offered to gets the same blob;
+   * only the small offer differs per pair.
+   */
+  const versionContents = new Map<string, Promise<{ head: Record<string, unknown>; content: { h: string; k: string } }>>();
+  const blobs = new Map<string, string>();
+  const blobSoul = (h: string) => `${prefix}sync/blob/${h}`;
+  function rememberBlob(h: string, c: string): void {
+    blobs.delete(h);
+    blobs.set(h, c);
+    if (blobs.size > BLOBS_IN_MEMORY) blobs.delete(blobs.keys().next().value!);
+  }
+  function versionContent(talkId: string, versionId: string) {
+    const known = versionContents.get(versionId);
+    if (known) return known;
+    const made = (async () => {
+      const recordSoul = `${prefix}sync/version/${versionId}`;
+      const record = await store.get(recordSoul);
+      const { head, steps } = await versionBody(talkId, versionId);
+      if (typeof record?.h === 'string' && typeof record.k === 'string') return { head, content: { h: record.h, k: record.k } };
+      const k = crypto.randomHex(32);
+      const c = await encryptJson(steps, k);
+      const h = portableSha256Hex(c);
+      await store.put(blobSoul(h), { c });
+      await store.put(recordSoul, { h, k });
+      rememberBlob(h, c);
+      return { head, content: { h, k } };
+    })();
+    versionContents.set(versionId, made);
+    made.catch(() => versionContents.delete(versionId));
+    if (versionContents.size > 2_000) versionContents.delete(versionContents.keys().next().value!);
+    return made;
+  }
+
+  /**
+   * Content being fetched, by structure key: the same Talk offered by several people at once (as
+   * everyone's starter tags are) is asked for from one of them; the others' offers wait for it.
+   */
+  const fetching = new Map<string, { from: string; at: number; waiting: Set<string> }>();
+
+  async function blobOf(h: string): Promise<string | undefined> {
+    const held = blobs.get(h);
+    if (held) return held;
+    const stored = (await store.get(blobSoul(h)).catch(() => null))?.c;
+    if (typeof stored === 'string') rememberBlob(h, stored);
+    return typeof stored === 'string' ? stored : undefined;
+  }
+
   function versionHead(talkId: string, versionId: string, talk: any, structure: TalkStructure, event: GraphNode): Record<string, unknown> {
     const head: Record<string, unknown> = {
       talkId, versionId, when: Number(event.when), device: String(event.device ?? ''),
@@ -382,6 +468,40 @@ export function createGraphSync(options: {
     return versionFrom(head as any, questions, offer.talkId);
   }
 
+  /** Where an offer's steps come from: a structure I hold already, or its content blob. */
+  const structuresHeld = new Map<string, TalkStructure>();
+  async function knownStructure(head: any): Promise<TalkStructure | undefined> {
+    if (typeof head?.revKey !== 'string') return undefined;
+    // A stored structure never changes: one found once is kept (bounded).
+    const held = structuresHeld.get(head.revKey);
+    if (held) return held;
+    const structure = await readTalkStructure(store, head.revKey, prefix).catch(() => undefined);
+    if (!structure || talkStructureKey(structure) !== head.revKey) return undefined;
+    structuresHeld.set(head.revKey, structure);
+    if (structuresHeld.size > BLOBS_IN_MEMORY) structuresHeld.delete(structuresHeld.keys().next().value!);
+    return structure;
+  }
+
+  /** The content an offer needs and I have neither as a structure nor as a blob. */
+  async function missingContent(body: LogBody): Promise<{ h: string; rev: string } | undefined> {
+    if (!('offer' in body) || !body.offer.content || !body.offer.head) return undefined;
+    if (blobs.has(body.offer.content.h)) return undefined;
+    if (await knownStructure(body.offer.head)) return undefined;
+    return { h: body.offer.content.h, rev: String(body.offer.head.revKey ?? body.offer.content.h) };
+  }
+
+  async function contentVersion(offer: { talkId: string; versionId: string; head: any; content: { h: string; k: string } }) {
+    const { head } = offer;
+    if (!head || head.talkId !== offer.talkId || head.versionId !== offer.versionId) return undefined;
+    const known = await knownStructure(head);
+    if (known) return versionFrom(head, known.questions, offer.talkId);
+    const c = blobs.get(offer.content.h);
+    if (!c || portableSha256Hex(c) !== offer.content.h) throw new Error(`content ${offer.content.h.slice(0, 8)} of Talk ${offer.talkId} has not arrived yet`);
+    const steps = await decryptJson<VersionBody['steps']>(c, offer.content.k);
+    if (!Array.isArray(steps)) return undefined;
+    return inlineVersion({ talkId: offer.talkId, versionId: offer.versionId, talk: { head, steps } });
+  }
+
   function versionFrom(head: any, questions: StructureQuestion[], talkId: string) {
     const structure: TalkStructure = { type: head.type, language: head.language, grammar: head.grammar, questions };
     if (head.matchThreshold !== undefined) structure.matchThreshold = head.matchThreshold;
@@ -395,50 +515,18 @@ export function createGraphSync(options: {
     return { head, talk };
   }
 
-  /** Read one version of their Talk from its wire nodes (asking their link for what is missing). */
-  async function fetchVersion(fromUserId: string, offer: { talkId: string; versionId: string; talkTag: string; key: string }) {
-    const theirs = graphWireSouls(fromUserId);
-    const headNode = await remote.get(theirs.talk(offer.talkTag));
-    const head = await decryptJson<any>(headNode?.head, offer.key);
-    if (!head || head.talkId !== offer.talkId || head.versionId !== offer.versionId) return undefined;
-    const questions: StructureQuestion[] = [];
-    for (let i = 0; i < Number(head.n); i += 1) {
-      const node = await remote.get(theirs.talkStep(offer.talkTag, i));
-      const ref = await decryptJson<any>(node?.ref, offer.key);
-      if (!ref) return undefined;
-      // Text is decrypted only for a question or choice this device has not stored (D5).
-      let texts: { q: string; a: Record<string, string> } | undefined;
-      const known = await store.get(souls.question(ref.qKey));
-      const answerTexts: Record<string, string> = {};
-      for (const answer of ref.answers as Array<{ id: string; aKey: string }>) {
-        const stored = await store.get(souls.answer(answer.aKey));
-        if (typeof stored?.text === 'string') answerTexts[answer.id] = stored.text;
-      }
-      if (typeof known?.text !== 'string' || Object.keys(answerTexts).length !== ref.answers.length) {
-        texts = await decryptJson(node?.text, offer.key);
-        if (!texts) return undefined;
-      }
-      const { qKey: _qKey, answers, ...rest } = ref;
-      questions.push({
-        ...rest,
-        text: texts ? texts.q : String(known!.text),
-        answers: (answers as any[]).map(({ aKey: _aKey, ...a }) => ({ ...a, text: texts ? texts.a[a.id] : answerTexts[a.id] })),
-      });
-    }
-    return versionFrom(head, questions, offer.talkId);
-  }
-
   async function applyBody(fromUserId: string, keys: PeerKeys, entry: LogEntry, link: string, body: LogBody): Promise<void> {
     if ('batch' in body) {
       for (const item of Array.isArray(body.batch) ? body.batch : []) await applyBody(fromUserId, keys, entry, link, item);
       return;
     }
     if ('offer' in body) {
-      const fetched = body.offer.talk
-        ? inlineVersion(body.offer as { talkId: string; versionId: string; talk: VersionBody })
-        : body.offer.talkTag && body.offer.key
-          ? await fetchVersion(fromUserId, body.offer as { talkId: string; versionId: string; talkTag: string; key: string })
-          : undefined;
+      // The version travels inside the offer; an older device's offer (wire nodes to read) is not
+      // supported any more (no backward compatibility, OPEN-114).
+      const fetched = body.offer.content && body.offer.head
+        ? await contentVersion(body.offer as { talkId: string; versionId: string; head: any; content: { h: string; k: string } })
+        : body.offer.talk ? inlineVersion(body.offer as { talkId: string; versionId: string; talk: VersionBody }) : undefined;
+      if (!fetched && !body.offer.talk && !body.offer.content) { options.log?.(`[graph-sync] offer of ${body.offer.talkId} from an older device skipped`); return; }
       if (!fetched) throw new Error(`Talk ${body.offer.talkId} has not arrived yet`);
       const { head, talk } = fetched;
       const result = await graph.arrivals.receive({
@@ -451,6 +539,13 @@ export function createGraphSync(options: {
         entry: { n: entry.n, hash: entryHash(entry), when: Number(entry.when) },
       });
       if (!result.ignored) options.events?.onTalk?.(body.offer.talkId, fromUserId, body.offer.context);
+      // Others' offers of this same content were waiting for it: they can go now.
+      const rev = typeof body.offer.head?.revKey === 'string' ? body.offer.head.revKey : undefined;
+      const waited = rev ? fetching.get(rev) : undefined;
+      if (rev && waited) {
+        fetching.delete(rev);
+        for (const peer of waited.waiting) if (peer !== fromUserId) void catchUp(peer);
+      }
       else if (result.ignored === 'grammar') options.log?.(`[graph-sync] ignored Talk ${body.offer.talkId}: ${talkGrammarErrors(talk).length} grammar errors`);
     } else if ('answer' in body) {
       const answer = body.answer;
@@ -521,25 +616,176 @@ export function createGraphSync(options: {
     ]);
   }
 
-  /**
-   * Ask their link for one of their souls now. Gun answers a read from its cache once it holds the
-   * soul, and a push sent while our link was down (reconnecting, or not yet open) is never sent
-   * again: without a fresh ask, an entry their head names stayed unread for good (e2e mass/02).
-   */
-  function askFresh(link: Link, soul: string): void {
-    try { root.opt.mesh.say({ '#': crypto.randomHex(9), get: { '#': soul } }, link.peer); } catch { /* the link is going away */ }
+  // ---- frames --------------------------------------------------------------------------------
+  //
+  // OPEN-114: the pair log travels in our own frames, not as Gun messages. Any link that carries a
+  // string (WebRTC, LAN, Wi-Fi Direct, later BLE) carries them; a frame over the link's size goes in
+  // parts. Entries are already signed and encrypted; a frame adds only the pair tag and numbers.
+  //   hi   { next, head }        the entry of yours I need next, and my last entry
+  //   log  { from, e: [...] }    my entries from `from` on (ciphertext as stored)
+  //   ack  { n, hash, when, sig } I applied your entries up to n (signed, REQ-GRAPH-43)
+  //   cp   { n, hash, when, sig } my log starts after n (signed checkpoint after a trim, REQ-GRAPH-48)
+  //   part { id, i, count, d }   one part of a larger frame
+
+  function sendFrame(peerUserId: string, link: Link, frame: Record<string, unknown>): void {
+    // Every frame says my last entry (`h`): any frame that gets through tells them what they miss.
+    const raw = JSON.stringify({ gx: FRAME_VERSION, p: link.pairTag, h: link.myHead, ...frame });
+    if (raw.length <= link.frameMax) { outbox.push({ to: peerUserId, raw }); wake?.(); return; }
+    const size = Math.max(64, link.frameMax - 160);
+    const id = crypto.randomHex(8);
+    const count = Math.ceil(raw.length / size);
+    for (let i = 0; i < count; i += 1) {
+      outbox.push({ to: peerUserId, raw: JSON.stringify({ gx: FRAME_VERSION, t: 'part', id, i, count, d: raw.slice(i * size, (i + 1) * size) }) });
+    }
+    wake?.();
   }
 
-  /** Send my head for this pair over the link as it is now (nothing when I have written none). */
-  async function pushMyHead(link: Link): Promise<void> {
-    const soul = mine.head(link.pairTag);
-    await store.get(soul).catch(() => undefined); // loads it into Gun's graph after a restart
-    const node = gun._.graph?.[soul];
-    if (!node) return;
-    try { root.opt.mesh.say({ '#': crypto.randomHex(9), put: { [soul]: node } }, link.peer); } catch { /* the link is going away */ }
+  async function myOutState(peerUserId: string): Promise<{ n: number; hash: string }> {
+    const state = await store.get(`${prefix}sync/out/${encodeURIComponent(peerUserId)}`);
+    return { n: typeof state?.n === 'number' ? state.n : -1, hash: typeof state?.hash === 'string' ? state.hash : '' };
   }
 
-  /** Apply every entry of their log I have not applied, in order, proving the chain. */
+  async function myInState(peerUserId: string): Promise<{ next: number; hash: string; sub?: number; broken?: string }> {
+    const state = await store.get(`${prefix}sync/in/${encodeURIComponent(peerUserId)}`);
+    return {
+      next: typeof state?.next === 'number' ? state.next : 0,
+      hash: typeof state?.hash === 'string' ? state.hash : '',
+      ...(typeof state?.sub === 'number' ? { sub: state.sub } : {}),
+      ...(typeof state?.broken === 'string' ? { broken: state.broken } : {}),
+    };
+  }
+
+  /** The stored ciphertext of my entry n with this pair (the entry itself, not a pointer). */
+  async function myEntryCipher(pairTag: string, secret: string, n: number): Promise<string | undefined> {
+    const block = await store.get(mine.logBlock(pairTag, Math.floor(n / LOG_BLOCK))).catch(() => null);
+    const stored = block?.[String(n)];
+    if (typeof stored !== 'string') return undefined;
+    if (stored.length <= POINTER_MAX_CHARS && isPointer(await decryptJson(stored, secret).catch(() => undefined), n)) {
+      const own = (await store.get(entrySoul(me.userId, pairTag, n)).catch(() => null))?.c;
+      return typeof own === 'string' ? own : undefined;
+    }
+    return stored;
+  }
+
+  /** Send them my entries from `from` on, in frames up to the link's size (a checkpoint first when
+   * the start was trimmed). */
+  async function sendLog(peerUserId: string, link: Link, from: number): Promise<void> {
+    const { n: last } = await myOutState(peerUserId);
+    if (from > last) return;
+    let start = Math.max(0, from);
+    if (!(await myEntryCipher(link.pairTag, link.secret, start))) {
+      const head = await store.get(mine.head(link.pairTag)).catch(() => null);
+      const cp = await decryptJson<{ n: number; hash: string; when: number; sig: string }>(head?.cp, link.secret).catch(() => undefined);
+      if (!cp || cp.n < start) return; // not stored and not trimmed: nothing I can send
+      sendFrame(peerUserId, link, { t: 'cp', n: cp.n, hash: cp.hash, when: cp.when, sig: cp.sig });
+      start = cp.n + 1;
+    }
+    let batch: string[] = [];
+    let batchFrom = start;
+    let chars = 0;
+    for (let n = start; n <= last; n += 1) {
+      const cipher = await myEntryCipher(link.pairTag, link.secret, n);
+      if (cipher === undefined) break;
+      if (batch.length && chars + cipher.length > link.frameMax - 200) {
+        sendFrame(peerUserId, link, { t: 'log', from: batchFrom, e: batch });
+        batch = []; chars = 0; batchFrom = n;
+      }
+      batch.push(cipher);
+      chars += cipher.length;
+    }
+    if (batch.length) sendFrame(peerUserId, link, { t: 'log', from: batchFrom, e: batch });
+  }
+
+  async function sendHello(peerUserId: string, link: Link): Promise<void> {
+    const [inState, outState] = await Promise.all([myInState(peerUserId), myOutState(peerUserId)]);
+    link.asked = { next: inState.next, at: now() };
+    sendFrame(peerUserId, link, { t: 'hi', next: inState.next, head: outState.n });
+  }
+
+  /** A frame from their link. */
+  async function handleFrame(peerUserId: string, link: Link, frame: any): Promise<void> {
+    if (frame.t === 'part') {
+      const { id, i, count, d } = frame;
+      if (typeof id !== 'string' || typeof i !== 'number' || typeof count !== 'number' || typeof d !== 'string' || count < 1 || count > FRAME_PARTS_MAX || i < 0 || i >= count) return;
+      const held = link.parts.get(id) ?? { count, got: new Map<number, string>(), at: now() };
+      held.got.set(i, d);
+      link.parts.set(id, held);
+      for (const [other, value] of link.parts) if (now() - value.at > FRAME_PARTS_TTL_MS) link.parts.delete(other);
+      if (held.got.size < held.count) return;
+      link.parts.delete(id);
+      let whole: any;
+      try { whole = JSON.parse(Array.from({ length: held.count }, (_, k) => held.got.get(k) ?? '').join('')); } catch { return; }
+      if (whole?.gx === FRAME_VERSION && whole.t !== 'part') await handleFrame(peerUserId, link, whole);
+      return;
+    }
+    if (frame.p !== link.pairTag) return; // another pair's frame: never mine
+    if (typeof frame.h === 'number' && frame.h > (link.theirHead ?? -1)) {
+      link.theirHead = frame.h;
+      if (frame.t !== 'log' && frame.t !== 'hi') void catchUp(peerUserId);
+    }
+    if (frame.t === 'hi') {
+      if (typeof frame.head === 'number') link.theirHead = Math.max(link.theirHead ?? -1, frame.head);
+      // They may have lost my acknowledgement: send it again, then what they still need.
+      link.ackSent = undefined;
+      await sendLog(peerUserId, link, typeof frame.next === 'number' ? frame.next : 0);
+      void catchUp(peerUserId);
+      return;
+    }
+    if (frame.t === 'log') {
+      if (typeof frame.from !== 'number' || !Array.isArray(frame.e)) return;
+      frame.e.forEach((cipher: unknown, i: number) => { if (typeof cipher === 'string') link.pending.set(frame.from + i, cipher); });
+      link.theirHead = Math.max(link.theirHead ?? -1, frame.from + frame.e.length - 1);
+      void catchUp(peerUserId);
+      return;
+    }
+    if (frame.t === 'ack') { await checkRead(peerUserId, link, frame); return; }
+    if (frame.t === 'want') {
+      // Content of my Talks they need: sent in as few frames as the link carries.
+      const hashes = Array.isArray(frame.h) ? frame.h.filter((h: unknown): h is string => typeof h === 'string').slice(0, WANT_MAX) : [];
+      let batch: Record<string, string> = {};
+      let chars = 0;
+      for (const h of hashes) {
+        const c = await blobOf(h);
+        if (!c) continue;
+        if (chars && chars + c.length > link.frameMax - 200) { sendFrame(peerUserId, link, { t: 'blob', b: batch }); batch = {}; chars = 0; }
+        batch[h] = c;
+        chars += c.length;
+      }
+      if (chars) sendFrame(peerUserId, link, { t: 'blob', b: batch });
+      return;
+    }
+    if (frame.t === 'blob') {
+      // Content I asked for: kept only when it is what its name says.
+      let fresh = false;
+      for (const [h, c] of Object.entries(frame.b ?? {})) {
+        if (typeof c !== 'string' || portableSha256Hex(c) !== h) continue;
+        rememberBlob(h, c);
+        link.wanted.delete(h);
+        fresh = true;
+      }
+      if (fresh) { link.asked = undefined; void catchUp(peerUserId); }
+      return;
+    }
+    if (frame.t === 'cp') { await applyCheckpoint(peerUserId, link, frame); void catchUp(peerUserId); }
+  }
+
+  /** A checkpoint they signed after trimming (REQ-GRAPH-48): when I am behind it I start from it. */
+  async function applyCheckpoint(peerUserId: string, link: Link, cp: any): Promise<void> {
+    const stateSoul = `${prefix}sync/in/${encodeURIComponent(peerUserId)}`;
+    const state = await myInState(peerUserId);
+    if (state.broken || typeof cp.n !== 'number' || state.next > cp.n) return;
+    const ok = typeof cp.hash === 'string' && typeof cp.when === 'number' && typeof cp.sig === 'string'
+      && await crypto.verify(cp.sig, canonicalJson({ n: cp.n, hash: cp.hash, when: cp.when }), link.keys.pub).catch(() => false);
+    if (!ok) {
+      const broken = `checkpoint ${cp.n} has a bad signature`;
+      await store.put(stateSoul, { broken });
+      options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
+      return;
+    }
+    await store.put(stateSoul, { next: cp.n + 1, hash: cp.hash, sub: null });
+  }
+
+  /** Apply every entry of theirs that arrived, in order, proving the chain. */
   function catchUp(peerUserId: string): Promise<void> {
     const link = links.get(peerUserId);
     if (!link) return Promise.resolve();
@@ -553,17 +799,15 @@ export function createGraphSync(options: {
           options.log?.(`[graph-sync] ${peerUserId}: ${link.lastError}`);
           return true;
         });
-        // Inside the loop: a receipt that lands while this check runs sets `again` too, and their
-        // device writes each receipt once — read after the loop, it was lost (e2e 05-mailbox).
-        await checkRead(peerUserId, link).catch(() => undefined);
       } while (link.again && links.get(peerUserId) === link);
       if (link.retryTimer) { clearTimeout(link.retryTimer); link.retryTimer = undefined; }
       if (stalled && links.get(peerUserId) === link) {
-        // Not waiting for their next write: try again, backing off up to 30 s while the link is up.
+        // An entry is missing (a frame lost) or could not be applied: ask again, backing off.
         link.retryMs = Math.min(30_000, (link.retryMs ?? 500) * 2);
         link.retryTimer = setTimeout(() => {
           link.retryTimer = undefined;
-          if (links.get(peerUserId) === link) askFresh(link, graphWireSouls(peerUserId).head(link.pairTag));
+          if (links.get(peerUserId) !== link) return;
+          link.asked = undefined;
           void catchUp(peerUserId);
         }, link.retryMs);
         (link.retryTimer as { unref?: () => void }).unref?.();
@@ -574,147 +818,120 @@ export function createGraphSync(options: {
     return link.processing;
   }
 
-  /** Returns true when the log is stalled: there is more to apply that could not be read yet. */
+  /** Returns true when the log is stalled: they have more than I could apply. */
   async function readLog(peerUserId: string, link: Link): Promise<boolean> {
-    const theirs = graphWireSouls(peerUserId);
     const stateSoul = `${prefix}sync/in/${encodeURIComponent(peerUserId)}`;
-    const headNode = await remote.get(theirs.head(link.pairTag));
-    const head = await decryptJson<{ n: number; hash: string }>(headNode?.head, link.secret);
-    if (!head) return false;
-    let state = await store.get(stateSoul);
-    if (typeof state?.broken === 'string') return false;
-    let next = typeof state?.next === 'number' ? state.next : 0;
-    let prev = typeof state?.hash === 'string' ? state.hash : '';
-    // A checkpoint the log owner signed after trimming (REQ-GRAPH-48): when I am behind it I can
-    // start from it — nothing below the other person's last acknowledgement is on the wire anymore.
-    const cp = await decryptJson<{ n: number; hash: string; when: number; sig: string }>(headNode?.cp, link.secret);
-    if (cp && typeof cp.n === 'number' && next <= cp.n) {
-      const ok = typeof cp.hash === 'string' && typeof cp.when === 'number' && typeof cp.sig === 'string'
-        && await crypto.verify(cp.sig, canonicalJson({ n: cp.n, hash: cp.hash, when: cp.when }), link.keys.pub).catch(() => false);
-      if (!ok) {
-        const broken = `checkpoint ${cp.n} has a bad signature`;
-        await store.put(stateSoul, { broken });
-        options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
-        return false;
-      }
-      next = cp.n + 1;
-      prev = cp.hash;
-      await store.put(stateSoul, { next, hash: prev });
-      state = { next, hash: prev };
+    let state = await myInState(peerUserId);
+    if (state.broken) return false;
+    let next = state.next;
+    let prev = state.hash;
+    for (const n of [...link.pending.keys()]) if (n < next) { link.pending.delete(n); link.decoded.delete(n); }
+    const decode = async (n: number): Promise<LogEntry | undefined> => {
+      const known = link.decoded.get(n);
+      if (known) return known;
+      const entry = await decryptJson<LogEntry>(link.pending.get(n), link.secret);
+      if (entry) link.decoded.set(n, entry);
+      return entry;
+    };
+    // Content the waiting entries need and I lack: asked for all at once, before applying any.
+    const missing = new Map<string, string>();
+    for (let n = next; link.pending.has(n) && missing.size < WANT_MAX; n += 1) {
+      const entry = await decode(n);
+      if (!entry) break;
+      const items = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
+      for (const item of items) { const need = await missingContent(item); if (need) missing.set(need.h, need.rev); }
+    }
+    const ask = [...missing].filter(([h, rev]) => {
+      // Being fetched from someone else: wait for it rather than ask again.
+      const elsewhere = fetching.get(rev);
+      if (elsewhere && elsewhere.from !== peerUserId && now() - elsewhere.at < CONTENT_ASK_AGAIN_MS) { elsewhere.waiting.add(peerUserId); return false; }
+      if (now() - (link.wanted.get(h) ?? 0) <= CONTENT_ASK_AGAIN_MS) return false;
+      fetching.set(rev, { from: peerUserId, at: now(), waiting: elsewhere?.waiting ?? new Set() });
+      return true;
+    }).map(([h]) => h);
+    if (ask.length) {
+      for (const h of ask) link.wanted.set(h, now());
+      sendFrame(peerUserId, link, { t: 'want', h: ask });
     }
     try {
-      return await readEntries();
+      while (link.pending.has(next)) {
+        const entry = await decode(next);
+        if (!entry) { link.pending.delete(next); break; }
+        // Its content has not arrived: wait for it (the blob frame starts the next pass).
+        const items0 = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
+        if ((await Promise.all(items0.map((item) => missingContent(item)))).some(Boolean)) return true;
+        const broken = entry.n !== next ? `entry ${next} is numbered ${entry.n}`
+          : entry.prev !== prev ? `entry ${next} does not follow entry ${next - 1}`
+            : entry.by !== peerUserId ? `entry ${next} names another author`
+              : !(await crypto.verify(entry.sig, signedPart(entry), link.keys.pub)) ? `entry ${next} has a bad signature` : '';
+        if (broken) {
+          // The timeline cannot be proven past this point: stop, keep what was applied, report.
+          await store.put(stateSoul, { broken });
+          options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
+          return false;
+        }
+        // Items about different Talks are applied side by side, BATCH_APPLY_PARALLEL at a time;
+        // items about the same Talk keep their order. When one fails, the ones before it are not
+        // applied again on the retry (`sub`: how many of entry `next` are applied).
+        const items = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
+        for (let start = state.sub ?? 0; start < items.length; start += BATCH_APPLY_PARALLEL) {
+          const groups = new Map<string, LogBody[]>();
+          items.slice(start, start + BATCH_APPLY_PARALLEL).forEach((item, i) => {
+            const key = talkOfBody(item) ?? `#${start + i}`;
+            groups.set(key, [...(groups.get(key) ?? []), item]);
+          });
+          const results = await Promise.allSettled([...groups.values()].map(async (group) => {
+            for (const item of group) await applyBody(peerUserId, link.keys, entry, 'webrtc', item);
+          }));
+          const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+          if (failed) {
+            if (start > 0) await store.put(stateSoul, { sub: start }).catch(() => undefined);
+            throw failed.reason;
+          }
+        }
+        link.pending.delete(next);
+        link.decoded.delete(next);
+        prev = entryHash(entry);
+        next += 1;
+        await store.put(stateSoul, { next, hash: prev, sub: null });
+        state = { next, hash: prev };
+      }
     } finally {
-      // My head says how far I applied their log: their device stops wanting a link for it.
-      await markRead(link, next - 1, prev).catch(() => undefined);
+      await sendAck(peerUserId, link, next - 1, prev).catch(() => undefined);
     }
-    async function readEntries(): Promise<boolean> {
-    while (next <= head!.n) {
-      const blockSoul = theirs.logBlock(link.pairTag, Math.floor(next / LOG_BLOCK));
-      link.watched ||= new Map();
-      if (!link.watched.has(blockSoul)) {
-        const chain = gun.get(blockSoul);
-        chain.on(() => { void catchUp(peerUserId); });
-        link.watched.set(blockSoul, chain);
-      }
-      // Entries never change once written: one already pushed over the link is in Gun's graph and
-      // is used as it is; only a missing one is read over the link (which waits, OPEN-114).
-      const held = (soul: string, field: string) => { const value = gun._.graph?.[soul]?.[field]; return typeof value === 'string' ? value : undefined; };
-      let stored = held(blockSoul, String(next));
-      if (stored === undefined) stored = (await remote.get(blockSoul))?.[String(next)] as string | undefined;
-      let entry = await decryptJson<LogEntry>(stored, link.secret);
-      if (isPointer(entry, next)) {
-        const own = entrySoul(peerUserId, link.pairTag, next);
-        const large = held(own, 'c') ?? ((await remote.get(own))?.c as string | undefined);
-        if (large === undefined) { askFresh(link, own); return true; }
-        entry = await decryptJson<LogEntry>(large, link.secret);
-      }
-      if (!entry) { askFresh(link, blockSoul); return true; } // not arrived yet: asked again, tried again shortly
-      const broken = entry.n !== next ? `entry ${next} is numbered ${entry.n}`
-        : entry.prev !== prev ? `entry ${next} does not follow entry ${next - 1}`
-          : entry.by !== peerUserId ? `entry ${next} names another author`
-            : !(await crypto.verify(entry.sig, signedPart(entry), link.keys.pub)) ? `entry ${next} has a bad signature` : '';
-      if (broken) {
-        // The timeline cannot be proven past this point: stop, keep what was applied, report.
-        await store.put(stateSoul, { broken });
-        options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
-        return false;
-      }
-      // A batch is applied item by item; when one fails, the ones before it are not applied again
-      // on the retry (`sub`: how many of entry `next` are applied).
-      // Items about different Talks are applied side by side, BATCH_APPLY_PARALLEL at a time; items
-      // about the same Talk keep their order.
-      const items = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
-      for (let start = typeof state?.sub === 'number' ? state.sub : 0; start < items.length; start += BATCH_APPLY_PARALLEL) {
-        const groups = new Map<string, LogBody[]>();
-        items.slice(start, start + BATCH_APPLY_PARALLEL).forEach((item, i) => {
-          const key = talkOfBody(item) ?? `#${start + i}`;
-          groups.set(key, [...(groups.get(key) ?? []), item]);
-        });
-        const results = await Promise.allSettled([...groups.values()].map(async (group) => {
-          for (const item of group) await applyBody(peerUserId, link.keys, entry, 'webrtc', item);
-        }));
-        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-        if (failed) {
-          if (start > 0) await store.put(stateSoul, { sub: start }).catch(() => undefined);
-          throw failed.reason;
-        }
-      }
-      prev = entryHash(entry);
-      next += 1;
-      await store.put(stateSoul, { next, hash: prev, sub: null });
-      state = { next, hash: prev };
-    }
-    return false;
-    }
+    if ((link.theirHead ?? -1) < next) return false;
+    // Something of theirs is missing: ask for it (once per entry, until the retry).
+    if (!link.asked || link.asked.next !== next) await sendHello(peerUserId, link);
+    return true;
   }
 
-  /**
-   * Write how far I applied their log into my head for this pair, once per new value (REQ-GRAPH-43):
-   * a signed acknowledgement (`ack`, naming the entry's hash) for modern peers, and the unsigned
-   * `read` for peers from before acknowledgements.
-   */
-  async function markRead(link: Link, n: number, hash: string): Promise<void> {
-    if (n < 0 || link.readMarked === n) return;
-    link.readMarked = n;
+  /** Tell them how far I applied their log, once per new value (REQ-GRAPH-43, signed). */
+  async function sendAck(peerUserId: string, link: Link, n: number, hash: string): Promise<void> {
+    if (n < 0 || link.ackSent === n) return;
+    link.ackSent = n;
     const ack = { n, hash, when: now() };
-    const signed = { ...ack, sig: await crypto.sign(canonicalJson(ack), me.pair.priv) };
-    await store.put(mine.head(link.pairTag), {
-      read: await encryptJson({ n }, link.secret),
-      ack: await encryptJson(signed, link.secret),
-    });
+    sendFrame(peerUserId, link, { t: 'ack', ...ack, sig: await crypto.sign(canonicalJson(ack), me.pair.priv) });
   }
 
   /**
-   * Their head says how far they applied my log: clear what they owe me nothing more for. A signed
-   * acknowledgement counts only when its signature verifies and its hash is my entry `n`'s hash;
-   * the unsigned legacy `read` is still honoured for peers from before acknowledgements.
+   * Their acknowledgement of my log: it counts only when its signature verifies and its hash is my
+   * entry `n`'s hash. What they acknowledged they owe me nothing more for.
    */
-  async function checkRead(peerUserId: string, link: Link): Promise<void> {
+  async function checkRead(peerUserId: string, link: Link, ack: any): Promise<void> {
+    if (typeof ack?.n !== 'number' || typeof ack.hash !== 'string' || typeof ack.when !== 'number' || typeof ack.sig !== 'string') return;
+    if (!(await crypto.verify(ack.sig, canonicalJson({ n: ack.n, hash: ack.hash, when: ack.when }), link.keys.pub).catch(() => false))) return;
+    // The hash must commit to my own entry: read it back from my log and re-hash it.
+    const entry = await readMyEntry(link.pairTag, link.secret, ack.n);
+    if (!entry || entryHash(entry) !== ack.hash) return;
+    await store.put(souls.index(`ack/${encodeURIComponent(peerUserId)}`), { [String(ack.n)]: JSON.stringify({ n: ack.n, hash: ack.hash, when: ack.when, sig: ack.sig }) });
+    lastAcks.set(peerUserId, { n: ack.n, when: ack.when, skewMs: ack.when - Number(entry.when) });
+    link.theirAck = Math.max(link.theirAck ?? -1, ack.n);
     const want = owed.get(peerUserId);
-    if (want === undefined) return;
-    const node = gun._.graph?.[graphWireSouls(peerUserId).head(link.pairTag)];
-    const ack = await decryptJson<{ n: number; hash: string; when: number; sig: string }>(node?.ack, link.secret).catch(() => undefined);
-    if (typeof ack?.n === 'number' && typeof ack.hash === 'string' && typeof ack.when === 'number' && typeof ack.sig === 'string'
-      && await crypto.verify(ack.sig, canonicalJson({ n: ack.n, hash: ack.hash, when: ack.when }), link.keys.pub).catch(() => false)) {
-      // The hash must commit to my own entry: read it back from my log and re-hash it.
-      const entry = await readMyEntry(link.pairTag, link.secret, ack.n);
-      if (entry && entryHash(entry) === ack.hash) {
-        await store.put(souls.index(`ack/${encodeURIComponent(peerUserId)}`), { [String(ack.n)]: JSON.stringify(ack) });
-        lastAcks.set(peerUserId, { n: ack.n, when: ack.when, skewMs: ack.when - Number(entry.when) });
-        if (ack.n >= want && owed.get(peerUserId) === want) {
-          owed.delete(peerUserId);
-          await store.put(owedSoul, { [peerUserId]: null });
-          options.events?.onOwedChange?.([...owed.keys()]);
-        }
-      }
-      return; // a modern peer's `ack` speaks; a tampered one clears nothing
+    if (want !== undefined && ack.n >= want) {
+      owed.delete(peerUserId);
+      await store.put(owedSoul, { [peerUserId]: null });
+      options.events?.onOwedChange?.([...owed.keys()]);
     }
-    const read = await decryptJson<{ n: number }>(node?.read, link.secret).catch(() => undefined);
-    if (typeof read?.n !== 'number' || read.n < want || owed.get(peerUserId) !== want) return;
-    owed.delete(peerUserId);
-    await store.put(owedSoul, { [peerUserId]: null });
-    options.events?.onOwedChange?.([...owed.keys()]);
   }
 
   // ---- links ---------------------------------------------------------------------------------
@@ -731,30 +948,20 @@ export function createGraphSync(options: {
     /** People my log has entries for that they have not read yet. */
     owed: (): string[] => [...owed.keys()],
 
-    /** A direct link to this person is up: make it a Gun peer and catch up on their log. */
-    async open(peerUserId: string): Promise<void> {
+    /**
+     * A direct link to this person is up (any transport that carries strings). `frameMaxChars`: the
+     * largest frame it carries in one piece (a BLE link passes a small one; larger frames go in parts).
+     */
+    async open(peerUserId: string, linkOptions: { frameMaxChars?: number } = {}): Promise<void> {
       if (links.has(peerUserId)) return;
       const pair = await pairWith(peerUserId);
-      const peer: any = {
-        id: `graph:${peerUserId}`,
-        graphUserId: peerUserId,
-        wire: { send: (raw: string) => { outbox.push({ to: peerUserId, raw }); wake?.(); } },
-      };
-      const link: Link = { peer, ...pair };
+      const link: Link = { ...pair, frameMax: Math.max(256, linkOptions.frameMaxChars ?? frameMaxDefault), pending: new Map(), decoded: new Map(), wanted: new Map(), parts: new Map(), myHead: (await myOutState(peerUserId)).n };
       links.set(peerUserId, link);
-      root.opt.mesh.hi(peer);
-      // A live subscription to their head: Gun asks their link, and later writes arrive by themselves.
-      const chain = gun.get(graphWireSouls(peerUserId).head(pair.pairTag));
-      const listener = () => { void catchUp(peerUserId); };
-      chain.on(listener);
-      link.off = () => chain.off();
-      // A head I hold from an earlier link may be stale: what they wrote while we were apart.
-      askFresh(link, graphWireSouls(peerUserId).head(pair.pairTag));
-      // And mine, sent unasked: their ask for it is lost when their side of the link opened
-      // first (mine was not up to hear it), and their copy from before stays stale (e2e 05-mailbox).
-      await pushMyHead(link);
+      // Say where we stand: they send what I miss, and I send what they miss when they say theirs.
+      await sendHello(peerUserId, link);
+      const inState = await myInState(peerUserId);
+      await sendAck(peerUserId, link, inState.next - 1, inState.hash).catch(() => undefined);
       resendWhileOwed(peerUserId, link);
-      await catchUp(peerUserId);
     },
 
     /** The link went down. */
@@ -764,16 +971,21 @@ export function createGraphSync(options: {
       links.delete(peerUserId);
       if (link.retryTimer) clearTimeout(link.retryTimer);
       if (link.owedTimer) clearTimeout(link.owedTimer);
-      for (const chain of link.watched?.values() ?? []) chain.off();
-      link.off?.();
-      root.opt.mesh.bye(link.peer);
-      delete root.opt.peers[link.peer.id];
     },
 
-    /** A Gun message from this person's link. */
+    /** A frame from this person's link (anything else is ignored). */
     hear(peerUserId: string, raw: string): void {
       const link = links.get(peerUserId);
-      if (link) root.opt.mesh.hear(raw, link.peer);
+      if (!link || typeof raw !== 'string' || raw.length > FRAME_RAW_MAX) return;
+      let frame: any;
+      try { frame = JSON.parse(raw); } catch { return; }
+      if (!frame || frame.gx !== FRAME_VERSION) return;
+      // Acknowledgements are checked in their own queue: a slow check (a busy device's signature
+      // check) must not hold up the entries and requests behind it (e2e 05-mailbox).
+      void serial(`${frame.t === 'ack' ? 'ack' : 'in'}:${peerUserId}`, () => handleFrame(peerUserId, link, frame)).catch((error) => {
+        link.lastError = (error as Error).message;
+        options.log?.(`[graph-sync] ${peerUserId}: frame failed: ${link.lastError}`);
+      });
     },
 
     /** Gun messages to send over links; waits up to `waitMs` when there are none. */
@@ -807,14 +1019,14 @@ export function createGraphSync(options: {
     async offerTalk(talkId: string, recipients: string[], context?: Record<string, unknown>): Promise<number> {
       const talk = await graph.talks.read(talkId);
       if (!talk) throw new Error(`no Talk ${talkId}`);
-      // The version travels inside the offer (OPEN-114): no wire nodes, no read of mine.
-      const body = await versionBody(talkId, talk.versionId);
+      // The offer names the version's content blob (OPEN-114): made once, whoever it goes to.
+      const { head, content } = await versionContent(talkId, talk.versionId);
       // The version each person was last sent, in keyed buckets (`keyed-buckets.ts`).
       const sentSoul = `${prefix}sync/sent/${talkId}`;
       const sent = await getKeyedMany(store, sentSoul, recipients);
       const fresh = [...new Set(recipients)].filter((id) => id !== me.userId && sent[id] !== talk.versionId);
       // One entry per person; offers made at the same time share it (`append`).
-      await Promise.all(fresh.map((peerUserId) => append(peerUserId, { offer: { talkId, versionId: talk.versionId, talk: body, ...(context ? { context } : {}) } })));
+      await Promise.all(fresh.map((peerUserId) => append(peerUserId, { offer: { talkId, versionId: talk.versionId, head, content, ...(context ? { context } : {}) } })));
       if (fresh.length) await putKeyed(store, sentSoul, Object.fromEntries(fresh.map((peerUserId) => [peerUserId, talk.versionId])));
       return fresh.length;
     },
@@ -995,13 +1207,9 @@ export function createGraphSync(options: {
       const lastAck = lastAcks.get(peerUserId);
       if (lastAck) status.lastAck = lastAck;
       if (link) {
-        const theirs = graphWireSouls(peerUserId);
-        const graphNode = (soul: string) => gun._.graph?.[soul];
-        const head = await decryptJson<{ n: number }>(graphNode(theirs.head(link.pairTag))?.head, link.secret).catch(() => undefined);
-        if (head) status.theirHead = head.n;
-        const read = await decryptJson<{ n: number }>(graphNode(theirs.head(link.pairTag))?.read, link.secret).catch(() => undefined);
-        if (read) status.theirRead = read.n;
-        status.theirBlock = Object.keys(graphNode(theirs.logBlock(link.pairTag, 0)) || {}).filter((k) => k !== '_');
+        if (link.theirHead !== undefined) status.theirHead = link.theirHead;
+        if (link.theirAck !== undefined) status.theirRead = link.theirAck;
+        status.theirBlock = [...link.pending.keys()].map(String);
       }
       return status;
     },

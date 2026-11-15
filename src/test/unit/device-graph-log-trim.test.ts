@@ -229,6 +229,8 @@ describe('pair-log trimming below the signed acknowledgement', () => {
     // The fields are genuine but the signature is not the log owner's (Lee signed it, not Kim).
     const tampered = await crypto.encrypt(JSON.stringify({ ...cp, sig: await crypto.sign(canonicalJson(cp), lee.pair.priv) }), secret);
     await new Promise<void>((resolve) => { kim.gun.get(graphWireSouls('kim-t').head(pairTag)).put({ cp: tampered }, () => resolve()); });
+    // As after a trim: entry 0 is gone, so Lee (behind it) is sent the checkpoint.
+    await kim.store.put(graphWireSouls('kim-t').logBlock(pairTag, 0), { '0': null });
 
     await Promise.all([kim.sync.open('lee-t'), lee.sync.open('kim-t')]);
     await until(async () => typeof (await lee.store.get('local/sync/in/kim-t'))?.broken === 'string');

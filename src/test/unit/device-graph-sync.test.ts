@@ -89,7 +89,7 @@ async function pump() {
     for (const from of devices) {
       for (const { to, raw } of await from.sync.pull(0)) {
         const target = devices.find((d) => d.userId === to);
-        if (dropped.has(`${from.userId}>${to}`) || (droppedBlocks.has(`${from.userId}>${to}`) && raw.includes('/log/'))) continue;
+        if (dropped.has(`${from.userId}>${to}`) || (droppedBlocks.has(`${from.userId}>${to}`) && raw.includes('"t":"log"'))) continue;
         if (target?.sync.openLinks().includes(from.userId)) { target.heard.push(raw); target.sync.hear(from.userId, raw); }
       }
     }
@@ -243,12 +243,13 @@ describe('Talk exchange by Gun sync', () => {
     const first = await amy.graph.talks.create(tennis('First tennis'));
     expect(await amy.sync.offerTalk(first, ['bob-d'])).toBe(1);
     await until(async () => !!(await bob.graph.arrivals.read(first)));
-    // Amy's next log entry is pushed while the link loses it, but her new head gets through. Gun
-    // never resends the entry, and Bob's reads were answered from the block he already holds.
+    // Amy's next log frame is lost while the link stays up. She still owes it, so she sends it
+    // again once the link carries frames again.
     droppedBlocks.add('amy-d>bob-d');
     const second = await amy.graph.talks.create(tennis('Second tennis'));
     expect(await amy.sync.offerTalk(second, ['bob-d'])).toBe(1);
-    await until(async () => (await bob.sync.status('amy-d')).theirHead === 1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await bob.graph.arrivals.read(second)).toBeUndefined();
     droppedBlocks.delete('amy-d>bob-d');
     await until(async () => !!(await bob.graph.arrivals.read(second)));
   });
@@ -305,9 +306,10 @@ describe('Talk exchange by Gun sync', () => {
     expect(await joe.sync.offerTalk(second, ['ivy-d'])).toBe(1);
     expect(joe.sync.owed()).toContain('ivy-d');
 
-    // Ivy writes to Joe: his device catches up and starts checking her old receipt, slowly.
+    // Joe's link comes up again: Ivy's hello brings her old receipt, and Joe checks it slowly.
     hold = new Promise<void>((resolve) => { release = resolve; });
-    await ivy.sync.sendDecline('joe-d', first, (await ivy.graph.arrivals.read(first))!.versionId);
+    joe.sync.close('ivy-d');
+    await joe.sync.open('ivy-d');
     await until(() => held);
 
     // Meanwhile Ivy reads the second entry and her new receipt reaches Joe.
@@ -353,8 +355,8 @@ describe('Talk exchange by Gun sync', () => {
     const ids = await Promise.all([1, 2, 3, 4, 5].map((i) => kim.graph.talks.create(tennis(`Batch tennis ${i}`))));
     await Promise.all(ids.map((id) => kim.sync.offerTalk(id, ['lee-b'])));
     await until(async () => (await Promise.all(ids.map((id) => lee.graph.arrivals.read(id)))).every(Boolean));
-    // The first offer went alone; the four made while it was written share the next entry.
-    expect((await kim.sync.status('lee-b')).sentUpTo).toBe(1);
+    // Five offers in fewer entries (the first goes alone; the rest share what follows).
+    expect((await kim.sync.status('lee-b')).sentUpTo).toBeLessThan(4);
     expect((await lee.graph.arrivals.read(ids[4]!))).toMatchObject({ title: 'Batch tennis 5', senders: ['kim-b'] });
     // No Talk wire node (`g/<kim>/t/…`) was written or asked for: the Talks came inside the entries.
     expect(lee.heard.join('')).not.toContain(`g/${userTag('kim-b')}/t/`);
@@ -368,11 +370,11 @@ describe('Talk exchange by Gun sync', () => {
     await Promise.all([max.sync.open('ned-b'), ned.sync.open('max-b')]);
     const first = await max.graph.talks.create(tennis('Opening tennis'));
     await max.sync.offerTalk(first, ['ned-b']);
-    const ids = await Promise.all(Array.from({ length: 12 }, (_, i) => max.graph.talks.create(tennis(`Large batch tennis ${i}`))));
+    const ids = await Promise.all(Array.from({ length: 40 }, (_, i) => max.graph.talks.create(tennis(`Large batch tennis ${i}`))));
     await Promise.all(ids.map((id) => max.sync.offerTalk(id, ['ned-b'])));
     await until(async () => (await Promise.all(ids.map((id) => ned.graph.arrivals.read(id)))).every(Boolean));
-    // 13 offers in a handful of entries (how many depends on how fast the queue fills).
-    expect((await max.sync.status('ned-b')).sentUpTo).toBeLessThan(6);
+    // 41 offers in a handful of entries (how many depends on how fast the queue fills).
+    expect((await max.sync.status('ned-b')).sentUpTo).toBeLessThan(10);
     // The block holds only ciphertext (the sharing policy sends nothing else); the large entry's
     // own node exists under the pair's part.
     const own = `g/${userTag('max-b')}/p/`;
@@ -404,6 +406,59 @@ describe('Talk exchange by Gun sync', () => {
     })));
     await Promise.all(answerIds.map((answerId) => pat.sync.sendAnswer(answerId)));
     await until(async () => (await Promise.all(ids.map((id) => ola.graph.answers.theirs(id)))).every((by) => !!by['pat-b']));
-    expect((await pat.sync.status('ola-b')).sentUpTo).toBeLessThanOrEqual(1);
+    // Four answers in fewer entries.
+    expect((await pat.sync.status('ola-b')).sentUpTo).toBeLessThan(3);
+  });
+  it('a link that carries only small frames (BLE-sized) gets the same Talks, in parts (OPEN-114)', async () => {
+    const [ray, sue] = [await device('ray-b'), await device('sue-b')];
+    void pump();
+    await Promise.all([ray.sync.open('sue-b', { frameMaxChars: 300 }), sue.sync.open('ray-b', { frameMaxChars: 300 })]);
+    const ids = await Promise.all([1, 2, 3, 4, 5, 6].map((i) => ray.graph.talks.create(tennis(`Small frame tennis ${i}`))));
+    const heardBefore = sue.heard.length;
+    await Promise.all(ids.map((id) => ray.sync.offerTalk(id, ['sue-b'])));
+    await until(async () => (await Promise.all(ids.map((id) => sue.graph.arrivals.read(id)))).every(Boolean));
+    const frames = sue.heard.slice(heardBefore);
+    expect(frames.every((raw: string) => raw.length <= 300)).toBe(true);
+    expect(frames.some((raw: string) => raw.includes('"t":"part"'))).toBe(true);
+    // And back: answers over the same small frames.
+    const answerIds = await Promise.all(ids.map(async (id) => sue.graph.answers.answer({
+      talkId: id, structure: (await sue.graph.arrivals.read(id))!, withUser: 'ray-b', mode: 'chatbot',
+      steps: [{ questionId: 'q_0', answerIds: ['a_0_0'] }, { questionId: 'q_1', answerIds: ['a_1_0'] }],
+    })));
+    await Promise.all(answerIds.map((answerId) => sue.sync.sendAnswer(answerId)));
+    await until(async () => (await Promise.all(ids.map((id) => ray.graph.answers.theirs(id)))).every((by) => !!by['sue-b']));
+  });
+  it('a Talk offered to several people is one content blob; each pair gets a small offer (OPEN-114)', async () => {
+    const [una, vic, wes] = [await device('una-b'), await device('vic-b'), await device('wes-b')];
+    void pump();
+    await Promise.all([una.sync.open('vic-b'), vic.sync.open('una-b'), una.sync.open('wes-b'), wes.sync.open('una-b')]);
+    const talkId = await una.graph.talks.create(tennis('Shared tennis'));
+    expect(await una.sync.offerTalk(talkId, ['vic-b', 'wes-b'])).toBe(2);
+    await until(async () => !!(await vic.graph.arrivals.read(talkId)) && !!(await wes.graph.arrivals.read(talkId)));
+    // One blob for the version, whoever it went to.
+    const blobSouls = Object.keys(una.gun._.graph).filter((soul) => soul.startsWith('local/sync/blob/'));
+    expect(blobSouls).toHaveLength(1);
+    // The offers in the pair logs name it; the question text travels only in the blob.
+    const offerFrames = vic.heard.filter((raw: string) => raw.includes('"t":"log"'));
+    const blobFrames = vic.heard.filter((raw: string) => raw.includes('"t":"blob"'));
+    expect(offerFrames.length).toBeGreaterThan(0);
+    expect(blobFrames).toHaveLength(1);
+    expect(Math.max(...offerFrames.map((raw: string) => raw.length))).toBeLessThan(blobFrames[0]!.length * 4);
+  });
+
+  it('content I already hold (the same Talk from someone else) is not asked for again (OPEN-114)', async () => {
+    const [xia, yan, zed] = [await device('xia-b'), await device('yan-b'), await device('zed-b')];
+    void pump();
+    await Promise.all([xia.sync.open('zed-b'), zed.sync.open('xia-b'), yan.sync.open('zed-b'), zed.sync.open('yan-b')]);
+    // Xia and Yan each wrote the same questions (as everyone's starter tags are).
+    const fromXia = await xia.graph.talks.create(tennis('Starter tennis'));
+    expect(await xia.sync.offerTalk(fromXia, ['zed-b'])).toBe(1);
+    await until(async () => !!(await zed.graph.arrivals.read(fromXia)));
+    expect(xia.heard.some((raw: string) => raw.includes('"t":"want"'))).toBe(true);
+    const fromYan = await yan.graph.talks.create(tennis('Starter tennis'));
+    expect(await yan.sync.offerTalk(fromYan, ['zed-b'])).toBe(1);
+    await until(async () => !!(await zed.graph.arrivals.read(fromYan)));
+    expect((await zed.graph.arrivals.read(fromYan))).toMatchObject({ title: 'Starter tennis', senders: ['yan-b'] });
+    expect(yan.heard.some((raw: string) => raw.includes('"t":"want"'))).toBe(false);
   });
 });

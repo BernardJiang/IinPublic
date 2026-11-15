@@ -35,7 +35,8 @@ export type GraphEvent =
 
 export type GraphHostRequest =
   | { name: 'graph.identity'; userId: string; pair: SeaPair }
-  | { name: 'graph.open'; peerUserId: string; pub: string; epub: string }
+  /** `frameMaxChars`: the largest frame the link carries in one piece (a BLE link, a small one). */
+  | { name: 'graph.open'; peerUserId: string; pub: string; epub: string; frameMaxChars?: number }
   | { name: 'graph.close'; peerUserId: string }
   | { name: 'graph.hear'; peerUserId: string; raws: string[] }
   | { name: 'graph.pull'; waitMs?: number }
@@ -444,8 +445,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           keys.set(request.peerUserId, { pub: request.pub, epub: request.epub });
           // The person's keys are kept, so their log can be read and written while apart too.
           await store.put(personSoul(graph.prefix, request.peerUserId), { userId: request.peerUserId, pub: request.pub, epub: request.epub });
-          // Not awaited past the link setup: catching up reads over the link, which needs `pull`.
-          void need().open(request.peerUserId).catch((error) => options.log?.(`[graph-host] open ${request.peerUserId}: ${(error as Error).message}`));
+          // Not awaited past the link setup: the frames go out through `pull`.
+          void need().open(request.peerUserId, typeof request.frameMaxChars === 'number' ? { frameMaxChars: request.frameMaxChars } : {}).catch((error) => options.log?.(`[graph-host] open ${request.peerUserId}: ${(error as Error).message}`));
           return { ok: true };
         }
         case 'graph.close':

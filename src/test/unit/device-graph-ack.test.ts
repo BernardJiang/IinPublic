@@ -141,11 +141,6 @@ async function logEntry(d: any, pairTag: string, secret: string, n: number) {
   return typeof plain === 'string' ? JSON.parse(plain) : plain;
 }
 
-/** Write a head node straight into a device's Gun, as a linked peer's write would arrive. */
-async function injectHead(into: any, fromUserId: string, pairTag: string, fields: Record<string, string>) {
-  const soul = graphWireSouls(fromUserId).head(pairTag);
-  await new Promise<void>((resolve) => { into.gun.get(soul).put(fields, () => resolve()); });
-}
 
 describe('signed acknowledgements and linked exchange sides', () => {
 
@@ -200,35 +195,34 @@ describe('signed acknowledgements and linked exchange sides', () => {
     expect(status.lastAck!.skewMs).toBeLessThan(skew + 2_000);
   });
 
-  it('a legacy head with only an unsigned `read` still clears what is owed', async () => {
-    // Ben never opens his side of the link: his "head" is injected as a pre-ack peer wrote it.
+  /** Lee's link frame to Kim, as Lee's device would send it. */
+  const ackFrame = (pairTag: string, ack: Record<string, unknown>) => JSON.stringify({ gx: 1, p: pairTag, t: 'ack', ...ack });
+
+  it('an acknowledgement without a signature clears nothing (only signed ones count)', async () => {
     const [ann] = [await device('ann-b')];
     await device('ben-b');
     const talkId = await ann.graph.talks.create(tennis());
     expect(await ann.sync.offerTalk(talkId, ['ben-b'])).toBe(1);
-    expect(ann.sync.owed()).toContain('ben-b');
-    const { secret, pairTag } = await pairOf(ann, 'ben-b');
-    await injectHead(ann, 'ben-b', pairTag, { read: await crypto.encrypt(JSON.stringify({ n: 0 }), secret) });
+    const { pairTag } = await pairOf(ann, 'ben-b');
     await ann.sync.open('ben-b');
-    await until(() => !ann.sync.owed().includes('ben-b'));
-    // A legacy peer left no signed acknowledgement.
+    const sent = (await ann.store.get('local/sync/out/ben-b'))!;
+    ann.sync.hear('ben-b', ackFrame(pairTag, { n: 0, hash: sent.hash, when: Date.now() }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(ann.sync.owed()).toContain('ben-b');
     expect(await ann.store.get(souls.index('ack/ben-b'))).toBeNull();
   });
 
   it('a tampered ack clears nothing and is not stored', async () => {
     const [kim] = [await device('kim-c')];
-    await device('lee-c');
+    const lee = await device('lee-c');
     const talkId = await kim.graph.talks.create(tennis());
     expect(await kim.sync.offerTalk(talkId, ['lee-c'])).toBe(1);
-    const { secret, pairTag } = await pairOf(kim, 'lee-c');
-    const headSoul = graphWireSouls('lee-c').head(pairTag);
-    const put = (fields: Record<string, string>) => new Promise<void>((resolve) => { kim.gun.get(headSoul).put(fields, () => resolve()); });
+    const { pairTag } = await pairOf(kim, 'lee-c');
+    await kim.sync.open('lee-c');
 
     // Wrong hash: the signature is genuine but the ack commits to no entry of Kim's log.
     const wrongHash = { n: 0, hash: '0'.repeat(64), when: Date.now() };
-    await put({ ack: await crypto.encrypt(JSON.stringify({ ...wrongHash, sig: await crypto.sign(canonicalJson(wrongHash), (devices.find((d) => d.userId === 'lee-c') as any).pair.priv) }), secret) });
-    await kim.sync.open('lee-c');
-    await kim.sync.catchUp('lee-c');
+    kim.sync.hear('lee-c', ackFrame(pairTag, { ...wrongHash, sig: await crypto.sign(canonicalJson(wrongHash), lee.pair.priv) }));
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(kim.sync.owed()).toContain('lee-c');
     expect(await kim.store.get(souls.index('ack/lee-c'))).toBeNull();
@@ -236,10 +230,14 @@ describe('signed acknowledgements and linked exchange sides', () => {
     // Bad signature: the real hash, but signed by someone else (Kim herself, not Lee).
     const sent = (await kim.store.get('local/sync/out/lee-c'))!;
     const badSig = { n: 0, hash: sent.hash, when: Date.now() };
-    await put({ ack: await crypto.encrypt(JSON.stringify({ ...badSig, sig: await crypto.sign(canonicalJson(badSig), kim.pair.priv) }), secret) });
-    await kim.sync.catchUp('lee-c');
+    kim.sync.hear('lee-c', ackFrame(pairTag, { ...badSig, sig: await crypto.sign(canonicalJson(badSig), kim.pair.priv) }));
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(kim.sync.owed()).toContain('lee-c');
     expect(await kim.store.get(souls.index('ack/lee-c'))).toBeNull();
+
+    // The genuine ack clears it.
+    const good = { n: 0, hash: sent.hash, when: Date.now() };
+    kim.sync.hear('lee-c', ackFrame(pairTag, { ...good, sig: await crypto.sign(canonicalJson(good), lee.pair.priv) }));
+    await until(() => !kim.sync.owed().includes('lee-c'));
   });
 });
