@@ -71,6 +71,20 @@ its ID.
   reachable from the UI — remove or repurpose. (c) Done: copies stay as received (private) until
   the copier switches them on (owner, 2026-11-13); a Talk is never sent back to its author (copies
   used to return to the author, mass/06).
+- [ ] **OPEN-114 — Talk exchange that scales: batched pair log, own link frames, content once
+  (owner, 2026-11-14).** A tag exchange cost ~1.6 s a Talk (one signed entry per Talk per person,
+  the receiver pulling each Talk node by node over the link, a fixed Gun wait on every read); under
+  load it surfaced as one-sided "in common" counts. Owner design: on connect two people set up their
+  pair's event chain; strangers send each other everything in one go, people met before send only
+  the difference; small data goes together in one transmission; any network (cellular, Wi-Fi,
+  Wi-Fi Direct, BLE); no work repeated across the many people one exchanges with.
+  Done in code 2026-11-14 (spec §31.9, §31.9a, REQ-GRAPH-50..52): step 1 batched entries + the
+  version in the offer + reads from Gun's graph (560350a9); steps 2–3 own link frames (`hi`, `log`,
+  `ack`, `cp`, `part`, `want`/`blob`) and content blobs made once per version (ee809cc4). Unit
+  benchmark: 1590 → 20 ms a Talk; 0.2 frames a Talk. Open: test:all + phones; a phone measurement;
+  a BLE transport (frames already split to its size); UDP multicast for content only as an optional
+  route on Android Wi-Fi (researched: not on web, iOS needs an entitlement, lossy in crowds); local
+  storage is the next cost (~48 writes and ~138 reads per arrival).
 - [ ] **OPEN-113 — Live tag statistics in Contacts, Talks and Me (owner, 2026-11-14).** One model,
   three views, all from what this device holds (people I exchanged with; no hub counts):
   - Model (`src/core/tag-graph.ts` + a pure `tag-stats`): per tag — who likes it, who passed it,

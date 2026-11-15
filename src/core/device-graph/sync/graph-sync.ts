@@ -56,7 +56,7 @@ const WANT_MAX = 512;
 const BLOBS_IN_MEMORY = 4_000;
 
 /** Items of one batch entry applied side by side (each a Talk's arrival or an answer). */
-const BATCH_APPLY_PARALLEL = 8;
+const BATCH_APPLY_PARALLEL = 32;
 
 /** The Talk a log body is about (items about one Talk are applied in order). */
 function talkOfBody(body: LogBody): string | undefined {

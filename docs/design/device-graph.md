@@ -105,6 +105,11 @@ reveals the text. Hashes of private nodes appear only inside encrypted payloads.
 
 ## Talk exchange by Gun sync
 
+> **Superseded on the wire by OPEN-114 (2026-11-14):** Gun stays each device's store, but the pair
+> log now travels in our own link frames (`hi`, `log`, `ack`, `cp`, `part`, `want`/`blob`), entries are
+> batched, and a version's steps are one content blob sent once (spec §31.9, §31.9a). What follows
+> describes the earlier Gun-sync flow.
+
 Owner direction, 2026-11-01: a Talk reaches the receiver as nodes through Gun's sync, not as one JSON
 string. The receiver's chatbot compares keys and reads its saved answers directly.
 

@@ -370,11 +370,11 @@ describe('Talk exchange by Gun sync', () => {
     await Promise.all([max.sync.open('ned-b'), ned.sync.open('max-b')]);
     const first = await max.graph.talks.create(tennis('Opening tennis'));
     await max.sync.offerTalk(first, ['ned-b']);
-    const ids = await Promise.all(Array.from({ length: 40 }, (_, i) => max.graph.talks.create(tennis(`Large batch tennis ${i}`))));
+    // Offers are small (content goes in blobs): a long title makes each one large on its own.
+    const ids = await Promise.all(Array.from({ length: 6 }, (_, i) => max.graph.talks.create(tennis(`Large batch tennis ${i} ${'x'.repeat(5_000)}`))));
     await Promise.all(ids.map((id) => max.sync.offerTalk(id, ['ned-b'])));
     await until(async () => (await Promise.all(ids.map((id) => ned.graph.arrivals.read(id)))).every(Boolean));
-    // 41 offers in a handful of entries (how many depends on how fast the queue fills).
-    expect((await max.sync.status('ned-b')).sentUpTo).toBeLessThan(10);
+    expect((await max.sync.status('ned-b')).sentUpTo).toBeLessThan(7);
     // The block holds only ciphertext (the sharing policy sends nothing else); the large entry's
     // own node exists under the pair's part.
     const own = `g/${userTag('max-b')}/p/`;

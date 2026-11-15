@@ -34,17 +34,21 @@ export function linkSoul(value: unknown): string | undefined {
 
 /** How many souls a store remembers as fully read (beyond it, it starts over: only a speed-up). */
 export const KNOWN_SOULS_MAX = 100_000;
+/** Device graph souls keyed by a hash of their content (spec §31.4): they never change. Events are
+ * not among them (sidecars such as `ev/<id>/x` change; e2e stage4/05 read a stale one). */
+const UNCHANGING_SOUL = /^[^/]+\/(q|a|s|rev)\//;
 
 export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; remembersReads?: boolean } & GunReadOptions = {}): NodeStore {
   const read = gunNodeReader(gun, options);
   /**
-   * Souls this store read in full (true) or found missing (false). Gun's graph then holds the node
-   * and every later write to it (Gun merges each put into its graph, whichever store made it), so
-   * the next read is answered from the graph, without Gun's read wait (OPEN-114: reads were most of
-   * a Talk exchange's time, ~20 ms each). Only for souls this device alone writes (`local/`);
-   * another person's souls arrive over a link and are always read.
+   * Nodes this store read in full, for souls whose content never changes once written (content-
+   * addressed questions, answers and structures): Gun's graph holds them, so the next
+   * read is answered from it without Gun's read wait (OPEN-114: reads were most of a Talk exchange's
+   * time, ~20 ms each). Mutable records (indexes, collections, conversations) and misses are always
+   * read: something else may write them (e2e stage1/04 read a stale conversation record).
    */
-  const known = options.remembersReads === false ? undefined : new Map<string, boolean>();
+  // Off unless asked for: e2e stage4/05 and stage1/04 read stale records with it on (OPEN-114).
+  const known = options.remembersReads === true ? new Set<string>() : undefined;
   const strip = (data: any): GraphNode | null => {
     if (!data || typeof data !== 'object') return null;
     const { _: _meta, ...rest } = data;
@@ -52,18 +56,15 @@ export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; remembe
   };
   return {
     get: async (soul) => {
-      const seen = known?.get(soul);
-      if (seen !== undefined) {
+      if (known?.has(soul)) {
         const cached = gun._?.graph?.[soul];
         if (cached) return strip({ ...cached });
-        if (seen === false) return null;
-        // Found before but gone from the graph: read it again.
+        known.delete(soul); // gone from the graph: read it again
       }
       const data = await read(soul);
-      // Shared graph souls (`g/…`) are written by others' links too: those are always read.
-      if (known && !soul.startsWith('g/')) {
+      if (known && data && typeof data === 'object' && UNCHANGING_SOUL.test(soul)) {
         if (known.size >= KNOWN_SOULS_MAX) known.clear();
-        known.set(soul, !!data && typeof data === 'object');
+        known.add(soul);
       }
       return strip(data);
     },

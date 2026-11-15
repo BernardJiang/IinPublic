@@ -6607,7 +6607,7 @@ export class IinPublicApp {
     // A Talk my intake refuses is declined to its author (their record of passing it to me goes,
     // so it can come again once my filters or my age verification allow it).
     const decline = () => { void this.coreRequest?.({ name: 'graph.declineArrival', talkId: event.talkId, from: event.from }).catch(() => undefined); };
-    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmit(Date.now())) {
+    if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmitFrom(event.from, Date.now())) {
       console.warn(`[intake] receiving limit full: declined ${event.talkId} from ${event.from}`);
       decline();
       return;

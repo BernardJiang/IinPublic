@@ -7537,13 +7537,49 @@ Content and event souls are written by exact soul only and are never linked into
 | `local/` | every class above | never directly |
 | `~<myPub>/…` (signed) | the content and events I share: `rev/` (with its `q/`, `a/`), `s/`, offer, answer, retraction and message events | to the pair named in the event, over the pair's link only |
 
-- **REQ-GRAPH-30:** A shared record is written once in my signed space and read by each receiver
-  through Gun sync (design §"Proposed flow": per-Talk key `K`, per-pair grant). A receiver copies
-  what it verified into its own `local/` graph by the same keys.
-- **REQ-GRAPH-31:** On connect, each side subscribes to its pairs' grants and the souls they point to.
-  Gun sends nothing a peer did not ask for.
-- **REQ-GRAPH-32:** An outgoing audience filter SHALL send a pair's souls only on that pair's link and
-  SHALL NOT relay other people's souls (Gun floods by default).
+- **REQ-GRAPH-30 (OPEN-114, 2026-11-14):** Gun is each device's store; it does not sync between
+  devices. What I send one person goes into our pair log, and the log travels in link frames (§31.9a).
+  A Talk version's steps are one content blob, encrypted once with a random key and named by the
+  SHA-256 of its ciphertext; each pair's offer carries the version's head and `{ h, k }`. A receiver
+  copies what it verified into its own `local/` graph by the same keys.
+- **REQ-GRAPH-31:** On connect, each side says where it stands (`hi`: the entry it needs next, its own
+  last entry); each then pushes the other what it lacks. Nothing is sent while two people are apart.
+- **REQ-GRAPH-32:** Frames go only on that pair's link (the pair tag is a hash of the pair secret) and
+  are never relayed. The hub carries none.
+- **REQ-GRAPH-50 — batching (OPEN-114):** what I queue for one person while an entry is being written
+  SHALL go into the next entry together (`{ batch }`, at most 64 items or ~64 KB), so one signature,
+  hash and encryption cover them. An entry over 4 KB is stored as its own node behind an encrypted
+  pointer (a log block holds 256 entries and stays under one Radisk file).
+- **REQ-GRAPH-51 — content once (OPEN-114):** a receiver SHALL ask (`want`) only for content it holds
+  neither as a structure (by structure key) nor as a blob, all of a pass in one frame; content
+  offered by several people at once SHALL be fetched from one of them. A blob is kept only when its
+  hash matches its name.
+- **REQ-GRAPH-52 — any link (OPEN-114):** frames are strings over any link that carries strings
+  (WebRTC, LAN, Wi-Fi Direct, BLE). A frame larger than the link carries (`frameMaxChars`, default
+  60 000) goes in `part`s and is put back together. Every frame names the sender's last entry, so any
+  frame that gets through tells the receiver what it misses; entries not acknowledged are sent again
+  while the link is up, backing off.
+
+#### 31.9a Link frames (OPEN-114)
+
+| Frame | Fields | Meaning |
+|---|---|---|
+| `hi` | `next`, `head` | I need your entry `next`; my last entry is `head`. Answered with `log` (and a fresh `ack`). |
+| `log` | `from`, `e[]` | My entries from `from` on, each the stored ciphertext (signed and encrypted, REQ-GRAPH-34). |
+| `ack` | `n`, `hash`, `when`, `sig` | I applied your log up to `n` (signed, REQ-GRAPH-43). Checked in its own queue. |
+| `cp` | `n`, `hash`, `when`, `sig` | My log starts after `n` (signed checkpoint after a trim, REQ-GRAPH-48). |
+| `want` / `blob` | `h[]` / `{ h: c }` | Content blobs asked for / sent. |
+| `part` | `id`, `i`, `count`, `d` | One piece of a frame larger than the link carries. |
+
+Every frame also carries `gx` (frame version), `p` (pair tag) and `h` (the sender's last entry).
+Measured (two devices, real Gun and SEA, unit benchmark 2026-11-14): one Talk exchanged both ways cost
+~1.6 s with Gun sync over the link (one entry per Talk, the receiver pulling each Talk node by node at
+400 ms a read); with frames, batching and content once, 300 Talks cost 20 ms a Talk and 0.2 frames a
+Talk. Ten people offering the same 30 tags to one person: 549 → 314 KB on the links.
+UDP broadcast/multicast (researched 2026-11-14) is not used: browsers have none, iOS needs a
+restricted entitlement, carriers drop it, and Wi-Fi sends it unacknowledged at the lowest rate (RFC
+9119). Content blobs are named by hash and encrypted, so a later multicast or relay route can carry
+them without changing what a pair sends.
 - **REQ-GRAPH-33:** No key of a guessable hash (`q/`, `a/`, `s/`, `rev/`) appears in clear on the
   wire. Shared souls use random tags; hashes travel only inside encrypted values.
 - Shared values are encrypted (owner decision 2026-11-03, §31.12 #8): each shared record is
@@ -7594,7 +7630,7 @@ removes my answers with core requests (`graph.recordAnswers`, `graph.forgetAnswe
 | REQ-LEDGER-01, -02 (typed `kind`, per-user `seq` chain, JSON `content`) | D6: no types; D4: no JSON bodies | Replaced by §31.5. The signed `prev` chain is kept, on every event of a device (§31.13, REQ-GRAPH-40). |
 | REQ-LEDGER-03 (any field change → new talkId), REQ-LEDGER-11a (title/routing edits keep the id), REQ-CHATBOT-03 (content edits are new Talks) | Three rules for edits, and none for built-in values | One rule (§31.3, D14): every edit is a new event of the same Talk; context hashes decide what is answered again. |
 | REQ-LEDGER-05 (repeat receipt writes nothing) | D7: record who, when, where of a repeat | REQ-GRAPH-22. |
-| REQ-LEDGER-06 (delta sync of `seq` over the DataChannel) | D3, D4: Gun sync | REQ-GRAPH-30, -31. |
+| REQ-LEDGER-06 (delta sync of `seq` over the DataChannel) | D3, D4: Gun sync | REQ-GRAPH-30, -31 (since OPEN-114, the pair log in link frames, §31.9a). |
 | REQ-LEDGER-09 (`ledger/<userId>/index/…`) | | §31.8 indexes. |
 | REQ-LEDGER-12 (CIDv1 for `talkId` and all content addresses) | D16: a Talk is an event | Talk ids are event ids; content keys are SHA-256 hex. |
 | REQ-LEDGER-14 (`questionId` includes options) | D11: the question is the key, choices are not | `q/<key>`; choices are in the context hash. `Question.cidId` is retired. |
