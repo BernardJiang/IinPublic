@@ -23,7 +23,7 @@ import { personIdOf, personSoul, personWrites } from './people-graph';
 import { talkGrammarErrors } from '../../shared/grammar-filter';
 import { addToIndex, bucketOf, readIndex } from './index-buckets';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
-import { GRAPH_SCHEMA_VERSION, graphSouls, writeTalkStructure } from './talk-structure';
+import { GRAPH_SCHEMA_VERSION, graphSouls, talkStructureOf, writeTalkStructure } from './talk-structure';
 import { createTalkGraph, deliveryFields, type EventIds, type GraphTalk } from './talk-events';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -43,6 +43,8 @@ export type IncomingTalk = {
   device: string;
   /** The Talk: structure plus title and delivery fields. */
   talk: any;
+  /** The caller read this structure in full from this store just now (it is stored): not read again. */
+  structureHeld?: boolean;
 };
 
 export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { prefix?: string; now?: () => number; chain?: EventChainSigner; budget?: Pick<StorageBudget, 'acceptsIncoming'> } = {}) {
@@ -79,7 +81,7 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
       if (!versionStored) {
         const version: GraphNode = { v, when: incoming.when, device: incoming.device, by: link(person(incoming.authorId)), ...deliveryFields(incoming.talk) };
         if (!ignored) {
-          const { soulKey } = await writeTalkStructure(store, incoming.talk, { perspective: 'responder', prefix: options.prefix, now: when });
+          const { soulKey } = await writeTalkStructure(store, incoming.talk, { perspective: 'responder', prefix: options.prefix, now: when, held: incoming.structureHeld === true });
           version.rev = link(souls.rev(soulKey));
         }
         if (incoming.versionId !== incoming.talkId) version.talk = link(souls.event(incoming.talkId));
@@ -140,10 +142,10 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
     },
 
     /**
-     * A received Talk in the newest version any sender delivered, with who sent it. Undefined when
-     * every arrival was ignored or the structure is missing.
+     * Which version of a received Talk is the newest any sender delivered, the arrival that brought
+     * it and who sent it, without reading the Talk itself. Undefined when every arrival was ignored.
      */
-    async read(talkId: string): Promise<(GraphTalk & { senders: string[]; latestArrival: string }) | undefined> {
+    async latest(talkId: string): Promise<{ versionId: string; senders: string[]; latestArrival: string } | undefined> {
       if (linkSoul((await store.get(souls.index(`deleted/${talkId}`)))?.ev)) return undefined;
       const received = await store.get(souls.index(`received/${talkId}`));
       let best: { versionId: string; versionWhen: number; arrivalId: string } | undefined;
@@ -162,9 +164,20 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
           best = { versionId: versionSoul.slice(souls.event('').length), versionWhen, arrivalId };
         }
       }
+      return best ? { versionId: best.versionId, senders: senders.sort(), latestArrival: best.arrivalId } : undefined;
+    },
+
+    /**
+     * A received Talk in the newest version any sender delivered, with who sent it. Undefined when
+     * every arrival was ignored or the structure is missing. `applied`: a version the caller has in
+     * hand (just received); when it is the newest, its structure is not read back.
+     */
+    async read(talkId: string, applied?: { versionId: string; talk: any }): Promise<(GraphTalk & { senders: string[]; latestArrival: string }) | undefined> {
+      const best = await this.latest(talkId);
       if (!best) return undefined;
-      const talk = await talks.readVersion(talkId, best.versionId);
-      return talk ? { ...talk, senders: senders.sort(), latestArrival: best.arrivalId } : undefined;
+      const structure = applied && applied.versionId === best.versionId ? talkStructureOf(applied.talk) : undefined;
+      const talk = await talks.readVersion(talkId, best.versionId, structure);
+      return talk ? { ...talk, senders: best.senders, latestArrival: best.latestArrival } : undefined;
     },
 
     /** Received Talk ids, newest arrival day first (`months`: only that many recent months). */

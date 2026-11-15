@@ -10,12 +10,12 @@ import path from 'path';
 import { applyGrammarToTalk, filterText, grammarVersionFor, talkGrammarErrors } from '../../shared/grammar-filter';
 import { answerKey, answerSetKey, contextHash, questionKey } from '../../core/device-graph/keys';
 import { createEventIdSource, formatEventId, parseEventId } from '../../core/device-graph/event-id';
-import { memoryNodeStore } from '../../core/device-graph/node-store';
+import { memoryNodeStore, type GraphNode } from '../../core/device-graph/node-store';
 import {
   graphSouls, questionKeysOf, readTalkStructure, structureRecords, talkStructureKey, talkStructureOf, writeTalkStructure,
 } from '../../core/device-graph/talk-structure';
 import { createTalkGraph } from '../../core/device-graph/talk-events';
-import { addToIndex, bucketOf, readIndex, removeFromIndex } from '../../core/device-graph/index-buckets';
+import { addToIndex, bucketOf, forgetIndexFolder, readIndex, removeFromIndex } from '../../core/device-graph/index-buckets';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -286,12 +286,31 @@ describe('a Talk structure as content nodes (spec §31.4)', () => {
   it('a write cut short is completed by the next write of the same structure', async () => {
     const store = memoryNodeStore();
     const records = structureRecords(flowTalk(), { perspective: 'author', now: 1 });
-    // The app was killed mid-flush: the root and most nodes landed, one did not.
-    for (const [soul, node] of [...records.text, ...records.nodes.slice(1), records.root]) await store.put(soul, node);
+    // The app was killed mid-flush: the root is written last (OPEN-114), so it did not land, and
+    // neither did one other node.
+    for (const [soul, node] of [...records.text, ...records.nodes.slice(1)]) await store.put(soul, node);
     expect(await readTalkStructure(store, records.revKey)).toBeUndefined();
     const again = await writeTalkStructure(store, flowTalk(), { perspective: 'author', now: 2 });
-    expect(again.written).toBe(1);
+    // Its own nodes again (the same values) and the root; the texts that exist are not rewritten.
+    expect(again.written).toBe(records.nodes.length + 1);
     expect(await readTalkStructure(store, records.revKey)).toEqual(talkStructureOf(flowTalk()));
+    expect((await store.get([...records.text.keys()][0]!))?.firstSeen).toBe(1);
+  });
+
+  it('a stored root stands for the whole structure: writing it again reads the root and texts only (OPEN-114)', async () => {
+    const store = memoryNodeStore();
+    await writeTalkStructure(store, flowTalk(), { perspective: 'author', now: 1 });
+    const records = structureRecords(flowTalk(), { perspective: 'author', now: 1 });
+    const reads: string[] = [];
+    const counted = { get: (soul: string) => { reads.push(soul); return store.get(soul); }, put: store.put };
+    const writesBefore = store.writes;
+    expect((await writeTalkStructure(counted, flowTalk(), { perspective: 'author', now: 2 })).written).toBe(0);
+    expect(reads).toHaveLength(1 + records.text.size);
+    expect(store.writes).toBe(writesBefore);
+    // Read in full by the caller just now: nothing is read at all.
+    reads.length = 0;
+    await writeTalkStructure(counted, flowTalk(), { perspective: 'author', now: 2, held: true });
+    expect(reads).toHaveLength(0);
   });
 
   it('a structure missing a node reads as not stored', async () => {
@@ -369,6 +388,23 @@ describe('bucketed indexes', () => {
       { key: 'e1', target: 'local/ev/e1', bucket: '2026-11-01' },
     ]);
     expect((await readIndex(store, soul, { from: '2026-11-02' })).map((e) => e.key)).toEqual(['e3']);
+  });
+
+  it('writes a folder link only when a bucket starts, and again once trimming removed it (OPEN-114)', async () => {
+    const store = memoryNodeStore();
+    const soul = 'local/ix/talk/t1/ev';
+    const t = (d: number) => Date.UTC(2026, 10, d, 9);
+    const folderWrites: GraphNode[] = [];
+    const counted = { get: store.get, put: (s: string, v: GraphNode) => { if (s === soul) folderWrites.push(v); return store.put(s, v); } };
+    for (const key of ['e1', 'e2', 'e3']) await addToIndex(counted, soul, { key, target: `local/ev/${key}`, when: t(1) }, 'day');
+    await addToIndex(counted, soul, { key: 'e4', target: 'local/ev/e4', when: t(2) }, 'day');
+    expect(folderWrites).toEqual([{ '2026-11-01': { '#': `${soul}/2026-11-01` } }, { '2026-11-02': { '#': `${soul}/2026-11-02` } }]);
+    expect((await readIndex(store, soul)).map((e) => e.key)).toEqual(['e4', 'e3', 'e2', 'e1']);
+    // Trimming took the first bucket out of the folder: the next entry there links it again.
+    await store.put(soul, { '2026-11-01': null });
+    forgetIndexFolder(counted, soul, '2026-11-01');
+    await addToIndex(counted, soul, { key: 'e5', target: 'local/ev/e5', when: t(1) }, 'day');
+    expect((await readIndex(store, soul)).map((e) => e.key)).toContain('e5');
   });
 });
 

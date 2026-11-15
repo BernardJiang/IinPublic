@@ -7551,9 +7551,17 @@ Content and event souls are written by exact soul only and are never linked into
   hash and encryption cover them. An entry over 4 KB is stored as its own node behind an encrypted
   pointer (a log block holds 256 entries and stays under one Radisk file).
 - **REQ-GRAPH-51 — content once (OPEN-114):** a receiver SHALL ask (`want`) only for content it holds
-  neither as a structure (by structure key) nor as a blob, all of a pass in one frame; content
-  offered by several people at once SHALL be fetched from one of them. A blob is kept only when its
-  hash matches its name.
+  neither as a structure (by structure key: one read of its root, which is written last so it stands
+  for the whole structure) nor as a blob, all of a pass in one frame; content offered by several
+  people at once SHALL be fetched from one of them. A blob is named `h = sha256(k, steps)` with the
+  version's key `k`, so only someone given `k` can tell what a name stands for; it is applied only
+  when it decrypts to content of that name. A blob is never stored: the sender keeps the version's
+  `{ h, k }` and makes the blob again from the Talk's own nodes when asked (no second copy on disk).
+- **REQ-GRAPH-53 — one record per fact, read once per step (OPEN-114):** Gun keeps individual
+  records (one per question, answer, event and index entry; owner rule 2026-11-15). A step that has
+  a Talk in hand (just received, read or answered) SHALL pass it on rather than read it again; a
+  list's folder link SHALL be written only when a new bucket starts (trimming says when it removed
+  one).
 - **REQ-GRAPH-52 — any link (OPEN-114):** frames are strings over any link that carries strings
   (WebRTC, LAN, Wi-Fi Direct, BLE). A frame larger than the link carries (`frameMaxChars`, default
   60 000) goes in `part`s and is put back together. Every frame names the sender's last entry, so any
@@ -7568,7 +7576,7 @@ Content and event souls are written by exact soul only and are never linked into
 | `log` | `from`, `e[]` | My entries from `from` on, each the stored ciphertext (signed and encrypted, REQ-GRAPH-34). |
 | `ack` | `n`, `hash`, `when`, `sig` | I applied your log up to `n` (signed, REQ-GRAPH-43). Checked in its own queue. |
 | `cp` | `n`, `hash`, `when`, `sig` | My log starts after `n` (signed checkpoint after a trim, REQ-GRAPH-48). |
-| `want` / `blob` | `h[]` / `{ h: c }` | Content blobs asked for / sent. |
+| `want` / `blob` | `w[]` of `{ h, talk, v }` / `{ h: c }` | Content asked for (each with the Talk version it belongs to) / sent. |
 | `part` | `id`, `i`, `count`, `d` | One piece of a frame larger than the link carries. |
 
 Every frame also carries `gx` (frame version), `p` (pair tag) and `h` (the sender's last entry).
@@ -7576,7 +7584,10 @@ Measured (two devices, real Gun and SEA, unit benchmark 2026-11-14): one Talk ex
 ~1.6 s with Gun sync over the link (one entry per Talk, the receiver pulling each Talk node by node at
 400 ms a read); with frames, batching and content once, 300 Talks cost 65 ms a Talk and 0.2 frames a
 Talk (20 ms with remembered local reads, which are off: two e2e specs read stale records with them).
-What is left is local storage: ~50 writes and ~140 reads per Talk, each read waiting Gun's read wait. Ten people offering the same 30 tags to one person: 549 → 314 KB on the links.
+What is left is local storage: ~50 writes and ~140 reads per Talk, each read waiting Gun's read wait.
+After REQ-GRAPH-53 (2026-11-15): ~36 writes and ~96 reads per Talk, 62 ms a Talk; one "Tennis" tag
+sent and liked writes 5.1 KB on the author's device and 5.8 KB on the receiver's (was 5.9 and 6.0)
+and sends 3.9 KB between them. Ten people offering the same 30 tags to one person: 549 → 314 KB on the links.
 UDP broadcast/multicast (researched 2026-11-14) is not used: browsers have none, iOS needs a
 restricted entitlement, carriers drop it, and Wi-Fi sends it unacknowledged at the lowest rate (RFC
 9119). Content blobs are named by hash and encrypted, so a later multicast or relay route can carry

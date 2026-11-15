@@ -10,8 +10,9 @@
  * - What I queue for one person while an entry is being written goes into the next entry together
  *   (`{ batch }`): a first meeting's catch-up is a few entries, not one per Talk (OPEN-114).
  * - Frames: `hi` (where each side stands), `log` (entries, pushed), `ack` (signed, REQ-GRAPH-43),
- *   `cp` (a signed checkpoint after a trim, REQ-GRAPH-48) and `part` (a frame larger than the link
- *   carries, in pieces). What they have not acknowledged is sent again while the link is up.
+ *   `cp` (a signed checkpoint after a trim, REQ-GRAPH-48), `want`/`blob` (a Talk version's content,
+ *   asked for in `w`, never stored: made again from the Talk's nodes) and `part` (a frame larger than
+ *   the link carries, in pieces). What they have not acknowledged is sent again while the link is up.
  *
  * Nothing is sent while two people are apart (D2): the log waits on my device until their link opens.
  */
@@ -27,7 +28,7 @@ import type { EventChainSigner } from '../chain';
 import { putEvent } from '../events';
 import { addToIndex } from '../index-buckets';
 import { link, linkSoul, type GraphNode, type NodeStore } from '../node-store';
-import { GRAPH_SCHEMA_VERSION, graphSouls, readTalkStructure, talkStructureKey, talkStructureOf, type StructureQuestion, type TalkStructure } from '../talk-structure';
+import { GRAPH_SCHEMA_VERSION, graphSouls, readTalkStructure, talkStructureKey, talkStructureOf, talkStructureStored, type StructureQuestion, type TalkStructure } from '../talk-structure';
 import { personIdOf, personSoul, personWrites } from '../people-graph';
 import { parseEventId } from '../event-id';
 import { MESSAGE_CONV_MAX, MESSAGE_TEXT_MAX } from '../message-events';
@@ -50,8 +51,9 @@ const FRAME_PARTS_TTL_MS = 120_000;
 
 /** Content asked for and not arrived is asked for again after this long. */
 const CONTENT_ASK_AGAIN_MS = 5_000;
-/** Content blobs (OPEN-114): how many hashes one `want` names, and how many blobs a device keeps in
- * memory (a blob is also stored, so a `want` after a restart is still answered). */
+/** Content blobs (OPEN-114): how many one `want` names, and how many received blobs a device keeps
+ * in memory until applied. A blob is never stored: the sender makes it again from the Talk's own
+ * graph nodes when someone asks (the version's key is stored, `sync/version/<id>`). */
 const WANT_MAX = 512;
 const BLOBS_IN_MEMORY = 4_000;
 
@@ -137,7 +139,7 @@ export type VersionBody = { head: Record<string, unknown>; steps: Array<{ ref: R
 
 export type GraphSyncEvents = {
   /** A Talk (or a new version of one) arrived from this person and is stored. */
-  onTalk?: (talkId: string, fromUserId: string, context?: Record<string, unknown>) => void;
+  onTalk?: (talkId: string, fromUserId: string, context?: Record<string, unknown>, applied?: { versionId: string; talk: any }) => void;
   onTalkDeleted?: (talkId: string, fromUserId: string) => void;
   /** Someone answered (or changed their answer to) my Talk. */
   onAnswer?: (talkId: string, fromUserId: string, eventId: string, context?: Record<string, unknown>) => void;
@@ -360,12 +362,15 @@ export function createGraphSync(options: {
 
   /** One version of my Talk as it travels inside an offer (OPEN-114), built once per version. */
   const versionBodies = new Map<string, Promise<VersionBody>>();
-  function versionBody(talkId: string, versionId: string): Promise<VersionBody> {
+  function versionBody(talkId: string, versionId: string, read?: Awaited<ReturnType<typeof graph.talks.read>>): Promise<VersionBody> {
     const known = versionBodies.get(versionId);
     if (known) return known;
     const built = (async (): Promise<VersionBody> => {
-      const talk = await graph.talks.readVersion(talkId, versionId);
-      const event = await store.get(souls.event(versionId));
+      // The caller's read of this version, when it has one: the structure is not read again.
+      const [talk, event] = await Promise.all([
+        read && read.versionId === versionId ? read : graph.talks.readVersion(talkId, versionId),
+        store.get(souls.event(versionId)),
+      ]);
       if (!talk || !event) throw new Error(`no version ${versionId} of Talk ${talkId}`);
       const structure = talkStructureOf(talk);
       const head = versionHead(talkId, versionId, talk, structure, event);
@@ -390,32 +395,33 @@ export function createGraphSync(options: {
   }
 
   /**
-   * One version as offers carry it (OPEN-114): its head, and its steps as a content blob encrypted
-   * once with a random key and named by its hash. Every person it is offered to gets the same blob;
-   * only the small offer differs per pair.
+   * One version as offers carry it (OPEN-114): its head, and where its steps are: a content blob
+   * encrypted with a random key `k` and named `h`, a hash of `k` and the steps (so only someone
+   * given `k` can tell what content a name stands for). Every person it is offered to gets the same
+   * name; only the small offer differs per pair. Only `{ h, k }` is stored: the blob is made again
+   * from the Talk's own nodes when someone asks for it (no second copy of the Talk on disk).
    */
   const versionContents = new Map<string, Promise<{ head: Record<string, unknown>; content: { h: string; k: string } }>>();
+  /** Blobs received and not yet applied, by name. */
   const blobs = new Map<string, string>();
-  const blobSoul = (h: string) => `${prefix}sync/blob/${h}`;
+  const versionKeySoul = (versionId: string) => `${prefix}sync/version/${versionId}`;
+  const contentName = (k: string, plain: string) => portableSha256Hex(`${k}\n${plain}`);
   function rememberBlob(h: string, c: string): void {
     blobs.delete(h);
     blobs.set(h, c);
     if (blobs.size > BLOBS_IN_MEMORY) blobs.delete(blobs.keys().next().value!);
   }
-  function versionContent(talkId: string, versionId: string) {
+  function versionContent(talkId: string, versionId: string, read?: Awaited<ReturnType<typeof graph.talks.read>>) {
     const known = versionContents.get(versionId);
     if (known) return known;
     const made = (async () => {
-      const recordSoul = `${prefix}sync/version/${versionId}`;
-      const record = await store.get(recordSoul);
-      const { head, steps } = await versionBody(talkId, versionId);
-      if (typeof record?.h === 'string' && typeof record.k === 'string') return { head, content: { h: record.h, k: record.k } };
+      const [record, { head, steps }] = await Promise.all([store.get(versionKeySoul(versionId)), versionBody(talkId, versionId, read)]);
+      const plain = JSON.stringify(steps);
+      // A name made the old way (a hash of a stored blob, before 2026-11-15) is replaced.
+      if (typeof record?.h === 'string' && typeof record.k === 'string' && contentName(record.k, plain) === record.h) return { head, content: { h: record.h, k: record.k } };
       const k = crypto.randomHex(32);
-      const c = await encryptJson(steps, k);
-      const h = portableSha256Hex(c);
-      await store.put(blobSoul(h), { c });
-      await store.put(recordSoul, { h, k });
-      rememberBlob(h, c);
+      const h = contentName(k, plain);
+      await store.put(versionKeySoul(versionId), { h, k });
       return { head, content: { h, k } };
     })();
     versionContents.set(versionId, made);
@@ -430,12 +436,17 @@ export function createGraphSync(options: {
    */
   const fetching = new Map<string, { from: string; at: number; waiting: Set<string> }>();
 
-  async function blobOf(h: string): Promise<string | undefined> {
-    const held = blobs.get(h);
-    if (held) return held;
-    const stored = (await store.get(blobSoul(h)).catch(() => null))?.c;
-    if (typeof stored === 'string') rememberBlob(h, stored);
-    return typeof stored === 'string' ? stored : undefined;
+  /** The blob of my version someone asked for, made again from its nodes; only under the name I gave it. */
+  async function servedContent(want: { h: string; talk: string; v: string }): Promise<string | undefined> {
+    // A version offered since start-up has its name and key at hand; else they are read.
+    const offered = await versionContents.get(want.v)?.catch(() => undefined);
+    const record = offered?.content ?? await store.get(versionKeySoul(want.v)).catch(() => null);
+    if (record?.h !== want.h || typeof record.k !== 'string') return undefined;
+    const { steps } = await versionBody(want.talk, want.v).catch(() => ({ steps: undefined }));
+    if (!steps) return undefined;
+    const plain = JSON.stringify(steps);
+    if (contentName(record.k, plain) !== want.h) return undefined;
+    return crypto.encrypt(plain, record.k);
   }
 
   function versionHead(talkId: string, versionId: string, talk: any, structure: TalkStructure, event: GraphNode): Record<string, unknown> {
@@ -468,38 +479,43 @@ export function createGraphSync(options: {
     return versionFrom(head as any, questions, offer.talkId);
   }
 
-  /** Where an offer's steps come from: a structure I hold already, or its content blob. */
-  const structuresHeld = new Map<string, TalkStructure>();
-  async function knownStructure(head: any): Promise<TalkStructure | undefined> {
-    if (typeof head?.revKey !== 'string') return undefined;
-    // A stored structure never changes: one found once is kept (bounded).
-    const held = structuresHeld.get(head.revKey);
-    if (held) return held;
-    const structure = await readTalkStructure(store, head.revKey, prefix).catch(() => undefined);
-    if (!structure || talkStructureKey(structure) !== head.revKey) return undefined;
-    structuresHeld.set(head.revKey, structure);
-    if (structuresHeld.size > BLOBS_IN_MEMORY) structuresHeld.delete(structuresHeld.keys().next().value!);
-    return structure;
-  }
-
-  /** The content an offer needs and I have neither as a structure nor as a blob. */
-  async function missingContent(body: LogBody): Promise<{ h: string; rev: string } | undefined> {
+  /**
+   * What an offer needs and I have neither as a stored structure nor as a received blob: one read
+   * of the structure's root (written last, so it stands for the whole structure).
+   */
+  async function missingContent(body: LogBody): Promise<{ h: string; rev: string; talk: string; v: string } | undefined> {
     if (!('offer' in body) || !body.offer.content || !body.offer.head) return undefined;
     if (blobs.has(body.offer.content.h)) return undefined;
-    if (await knownStructure(body.offer.head)) return undefined;
-    return { h: body.offer.content.h, rev: String(body.offer.head.revKey ?? body.offer.content.h) };
+    const rev = typeof body.offer.head.revKey === 'string' ? body.offer.head.revKey : undefined;
+    if (rev && await talkStructureStored(store, rev, prefix).catch(() => false)) return undefined;
+    return { h: body.offer.content.h, rev: rev ?? body.offer.content.h, talk: body.offer.talkId, v: body.offer.versionId };
   }
 
+  /**
+   * An offer's version: from its blob when I received one (no read), else from the structure I
+   * hold (read once, here; `held` tells the arrival not to read it again).
+   */
   async function contentVersion(offer: { talkId: string; versionId: string; head: any; content: { h: string; k: string } }) {
-    const { head } = offer;
+    const { head, content } = offer;
     if (!head || head.talkId !== offer.talkId || head.versionId !== offer.versionId) return undefined;
-    const known = await knownStructure(head);
-    if (known) return versionFrom(head, known.questions, offer.talkId);
-    const c = blobs.get(offer.content.h);
-    if (!c || portableSha256Hex(c) !== offer.content.h) throw new Error(`content ${offer.content.h.slice(0, 8)} of Talk ${offer.talkId} has not arrived yet`);
-    const steps = await decryptJson<VersionBody['steps']>(c, offer.content.k);
-    if (!Array.isArray(steps)) return undefined;
-    return inlineVersion({ talkId: offer.talkId, versionId: offer.versionId, talk: { head, steps } });
+    const c = blobs.get(content.h);
+    if (c) {
+      const plain = await crypto.decrypt(c, content.k).catch(() => undefined);
+      const text = typeof plain === 'string' ? plain : plain === undefined || plain === null ? undefined : JSON.stringify(plain);
+      if (text === undefined || contentName(content.k, text) !== content.h) {
+        // Not what the name says: dropped, asked for again.
+        blobs.delete(content.h);
+        throw new Error(`content ${content.h.slice(0, 8)} of Talk ${offer.talkId} did not match its name`);
+      }
+      let steps: unknown;
+      try { steps = JSON.parse(text); } catch { return undefined; }
+      if (!Array.isArray(steps)) return undefined;
+      const version = inlineVersion({ talkId: offer.talkId, versionId: offer.versionId, talk: { head, steps } });
+      return version && { ...version, held: false };
+    }
+    const structure = typeof head.revKey === 'string' ? await readTalkStructure(store, head.revKey, prefix).catch(() => undefined) : undefined;
+    if (!structure || talkStructureKey(structure) !== head.revKey) throw new Error(`content ${content.h.slice(0, 8)} of Talk ${offer.talkId} has not arrived yet`);
+    return { ...versionFrom(head, structure.questions, offer.talkId), held: true };
   }
 
   function versionFrom(head: any, questions: StructureQuestion[], talkId: string) {
@@ -529,16 +545,20 @@ export function createGraphSync(options: {
       if (!fetched && !body.offer.talk && !body.offer.content) { options.log?.(`[graph-sync] offer of ${body.offer.talkId} from an older device skipped`); return; }
       if (!fetched) throw new Error(`Talk ${body.offer.talkId} has not arrived yet`);
       const { head, talk } = fetched;
+      const held = 'held' in fetched && fetched.held === true;
       const result = await graph.arrivals.receive({
         talkId: body.offer.talkId, versionId: body.offer.versionId,
         ...(head.previousVersionId ? { previousVersionId: head.previousVersionId } : {}),
         authorId: fromUserId, authorPub: keys.pub, when: Number(head.when), device: String(head.device), talk,
+        // Read in full from my store just now: the arrival does not look at it again.
+        ...(held ? { structureHeld: true } : {}),
       }, {
         userId: fromUserId, pub: keys.pub, link,
         // The log entry that carried the offer, so the answer can name it back (REQ-GRAPH-44).
         entry: { n: entry.n, hash: entryHash(entry), when: Number(entry.when) },
       });
-      if (!result.ignored) options.events?.onTalk?.(body.offer.talkId, fromUserId, body.offer.context);
+      // The version just applied goes with the event: the host need not read it back.
+      if (!result.ignored) options.events?.onTalk?.(body.offer.talkId, fromUserId, body.offer.context, { versionId: body.offer.versionId, talk });
       // Others' offers of this same content were waiting for it: they can go now.
       const rev = typeof body.offer.head?.revKey === 'string' ? body.offer.head.revKey : undefined;
       const waited = rev ? fetching.get(rev) : undefined;
@@ -740,12 +760,18 @@ export function createGraphSync(options: {
     }
     if (frame.t === 'ack') { await checkRead(peerUserId, link, frame); return; }
     if (frame.t === 'want') {
-      // Content of my Talks they need: sent in as few frames as the link carries.
-      const hashes = Array.isArray(frame.h) ? frame.h.filter((h: unknown): h is string => typeof h === 'string').slice(0, WANT_MAX) : [];
+      // Content of my Talks they need, each named with the Talk version it belongs to (`w`; `h` is
+      // every frame's head): made again from the graph, sent in as few frames as the link carries.
+      const wants = (Array.isArray(frame.w) ? frame.w : [])
+        .filter((w: any): w is { h: string; talk: string; v: string } => !!w && typeof w.h === 'string' && typeof w.talk === 'string' && typeof w.v === 'string')
+        .slice(0, WANT_MAX);
       let batch: Record<string, string> = {};
       let chars = 0;
-      for (const h of hashes) {
-        const c = await blobOf(h);
+      // Made side by side (each a read at most and an encryption), sent in the order asked.
+      const made = await Promise.all(wants.map((want: { h: string; talk: string; v: string }) => servedContent(want).catch(() => undefined)));
+      for (const [i, want] of wants.entries()) {
+        const h = want.h;
+        const c = made[i];
         if (!c) continue;
         if (chars && chars + c.length > link.frameMax - 200) { sendFrame(peerUserId, link, { t: 'blob', b: batch }); batch = {}; chars = 0; }
         batch[h] = c;
@@ -755,10 +781,10 @@ export function createGraphSync(options: {
       return;
     }
     if (frame.t === 'blob') {
-      // Content I asked for: kept only when it is what its name says.
+      // Content I asked for (only that): checked against its name when applied, with the offer's key.
       let fresh = false;
       for (const [h, c] of Object.entries(frame.b ?? {})) {
-        if (typeof c !== 'string' || portableSha256Hex(c) !== h) continue;
+        if (typeof c !== 'string' || !link.wanted.has(h)) continue;
         rememberBlob(h, c);
         link.wanted.delete(h);
         fresh = true;
@@ -834,24 +860,26 @@ export function createGraphSync(options: {
       return entry;
     };
     // Content the waiting entries need and I lack: asked for all at once, before applying any.
-    const missing = new Map<string, string>();
-    for (let n = next; link.pending.has(n) && missing.size < WANT_MAX; n += 1) {
+    const missing = new Map<string, { rev: string; talk: string; v: string }>();
+    // Entries below this were checked just now: the loop below does not check them again.
+    let scanned = next;
+    for (let n = next; link.pending.has(n) && missing.size < WANT_MAX; n += 1, scanned = n) {
       const entry = await decode(n);
       if (!entry) break;
       const items = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
-      for (const item of items) { const need = await missingContent(item); if (need) missing.set(need.h, need.rev); }
+      for (const item of items) { const need = await missingContent(item); if (need) missing.set(need.h, need); }
     }
-    const ask = [...missing].filter(([h, rev]) => {
+    const ask = [...missing].filter(([h, { rev }]) => {
       // Being fetched from someone else: wait for it rather than ask again.
       const elsewhere = fetching.get(rev);
       if (elsewhere && elsewhere.from !== peerUserId && now() - elsewhere.at < CONTENT_ASK_AGAIN_MS) { elsewhere.waiting.add(peerUserId); return false; }
       if (now() - (link.wanted.get(h) ?? 0) <= CONTENT_ASK_AGAIN_MS) return false;
       fetching.set(rev, { from: peerUserId, at: now(), waiting: elsewhere?.waiting ?? new Set() });
       return true;
-    }).map(([h]) => h);
+    }).map(([h, { talk, v }]) => ({ h, talk, v }));
     if (ask.length) {
-      for (const h of ask) link.wanted.set(h, now());
-      sendFrame(peerUserId, link, { t: 'want', h: ask });
+      for (const { h } of ask) link.wanted.set(h, now());
+      sendFrame(peerUserId, link, { t: 'want', w: ask });
     }
     try {
       while (link.pending.has(next)) {
@@ -859,7 +887,10 @@ export function createGraphSync(options: {
         if (!entry) { link.pending.delete(next); break; }
         // Its content has not arrived: wait for it (the blob frame starts the next pass).
         const items0 = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
-        if ((await Promise.all(items0.map((item) => missingContent(item)))).some(Boolean)) return true;
+        const lacking = next < scanned
+          ? items0.some((item) => 'offer' in item && !!item.offer.content && missing.has(item.offer.content.h) && !blobs.has(item.offer.content.h))
+          : (await Promise.all(items0.map((item) => missingContent(item)))).some(Boolean);
+        if (lacking) return true;
         const broken = entry.n !== next ? `entry ${next} is numbered ${entry.n}`
           : entry.prev !== prev ? `entry ${next} does not follow entry ${next - 1}`
             : entry.by !== peerUserId ? `entry ${next} names another author`
@@ -1017,10 +1048,17 @@ export function createGraphSync(options: {
     },
 
     async offerTalk(talkId: string, recipients: string[], context?: Record<string, unknown>): Promise<number> {
-      const talk = await graph.talks.read(talkId);
-      if (!talk) throw new Error(`no Talk ${talkId}`);
+      // Which version is my latest: one read. The Talk itself is read only for a version whose
+      // offer is not made yet (a Talk offered to many people is read once, not once per offer).
+      const mine = await store.get(souls.mine(`talk/${talkId}`));
+      if (mine?.deleted === true) throw new Error(`no Talk ${talkId}`);
+      const latest = linkSoul(mine?.latest);
+      const latestId = latest ? latest.slice(souls.event('').length) : talkId;
+      const read = versionContents.has(latestId) ? undefined : await graph.talks.read(talkId);
+      if (!versionContents.has(latestId) && !read) throw new Error(`no Talk ${talkId}`);
+      const talk = { versionId: read?.versionId ?? latestId };
       // The offer names the version's content blob (OPEN-114): made once, whoever it goes to.
-      const { head, content } = await versionContent(talkId, talk.versionId);
+      const { head, content } = await versionContent(talkId, talk.versionId, read);
       // The version each person was last sent, in keyed buckets (`keyed-buckets.ts`).
       const sentSoul = `${prefix}sync/sent/${talkId}`;
       const sent = await getKeyedMany(store, sentSoul, recipients);
@@ -1134,7 +1172,8 @@ export function createGraphSync(options: {
       if (!author) throw new Error(`Talk ${talkId} has no author on this device`);
       const set = await graph.answers.answerSet(answerEventId);
       if (!set) throw new Error(`answer ${answerEventId} has no answer set`);
-      const received = await graph.arrivals.read(talkId);
+      // Which version I answered and the arrival that brought it: the Talk itself is not read.
+      const received = await graph.arrivals.latest(talkId);
       // Name the offer's log entry this answer replies to, so the author can link the sides
       // (REQ-GRAPH-44): the arrival of the version answered carries it.
       let reEntry: { n: number; hash: string } | undefined;

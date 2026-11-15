@@ -305,22 +305,37 @@ export function structureRecords(talk: any, options: { perspective: Perspective;
  * Store a Talk's structure. Returns its `rev/` key and how many nodes were written: none when the
  * structure is already on the device; text nodes that exist are never rewritten.
  *
- * One read of every node at once, then one write of whatever is missing: Radisk confirms a write
- * only after ~250 ms of batching, so writes that wait on each other cost a quarter second each.
- * A write cut short (the app killed mid-flush) is completed the next time the same structure is
- * written, and a reader never accepts a partial structure (`readTalkStructure`).
+ * The root (`rev/<key>`) is written last, after every other node of the structure is confirmed, so
+ * a root that exists means the whole structure does (OPEN-114): one read of the root and the texts
+ * tells whether anything must be written, instead of a read of every node. Redaction erases the
+ * root first for the same reason (`redact.ts`). A reader still never accepts a partial structure
+ * (`readTalkStructure`).
+ *
+ * `held`: the caller read this structure in full from `rev/<revKey>` in this store in the same step,
+ * so it is stored and nothing is read or written (unless it is stored under another key: a Pair
+ * tag's responder copy, `<revKey>-r`).
  */
 export async function writeTalkStructure(
   store: NodeStore,
   talk: any,
-  options: { perspective: Perspective; prefix?: string | undefined; now: number },
+  options: { perspective: Perspective; prefix?: string | undefined; now: number; held?: boolean },
 ): Promise<{ revKey: string; soulKey: string; written: number }> {
   const records = structureRecords(talk, options);
-  const all: Array<[string, GraphNode]> = [...records.text, ...records.nodes, records.root];
-  const exists = await Promise.all(all.map(([soul]) => store.get(soul)));
-  const missing = all.filter((_, i) => !exists[i]);
-  await Promise.all(missing.map(([soul, node]) => store.put(soul, node)));
-  return { revKey: records.revKey, soulKey: records.soulKey, written: missing.length };
+  if (options.held && records.soulKey === records.revKey) return { revKey: records.revKey, soulKey: records.soulKey, written: 0 };
+  const texts = [...records.text];
+  const [root, ...textNodes] = await Promise.all([store.get(records.root[0]), ...texts.map(([soul]) => store.get(soul))]);
+  if (root) return { revKey: records.revKey, soulKey: records.soulKey, written: 0 };
+  const missingTexts = texts.filter((_, i) => !textNodes[i]);
+  // Without its root the structure is absent (or a write of it was cut short): its own nodes are
+  // all written again (the same values), the shared texts only where missing.
+  await Promise.all([...missingTexts, ...records.nodes].map(([soul, node]) => store.put(soul, node)));
+  await store.put(records.root[0], records.root[1]);
+  return { revKey: records.revKey, soulKey: records.soulKey, written: missingTexts.length + records.nodes.length + 1 };
+}
+
+/** Whether this structure is stored: its root exists (written last, so the rest does too). */
+export async function talkStructureStored(store: NodeStore, revKey: string, prefix?: string): Promise<boolean> {
+  return !!(await store.get(graphSouls(prefix).rev(revKey)));
 }
 
 /** A structure read back from the graph by its soul key, or undefined when it is not (completely) stored. */

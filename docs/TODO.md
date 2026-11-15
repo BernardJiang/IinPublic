@@ -86,7 +86,10 @@ its ID.
   records in stage1/04 and stage4/05 — cause not found, off;
   a BLE transport (frames already split to its size); UDP multicast for content only as an optional
   route on Android Wi-Fi (researched: not on web, iOS needs an entitlement, lossy in crowds); local
-  storage is the next cost (~48 writes and ~138 reads per arrival).
+  storage is the next cost. 2026-11-15 (REQ-GRAPH-53): a Talk read once per step and passed on, a
+  root-only "do I have it" check (the root is written last), folder links only for a new bucket, no
+  stored blob (made again from the nodes): ~142 → ~96 reads and ~50 → ~36 writes a Talk, 65 → 62 ms
+  (time is bound by chains of dependent reads, not their count).
 - [ ] **OPEN-113 — Live tag statistics in Contacts, Talks and Me (owner, 2026-11-14).** One model,
   three views, all from what this device holds (people I exchanged with; no hub counts):
   - Model (`src/core/tag-graph.ts` + a pure `tag-stats`): per tag — who likes it, who passed it,

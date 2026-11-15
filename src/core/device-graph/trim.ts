@@ -33,7 +33,7 @@
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
 import { answerExtrasSoul, answerQuestionsSoul, rebuildIndexes } from './events';
 import { chainHeadSoul, checkpointIndexSoul, serialized, writeCheckpoint, type ChainCheckpoint, type EventChainSigner } from './chain';
-import { bucketOf, readIndex, removeFromIndex } from './index-buckets';
+import { bucketOf, forgetIndexFolder, readIndex, removeFromIndex } from './index-buckets';
 import { isNearbyEventShape } from './nearby-events';
 import { isConversationMessageEvent } from './message-events';
 import { parseEventId } from './event-id';
@@ -269,7 +269,13 @@ export async function trimHistory(
       for (const context of Object.keys(sidecar || {})) content.push(`${gave}/${context}`);
     }
     const rev = linkSoul(event.rev);
-    if (rev && !keepContent.has(rev)) content.push(...await structureSouls(store, rev));
+    if (rev && !keepContent.has(rev)) {
+      // Found from the root, which then goes first: a root that exists means the whole structure
+      // does (`writeTalkStructure` writes it last), so a trim cut short must not leave it alone.
+      const structure = await structureSouls(store, rev);
+      await clearSouls([rev]);
+      content.push(...structure.filter((soul) => soul !== rev));
+    }
     await clearSouls(content);
 
     // The event itself, its private sidecars and its exact-location record.
@@ -364,7 +370,10 @@ export async function trimHistory(
     // Day buckets with nothing left leave the directory too.
     for (const bucket of new Set(todays.map((entry) => entry.bucket))) {
       const node = await store.get(`${souls.index('day')}/${bucket}`);
-      if (!Object.values(node || {}).some((value) => linkSoul(value))) await store.put(souls.index('day'), { [bucket]: null });
+      if (!Object.values(node || {}).some((value) => linkSoul(value))) {
+        await store.put(souls.index('day'), { [bucket]: null });
+        forgetIndexFolder(store, souls.index('day'), bucket);
+      }
     }
   }
   if (!done) {

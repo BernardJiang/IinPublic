@@ -390,9 +390,10 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
             gun: options.gun, store, me: { userId: request.userId, pair: request.pair }, crypto: options.crypto,
             peerKeys, graph, ids: graph.ids, chain: signer, ...(options.log ? { log: options.log } : {}),
             events: {
-              onTalk: (talkId, from, context) => {
-                // The page gets the Talk in the app's shape with the event: one read here, none there.
-                void graph.arrivals.read(talkId).then((talk) => {
+              onTalk: (talkId, from, context, applied) => {
+                // The page gets the Talk in the app's shape with the event: the version just applied
+                // is used as it is (its structure is not read back), none read there.
+                void graph.arrivals.read(talkId, applied).then((talk) => {
                   push({ type: 'talk', talkId, from, ...(context ? { context } : {}), ...(talk ? { talk: appTalkOf(talk) } : {}) });
                 }).catch(() => push({ type: 'talk', talkId, from, ...(context ? { context } : {}) }));
               },
@@ -637,8 +638,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           // I answered a Talk that came over a graph link: one answer event, sent to its author.
           if (!options.appAnswers) return { sent: false };
           {
-            const result = await options.appAnswers().answerAndSend(request.talkId, request.authorId, request.answers, request.mode, request.context);
-            const talk = result.eventId ? await graph.arrivals.read(request.talkId) : undefined;
+            // The Talk answered comes back with the result: it is not read again here.
+            const { talk, ...result } = await options.appAnswers().answerAndSend(request.talkId, request.authorId, request.answers, request.mode, request.context);
             if (talk && result.eventId) await graph.exchange.recordAnswer(request.authorId, result.eventId, answeredAtoms(appTalkOf(talk), request.answers.map((a) => a.answerId))).catch(() => undefined);
             return result;
           }

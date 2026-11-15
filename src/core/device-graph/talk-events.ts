@@ -118,11 +118,12 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
     return eventId;
   }
 
-  async function readAt(talkId: string, versionId: string, mine: GraphNode | null): Promise<GraphTalk | undefined> {
+  async function readAt(talkId: string, versionId: string, mine: GraphNode | null, known?: TalkStructure): Promise<GraphTalk | undefined> {
     const latest = await store.get(souls.event(versionId));
     const revSoul = linkSoul(latest?.rev);
     if (!latest || !revSoul) return undefined;
-    const structure = await readTalkStructure(store, revSoul.slice(souls.rev('').length), options.prefix);
+    // A structure the caller has in hand for this version (just received) is not read again.
+    const structure = known ?? await readTalkStructure(store, revSoul.slice(souls.rev('').length), options.prefix);
     if (!structure) return undefined;
     const first = versionId === talkId ? latest : await store.get(souls.event(talkId));
     const talk: GraphTalk = {
@@ -217,8 +218,8 @@ export function createTalkGraph(store: NodeStore, ids: EventIds, options: { pref
     },
 
     /** A Talk as one version wrote it (a received Talk, or an older version of mine). */
-    async readVersion(talkId: string, versionId: string): Promise<GraphTalk | undefined> {
-      return readAt(talkId, versionId, await store.get(souls.mine(`talk/${talkId}`)));
+    async readVersion(talkId: string, versionId: string, structure?: TalkStructure): Promise<GraphTalk | undefined> {
+      return readAt(talkId, versionId, await store.get(souls.mine(`talk/${talkId}`)), structure);
     },
 
     /** The versions of a Talk, newest first, by following `re` from the latest. */

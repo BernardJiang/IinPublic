@@ -141,7 +141,8 @@ export function createAppChatbot(options: {
       let answered = false;
       if (opts.talkId) {
         const mine = await graph.answers.answered(opts.talkId);
-        const version = (await graph.arrivals.read(opts.talkId))?.versionId ?? (await graph.talks.read(opts.talkId))?.versionId;
+        // Only which version: the Talk itself is not read again.
+        const version = (await graph.arrivals.latest(opts.talkId))?.versionId ?? (await graph.talks.read(opts.talkId))?.versionId;
         answered = !!mine && (!version || mine > version);
       }
       return { answers: answers && answers.every(Boolean) ? answers as AppChatbotAnswer[] : null, passed: view.passed, answered };

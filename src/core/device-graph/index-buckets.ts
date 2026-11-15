@@ -20,6 +20,27 @@ export function bucketOf(when: number, size: BucketSize): string {
   return size === 'hour' ? iso.slice(0, 13) : size === 'day' ? iso.slice(0, 10) : iso.slice(0, 7);
 }
 
+/**
+ * Folder links (`list → bucket`) this process has written or seen confirmed, per store. A list's
+ * folder gets a link only when a new bucket starts (OPEN-114): writing the same link for every
+ * entry rewrote an unchanged value 5–7 times per Talk. Lost on restart, when each bucket's link is
+ * written once again. Only trimming removes folder links, and it says so (`forgetIndexFolder`); a
+ * rebuild of the indexes starts with none remembered (`forgetIndexFolders`).
+ */
+const foldersWritten = new WeakMap<NodeStore, Set<string>>();
+const FOLDERS_REMEMBERED_MAX = 50_000;
+const folderKey = (listSoul: string, bucket: string) => `${listSoul}\n${bucket}`;
+
+/** Every folder link may be gone (indexes being rebuilt after a loss): each is written again. */
+export function forgetIndexFolders(store: NodeStore): void {
+  foldersWritten.delete(store);
+}
+
+/** A folder link was removed (trimming): the next entry in that bucket writes it again. */
+export function forgetIndexFolder(store: NodeStore, listSoul: string, bucket: string): void {
+  foldersWritten.get(store)?.delete(folderKey(listSoul, bucket));
+}
+
 /** Add `key → target` to the list, in the bucket of `when`. Repeating it changes nothing. */
 export async function addToIndex(
   store: NodeStore,
@@ -29,8 +50,15 @@ export async function addToIndex(
 ): Promise<void> {
   const bucket = bucketOf(entry.when, size);
   const bucketSoul = `${listSoul}/${bucket}`;
+  let written = foldersWritten.get(store);
+  if (!written) { written = new Set(); foldersWritten.set(store, written); }
+  const key = folderKey(listSoul, bucket);
+  if (written.has(key)) { await store.put(bucketSoul, { [entry.key]: link(entry.target) }); return; }
   // Together, so both share one storage flush (Radisk confirms a write after ~250 ms of batching).
   await Promise.all([store.put(bucketSoul, { [entry.key]: link(entry.target) }), store.put(listSoul, { [bucket]: link(bucketSoul) })]);
+  // Remembered once confirmed: a write that failed is tried again by the next entry.
+  if (written.size >= FOLDERS_REMEMBERED_MAX) written.clear();
+  written.add(key);
 }
 
 export async function removeFromIndex(store: NodeStore, listSoul: string, entry: { key: string; when: number }, size: BucketSize = 'month'): Promise<void> {

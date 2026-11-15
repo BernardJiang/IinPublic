@@ -58,7 +58,7 @@ describe('app answers in the device graph', () => {
     await d.app.recordHistory(record(talkId, weekly, { senderIds: ['adam'] }));
     expect(await d.graph.answers.answered(talkId)).toBe(first);
     // Sending reuses the event already written.
-    expect(await d.app.answerAndSend(talkId, 'adam', weekly, 'manual', { responseId: 'r1' })).toEqual({ sent: true, eventId: first });
+    expect(await d.app.answerAndSend(talkId, 'adam', weekly, 'manual', { responseId: 'r1' })).toMatchObject({ sent: true, eventId: first });
     expect(d.sync.sendAnswer).toHaveBeenCalledWith(first, { responseId: 'r1' });
 
     const history = await d.app.history();
@@ -131,8 +131,8 @@ describe('app answers in the device graph', () => {
     await d.app.recordHistory(record(fromAnn, weekly, { senderIds: ['ann', 'cy'] }));
     const [annEvent, cyEvent] = [await d.graph.answers.answered(fromAnn), await d.graph.answers.answered(fromCy)];
     expect(annEvent && cyEvent && annEvent !== cyEvent).toBe(true);
-    expect(await d.app.answerAndSend(fromAnn, 'ann', weekly, 'manual')).toEqual({ sent: true, eventId: annEvent });
-    expect(await d.app.answerAndSend(fromCy, 'cy', weekly, 'manual')).toEqual({ sent: true, eventId: cyEvent });
+    expect(await d.app.answerAndSend(fromAnn, 'ann', weekly, 'manual')).toMatchObject({ sent: true, eventId: annEvent });
+    expect(await d.app.answerAndSend(fromCy, 'cy', weekly, 'manual')).toMatchObject({ sent: true, eventId: cyEvent });
     // Not to the wrong author.
     expect(await d.app.answerAndSend(fromAnn, 'cy', weekly, 'manual')).toEqual({ sent: false, reason: 'Talk not received from this author' });
     // The Me tab keeps one answer per question and situation: one row for the tag.

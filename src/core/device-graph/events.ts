@@ -27,7 +27,7 @@ import { keyBucket, keyedBucketSoul } from './keyed-buckets';
 import { isNearbyEventShape } from './nearby-events';
 import { isConversationMessageEvent } from './message-events';
 import { answerIndexClears, theirAnswerClears, theirQuestionsSoul } from './answers';
-import { addToIndex, bucketOf, readIndex, type BucketSize } from './index-buckets';
+import { addToIndex, bucketOf, forgetIndexFolders, readIndex, type BucketSize } from './index-buckets';
 import { personIdOf } from './people-graph';
 import { chainAndPut, verifyChain, type ChainVerification, type EventChainSigner } from './chain';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
@@ -82,6 +82,8 @@ export async function rebuildIndexes(store: NodeStore, options: { prefix?: strin
   chain?: { verify(signature: string, message: string, pub: string): Promise<boolean>; pub: string; deviceId: string };
 } = {}): Promise<{ events: number; repaired: number; chain?: ChainVerification }> {
   if (options.chain && options.fromDay) throw new Error('chain verification needs the full event log (no fromDay)');
+  // The indexes were lost: no folder link written before can be counted on.
+  forgetIndexFolders(store);
   const souls = graphSouls(options.prefix);
   const prefix = options.prefix ?? 'local/';
   const idOf = (soul: string | undefined) => (soul || '').slice(souls.event('').length);

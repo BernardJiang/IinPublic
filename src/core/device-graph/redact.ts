@@ -112,6 +112,13 @@ export async function redactEvent(
   if (options.gps !== false) targets.add(`${souls.event('').slice(0, -'ev/'.length)}gps/${eventId}`);
   const cleared: string[] = [];
   const writes: Array<Promise<void>> = [];
+  // A structure's root goes first: a root that exists means the whole structure does
+  // (`writeTalkStructure` writes it last), so a redaction cut short must not leave it alone.
+  if (ownRev && targets.has(ownRev)) {
+    const clearing = erase(await store.get(ownRev));
+    if (clearing) { cleared.push(ownRev); await store.put(ownRev, clearing); }
+    targets.delete(ownRev);
+  }
   for (const soul of targets) {
     const clearing = erase(await store.get(soul));
     if (clearing) { cleared.push(soul); writes.push(store.put(soul, clearing)); }

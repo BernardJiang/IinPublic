@@ -61,11 +61,12 @@ async function device(userId: string, deviceCrypto: GraphCrypto = crypto) {
   const ids = createEventIdSource({ state: { load: async () => saved, save: async (s: { deviceId: string; counter: number }) => { saved = { ...s }; } }, randomBytes: (n) => new Uint8Array(randomBytes(n)) });
   const graph = { talks: createTalkGraph(store, ids), arrivals: createArrivalGraph(store, ids), answers: createAnswerGraph(store, ids) };
   const events: Array<[string, string, string]> = [];
+  const appliedVersions: Array<{ versionId: string; talk: any }> = [];
   const sync = createGraphSync({
     gun, store, me: { userId, pair }, crypto: deviceCrypto, graph, remoteReadMs: 150,
     peerKeys: async (id) => keys.get(id),
     events: {
-      onTalk: (talkId, from) => events.push(['talk', talkId, from]),
+      onTalk: (talkId, from, _context, applied) => { events.push(['talk', talkId, from]); if (applied) appliedVersions.push(applied); },
       onAnswer: (talkId, from) => events.push(['answer', talkId, from]),
       onTalkDeleted: (talkId, from) => events.push(['talk-deleted', talkId, from]),
       onAnswerDeleted: (talkId, from) => events.push(['answer-deleted', talkId, from]),
@@ -73,7 +74,7 @@ async function device(userId: string, deviceCrypto: GraphCrypto = crypto) {
     },
   });
   await sync.start();
-  const d = { userId, gun, store, graph, sync, events, hubWire, heard };
+  const d = { userId, gun, store, graph, sync, events, hubWire, heard, appliedVersions };
   devices.push(d);
   return d;
 }
@@ -435,9 +436,10 @@ describe('Talk exchange by Gun sync', () => {
     const talkId = await una.graph.talks.create(tennis('Shared tennis'));
     expect(await una.sync.offerTalk(talkId, ['vic-b', 'wes-b'])).toBe(2);
     await until(async () => !!(await vic.graph.arrivals.read(talkId)) && !!(await wes.graph.arrivals.read(talkId)));
-    // One blob for the version, whoever it went to.
-    const blobSouls = Object.keys(una.gun._.graph).filter((soul) => soul.startsWith('local/sync/blob/'));
-    expect(blobSouls).toHaveLength(1);
+    // One content name for the version, whoever it went to; the blob itself is never stored (the
+    // Talk's own nodes are its only copy on disk).
+    expect(Object.keys(una.gun._.graph).filter((soul) => soul.startsWith('local/sync/blob/'))).toHaveLength(0);
+    expect(Object.keys(una.gun._.graph).filter((soul) => soul.startsWith('local/sync/version/'))).toHaveLength(1);
     // The offers in the pair logs name it; the question text travels only in the blob.
     const offerFrames = vic.heard.filter((raw: string) => raw.includes('"t":"log"'));
     const blobFrames = vic.heard.filter((raw: string) => raw.includes('"t":"blob"'));
@@ -460,5 +462,57 @@ describe('Talk exchange by Gun sync', () => {
     await until(async () => !!(await zed.graph.arrivals.read(fromYan)));
     expect((await zed.graph.arrivals.read(fromYan))).toMatchObject({ title: 'Starter tennis', senders: ['yan-b'] });
     expect(yan.heard.some((raw: string) => raw.includes('"t":"want"'))).toBe(false);
+  });
+
+  it('the version handed to the host with a Talk reads the same as the Talk read back from storage (OPEN-114)', async () => {
+    const [eli, fay] = [await device('eli-b'), await device('fay-b')];
+    void pump();
+    await Promise.all([eli.sync.open('fay-b'), fay.sync.open('eli-b')]);
+    const deal = { title: 'Phone deal', type: 'route', language: 'en', isAdult: false, matchThreshold: 2, questions: [
+      { id: 'q_0', text: 'Buy', reciprocalTagContext: true, contextPath: [], answers: [
+        { id: 'a_0_0', text: 'iPhone', nextQuestionIds: ['q_1'] }, { id: 'a_0_1', text: 'Ignore', isIgnore: true, isTerminal: true }] },
+      { id: 'q_1', text: 'Which model?', answerSelectionMode: 'multiple', contextPath: [{ questionId: 'q_0', answerId: 'a_0_0' }], answers: [
+        { id: 'a_1_0', text: '15', isMatch: true, isTerminal: true }, { id: 'a_1_1', text: 'Ignore', isIgnore: true, isTerminal: true }] },
+    ] };
+    const ids = [await eli.graph.talks.create(tennis('Same read')), await eli.graph.talks.create(deal)];
+    for (const id of ids) await eli.sync.offerTalk(id, ['fay-b']);
+    await until(() => ids.every((id) => fay.appliedVersions.some((a: any) => a.talk && fay.events.some((e: any) => e[1] === id))));
+    for (const id of ids) {
+      const applied = fay.appliedVersions.find((a: any) => a.versionId === id)!;
+      expect(await fay.graph.arrivals.read(id, applied)).toEqual(await fay.graph.arrivals.read(id));
+    }
+  });
+
+  it('a want names its content in `w`, so every frame keeps its head in `h` (OPEN-114)', async () => {
+    const [ama, bo] = [await device('ama-b'), await device('bo-b')];
+    void pump();
+    await Promise.all([ama.sync.open('bo-b'), bo.sync.open('ama-b')]);
+    const talkId = await ama.graph.talks.create(tennis('Want frame'));
+    await ama.sync.offerTalk(talkId, ['bo-b']);
+    await until(async () => !!(await bo.graph.arrivals.read(talkId)));
+    const want = JSON.parse(ama.heard.find((raw: string) => raw.includes('"t":"want"'))!);
+    expect(typeof want.h).toBe('number');
+    expect(want.w).toEqual([expect.objectContaining({ talk: talkId, h: expect.any(String), v: expect.any(String) })]);
+  });
+
+  it('a blob nobody asked for is ignored, and a want under a name never given is not answered (OPEN-114)', async () => {
+    const [cy, di] = [await device('cy-b'), await device('di-b')];
+    void pump();
+    await Promise.all([cy.sync.open('di-b'), di.sync.open('cy-b')]);
+    await until(() => cy.heard.length > 0 && di.heard.length > 0);
+    const pairOf = (raw: string) => JSON.parse(raw).p as string;
+    const talkId = await cy.graph.talks.create(tennis('Made again'));
+    const cyVersion = (await cy.graph.talks.read(talkId))!.versionId;
+    // Content Di never asked for is not kept.
+    di.sync.hear('cy-b', JSON.stringify({ gx: 1, p: pairOf(di.heard[0]), h: -1, t: 'blob', b: { forged: 'SEA{}' } }));
+    await cy.sync.offerTalk(talkId, ['di-b']);
+    await until(async () => !!(await di.graph.arrivals.read(talkId)));
+    expect((await di.graph.arrivals.read(talkId))).toMatchObject({ title: 'Made again', versionId: cyVersion });
+    // The blob Cy sent was made from the Talk's nodes (none stored), and only under its own name.
+    const before = di.heard.length;
+    cy.sync.hear('di-b', JSON.stringify({ gx: 1, p: pairOf(cy.heard[0]), h: -1, t: 'want', w: [{ h: 'f'.repeat(64), talk: talkId, v: cyVersion }] }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(di.heard.slice(before).some((raw: string) => raw.includes('"t":"blob"'))).toBe(false);
+    expect(Object.keys(cy.gun._.graph).some((soul) => soul.startsWith('local/sync/blob/'))).toBe(false);
   });
 });
