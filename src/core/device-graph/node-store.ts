@@ -32,14 +32,40 @@ export function linkSoul(value: unknown): string | undefined {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export function gunNodeStore(gun: any, options: { putTimeoutMs?: number } & GunReadOptions = {}): NodeStore {
+/** How many souls a store remembers as fully read (beyond it, it starts over: only a speed-up). */
+export const KNOWN_SOULS_MAX = 100_000;
+
+export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; remembersReads?: boolean } & GunReadOptions = {}): NodeStore {
   const read = gunNodeReader(gun, options);
+  /**
+   * Souls this store read in full (true) or found missing (false). Gun's graph then holds the node
+   * and every later write to it (Gun merges each put into its graph, whichever store made it), so
+   * the next read is answered from the graph, without Gun's read wait (OPEN-114: reads were most of
+   * a Talk exchange's time, ~20 ms each). Only for souls this device alone writes (`local/`);
+   * another person's souls arrive over a link and are always read.
+   */
+  const known = options.remembersReads === false ? undefined : new Map<string, boolean>();
+  const strip = (data: any): GraphNode | null => {
+    if (!data || typeof data !== 'object') return null;
+    const { _: _meta, ...rest } = data;
+    return rest as GraphNode;
+  };
   return {
     get: async (soul) => {
+      const seen = known?.get(soul);
+      if (seen !== undefined) {
+        const cached = gun._?.graph?.[soul];
+        if (cached) return strip({ ...cached });
+        if (seen === false) return null;
+        // Found before but gone from the graph: read it again.
+      }
       const data = await read(soul);
-      if (!data || typeof data !== 'object') return null;
-      const { _: _meta, ...rest } = data;
-      return rest as GraphNode;
+      // Shared graph souls (`g/…`) are written by others' links too: those are always read.
+      if (known && !soul.startsWith('g/')) {
+        if (known.size >= KNOWN_SOULS_MAX) known.clear();
+        known.set(soul, !!data && typeof data === 'object');
+      }
+      return strip(data);
     },
     put: (soul, value) => new Promise((resolve, reject) => {
       // A timeout leaves the write uncertain; the caller must not treat it as stored.

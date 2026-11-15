@@ -36,6 +36,29 @@ import { MESSAGE_CONV_MAX, MESSAGE_TEXT_MAX } from '../message-events';
 import { createGraphAudience } from './audience';
 import { LOG_BLOCK, graphWireSouls, pairTagOf } from './wire-names';
 
+import { BATCH_MAX_CHARS, BATCH_MAX_ITEMS, INLINE_ENTRY_MAX_CHARS } from './batch-limits';
+
+export { BATCH_MAX_CHARS, BATCH_MAX_ITEMS, INLINE_ENTRY_MAX_CHARS };
+/** A block field naming a large entry's own node. Encrypted like every graph value (the sharing
+ * policy sends nothing else on a `g/` soul); `{ ptr: n }` names entry `n`. */
+/** Items of one batch entry applied side by side (each a Talk's arrival or an answer). */
+const BATCH_APPLY_PARALLEL = 8;
+
+/** The Talk a log body is about (items about one Talk are applied in order). */
+function talkOfBody(body: LogBody): string | undefined {
+  if ('offer' in body) return body.offer.talkId;
+  if ('answer' in body) return body.answer.talkId;
+  if ('deleted' in body) return body.deleted.talkId;
+  if ('deletedAnswer' in body) return body.deletedAnswer.talkId;
+  if ('declined' in body) return body.declined.talkId;
+  if ('message' in body) return `conv:${body.message.conv}`;
+  return undefined;
+}
+
+const isPointer = (value: unknown, n: number): boolean => !!value && typeof value === 'object' && (value as { ptr?: unknown }).ptr === n;
+/** A pointer's ciphertext is short; an entry's never is. */
+const POINTER_MAX_CHARS = 200;
+
 /** A chat message body is small and well-formed: bounded text, a sane conv id, a real event id. */
 /** While someone owes me an acknowledgement over an open link, my head is sent again: first after
  * this many ms, doubling up to the max. */
@@ -68,7 +91,11 @@ export type PeerKeys = { pub: string; epub: string };
 
 /** What a log entry carries. No `kind`: what it is follows from the field present (REQ-GRAPH-20). */
 export type LogBody =
-  | { offer: { talkId: string; versionId: string; talkTag: string; key: string; context?: Record<string, unknown> } }
+  /** A Talk version offered. `talk` carries the version itself (OPEN-114): the receiver needs no
+   * read of mine. An offer without it (older devices) names wire nodes to read (`talkTag`, `key`). */
+  | { offer: { talkId: string; versionId: string; talk?: VersionBody; talkTag?: string; key?: string; context?: Record<string, unknown> } }
+  /** Several bodies in one entry (OPEN-114), applied in order. */
+  | { batch: LogBody[] }
   | { answer: { talkId: string; versionId?: string; eventId: string; when: number; device: string; mode: string; set: Record<string, AnswerSetEntry>; replaces?: string; context?: Record<string, unknown>;
     /** The offer log entry this answer replies to (`n` and hash), linking the exchange's sides (REQ-GRAPH-44). */
     reEntry?: { n: number; hash: string } } }
@@ -81,6 +108,9 @@ export type LogBody =
   | { message: { conv: string; text: string; eventId: string; re?: string } };
 
 type LogEntry = { n: number; prev: string; when: number; by: string; body: LogBody; sig: string };
+
+/** One Talk version as it travels: its head fields and each step's ids (`ref`) and text. */
+export type VersionBody = { head: Record<string, unknown>; steps: Array<{ ref: Record<string, unknown>; text: { q: string; a: Record<string, string> } }> };
 
 export type GraphSyncEvents = {
   /** A Talk (or a new version of one) arrived from this person and is stored. */
@@ -146,8 +176,10 @@ export function createGraphSync(options: {
   const owed = new Map<string, number>();
   // Reads of the other person's souls go over the link, so they wait longer than local reads.
   // On a phone a read crosses page → frame → the other page → its core and back, often over 1.5 s.
-  const remote = gunNodeStore(gun, { readWaitMs: options.remoteReadMs ?? 400, missWaitMs: options.remoteReadMs ?? 4000, getTimeoutMs: 12_000 });
+  const remote = gunNodeStore(gun, { readWaitMs: options.remoteReadMs ?? 400, missWaitMs: options.remoteReadMs ?? 4000, getTimeoutMs: 12_000, remembersReads: false });
   const mine = graphWireSouls(me.userId);
+  /** A large entry's own node, under the pair's part (the audience sends it to the pair only). */
+  const entrySoul = (senderUserId: string, pairTag: string, n: number) => `${graphWireSouls(senderUserId).head(pairTag).slice(0, -'/head'.length)}/e/${n}`;
 
   type Link = {
     peer: any; keys: PeerKeys; secret: string; pairTag: string; off?: () => void;
@@ -198,31 +230,76 @@ export function createGraphSync(options: {
     return plain as T;
   }
 
+  /** One entry of my own log with this pair, inline or in its own node. */
+  async function readMyEntry(pairTag: string, secret: string, n: number): Promise<LogEntry | undefined> {
+    const block = await store.get(mine.logBlock(pairTag, Math.floor(n / LOG_BLOCK))).catch(() => null);
+    const entry = await decryptJson<LogEntry>(block?.[String(n)], secret).catch(() => undefined);
+    if (!isPointer(entry, n)) return entry;
+    return decryptJson<LogEntry>((await store.get(entrySoul(me.userId, pairTag, n)).catch(() => null))?.c, secret).catch(() => undefined);
+  }
+
   // ---- sending -------------------------------------------------------------------------------
 
-  /** Append one entry to my log for this person. Serialized per person; returns its number. */
+  /**
+   * Append to my log for this person; resolves with the entry's number. Bodies that arrive while
+   * an entry is being written wait and go into the next entry together (OPEN-114, `{ batch }`).
+   */
+  const pendingOut = new Map<string, Array<{ body: LogBody; size: number; resolve: (n: number) => void; reject: (error: unknown) => void }>>();
   function append(peerUserId: string, body: LogBody): Promise<number> {
-    return serial(`out:${peerUserId}`, async () => {
-      const { secret, pairTag } = await pairWith(peerUserId);
-      const stateSoul = `${prefix}sync/out/${encodeURIComponent(peerUserId)}`;
-      const state = await store.get(stateSoul);
-      const n = typeof state?.n === 'number' ? state.n + 1 : 0;
-      const unsigned = { n, prev: typeof state?.hash === 'string' ? state.hash : '', when: now(), by: me.userId, body };
-      const entry: LogEntry = { ...unsigned, sig: await crypto.sign(signedPart(unsigned), me.pair.priv) };
-      const hash = entryHash(entry);
-      const [cipher, head] = await Promise.all([encryptJson(entry, secret), encryptJson({ n, hash }, secret)]);
-      await Promise.all([
-        store.put(mine.logBlock(pairTag, Math.floor(n / LOG_BLOCK)), { [String(n)]: cipher }),
-        store.put(mine.head(pairTag), { head }),
-        store.put(stateSoul, { n, hash }),
-        store.put(owedSoul, { [peerUserId]: n }),
-      ]);
-      owed.set(peerUserId, n);
-      options.events?.onOwedChange?.([...owed.keys()]);
-      const link = links.get(peerUserId);
-      if (link) { link.owedMs = undefined; resendWhileOwed(peerUserId, link); }
-      return n;
+    return new Promise<number>((resolve, reject) => {
+      const queue = pendingOut.get(peerUserId) ?? [];
+      queue.push({ body, size: JSON.stringify(body).length, resolve, reject });
+      if (queue.length === 1) {
+        pendingOut.set(peerUserId, queue);
+        void serial(`out:${peerUserId}`, () => flushOut(peerUserId));
+      }
     });
+  }
+
+  async function flushOut(peerUserId: string): Promise<void> {
+    const queue = pendingOut.get(peerUserId) ?? [];
+    const take: typeof queue = [];
+    let chars = 0;
+    while (queue.length && take.length < BATCH_MAX_ITEMS && (take.length === 0 || chars + queue[0]!.size <= BATCH_MAX_CHARS)) {
+      const item = queue.shift()!;
+      take.push(item);
+      chars += item.size;
+    }
+    if (!queue.length) pendingOut.delete(peerUserId);
+    else void serial(`out:${peerUserId}`, () => flushOut(peerUserId));
+    if (!take.length) return;
+    try {
+      const n = await writeEntry(peerUserId, take.length === 1 ? take[0]!.body : { batch: take.map((item) => item.body) });
+      for (const item of take) item.resolve(n);
+    } catch (error) {
+      for (const item of take) item.reject(error);
+    }
+  }
+
+  /** Write one entry to my log for this person (inside its `out:` queue). */
+  async function writeEntry(peerUserId: string, body: LogBody): Promise<number> {
+    const { secret, pairTag } = await pairWith(peerUserId);
+    const stateSoul = `${prefix}sync/out/${encodeURIComponent(peerUserId)}`;
+    const state = await store.get(stateSoul);
+    const n = typeof state?.n === 'number' ? state.n + 1 : 0;
+    const unsigned = { n, prev: typeof state?.hash === 'string' ? state.hash : '', when: now(), by: me.userId, body };
+    const entry: LogEntry = { ...unsigned, sig: await crypto.sign(signedPart(unsigned), me.pair.priv) };
+    const hash = entryHash(entry);
+    const [cipher, head] = await Promise.all([encryptJson(entry, secret), encryptJson({ n, hash }, secret)]);
+    // A large entry is its own node, written before the block names it.
+    const large = cipher.length > INLINE_ENTRY_MAX_CHARS;
+    if (large) await store.put(entrySoul(me.userId, pairTag, n), { c: cipher });
+    await Promise.all([
+      store.put(mine.logBlock(pairTag, Math.floor(n / LOG_BLOCK)), { [String(n)]: large ? await encryptJson({ ptr: n }, secret) : cipher }),
+      store.put(mine.head(pairTag), { head }),
+      store.put(stateSoul, { n, hash }),
+      store.put(owedSoul, { [peerUserId]: n }),
+    ]);
+    owed.set(peerUserId, n);
+    options.events?.onOwedChange?.([...owed.keys()]);
+    const link = links.get(peerUserId);
+    if (link) { link.owedMs = undefined; resendWhileOwed(peerUserId, link); }
+    return n;
   }
 
   /**
@@ -244,51 +321,79 @@ export function createGraphSync(options: {
     (link.owedTimer as { unref?: () => void }).unref?.();
   }
 
-  /** The wire nodes of one version of my Talk, written once; returns its tag and key. */
-  async function publishVersion(talkId: string, versionId: string): Promise<{ talkTag: string; key: string }> {
-    return serial(`version:${versionId}`, async () => {
-      const recordSoul = `${prefix}sync/version/${versionId}`;
-      const known = await store.get(recordSoul);
-      if (typeof known?.tag === 'string' && typeof known.key === 'string') return { talkTag: known.tag, key: known.key };
+  /** One version of my Talk as it travels inside an offer (OPEN-114), built once per version. */
+  const versionBodies = new Map<string, Promise<VersionBody>>();
+  function versionBody(talkId: string, versionId: string): Promise<VersionBody> {
+    const known = versionBodies.get(versionId);
+    if (known) return known;
+    const built = (async (): Promise<VersionBody> => {
       const talk = await graph.talks.readVersion(talkId, versionId);
       const event = await store.get(souls.event(versionId));
       if (!talk || !event) throw new Error(`no version ${versionId} of Talk ${talkId}`);
-      const talkTag = crypto.randomHex(16);
-      const key = crypto.randomHex(32);
       const structure = talkStructureOf(talk);
-      const head: Record<string, unknown> = {
-        talkId, versionId, when: Number(event.when), device: String(event.device ?? ''),
-        revKey: talkStructureKey(structure), n: structure.questions.length,
-        type: structure.type, language: structure.language, grammar: structure.grammar,
-        title: talk.title, isAdult: talk.isAdult,
-      };
-      const previous = linkSoul(event.re);
-      if (previous) head.previousVersionId = previous.slice(souls.event('').length);
-      if (structure.matchThreshold !== undefined) head.matchThreshold = structure.matchThreshold;
-      if (structure.collectionImportance) head.collectionImportance = structure.collectionImportance;
-      if (talk.expiresAt !== undefined) head.expiresAt = talk.expiresAt;
-      if (talk.locationRadiusMiles !== undefined) head.locationRadiusMiles = talk.locationRadiusMiles;
-      if (talk.meta) head.meta = talk.meta;
-      const steps = await Promise.all(structure.questions.map(async (question, i): Promise<[string, GraphNode]> => {
+      const head = versionHead(talkId, versionId, talk, structure, event);
+      const steps = structure.questions.map((question) => {
         const { text, answers, ...rest } = question;
-        const ref = {
-          ...rest,
-          qKey: questionKey({ text, language: structure.language, selection: question.answerSelectionMode || 'single' }),
-          answers: answers.map(({ text: answerText, ...a }) => ({ ...a, aKey: answerKey(answerText) })),
+        return {
+          ref: {
+            ...rest,
+            qKey: questionKey({ text, language: structure.language, selection: question.answerSelectionMode || 'single' }),
+            answers: answers.map(({ text: answerText, ...a }) => ({ ...a, aKey: answerKey(answerText) })),
+          } as Record<string, unknown>,
+          text: { q: text, a: Object.fromEntries(answers.map((a) => [a.id, a.text])) },
         };
-        const texts = { q: text, a: Object.fromEntries(answers.map((a) => [a.id, a.text])) };
-        return [mine.talkStep(talkTag, i), { ref: await encryptJson(ref, key), text: await encryptJson(texts, key) }];
-      }));
-      await Promise.all([
-        ...steps.map(([soul, node]) => store.put(soul, node)),
-        (async () => store.put(mine.talk(talkTag), { head: await encryptJson(head, key) }))(),
-      ]);
-      await store.put(recordSoul, { tag: talkTag, key, talk: talkId });
-      return { talkTag, key };
-    });
+      });
+      return { head, steps };
+    })();
+    versionBodies.set(versionId, built);
+    built.catch(() => versionBodies.delete(versionId));
+    // Bounded: a device offering thousands of versions keeps the newest.
+    if (versionBodies.size > 2_000) versionBodies.delete(versionBodies.keys().next().value!);
+    return built;
+  }
+
+  function versionHead(talkId: string, versionId: string, talk: any, structure: TalkStructure, event: GraphNode): Record<string, unknown> {
+    const head: Record<string, unknown> = {
+      talkId, versionId, when: Number(event.when), device: String(event.device ?? ''),
+      revKey: talkStructureKey(structure), n: structure.questions.length,
+      type: structure.type, language: structure.language, grammar: structure.grammar,
+      title: talk.title, isAdult: talk.isAdult,
+    };
+    const previous = linkSoul(event.re);
+    if (previous) head.previousVersionId = previous.slice(souls.event('').length);
+    if (structure.matchThreshold !== undefined) head.matchThreshold = structure.matchThreshold;
+    if (structure.collectionImportance) head.collectionImportance = structure.collectionImportance;
+    if (talk.expiresAt !== undefined) head.expiresAt = talk.expiresAt;
+    if (talk.locationRadiusMiles !== undefined) head.locationRadiusMiles = talk.locationRadiusMiles;
+    if (talk.meta) head.meta = talk.meta;
+    return head;
   }
 
   // ---- receiving -----------------------------------------------------------------------------
+
+  /** A version carried inside the offer (OPEN-114): no read of theirs. */
+  function inlineVersion(offer: { talkId: string; versionId: string; talk: VersionBody }) {
+    const { head, steps } = offer.talk;
+    if (!head || head.talkId !== offer.talkId || head.versionId !== offer.versionId || !Array.isArray(steps) || steps.length !== Number(head.n)) return undefined;
+    const questions: StructureQuestion[] = steps.map(({ ref, text }) => {
+      const { qKey: _qKey, answers, ...rest } = ref as any;
+      return { ...rest, text: text.q, answers: (answers as any[]).map(({ aKey: _aKey, ...a }) => ({ ...a, text: text.a[a.id] })) };
+    });
+    return versionFrom(head as any, questions, offer.talkId);
+  }
+
+  function versionFrom(head: any, questions: StructureQuestion[], talkId: string) {
+    const structure: TalkStructure = { type: head.type, language: head.language, grammar: head.grammar, questions };
+    if (head.matchThreshold !== undefined) structure.matchThreshold = head.matchThreshold;
+    if (head.collectionImportance) structure.collectionImportance = head.collectionImportance;
+    const talk: any = { ...structure, title: head.title, isAdult: head.isAdult };
+    if (head.expiresAt !== undefined) talk.expiresAt = head.expiresAt;
+    if (head.locationRadiusMiles !== undefined) talk.locationRadiusMiles = head.locationRadiusMiles;
+    if (head.meta && typeof head.meta === 'object') talk.meta = head.meta;
+    // The structure must hash to what the signed head says (its integrity rides on the log).
+    if (talkStructureKey(talkStructureOf(talk)) !== head.revKey) throw new Error(`Talk ${talkId} does not match its structure key`);
+    return { head, talk };
+  }
 
   /** Read one version of their Talk from its wire nodes (asking their link for what is missing). */
   async function fetchVersion(fromUserId: string, offer: { talkId: string; versionId: string; talkTag: string; key: string }) {
@@ -320,22 +425,20 @@ export function createGraphSync(options: {
         answers: (answers as any[]).map(({ aKey: _aKey, ...a }) => ({ ...a, text: texts ? texts.a[a.id] : answerTexts[a.id] })),
       });
     }
-    const structure: TalkStructure = { type: head.type, language: head.language, grammar: head.grammar, questions };
-    if (head.matchThreshold !== undefined) structure.matchThreshold = head.matchThreshold;
-    if (head.collectionImportance) structure.collectionImportance = head.collectionImportance;
-    const talk: any = { ...structure, title: head.title, isAdult: head.isAdult };
-    if (head.expiresAt !== undefined) talk.expiresAt = head.expiresAt;
-    if (head.locationRadiusMiles !== undefined) talk.locationRadiusMiles = head.locationRadiusMiles;
-    if (head.meta && typeof head.meta === 'object') talk.meta = head.meta;
-    // The structure must hash to what the signed head says (its integrity rides on the log).
-    if (talkStructureKey(talkStructureOf(talk)) !== head.revKey) throw new Error(`Talk ${offer.talkId} does not match its structure key`);
-    return { head, talk };
+    return versionFrom(head, questions, offer.talkId);
   }
 
-  async function apply(fromUserId: string, keys: PeerKeys, entry: LogEntry, link: string): Promise<void> {
-    const body = entry.body;
+  async function applyBody(fromUserId: string, keys: PeerKeys, entry: LogEntry, link: string, body: LogBody): Promise<void> {
+    if ('batch' in body) {
+      for (const item of Array.isArray(body.batch) ? body.batch : []) await applyBody(fromUserId, keys, entry, link, item);
+      return;
+    }
     if ('offer' in body) {
-      const fetched = await fetchVersion(fromUserId, body.offer);
+      const fetched = body.offer.talk
+        ? inlineVersion(body.offer as { talkId: string; versionId: string; talk: VersionBody })
+        : body.offer.talkTag && body.offer.key
+          ? await fetchVersion(fromUserId, body.offer as { talkId: string; versionId: string; talkTag: string; key: string })
+          : undefined;
       if (!fetched) throw new Error(`Talk ${body.offer.talkId} has not arrived yet`);
       const { head, talk } = fetched;
       const result = await graph.arrivals.receive({
@@ -514,8 +617,18 @@ export function createGraphSync(options: {
         chain.on(() => { void catchUp(peerUserId); });
         link.watched.set(blockSoul, chain);
       }
-      const block = await remote.get(blockSoul);
-      const entry = await decryptJson<LogEntry>(block?.[String(next)], link.secret);
+      // Entries never change once written: one already pushed over the link is in Gun's graph and
+      // is used as it is; only a missing one is read over the link (which waits, OPEN-114).
+      const held = (soul: string, field: string) => { const value = gun._.graph?.[soul]?.[field]; return typeof value === 'string' ? value : undefined; };
+      let stored = held(blockSoul, String(next));
+      if (stored === undefined) stored = (await remote.get(blockSoul))?.[String(next)] as string | undefined;
+      let entry = await decryptJson<LogEntry>(stored, link.secret);
+      if (isPointer(entry, next)) {
+        const own = entrySoul(peerUserId, link.pairTag, next);
+        const large = held(own, 'c') ?? ((await remote.get(own))?.c as string | undefined);
+        if (large === undefined) { askFresh(link, own); return true; }
+        entry = await decryptJson<LogEntry>(large, link.secret);
+      }
       if (!entry) { askFresh(link, blockSoul); return true; } // not arrived yet: asked again, tried again shortly
       const broken = entry.n !== next ? `entry ${next} is numbered ${entry.n}`
         : entry.prev !== prev ? `entry ${next} does not follow entry ${next - 1}`
@@ -527,10 +640,29 @@ export function createGraphSync(options: {
         options.log?.(`[graph-sync] log from ${peerUserId} broken: ${broken}`);
         return false;
       }
-      await apply(peerUserId, link.keys, entry, 'webrtc');
+      // A batch is applied item by item; when one fails, the ones before it are not applied again
+      // on the retry (`sub`: how many of entry `next` are applied).
+      // Items about different Talks are applied side by side, BATCH_APPLY_PARALLEL at a time; items
+      // about the same Talk keep their order.
+      const items = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
+      for (let start = typeof state?.sub === 'number' ? state.sub : 0; start < items.length; start += BATCH_APPLY_PARALLEL) {
+        const groups = new Map<string, LogBody[]>();
+        items.slice(start, start + BATCH_APPLY_PARALLEL).forEach((item, i) => {
+          const key = talkOfBody(item) ?? `#${start + i}`;
+          groups.set(key, [...(groups.get(key) ?? []), item]);
+        });
+        const results = await Promise.allSettled([...groups.values()].map(async (group) => {
+          for (const item of group) await applyBody(peerUserId, link.keys, entry, 'webrtc', item);
+        }));
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failed) {
+          if (start > 0) await store.put(stateSoul, { sub: start }).catch(() => undefined);
+          throw failed.reason;
+        }
+      }
       prev = entryHash(entry);
       next += 1;
-      await store.put(stateSoul, { next, hash: prev });
+      await store.put(stateSoul, { next, hash: prev, sub: null });
       state = { next, hash: prev };
     }
     return false;
@@ -566,8 +698,7 @@ export function createGraphSync(options: {
     if (typeof ack?.n === 'number' && typeof ack.hash === 'string' && typeof ack.when === 'number' && typeof ack.sig === 'string'
       && await crypto.verify(ack.sig, canonicalJson({ n: ack.n, hash: ack.hash, when: ack.when }), link.keys.pub).catch(() => false)) {
       // The hash must commit to my own entry: read it back from my log and re-hash it.
-      const block = await store.get(mine.logBlock(link.pairTag, Math.floor(ack.n / LOG_BLOCK))).catch(() => null);
-      const entry = await decryptJson<LogEntry>(block?.[String(ack.n)], link.secret).catch(() => undefined);
+      const entry = await readMyEntry(link.pairTag, link.secret, ack.n);
       if (entry && entryHash(entry) === ack.hash) {
         await store.put(souls.index(`ack/${encodeURIComponent(peerUserId)}`), { [String(ack.n)]: JSON.stringify(ack) });
         lastAcks.set(peerUserId, { n: ack.n, when: ack.when, skewMs: ack.when - Number(entry.when) });
@@ -676,16 +807,15 @@ export function createGraphSync(options: {
     async offerTalk(talkId: string, recipients: string[], context?: Record<string, unknown>): Promise<number> {
       const talk = await graph.talks.read(talkId);
       if (!talk) throw new Error(`no Talk ${talkId}`);
-      const { talkTag, key } = await publishVersion(talkId, talk.versionId);
+      // The version travels inside the offer (OPEN-114): no wire nodes, no read of mine.
+      const body = await versionBody(talkId, talk.versionId);
       // The version each person was last sent, in keyed buckets (`keyed-buckets.ts`).
       const sentSoul = `${prefix}sync/sent/${talkId}`;
       const sent = await getKeyedMany(store, sentSoul, recipients);
       const fresh = [...new Set(recipients)].filter((id) => id !== me.userId && sent[id] !== talk.versionId);
-      await audience.grant(talkTag, fresh, now());
-      for (const peerUserId of fresh) {
-        await append(peerUserId, { offer: { talkId, versionId: talk.versionId, talkTag, key, ...(context ? { context } : {}) } });
-        await putKeyed(store, sentSoul, { [peerUserId]: talk.versionId });
-      }
+      // One entry per person; offers made at the same time share it (`append`).
+      await Promise.all(fresh.map((peerUserId) => append(peerUserId, { offer: { talkId, versionId: talk.versionId, talk: body, ...(context ? { context } : {}) } })));
+      if (fresh.length) await putKeyed(store, sentSoul, Object.fromEntries(fresh.map((peerUserId) => [peerUserId, talk.versionId])));
       return fresh.length;
     },
 
@@ -703,8 +833,7 @@ export function createGraphSync(options: {
       if (ackN < 1) return { trimmed: 0 };
       const { secret, pairTag } = await pairWith(peerUserId);
       // The boundary entry is the last trimmed one: its hash is what the checkpoint commits to.
-      const boundaryBlock = await store.get(mine.logBlock(pairTag, Math.floor((ackN - 1) / LOG_BLOCK)));
-      const boundary = await decryptJson<LogEntry>(boundaryBlock?.[String(ackN - 1)], secret);
+      const boundary = await readMyEntry(pairTag, secret, ackN - 1);
       if (!boundary) return { trimmed: 0 };
       const cp = { n: ackN - 1, hash: entryHash(boundary), when: now() };
       const sig = await crypto.sign(canonicalJson(cp), me.pair.priv);
@@ -719,7 +848,19 @@ export function createGraphSync(options: {
         fields[String(n)] = null;
         blocks.set(block, fields);
       }
-      await Promise.all([...blocks].map(([block, fields]) => store.put(mine.logBlock(pairTag, block), fields)));
+      // A large entry's own node goes too (OPEN-114).
+      const pointers: number[] = [];
+      for (const block of blocks.keys()) {
+        const node = await store.get(mine.logBlock(pairTag, block)).catch(() => null);
+        for (const [key, value] of Object.entries(node ?? {})) {
+          if (!/^\d+$/.test(key) || Number(key) >= ackN || typeof value !== 'string' || value.length > POINTER_MAX_CHARS) continue;
+          if (isPointer(await decryptJson(value, secret).catch(() => undefined), Number(key))) pointers.push(Number(key));
+        }
+      }
+      await Promise.all([
+        ...[...blocks].map(([block, fields]) => store.put(mine.logBlock(pairTag, block), fields)),
+        ...pointers.map((n) => store.put(entrySoul(me.userId, pairTag, n), { c: null })),
+      ]);
       // The ack index only needs its newest key: drop the ones the trim made useless. Housekeeping,
       // not correctness — best-effort, never fails the trim.
       store.put(souls.index(`ack/${encodeURIComponent(peerUserId)}`),

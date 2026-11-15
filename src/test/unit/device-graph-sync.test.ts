@@ -345,4 +345,65 @@ describe('Talk exchange by Gun sync', () => {
     await until(async () => (await tom.graph.answers.theirs(talkId))['jerry-d'] === answerId, 5_000);
     await until(() => !jerry.sync.owed().includes('tom-d'), 5_000);
   });
+
+  it('offers made at the same time go in one entry that carries the Talks: the receiver reads none of mine (OPEN-114)', async () => {
+    const [kim, lee] = [await device('kim-b'), await device('lee-b')];
+    void pump();
+    await Promise.all([kim.sync.open('lee-b'), lee.sync.open('kim-b')]);
+    const ids = await Promise.all([1, 2, 3, 4, 5].map((i) => kim.graph.talks.create(tennis(`Batch tennis ${i}`))));
+    await Promise.all(ids.map((id) => kim.sync.offerTalk(id, ['lee-b'])));
+    await until(async () => (await Promise.all(ids.map((id) => lee.graph.arrivals.read(id)))).every(Boolean));
+    // The first offer went alone; the four made while it was written share the next entry.
+    expect((await kim.sync.status('lee-b')).sentUpTo).toBe(1);
+    expect((await lee.graph.arrivals.read(ids[4]!))).toMatchObject({ title: 'Batch tennis 5', senders: ['kim-b'] });
+    // No Talk wire node (`g/<kim>/t/…`) was written or asked for: the Talks came inside the entries.
+    expect(lee.heard.join('')).not.toContain(`g/${userTag('kim-b')}/t/`);
+    // Nothing readable on the wire.
+    expect(lee.heard.join('')).not.toContain('Batch tennis');
+  });
+
+  it('a large batch is its own node behind an encrypted pointer, and trimming removes it (OPEN-114)', async () => {
+    const [max, ned] = [await device('max-b'), await device('ned-b')];
+    void pump();
+    await Promise.all([max.sync.open('ned-b'), ned.sync.open('max-b')]);
+    const first = await max.graph.talks.create(tennis('Opening tennis'));
+    await max.sync.offerTalk(first, ['ned-b']);
+    const ids = await Promise.all(Array.from({ length: 12 }, (_, i) => max.graph.talks.create(tennis(`Large batch tennis ${i}`))));
+    await Promise.all(ids.map((id) => max.sync.offerTalk(id, ['ned-b'])));
+    await until(async () => (await Promise.all(ids.map((id) => ned.graph.arrivals.read(id)))).every(Boolean));
+    // 13 offers in a handful of entries (how many depends on how fast the queue fills).
+    expect((await max.sync.status('ned-b')).sentUpTo).toBeLessThan(6);
+    // The block holds only ciphertext (the sharing policy sends nothing else); the large entry's
+    // own node exists under the pair's part.
+    const own = `g/${userTag('max-b')}/p/`;
+    const entryNodes = Object.keys(max.gun._.graph).filter((soul) => soul.startsWith(own) && /\/e\/\d+$/.test(soul));
+    expect(entryNodes.length).toBeGreaterThan(0);
+    for (const soul of Object.keys(max.gun._.graph).filter((s) => s.startsWith(own) && s.includes('/log/'))) {
+      for (const [key, value] of Object.entries(max.gun._.graph[soul])) if (key !== '_' && value !== null) expect(String(value)).toMatch(/^SEA\{/);
+    }
+    // Once Ned acknowledged everything, trimming clears the large entries' nodes too.
+    await until(() => !max.sync.owed().includes('ned-b'));
+    let trimmed = 0;
+    await until(async () => (trimmed = (await max.sync.trimLog('ned-b')).trimmed) > 0);
+    // Entries below the last acknowledged one are trimmed (that one stays, as the boundary).
+    const below = entryNodes.filter((soul) => Number(soul.split('/').pop()) < trimmed);
+    expect(below.length).toBeGreaterThan(0);
+    await until(async () => (await Promise.all(below.map((soul) => max.store.get(soul)))).every((node) => !node?.c));
+  });
+
+  it('answers made at the same time go back in one entry (OPEN-114)', async () => {
+    const [ola, pat] = [await device('ola-b'), await device('pat-b')];
+    void pump();
+    await Promise.all([ola.sync.open('pat-b'), pat.sync.open('ola-b')]);
+    const ids = await Promise.all([1, 2, 3, 4].map((i) => ola.graph.talks.create(tennis(`Answered tennis ${i}`))));
+    await Promise.all(ids.map((id) => ola.sync.offerTalk(id, ['pat-b'])));
+    await until(async () => (await Promise.all(ids.map((id) => pat.graph.arrivals.read(id)))).every(Boolean));
+    const answerIds = await Promise.all(ids.map(async (id) => pat.graph.answers.answer({
+      talkId: id, structure: (await pat.graph.arrivals.read(id))!, withUser: 'ola-b', mode: 'chatbot',
+      steps: [{ questionId: 'q_0', answerIds: ['a_0_0'] }, { questionId: 'q_1', answerIds: ['a_1_0'] }],
+    })));
+    await Promise.all(answerIds.map((answerId) => pat.sync.sendAnswer(answerId)));
+    await until(async () => (await Promise.all(ids.map((id) => ola.graph.answers.theirs(id)))).every((by) => !!by['pat-b']));
+    expect((await pat.sync.status('ola-b')).sentUpTo).toBeLessThanOrEqual(1);
+  });
 });

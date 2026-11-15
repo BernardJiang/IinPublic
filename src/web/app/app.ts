@@ -56,6 +56,7 @@ import { invalidateTagPopularity } from '../ui/graph-focus';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { DeclinedRetry } from '../../core/declined-retry';
+import { BATCH_MAX_ITEMS } from '../../core/device-graph/sync/batch-limits';
 import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
@@ -9108,9 +9109,10 @@ export class IinPublicApp {
             }
             talkPayloads.push({ tid, talk: talk as Talk });
           }
-          // Phase 1: deliver in small parallel batches (direct mesh in P2P mode, legacy HTTP in star mode).
-          // Fully sequential was very slow (20 round-trips); full parallel can spike the server.
-          const REGISTER_BATCH = 5;
+          // Phase 1: offer them together. The device core puts offers to the same person made at
+          // the same time into one log entry (OPEN-114, up to BATCH_MAX_ITEMS), so a first meeting's
+          // catch-up is a few entries, not one per Talk.
+          const REGISTER_BATCH = BATCH_MAX_ITEMS;
           const registeredTalkIds: string[] = [];
           const previewByTalkId = new Map(audiencePreviews.map((p) => [p.talkId, p]));
           const broadcastableSnapshot = new Set(broadcastableIds);
