@@ -81,7 +81,9 @@ its ID.
   Done in code 2026-11-14 (spec §31.9, §31.9a, REQ-GRAPH-50..52): step 1 batched entries + the
   version in the offer + reads from Gun's graph (560350a9); steps 2–3 own link frames (`hi`, `log`,
   `ack`, `cp`, `part`, `want`/`blob`) and content blobs made once per version (ee809cc4). Unit
-  benchmark: 1590 → 20 ms a Talk; 0.2 frames a Talk. Open: test:all + phones; a phone measurement;
+  benchmark: 1590 → 65 ms a Talk; 0.2 frames a Talk; intake limit counts people, not Talks (d6661891).
+  Open: test:all + phones; a phone measurement; remembered local reads (20 ms a Talk) read stale
+  records in stage1/04 and stage4/05 — cause not found, off;
   a BLE transport (frames already split to its size); UDP multicast for content only as an optional
   route on Android Wi-Fi (researched: not on web, iOS needs an entitlement, lossy in crowds); local
   storage is the next cost (~48 writes and ~138 reads per arrival).

@@ -7574,8 +7574,9 @@ Content and event souls are written by exact soul only and are never linked into
 Every frame also carries `gx` (frame version), `p` (pair tag) and `h` (the sender's last entry).
 Measured (two devices, real Gun and SEA, unit benchmark 2026-11-14): one Talk exchanged both ways cost
 ~1.6 s with Gun sync over the link (one entry per Talk, the receiver pulling each Talk node by node at
-400 ms a read); with frames, batching and content once, 300 Talks cost 20 ms a Talk and 0.2 frames a
-Talk. Ten people offering the same 30 tags to one person: 549 → 314 KB on the links.
+400 ms a read); with frames, batching and content once, 300 Talks cost 65 ms a Talk and 0.2 frames a
+Talk (20 ms with remembered local reads, which are off: two e2e specs read stale records with them).
+What is left is local storage: ~50 writes and ~140 reads per Talk, each read waiting Gun's read wait. Ten people offering the same 30 tags to one person: 549 → 314 KB on the links.
 UDP broadcast/multicast (researched 2026-11-14) is not used: browsers have none, iOS needs a
 restricted entitlement, carriers drop it, and Wi-Fi sends it unacknowledged at the lowest rate (RFC
 9119). Content blobs are named by hash and encrypted, so a later multicast or relay route can carry
