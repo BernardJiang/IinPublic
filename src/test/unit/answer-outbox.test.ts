@@ -14,6 +14,7 @@ const answer = (talkId: string, authorId: string, answerId = 'a1'): AnswerReques
 });
 
 function harness(store = memoryGraphStore()) {
+  const clock = { now: 1_000_000 };
   const delivery = new DeliveryStore(store);
   const sent: AnswerRequest[] = [];
   let next: (request: AnswerRequest) => Promise<AnswerResult> = async () => ({ sent: true });
@@ -24,8 +25,9 @@ function harness(store = memoryGraphStore()) {
       if (result.sent) sent.push(request);
       return result;
     },
+    now: () => clock.now,
   });
-  return { store, delivery, outbox, sent, failWith: (f: typeof next) => { next = f; } };
+  return { store, delivery, outbox, sent, clock, failWith: (f: typeof next) => { next = f; } };
 }
 
 describe('answer outbox (OPEN-96 a)', () => {
@@ -55,10 +57,35 @@ describe('answer outbox (OPEN-96 a)', () => {
 
   it('drops an answer that can never be sent, and does not keep a sent one', async () => {
     const h = harness();
-    h.failWith(async () => ({ sent: false, reason: 'Talk not received from this author' }));
+    h.failWith(async () => ({ sent: false, reason: 'built-in values only' }));
     await h.outbox.send(answer('t1', 'a1'));
     h.failWith(async () => ({ sent: true }));
     await h.outbox.send(answer('t2', 'a1'));
+    expect(await h.delivery.queuedAnswers()).toEqual([]);
+  });
+
+  it('keeps an answer whose Talk did not read as received (a missed read under load), for ten minutes', async () => {
+    // stage5 load 2026-11-14: Ben answered Fay's tag and recorded it; the read of Fay's Talk missed,
+    // the answer was dropped, and Fay never recorded the exchange.
+    const h = harness();
+    h.failWith(async () => ({ sent: false, reason: 'Talk not received from this author' }));
+    await h.outbox.send(answer('t1', 'a1'));
+    expect(await h.delivery.queuedAnswers()).toHaveLength(1);
+    h.clock.now += 5 * 60_000;
+    await h.outbox.resend();
+    expect(await h.delivery.queuedAnswers()).toHaveLength(1);
+    h.failWith(async () => ({ sent: true, eventId: 'ev1' }));
+    await h.outbox.resend();
+    expect(h.sent.map((r) => r.talkId)).toEqual(['t1']);
+    expect(await h.delivery.queuedAnswers()).toEqual([]);
+  });
+
+  it('gives up on an answer whose Talk still reads as not received after ten minutes', async () => {
+    const h = harness();
+    h.failWith(async () => ({ sent: false, reason: 'Talk not received from this author' }));
+    await h.outbox.send(answer('t1', 'a1'));
+    h.clock.now += 10 * 60_000;
+    await h.outbox.resend();
     expect(await h.delivery.queuedAnswers()).toEqual([]);
   });
 

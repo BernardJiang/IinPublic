@@ -55,6 +55,7 @@ import { receiversExcludingAuthor } from '../../core/broadcast-selection';
 import { invalidateTagPopularity } from '../ui/graph-focus';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
+import { DeclinedRetry } from '../../core/declined-retry';
 import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
 import { WebConversationService } from '../services/web-conversation-service';
@@ -304,6 +305,11 @@ type MailboxSupportQuestionPayload = {
 
 /** Debounce for automatic same-room catch-up to one peer (link flaps, roster heartbeats). */
 const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
+/** The chatbot's wait for my own answer to reach the device graph: 20 × 0.5 s, then 30 × 5 s. */
+const CHATBOT_WAIT_FAST_RETRIES = 20;
+const CHATBOT_WAIT_SLOW_RETRIES = 30;
+/** How long after the last like or Broadcast switch my public Talks are exchanged (OPEN-112). */
+const PUBLISH_EXCHANGE_SETTLE_MS = 3_000;
 /** How often online dots (Contacts, conversations, room members) are asked again. */
 const PRESENCE_REFRESH_MS = 60_000;
 /** On a phone the native mailbox watch wakes a drain; the page's own drain is a safety net. */
@@ -416,6 +422,16 @@ export class IinPublicApp {
   private supportBootstrapChecked = false;
   /** `${roomId}|${peerId}` → last automatic catch-up send (see catchUpPeerInActiveRoom). */
   private readonly roomCatchupSentAt = new Map<string, number>();
+  private publishExchangeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Re-offers a Talk someone's receiving limit turned away (`core/declined-retry.ts`). */
+  private readonly declinedRetry = new DeclinedRetry((peerId) => {
+    // The core forgot the send; read the exchange state again so what is owed includes it.
+    void refreshExchangeState().then(() => {
+      const roomId = this.currentChatroomId;
+      console.info(`[intake] offering again to ${peerId.slice(0, 8)} after a decline: ${getUnsentBroadcastTalkIdsForReceiver(peerId).length} owed`);
+      if (roomId) this.catchUpPeerInActiveRoom(peerId, roomId, undefined, { ignoreInterval: true });
+    });
+  });
   /** Talk id → deliberate broadcasts still resolving receivers/delivering; catch-up waits for them. */
   private readonly talkBroadcastsInFlight = new Map<string, number>();
   /** Peers whose catch-up skipped an in-flight Talk; re-checked when that broadcast settles. */
@@ -4486,7 +4502,10 @@ export class IinPublicApp {
     const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}::v${payload.version ?? 1}`;
     if (this.processedTalkResponseKeys.has(dedupeKey)) return;
     const talkData = await this.resolveMeshTalkData(payload.talkId);
-    if (!talkData) return;
+    if (!talkData) {
+      console.warn(`[RESP-INGEST] no Talk ${String(payload.talkId).slice(-8)} for the answer from ${String(payload.responderId).slice(0, 8)}: dropped`);
+      return;
+    }
     const decrypted = Array.isArray(context.answers)
       ? {
           answers: context.answers,
@@ -5999,6 +6018,32 @@ export class IinPublicApp {
    * When chatbot is on and we have a saved template for this talk, reply once per announcer
    * (e.g. Bob re-broadcasts the same talk Tom created — Jerry auto-replies on first receipt, not only on Gun replay).
    */
+  /**
+   * A starter interest tag decided on its Talks row: people who already sent me the same tag are
+   * merged into that row, and the decision answered only the local starter. Their Talk arrived
+   * while I was undecided, so the chatbot waited and gave up; now it knows my answer, so let it
+   * answer each of them (a like matches, a pass is passed quietly). Without this a tag in common
+   * was never exchanged between us (starter-tags spec under load; 1.0.248 phones).
+   */
+  private async answerSendersOfStarterTag(starterTalk: any): Promise<void> {
+    const core = this.coreRequest;
+    if (!core || !this.currentUser?.id) return;
+    let identity = '';
+    try { identity = buildTalkIdentityKey(starterTalk); } catch { return; }
+    const rows = await core({ name: 'graph.incoming' }).catch(() => []) as Array<Record<string, any>>;
+    for (const row of rows) {
+      if (String(row?.identityKey || '') !== identity) continue;
+      for (const sender of Object.values<any>(row?.senders ?? {})) {
+        const senderId = String(sender?.senderId || '');
+        const talkId = String(sender?.lastTalkId || '');
+        if (!senderId || !talkId || senderId === this.currentUser.id) continue;
+        const body = await core({ name: 'graph.talkBody', talkId }).catch(() => null) as Record<string, any> | null;
+        if (!body) continue;
+        await this.maybeAutoChatbotReplyToAnnouncer(talkId, { ...body, authorId: senderId }, senderId, String(sender?.senderName || 'Unknown'));
+      }
+    }
+  }
+
   private async maybeAutoChatbotReplyToAnnouncer(
     talkId: string,
     talkData: any,
@@ -6031,11 +6076,13 @@ export class IinPublicApp {
       const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
       // My own answers reach the device graph a moment after they are saved (a Talk I just made
       // writes its self-answers after the Talk itself): ask again for about ten seconds.
-      if (retries < 20) {
+      // Under load the device graph can take longer: then every 5 s, for about two and a half
+      // minutes more (starter-tags spec: liked tags left waiting in Incoming for good).
+      if (retries < CHATBOT_WAIT_FAST_RETRIES + CHATBOT_WAIT_SLOW_RETRIES) {
         this.chatbotAutoReplyRetryCountByPair.set(pairKey, retries + 1);
         setTimeout(() => {
           void this.maybeAutoChatbotReplyToAnnouncer(talkId, talkData, authorId, authorName);
-        }, 500);
+        }, retries < CHATBOT_WAIT_FAST_RETRIES ? 500 : 5_000);
       } else {
         this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
         console.log('🤖 Chatbot auto-reply skipped: no reusable template', {
@@ -6051,7 +6098,9 @@ export class IinPublicApp {
     this.chatbotAutoReplySentForPair.add(pairKey);
 
     console.log('🤖 Chatbot auto-reply triggered', { talkId, contentId, authorId, authorName });
-    await this.tryChatbotReply(talkId, talkData, authorId, authorName, decision.answers ?? null);
+    // Handled only once it answered: a reply that found no answer may be asked again.
+    const answered = await this.tryChatbotReply(talkId, talkData, authorId, authorName, decision.answers ?? null).catch(() => false);
+    if (!answered) this.chatbotAutoReplySentForPair.delete(pairKey);
   }
 
   /** Load full talk for an incoming mesh/local announcement. */
@@ -6061,6 +6110,11 @@ export class IinPublicApp {
 
   public isMeshTalkDeliveryEnabled(): boolean {
     return usesMeshTalkDelivery(this.p2pRuntimeFlags);
+  }
+
+  /** E2E: my public Talks still owed to this person. */
+  public __e2eUnsentFor(peerId: string): string[] {
+    return getUnsentBroadcastTalkIdsForReceiver(peerId);
   }
 
   public async getLocalIncomingClustersForE2e(): Promise<any[]> {
@@ -6526,6 +6580,7 @@ export class IinPublicApp {
    * list and chatbot as one that arrived in a Talk frame, under its graph id (OPEN-106 step 2e).
    */
   private handleGraphEvent(event: GraphEvent): void {
+    if (event.type === 'declined') { this.declinedRetry.declined(event.from); return; }
     if (event.type !== 'owed') void this.refreshGraphTabSnapshot();
     if (event.type === 'owed') { this.graphOwedPeers = event.peers; this.pushGraphOwedToMesh(); return; }
     if (event.type === 'answer') { this.handleGraphAnswer(event); return; }
@@ -6781,7 +6836,7 @@ export class IinPublicApp {
     authorId: string,
     authorName: string,
     graphAnswers: any[] | null = null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     let template = this.chatbotTemplateFor(talkId, talkData);
     if (!template && talkData) {
       const built = graphAnswers ?? (await this.uiManager.chatbotAnswersFor(talkData, talkId)).answers;
@@ -6795,7 +6850,7 @@ export class IinPublicApp {
         hasTemplate: !!template,
         hasUser: !!this.currentUser?.id,
       });
-      return;
+      return false;
     }
 
     void this.submitTalkResponsePairDirect({
@@ -6815,6 +6870,7 @@ export class IinPublicApp {
       await this.resolveResponderSelfTagForAnswers(talkData, template.answers),
     ) ? 'match' : 'mismatch';
     this.uiManager.recordChatbotAnsweredTalk({ ...talkData, id: talkId, authorId }, template.answers, outcome);
+    return true;
   }
 
 
@@ -7066,7 +7122,10 @@ export class IinPublicApp {
     console.log('📝 User completed talk:', data);
     // Starter contacts are local demo senders. Their Talks exercise the normal Answer/Copy
     // UI and local Q&A memory, but there is no remote identity to deliver a response to.
-    if (data.talkData?.starterContactId) return;
+    if (data.talkData?.starterContactId) {
+      void this.answerSendersOfStarterTag(data.talkData);
+      return;
+    }
     const isChatbot = !!data.isChatbotResponse;
     const locallyLooksLikeMatch =
       !!data.talkData &&
@@ -9215,7 +9274,15 @@ export class IinPublicApp {
     // Emits the audit-feed event, writes the local tombstone, floods the mesh frame,
     // and posts mailbox envelopes to all known responders (outcomes + exchanged).
     // A Talk switched to Broadcast On goes out to my current list at once (OPEN-112).
-    this.uiManager.on('publishTalk', () => this.exchangeWithCurrentList());
+    // A run of likes (or Broadcast switches) goes out as one exchange shortly after the last one:
+    // one at a time, everyone's likes flood each other's receiving limit (starter-tags spec).
+    this.uiManager.on('publishTalk', () => {
+      if (this.publishExchangeTimer) clearTimeout(this.publishExchangeTimer);
+      this.publishExchangeTimer = setTimeout(() => {
+        this.publishExchangeTimer = undefined;
+        this.exchangeWithCurrentList();
+      }, PUBLISH_EXCHANGE_SETTLE_MS);
+    });
 
     this.uiManager.on('retractTalk', (data: { talkId: string; retractedAt: number }) => {
       void this.handleRetractTalk(data.talkId, data.retractedAt);
@@ -10357,6 +10424,9 @@ export class IinPublicApp {
     this.activeRoomsTimer = undefined;
     if (this.quietTimer) clearInterval(this.quietTimer);
     if (this.quietGpsTimer) clearInterval(this.quietGpsTimer);
+    this.declinedRetry.stop();
+    if (this.publishExchangeTimer) clearTimeout(this.publishExchangeTimer);
+    this.publishExchangeTimer = undefined;
     this.quietTimer = undefined;
     this.quietGpsTimer = undefined;
     if (this.incomingApiRefreshTimer) {

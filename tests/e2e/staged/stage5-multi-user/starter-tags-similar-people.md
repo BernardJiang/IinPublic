@@ -18,7 +18,9 @@ covers: SPEC-3.7, OPEN-87
    the receiver's chatbot answers every broadcast tag: a Like matches, a Pass passes.
 4. **Feedback.** The chatbot's matches come back to the sender, and the receiver keeps the
    sender's tags. Either way, Contacts sorted by **Most tags in common** shows the true overlap
-   for everyone a user exchanged with.
+   for everyone on either one's Nearby list now. Likes are exchanged as they are made (OPEN-112),
+   so someone who was on a list only while the likes were being made shows at most that overlap.
+   The top row is "#1 most alike".
 5. **Who is most similar.** The spec prints the 6×6 overlap matrix and each user's Contacts
    order, plus who is most similar overall (including people outside the user's exchanges).
 

@@ -55,5 +55,23 @@ describe('settingsStorage', () => {
     expect(settingsStorage.getItem('a')).toBeNull();
     expect(localStorage.getItem('a')).toBeNull();
   });
+
+  it('writing the value already stored sends nothing to the core (Contacts saves on scroll and redraw)', async () => {
+    const handle = createCoreHandler(memoryGraphStore());
+    const upserts: Record<string, unknown>[] = [];
+    const counting = { ...link(handle), upsert: (collection: any, entries: Record<string, unknown>) => { upserts.push(entries); return handle({ name: 'collection.upsert', collection, entries }); } };
+    await settingsView.connect(counting);
+    upserts.length = 0;
+    let notified = 0;
+    const off = settingsView.onChange(() => { notified++; });
+    settingsStorage.setItem('iinpublic_contacts_tab_state', '{"scrollTop":0}');
+    settingsStorage.setItem('iinpublic_contacts_tab_state', '{"scrollTop":0}');
+    settingsStorage.setItem('iinpublic_contacts_tab_state', '{"scrollTop":0}');
+    settingsStorage.setItem('iinpublic_contacts_tab_state', '{"scrollTop":40}');
+    off();
+    await settingsView.flush();
+    expect(upserts.map((entries) => entries.iinpublic_contacts_tab_state)).toEqual(['{"scrollTop":0}', '{"scrollTop":40}']);
+    expect(notified).toBe(2);
+  });
 });
 

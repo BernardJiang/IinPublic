@@ -1062,7 +1062,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     }
     if (talksScrollContainer.dataset.talksScrollBound !== '1') {
       talksScrollContainer.dataset.talksScrollBound = '1';
-      talksScrollContainer.addEventListener('scroll', () => deps.persistTalksTabState(), { passive: true });
+      // A scroll fires many events: save once it settles, not on each one.
+      let scrollSave: ReturnType<typeof setTimeout> | undefined;
+      talksScrollContainer.addEventListener('scroll', () => {
+        clearTimeout(scrollSave);
+        scrollSave = setTimeout(() => deps.persistTalksTabState(), 400);
+      }, { passive: true });
     }
   }
 

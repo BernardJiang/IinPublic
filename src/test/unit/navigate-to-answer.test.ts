@@ -47,6 +47,23 @@ describe('navigateToMyAnswerForTalk', () => {
     expect(rows[1].classList.contains('answer-item-highlighted')).toBe(false);
   }, 3000);
 
+  it('keeps the highlight when the Me tab redraws its rows during the highlight (spec 81 flake)', async () => {
+    Element.prototype.scrollIntoView = jest.fn();
+    document.body.innerHTML = '<div id="answers-list"></div>';
+    const list = document.getElementById('answers-list')!;
+    navigateToMyAnswerForTalk('t1');
+    await flush();
+    // The tab draws late, then redraws (live tag statistics): each draw replaces the row.
+    list.innerHTML = '<div class="answer-talk-item" data-talk-ids="t1"></div>';
+    await flush();
+    expect(list.querySelector('.answer-talk-item')!.classList.contains('answer-item-highlighted')).toBe(true);
+    list.innerHTML = '<div class="answer-talk-item" data-talk-ids="t1"></div>';
+    await flush();
+    expect(list.querySelector('.answer-talk-item')!.classList.contains('answer-item-highlighted')).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    expect(list.querySelector('.answer-talk-item')!.classList.contains('answer-item-highlighted')).toBe(false);
+  }, 3000);
+
   it('does nothing when no row matches the talkId', async () => {
     document.body.innerHTML = '<div class="answer-talk-item" data-talk-ids="other"></div>';
     expect(() => navigateToMyAnswerForTalk('t1')).not.toThrow();

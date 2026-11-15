@@ -15,20 +15,33 @@ export type AnswerRequest = Extract<CoreRequest, { name: 'graph.answer' }>;
 export type AnswerResult = { sent: boolean; eventId?: string; reason?: string };
 
 /** `answerAndSend` reasons that will not change on a later try: the answer is dropped, not kept. */
-export const ANSWER_NOT_SENDABLE = new Set(['built-in values only', 'Talk not received from this author', 'no answer steps']);
+export const ANSWER_NOT_SENDABLE = new Set(['built-in values only', 'no answer steps']);
+
+/**
+ * "Talk not received from this author" can be a storage read that missed under load (the Talk had
+ * arrived: I answered it). Such an answer is kept and tried again for this long, then dropped. Before
+ * (stage5 load, 2026-11-14) it was dropped at once: I recorded the exchange, its author never did.
+ */
+export const ANSWER_NOT_RECEIVED = 'Talk not received from this author';
+export const ANSWER_NOT_RECEIVED_KEEP_MS = 10 * 60_000;
 
 export function createAnswerOutbox(deps: {
   delivery: DeliveryStore;
   send: (request: AnswerRequest) => Promise<AnswerResult>;
   log?: (message: string) => void;
+  now?: () => number;
 }) {
+  const now = deps.now ?? Date.now;
   const { delivery } = deps;
 
   async function send(request: AnswerRequest): Promise<AnswerResult> {
     // A newer answer to the same Talk and author replaces a waiting one.
-    await delivery.queueAnswer(request.talkId, request.authorId, request as unknown as Record<string, unknown>);
+    const kept = request as AnswerRequest & { firstTriedAt?: number };
+    const firstTriedAt = typeof kept.firstTriedAt === 'number' ? kept.firstTriedAt : now();
+    await delivery.queueAnswer(request.talkId, request.authorId, { ...request, firstTriedAt } as unknown as Record<string, unknown>);
     const result = await deps.send(request);
-    if (result.sent || !result.reason || ANSWER_NOT_SENDABLE.has(result.reason)) {
+    const gaveUp = result.reason === ANSWER_NOT_RECEIVED && now() - firstTriedAt >= ANSWER_NOT_RECEIVED_KEEP_MS;
+    if (result.sent || !result.reason || ANSWER_NOT_SENDABLE.has(result.reason) || gaveUp) {
       await delivery.unqueueAnswer(request.talkId, request.authorId);
     }
     return result;

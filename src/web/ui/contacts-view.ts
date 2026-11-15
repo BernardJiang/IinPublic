@@ -966,7 +966,12 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
     }, 0);
     if (listEl.dataset.contactsScrollBound !== '1') {
       listEl.dataset.contactsScrollBound = '1';
-      listEl.addEventListener('scroll', persistControls, { passive: true });
+      // A scroll fires many events: save once it settles, not on each one.
+      let scrollSave: ReturnType<typeof setTimeout> | undefined;
+      listEl.addEventListener('scroll', () => {
+        clearTimeout(scrollSave);
+        scrollSave = setTimeout(persistControls, 400);
+      }, { passive: true });
     }
 }
 

@@ -58,6 +58,11 @@ export class CoreCollectionView<T> {
 
   set(changes: Record<string, T>): void {
     this.load();
+    // A write of what is already stored changes nothing: skip it, so UI state saved on every
+    // scroll or redraw does not queue core writes (stage5 load run: 383 timed-out writes on one
+    // device starved its Talk intake).
+    changes = Object.fromEntries(Object.entries(changes).filter(([key, value]) =>
+      !this.entries.has(key) || !sameValue(this.entries.get(key), value)));
     if (Object.keys(changes).length === 0) return;
     this.localEpoch++;
     for (const [key, value] of Object.entries(changes)) this.entries.set(key, value);
@@ -293,4 +298,9 @@ export function sectionedDocStore<D extends object>(view: CoreCollectionView<unk
     },
     set: (doc) => map.set(sectionEntries(sections, doc)),
   };
+}
+
+/** Same stored primitive. Objects always count as changed: a caller may have edited one in place. */
+function sameValue(stored: unknown, next: unknown): boolean {
+  return stored === next && (stored === null || typeof stored !== 'object');
 }

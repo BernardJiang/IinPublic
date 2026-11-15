@@ -335,6 +335,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
           const arrived = await graph.graph!.arrivals.read(request.talkId);
           if (arrived) await graph.graph!.exchange.recordArrival(request.from, arrived.versionId, exchangeAtoms(appTalkOf(arrived as Record<string, any>)));
         }
+        // An answer waiting for this Talk to read as received can go now.
+        void answerOutbox.resend();
         return { ok: true };
       case 'graph.declineArrival': {
         const sync = graph.host?.sync();

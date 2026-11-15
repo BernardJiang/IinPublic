@@ -225,11 +225,20 @@ test.describe('Find similar people with starter tags', () => {
     // i knows j once either one's Talks reached the other: as receiver i keeps j's 30 tags, as
     // sender i gets j's chatbot matches, and either way the shared count is |likes(i) ∩ likes(j)|.
     // Who that is cannot be predicted: at C = 3 the Nearby group keeps changing, and a person who
-    // joins someone's group receives their active Talks without a new broadcast. So every person
-    // listed must show the true overlap, and everyone knows at least their own group.
+    // joins someone's group receives their active Talks without a new broadcast. Likes are
+    // exchanged as they are made (OPEN-112), so someone who was on a list only while the likes were
+    // being made got the ones made by then: a person on either one's list now shows the true
+    // overlap, anyone else at most that, and everyone knows at least their own group.
     // It takes minutes: a phone admits 24 new Talks a minute from non-contacts (§3.7 "Balance",
     // `incomingTalksPerMinute`) and each user receives up to 5 × 30; offers over that limit go
     // unanswered and the sender's outbox offers them again later.
+    // Each user's current Nearby list (user ids), read live while polling.
+    const nearbyIds = (page: Page): Promise<string[]> => page.evaluate(() =>
+      ((window as any).__iinpublic_app?.getApp?.()?.nearbyV3?.service?.entries?.() ?? []).map((entry: any) => String(entry?.card?.userId || '')));
+    const linked = async (index: number, peerIndex: number): Promise<boolean> => {
+      const [mine, theirs] = await Promise.all([nearbyIds(users[index]!.page), nearbyIds(users[peerIndex]!.page)]);
+      return mine.includes(users[peerIndex]!.id) || theirs.includes(users[index]!.id);
+    };
     const results = await Promise.all(users.map(async ({ page, index }) => {
       const expected = new Map<string, number>();
       let rows: Array<{ peerId: string; shared: number }> = [];
@@ -238,7 +247,13 @@ test.describe('Find similar people with starter tags', () => {
           rows = (await sharedTagRows(page)).filter((row) => indexById.has(row.peerId));
           expected.clear();
           for (const row of rows) expected.set(row.peerId, overlap(index, indexById.get(row.peerId)!));
-          return rows.length >= Math.min(CAPACITY, NUM_USERS - 1) && rows.every((row) => row.shared === expected.get(row.peerId));
+          if (rows.length < Math.min(CAPACITY, NUM_USERS - 1)) return false;
+          for (const row of rows) {
+            const want = expected.get(row.peerId)!;
+            const ok = (await linked(index, indexById.get(row.peerId)!)) ? row.shared === want : row.shared <= want;
+            if (!ok) return false;
+          }
+          return true;
         }, { timeout: 600_000, intervals: [5_000] }).toBe(true);
       } catch (error) {
         const state = await page.evaluate(() => {
@@ -254,6 +269,68 @@ test.describe('Find similar people with starter tags', () => {
             outcomes: exchanges.slice(0, 5).map((row) => `${row.peerName}:${row.title}:${row.outcome}`),
           };
         });
+        // Which common tags are missing with each short person, and where each one stands here.
+        for (const row of rows.filter((r) => r.shared !== expected.get(r.peerId))) {
+          const peerIndex = indexById.get(row.peerId)!;
+          const common = LIKES[index]!.filter((tagIndex) => LIKES[peerIndex]!.includes(tagIndex)).map((tagIndex) => STARTER_TAGS[tagIndex]!.text);
+          const where = await page.evaluate(async ([peerId, keywords]) => {
+            const doc = (await (window as any).__iinpublic_exchanges?.()) ?? {};
+            const mine = (window as any).__iinpublic_collection?.('myTalks') ?? {};
+            const rowsIn = (window as any).__iinpublic_app?.getApp?.()?.uiManager?.incomingTalkClusters ?? [];
+            return (keywords as string[]).map((keyword) => {
+              const own = Object.entries<any>(mine).find(([, entry]) => entry?.fullTalk?.type === 'tag' && entry?.fullTalk?.questions?.[0]?.text === keyword);
+              const id = own?.[0] ?? '';
+              const dirs = Object.keys(doc).filter((key) => key.startsWith(`${peerId}::${id}::`)).map((key) => key.split('::')[2]);
+              const waiting = rowsIn.some((cluster: any) => cluster?.identityKey === id && Object.keys(cluster?.senders ?? {}).includes(peerId));
+              return dirs.length ? '' : `${keyword}(role=${own?.[1]?.role ?? '-'},disabled=${own?.[1]?.disabled},waitingFromThem=${waiting})`;
+            }).filter(Boolean);
+          }, [row.peerId, common] as const);
+          console.log(`[${NAMES[index]} missing with ${NAMES[peerIndex]}] ${where.join(' ')}`);
+          // Why the chatbot leaves their tags unanswered, and what counts as shared with them.
+          const why = await page.evaluate(async ([peerId, keywords]) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            const doc = (await (window as any).__iinpublic_exchanges?.()) ?? {};
+            const rowsIn = app?.uiManager?.incomingTalkClusters ?? [];
+            const decisions: string[] = [];
+            for (const cluster of rowsIn) {
+              const sender = cluster?.senders?.[peerId as string];
+              if (!sender?.lastTalkId) continue;
+              const body = await app?.coreRequest?.({ name: 'graph.talkBody', talkId: sender.lastTalkId }).catch(() => null);
+              const decision = body ? await app?.chatbotReplyDecision?.(sender.lastTalkId, { ...body, authorId: peerId }, peerId).catch((error: unknown) => ({ error: String(error) })) : 'no body';
+              decisions.push(`${cluster.title}:${JSON.stringify(decision && { act: decision.act, reason: decision.reason, answers: decision.answers?.length, error: decision.error })}`);
+              if (decisions.length >= 4) break;
+            }
+            const counted = Object.entries<any>(doc).filter(([key]) => key.startsWith(`${peerId}::`))
+              .map(([key, value]) => `${value?.title}/${key.split('::')[2]}/${value?.outcome ?? (value?.answers ?? []).map((a: any) => a?.isMatch ? 'm' : a?.answerId).join(',')}`);
+            const extra = counted.filter((entry) => !(keywords as string[]).some((keyword) => entry.includes(keyword)));
+            // Is each missing tag still owed to them from here, and are they on my list?
+            const mine = (window as any).__iinpublic_collection?.('myTalks') ?? {};
+            const owedIds = new Set<string>(app?.__e2eUnsentFor?.(peerId) ?? []);
+            const onMyList = (app?.nearbyV3?.service?.entries?.() ?? []).some((entry: any) => entry?.card?.userId === peerId);
+            const owed = (keywords as string[]).filter((keyword) => {
+              const id = Object.keys(mine).find((key) => mine[key]?.fullTalk?.type === 'tag' && mine[key]?.fullTalk?.questions?.[0]?.text === keyword);
+              return id && owedIds.has(id);
+            });
+            return { decisions, matchCount: counted.length, extra, onMyList, owedCount: owedIds.size, owedMissing: owed };
+          }, [row.peerId, common] as const);
+          console.log(`[${NAMES[index]} why with ${NAMES[peerIndex]}] ${JSON.stringify(why)}`);
+          // The other side of each missing tag: which way they recorded it, and what each core
+          // holds as the outcome of the other's answer (a one-sided record means one answer lost).
+          const missingTags = where.map((entry: string) => entry.split('(')[0]!);
+          const sideOf = (side: Page, otherId: string) => side.evaluate(async ([other, keywords]) => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            const doc = (await (window as any).__iinpublic_exchanges?.()) ?? {};
+            const mine = (window as any).__iinpublic_collection?.('myTalks') ?? {};
+            return Promise.all((keywords as string[]).map(async (keyword) => {
+              const id = Object.keys(mine).find((key) => mine[key]?.fullTalk?.type === 'tag' && mine[key]?.fullTalk?.questions?.[0]?.text === keyword) ?? '';
+              const dirs = Object.keys(doc).filter((key) => key.startsWith(`${other}::${id}::`)).map((key) => key.split('::')[2]);
+              const outcome = id ? await app?.coreRequest?.({ name: 'graph.outcome', talkId: id, responderId: other }).catch((e: unknown) => String(e)) : 'no talk';
+              return `${keyword}: dirs=${dirs.join('+') || '-'} outcome=${JSON.stringify(outcome)?.slice(0, 80)}`;
+            }));
+          }, [otherId, missingTags] as const);
+          console.log(`[${NAMES[index]} side with ${NAMES[peerIndex]}] ${(await sideOf(page, row.peerId)).join(' | ')}`);
+          console.log(`[${NAMES[peerIndex]} side with ${NAMES[index]}] ${(await sideOf(users[peerIndex]!.page, users[index]!.id)).join(' | ')}`);
+        }
         console.log(`[${NAMES[index]} feedback] expected ${JSON.stringify([...expected].map(([id, n]) => `${NAMES[indexById.get(id)!]}=${n}`))} rows ${JSON.stringify(rows.map((row) => `${NAMES[indexById.get(row.peerId)!] ?? row.peerId}=${row.shared}`))} state ${JSON.stringify(state)}`);
         throw error;
       }
@@ -261,7 +338,11 @@ test.describe('Find similar people with starter tags', () => {
       // Sorted by most tags in common, and the top is the most similar person this user knows.
       const counts = known.map((row) => row.shared);
       expect(counts).toEqual([...counts].sort((a, b) => b - a));
-      expect(known[0]!.shared).toBe(Math.max(...expected.values()));
+      // The top is at least the most anyone on either one's list now shares (who drifted away may
+      // show fewer, see above).
+      const linkedWants: number[] = [];
+      for (const row of known) if (await linked(index, indexById.get(row.peerId)!)) linkedWants.push(expected.get(row.peerId)!);
+      expect(known[0]!.shared).toBeGreaterThanOrEqual(Math.max(0, ...linkedWants));
       // Live statistics (OPEN-113): the top row (most tags in common) is "#1 most alike".
       expect(rows[0]!.rank, `${NAMES[index]}: the top of "Most tags in common" ranks #1`).toBe(1);
       expect(rows[0]!.alike).toBeGreaterThan(0);

@@ -29,7 +29,9 @@ export type GraphEvent =
   /** Someone deleted their answer to my Talk (`appTalkId` as for `answer`). */
   | { type: 'answer-deleted'; talkId: string; appTalkId?: string; from: string }
   /** The people my log has entries for that they have not read yet: the page keeps links wanted. */
-  | { type: 'owed'; peers: string[] };
+  | { type: 'owed'; peers: string[] }
+  /** Someone turned my Talk away (their receiving limit was full); it is owed to them again. */
+  | { type: 'declined'; talkId: string; from: string };
 
 export type GraphHostRequest =
   | { name: 'graph.identity'; userId: string; pair: SeaPair }
@@ -412,10 +414,11 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
               },
               onDeclined: (talkId, from) => {
                 // Not passed to them after all: forget it, and offer it again when asked to.
+                // The page offers it again once their minute has room (an idle list asks nothing).
                 void Promise.all([
                   graph.exchange.forgetTalk(talkId, [from]),
                   putKeyed(store, `${graph.prefix}sync/sent/${talkId}`, { [from]: null }),
-                ]).catch(() => undefined);
+                ]).catch(() => undefined).then(() => push({ type: 'declined', talkId, from }));
               },
               onAnswerDeleted: (talkId, from) => {
                 // Their answer no longer counts: how I decided it and what it passed go.

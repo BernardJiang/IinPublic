@@ -62,6 +62,7 @@
     "exact-chatbot-memory.test.ts",
     "exchange-activity-rows.test.ts",
     "tag-like-exchanges-now.test.ts",
+    "core-declined-retry.test.ts",
     "financial-data-guard.test.ts",
     "find-similar.test.ts",
     "flattened-answer-keys.test.ts",
