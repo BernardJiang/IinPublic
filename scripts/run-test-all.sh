@@ -18,7 +18,8 @@
 # What it does:
 #   - PARALLEL PREFIX : type-check, lint, jest and both builds run at once.
 #   - BUILD ONCE      : server (tsc) + web (webpack dev mode) built one time up front.
-#   - STATIC WEB      : each phase serves prebuilt dist/web (E2E_STATIC_WEB=1), no webpack reboot.
+#   - STATIC WEB      : each phase serves the prebuilt dev bundle in dist/web-dev (E2E_STATIC_WEB=1,
+#                       E2E_STATIC_WEB_ROOT), no webpack reboot.
 #   - WAVES           : phases in a wave run on offsets 0/100/200/300 (own port band, own fresh
 #                       Playwright-managed servers) — together if CONCURRENT_WAVES=1, one at a
 #                       time otherwise. Waves are sequenced so the timing-sensitive heavy-staged
@@ -130,6 +131,7 @@ fi
 
 export E2E_BLOB=1
 export E2E_STATIC_WEB=1
+export E2E_STATIC_WEB_ROOT=dist/web-dev
 export E2E_GUN_MEMORY_ONLY=1
 export DISABLE_HMR=true
 export PLAYWRIGHT_HTML_OPEN=never
@@ -340,7 +342,9 @@ npm run test:type    >"$LOG_DIR/type.log" 2>&1 & P_TYPE=$!
 npm run lint         >"$LOG_DIR/lint.log" 2>&1 & P_LINT=$!
 (npm run test:techsupport-key && npx jest --forceExit $JEST_WORKERS_ARG) >"$LOG_DIR/jest.log" 2>&1 & P_JEST=$!
 npm run build:server >"$LOG_DIR/build-server.log" 2>&1 & P_BSRV=$!
-DISABLE_HMR=true npx webpack --mode development --config webpack.config.js \
+# The development bundle goes to dist/web-dev (E2E_STATIC_WEB_ROOT), so the phone-path phase can
+# build the production bundle into dist/web while the other phases run (phone-path, below).
+DISABLE_HMR=true npx webpack --mode development --config webpack.config.js --output-path dist/web-dev \
                      >"$LOG_DIR/build-web.log" 2>&1 & P_BWEB=$!
 wait "$P_BSRV"; RC_BSRV=$?
 wait "$P_BWEB"; RC_BWEB=$?
@@ -361,6 +365,38 @@ if [ "$PREFIX_OVERLAP" = "1" ]; then
 else
   echo "[test:all] phase 0 done in ${p0_dur}s (type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST)"
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phone-path journeys (tests/e2e/phone-path, docs/testing/journey-coverage.md) — the Android
+# route without a phone: browser → phone-like embedded node (relay mode, no WebCrypto, release
+# capacity) → hub. One worker, ~17 min of specs, on fixed ports 18180–18199 (no overlap with the
+# phase bands), its own report at playwright-report-phone-path/. TEST_ALL_PHONE_PATH=0 skips it.
+#
+# It runs beside wave 3 (TEST_ALL_PHONE_PATH_OVERLAP=1, default since 2026-11-15): run last
+# and alone it added ~21 min to a ~57 min run while the machine was mostly idle. It needs the
+# production bundle the phone ships, built here into dist/web (+ SRI, build id, checksums; the
+# server was built in phase 0); the other phases serve the development bundle from dist/web-dev
+# and never load a page from their hub, which serves dist/web. TEST_ALL_PHONE_PATH_OVERLAP=0
+# runs it after wave 3, alone, as before.
+# ─────────────────────────────────────────────────────────────────────────────
+RC_PP=0
+PP_PID=""
+run_phone_path() {
+  local s; s=$(date +%s)
+  echo "$s" >"$LOG_DIR/phone-path.start"
+  (
+    set -e
+    npx webpack --mode production --config webpack.config.js
+    node scripts/add-sri.js
+    node scripts/stamp-build-id.js
+    node scripts/generate-web-checksums.js
+    env -u E2E_BLOB -u E2E_STATIC_WEB_ROOT npx playwright test --config tests/e2e/phone-path/playwright.config.ts
+  ) >"$LOG_DIR/phone-path.log" 2>&1
+  local rc=$?
+  echo "$rc" >"$LOG_DIR/phone-path.rc"
+  echo "$(( $(date +%s) - s ))" >"$LOG_DIR/phone-path.time"
+}
+PHONE_PATH_OVERLAP="${TEST_ALL_PHONE_PATH_OVERLAP:-1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 1: light + stage5 run together at different port offsets.
@@ -450,6 +486,16 @@ if [ "$SEQUENTIAL_TAIL" != "1" ]; then
   RC_ISO=$(cat "$LOG_DIR/isolated.rc"); RC_HA=$(cat "$LOG_DIR/heavy-staged.rc")
 fi
 
+# Phone-path starts here, beside wave 3 (mass), after waves 1–2 (see its note above). Beside
+# wave 1 it pushed stage5 over the edge (starter-tags short of Talks, 14-nearby-place-pagination);
+# beside wave 2's five phases its 02 chat channel failed to connect twice running, while it
+# passes alone and mass passed beside it in every run (2026-11-15).
+if [ "${TEST_ALL_PHONE_PATH:-1}" != "0" ] && [ "$PHONE_PATH_OVERLAP" = "1" ]; then
+  echo "[test:all]   ▶ phone-path (beside wave 3, fixed ports 18180+)"
+  run_phone_path &
+  PP_PID=$!
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 3: mass ALONE. Its specs each launch 8-12 Chromium profiles; every failure mode
 # observed across ten full runs (lost exchanges, mesh signaling 400 loops, key-publication
@@ -483,17 +529,21 @@ if [ "$SEQUENTIAL_TAIL" = "1" ]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 4: phone-path journeys (tests/e2e/phone-path, docs/testing/journey-coverage.md) — the
-# Android route without a phone: browser → phone-like embedded node (relay mode, no WebCrypto,
-# release capacity) → hub. Last, because it rebuilds dist/ as the production bundle the phone
-# ships (the phases above serve the development build from the same dist/web). Fixed ports
-# 18180–18199, its own report at playwright-report-phone-path/. TEST_ALL_PHONE_PATH=0 skips it.
+# Wave 4: the phone-path phase (started after wave 2, see above) — wait for it here, or with
+# TEST_ALL_PHONE_PATH_OVERLAP=0 run it now, alone.
 # ─────────────────────────────────────────────────────────────────────────────
-RC_PP=0
 if [ "${TEST_ALL_PHONE_PATH:-1}" != "0" ]; then
-  start_phase phone-path 0 env -u E2E_BLOB npm run test:e2e:phone-path
-  wait_wave 4
-  RC_PP=$(cat "$LOG_DIR/phone-path.rc")
+  if [ -z "$PP_PID" ]; then
+    echo "[test:all]   ▶ phone-path (alone)"
+    run_phone_path &
+    PP_PID=$!
+  fi
+  if ! [ -f "$LOG_DIR/phone-path.rc" ]; then
+    echo "[test:all] waiting for phone-path…"
+  fi
+  wait "$PP_PID"
+  RC_PP=$(cat "$LOG_DIR/phone-path.rc" 2>/dev/null || echo 1)
+  printf '[test:all]   ◀ %-20s %4ss  rc=%s\n' phone-path "$(cat "$LOG_DIR/phone-path.time" 2>/dev/null || echo '?')" "$RC_PP"
 fi
 
 # Collect the overlapped static checks (no-ops when TEST_ALL_PREFIX_OVERLAP=0 —

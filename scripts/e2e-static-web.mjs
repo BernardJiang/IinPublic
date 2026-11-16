@@ -32,7 +32,11 @@ const PROJECT_ROOT = path.join(__dirname, '..');
 const port = Number(process.argv[2] || process.env.PORT || 3001);
 const bindHost = process.env.E2E_BIND_HOST || '127.0.0.1';
 
-const DIST_WEB = path.join(PROJECT_ROOT, 'dist', 'web');
+// E2E_STATIC_WEB_ROOT: serve another build folder (test:all builds its development bundle into
+// dist/web-dev, so the phone-path phase can build the production dist/web at the same time).
+const DIST_WEB = process.env.E2E_STATIC_WEB_ROOT
+  ? path.resolve(PROJECT_ROOT, process.env.E2E_STATIC_WEB_ROOT)
+  : path.join(PROJECT_ROOT, 'dist', 'web');
 const PUBLIC_DIR = path.join(PROJECT_ROOT, 'public');
 const GUN_DIR = path.join(PROJECT_ROOT, 'node_modules', 'gun');
 const GUN_PREFIX = '/node_modules/gun/';
