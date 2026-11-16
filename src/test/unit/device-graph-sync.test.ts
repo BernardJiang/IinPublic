@@ -495,6 +495,22 @@ describe('Talk exchange by Gun sync', () => {
     expect(want.w).toEqual([expect.objectContaining({ talk: talkId, h: expect.any(String), v: expect.any(String) })]);
   });
 
+  it('an offer still goes when the store never acknowledges who it was sent to (stage5 starter-tags)', async () => {
+    const [gil, hal] = [await device('gil-b'), await device('hal-b')];
+    void pump();
+    await Promise.all([gil.sync.open('hal-b'), hal.sync.open('gil-b')]);
+    const talkId = await gil.graph.talks.create(tennis('Sent record lost'));
+    const put = gil.store.put.bind(gil.store);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(gil.store, 'put').mockImplementation((soul: string, value: any) => soul.startsWith('local/sync/sent/')
+      ? Promise.reject(new Error(`storage did not acknowledge write for ${soul}`))
+      : put(soul, value));
+    await expect(gil.sync.offerTalk(talkId, ['hal-b'])).resolves.toBe(1);
+    await until(async () => !!(await hal.graph.arrivals.read(talkId)));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('was not recorded'), expect.any(Error));
+    jest.restoreAllMocks();
+  });
+
   it('a blob nobody asked for is ignored, and a want under a name never given is not answered (OPEN-114)', async () => {
     const [cy, di] = [await device('cy-b'), await device('di-b')];
     void pump();

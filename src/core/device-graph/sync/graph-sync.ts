@@ -1065,7 +1065,14 @@ export function createGraphSync(options: {
       const fresh = [...new Set(recipients)].filter((id) => id !== me.userId && sent[id] !== talk.versionId);
       // One entry per person; offers made at the same time share it (`append`).
       await Promise.all(fresh.map((peerUserId) => append(peerUserId, { offer: { talkId, versionId: talk.versionId, head, content, ...(context ? { context } : {}) } })));
-      if (fresh.length) await putKeyed(store, sentSoul, Object.fromEntries(fresh.map((peerUserId) => [peerUserId, talk.versionId])));
+      // Only a hint for the next offer (skip who has this version): the offers are in the pair logs
+      // already. A write the store never acknowledges (Gun in a busy browser stalls some for over
+      // 8 s) must not fail them — at worst the version is offered again and the receiver, holding
+      // it, ignores it (stage5 starter-tags sent 28 of 30, 2026-11-15).
+      if (fresh.length) {
+        await putKeyed(store, sentSoul, Object.fromEntries(fresh.map((peerUserId) => [peerUserId, talk.versionId])))
+          .catch((error) => console.warn(`[graph-sync] who was sent ${talkId} was not recorded:`, error));
+      }
       return fresh.length;
     },
 
