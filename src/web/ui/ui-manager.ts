@@ -66,9 +66,9 @@ import {
 import {
   displayContactsList as renderContactsList,
   showContactsList as openContactsList,
-  personRowSummaries,
   type ContactsViewDeps,
 } from './contacts-view';
+import { personRowSummaries } from './person-row-data';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
 import {
   addNewConversation as addNewConversationImpl,
