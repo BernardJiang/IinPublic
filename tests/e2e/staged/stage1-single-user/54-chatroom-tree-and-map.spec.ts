@@ -304,23 +304,28 @@ test.describe('Nearby and Places list/map views', () => {
     const placeId = 'place_32.71_-117.17_abcdefabcdef';
     await page!.evaluate((id) => (window as any).__iinpublic_app.getApp().uiManager.showChatroomDetail(id), placeId);
     await page!.waitForTimeout(500);
-    await page!.evaluate((id) => {
-      const app = (window as any).__iinpublic_app.getApp();
-      app.uiManager.updateChatroomMembers([
-        { userId: app.currentUser.id, stageName: app.currentUser.stageName },
-        { userId: 'place-eve', stageName: 'Eve in Place' },
-      ], app.currentUser.id);
-      app.uiManager.animateMapBroadcast('outgoing', app.currentUser.id, id, ['place-eve']);
-      app.uiManager.animateMapBroadcast('incoming', 'place-eve', id);
-    }, placeId);
     const members = page!.locator('#chatroom-members-list');
-    await expect(members.getByTestId('nearby-self-row')).toBeVisible();
-    await expect(members.locator('.chatroom-member-item')).toHaveCount(1);
     const effects = members.getByTestId('list-broadcast-effects');
-    await expect(effects.locator('[data-direction="outgoing"] line')).toHaveCount(1);
-    await expect(effects.locator('[data-direction="incoming"] line')).toHaveCount(1);
-    expect(await effects.locator('[data-direction="outgoing"] line').evaluate((line) =>
-      Number(line.getAttribute('y2')) > Number(line.getAttribute('y1')))).toBe(true);
+    // A Place's member list is its Nearby roster: the first real roster push (only me) can land
+    // after the fake member below and redraw the list without her, within the 2.6 s animation.
+    // Inject and check again until one animation plays on an undisturbed list.
+    await expect(async () => {
+      await page!.evaluate((id) => {
+        const app = (window as any).__iinpublic_app.getApp();
+        app.uiManager.updateChatroomMembers([
+          { userId: app.currentUser.id, stageName: app.currentUser.stageName },
+          { userId: 'place-eve', stageName: 'Eve in Place' },
+        ], app.currentUser.id);
+        app.uiManager.animateMapBroadcast('outgoing', app.currentUser.id, id, ['place-eve']);
+        app.uiManager.animateMapBroadcast('incoming', 'place-eve', id);
+      }, placeId);
+      await expect(members.getByTestId('nearby-self-row')).toBeVisible({ timeout: 1_000 });
+      await expect(members.locator('.chatroom-member-item')).toHaveCount(1, { timeout: 1_000 });
+      await expect(effects.locator('[data-direction="outgoing"] line')).toHaveCount(1, { timeout: 1_500 });
+      await expect(effects.locator('[data-direction="incoming"] line')).toHaveCount(1, { timeout: 1_500 });
+      expect(await effects.locator('[data-direction="outgoing"] line').evaluate((line) =>
+        Number(line.getAttribute('y2')) > Number(line.getAttribute('y1')))).toBe(true);
+    }).toPass({ timeout: 20_000, intervals: [800] });
     await page!.screenshot({ path: '/tmp/iinpublic-list-broadcast-place.png' });
     await expect(effects.locator('[data-event-id]')).toHaveCount(0, { timeout: 5_000 });
   });
