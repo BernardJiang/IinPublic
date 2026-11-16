@@ -4,6 +4,8 @@
  * deal was confirmed with someone else (superseded). Each changes the given conversations map in
  * place and says whether anything changed; the caller saves it and redraws.
  */
+import { conversationReferencesTalk } from './retraction';
+
 type Conversations = Record<string, any>;
 
 function findConversation(conversations: Conversations, otherUserId: string, talkId: string, fallback: (c: any) => boolean): string | undefined {
@@ -11,16 +13,20 @@ function findConversation(conversations: Conversations, otherUserId: string, tal
     ?? Object.keys(conversations).find((id) => fallback(conversations[id]));
 }
 
-/** The author retracted the Talk: the match is gone. Falls back to the Talk alone (author-side teardown). */
 /**
  * The match through this Talk is gone: its author removed the Talk (`talk-removed`), or the other
- * person deleted their answer to my Talk (`answer-deleted`).
+ * person deleted their answer to my Talk (`answer-deleted`). Only a conversation with that person:
+ * one that names the Talk as its own or a related one (author-side teardown: the conversation can
+ * be through their Talk, mine only related). The Talk alone decides only when no person is given —
+ * it once withdrew a deal just confirmed with someone else through the same Talk (stage4/05).
  */
 export function withdrawConversation(
   conversations: Conversations, otherUserId: string, talkId: string, retractedAt: number,
   reason: 'talk-removed' | 'answer-deleted' = 'talk-removed',
 ): boolean {
-  const id = findConversation(conversations, otherUserId, talkId, (c) => c?.talkId === talkId);
+  const id = findConversation(conversations, otherUserId, talkId, (c) => otherUserId
+    ? c?.otherUserId === otherUserId && conversationReferencesTalk(c, talkId)
+    : c?.talkId === talkId);
   if (!id) return false;
   const at = new Date(retractedAt).toISOString();
   Object.assign(conversations[id], {

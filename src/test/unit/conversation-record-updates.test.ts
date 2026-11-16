@@ -42,10 +42,23 @@ describe('markConversationWithdrawn', () => {
     expect(conversations.c1.lastMessageTime).toBe(new Date(retractedAt).toISOString());
   });
 
-  it('falls back to matching by talkId alone (author side) when otherUserId does not match', () => {
+  it('author side: finds that person\'s conversation through a related Talk, never someone else\'s (stage4/05)', () => {
+    const conversations: any = {
+      adam: { otherUserId: 'adam', talkId: 't1' },
+      frank: { otherUserId: 'frank', talkId: 't2', relatedTalkIdsJson: JSON.stringify(['t1']) },
+    };
+    const d = deps({ getMyConversations: jest.fn(() => conversations) });
+    markConversationWithdrawn('frank', 't1', Date.now(), d);
+    expect(conversations.frank.status).toBe('withdrawn');
+    expect(conversations.adam.status).toBeUndefined();
+    markConversationWithdrawn('zed', 't1', Date.now(), d);
+    expect(conversations.adam.status).toBeUndefined();
+  });
+
+  it('falls back to the Talk alone only when no person is given', () => {
     const conversations: any = { c1: { otherUserId: 'someone-else', talkId: 't1' } };
     const d = deps({ getMyConversations: jest.fn(() => conversations) });
-    markConversationWithdrawn('u1', 't1', Date.now(), d);
+    markConversationWithdrawn('', 't1', Date.now(), d);
     expect(conversations.c1.status).toBe('withdrawn');
   });
 
