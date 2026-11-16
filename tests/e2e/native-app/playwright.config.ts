@@ -57,6 +57,8 @@ export default defineConfig({
       port: gunPort,
       timeout: 120_000,
       reuseExistingServer: process.env.E2E_REUSE_SERVERS === '1',
+      // SIGTERM, not Playwright's default SIGKILL, so the hub removes its temp store dirs (durable-store-dir.ts).
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
     },
     {
       command: `node scripts/e2e-static-web.mjs ${webPort}`,

@@ -243,6 +243,8 @@ const webServers = Array.from({ length: NUM_WORKERS }).flatMap((_, i) => {
       timeout: 120 * 1000,
       // Must spawn with E2E_GUN_MEMORY_ONLY + CHATROOM_* ; reusing a manually started dev:server ignores those env vars and keeps e2e flaky.
       reuseExistingServer: process.env.E2E_REUSE_SERVERS === '1',
+      // SIGTERM, not Playwright's default SIGKILL, so the hub removes its temp store dirs (durable-store-dir.ts).
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
     },
     {
       // E2E_STATIC_WEB=1: serve the pre-built dist/web/ bundle with a tiny dependency-free

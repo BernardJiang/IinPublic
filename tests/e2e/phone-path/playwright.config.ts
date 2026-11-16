@@ -59,6 +59,8 @@ export default defineConfig({
       url: `http://127.0.0.1:${PHONE_PATH_PORTS.hub}/health`,
       timeout: 120_000,
       reuseExistingServer: reuse,
+      // SIGTERM, not Playwright's default SIGKILL, so the hub removes its temp store dirs (durable-store-dir.ts).
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
       stdout: process.env.PHONE_PATH_SERVER_LOGS === '1' ? 'pipe' : 'ignore',
     },
     {

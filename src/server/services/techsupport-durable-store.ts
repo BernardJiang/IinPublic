@@ -1,7 +1,7 @@
 import Gun from 'gun';
 import fs from 'fs';
-import path from 'path';
 import { logger } from '../logger';
+import { durableStoreDir } from './durable-store-dir';
 import { MAILBOX_MAX_CIPHERTEXT_BYTES, type MailboxEnvelope, type StoreEnvelopeResult } from './mailbox-store';
 import type { TechSupportStoredMessage } from './techsupport-message-store';
 
@@ -13,11 +13,11 @@ import type { TechSupportStoredMessage } from './techsupport-message-store';
  * to radisk:false would reintroduce the exact silent-write bug it exists to avoid (see class doc
  * below). Per-worker directories plus the explicit reset in index.ts's onClearDatabase callback
  * (wired to POST /api/test/clear-database, which every E2E spec already calls between tests) is
- * what keeps disk-based tests isolated instead.
+ * what keeps disk-based tests isolated instead. A test server's directory lives under the OS temp
+ * dir and is removed when the server exits (`durable-store-dir.ts`).
  */
 function defaultDataDir(): string {
-  const port = process.env.PORT || '8080';
-  return path.join(process.cwd(), `techsupport-radata-${port}`);
+  return durableStoreDir('techsupport-radata');
 }
 
 /** Abuse/disk-growth safety valve — NOT a "give up after N hours" policy. There is deliberately

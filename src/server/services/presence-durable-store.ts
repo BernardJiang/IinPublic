@@ -1,7 +1,7 @@
 import Gun from 'gun';
 import fs from 'fs';
-import path from 'path';
 import { logger } from '../logger';
+import { durableStoreDir } from './durable-store-dir';
 import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
 
 /**
@@ -10,8 +10,7 @@ import { ROOM_MEMBERSHIP_TTL_SECONDS } from '../../shared/p2p-runtime';
  * as TechSupportDurableStore's defaultDataDir().
  */
 function defaultDataDir(): string {
-  const port = process.env.PORT || '8080';
-  return path.join(process.cwd(), `presence-radata-${port}`);
+  return durableStoreDir('presence-radata');
 }
 
 export type PresenceMember = {

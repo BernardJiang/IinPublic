@@ -60,6 +60,8 @@ export default defineConfig({
       port: 8080,
       timeout: 120_000,
       reuseExistingServer: process.env.E2E_REUSE_SERVERS === '1',
+      // SIGTERM, not Playwright's default SIGKILL, so the hub removes its temp store dirs (durable-store-dir.ts).
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
     },
     {
       // Reuses the same prebuilt dist/web the embedded-node process under
