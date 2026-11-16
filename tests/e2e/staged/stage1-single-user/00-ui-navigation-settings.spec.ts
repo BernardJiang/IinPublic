@@ -105,7 +105,7 @@ test.describe('UI navigation and settings shell', () => {
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
     await expect(p.locator('#me-status-text')).toBeVisible();
-    await expect(p.locator('#me-status-text')).toContainText('Answered question history');
+    await expect(p.locator('#me-status-text')).toContainText('My answers');
     await expect(p.locator('#me-view .status-bar')).toHaveCount(0);
     await expect(p.locator('#me-view')).toBeVisible();
     await expect(p.locator('#answers-content')).toBeVisible();

@@ -2,6 +2,7 @@ import type { KnownPerson } from '../../shared/types';
 import { TECHSUPPORT_ROOT_USER_ID, TECHSUPPORT_STAGE_NAME } from '../../shared/techsupport';
 import type { PeerSummary } from '../../shared/peer-summary-types';
 import { avatarInnerHtml } from './profile-avatar';
+import { personRowHtml, personRowText, type PersonRowStats } from './person-row';
 import type { UiTranslationKey } from './ui-translations';
 import {
   deriveLocalPeers,
@@ -137,7 +138,7 @@ const RELATIONSHIP_LABEL_TRANSLATION_KEYS: Record<string, UiTranslationKey> = {
   custom: 'custom',
 };
 
-function formatSingleRelationshipLabel(label: string, deps: ContactsViewDeps): string {
+function formatSingleRelationshipLabel(label: string, deps: Pick<ContactsViewDeps, 'text'>): string {
   const key = RELATIONSHIP_LABEL_TRANSLATION_KEYS[label];
   return key ? deps.text(key) : label;
 }
@@ -149,7 +150,7 @@ function formatSingleRelationshipLabel(label: string, deps: ContactsViewDeps): s
  */
 function formatRelationshipLabel(
   relationship: KnownPerson | string | undefined,
-  deps: ContactsViewDeps,
+  deps: Pick<ContactsViewDeps, 'text'>,
 ): string {
   if (typeof relationship === 'string') {
     return formatSingleRelationshipLabel(relationship, deps);
@@ -168,6 +169,36 @@ function formatRelationshipLabel(
 }
 
 /**
+ * Each contact's row figures exactly as Contacts shows them (same derivation): the Nearby list
+ * draws its person rows from this so both tabs agree (person-row.ts).
+ */
+export function personRowSummaries(input: {
+  currentUserId: string;
+  conversations: Record<string, any>;
+  knownPeople: KnownPerson[];
+  text: ContactsViewDeps['text'];
+}): Map<string, { stats: PersonRowStats; relationship?: string; displayName: string }> {
+  const known = new Map(input.knownPeople.map((entry) => [entry.userId, entry] as const));
+  const pruned = getPrunedPeerIds();
+  const rows = new Map<string, { stats: PersonRowStats; relationship?: string; displayName: string }>();
+  for (const peer of deriveLocalPeers(input)) {
+    if (pruned.has(peer.peerId)) continue;
+    const person = known.get(peer.peerId);
+    rows.set(peer.peerId, {
+      stats: {
+        totalTalks: peer.stats.totalTalks,
+        matches: peer.stats.mutualMatchedTalks,
+        sent: peer.stats.sent.talks,
+        received: peer.stats.received.talks,
+      },
+      ...(person?.labels?.length ? { relationship: formatRelationshipLabel(person, input) } : {}),
+      displayName: buildDisplayName(peer.stageName, person),
+    });
+  }
+  return rows;
+}
+
+/**
  * A nickname is the user's own, private label for this contact — it defaults to
  * mirroring the contact's live stage name (empty `known.nickname` falls through to
  * `stageName` below) until the user deliberately sets one, at which point it's sticky:
@@ -180,17 +211,6 @@ function buildDisplayName(stageName: string, known?: KnownPerson): string {
 }
 
 /** `commonTags`: the tag-graph count (OPEN-87); 0 leaves it out, as does the tags sort, whose chip shows it. */
-function buildMetaLine(summary: PeerSummary, known: KnownPerson | undefined, deps: ContactsViewDeps, commonTags: number): string {
-  const matchedTalks = summary.stats.mutualMatchedTalks;
-  const parts = [
-    formatCountText(deps, summary.stats.totalTalks, 'contactsTalkCountOne', 'contactsTalkCount'),
-    formatCountText(deps, matchedTalks, 'contactsMatchCountOne', 'contactsMatchCount'),
-    ...(commonTags > 0 ? [formatCountText(deps, commonTags, 'contactsCommonTagCountOne', 'contactsCommonTagCount')] : []),
-    known?.labels?.length ? formatRelationshipLabel(known, deps) : deps.text('stranger'),
-  ];
-  return parts.join(' · ');
-}
-
 // Local peer helper functions removed — now using deriveLocalPeers() from
 // src/web/services/local-peer-derivation.ts (P0 step 5).
 
@@ -848,30 +868,34 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       const blockedBadge = deps.isBlockedByMe(peer.peerId)
         ? `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--warning-soft);color:var(--warning-text);font-size:0.72em;font-weight:700;margin-left:8px;">${deps.text('contactsBlocked')}</span>`
         : '';
-      const matchRateChip = `<div class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="font-size:0.8em;color:var(--accent);font-weight:700;margin-top:4px;">${deps.text('matchRate')}: ${matchPercent}% · ${formatText(deps, 'contactsMatchRateDetail', { matched: metrics.matchedTalks, total: peer.stats.totalTalks })}</div>`;
-      const headshotHtml = avatarInnerHtml(deps.getCachedHeadshot?.(peer.peerId) ?? undefined, '?', deps.escapeHtml);
-      const online = deps.isUserOnline(peer.peerId);
-      const presenceIndicator = `<span class="presence-indicator ${online ? 'online' : 'away'}" data-user-id="${deps.escapeHtml(peer.peerId)}" aria-label="${deps.text(online ? 'presenceOnline' : 'presenceAway')}"></span>`;
+      // Sorting by match rate or relevance adds that figure to the same line (still one line).
+      const matchRateChip = ` · <span class="contact-item-match-rate" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" data-total-talks="${peer.stats.totalTalks}" style="color:var(--accent);font-weight:700;">${deps.text('matchRate')} ${matchPercent}%</span>`;
+      const rankChip = ` · <span class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="color:var(--text-secondary);">${deps.text('relevanceScore')} ${metrics.relevance}</span>`;
       const pinned = pinnedContactIds.has(peer.peerId);
-      // Relationship is stated once — buildMetaLine's own trailing segment — not repeated
-      // on the second meta line, which now only carries the sent/received counts.
-      return `
-          <div class="contact-item" data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin-bottom: 8px; background: white; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
-            <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
-              <span class="contact-item-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;overflow:hidden;">${headshotHtml}</span>
-              <div style="min-width: 0;">
-                <div class="contact-item-name" style="font-weight: 700; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; display: inline-block; cursor: pointer;" title="${deps.escapeHtml(deps.text('contactsOpenDm'))}">${deps.escapeHtml(displayName)}</div>${presenceIndicator}${blockedBadge}
-                <div class="contact-item-meta" style="font-size: 0.85em; color: #666; margin-top: 4px;">${deps.escapeHtml(buildMetaLine(peer, known, deps, 0))}</div>
-                <div class="contact-item-meta" style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px;">${deps.text('sent')} ${peer.stats.sent.talks} · ${deps.text('received')} ${peer.stats.received.talks}</div>
-                ${sortOrder === 'match-rate' ? matchRateChip : ''}
-                ${sharedTagsChipHtml(sharedTags(peer.peerId), deps.text('tagsInCommon'), similarity(peer.peerId), similarityText)}
-                ${sortOrder === 'weighted' ? `<div class="contact-item-rank" title="${deps.escapeHtml(metrics.explanation)}" style="font-size:0.8em;color:var(--text-secondary);margin-top:4px;">${deps.text('relevanceScore')}: ${metrics.relevance} · ${deps.escapeHtml(metrics.explanation)}</div>` : ''}
-              </div>
-            </div>
-            ${pinned ? `<span class="list-pin-badge" data-testid="contact-pin-badge" role="img" title="${deps.escapeHtml(deps.text('unpinItem'))}" aria-label="${deps.escapeHtml(deps.text('unpinItem'))}">📌</span>` : ''}
-            <span style="color: #999; flex-shrink: 0;">›</span>
-          </div>
-        `;
+      // Name, then at most two lines: the meta line and the tags-in-common chip (person-row.ts).
+      return personRowHtml({
+        kind: 'contact',
+        userId: peer.peerId,
+        displayName,
+        headshot: deps.getCachedHeadshot?.(peer.peerId) ?? null,
+        online: deps.isUserOnline(peer.peerId),
+        ...(known?.labels?.length ? { relationship: formatRelationshipLabel(known, deps) } : {}),
+        stats: {
+          totalTalks: peer.stats.totalTalks,
+          matches: peer.stats.mutualMatchedTalks,
+          sent: peer.stats.sent.talks,
+          received: peer.stats.received.talks,
+        },
+        metaExtraHtml: sortOrder === 'match-rate' ? matchRateChip : sortOrder === 'weighted' ? rankChip : '',
+        chipHtml: sharedTagsChipHtml(sharedTags(peer.peerId), deps.text('tagsInCommon'), similarity(peer.peerId), similarityText),
+        nameBadgesHtml: blockedBadge,
+        trailingHtml: pinned ? `<span class="list-pin-badge" data-testid="contact-pin-badge" role="img" title="${deps.escapeHtml(deps.text('unpinItem'))}" aria-label="${deps.escapeHtml(deps.text('unpinItem'))}">📌</span>` : '',
+        rowClass: 'contact-item',
+        rowAttrs: `data-contact-user-id="${deps.escapeHtml(peer.peerId)}" data-contact-name="${deps.escapeHtml(resolvedStageName)}" data-match-percent="${matchPercent}" data-matched-talks="${metrics.matchedTalks}"`,
+        nameTitle: deps.text('contactsOpenDm'),
+        text: personRowText(deps.text),
+        escapeHtml: deps.escapeHtml,
+      });
     };
 
     // TODO §R1: first CONTACTS_FIRST_CHUNK_SIZE rows render synchronously (right now,

@@ -130,7 +130,7 @@ test.describe('UX polish: contacts, talks navigation, and answers details', () =
         timeout: 15_000,
         message: 'Jerry contact should show either one-way or reconciled P2P talk accounting',
       })
-      .toMatch(/(?:1 talk|2 talks)[\s\S]*Sent 1 · Received [01]/);
+      .toMatch(/(?:1 talk|2 talks) · ↑1 ↓[01]/);
     await contactItem.click();
     // contacts-view.ts tap-target split: the row click lands directly on the shared
     // ⟨User⟩ layout (peer-detail) — no DM conversation step to back out of first.

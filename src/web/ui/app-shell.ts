@@ -34,7 +34,7 @@ export function renderAppShell(
             <div class="header-status" id="header-status" style="display: none;">
               <div class="header-user-info" id="header-user-info"></div>
               <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
-              <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>Answered question history</span>
+              <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>My answers</span>
               <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
               <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
             </div>
@@ -67,11 +67,11 @@ export function renderAppShell(
               <button type="button" class="header-btn app-bar-overflow-btn" id="app-bar-overflow-btn" data-testid="app-bar-overflow-btn" title="More">⋯</button>
               <div class="app-bar-overflow-panel" id="app-bar-overflow-panel"></div>
             </div>
-            <!-- Always last: it opens the unread-sender picker and never depends on selecting a
+            <!-- ✉️, not 💬: 💬 means Talks (Me rows, the Me AppBar's "open Talk"). Always last: it opens the unread-sender picker and never depends on selecting a
                  person in either the Map or List first. Grayed out while nobody has an unread
                  message for me (renderMatchBadge). -->
-            <button type="button" class="header-btn" id="dm-inbox-btn" data-testid="dm-inbox-btn" title="Direct messages" disabled>
-              <span class="app-bar-btn-icon">💬</span>
+            <button type="button" class="header-btn" id="dm-inbox-btn" data-testid="dm-inbox-btn" title="Direct messages" aria-label="Direct messages" disabled>
+              <span class="app-bar-btn-icon" aria-hidden="true">✉️</span>
             </button>
           </div>
         </div>
@@ -113,29 +113,9 @@ export function renderAppShell(
                 <button type="button" class="filter-bar-toggle" data-testid="contacts-filter-toggle" aria-expanded="false">Filters ▾</button>
                 <!-- The people of a tag or question (graph-focus.ts): "♡ Pizza ✕", shown while the filter below is set. -->
                 <span class="focus-chip" id="contacts-focus-chip" data-testid="contacts-focus-chip" hidden><span class="focus-chip-label"></span><button type="button" class="focus-chip-clear" data-testid="contacts-focus-clear">✕</button></span>
-                <div class="filter-bar-content">
-                <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" style="flex:1 1 160px; min-width:0;">
-                <input class="form-input" id="contacts-filter-topic" data-testid="contacts-filter-topic" type="search" list="contacts-filter-topic-options" placeholder="${text('contactsFilterTopic')}" aria-label="${text('contactsFilterTopic')}" style="flex:1 1 160px; min-width:0;">
-                <datalist id="contacts-filter-topic-options"></datalist>
-                <select class="form-input" id="contacts-filter-relation" style="flex:0 0 150px;">
-                  <option value="all">All relations</option>
-                  <option value="friend">Friends</option>
-                  <option value="relative">Relatives</option>
-                  <option value="coworker">Coworkers</option>
-                  <option value="acquaintance">Acquaintances</option>
-                  <option value="partner">Partners</option>
-                  <option value="custom">Custom</option>
-                </select>
-                <select class="form-input" id="contacts-filter-outcome" style="flex:0 0 140px;">
-                  <option value="all">All outcomes</option>
-                  <option value="matched">Matched</option>
-                  <option value="unmatched">Not matched</option>
-                </select>
-                <select class="form-input" id="contacts-filter-presence" data-testid="contacts-filter-presence" style="flex:0 0 140px;">
-                  <option value="all">Online or not</option>
-                  <option value="online">Online now</option>
-                </select>
-                <select class="form-input" id="contacts-sort-order" style="flex:0 0 150px;">
+                <!-- Row 1, always shown: search by name and sort. Row 2 (the Filters disclosure on phones): the filters. -->
+                <input class="form-input" id="contacts-filter-name" type="search" placeholder="Filter by name" aria-label="Filter by name">
+                <select class="form-input" id="contacts-sort-order" aria-label="Sort">
                   <option value="recent">Recent</option>
                   <option value="talks">Talk count</option>
                   <option value="matches">Matched talks</option>
@@ -144,6 +124,27 @@ export function renderAppShell(
                   <option value="weighted">Relevance score</option>
                   <option value="name">Name</option>
                   <option value="relationship">Relationship</option>
+                </select>
+                <div class="filter-bar-content">
+                <input class="form-input" id="contacts-filter-topic" data-testid="contacts-filter-topic" type="search" list="contacts-filter-topic-options" placeholder="${text('contactsFilterTopic')}" aria-label="${text('contactsFilterTopic')}">
+                <datalist id="contacts-filter-topic-options"></datalist>
+                <select class="form-input" id="contacts-filter-relation">
+                  <option value="all">All relations</option>
+                  <option value="friend">Friends</option>
+                  <option value="relative">Relatives</option>
+                  <option value="coworker">Coworkers</option>
+                  <option value="acquaintance">Acquaintances</option>
+                  <option value="partner">Partners</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <select class="form-input" id="contacts-filter-outcome">
+                  <option value="all">All outcomes</option>
+                  <option value="matched">Matched</option>
+                  <option value="unmatched">Not matched</option>
+                </select>
+                <select class="form-input" id="contacts-filter-presence" data-testid="contacts-filter-presence">
+                  <option value="all">Online or not</option>
+                  <option value="online">Online now</option>
                 </select>
                 </div>
               </div>

@@ -497,6 +497,41 @@ button:focus:not(:focus-visible) {
   }
 }
 
+/* Contacts: at most two rows. Row 1 (always): Filters ▾ · name · sort. Row 2: the four filters
+   (behind "Filters ▾" on phones). The focus chip, when set, takes its own line. */
+.contacts-action-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+}
+
+.contacts-action-bar > .filter-bar-toggle { grid-row: 1; grid-column: 1; }
+.contacts-action-bar > #contacts-filter-name { grid-row: 1; grid-column: 2; }
+.contacts-action-bar > #contacts-sort-order { grid-row: 1; grid-column: 3; }
+
+.contacts-action-bar .focus-chip:not([hidden]) {
+  grid-column: 1 / -1;
+}
+
+.contacts-action-bar .filter-bar-content,
+.contacts-action-bar .filter-bar-content.open {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.contacts-action-bar .form-input {
+  padding: 6px 8px;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 767px) {
+  .contacts-action-bar .filter-bar-content:not(.open) {
+    display: none;
+  }
+}
+
 .header-btn {
   background: none;
   border: none;
@@ -551,6 +586,12 @@ button:focus:not(:focus-visible) {
 
 .header-status-text[hidden] {
   display: none;
+}
+
+/* A view's title (Me, Settings) stays whole; the headcount beside it shortens first. */
+#me-status-text,
+#settings-status-text {
+  flex-shrink: 0;
 }
 
 /* The selected folder/detail heading already names the scope; the AppBar shows changing counts. */
@@ -1520,8 +1561,7 @@ button:focus:not(:focus-visible) {
   background: var(--bg-subtle);
 }
 
-.nearby-browser-list .chatroom-item,
-.nearby-browser-list .nearby-person-item {
+.nearby-browser-list .chatroom-item {
   display: flex;
   align-items: center;
   min-height: 58px;
@@ -1535,8 +1575,7 @@ button:focus:not(:focus-visible) {
   transition: background 0.2s ease;
 }
 
-.nearby-browser-list .chatroom-item:hover,
-.nearby-browser-list .nearby-person-item:hover {
+.nearby-browser-list .chatroom-item:hover {
   transform: none;
   background: var(--bg-subtle);
 }
@@ -1893,6 +1932,86 @@ button:focus:not(:focus-visible) {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 8px;
+}
+
+/* One person row on Contacts and in the Nearby list (person-row.ts): avatar, name + online dot,
+   then at most two lines (meta line, tags-in-common chip). */
+.person-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.person-row:hover {
+  background: var(--bg-subtle);
+}
+
+.person-row-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.person-row .person-row-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--gradient-accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 1.1em;
+  overflow: hidden;
+  margin: 0;
+}
+
+.person-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.person-row-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.person-row .person-row-name {
+  font-weight: 700;
+  font-size: 1em;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-row .person-row-name-dm {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.person-row .person-row-meta {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.person-row-arrow {
+  color: #999;
+  flex-shrink: 0;
 }
 
 .chatroom-member-item {
@@ -5794,4 +5913,9 @@ body[data-graph-place-active] #back-to-chatrooms { display: none !important; }
   .chatroom-map-connection-hit { stroke-width: 32; }
   .chatroom-map-connection-label { min-height: 44px; min-width: 44px; }
   .chatroom-map-member-profile { min-height: 44px; }
+}
+
+/* Nearby list: person rows are cards like Contacts (person-row.ts), inset in the section. */
+.nearby-browser-people #nearby-browser-members {
+  padding: 8px 8px 0;
 }

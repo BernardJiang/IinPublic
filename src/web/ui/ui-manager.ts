@@ -66,6 +66,7 @@ import {
 import {
   displayContactsList as renderContactsList,
   showContactsList as openContactsList,
+  personRowSummaries,
   type ContactsViewDeps,
 } from './contacts-view';
 import { displayConversationsList as renderConversationsList } from './conversations-view';
@@ -889,6 +890,13 @@ export class UIManager extends EventEmitter {
         showNotification: (message, type) => this.showNotification(message, type),
         emit: (eventName, payload) => this.emit(eventName, payload),
         isUserOnline: (userId) => this.isUserOnline(userId),
+        // Nearby person rows show the same figures as Contacts (person-row.ts).
+        personRowSummaries: () => personRowSummaries({
+          currentUserId: this.currentUserId,
+          conversations: this.getMyConversations() || {},
+          knownPeople: this.peer().getKnownPeople(),
+          text: (key) => this.t(key),
+        }),
         getCachedHeadshot: (userId) => this.peerHeadshots.get(userId),
         resolvePeerHeadshot: (userId) => this.resolvePeerHeadshot(userId),
         formatDate: (date) => this.formatUiDate(date),

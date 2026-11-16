@@ -123,6 +123,44 @@ async function sharedTagRows(page: Page): Promise<Array<{ peerId: string; shared
     })));
 }
 
+/** STARTER_SIMILAR_SHOTS_DIR: each user's Nearby map + list, Contacts, Talks and Me, pass or fail. */
+async function captureAllTabs(pages: Page[]): Promise<void> {
+  const shotsDir = process.env.STARTER_SIMILAR_SHOTS_DIR;
+  if (!shotsDir) return;
+  const clickById = (page: Page, id: string) => page.evaluate((target) => (document.getElementById(target) as HTMLElement | null)?.click(), id);
+  for (const [index, page] of pages.entries()) {
+    if (!page || page.isClosed()) continue;
+    const shot = async (name: string) => {
+      await page.waitForTimeout(2_500);
+      await page.screenshot({ path: `${shotsDir}/${NAMES[index]}-${name}.png` });
+    };
+    try {
+      await page.keyboard.press('Escape');
+      await page.locator('.nav-btn[data-view="chatrooms"]').click();
+      await clickById(page, 'chatroom-map-view-btn');
+      await page.waitForTimeout(3_000);
+      await shot('1-nearby-map');
+      await clickById(page, 'chatroom-list-view-btn');
+      await shot('2-nearby-list');
+      await sharedTagRows(page);
+      await shot('3-contacts-top');
+      await openCollapsedFilters(page, 'contacts-filter-toggle');
+      await shot('3-contacts-filters-open');
+      await page.locator('[data-testid="contacts-filter-toggle"]').click().catch(() => {});
+      await page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])').first()
+        .evaluate((row) => row.scrollIntoView({ block: 'start' })).catch(() => {});
+      await shot('3-contacts-people');
+      await page.locator('.nav-btn[data-view="talks"]').click();
+      await shot('4-talks');
+      await page.locator('.nav-btn[data-view="me"]').click();
+      await shot('5-me');
+    } catch (error) {
+      console.log(`[starter-similar] screenshots for ${NAMES[index]} stopped: ${String(error).slice(0, 200)}`);
+    }
+  }
+  console.log(`[starter-similar] screenshots in ${shotsDir}`);
+}
+
 test.describe('Find similar people with starter tags', () => {
   test.describe.configure({ retries: 0 });
   const browsers: Browser[] = [];
@@ -134,6 +172,7 @@ test.describe('Find similar people with starter tags', () => {
   });
 
   test.afterAll(async () => {
+    await captureAllTabs(pages);
     await Promise.all(pages.map((page) =>
       page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.manualCleanup?.()).catch(() => {})));
     await Promise.all(contexts.map((context) => context.close().catch(() => {})));

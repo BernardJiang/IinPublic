@@ -39,7 +39,7 @@ test.describe('Contact headshots (M6)', () => {
     await clearGunForStage2Spec();
   });
 
-  test('no headshot shows "?" fallback; a set headshot renders (fresh session); re-sort does not re-fetch', async () => {
+  test('no headshot shows the initial (as in Nearby); a set headshot renders (fresh session); re-sort does not re-fetch', async () => {
     pair = await setupFastMatchedDm(browserA, browserB, 'HeadshotTom', 'HeadshotJerry');
     const { pageA, pageB, userIdB } = pair;
 
@@ -50,10 +50,10 @@ test.describe('Contact headshots (M6)', () => {
 
     const jerryRow = pageA.locator(`.contact-item[data-contact-user-id="${userIdB}"]`);
     await expect(jerryRow).toBeVisible({ timeout: 15_000 });
-    // No headshot set yet: falls back to "?", same as the Relationship modal's convention.
+    // No headshot set yet: the name's initial, the same avatar as the Nearby list (person-row.ts).
     await expect
       .poll(() => jerryRow.locator('.contact-item-avatar').textContent(), { timeout: 10_000 })
-      .toBe('?');
+      .toBe('H');
 
     // Jerry sets an emoji headshot (same pattern as 04-profile-edit-stage-name.spec.ts).
     await pageB.locator('#back-from-conversation').click();

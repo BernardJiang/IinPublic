@@ -33,7 +33,18 @@ export function syncAppBarOverflow(): void {
     menu.style.display = 'none';
     return;
   }
-  const available = barWidth - LEFT_W - CENTER_MIN - PADDING - BTN_W;
+  // The middle needs room for what it shows (headcount, plus a view title on Me/Settings), so
+  // buttons move to ⋯ before the title is cut off; capped so actions are never all hidden.
+  const status = document.getElementById('header-status');
+  const centerNeed = status && status.style.display !== 'none'
+    ? Array.from(status.children)
+      // What is drawn, not the hidden attribute: #status-bar-text's own display rule keeps the
+      // headcount visible on every tab.
+      .filter((el) => getComputedStyle(el).display !== 'none')
+      .reduce((width, el) => width + (el as HTMLElement).scrollWidth + 8, 0)
+    : 0;
+  const center = Math.max(CENTER_MIN, Math.min(centerNeed, Math.floor(barWidth * 0.6)));
+  const available = barWidth - LEFT_W - center - PADDING - BTN_W;
   const overflowing: HTMLElement[] = [];
   let used = 0;
   for (const btn of active) {

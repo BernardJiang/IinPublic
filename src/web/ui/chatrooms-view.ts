@@ -8,6 +8,8 @@ import { getActiveChatroomHierarchy, getFlatChatroomList, type FlatChatroomNode 
 import type { PeerRelationshipStats } from '../../shared/peer-summary-types';
 import { TECHSUPPORT_ROOT_USER_ID } from '../../shared/techsupport';
 import { avatarInnerHtml } from './profile-avatar';
+import { personRowHtml, personRowText, type PersonRowStats } from './person-row';
+import { sharedTagCounter, sharedTagsChipHtml, similarityCounter } from './tag-graph-view';
 import type { UiTranslationKey } from './ui-translations';
 import { exchangeStatsFor } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
@@ -83,6 +85,8 @@ type ChatroomsViewDeps = {
   formatDate: (date: Date) => string;
   /** Live peer presence is display-only and never changes room headcount. */
   isUserOnline: (userId: string) => boolean;
+  /** Each contact's row figures, as Contacts shows them; Nearby person rows use the same (person-row.ts). */
+  personRowSummaries?: () => Map<string, { stats: PersonRowStats; relationship?: string; displayName: string }>;
   /** A peer's profile photo already in the session cache (sync, never fetches), or null. */
   getCachedHeadshot?: (userId: string) => string | null;
   /** Fetch (or refresh) a peer's profile photo; non-blocking, called after the roster renders. */
@@ -358,12 +362,12 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
       ${renderSelfRow(deps)}
+      ${placeLinksHtml(deps.currentChatroom || NEARBY_V3_ROOM_ID, currentNode?.name || '', deps)}
       <div id="nearby-browser-members">
         ${nearbyPeople.length
-          ? nearbyPeople.map((member) => renderOrdinaryMemberRow(member, deps, true)).join('')
+          ? renderNearbyPersonRows(nearbyPeople, deps)
           : `<p class="chatroom-flat-empty">${deps.text('chatroomNoOtherUsers')}</p>`}
       </div>
-      ${placeLinksHtml(deps.currentChatroom || NEARBY_V3_ROOM_ID, currentNode?.name || '', deps)}
     </section>
     ${showRoomsSection ? `<section class="chatroom-flat-section nearby-browser-rooms" data-testid="rooms-near-you-section">
         <h2 class="chatroom-flat-heading">${deps.text('roomListNearHeading')}</h2>
@@ -689,6 +693,37 @@ function syncPeopleListEffects(deps: ChatroomsViewDeps): void {
   if (browser && people) syncListBroadcastEffects(browser, people, scope, events, labels);
   const detail = document.getElementById('chatroom-members-list');
   if (detail) syncListBroadcastEffects(detail, detail, scope, events, labels);
+}
+
+/** The Nearby list's people, drawn exactly like Contacts rows (person-row.ts). */
+function renderNearbyPersonRows(members: readonly ChatroomMember[], deps: ChatroomsViewDeps): string {
+  const summaries = deps.personRowSummaries?.() ?? new Map();
+  const sharedTags = sharedTagCounter();
+  const similarity = similarityCounter();
+  const similarityText = { alike: deps.text('contactsAlike'), mostAlike: deps.text('contactsMostAlike') };
+  const text = personRowText(deps.text);
+  return members.map((member) => {
+    const summary = summaries.get(member.userId);
+    const isMatched = deps.matchedUserIds.has(member.userId);
+    const travelerBadge = member.isTraveler
+      ? `<span class="chatroom-member-traveler-badge" role="img" title="${deps.text('chatroomTraveler')}" aria-label="${deps.text('chatroomTraveler')}">✈</span>`
+      : '';
+    return personRowHtml({
+      kind: 'nearby',
+      userId: member.userId,
+      displayName: summary?.displayName || member.stageName,
+      headshot: deps.getCachedHeadshot?.(member.userId) ?? null,
+      online: deps.isUserOnline(member.userId),
+      ...(summary?.relationship ? { relationship: summary.relationship } : {}),
+      stats: summary?.stats ?? null,
+      chipHtml: sharedTagsChipHtml(sharedTags(member.userId), deps.text('tagsInCommon'), similarity(member.userId), similarityText),
+      avatarBadgeHtml: travelerBadge,
+      rowClass: 'nearby-person-item',
+      rowAttrs: `data-testid="nearby-person-row" data-user-id="${deps.escapeHtml(member.userId)}" role="button" tabindex="0" data-broadcast-user-id="${deps.escapeHtml(member.userId)}" data-stage-name="${deps.escapeHtml(member.stageName)}" data-traveler="${member.isTraveler === true}"${isMatched ? ' data-matched="true"' : ''}`,
+      text,
+      escapeHtml: deps.escapeHtml,
+    });
+  }).join('');
 }
 
 function renderOrdinaryMemberRow(

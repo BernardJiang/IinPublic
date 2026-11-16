@@ -43,6 +43,7 @@ Headed runs stay open on Contacts for 3 minutes at the end.
 | `STARTER_SIMILAR_HOLD_MS` | `180000` headed, `0` in CI | How long the windows stay open at the end |
 | `STARTER_SIMILAR_USERS` | `6` | Fewer users (2–6) for a quicker debugging run |
 | `STARTER_SIMILAR_LIKES` | `30` | Tags each user likes |
+| `STARTER_SIMILAR_SHOTS_DIR` | unset | Save each user's Nearby map + list, Contacts (top, filters open, people), Talks and Me as PNGs here at the end, pass or fail |
 
 The six windows sit side by side in one row (640 px each, 3,840 px in all).
 

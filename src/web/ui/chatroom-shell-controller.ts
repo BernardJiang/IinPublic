@@ -61,6 +61,7 @@ export type ChatroomShellControllerDeps = {
   showNotification: (message: string, type: 'success' | 'error' | 'info') => void;
   emit: (eventName: string, payload: unknown) => void;
   isUserOnline: (userId: string) => boolean;
+  personRowSummaries?: ChatroomsViewDeps['personRowSummaries'];
   getCachedHeadshot?: (userId: string) => string | null;
   resolvePeerHeadshot?: (userId: string) => Promise<string | null>;
   formatDate: (date: Date) => string;
@@ -183,6 +184,7 @@ export function createChatroomShellController(deps: ChatroomShellControllerDeps)
     text: deps.t,
     formatDate: deps.formatDate,
     isUserOnline: deps.isUserOnline,
+    ...(deps.personRowSummaries ? { personRowSummaries: deps.personRowSummaries } : {}),
     ...(deps.getCachedHeadshot ? { getCachedHeadshot: deps.getCachedHeadshot } : {}),
     ...(deps.resolvePeerHeadshot ? { resolvePeerHeadshot: deps.resolvePeerHeadshot } : {}),
     syncAppBarOverflow: deps.syncAppBarOverflow,
