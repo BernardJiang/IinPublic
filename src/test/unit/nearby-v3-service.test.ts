@@ -57,6 +57,7 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
   let dropNext = 0;
   let linkReady = true;
   let hubDown = false;
+  let failHeartbeats = 0;
   const posted: NearbyCard[] = [];
   const link: NearbyV3Link = {
     ready: () => linkReady,
@@ -85,6 +86,10 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
       hub: {
         async heartbeat(card) {
           if (hubDown || !phone.online) throw new Error('hub unreachable');
+          if (failHeartbeats > 0) {
+            failHeartbeats -= 1;
+            throw new Error('AbortError: signal is aborted without reason');
+          }
           heartbeats.push(card.pub);
           return hub.ingest(card, nowMs);
         },
@@ -123,6 +128,8 @@ function network(config: NearbyV3Config, points: PublicLocation[], options: { se
     dropRequests(count: number) { dropNext = count; },
     /** The hub cannot be reached (no Internet). */
     setHubDown(down: boolean) { hubDown = down; },
+    /** The next `count` heartbeats time out (a busy hub); other hub calls still work. */
+    failHeartbeats(count: number) { failHeartbeats = count; },
     posted,
     /** The mesh is between rooms: nothing can be sent. */
     setLinkReady(ready: boolean) { linkReady = ready; },
@@ -169,6 +176,32 @@ describe('NearbyV3Service', () => {
     expect(p2.service.card()!.scopeRevision).toBeGreaterThan(firstRevision);
     expect(p2.service.card()!.point).toEqual(SD);
     expect(p2.service.entries()[0]!.key.distanceMeters).toBe(0);
+  });
+
+  it('retries a failed heartbeat on the next pass instead of waiting for the next reissue', async () => {
+    // A full list makes no other hub call, so nothing else would bring the card back.
+    const cfg = config({ capacity: 2 });
+    const net = network(cfg, [SD, SD, SD]);
+    for (const phone of net.phones.values()) await phone.service.tick();
+    for (let i = 0; i < 3; i += 1) await net.round();
+    const p0 = net.phones.get('p0')!;
+    expect(p0.service.entries()).toHaveLength(2);
+    const sent = () => net.heartbeats.filter((pub) => pub === 'p0').length;
+    const before = sent();
+    // The reissue's heartbeat times out ...
+    net.advance(cfg.cardReissueMs);
+    net.failHeartbeats(1);
+    await p0.service.tick();
+    expect(sent()).toBe(before);
+    // ... and the next pass (one gossip period, not another reissue period) sends it again.
+    await net.round();
+    expect(sent()).toBe(before + 1);
+    // Once accepted (plus the one "back online" announce), it stops until the next reissue.
+    await net.round();
+    const settled = sent();
+    await net.round();
+    await net.round();
+    expect(sent()).toBe(settled);
   });
 
   it('adopts a linked peer revision for the same scope and becomes a live writer', async () => {

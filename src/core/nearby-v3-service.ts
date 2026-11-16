@@ -199,6 +199,8 @@ export class NearbyV3Service {
   private stashedByScope = new Map<string, NearbyCard[]>();
   /** The hub answered the last heartbeat or search; false = offline, so the local board is used. */
   private hubReachable = true;
+  /** My last heartbeat failed: send it again on the next pass, not at the next 3-min reissue. */
+  private heartbeatOwed = false;
   /** The hub just became reachable again: reissue and announce on the next pass. */
   private backOnline = false;
   private lastLocalPostAt = 0;
@@ -559,7 +561,9 @@ export class NearbyV3Service {
     // reissue before expiry travels with the next regular swap.
     const backOnline = this.backOnline;
     this.backOnline = false;
-    const changedCard = backOnline || this.cardIsStale(position, identity.userId, nowMs, config)
+    // A failed heartbeat is retried every pass: the hub's lease lasts two reissue periods, so
+    // waiting for the next reissue let one or two timeouts under load drop me from "M online".
+    const changedCard = backOnline || this.heartbeatOwed || this.cardIsStale(position, identity.userId, nowMs, config)
       ? (await this.reissueCard(position, identity, nowMs, config)) || backOnline
       : false;
 
@@ -661,6 +665,7 @@ export class NearbyV3Service {
     this.ownCard = card;
     try {
       const answer = await this.deps.hub.heartbeat(card);
+      this.heartbeatOwed = false;
       this.setHubReachable(true);
       if (answer) {
         await this.absorbHeartbeat(answer, card.pub);
@@ -684,6 +689,7 @@ export class NearbyV3Service {
         return this.reissueCard(position, identity, nowMs, config);
       }
       this.log(`hub heartbeat failed: ${String(error)}`);
+      this.heartbeatOwed = !(error instanceof NearbyHubPresenceConflictError);
       // A revision conflict proves the hub is reachable; other failures may be connectivity.
       this.setHubReachable(error instanceof NearbyHubPresenceConflictError);
     }
