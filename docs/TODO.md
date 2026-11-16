@@ -67,7 +67,14 @@ its ID.
   Open: (a) when a link opens with many public Talks owed (stage5/00d: 20 at once), 1–4 sometimes
   never arrived (5 of ~12 runs, all while the machine was busy; 0 of 6 when idle). No receiving-limit
   declines were logged (`[intake]` warning added). Next: find where they stop (sender's pair log vs
-  receiver's intake). (b) The audience-preview dialog (`broadcast-audience-dialog.ts`) is no longer
+  receiver's intake). 2026-11-15: an offer that failed before anything was recorded as sent (a busy
+  core timing out, a storage read missing) was never made again until the next catch-up trigger; it
+  is now retried with backoff (`retryOfferLater`, 5 s → 60 s, 6 tries). Not proven to be this gap:
+  00d passed 6/6 (with stage2/98) and in the 2026-11-15 test:all, where no offer failed. The same
+  test:all failed stage5 starter-tags on load: Fay's core requests timed out (45 s, 70 outcome
+  records + 15 delivery records lost) and her shared counts with two people stayed short; it
+  passes alone (8.9 min). Next: why one browser's core queue backs up over 45 s under load.
+  (b) The audience-preview dialog (`broadcast-audience-dialog.ts`) is no longer
   reachable from the UI — remove or repurpose. (c) Done: copies stay as received (private) until
   the copier switches them on (owner, 2026-11-13); a Talk is never sent back to its author (copies
   used to return to the author, mass/06).

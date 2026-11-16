@@ -423,6 +423,8 @@ export class IinPublicApp {
   private supportBootstrapChecked = false;
   /** `${roomId}|${peerId}` → last automatic catch-up send (see catchUpPeerInActiveRoom). */
   private readonly roomCatchupSentAt = new Map<string, number>();
+  /** Peer id → a catch-up scheduled because an offer to them failed (see retryOfferLater). */
+  private readonly offerRetries = new Map<string, { timer: ReturnType<typeof setTimeout> | undefined; attempt: number }>();
   private publishExchangeTimer: ReturnType<typeof setTimeout> | undefined;
   /** Re-offers a Talk someone's receiving limit turned away (`core/declined-retry.ts`). */
   private readonly declinedRetry = new DeclinedRetry((peerId) => {
@@ -3571,6 +3573,31 @@ export class IinPublicApp {
    * a phone). Catch-up skips them, so a roster change meanwhile does not send the same Talk in
    * parallel (OPEN-51). Returns the release to call when that broadcast settles.
    */
+  /**
+   * An offer failed before anything was recorded as sent: run these people's catch-up again later,
+   * backing off (5 s doubling to 60 s, at most 6 tries in a row). The catch-up offers only what the
+   * exchange state still lists as owed, so a Talk that did go out is not sent twice.
+   */
+  private retryOfferLater(peerIds: readonly string[]): void {
+    for (const peerId of new Set(peerIds)) {
+      const pending = this.offerRetries.get(peerId);
+      // One retry at a time per person; it covers every Talk owed to them.
+      if (pending?.timer) continue;
+      const attempt = (pending?.attempt ?? 0) + 1;
+      if (attempt > 6) { console.warn(`[graph-link] offers to ${peerId.slice(0, 8)} keep failing: waiting for the next catch-up`); continue; }
+      const timer = setTimeout(() => {
+        const entry = this.offerRetries.get(peerId);
+        if (entry) entry.timer = undefined;
+        const roomId = this.currentChatroomId;
+        if (!roomId) return;
+        console.info(`[graph-link] offering again to ${peerId.slice(0, 8)} after a failed offer (try ${attempt})`);
+        void refreshExchangeState().then(() => this.catchUpPeerInActiveRoom(peerId, roomId, undefined, { ignoreInterval: true }));
+      }, Math.min(60_000, 5_000 * 2 ** (attempt - 1)));
+      (timer as { unref?: () => void }).unref?.();
+      this.offerRetries.set(peerId, { timer, attempt });
+    }
+  }
+
   private markTalkBroadcastsInFlight(talkIds: readonly string[]): () => void {
     for (const talkId of talkIds) this.talkBroadcastsInFlight.set(talkId, (this.talkBroadcastsInFlight.get(talkId) ?? 0) + 1);
     let released = false;
@@ -6967,7 +6994,16 @@ export class IinPublicApp {
       ...(this.talkLedgerSuppressionDisabledForE2e ? { suppress: false } : {}),
       ...(this.talkSendQuotaUnlimitedForE2e ? { unlimitedForTesting: true } : {}),
     }).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
-    if (!offer?.known) return false;
+    if (!offer?.known) {
+      // Nothing was recorded as sent (a busy core timed out, or a storage read missed): offer again
+      // later, or the Talk never reaches them (OPEN-112 a).
+      this.retryOfferLater(receiverIds);
+      return false;
+    }
+    for (const recipientId of offer.sent) {
+      const retry = this.offerRetries.get(recipientId);
+      if (retry && retry.attempt > 0) retry.attempt = 0;
+    }
     for (const recipientId of offer.sent) this.noteNearbyDelivery(talkId, recipientId);
     // Sending stays visible without a Broadcast button (OPEN-112): only when it really went out.
     if (offer.sent.length > 0) this.uiManager.showExchangeActivity('outgoing', offer.sent);
