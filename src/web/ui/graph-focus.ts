@@ -571,7 +571,7 @@ export function placeLinksHtml(
   const talks = talkIds.length
     ? `<span class="graph-link graph-talks-link" data-testid="place-talks" data-room-id="${deps.escapeHtml(roomId)}" data-topic="${deps.escapeHtml(topic)}" data-talk-ids="${deps.escapeHtml(talkIds.join(' '))}" role="link" tabindex="0">💬 ${deps.escapeHtml(deps.text('placeTalksHere').replace('{count}', String(talkIds.length)))}</span>`
     : '';
-  const answers = answersLinkHtml(topic, talkIds, deps, roomId);
+  const answers = answersLinkHtml(topic, talkIds, deps, roomId, 'placeAnsweredHere');
   return `<div class="place-graph-links" data-testid="place-graph-links" data-room-id="${deps.escapeHtml(roomId)}">${people}${talks}${answers}</div>`;
 }
 
@@ -584,12 +584,21 @@ export function placeLinkHtml(
 }
 
 /** My answers associated with these Talks; available for every Talk type. */
-export function answersLinkHtml(topic: string, talkIds: string[], deps: { escapeHtml: (text: string) => string; text: (key: UiTranslationKey) => string; answeredTalkIds?: ReadonlySet<string> }, roomId?: string): string {
-  const known = deps.answeredTalkIds ?? new Set(Object.values(getFlatAnswerHistory()).map((record) => record.talkId));
+export function answersLinkHtml(topic: string, talkIds: string[], deps: { escapeHtml: (text: string) => string; text: (key: UiTranslationKey) => string; answeredTalkIds?: ReadonlySet<string> }, roomId?: string, countLabel?: UiTranslationKey): string {
+  const known = deps.answeredTalkIds ?? answeredTalkIds();
   const answered = [...new Set(talkIds)].filter((id) => known.has(id));
   if (!answered.length) return '';
-  return `<span class="graph-link graph-answer-link" data-testid="graph-my-answers" data-topic="${deps.escapeHtml(topic)}" data-talk-ids="${deps.escapeHtml(answered.join(' '))}"${roomId ? ` data-room-id="${deps.escapeHtml(roomId)}"` : ''} role="link" tabindex="0">${deps.escapeHtml(deps.text('graphMyAnswers'))}</span>`;
+  const label = countLabel ? `✍️ ${deps.text(countLabel).replace('{count}', String(answered.length))}` : deps.text('graphMyAnswers');
+  return `<span class="graph-link graph-answer-link" data-testid="graph-my-answers" data-topic="${deps.escapeHtml(topic)}" data-talk-ids="${deps.escapeHtml(answered.join(' '))}"${roomId ? ` data-room-id="${deps.escapeHtml(roomId)}"` : ''} role="link" tabindex="0">${deps.escapeHtml(label)}</span>`;
 }
+
+/** Every Talk id I answered (Me's rows). */
+export function answeredTalkIds(): Set<string> {
+  return new Set(Object.values(getFlatAnswerHistory()).map((record) => record.talkId));
+}
+
+/** The Place the Chatrooms tab is showing the history of, if any. */
+export function getPlaceFocus(): { roomId: string; roomName: string } | null { return placeFocus; }
 
 /** Inspect exchange history, including unlisted Places, without joining or travelling. */
 export function openPlace(roomId: string, roomName = ''): void {

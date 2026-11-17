@@ -89,6 +89,8 @@ export type DisplayTalksListDeps = {
   getMyConversations: () => Record<string, any>;
   formatReasonCounts: (counts: Record<string, number>) => string;
   displayContextualStatistics: (elementId: string, prefix?: string) => void;
+  /** A tip shown once per device (then never again), e.g. how to tap a tag. */
+  showTipOnce?: (key: string, message: string) => void;
   /** People I exchanged answers on this Talk's content with (the device graph's exchange index). */
   getCoExchangedPeople: (talk: any, excludePeerIds: Set<string>) => Array<{ id: string; name: string }>;
   formatTalkDistanceFromAuthor: (location: { latitude?: number; longitude?: number } | null | undefined) => string;
@@ -430,12 +432,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
         })
     : [];
-  // One combined summary line instead of two (app-bar direction counts + a separate
-  // "Stats: ..." row below) — direction counts prefix the same response/match line.
-  deps.displayContextualStatistics(
-    'talks-stats-strip',
-    deps.tf('talksStatusSummary', { incoming: inEntries.length, outgoing: filteredOutEntries.length }) + ' · ',
-  );
+  // The In / Out boxes carry their counts; the other tabs' numbers are the AppBar's links
+  // (status-links.ts), so there is no stats line inside the view (owner, 2026-11-16).
+  const inCount = document.getElementById('talks-count-in');
+  if (inCount) inCount.textContent = String(inEntries.length);
+  const outCount = document.getElementById('talks-count-out');
+  if (outCount) outCount.textContent = String(filteredOutEntries.length);
   const talksIncomingCheckbox = document.getElementById('talks-filter-incoming') as HTMLInputElement | null;
   if (talksIncomingCheckbox) talksIncomingCheckbox.checked = deps.talksShowIncoming;
   const talksOutgoingCheckbox = document.getElementById('talks-filter-outgoing') as HTMLInputElement | null;
@@ -872,10 +874,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     // mergedRows is guaranteed non-empty here — the outer `filteredOutEntries.length
     // === 0 && inEntries.length === 0` check above already handled the true-empty case.
     const hasTagChips = mergedRows.some((row) => String(row.payload?.type || row.payload?.[1]?.type || '').toLowerCase() === 'tag');
+    // How to tap a tag is a one-time tip, not a line kept in the list (owner, 2026-11-16).
+    if (hasTagChips) deps.showTipOnce?.('talksTapHint', deps.t('talksTapHint'));
     renderListProgressively(talksList, mergedRows, {
       firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
       renderRow: renderMergedRow,
-      prefixHtml: hasTagChips ? `<div class="talks-tap-hint" data-testid="talks-tap-hint">${escapeHtml(deps.t('talksTapHint'))}</div>` : '',
+      prefixHtml: '',
       onFirstChunkRendered: () => { flowTagChips(talksList); reapplyTalkRowSelection(); },
       onRemainderRendered: () => { flowTagChips(talksList); reapplyTalkRowSelection(); },
       isStale,

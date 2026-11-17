@@ -121,10 +121,7 @@ describe('displayTalksList', () => {
     expect(deps.showTalkEditorDialog).toHaveBeenCalledWith();
     expect((document.getElementById('talks-filter-incoming') as HTMLInputElement).checked).toBe(false);
     expect((document.getElementById('talks-filter-query') as HTMLInputElement).value).toBe('needle');
-    expect(deps.displayContextualStatistics).toHaveBeenCalledWith(
-      'talks-stats-strip',
-      expect.stringContaining('talksStatusSummary'),
-    );
+    expect(deps.displayContextualStatistics).not.toHaveBeenCalled();
     expect(deps.syncStatusBarMatchCount).toHaveBeenCalledTimes(2);
     expect(deps.bindTalksRowGestures).toHaveBeenCalledTimes(1);
   });

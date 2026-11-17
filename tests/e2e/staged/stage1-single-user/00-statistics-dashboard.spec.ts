@@ -74,10 +74,9 @@ test.describe('Statistics dashboard', () => {
 
     await expect(page.locator('#talks-view')).toBeVisible();
 
-    // Stats strip should show response data. The contextualStatsSummary template includes
-    // "responses", "matches", and "match rate" copy.
-    await expect(page.locator('#talks-stats-strip')).toContainText('3', { timeout: 20_000 });
-    await expect(page.locator('#talks-stats-strip')).toContainText('match', { timeout: 10_000 });
+    // No stats line inside Talks (owner, 2026-11-16): the AppBar's links line counts the
+    // people these Talks reached (3 responders) and links to them in Contacts.
+    await expect(page.locator('#status-bar-links [data-testid="status-link-people"]')).toContainText('3 people', { timeout: 20_000 });
 
     // No bottom-nav Stats tab (statistics is only accessible via the Settings-level dashboard).
     await expect(page.locator('.nav-btn[data-view="statistics"]')).toHaveCount(0);

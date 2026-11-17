@@ -588,6 +588,58 @@ button:focus:not(:focus-visible) {
   display: none;
 }
 
+/* Two lines in the AppBar's middle: counts, then the same scope's links to other tabs
+   (status-links.ts). The links line is hidden when a tab has none. */
+.header-status-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 1px;
+}
+
+.header-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.header-status-links[hidden] {
+  display: none;
+}
+
+.header-status-links {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.header-status-links .status-scope-links,
+.header-status-links .place-graph-links {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  margin: 0;
+}
+
+.header-status-links .graph-link {
+  margin-left: 0;
+  font-size: 0.8rem;
+}
+
+#me-status-text {
+  cursor: help;
+}
+
 /* A view's title (Me, Settings) stays whole; the headcount beside it shortens first. */
 #me-status-text,
 #settings-status-text {
@@ -5862,12 +5914,11 @@ body.iinpublic-debug .conversation-health-status {
 #graph-place-panel .place-graph-links { gap: 12px; margin: 18px 0; }
 #graph-place-panel .graph-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 1em; white-space: normal; }
 #graph-place-panel button { min-height: 44px; padding: 8px 14px; }
-#place-detail-graph-links { padding: 0 16px; }
 body[data-graph-place-active] [data-appbar-view="chatrooms"],
 body[data-graph-place-active] #back-to-chatrooms { display: none !important; }
 .contact-item,
 .answer-talk-item { -webkit-touch-callout: none; user-select: none; }
-.talks-tap-hint { font-size: 0.8em; color: var(--text-tertiary); margin: 2px 2px 8px; }
+.talks-direction-count { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 .talks-direction-divider {
   display: flex;
   align-items: center;

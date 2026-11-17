@@ -9,7 +9,7 @@ covers: SPEC-3.6  <!-- auto-seeded; refine by hand -->
 1. Clears the worker Gun/server state.
 2. Writes three normalized stats records through `POST /api/stats/talks/:id/record`.
 3. Opens the web app, verifies there is no bottom-nav **Stats** tab, and navigates to **Talks**.
-4. Verifies the contextual stats strip renders response totals and match-rate copy.
+4. Verifies the AppBar's links line on Talks counts the 3 people the Talk reached ("👥 3 people"). There is no stats line inside the view any more (owner, 2026-11-16).
 
 ## Why this matters
 

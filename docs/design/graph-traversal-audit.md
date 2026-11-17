@@ -75,7 +75,7 @@ or because equivalent surfaces use different navigation behavior.
 - **Chatrooms → Me:** keep the self shortcut; additionally offer My answers here when answers
   exist for Talks exchanged in that Place. This follows a Place relationship rather than opening
   all of Me.
-- **Place detail → Contacts/Talks:** expose People met here and Talks here within the detail view.
+- **Place detail → Contacts/Talks:** People met here, Talks here and answered here are the AppBar's second line (`status-links.ts`, owner 2026-11-16), not a line inside the view. Every tab's line 2 links its scope's numbers to the other tabs.
   The existing summary is rendered only in the browser list, which is hidden while detail is open.
 - Prefer small, named contextual links: People, Talks, My answers, and Places. Show a clear empty
   state for a requested relationship with no available content; do not fabricate an association.

@@ -100,7 +100,8 @@ test('four tabs traverse people, non-tag Talks, answers and historical Places wi
     await page.locator('#back-from-peer-detail').click();
     await active('chatrooms');
     // Talks → Contacts, Me, Chatrooms from a non-tag card, preserving its focused origin.
-    await list.getByTestId('place-talks').click();
+    // The live list's place links are the AppBar's second line (status-links.ts).
+    await page.locator('#status-bar-links').getByTestId('place-talks').click();
     await active('talks');
     const card = page.locator('#talks-list .talk-list-item[data-talk-id="graph-flow"]').first();
     for (const [link, view] of [['answer-people', 'contacts'], ['graph-my-answers', 'me'], ['answer-place', 'chatrooms']]) {

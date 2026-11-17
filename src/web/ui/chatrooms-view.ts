@@ -15,8 +15,8 @@ import { exchangeStatsFor } from '../services/local-peer-derivation';
 import { getChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { getLocationChatroomPath } from '../../shared/location-to-chatroom';
 import { isPlaceRoomId } from '../../shared/place-rooms';
-import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId, isPersonalListScope, NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
-import { bindGraphLinks, openMapMe, placeLinksHtml, renderGraphPlaceView } from './graph-focus';
+import { CONTACTS_ONLY_SCOPE_ID, isNearbyRoomId, isPersonalListScope } from '../../shared/nearby-rooms';
+import { bindGraphLinks, openMapMe, renderGraphPlaceView } from './graph-focus';
 import { getL1TileInfo, parseTileId, tileBounds, tileCenter, TILE_BOTTOM_LAYER } from '../../shared/room-tiles';
 import type { ChatroomMapLocation } from '../../shared/chatroom-map-locations';
 import { renderChatroomMap, type ChatroomMapRoom, type MapUserDots, type RoomMemberCardSource } from './chatroom-map-view';
@@ -362,7 +362,6 @@ export function renderChatroomList(deps: ChatroomsViewDeps): void {
     <div class="nearby-browser-list" data-testid="nearby-browser-list">
     <section class="chatroom-flat-section nearby-browser-people" data-testid="nearby-people-section">
       ${renderSelfRow(deps)}
-      ${placeLinksHtml(deps.currentChatroom || NEARBY_V3_ROOM_ID, currentNode?.name || '', deps)}
       <div id="nearby-browser-members">
         ${nearbyPeople.length
           ? renderNearbyPersonRows(nearbyPeople, deps)
@@ -570,14 +569,9 @@ export function updateChatroomMembers(
   currentUserId: string,
 ): void {
   const chatroomMembersList = document.getElementById('chatroom-members-list');
-  const detail = document.getElementById('chatroom-detail-container');
-  let links = document.getElementById('place-detail-graph-links');
-  if (detail && !links) {
-    links = document.createElement('div');
-    links.id = 'place-detail-graph-links';
-    detail.insertBefore(links, chatroomMembersList);
-  }
-  if (links) links.innerHTML = placeLinksHtml(deps.currentChatroom, deps.customChatrooms.find((room) => room.id === deps.currentChatroom)?.name || '', deps);
+  // A Place's "met here / Talks here / answered here" links are the AppBar's second line
+  // (status-links.ts), not a line inside the view (owner, 2026-11-16).
+  document.getElementById('place-detail-graph-links')?.remove();
   const chatroomStatus = document.getElementById('current-chatroom-status');
   // TechSupport is a built-in Contact only. Filter legacy rows before count, detail state, and
   // rendering so stale relay/Gun data cannot resurrect a support room presence.

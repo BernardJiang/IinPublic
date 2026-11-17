@@ -80,18 +80,20 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
-    // The row-count header line now merges into the stats strip (§AA) instead of a
-    // separate #contacts-status-text element.
-    await expect(p.locator('#contacts-stats-strip')).toBeVisible();
-    await expect(p.locator('#contacts-stats-strip')).toContainText('0 contacts from exchanged talks');
+    // No stats line inside the view (owner, 2026-11-16): the AppBar's links line carries the
+    // scope's numbers, and a fresh account has none to link to.
+    await expect(p.locator('#contacts-stats-strip')).toHaveCount(0);
+    await expect(p.locator('[data-testid="contacts-product-promise"]')).toHaveCount(0);
+    await expect(p.locator('#status-bar-links')).toBeHidden();
     await expect(p.locator('#contacts-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.contacts-action-bar')).toBeVisible();
 
     await p.locator('.nav-btn[data-view="talks"]').click();
     await afterNav();
     await expect(p.locator('#header-title')).toBeEmpty();
-    await expect(p.locator('#talks-stats-strip')).toBeVisible();
-    await expect(p.locator('#talks-stats-strip')).toContainText(/incoming|Incoming/);
+    await expect(p.locator('#talks-stats-strip')).toHaveCount(0);
+    await expect(p.locator('#talks-count-in')).toHaveText(/^\d+$/);
+    await expect(p.locator('#talks-count-out')).toHaveText(/^\d+$/);
     await expect(p.locator('#talks-view .status-bar')).toHaveCount(0);
     await expect(p.locator('.talks-action-bar')).toBeVisible();
     await expect(p.locator('#create-talk-btn-talks')).toHaveCount(0);
@@ -427,7 +429,6 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#reply-filter-query')).toHaveAttribute('placeholder', '昵称或话题');
     await expect(p.locator('#talks-out-sort-order option[value="weighted"]')).toHaveText('加权表现');
     await expect(p.locator('#reply-filter-language option[value="zh"]')).toHaveText('中文');
-    await expect(p.locator('#talks-stats-strip')).toContainText('统计：');
     // Actionable starter Talk onboarding (dev.codex, 2026-09-27): a genuinely fresh account with
     // no talk history at all now shows the starter template shelf here instead of the old plain
     // "no talks yet" message (talksNoTalks) — that older text only shows once the account has SOME
@@ -459,7 +460,7 @@ test.describe('UI navigation and settings shell', () => {
     // The broadcast toggle is a real checkbox now — its localized label lives in the
     // wrapping badge's title attribute, not visible text.
     await expect(localizedRow.locator('.talk-icon-badge')).toHaveAttribute('title', '广播开启');
-    await expect(p.locator('#talks-stats-strip')).toContainText('1 个发出');
+    await expect(p.locator('#talks-count-out')).toHaveText('1');
     await p.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showTalkEditorDialog());
     await expect(p.locator('#talk-editor-modal')).toContainText('创建话题');
     await expect(p.locator('#talk-editor-modal')).toContainText('话题标题');

@@ -60,8 +60,8 @@ export type ContactsViewDeps = {
   /** Tapping the row anywhere else — opens the person's details popup without also
    *  jumping straight into a DM. */
   openPeerDetailOnly: (userId: string, stageName: string) => void;
-  /** Merges the row-count header line into the same "Stats: ..." strip (one line
-   *  instead of two) — mirrors the Talks tab's displayContextualStatistics(prefix). */
+  /** Called once the list is drawn: the AppBar's links line (status-links.ts) reads the same
+   *  scope. There is no stats line inside the view any more (owner, 2026-11-16). */
   updateStatsStrip: (prefix: string) => void;
   getMyConversations: () => Record<string, any>;
   getMyTalks: () => Record<string, any>;
@@ -754,8 +754,7 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
       return;
     }
 
-    // One combined summary line instead of two (header count + a separate "Stats: ..."
-    // row below) — same "merge the redundant top lines" move the Talks tab redesign made.
+    // The count goes to the AppBar's links line, not a line inside the view.
     deps.updateStatsStrip(formatCountText(deps, visiblePeers.length + (focus ? 0 : visibleStarterContacts.length), 'contactsCountOne', 'contactsCount') + ' · ');
 
     const supportOnline = deps.isTechSupportOnline();

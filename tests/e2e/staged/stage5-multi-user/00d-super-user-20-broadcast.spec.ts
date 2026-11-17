@@ -215,7 +215,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await afterLoad();
     await pageTechSupport.click('.nav-btn[data-view="talks"]');
     await afterLoad();
-    await expect(pageTechSupport.locator('#talks-stats-strip')).toContainText(/20 outgoing/i, { timeout: 15_000 });
+    await expect(pageTechSupport.locator('#talks-count-out')).toHaveText('20', { timeout: 15_000 });
     await expect
       .poll(
         async () => {

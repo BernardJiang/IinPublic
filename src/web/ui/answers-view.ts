@@ -573,7 +573,6 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
   container.innerHTML = `
     ${identityHeaderHtml}
     <div class="answers-view-inner" style="padding: 16px; max-width: min(980px, 96%); margin: 0 auto;">
-      <p style="margin-bottom: 12px; color: #666;">${deps.text('meAnswersIntro')} Every distinct question is listed once, with each context's answer below it.</p>
       <input id="answers-search-input" class="form-input" type="search" placeholder="${deps.text('meSearchAnswers')}" style="width:100%; margin-bottom:12px;">
       <div id="answers-list" class="answers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
     </div>

@@ -205,6 +205,8 @@ import { coExchangedPeers } from '../services/exchange-state';
 import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
 import { getMyConversations, setMyConversations } from './my-conversations-storage';
 import { settingsStorage } from '../services/core-storage';
+import { renderStatusLinks as renderStatusLinksImpl } from './status-links';
+import { bindTipOnTap, showTipOnce as showTipOnceImpl } from './ui-tips';
 import { readTalksTabState, writeTalksTabState } from './talks-tab-state';
 
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
@@ -736,6 +738,28 @@ export class UIManager extends EventEmitter {
     document.querySelectorAll<HTMLElement>('.header-status-text[data-header-status-view]').forEach((status) => {
       status.hidden = status.dataset.headerStatusView !== viewName;
     });
+    this.refreshStatusLinks(viewName);
+  }
+
+  /**
+   * The AppBar's second line: this tab's numbers as links to another tab at the same scope
+   * (status-links.ts). Redrawn on a tab switch and after each list draws.
+   */
+  refreshStatusLinks(viewName?: string): void {
+    const view = viewName
+      || document.querySelector<HTMLElement>('.nav-btn.active')?.dataset.view
+      || 'chatrooms';
+    renderStatusLinksImpl(view, {
+      escapeHtml,
+      text: (key) => this.t(key),
+      currentChatroom: this.currentChatroom === CONTACTS_ONLY_SCOPE_ID ? '' : this.currentChatroom,
+      currentChatroomName: this.customChatrooms.find((room) => room.id === this.currentChatroom)?.name || '',
+    });
+    bindTipOnTap('me-status-text', () => this.t('meAnswersIntro'), (message) => this.showNotification(message, 'info'));
+  }
+
+  showTipOnce(key: string, message: string): void {
+    showTipOnceImpl(key, message, (text) => this.showNotification(text, 'info'));
   }
 
   private get currentUserId(): string {
@@ -955,7 +979,7 @@ export class UIManager extends EventEmitter {
       // Messaging remains an explicit action inside that page.
       openPeerDetail: (id, name) => openMapPerson(id, name, peer.openPeerDetailForUser),
       openPeerDetailOnly: (id, name) => openMapPerson(id, name, peer.openPeerDetailForUser),
-      updateStatsStrip: (prefix: string) => this.displayContextualStatistics('contacts-stats-strip', prefix),
+      updateStatsStrip: () => this.refreshStatusLinks(),
       getMyConversations: this.getMyConversations.bind(this),
       getMyTalks: this.getMyTalks.bind(this),
       getStarterPracticeContacts: () => this.starterSeeds().contacts,
@@ -1080,6 +1104,7 @@ export class UIManager extends EventEmitter {
   }
   private renderChatroomList(): void {
     this.chatroomShell().renderChatroomList();
+    this.refreshStatusLinks();
   }
   showChatroomDetail(chatroomId: string): void {
     this.chatroomShell().showChatroomDetail(chatroomId);
@@ -1158,6 +1183,7 @@ export class UIManager extends EventEmitter {
       getMyConversations: () => this.getMyConversations(),
       formatReasonCounts: (counts) => this.formatReasonCounts(counts),
       displayContextualStatistics: (elementId, prefix) => this.displayContextualStatistics(elementId, prefix),
+      showTipOnce: (key, message) => this.showTipOnce(key, message),
       getCoExchangedPeople: (talk, excluded) => this.getCoExchangedPeople(talk, excluded),
       formatTalkDistanceFromAuthor: (location) => this.formatTalkDistanceFromAuthor(location),
       formatTalkExpiration: (expiresAt) => this.formatTalkExpiration(expiresAt),
@@ -1176,6 +1202,7 @@ export class UIManager extends EventEmitter {
       persistTalksTabState: () => this.persistTalksTabState(),
       getTalksGestureSuppressClickUntil: () => this.talksGestureSuppressClickUntil,
     });
+    this.refreshStatusLinks();
   }
 
   setTalkStats(statsMap: Record<string, { responses: number; matches: number; ignores: number }>): void {
@@ -1334,6 +1361,8 @@ export class UIManager extends EventEmitter {
       // behavior) would miss those.
       onRowsRendered: () => applyMeAnswerFilter(this.t.bind(this)),
     });
+    this.refreshStatusLinks();
+    this.showTipOnce('meAnswersIntro', this.t('meAnswersIntro'));
     document.getElementById('answers-search-input')?.addEventListener('input', () => applyMeAnswerFilter(this.t.bind(this)));
   }
 

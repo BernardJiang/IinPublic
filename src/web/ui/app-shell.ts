@@ -33,10 +33,17 @@ export function renderAppShell(
             <div class="header-title" id="header-title"></div>
             <div class="header-status" id="header-status" style="display: none;">
               <div class="header-user-info" id="header-user-info"></div>
-              <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
-              <span class="header-status-text" id="me-status-text" data-header-status-view="me" hidden>My answers</span>
-              <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
-              <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
+              <!-- Line 1: counts (and the view title on Me/Settings). Line 2 (status-links.ts): the
+                   same numbers as links that open another tab at this tab's scope. -->
+              <div class="header-status-lines">
+                <div class="header-status-line">
+                  <span class="header-status-text" id="status-bar-text" data-header-status-view="chatrooms">Connecting...</span>
+                  <span class="header-status-text" id="me-status-text" data-header-status-view="me" data-testid="me-status-title" role="button" tabindex="0" hidden>My answers</span>
+                  <span class="header-status-text" id="settings-status-text" data-header-status-view="settings" hidden>Feature and filter controls</span>
+                  <span id="broadcast-bulk-ack" data-testid="broadcast-bulk-ack" hidden></span>
+                </div>
+                <div class="header-status-links" id="status-bar-links" data-testid="status-bar-links" aria-label="${text('statusLinksLabel')}" hidden></div>
+              </div>
             </div>
           </div>
           <div class="header-actions app-bar-right" id="header-actions">
@@ -148,8 +155,6 @@ export function renderAppShell(
                 </select>
                 </div>
               </div>
-              <div data-testid="contacts-product-promise" style="padding:8px 12px 0;color:var(--text-secondary);font-size:0.9em;font-weight:600;">${text('contactsPromise')}</div>
-              <div class="embedded-stats-strip" id="contacts-stats-strip" style="padding:8px 12px;color:var(--text-tertiary);font-size:0.88em;"></div>
               <div class="contacts-list-container" id="contacts-list-container">
                 <div class="contacts-list" id="contacts-list">
                   <p style="text-align: center; padding: 40px 20px; color: #999;">${text('contactsEmpty')}</p>
@@ -166,10 +171,10 @@ export function renderAppShell(
               <div class="filter-bar talks-action-bar">
                 <div class="talks-primary-filters" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; flex:1 1 auto; font-size:0.88em;">
                   <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
-                    <input type="checkbox" id="talks-filter-incoming" checked> In
+                    <input type="checkbox" id="talks-filter-incoming" checked> In <span class="talks-direction-count" id="talks-count-in" data-testid="talks-count-in"></span>
                   </label>
                   <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
-                    <input type="checkbox" id="talks-filter-outgoing" checked> Out
+                    <input type="checkbox" id="talks-filter-outgoing" checked> Out <span class="talks-direction-count" id="talks-count-out" data-testid="talks-count-out"></span>
                   </label>
                   <span style="width:1px;align-self:stretch;background:var(--border);"></span>
                   <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;">
@@ -215,7 +220,6 @@ export function renderAppShell(
                 <input class="form-input" id="talks-filter-date-to" aria-label="Talks through date" type="date" style="flex:0 0 140px;">
                 </div>
               </div>
-              <div class="embedded-stats-strip" id="talks-stats-strip" style="padding:8px 12px;color:var(--text-tertiary);font-size:0.88em;"></div>
               <section id="creator-replies-panel" style="display:none;padding:12px;border-bottom:1px solid var(--border);background:var(--surface);">
                 <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">
                   <strong>Replies To My Talks</strong>
