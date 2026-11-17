@@ -26,6 +26,8 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..');
  */
 const hubDelay = process.env.E2E_HUB_API_DELAY_MS ? ` E2E_HUB_API_DELAY_MS=${process.env.E2E_HUB_API_DELAY_MS}` : '';
 const reuse = process.env.E2E_REUSE_SERVERS === '1';
+/** test:all runs the suite in shards side by side (scripts/run-test-all.sh); each keeps its own report and results. */
+const shard = process.env.PHONE_PATH_SHARD ? `/shard-${process.env.PHONE_PATH_SHARD}` : '';
 
 export default defineConfig({
   testDir: '.',
@@ -34,10 +36,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
-  reporter: [['list'], ['html', { open: 'never', outputFolder: '../../../playwright-report-phone-path' }]],
+  reporter: [['list'], ['html', { open: 'never', outputFolder: `../../../playwright-report-phone-path${shard}` }]],
   timeout: 240_000,
   expect: { timeout: 15_000 },
-  outputDir: '../../../test-results/phone-path',
+  outputDir: `../../../test-results/phone-path${shard}`,
 
   use: {
     actionTimeout: 15_000,

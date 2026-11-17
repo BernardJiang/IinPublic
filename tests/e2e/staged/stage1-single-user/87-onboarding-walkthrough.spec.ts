@@ -83,7 +83,8 @@ test.describe('First-run introduction', () => {
     const prompt = p.locator('[data-testid="starter-tag-create-prompt"]');
     await expect(prompt).toHaveCount(1);
     // Chips sit side by side in a wrapping row, so the prompt follows the last starter group's row.
-    expect(await prompt.evaluate((element) =>
+    // Polled: the Tag Guide group can land a render after the prompt (failed once under test:all load).
+    await expect.poll(() => prompt.evaluate((element) =>
       element.previousElementSibling?.lastElementChild?.getAttribute('data-starter-tag') === 'true'
       && element.nextElementSibling?.getAttribute('data-starter-group') === 'tag-guide')).toBe(true);
     await expect(p.locator('[data-testid="starter-tag-group-heading"][data-starter-group="tag-guide"]')).toHaveText(/Tag Guide/);

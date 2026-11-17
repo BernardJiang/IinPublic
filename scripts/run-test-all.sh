@@ -272,18 +272,36 @@ trap 'on_interrupt' INT TERM
 
 # Launch one phase in the background on its own port band. Records time + rc to $LOG_DIR.
 #   start_phase <name> <relative_port_offset> <env-and-command...>
+# Run one phase in the foreground on its own port band. Records time + rc to $LOG_DIR.
+#   run_phase <name> <relative_port_offset> <env-and-command...>
+run_phase() {
+  local name="$1" offset=$((TEST_ALL_PORT_OFFSET + $2)); shift 2
+  local s; s=$(date +%s)
+  echo "$s" >"$LOG_DIR/$name.start"
+  E2E_PORT_OFFSET="$offset" "$@" >"$LOG_DIR/$name.log" 2>&1
+  local rc=$?
+  echo "$rc" >"$LOG_DIR/$name.rc"
+  echo "$(( $(date +%s) - s ))" >"$LOG_DIR/$name.time"
+}
+
+# Launch one phase in the background.
+#   start_phase <name> <relative_port_offset> <env-and-command...>
 start_phase() {
-  local name="$1" relative_offset="$2" offset=$((TEST_ALL_PORT_OFFSET + $2)); shift 2
-  PHASE_ORDER+=("$name")
-  echo "[test:all]   ▶ $name (offset $offset)"
-  (
-    local s; s=$(date +%s)
-    echo "$s" >"$LOG_DIR/$name.start"
-    E2E_PORT_OFFSET="$offset" "$@" >"$LOG_DIR/$name.log" 2>&1
-    local rc=$?
-    echo "$rc" >"$LOG_DIR/$name.rc"
-    echo "$(( $(date +%s) - s ))" >"$LOG_DIR/$name.time"
-  ) &
+  PHASE_ORDER+=("$1")
+  echo "[test:all]   ▶ $1 (offset $((TEST_ALL_PORT_OFFSET + $2)))"
+  ( run_phase "$@" ) &
+  WAVE_PIDS+=($!)
+}
+
+# Launch phases one after another in ONE background lane (a short phase fills the time a
+# longer phase in the same wave leaves idle). Each argument is a phase name whose command is
+# the function lane_<name>.
+#   start_lane <name> [<name>...]
+start_lane() {
+  local name
+  for name in "$@"; do PHASE_ORDER+=("$name"); done
+  echo "[test:all]   ▶ lane: $*"
+  ( for name in "$@"; do "lane_$name"; done ) &
   WAVE_PIDS+=($!)
 }
 
@@ -390,7 +408,26 @@ run_phone_path() {
     node scripts/add-sri.js
     node scripts/stamp-build-id.js
     node scripts/generate-web-checksums.js
-    env -u E2E_BLOB -u E2E_STATIC_WEB_ROOT npx playwright test --config tests/e2e/phone-path/playwright.config.ts
+    # PHONE_PATH_SHARDS shards (default 3), each with its own hub and two phone nodes 20 ports
+    # apart (the suite uses 18180..18199). Its files ran one at a time for ~18 min alone;
+    # Playwright shards whole files here (fullyParallel: false), so specs keep their order.
+    # Playwright's --shard splits by test count (9/2/7 min here), so files are dealt to shards
+    # by their measured seconds instead, longest first (scripts/phone-path-shards.mjs).
+    local n="${PHONE_PATH_SHARDS:-3}" i pids=() rc=0 files
+    for (( i=1; i<=n; i++ )); do
+      files="$(node scripts/phone-path-shards.mjs "$i" "$n")"
+      [ -z "$files" ] && continue
+      # shellcheck disable=SC2086
+      env -u E2E_BLOB -u E2E_STATIC_WEB_ROOT E2E_PHONE_PATH_PORT_OFFSET=$(( (i-1) * 20 )) PHONE_PATH_SHARD="$i" \
+        npx playwright test --config tests/e2e/phone-path/playwright.config.ts $files \
+        >"$LOG_DIR/phone-path-$i.log" 2>&1 &
+      pids+=($!)
+    done
+    for i in "${!pids[@]}"; do wait "${pids[$i]}" || rc=1; done
+    for (( i=1; i<=n; i++ )); do
+      [ -f "$LOG_DIR/phone-path-$i.log" ] && { echo "--- shard $i/$n ---"; cat "$LOG_DIR/phone-path-$i.log"; }
+    done
+    exit "$rc"
   ) >"$LOG_DIR/phone-path.log" 2>&1
   local rc=$?
   echo "$rc" >"$LOG_DIR/phone-path.rc"
@@ -399,14 +436,32 @@ run_phone_path() {
 PHONE_PATH_OVERLAP="${TEST_ALL_PHONE_PATH_OVERLAP:-1}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 1: light + stage5 run together at different port offsets.
+# Wave 1: light, and beside it one lane of stage5 then heavy-staged (different port offsets).
+# light is the long pole (~20 min); stage5 (~12) + heavy-staged (~6) fit in its shadow, where
+# heavy-staged used to hold wave 2 open alone for ~4 min (2026-11-16).
 # ─────────────────────────────────────────────────────────────────────────────
+SEQUENTIAL_TAIL="${TEST_ALL_SEQUENTIAL_TAIL:-0}"
+lane_stage5() {
+  run_phase stage5 200 \
+    env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$STAGE5_WORKERS" \
+      npx playwright test tests/e2e/staged/stage5-multi-user
+}
+lane_heavy-staged() {
+  run_phase heavy-staged 400 \
+    env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$HEAVY_WORKERS" npx playwright test \
+      tests/e2e/staged/stage4-four-user \
+      tests/e2e/staged/stage2-two-user/01-login-two-users-headcount.spec.ts \
+      tests/e2e/staged/stage3-three-user/02-multi-user-headcount.spec.ts \
+      tests/e2e/staged/stage3-three-user/09-four-types-chatbot.spec.ts
+}
 start_phase light 0 \
   env E2E_SKIP_HEAVY=1 PW_WORKERS="$LIGHT_WORKERS" npx playwright test
 maybe_wait 1
-start_phase stage5 200 \
-  env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$STAGE5_WORKERS" \
-    npx playwright test tests/e2e/staged/stage5-multi-user
+if [ "$SEQUENTIAL_TAIL" != "1" ]; then
+  start_lane stage5 heavy-staged
+else
+  start_lane stage5
+fi
 wait_wave 1
 RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
 
@@ -421,7 +476,7 @@ RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
 # 400 piggyback for 'free'. The original SEQUENTIAL_TAIL=1 was set after a mixed-saturation
 # timeout regression, but on an M4 the extra capacity absorbed it without issue. Rollback
 # per-run with TEST_ALL_SEQUENTIAL_TAIL=1 if you see Gun-sync flakes or port conflicts.
-SEQUENTIAL_TAIL="${TEST_ALL_SEQUENTIAL_TAIL:-0}"
+# heavy-staged moved to wave 1, behind stage5 (2026-11-16).
 start_phase mesh-batch 0 \
   env PW_WORKERS="$MESH_WORKERS" npx playwright test \
     tests/e2e/talks-matching/01-mesh-ping-overlay.spec.ts \
@@ -470,13 +525,6 @@ if [ "$SEQUENTIAL_TAIL" != "1" ]; then
   maybe_wait 2
   start_phase isolated 100 \
     env E2E_RUN_ISOLATED=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS=1 npx playwright test tests/e2e/isolated
-  maybe_wait 2
-  start_phase heavy-staged 400 \
-    env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$HEAVY_WORKERS" npx playwright test \
-      tests/e2e/staged/stage4-four-user \
-      tests/e2e/staged/stage2-two-user/01-login-two-users-headcount.spec.ts \
-      tests/e2e/staged/stage3-three-user/02-multi-user-headcount.spec.ts \
-      tests/e2e/staged/stage3-three-user/09-four-types-chatbot.spec.ts
 fi
 wait_wave 2
 RC_MESH=$(cat "$LOG_DIR/mesh-batch.rc"); RC_MESHISO=$(cat "$LOG_DIR/mesh-isolated.rc"); RC_FS=$(cat "$LOG_DIR/find-similar.rc")
@@ -491,7 +539,7 @@ fi
 # beside wave 2's five phases its 02 chat channel failed to connect twice running, while it
 # passes alone and mass passed beside it in every run (2026-11-15).
 if [ "${TEST_ALL_PHONE_PATH:-1}" != "0" ] && [ "$PHONE_PATH_OVERLAP" = "1" ]; then
-  echo "[test:all]   ▶ phone-path (beside wave 3, fixed ports 18180+)"
+  echo "[test:all]   ▶ phone-path (beside wave 3, ${PHONE_PATH_SHARDS:-3} shards on ports 18180+)"
   run_phone_path &
   PP_PID=$!
 fi
@@ -503,8 +551,23 @@ fi
 # measured twice passing solo at the exact same settings that failed in shared waves. This
 # is a hardware ceiling, not a code path: fit the workload to the machine.
 # ─────────────────────────────────────────────────────────────────────────────
-start_phase mass 100 \
-  env E2E_SKIP_ALL_MESH=1 PW_WORKERS="$MASS_WORKERS" npx playwright test tests/e2e/mass
+# mass: Playwright deals files in name order, so the 5.6-min 06 started last and one worker ran
+# it alone (9.6 min, 2026-11-16). With 2 workers, two single-worker lanes with files grouped by
+# measured time end together (~8 min): 06+03 and 01+02+04+05, on offsets +0 and +1.
+if [ "$MASS_WORKERS" = "2" ]; then
+  start_phase mass 100 \
+    bash -c '
+      E2E_PORT_OFFSET=$E2E_PORT_OFFSET PW_WORKERS=1 E2E_SKIP_ALL_MESH=1 npx playwright test \
+        tests/e2e/mass/06-map-world-operations-showcase.spec.ts tests/e2e/mass/03-route-mass-exchange.spec.ts & a=$!
+      E2E_PORT_OFFSET=$((E2E_PORT_OFFSET + 1)) PW_WORKERS=1 E2E_SKIP_ALL_MESH=1 npx playwright test tests/e2e/mass \
+        --grep-invert "map world operations|route mass" & b=$!
+      wait $a; ra=$?; wait $b; rb=$?
+      exit $(( ra || rb ))
+    '
+else
+  start_phase mass 100 \
+    env E2E_SKIP_ALL_MESH=1 PW_WORKERS="$MASS_WORKERS" npx playwright test tests/e2e/mass
+fi
 wait_wave 3
 RC_MASS=$(cat "$LOG_DIR/mass.rc")
 
@@ -660,7 +723,7 @@ fi
 # cleaned by the OS): test-logs/<phase>.log survives for post-mortem, including the full
 # browser console when E2E_VERBOSE_CONSOLE=1 is exported for the run.
 mkdir -p "$ROOT/test-logs"
-for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar heavy-staged cross-browser; do
+for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar heavy-staged cross-browser phone-path; do
   rc="$(cat "$LOG_DIR/$name.rc" 2>/dev/null || echo '')"
   if [ -n "$rc" ] && [ "$rc" != "0" ] && [ -f "$LOG_DIR/$name.log" ]; then
     cp "$LOG_DIR/$name.log" "$ROOT/test-logs/$name.log"
@@ -679,11 +742,11 @@ printf '  %-26s %5ss  %s\n' "phase0 (builds gate e2e)" "$p0_dur" "type=$RC_TYPE 
 printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"      "$(phase_time light)" "$RC_LIGHT"          "$(wave_label)"
 printf '  %-26s %5ss  rc=%s   │\n'                      "stage5"     "$(phase_time stage5)"  "$RC_S5"
 if [ "$SEQUENTIAL_TAIL" != "1" ]; then
+  printf '  %-26s %5ss  rc=%s   ┘ (after stage5, same lane)\n' "heavy-staged" "$(phase_time heavy-staged)" "$RC_HA"
   printf '  %-26s %5ss  rc=%s   ┐ wave 2 (%s, tail folded)\n' "mesh-batch" "$(phase_time mesh-batch)" "$RC_MESH" "$(wave_label)"
   printf '  %-26s %5ss  rc=%s   │\n'                      "mesh-isolated" "$(phase_time mesh-isolated)" "$RC_MESHISO"
   printf '  %-26s %5ss  rc=%s   │\n'                      "find-similar"  "$(phase_time find-similar)"  "$RC_FS"
-  printf '  %-26s %5ss  rc=%s   │\n'                      "isolated"      "$(phase_time isolated)"      "$RC_ISO"
-  printf '  %-26s %5ss  rc=%s   ┘\n'                      "heavy-staged"  "$(phase_time heavy-staged)"  "$RC_HA"
+  printf '  %-26s %5ss  rc=%s   ┘\n'                      "isolated"      "$(phase_time isolated)"      "$RC_ISO"
   [ "$CROSS_BROWSER_PHASE" = "1" ] && \
     printf '  %-26s %5ss  rc=%s   │ (webkit+firefox @smoke)\n' "cross-browser" "$(phase_time cross-browser)" "$RC_XB"
   printf '  %-26s %5ss  rc=%s   ─ wave 3 (mass solo)\n'   "mass"          "$(phase_time mass)"          "$RC_MASS"

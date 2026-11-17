@@ -41,6 +41,10 @@ export async function openSettingsSection(page: Page, sectionId: string): Promis
     await menu.waitFor({ state: 'visible' });
   }
 
+  // A fresh user's "Welcome to IinPublic" notification covers the first menu item (Profile), and
+  // Playwright retries the click until it fades: ~1.9 s on every bootstrap, 12 min of test:all
+  // light (2026-11-16). Nothing under test is lost: the click is the step, not the notification.
+  await dismissNotificationOverlays(page);
   await page.locator(`.settings-jump-menu-item[data-target="${sectionId}"]`).click();
   await section.waitFor({ state: 'visible' });
 }
