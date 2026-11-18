@@ -179,6 +179,17 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
       case 'deviceGraph.redact':
         // Erase the record's content (spec §31.13); the event and its hash stay.
         return graph.graph && nodeStore ? redactEvent(nodeStore, souls, request.eventId) : null;
+      case 'graph.offerMany': {
+        // Many Talks, each to its own recipients, in one request: the page says what to offer once
+        // and this core fans it out (a newcomer's catch-up, a batch of likes). One at a time,
+        // giving the event loop back between them, so a request someone waits on is not held up.
+        const results: unknown[] = [];
+        for (const offer of request.offers) {
+          results.push(await execute({ ...offer, name: 'graph.offer' }).catch((error: unknown) => ({ error: String((error as Error)?.message || error) })));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        return { results };
+      }
       case 'graph.offer': {
         // My Talk as the app keys it (`myTalks`), written into the graph first if it is not yet.
         const sync = graph.host?.sync();

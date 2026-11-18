@@ -8,6 +8,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { DeviceChannelUnavailable, type DeviceChannel } from './device-channel';
+
 type Callback = (data: any, key: string, msg?: unknown, ev?: { off: () => void }) => void;
 type Sub = { path: string[]; map: boolean; cb: Callback };
 type GunEvent = { sub: string; data: unknown; key: string };
@@ -67,6 +69,36 @@ export function httpGunTransport(baseUrl: string, token: string): GunRpcTranspor
           onClose();
         })();
       });
+    },
+  };
+}
+
+/**
+ * The app's node over its device channel (one WebSocket, src/web/services/device-channel.ts): Gun
+ * operations and subscription events on the same socket as core requests. While the channel is
+ * down, operations go over HTTP; a session opened then is an HTTP stream session.
+ */
+export function channelGunTransport(channel: DeviceChannel, http: GunRpcTransport): GunRpcTransport {
+  return {
+    async call(body) {
+      if (!channel.isReady) return http.call(body);
+      try {
+        return await channel.request('gun', body, 'ui');
+      } catch (error) {
+        if (error instanceof DeviceChannelUnavailable) return http.call(body);
+        throw error;
+      }
+    },
+    async open(onEvent, onClose) {
+      const session = channel.isReady ? channel.sessionId : await channel.connect().catch(() => null);
+      if (!session) return http.open(onEvent, onClose);
+      const stopEvents = channel.onGunEvent(onEvent);
+      const stopClose = channel.onClose(() => {
+        stopEvents();
+        stopClose();
+        onClose();
+      });
+      return session;
     },
   };
 }

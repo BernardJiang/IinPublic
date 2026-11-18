@@ -41,6 +41,7 @@ import { BackgroundTalkAgent } from './services/background-talk-agent';
 import { registerBackgroundAgentRoutes } from './routes/background-agent-routes';
 import { localNodeToken, registerCoreRoutes } from './routes/core-routes';
 import { registerGunRpcRoutes } from './routes/gun-rpc-routes';
+import { attachDeviceChannel } from './routes/device-channel';
 
 /**
  * Create the HTTP(S) server the app listens on.
@@ -314,8 +315,11 @@ class IinPublicServer {
 
     const coreToken = localNodeToken(process.env);
     if (isLoopbackEmbeddedNode(process.env) && coreToken) {
-      this.deviceCore = registerCoreRoutes(this.app, this.gun, coreToken, process.env.IINPUBLIC_DATA_DIR || process.cwd());
+      const deviceCore = registerCoreRoutes(this.app, this.gun, coreToken, process.env.IINPUBLIC_DATA_DIR || process.cwd());
+      this.deviceCore = deviceCore;
       registerGunRpcRoutes(this.app, this.gun, coreToken);
+      // The WebView's one connection for both (the HTTP routes stay as its fallback).
+      attachDeviceChannel(this.server, { token: coreToken, core: deviceCore.request, gun: this.gun });
     }
 
     const backgroundAgentToken = String(process.env.IINPUBLIC_BACKGROUND_AGENT_TOKEN || '');

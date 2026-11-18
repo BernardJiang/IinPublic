@@ -63,7 +63,11 @@ function forgetDeviceSouls(gun: any): void {
 }
 
 /** The node's device core. `resetForTesting` is a wiped device (e2e clear-database). */
-export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): { resetForTesting: () => Promise<void> } {
+export function registerCoreRoutes(app: express.Application, gun: unknown, token: string, dataDir: string): {
+  resetForTesting: () => Promise<void>;
+  /** The same core, for the WebSocket device channel (device-channel.ts). */
+  request: (request: CoreRequest) => Promise<unknown>;
+} {
   // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
   const store = () => gunGraphStore(gun, { missWaitMs: 0 });
   const allowTestOverrides = process.env.E2E_GUN_MEMORY_ONLY === '1';
@@ -104,6 +108,7 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   }
 
   return {
+    request: (request: CoreRequest) => handle(request),
     resetForTesting: async () => {
       // A wiped device has nothing in storage either. Left there, the previous user's device id,
       // chain head and events were read back by the next user's core, whose chain then failed its

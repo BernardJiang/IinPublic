@@ -243,6 +243,7 @@ import { isIgnoreAnswerSet, isResponseComplete } from '../../core/response-rules
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
+import { OfferBatcher } from '../services/offer-batcher';
 import { GraphLinkBridge } from '../services/graph-link-bridge';
 import type { GraphConversationMessage, GraphEvent, GraphTabSnapshot } from '../../core/device-graph/sync/graph-host';
 import { setGraphTabSnapshot } from '../services/graph-tab-projection';
@@ -6222,6 +6223,8 @@ export class IinPublicApp {
    * the web worker. Resolved once at start-up, before any log loads.
    */
   private coreRequest: CoreRequester | null = null;
+  /** Offers made in one moment go to the core as one `graph.offerMany` (step 4, 2026-11-16). */
+  private offerBatcher: OfferBatcher | null = null;
 
   private async resolveCoreHost(nativeNode: NativeNode | null): Promise<void> {
     const worker: CoreRequester | null = this.gunService.isBridgeReady()
@@ -6240,6 +6243,8 @@ export class IinPublicApp {
       });
     }
     this.coreRequest = node ?? worker;
+    const core = this.coreRequest;
+    this.offerBatcher = core ? new OfferBatcher({ request: core, maxPerRequest: 20 }) : null;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
     this.coreLocationKey = '';
     this.reportLocationToCore();
@@ -6987,13 +6992,15 @@ export class IinPublicApp {
       console.warn(`[graph-link] links are not running: ${talkId} stays pending`);
       return false;
     }
-    const offer = await this.coreRequest({
-      name: 'graph.offer', talkId, recipients: receiverIds, talk: { ...talk, id: talkId, authorId: me.id } as Record<string, unknown>,
+    const offerRequest = {
+      name: 'graph.offer' as const, talkId, recipients: receiverIds, talk: { ...talk, id: talkId, authorId: me.id } as Record<string, unknown>,
       // What the receiver's intake checks besides the Talk: which broadcast this is.
       context: { roomId: chatroomId ?? null, broadcastAt: new Date().toISOString(), authorName: me.stageName || me.id },
       ...(this.talkLedgerSuppressionDisabledForE2e ? { suppress: false } : {}),
       ...(this.talkSendQuotaUnlimitedForE2e ? { unlimitedForTesting: true } : {}),
-    }).catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
+    };
+    const offer = await (this.offerBatcher ? this.offerBatcher.offer(offerRequest) : this.coreRequest(offerRequest))
+      .catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
     if (!offer?.known) {
       // Nothing was recorded as sent (a busy core timed out, or a storage read missed): offer again
       // later, or the Talk never reaches them (OPEN-112 a).

@@ -1,7 +1,7 @@
 {
   "name": "iinpublic-desktop",
   "productName": "IinPublic",
-  "version": "1.0.253",
+  "version": "1.0.256",
   "description": "IinPublic desktop app — Electron shell hosting the embedded P2P node",
   "main": "main.js",
   "author": {

@@ -2,7 +2,8 @@ import Gun from 'gun';
 import { installSharingPolicy } from '../../core/sharing-policy';
 import { EventEmitter } from 'events';
 import { GunBridge, GunPair } from './gun-bridge';
-import { RemoteGun, httpGunTransport } from './remote-gun';
+import { RemoteGun, channelGunTransport, httpGunTransport } from './remote-gun';
+import type { DeviceChannel } from './device-channel';
 import { fetchWithTimeout } from './fetch-with-timeout';
 import type { CoreRequest } from '../../core/protocol';
 import { getSEA } from '../sea-gun';
@@ -465,10 +466,10 @@ export class WebGunService extends EventEmitter {
    * WebView then runs no Gun — `getGun()` is a thin client of the node's (`remote-gun.ts`) — and no
    * worker, unless its old data still has to be copied to the node (`keepWorker`).
    */
-  private nativeNode: { token: string; baseUrl: string; core: (request: CoreRequest) => Promise<any>; keepWorker: boolean } | null = null;
+  private nativeNode: { token: string; baseUrl: string; core: (request: CoreRequest) => Promise<any>; channel?: DeviceChannel | null; keepWorker: boolean } | null = null;
   private readonly privateSubscribers = new Map<string, Set<(data: any) => void>>();
 
-  useNativeNode(node: { token: string; baseUrl: string; core: (request: CoreRequest) => Promise<any>; keepWorker: boolean }): void {
+  useNativeNode(node: { token: string; baseUrl: string; core: (request: CoreRequest) => Promise<any>; channel?: DeviceChannel | null; keepWorker: boolean }): void {
     this.nativeNode = node;
   }
 
@@ -478,7 +479,10 @@ export class WebGunService extends EventEmitter {
 
   async initialize(): Promise<void> {
     if (this.nativeNode) {
-      this.gun = new RemoteGun(httpGunTransport(this.nativeNode.baseUrl, this.nativeNode.token));
+      const http = httpGunTransport(this.nativeNode.baseUrl, this.nativeNode.token);
+      // Over the page's one WebSocket to its node when it has one (the WebView's 6 HTTP
+      // connections to the node were the bottleneck, 2026-11-16); HTTP otherwise.
+      this.gun = new RemoteGun(this.nativeNode.channel ? channelGunTransport(this.nativeNode.channel, http) : http);
       this.connected = true;
       console.log('🔗 Gun: the app node’s (no Gun in the WebView)');
       if (this.nativeNode.keepWorker) {
@@ -980,7 +984,34 @@ export class WebGunService extends EventEmitter {
   }
 
   /** Read the public user graph record stored at `users/<id>`. */
+  /**
+   * Public user records just read, and lookups in flight (2026-11-16: during a four-phone tag
+   * exchange the page asked the hub for the same 3 people 54 times in 30 s, each request holding
+   * one of the WebView's 6 connections to its node). A record with both keys is kept a minute.
+   */
+  private readonly publicUserCache = new Map<string, { at: number; value: Partial<User> }>();
+  private readonly publicUserInFlight = new Map<string, Promise<Partial<User>>>();
+  private static readonly PUBLIC_USER_TTL_MS = 60_000;
+
   async getPublicUser(userId: string): Promise<Partial<User>> {
+    const cached = this.publicUserCache.get(userId);
+    if (cached && Date.now() - cached.at < WebGunService.PUBLIC_USER_TTL_MS) return cached.value;
+    const inFlight = this.publicUserInFlight.get(userId);
+    if (inFlight) return inFlight;
+    const lookup = this.readPublicUser(userId)
+      .then((value) => {
+        if (value?.pub && value?.epub) {
+          this.publicUserCache.set(userId, { at: Date.now(), value });
+          if (this.publicUserCache.size > 2_000) this.publicUserCache.delete(this.publicUserCache.keys().next().value as string);
+        }
+        return value;
+      })
+      .finally(() => this.publicUserInFlight.delete(userId));
+    this.publicUserInFlight.set(userId, lookup);
+    return lookup;
+  }
+
+  private async readPublicUser(userId: string): Promise<Partial<User>> {
     const rosterEpub = this.rosterEpubByUserId.get(userId);
     const withRosterEpub = (record: Partial<User>): Partial<User> =>
       !record.epub && rosterEpub ? { ...record, epub: rosterEpub } : record;

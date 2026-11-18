@@ -32,6 +32,9 @@ export type ExchangeStateSnapshot = {
   talks: Record<string, { versionId: string; sent: Record<string, string> }>;
 };
 
+export type GraphOfferRequest = Extract<CoreRequest, { name: 'graph.offer' }>;
+export type GraphOfferResult = { offered: number; known: boolean; sent: string[]; skipped: Record<string, string>; omitted: Record<string, string[]>; /** No keys yet (never linked): offered once a link opens. */ waiting: string[] };
+
 export type CoreRequest =
   /** My answer, committed (its version and records) before it is sent. */
   | { name: 'response.commit'; input: ResponseCommitInput }
@@ -64,6 +67,8 @@ export type CoreRequest =
    * `suppress: false` and `unlimitedForTesting` are test overrides.
    */
   | { name: 'graph.offer'; talkId: string; recipients: string[]; context?: Record<string, unknown>; talk?: Record<string, unknown>; suppress?: boolean; unlimitedForTesting?: boolean }
+  /** Many `graph.offer`s in one request, run in order; each result as `graph.offer` answers it, or `{ error }`. */
+  | { name: 'graph.offerMany'; offers: Array<Omit<GraphOfferRequest, 'name'>> }
   | { name: 'graph.exchangeState' }
   /** How I decided someone's answer to my Talk. */
   | { name: 'graph.recordOutcome'; talkId: string; responderId: string; record: OutcomeRecord }
@@ -125,7 +130,8 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.status' } ? GraphHostStatus
                           : R extends { name: 'graph.identity' | 'graph.open' | 'graph.close' | 'graph.hear' } ? { ok: true }
                           : R extends { name: 'graph.trimLog' } ? { trimmed: number; checkpointN?: number }
-                          : R extends { name: 'graph.offer' } ? { offered: number; known: boolean; sent: string[]; skipped: Record<string, string>; omitted: Record<string, string[]>; /** No keys yet (never linked): offered once a link opens. */ waiting: string[] }
+                          : R extends { name: 'graph.offer' } ? GraphOfferResult
+                          : R extends { name: 'graph.offerMany' } ? { results: Array<GraphOfferResult | { error: string }> }
                           : R extends { name: 'graph.exchangeState' } ? ExchangeStateSnapshot
                           : R extends { name: 'graph.recordOutcome' } ? { ok: boolean }
                           : R extends { name: 'graph.outcome' } ? OutcomeRecord | null
