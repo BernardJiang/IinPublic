@@ -8,13 +8,18 @@ native-app download links from one HTTPS origin.
 
 ```bash
 npm run release                 # full release
-npm run release -- --no-deploy  # tests + bump + builds only; nothing pushed or deployed
+npm run release -- --no-deploy  # tests + bump + builds + phones only; nothing pushed or deployed
+npm run release -- --no-android # skip the real-phone step (warns; owner's call)
 ```
 
+Name two phones first: `RELEASE_ANDROID_SERIALS=<s1>,<s2>` in the environment or `.env.local`
+(their IinPublic app data is cleared).
+
 `scripts/release.sh` stops at the first failure: preflight (clean tree, HEAD contains
-`origin/dev`, signing secrets, VPS on `dev` with no tracked edits) → `npm run test:all` (must
+`origin/dev`, signing secrets, both phones on adb, VPS on `dev` with no tracked edits) → `npm run test:all` (must
 pass) → `npm version patch` + commit `release: <v>` → `build:production` → signed `.aab` and
-`.apk` (verified `CN=IinPublic`, versionName = `<v>`) → push `HEAD:dev`, branch and tag `v<v>` →
+`.apk` (verified `CN=IinPublic`, versionName = `<v>`) → real-phone release smoke on the two
+phones with the debug APK of `<v>` (`docs/testing/journey-coverage.md`, "Release smoke") → push `HEAD:dev`, branch and tag `v<v>` →
 VPS fast-forward, stop service, `npm ci`, `build:production`, start → `/api/downloads` reports
 `<v>` and the APK is published. Artifacts: `dist/release/<v>/`. Upload the `.aab` to Play
 Console by hand.

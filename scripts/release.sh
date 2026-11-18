@@ -3,7 +3,11 @@
 # Release procedure — one command, stops at the first failure.
 #
 #   npm run release              # full release
-#   npm run release -- --no-deploy   # tests + bump + builds only (no push, no VPS, no tag)
+#   npm run release -- --no-deploy   # tests + bump + builds + phones only (no push, no VPS, no tag)
+#   npm run release -- --no-android  # skip the real-phone step (prints a warning; owner's call)
+#
+# Phones for step 6: RELEASE_ANDROID_SERIALS=<s1>,<s2> (env or .env.local). Their IinPublic app
+# data is cleared, and the debug APK of this release is installed on them.
 #
 # Steps:
 #   1. preflight   clean tree, HEAD contains origin/dev, signing secrets, SDK tools, VPS reachable
@@ -12,9 +16,11 @@
 #   3. bump        npm version patch (syncs Android/desktop/iOS), commit "release: <v>"
 #   4. build       build:production, then signed Android .aab (Play) + .apk (website download)
 #   5. verify      both artifacts signed with CN=IinPublic, versionName == <v>, 16 KB page aligned
-#   6. push        origin/dev fast-forwarded to HEAD, tag v<v>, current branch pushed
-#   7. deploy      VPS: ff to origin/dev, stop service, npm ci, build:production, start
-#   8. check       https://iinpublic.com/api/downloads reports <v>; APK published to downloads
+#   6. phones      real-phone release smoke on two phones (debug APK of <v>): fresh install boots,
+#                  a Talk commits, a Place round trip — must pass (owner 2026-11-16)
+#   7. push        origin/dev fast-forwarded to HEAD, tag v<v>, current branch pushed
+#   8. deploy      VPS: ff to origin/dev, stop service, npm ci, build:production, start
+#   9. check       https://iinpublic.com/api/downloads reports <v>; APK published to downloads
 #
 # Artifacts land in dist/release/<v>/ (gitignored). The .aab is uploaded to Play Console by hand.
 # Log of the run: dist/release/<v>/release.log (and test:all's own phase logs).
@@ -24,9 +30,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 DEPLOY=1
+ANDROID=1
 for arg in "$@"; do
   case "$arg" in
     --no-deploy) DEPLOY=0 ;;
+    --no-android) ANDROID=0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -36,13 +44,16 @@ VPS_DIR="${RELEASE_VPS_DIR:-IinPublic}"
 SITE_URL="${RELEASE_SITE_URL:-https://iinpublic.com}"
 DEPLOY_BRANCH="${RELEASE_DEPLOY_BRANCH:-dev}"
 SECRETS="${RELEASE_SECRETS_DIR:-$ROOT/secrets}"
+if [ -z "${RELEASE_ANDROID_SERIALS:-}" ] && [ -f .env.local ]; then
+  RELEASE_ANDROID_SERIALS="$(sed -n 's/^RELEASE_ANDROID_SERIALS=//p' .env.local | tail -1 | tr -d "\"' ")"
+fi
 
 step() { printf '\n\033[1m[release] ── %s ──\033[0m\n' "$*"; }
 die()  { printf '\033[31m[release] FAILED: %s\033[0m\n' "$*" >&2; exit 1; }
 START=$(date +%s)
 
 # ─── 1. preflight ──────────────────────────────────────────────────────────────────────────
-step "1/8 preflight"
+step "1/9 preflight"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || die "working tree has uncommitted changes"
 BRANCH="$(git branch --show-current)"
 [ -n "$BRANCH" ] || die "detached HEAD"
@@ -57,6 +68,15 @@ SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 APKSIGNER="$(ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
 AAPT="$(ls -d "$SDK"/build-tools/*/aapt 2>/dev/null | sort -V | tail -1)"
 [ -x "$APKSIGNER" ] || die "apksigner not found under $SDK/build-tools"
+if [ "$ANDROID" = 1 ]; then
+  # Checked now, not after 45 minutes of test:all: two named phones, both on adb.
+  IFS=',' read -r -a PHONES <<<"${RELEASE_ANDROID_SERIALS:-}"
+  [ "${#PHONES[@]}" -ge 2 ] || die "name two phones for the real-phone step: RELEASE_ANDROID_SERIALS=<s1>,<s2> (env or .env.local), or pass --no-android"
+  ADB_READY="$(adb devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1}')"
+  for phone in "${PHONES[@]:0:2}"; do
+    grep -qx "$phone" <<<"$ADB_READY" || die "phone $phone is not connected over adb (adb devices), or pass --no-android"
+  done
+fi
 command -v jarsigner >/dev/null || die "jarsigner not found (install a JDK)"
 
 if [ "$DEPLOY" = 1 ]; then
@@ -69,11 +89,11 @@ fi
 echo "[release] branch $BRANCH @ $(git rev-parse --short HEAD), version $(node -p 'require("./package.json").version')"
 
 # ─── 2. all tests ──────────────────────────────────────────────────────────────────────────
-step "2/8 npm run test:all (must pass)"
+step "2/9 npm run test:all (must pass)"
 npm run test:all || die "test:all failed — nothing was bumped, built for release, pushed or deployed"
 
 # ─── 3. version bump ───────────────────────────────────────────────────────────────────────
-step "3/8 version bump"
+step "3/9 version bump"
 npm version patch --no-git-tag-version >/dev/null
 npm run --silent version:check
 VERSION="$(node -p 'require("./package.json").version')"
@@ -82,10 +102,10 @@ git commit -aqm "release: $VERSION" || die "version commit failed"
 echo "[release] version $VERSION"
 
 # ─── 4. builds ─────────────────────────────────────────────────────────────────────────────
-step "4/8 production web/server build"
+step "4/9 production web/server build"
 npm run build:production
 
-step "4/8 signed Android .aab + .apk"
+step "4/9 signed Android .aab + .apk"
 export IINPUBLIC_ANDROID_KEYSTORE="$SECRETS/android-release.keystore"
 export IINPUBLIC_ANDROID_KEYSTORE_PASSWORD="$(cat "$SECRETS/android-release.keystore.passphrase")"
 export IINPUBLIC_ANDROID_KEY_ALIAS="iinpublic-release"
@@ -96,7 +116,7 @@ cp android/app/build/outputs/bundle/release/app-release.aab "$OUT/IinPublic-$VER
 cp android/app/build/outputs/apk/release/app-release.apk   "$OUT/IinPublic-$VERSION-android.apk"
 
 # ─── 5. verify artifacts ───────────────────────────────────────────────────────────────────
-step "5/8 verify signatures + version"
+step "5/9 verify signatures + version"
 # Capture first: `cmd | grep -q` under pipefail fails on SIGPIPE when grep exits early.
 AAB_SIG="$(jarsigner -verify -verbose -certs "$OUT/IinPublic-$VERSION.aab" 2>&1 || true)"
 grep -q "jar verified" <<<"$AAB_SIG" || die ".aab signature not verified"
@@ -114,20 +134,32 @@ bash scripts/check-android-16kb.sh "$OUT/IinPublic-$VERSION.aab" "$OUT/IinPublic
 (cd "$OUT" && shasum -a 256 IinPublic-* > SHA256SUMS)
 ls -lh "$OUT"
 
+# ─── 6. real phones ────────────────────────────────────────────────────────────────────────
+# Phones carry DEBUG builds (the release key can't install -r over them, and only a debug build
+# lets the harness attach to the WebView), so the smoke builds and installs the debug APK of this
+# same commit. Phone-path already ran inside test:all, so only the real-phone specs run here.
+if [ "$ANDROID" = 1 ]; then
+  step "6/9 real-phone release smoke on ${PHONES[0]}, ${PHONES[1]}"
+  NATIVE_APP_ANDROID_SERIALS="${PHONES[0]},${PHONES[1]}" node scripts/run-android-release-smoke.mjs --install --skip-phone-path \
+    || die "real-phone release smoke failed — commit 'release: $VERSION' is local; nothing pushed or deployed"
+else
+  step "6/9 real phones SKIPPED (--no-android) — this release was not checked on a phone"
+fi
+
 if [ "$DEPLOY" = 0 ]; then
   step "done (--no-deploy): artifacts in $OUT; commit 'release: $VERSION' is local only"
   exit 0
 fi
 
-# ─── 6. push ───────────────────────────────────────────────────────────────────────────────
-step "6/8 push"
+# ─── 7. push ───────────────────────────────────────────────────────────────────────────────
+step "7/9 push"
 git tag -a "v$VERSION" -m "release $VERSION"
 git push origin "HEAD:$DEPLOY_BRANCH"
 git push origin "HEAD:$BRANCH"
 git push origin "v$VERSION"
 
-# ─── 7. deploy ─────────────────────────────────────────────────────────────────────────────
-step "7/8 deploy to $VPS_HOST"
+# ─── 8. deploy ─────────────────────────────────────────────────────────────────────────────
+step "8/9 deploy to $VPS_HOST"
 # Each step on its own under `set -e` (no `| tail` hiding a failure — 2026-10-03 outage);
 # the service is stopped before `npm ci` (ENOTEMPTY on node_modules while running).
 ssh "$VPS_HOST" "bash -s" <<EOF
@@ -143,8 +175,8 @@ npm run build:production
 sudo systemctl start iinpublic
 EOF
 
-# ─── 8. live check + APK download ──────────────────────────────────────────────────────────
-step "8/8 live check"
+# ─── 9. live check + APK download ──────────────────────────────────────────────────────────
+step "9/9 live check"
 scp -q "$OUT/IinPublic-$VERSION-android.apk" "$VPS_HOST:$VPS_DIR/public/downloads/"
 ssh "$VPS_HOST" "cd ~/$VPS_DIR && node -e \"require('./scripts/lib/sha256sums').generateManifestForDir('public/downloads', 'SHA256SUMS')\""
 ok=0

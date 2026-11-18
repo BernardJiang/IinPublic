@@ -24,142 +24,37 @@ import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { webAppURLStableChatroom } from '../../helpers/ports';
-import { openCollapsedFilters } from '../../helpers/filter-bar';
-import { starterTagsFor } from '../../../../src/shared/starter-tags';
+import {
+  DEFAULT_STARTER_SEED, STARTER_TAGS, backToContactsList, captureStarterTabs, decideStarterTags, overlapOf, pickLikes,
+  sharedTagRows, unansweredStarterChips,
+} from '../../journeys/starter-tags-shared';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 
 const NUM_USERS = Math.min(6, Number(process.env.STARTER_SIMILAR_USERS) || 6);
 const CAPACITY = 3;
 const LIKES_PER_USER = Number(process.env.STARTER_SIMILAR_LIKES) || 30;
-const STARTER_TAGS = starterTagsFor('en');
-const SEED = Number.parseInt(process.env.STARTER_SIMILAR_SEED || '', 10) || 20261025;
+const SEED = Number.parseInt(process.env.STARTER_SIMILAR_SEED || '', 10) || DEFAULT_STARTER_SEED;
 const HOLD_MS = process.env.STARTER_SIMILAR_HOLD_MS !== undefined
   ? Number(process.env.STARTER_SIMILAR_HOLD_MS) || 0
   : headless ? 0 : 180_000;
 const NAMES = ['Ann', 'Ben', 'Cy', 'Dee', 'Eli', 'Fay'].slice(0, NUM_USERS);
 
-// ─── Test data (not app logic) ──────────────────────────────────────────────────
-
-/** mulberry32: a small seeded PRNG, so the picks repeat for a given seed. */
-function prng(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
-
-/** The list indexes one user likes: a seeded shuffle of 0…59, first 30, in list order. */
-function pickLikes(userIndex: number): number[] {
-  const random = prng(SEED + userIndex * 7_919);
-  const order = STARTER_TAGS.map((_, index) => index);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [order[i], order[j]] = [order[j]!, order[i]!];
-  }
-  return order.slice(0, LIKES_PER_USER).sort((a, b) => a - b);
-}
+// ─── Test data (not app logic): tests/e2e/journeys/starter-tags-shared.ts ─────────
 
 const NUM_USERS_RANGE = Array.from({ length: NUM_USERS }, (_, index) => index);
-const LIKES = Array.from({ length: NUM_USERS }, (_, index) => pickLikes(index));
-const overlap = (a: number, b: number): number => {
-  const mine = new Set(LIKES[a]);
-  return LIKES[b]!.filter((index) => mine.has(index)).length;
-};
-
-// ─── Page helpers ───────────────────────────────────────────────────────────────
+const LIKES = Array.from({ length: NUM_USERS }, (_, index) => pickLikes(SEED, index, LIKES_PER_USER));
+const overlap = (a: number, b: number): number => overlapOf(LIKES, a, b);
 
 const app = (page: Page, fn: string) => page.evaluate((name) => (window as any).__iinpublic_app?.getApp?.()?.[name], fn);
-
-const unansweredStarterChips = (page: Page) =>
-  page.locator('#talks-list .talk-tag-chip[data-role="incoming"][data-starter-tag="true"]');
-
-/** Each starter keyword's myTalks role: 'copied' (liked), 'ignored' (passed) or '' (undecided). */
-const starterRoles = (page: Page) => page.evaluate((keywords) => {
-  const talks = ((window as any).__iinpublic_collection?.('myTalks') ?? {});
-  const byKeyword = new Map<string, string>();
-  for (const entry of Object.values<any>(talks)) {
-    const keyword = entry?.fullTalk?.questions?.[0]?.text;
-    if (keyword && entry?.fullTalk?.type === 'tag') byKeyword.set(keyword, String(entry.role || ''));
-  }
-  return keywords.map((keyword) => byKeyword.get(keyword) || '');
-}, STARTER_TAGS.map((tag) => tag.text));
 
 const groupMembers = (page: Page) => page.locator('[data-testid="nearby-person-row"]');
 const memberNames = async (page: Page): Promise<string[]> =>
   groupMembers(page).evaluateAll((rows) => rows.map((row) => row.getAttribute('data-stage-name') || ''));
 
-/** Back to the Contacts list from a person page or the relationship dialog (headed runs can be clicked). */
-async function backToContactsList(page: Page): Promise<void> {
-  await page.keyboard.press('Escape');
-  const close = page.locator('#close-contact-relationship-modal');
-  if (await close.isVisible()) await close.click();
-  const back = page.locator('#back-from-peer-detail');
-  if (await back.isVisible()) await back.click();
-  await page.locator('.nav-btn[data-view="contacts"]').click();
-}
-
-/** Contacts sorted by "Most tags in common": each row's peer id and shared-tag count, top first. */
-async function sharedTagRows(page: Page): Promise<Array<{ peerId: string; shared: number; rank: number; alike: number }>> {
-  await backToContactsList(page);
-  const sort = page.locator('#contacts-sort-order');
-  if (!(await sort.isVisible())) await openCollapsedFilters(page, 'contacts-filter-toggle');
-  // Re-select to re-render with the latest exchanges.
-  const other = await sort.evaluate((select: HTMLSelectElement) =>
-    Array.from(select.options).map((option) => option.value).find((value) => value !== 'shared-tags') || '');
-  await sort.selectOption(other);
-  await sort.selectOption('shared-tags');
-  return page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])').evaluateAll((rows) =>
-    rows.map((row) => ({
-      peerId: (row as HTMLElement).dataset.contactUserId || '',
-      shared: Number((row.querySelector('[data-testid="contact-shared-tags"]') as HTMLElement | null)?.dataset.sharedTags ?? 0),
-      // OPEN-113: the same chip states how alike we are and the rank.
-      rank: Number((row.querySelector('[data-testid="contact-shared-tags"]') as HTMLElement | null)?.dataset.similarityRank ?? 0),
-      alike: Number((row.querySelector('[data-testid="contact-shared-tags"]') as HTMLElement | null)?.dataset.similarity ?? 0),
-    })));
-}
-
 /** STARTER_SIMILAR_SHOTS_DIR: each user's Nearby map + list, Contacts, Talks and Me, pass or fail. */
-async function captureAllTabs(pages: Page[]): Promise<void> {
-  const shotsDir = process.env.STARTER_SIMILAR_SHOTS_DIR;
-  if (!shotsDir) return;
-  const clickById = (page: Page, id: string) => page.evaluate((target) => (document.getElementById(target) as HTMLElement | null)?.click(), id);
-  for (const [index, page] of pages.entries()) {
-    if (!page || page.isClosed()) continue;
-    const shot = async (name: string) => {
-      await page.waitForTimeout(2_500);
-      await page.screenshot({ path: `${shotsDir}/${NAMES[index]}-${name}.png` });
-    };
-    try {
-      await page.keyboard.press('Escape');
-      await page.locator('.nav-btn[data-view="chatrooms"]').click();
-      await clickById(page, 'chatroom-map-view-btn');
-      await page.waitForTimeout(3_000);
-      await shot('1-nearby-map');
-      await clickById(page, 'chatroom-list-view-btn');
-      await shot('2-nearby-list');
-      await sharedTagRows(page);
-      await shot('3-contacts-top');
-      await openCollapsedFilters(page, 'contacts-filter-toggle');
-      await shot('3-contacts-filters-open');
-      await page.locator('[data-testid="contacts-filter-toggle"]').click().catch(() => {});
-      await page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])').first()
-        .evaluate((row) => row.scrollIntoView({ block: 'start' })).catch(() => {});
-      await shot('3-contacts-people');
-      await page.locator('.nav-btn[data-view="talks"]').click();
-      await shot('4-talks');
-      await page.locator('.nav-btn[data-view="me"]').click();
-      await shot('5-me');
-    } catch (error) {
-      console.log(`[starter-similar] screenshots for ${NAMES[index]} stopped: ${String(error).slice(0, 200)}`);
-    }
-  }
-  console.log(`[starter-similar] screenshots in ${shotsDir}`);
-}
+const captureAllTabs = (pages: Page[]) =>
+  captureStarterTabs(pages, NAMES, process.env.STARTER_SIMILAR_SHOTS_DIR, (line) => console.log(`[starter-similar] ${line}`));
 
 test.describe('Find similar people with starter tags', () => {
   test.describe.configure({ retries: 0 });
@@ -225,21 +120,8 @@ test.describe('Find similar people with starter tags', () => {
       await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
       await expect(unansweredStarterChips(page)).toHaveCount(STARTER_TAGS.length, { timeout: 30_000 });
 
-      // Like the picks top-down: each tap also passes the unanswered tags above it.
-      for (const tagIndex of LIKES[index]!) {
-        const keyword = STARTER_TAGS[tagIndex]!.text;
-        await unansweredStarterChips(page).filter({ hasText: keyword }).first().click();
-        await expect.poll(async () => (await starterRoles(page))[tagIndex], { timeout: 15_000 }).toBe('copied');
-      }
-      // Pass the tags below the last pick.
-      for (;;) {
-        const chip = unansweredStarterChips(page).first();
-        if ((await unansweredStarterChips(page).count()) === 0) break;
-        await chip.focus();
-        await page.keyboard.press('Delete');
-        await page.waitForTimeout(150);
-      }
-      const roles = await starterRoles(page);
+      // Like the picks top-down (each tap passes the unanswered tags above it), pass the rest.
+      const roles = await decideStarterTags(page, LIKES[index]!);
       const liked = new Set(LIKES[index]);
       expect(roles.map((role, tagIndex) => role === (liked.has(tagIndex) ? 'copied' : 'ignored')).every(Boolean),
         `${NAMES[index]} decided all 60 tags as picked: ${JSON.stringify(roles)}`).toBe(true);

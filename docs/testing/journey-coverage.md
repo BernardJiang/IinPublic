@@ -152,6 +152,15 @@ phone-path journeys, then on real phones: fresh-install boot and Talk commit
 It **clears IinPublic app data** on the named phones — the phones are shared, so always name them.
 `--plan` prints the steps without running them. A failure means: do not upload.
 
+`npm run release` runs this as its step 6 (owner 2026-11-16), after the signed builds and before
+anything is pushed or deployed: it installs the debug APK of the release commit on the two phones
+named in `RELEASE_ANDROID_SERIALS` (env or `.env.local`) and skips phone-path (test:all ran it).
+Preflight stops the release at once if those phones are not on adb; `--no-android` skips the step
+with a warning.
+
+Starter tags on 2–6 phones (`native-app/43`, not part of the smoke, about 20–30 minutes):
+`E2E_REAL_ANDROID_STARTER_TAGS=1 NATIVE_APP_ANDROID_SERIALS=<a>,<b>,<c>,<d>`.
+
 ## Exploratory runs (weekly, or after a large UI change)
 
 Scripts only find what someone thought to check. Once a week, run an agent session (or a person)
