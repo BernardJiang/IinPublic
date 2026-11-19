@@ -891,6 +891,34 @@ export async function finalCleanupPages(
  * code; held here for 650ms for margin). Dispatches real mouse events so the product's
  * `pointerdown`/`pointerup` listeners fire exactly as they would for a user.
  */
+/**
+ * Makes sure a gesture at (x, y) lands on `row` itself. A toast (`.notification`) can pop up over a
+ * row at any moment (since the stats strip left the Talks tab, 2026-11-16, rows start higher), and
+ * the next one can appear between a check and the press. So while the gesture runs, toasts let
+ * pointer events through (a person would wait or swipe it away); anything else covering the point
+ * fails here instead of being gestured on. Call the returned function when the gesture is done.
+ */
+export async function ensurePointOnRow(page: Page, row: import('@playwright/test').Locator, x: number, y: number): Promise<() => Promise<void>> {
+  await page.evaluate(() => {
+    if (document.getElementById('e2e-toasts-pass-through')) return;
+    const style = document.createElement('style');
+    style.id = 'e2e-toasts-pass-through';
+    style.textContent = '.notification { pointer-events: none !important; }';
+    document.head.appendChild(style);
+  });
+  const release = async () => { await page.evaluate(() => document.getElementById('e2e-toasts-pass-through')?.remove()).catch(() => undefined); };
+  const onRow = () => row.evaluate((element, [px, py]) => {
+    const hit = document.elementFromPoint(px!, py!);
+    return !!hit && (hit === element || element.contains(hit));
+  }, [x, y]).catch(() => false);
+  for (const deadline = Date.now() + 3_000; Date.now() < deadline; ) {
+    if (await onRow()) return release;
+    await page.waitForTimeout(100);
+  }
+  await release();
+  throw new Error(`a gesture at (${Math.round(x)}, ${Math.round(y)}) would not land on its row`);
+}
+
 export async function longPressTalkRow(page: Page, row: import('@playwright/test').Locator): Promise<void> {
   // The Talks list re-renders when a row's stats or broadcast state arrive, so the row can be
   // detached for a frame between scrolling and measuring: measure again rather than fail.
@@ -903,10 +931,12 @@ export async function longPressTalkRow(page: Page, row: import('@playwright/test
   if (!box) throw new Error('longPressTalkRow: row has no bounding box (not visible?)');
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
+  const release = await ensurePointOnRow(page, row, x, y);
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.waitForTimeout(650);
   await page.mouse.up();
+  await release();
 }
 
 /**
@@ -933,9 +963,11 @@ export async function dragTalkRow(
       : direction === 'right'
         ? [100, 0]
         : [-100, 0];
+  const release = await ensurePointOnRow(page, row, startX, startY);
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + dx * 0.3, startY + dy * 0.3, { steps: 3 });
   await page.mouse.move(startX + dx, startY + dy, { steps: 5 });
   await page.mouse.up();
+  await release();
 }

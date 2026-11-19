@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { ensurePointOnRow } from './talks-matching-flow';
 
 /**
  * Talks rows have no buttons (owner design 2026-10-24): a tap acts on a tag, a long-press selects a
@@ -8,10 +9,12 @@ export async function longPressTalkRow(page: Page, row: Locator): Promise<void> 
   const box = await row.boundingBox();
   if (!box) throw new Error('row is not visible for a long-press');
   // Away from the left edge: a card keeps its type badge (which takes no gestures) there.
+  const release = await ensurePointOnRow(page, row, box.x + box.width * 0.6, box.y + box.height / 2);
   await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(650);
   await page.mouse.up();
+  await release();
   await expect(row).toHaveClass(/is-selected/);
 }
 

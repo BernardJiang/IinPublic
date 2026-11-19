@@ -22,6 +22,7 @@ import {
   type ThreeBrowsers,
 } from '../../helpers/talks-matching-browsers';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { dismissNotificationOverlays } from '../../helpers/durable-ui';
 
 async function getMyTalkIdByTitle(page: Page, title: string): Promise<string> {
   return page.evaluate((needle) => {
@@ -275,6 +276,9 @@ test.describe('Chatrooms and Talks UI regressions', () => {
     const incomingCopy = pageJerry.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: copiedTitle }).first();
     await expect(incomingCopy).toBeVisible({ timeout: 30_000 });
     const toggle = incomingCopy.locator('[data-testid="talk-copy-toggle"]');
+    // The "Match!" toast from the answer above stays until tapped, and since the stats strip left
+    // the Talks tab (2026-11-16) it sits over this row's toggle.
+    await dismissNotificationOverlays(pageJerry);
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
     expect(await roleOf(copiedTitle)).toBe('copied');

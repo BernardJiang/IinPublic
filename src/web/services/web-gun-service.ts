@@ -988,12 +988,16 @@ export class WebGunService extends EventEmitter {
    * Public user records just read, and lookups in flight (2026-11-16: during a four-phone tag
    * exchange the page asked the hub for the same 3 people 54 times in 30 s, each request holding
    * one of the WebView's 6 connections to its node). A record with both keys is kept a minute.
+   * Only in front of an embedded node: in a browser it made the six-person starter-tags spec
+   * (stage5) miss one person on a Me row in 3 runs of 4 (2026-11-17, cause not pinned), and a
+   * browser has no such connection limit to save.
    */
   private readonly publicUserCache = new Map<string, { at: number; value: Partial<User> }>();
   private readonly publicUserInFlight = new Map<string, Promise<Partial<User>>>();
   private static readonly PUBLIC_USER_TTL_MS = 60_000;
 
   async getPublicUser(userId: string): Promise<Partial<User>> {
+    if (!this.nativeNode) return this.readPublicUser(userId);
     const cached = this.publicUserCache.get(userId);
     if (cached && Date.now() - cached.at < WebGunService.PUBLIC_USER_TTL_MS) return cached.value;
     const inFlight = this.publicUserInFlight.get(userId);

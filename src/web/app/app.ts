@@ -6243,8 +6243,11 @@ export class IinPublicApp {
       });
     }
     this.coreRequest = node ?? worker;
-    const core = this.coreRequest;
-    this.offerBatcher = core ? new OfferBatcher({ request: core, maxPerRequest: 20 }) : null;
+    // Only toward an embedded node, whose page reaches it over the network (the WebView's
+    // connection limit, 2026-11-16). The web worker answers over postMessage, where one combined
+    // request gains nothing and makes each caller wait for the whole batch: that delay made a taxi
+    // deal's Confirm Deal miss the other side half the time (05-taxi, 2026-11-17).
+    this.offerBatcher = node ? new OfferBatcher({ request: node, maxPerRequest: 20 }) : null;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
     this.coreLocationKey = '';
     this.reportLocationToCore();

@@ -344,8 +344,12 @@ test.describe('Find similar people with starter tags', () => {
       const row = page.locator(`#answers-list .answer-talk-item[data-tag-state="checked"][data-topic="${keyword}"]`);
       // Exchanges keep arriving after the counts above were taken, so the row may know one more
       // person than then: what it shows must match what it lists, and all of them like the tag.
-      const shown = Number(((await row.locator('[data-testid="answer-people"]').textContent()) || '').replace(/\D/g, ''));
-      expect(shown).toBeGreaterThanOrEqual(best.likers.length);
+      // Me draws its rows from the exchange view, which can trail Contacts by a redraw (4 of 5 at
+      // first, test:all 2026-11-17): wait for it to reach everyone Contacts already showed.
+      const peopleCount = async () => Number(((await row.locator('[data-testid="answer-people"]').textContent()) || '').replace(/\D/g, ''));
+      await expect.poll(peopleCount, { timeout: 30_000, message: `${NAMES[index]}'s Me row for ${STARTER_TAGS[best.tagIndex]!.text} counts everyone who likes it` })
+        .toBeGreaterThanOrEqual(best.likers.length);
+      const shown = await peopleCount();
       await row.locator('[data-testid="answer-people"]').click();
       await expect(page.locator('[data-testid="contacts-focus-chip"]')).toContainText(keyword, { timeout: 10_000 });
       const listed = await page.locator('.contact-item[data-contact-user-id]:not([data-support-contact="true"])')

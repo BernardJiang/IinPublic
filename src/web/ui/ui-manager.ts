@@ -3027,7 +3027,15 @@ export class UIManager extends EventEmitter {
     matchScore?: number;
     matchTotal?: number;
   }): void {
+    const wasDealEligible = this.getMyConversations()[conversationData.conversationId]?.dealEligible === true;
     addNewConversationImpl(conversationData, this.conversationListUpdatesDeps());
+    // The other side's metadata can say "deal" after this thread was opened (it arrives over
+    // the direct channel): show Confirm Deal now, not only after reopening (05-taxi, 2026-11-17).
+    const isDealEligible = this.getMyConversations()[conversationData.conversationId]?.dealEligible === true;
+    const open = document.getElementById('conversation-detail-overlay')?.style.display === 'flex';
+    if (!wasDealEligible && isDealEligible && open && this.currentConversationId === conversationData.conversationId) {
+      this.showConversationDetail(conversationData.conversationId, this.currentThreadTalkId);
+    }
   }
 
   /**
