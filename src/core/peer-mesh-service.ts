@@ -385,6 +385,20 @@ export class PeerMeshService {
   }
 
   /**
+   * A new Talk was just offered to these people: a reason to try again even if I gave up on them.
+   * `setGraphOwed` only sees who is owed, so someone still owed an older entry (a retraction they
+   * have not read) stayed given up for five minutes and missed the new Talk (spec 14, 2026-11-18).
+   */
+  offeredTo(userIds: string[]): void {
+    let retry = false;
+    for (const id of userIds) {
+      if (this.gaveUpAt.delete(id)) retry = true;
+      this.connectFailures.delete(id);
+    }
+    if (retry && this.currentRoomId) void this.reconcileNeighbors().then(() => this.scheduleReconcile()).catch(() => undefined);
+  }
+
+  /**
    * My network paths changed (I joined or formed a Wi-Fi Direct group, or left one): people I gave
    * up on may be reachable now. Without this, a link tried a moment before the group formed was not
    * tried again for five minutes (native-app/30, 2026-11-05).
@@ -821,6 +835,7 @@ export class PeerMeshService {
             this.connectFailures.delete(neighbor.userId);
             this.pinnedPeers.delete(neighbor.userId);
             this.gaveUpAt.set(neighbor.userId, Date.now());
+            console.info(`[mesh] gave up on ${neighbor.userId.slice(0, 8)} for ${PERSONAL_GAVE_UP_COOLDOWN_MS / 60_000} min: two connects failed${this.graphOwed.has(neighbor.userId) ? ' (owed graph entries)' : ''}`);
             this.dropNeighbor(neighbor.userId);
             this.opts.onPersonalPeerUnreachable?.(neighbor.userId, neighbor.pub);
           } else {

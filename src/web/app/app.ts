@@ -7015,6 +7015,7 @@ export class IinPublicApp {
       if (retry && retry.attempt > 0) retry.attempt = 0;
     }
     for (const recipientId of offer.sent) this.noteNearbyDelivery(talkId, recipientId);
+    this.peerMeshService?.offeredTo([...offer.sent, ...(offer.waiting ?? [])]);
     // Sending stays visible without a Broadcast button (OPEN-112): only when it really went out.
     if (offer.sent.length > 0) this.uiManager.showExchangeActivity('outgoing', offer.sent);
     if (offer.waiting?.length) {

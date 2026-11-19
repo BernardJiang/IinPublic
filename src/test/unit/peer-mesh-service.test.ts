@@ -182,6 +182,26 @@ describe('PeerMeshService', () => {
     expect(gaveUp.size).toBe(0);
   });
 
+  it('tries again someone still owed an older entry when a new Talk is offered to them', async () => {
+    // spec 14 (2026-11-18): bob still owed a retraction, so setGraphOwed saw no one new and the
+    // five-minute give-up kept the new Talk from him.
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const service = new PeerMeshService(mockGunService(alicePair, { bob: { pub: bobPair.pub } }), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      personalRoster: true,
+      createSession: () => { throw new Error('not used'); },
+    });
+    const gaveUp = (service as any).gaveUpAt as Map<string, number>;
+    service.setGraphOwed(['bob']);
+    gaveUp.set('bob', Date.now());
+    service.setGraphOwed(['bob']);
+    expect(gaveUp.has('bob')).toBe(true);
+    service.offeredTo(['bob']);
+    expect(gaveUp.has('bob')).toBe(false);
+  });
+
   it('synchronizes a complete authenticated manifest chain before exchanging room traffic', async () => {
     const [alicePair, bobPair, k2, k3, k4, recovery] = await Promise.all([
       SEA.pair(),
