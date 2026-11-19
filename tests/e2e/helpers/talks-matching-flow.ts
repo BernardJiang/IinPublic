@@ -949,9 +949,15 @@ export async function dragTalkRow(
   row: import('@playwright/test').Locator,
   direction: 'up' | 'down' | 'left' | 'right',
 ): Promise<void> {
-  await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
-  const box = await row.boundingBox();
-  if (!box) throw new Error('dragTalkRow: row has no bounding box (not visible?)');
+  // The Talks list redraws when arrivals land; a row caught mid-redraw has no box for a moment
+  // (release test:all 2026-11-19, stage2/82), so measure again until it is drawn.
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  for (let attempt = 0; attempt < 20 && !box; attempt++) {
+    if (attempt > 0) await page.waitForTimeout(250);
+    await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' })).catch(() => undefined);
+    box = await row.boundingBox().catch(() => null);
+  }
+  if (!box) throw new Error('dragTalkRow: row has no bounding box after 5 s (not visible?)');
   // Start at the far edge from the direction of travel so a short chip near the screen edge can
   // still be dragged its full distance without leaving the window.
   const startX = direction === 'left' ? box.x + box.width - 6 : direction === 'right' ? box.x + 6 : box.x + box.width / 2;
