@@ -246,7 +246,14 @@ test.describe('Find similar people with starter tags', () => {
               const id = Object.keys(mine).find((key) => mine[key]?.fullTalk?.type === 'tag' && mine[key]?.fullTalk?.questions?.[0]?.text === keyword) ?? '';
               const dirs = Object.keys(doc).filter((key) => key.startsWith(`${other}::${id}::`)).map((key) => key.split('::')[2]);
               const outcome = id ? await app?.coreRequest?.({ name: 'graph.outcome', talkId: id, responderId: other }).catch((e: unknown) => String(e)) : 'no talk';
-              return `${keyword}: dirs=${dirs.join('+') || '-'} outcome=${JSON.stringify(outcome)?.slice(0, 80)}`;
+              // Did I mark it sent to them (which version), and is their copy in my Incoming?
+              const state = await app?.getExchangesForE2e?.([]).catch(() => null);
+              const mineState = id ? state?.talks?.[id] : undefined;
+              const sent = mineState ? `${mineState.sent?.[other as string] ? (mineState.sent[other as string] === mineState.versionId ? 'current' : 'old') : 'no'}` : 'no-state';
+              const incoming = ((app?.uiManager?.incomingTalkClusters ?? []) as any[])
+                .filter((cluster) => String(cluster?.title || '').includes(keyword as string))
+                .map((cluster) => cluster?.senders?.[other as string] ? `in(${cluster.senders[other as string].answered ? 'answered' : 'open'})` : 'in(not-from-them)');
+              return `${keyword}: dirs=${dirs.join('+') || '-'} sent=${sent} incoming=${incoming.join(',') || '-'} outcome=${JSON.stringify(outcome)?.slice(0, 60)}`;
             }));
           }, [otherId, missingTags] as const);
           console.log(`[${NAMES[index]} side with ${NAMES[peerIndex]}] ${(await sideOf(page, row.peerId)).join(' | ')}`);

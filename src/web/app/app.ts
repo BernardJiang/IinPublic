@@ -6641,7 +6641,10 @@ export class IinPublicApp {
     const contacts = this.currentUser?.knownPeople;
     // A Talk my intake refuses is declined to its author (their record of passing it to me goes,
     // so it can come again once my filters or my age verification allow it).
-    const decline = () => { void this.coreRequest?.({ name: 'graph.declineArrival', talkId: event.talkId, from: event.from }).catch(() => undefined); };
+    const decline = () => {
+      void this.coreRequest?.({ name: 'graph.declineArrival', talkId: event.talkId, from: event.from })
+        .catch((error) => console.warn(`[intake] decline of ${event.talkId} to ${event.from.slice(0, 8)} failed: the author still counts it sent`, error));
+    };
     if (!(Array.isArray(contacts) && contacts.some((known) => known?.userId === event.from)) && !this.incomingTalkBudget.tryAdmitFrom(event.from, Date.now())) {
       console.warn(`[intake] receiving limit full: declined ${event.talkId} from ${event.from}`);
       decline();
@@ -6667,7 +6670,11 @@ export class IinPublicApp {
     if (!diag.received.some((r) => r.talkId === appTalkId && r.authorId === event.from)) diag.received.push({ talkId: appTalkId, authorId: event.from });
     const omit = Array.isArray(context.omit) ? context.omit.map(String) : [];
     void this.handleMeshTalkBody(payload, { graphArrival: { omit } })
-      .then((accepted) => { if (!accepted) decline(); })
+      .then((accepted) => {
+        if (accepted) return;
+        console.info(`[intake] not accepted: declined ${event.talkId} from ${event.from.slice(0, 8)}`);
+        decline();
+      })
       .catch((error) => console.warn('[graph-link] incoming Talk failed:', error));
   }
 
