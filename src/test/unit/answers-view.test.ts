@@ -669,6 +669,27 @@ describe('answers view models', () => {
       expect(showTalkDetail).not.toHaveBeenCalled();
     });
 
+    it('💬 Talk opens a self-answered own Talk as my answer, even on the draw that lists no senders', () => {
+      document.body.insertAdjacentHTML('beforeend', '<button id="me-talk-btn" disabled></button>');
+      const showTalkDetail = jest.fn();
+      const openTalkResponses = jest.fn();
+      const deps = baseDeps(1, { showTalkDetail, openTalkResponses }) as any;
+      const talkId = 'talk-answer-000';
+      deps.getMyTalks = () => ({ [talkId]: { role: 'created', title: 'Mine', fullTalk: { id: talkId } } });
+      displayAnswersList(deps);
+      const row = document.querySelector<HTMLElement>(`.answer-talk-item[data-talk-id="${talkId}"]`)!;
+      expect(row.dataset.hasSenders).toBe('0');
+      jest.useFakeTimers();
+      try {
+        longPress(row.querySelector('.qa-question')!);
+      } finally {
+        jest.useRealTimers();
+      }
+      document.getElementById('me-talk-btn')!.click();
+      expect(showTalkDetail).toHaveBeenCalledWith(talkId, expect.anything());
+      expect(openTalkResponses).not.toHaveBeenCalled();
+    });
+
     it('puts no Preferences button inside the Me view (it is an AppBar icon)', () => {
       displayAnswersList({
         getMyTalks: () => ({}),

@@ -449,7 +449,12 @@ function formatChoiceForDisplay(variant: AnswerVariant, deps: Pick<AnswersViewDe
 function openAnswerTalk(row: HTMLElement, deps: AnswersViewDeps | null): void {
   const talkId = row.dataset.talkId || '';
   if (!deps || !talkId) return;
-  if (row.dataset.hasSenders !== '1' && deps.openTalkResponses) deps.openTalkResponses(talkId, row.dataset.talkTitle || '');
+  // A Talk I hold (one I answered, my own self-answered one included) opens as my answer. Only a
+  // row with neither senders nor the Talk opens its replies. Deciding by the Talk, not only by the
+  // row's senders, keeps 💬 the same across the row's two draws: from myTalks (an own Talk lists no
+  // senders) and from the answer history, which names them (05-talks-edit, 2026-11-18).
+  const holdsTalk = !!deps.getMyTalks()[talkId]?.fullTalk;
+  if (!holdsTalk && row.dataset.hasSenders !== '1' && deps.openTalkResponses) deps.openTalkResponses(talkId, row.dataset.talkTitle || '');
   else deps.showTalkDetail(talkId, row.dataset.answerQuestionId || undefined);
 }
 
