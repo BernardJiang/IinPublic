@@ -111,8 +111,7 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     await ensureChatroomList(pageTechSupport);
     await openCurrentChatroom(pageTechSupport);
     await afterNav();
-    // One author sends one person at most 10 distinct Talks a day (TALK_SEND_DAILY); this spec
-    // sends Tom 20.
+    // Lifts the daily send limit (TALK_SEND_DAILY) so earlier runs on this hub cannot use it up.
     await pageTechSupport.evaluate(() => (window as any).__iinpublic_app.getApp().setTalkLedgerQuotaUnlimitedForE2e(true));
 
     console.log('\n📍 STEP 2–3: Alice creates 10 tags + 10 talks');

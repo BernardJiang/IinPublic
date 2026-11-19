@@ -7501,7 +7501,7 @@ All under `ix/`, private, rebuildable (REQ-GRAPH-02). Each answers one screen re
 | `ix/answered/<talkId>` | `→ev` my latest answer | "already answered" | `answeredTalkByContent` |
 | `ix/exchanged/<peer>` | `{ <atom>: →ev }` an atom is a situation's context hash, or a tag Talk's tag word (the same tag in anyone's Talk); it passed between us: my offer, their Talk I accepted (a tag Talk's tags only once answered), or an answer either way | REQ-LEDGER-16 suppression (`exchanged.ts`): a Talk is not sent to a person who has this version or every atom of it; a tag Talk leaves out the tags they have (`omit`) | `talkLedger` exchanged and sent sets |
 | `ix/co/<peer>` | `{ <atom>: →ev }` an answer passed on it | the Talks list's "also exchanged with" | `talkLedger` exchanged entries with an answer |
-| `ix/sent-day/<peer>/<yyyy-mm-dd>` | `{ <talkId>: true }` | the send limit: 10 distinct Talks per person per UTC day, 50 per week | `talkLedger` edge counters |
+| `ix/sent-day/<peer>/<yyyy-mm-dd>` | `{ <talkId>: true }` | the send limit: 1000 distinct Talks per person per UTC day, 7000 in the last 7 days; starter tags count (owner 2026-11-17) | `talkLedger` edge counters |
 | `ix/outcome/<talkId>` and `/<responder>` | `{ <responder>: 'matched' \| 'ignored' }`; `{ outcome, version, responseId, respondedAt }` | how I decided each answer to my Talk: statistics, the change-of-mind and stale-answer rule | `talkLedger` outcomes |
 | `ix/responded/<talkId>/<author>` | `{ outcome, version, responseId, respondedAt }` | my answer's version (REQ-LEDGER-04) | `talkLedger` responder entries |
 | `ix/person/<pub>/ev/<eventId>` | `→ev` | Contacts history | copied names in logs |

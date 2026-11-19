@@ -31,10 +31,9 @@ const RUN = process.env.E2E_REAL_ANDROID_STARTER_TAGS === '1';
 const SERIALS = String(process.env.NATIVE_APP_ANDROID_SERIALS || '').split(',').map((serial) => serial.trim()).filter(Boolean).slice(0, 6);
 const HUB_GUN_PORT = Number(process.env.NATIVE_APP_E2E_GUN_PORT || '9078');
 const SEED = Number.parseInt(process.env.STARTER_SIMILAR_SEED || '', 10) || DEFAULT_STARTER_SEED;
-// 10 by default: a phone sends one person at most TALK_SEND_DAILY (10) Talks a day, and the test
-// switch that lifts it works only against a test hub (allowTestOverrides), not on a phone. With 30
-// likes, each pair stopped at 6–9 of 12–15 shared (2026-11-17, Ann had sent exactly 10 to each).
-const LIKES_PER_USER = Number(process.env.STARTER_SIMILAR_LIKES) || 10;
+// 30 as in the browser spec. Starter likes count toward TALK_SEND_DAILY, which phones cannot lift;
+// at 10 a day each pair stopped at 6–9 of 12–15 shared (2026-11-17), so the limit is now 1000.
+const LIKES_PER_USER = Number(process.env.STARTER_SIMILAR_LIKES) || 30;
 const SETTLE_MS = Number(process.env.STARTER_PHONES_SETTLE_MS) || 900_000;
 const MESSAGE_STEP = process.env.STARTER_PHONES_MESSAGE !== '0';
 const SHOTS_DIR = process.env.STARTER_SIMILAR_SHOTS_DIR;

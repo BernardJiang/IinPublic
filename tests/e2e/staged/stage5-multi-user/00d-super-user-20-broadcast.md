@@ -17,8 +17,8 @@ covers: SPEC-3.6, SPEC-3.4, SPEC-3.1  <!-- auto-seeded; refine by hand -->
    All are created with 1 question each, matching/ignoring answers, and self-answers set to match.
 
 3. **Tom joins Nearby; Alice's Talks reach him by themselves.** Exchange is automatic (OPEN-112):
-   all 20 public Talks go to Tom once he is on her Nearby list, with no Broadcast step. One author sends one person at most 10 distinct Talks a day
-   (`TALK_SEND_DAILY`), so the spec lifts Alice's limit (`setTalkLedgerQuotaUnlimitedForE2e`). The
+   all 20 public Talks go to Tom once he is on her Nearby list, with no Broadcast step. The spec still lifts Alice's daily send limit
+   (`TALK_SEND_DAILY`, `setTalkLedgerQuotaUnlimitedForE2e`) so earlier runs on the same hub cannot use it up. The
    spec waits until all 20 Talks are in Tom's incoming list (an answer given before arrival is dropped).
 
 4. **Tom completes all 20 talks** using `completeTalksInAppByAnswerIds` — each talk is opened and answered with the matching answer. Timeout extended to 120 seconds.

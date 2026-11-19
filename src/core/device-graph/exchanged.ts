@@ -31,9 +31,13 @@ import { graphSouls, talkStructureOf } from './talk-structure';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export const TAG_ATOM_DOMAIN = 'iinpublic-exchange-tag-v1';
-/** Distinct Talks I may send one person in a UTC day and week (spec REQ-LEDGER-08). */
-export const TALK_SEND_DAILY = 10;
-export const TALK_SEND_WEEKLY = 50;
+/**
+ * Distinct Talks I may send one person in a UTC day and in the last 7 days (spec FR-SP-1). Every
+ * Talk counts, starter tags included. Owner 2026-11-17: 1000 a day (was 10, which held back most of
+ * a starter-tags exchange); the week is 7 days of it.
+ */
+export const TALK_SEND_DAILY = 1000;
+export const TALK_SEND_WEEKLY = 7 * TALK_SEND_DAILY;
 
 export type ExchangeAtom = { atom: string; /** The tag's key in a trimmed offer (`omit`). */ omitKey?: string };
 export type Outcome = 'matched' | 'ignored';

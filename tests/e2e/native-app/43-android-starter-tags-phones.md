@@ -8,7 +8,7 @@ The browser spec `staged/stage5-multi-user/starter-tags-similar-people` on 2–6
 1. Each phone's app data is cleared and it starts as a new user ("Ann Starter", "Ben Starter", …),
    pinned to the same point, against a LAN test hub.
 2. Every phone shows every other one on its Nearby list (release capacity has room for all).
-3. Each phone decides all 60 starter tags: a seeded 10 are liked top-down (a tap passes the
+3. Each phone decides all 60 starter tags: a seeded 30 are liked top-down (a tap passes the
    unanswered tags above it), the rest are passed with Delete. Picks are the browser spec's
    (`tests/e2e/journeys/starter-tags-shared.ts`, same seed → same picks).
 4. Contacts sorted by **Most tags in common** shows the exact overlap with every other phone,
@@ -29,7 +29,7 @@ E2E_REAL_ANDROID_STARTER_TAGS=1 NATIVE_APP_ANDROID_SERIALS=<a>,<b>,<c>,<d> \
 | Env | Default | Meaning |
 |-----|---------|---------|
 | `STARTER_SIMILAR_SEED` | `20261025` | Seed for the picks |
-| `STARTER_SIMILAR_LIKES` | `10` | Tags each user likes. Keep it ≤ 10: a phone sends one person at most 10 Talks a day (`TALK_SEND_DAILY`), and phones cannot lift that (the browser spec does, on its test hub) |
+| `STARTER_SIMILAR_LIKES` | `30` | Tags each user likes. Likes count toward `TALK_SEND_DAILY` (1000 Talks per person per day), which phones cannot lift |
 | `STARTER_PHONES_SETTLE_MS` | `900000` | How long Contacts may take to show every overlap |
 | `STARTER_PHONES_MESSAGE` | on | `0` skips the Friend + message step |
 | `STARTER_SIMILAR_SHOTS_DIR` | unset | Save each phone's Nearby, Contacts, Talks and Me as PNGs here |

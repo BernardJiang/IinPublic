@@ -64,8 +64,8 @@ export const CONFIG = {
 
   // Rate limiting
   RATE_LIMITS: {
-    TALK_SEND_DAILY: 10,
-    TALK_SEND_WEEKLY: 50,
+    TALK_SEND_DAILY: 1000,
+    TALK_SEND_WEEKLY: 7000,
     MESSAGE_PER_MINUTE: 60,
     BULK_SEND_DAILY: 5,
   },
