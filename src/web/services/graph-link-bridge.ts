@@ -27,6 +27,8 @@ const GRAPH_LINK_KEYS_ATTEMPTS = 12;
 
 export class GraphLinkBridge {
   private running = false;
+  /** The last `graph.pull` batch handled (sent back as `ack`). */
+  private pullAck: number | undefined;
   private readonly opened = new Set<string>();
   private readonly opening = new Map<string, Promise<boolean>>();
   private readonly heard = new Map<string, string[]>();
@@ -222,7 +224,10 @@ export class GraphLinkBridge {
   private async loop(): Promise<void> {
     while (this.running) {
       try {
-        const { out, events } = await this.options.core({ name: 'graph.pull', waitMs: 20_000 });
+        // `ack`: what I handled; a pull answer that came too late (the core was busy past the bridge's
+        // timeout) is handed out again instead of lost with its arrivals (starter-tags spec, run 6).
+        const { out, events, seq } = await this.options.core({ name: 'graph.pull', waitMs: 20_000, ...(this.pullAck !== undefined ? { ack: this.pullAck } : {}) });
+        if (typeof seq === 'number') this.pullAck = seq;
         const mesh = this.options.mesh();
         for (const { to, raw } of out) {
           if (!mesh) continue;

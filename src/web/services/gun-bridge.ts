@@ -18,7 +18,7 @@
  *   const diary = await bridge.getPrivate('diary');
  */
 
-import type { CoreRequest, CoreResponse } from '../../core/protocol';
+import { isSerialCoreRequest, SERIAL_CORE_REQUEST_TIMEOUT_MS, type CoreRequest, type CoreResponse } from '../../core/protocol';
 import type { GunRpcTransport } from './remote-gun';
 
 export type GunPair = { pub: string; priv: string; epub: string; epriv: string };
@@ -167,12 +167,14 @@ export class GunBridge {
 
   private sendRaw(type: string, payload?: any): Promise<any> {
     if (this.closed || !this.worker) return Promise.reject(new Error('Device core bridge is closed'));
+    // A serial core request waits its turn behind the others; it is slow, not lost (protocol.ts).
+    const timeoutMs = type === 'core' && payload && isSerialCoreRequest(payload) ? SERIAL_CORE_REQUEST_TIMEOUT_MS : 45_000;
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Device core request timed out: ${type}`));
-      }, 45_000);
+        reject(new Error(`Device core request timed out: ${type === 'core' ? payload?.name ?? type : type}`));
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       try { this.worker!.postMessage({ id, type, payload }); }
       catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }

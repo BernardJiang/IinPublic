@@ -8,7 +8,7 @@
  * which any app on the device could fetch. `__IINPUBLIC_LOCAL_NODE_TOKEN__` is for e2e harnesses.
  */
 import { CORE_COLLECTIONS } from '../../core/collections';
-import type { CoreRequest } from '../../core/protocol';
+import { isSerialCoreRequest, SERIAL_CORE_REQUEST_TIMEOUT_MS, type CoreRequest } from '../../core/protocol';
 import { DeviceChannel, DeviceChannelUnavailable, coreLane } from './device-channel';
 
 export type CoreRequester = (request: CoreRequest) => Promise<any>;
@@ -56,7 +56,8 @@ function httpCoreRequester(baseUrl: string, token: string): CoreRequester {
 export function channelCoreRequester(channel: DeviceChannel | null, http: CoreRequester): CoreRequester {
   const send: CoreRequester = (body) => {
     if (!channel?.isReady) return http(body);
-    return channel.request('core', body, coreLane(body)).catch((error) => {
+    const timeoutMs = isSerialCoreRequest(body as CoreRequest) ? SERIAL_CORE_REQUEST_TIMEOUT_MS : undefined;
+    return channel.request('core', body, coreLane(body), timeoutMs).catch((error) => {
       if (error instanceof DeviceChannelUnavailable) return http(body);
       throw error;
     });

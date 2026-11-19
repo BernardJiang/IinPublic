@@ -39,7 +39,11 @@ export type GraphHostRequest =
   | { name: 'graph.open'; peerUserId: string; pub: string; epub: string; frameMaxChars?: number }
   | { name: 'graph.close'; peerUserId: string }
   | { name: 'graph.hear'; peerUserId: string; raws: string[] }
-  | { name: 'graph.pull'; waitMs?: number }
+  /**
+   * `ack`: the last batch the page handled. Batches after it are handed out again: an answer the
+   * page gave up waiting for (a busy core, the bridge's 45 s) is not lost with its arrivals.
+   */
+  | { name: 'graph.pull'; waitMs?: number; ack?: number }
   | { name: 'graph.status' }
   /** Trim my pair log with this person below their signed acknowledgement (REQ-GRAPH-48). */
   | { name: 'graph.trimLog'; peerUserId: string }
@@ -72,7 +76,8 @@ export type GraphHostRequest =
  */
 export type AppAnswer = { questionId: string; answerId: string; answerText: string; isMatch?: boolean; isIgnore?: boolean; mode?: string; typedValue?: TypedAnswerValue };
 
-export type GraphPull = { out: Array<{ to: string; raw: string }>; events: GraphEvent[] };
+/** `seq`: the last batch in this answer, acknowledged by the next pull (0: none yet). */
+export type GraphPull = { out: Array<{ to: string; raw: string }>; events: GraphEvent[]; seq?: number };
 export type GraphPersonHistoryItem = {
   eventId: string;
   when: number;
@@ -150,6 +155,8 @@ export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; stora
     fromSeq?: number } };
 
 const MAX_PULL_WAIT_MS = 25_000;
+/** Batches `graph.pull` keeps for a page that has not acknowledged them (each is one pull's worth). */
+const MAX_UNACKED_PULLS = 200;
 
 /** A storage event as a stable GUI traversal row; storage remains typeless, this projection isn't. */
 export function graphPersonHistoryItem(prefix: string, eventId: string, event: GraphNode): GraphPersonHistoryItem {
@@ -222,6 +229,32 @@ export function appTalkOf(talk: Record<string, any>): Record<string, unknown> {
   return { ...rest, ...(meta && typeof meta === 'object' ? meta : {}), graphTalkId: talk.id, graphVersionId: versionId, createdAt: new Date(Number(createdAt) || Date.now()).toISOString(), updatedAt };
 }
 
+/**
+ * What `graph.pull` hands the page, kept until the page acknowledges it (`ack`, the last batch it
+ * handled). A pull answer the page gave up waiting for (a busy core, the bridge's timeout) is handed
+ * out again with the next pull instead of lost with its arrivals and frames.
+ */
+export function createPullBuffer(maxBatches = MAX_UNACKED_PULLS) {
+  const unacked: Array<{ seq: number; out: GraphPull['out']; events: GraphEvent[] }> = [];
+  let seq = 0;
+  return {
+    /** Forget what the page handled. No `ack` (an older page, or one just started): keep all. */
+    acknowledge(ack: number | undefined): void {
+      if (typeof ack === 'number') while (unacked.length && unacked[0]!.seq <= ack) unacked.shift();
+    },
+    held(): number { return unacked.length; },
+    /** Add this pull's new frames and events, and hand out everything not yet acknowledged. */
+    handOut(out: GraphPull['out'], events: GraphEvent[]): GraphPull {
+      if (out.length || events.length) {
+        unacked.push({ seq: ++seq, out, events });
+        // A page that never acknowledges must not grow this without end: the oldest go.
+        while (unacked.length > maxBatches) unacked.shift();
+      }
+      return { out: unacked.flatMap((b) => b.out), events: unacked.flatMap((b) => b.events), seq: unacked[unacked.length - 1]?.seq ?? seq };
+    },
+  };
+}
+
 export function createGraphHost(options: { gun: any; store: NodeStore; graph: DeviceGraph; crypto: GraphCrypto; log?: (message: string) => void;
   /** Where answers are written and sent (`app-answers.ts`, which needs this host's sync). */
   appAnswers?: () => import('./app-answers').AppAnswers;
@@ -234,6 +267,8 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
   // The installed identity as the chain is verified with (set at `graph.identity`).
   let chainMe: { pub: string; deviceId: string } | undefined;
   const events: GraphEvent[] = [];
+  // What `graph.pull` handed out and the page has not acknowledged yet (see `createPullBuffer`).
+  const pulls = createPullBuffer();
   const keys = new Map<string, PeerKeys>();
   const push = (event: GraphEvent) => { events.push(event); sync?.wakePull(); };
 
@@ -630,9 +665,10 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
           return { ok: true };
         case 'graph.pull': {
           if (!sync) return { out: [], events: [] } satisfies GraphPull;
-          const wait = events.length ? 0 : Math.max(0, Math.min(MAX_PULL_WAIT_MS, request.waitMs ?? 0));
+          pulls.acknowledge(request.ack);
+          const wait = events.length || pulls.held() ? 0 : Math.max(0, Math.min(MAX_PULL_WAIT_MS, request.waitMs ?? 0));
           const out = await sync.pull(wait);
-          return { out, events: events.splice(0, events.length) } satisfies GraphPull;
+          return pulls.handOut(out, events.splice(0, events.length)) satisfies GraphPull;
         }
         case 'graph.answer':
           // I answered a Talk that came over a graph link: one answer event, sent to its author.

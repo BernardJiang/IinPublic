@@ -105,6 +105,10 @@ test.describe('Find similar people with starter tags', () => {
         instance?.setTalkLedgerSuppressionDisabledForE2e?.(true);
         instance?.uiManager?.setNotificationsSuppressedForE2e?.(true);
       });
+      // A busy device core, as under test:all load (run 6, 2026-11-18): each answer and outcome
+      // waits this long in the core's serial queue. Off unless asked for.
+      const slowMs = Number(process.env.E2E_CORE_SERIAL_DELAY_MS || 0);
+      if (slowMs > 0) await user.page.evaluate((ms) => (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({ name: 'test.slowSerialQueue', ms }), slowMs);
     }
     const indexById = new Map(users.map((user) => [user.id, user.index]));
     const indexByName = new Map(users.map((user) => [user.stageName, user.index]));

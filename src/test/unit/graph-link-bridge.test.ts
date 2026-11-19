@@ -44,6 +44,28 @@ describe('GraphLinkBridge', () => {
     bridge.stop();
   });
 
+  test('each pull acknowledges the batch the last one handed over', async () => {
+    const acks: Array<number | undefined> = [];
+    let pulls = 0;
+    const core = jest.fn(async (request: any) => {
+      if (request.name === 'graph.pull') {
+        acks.push(request.ack);
+        pulls += 1;
+        if (pulls === 1) return { out: [], events: [], seq: 7 };
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { out: [], events: [], seq: 7 };
+      }
+      return {};
+    });
+    const mesh = { sendGraphGun: async () => true, liveNeighborIds: () => [] };
+    const bridge = new GraphLinkBridge({ core: core as any, mesh: () => mesh, keys: async () => null, onEvent: () => undefined });
+    await bridge.start({ userId: 'me', pair });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    bridge.stop();
+    expect(acks[0]).toBeUndefined();
+    expect(acks.slice(1).every((ack) => ack === 7)).toBe(true);
+  });
+
   test('frames for someone with no link opening are dropped', async () => {
     let pulls = 0;
     const core = jest.fn(async (request: any) => {

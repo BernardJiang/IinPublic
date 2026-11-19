@@ -36,6 +36,8 @@ export type GraphOfferRequest = Extract<CoreRequest, { name: 'graph.offer' }>;
 export type GraphOfferResult = { offered: number; known: boolean; sent: string[]; skipped: Record<string, string>; omitted: Record<string, string[]>; /** No keys yet (never linked): offered once a link opens. */ waiting: string[] };
 
 export type CoreRequest =
+  /** Test builds only: hold each serial request (answers, outcomes) this long, as a busy core does. */
+  | { name: 'test.slowSerialQueue'; ms: number }
   /** My answer, committed (its version and records) before it is sent. */
   | { name: 'response.commit'; input: ResponseCommitInput }
   | { name: 'exchanges.snapshot' }
@@ -123,7 +125,7 @@ export type CoreResponse<R extends CoreRequest> =
                   : R extends { name: 'private.get' } ? string | null
                     : R extends { name: 'private.keys' } ? string[]
                       : R extends { name: 'device.get' } ? unknown
-                        : R extends { name: 'private.put' | 'device.put' | 'deviceGraph.setLocation' } ? { ok: true }
+                        : R extends { name: 'private.put' | 'device.put' | 'deviceGraph.setLocation' | 'test.slowSerialQueue' } ? { ok: true }
                           : R extends { name: 'deviceGraph.status' } ? (OwnTalksStatus & { enabled: boolean; bodies?: MyTalksBodiesStatus }) | null
                           : R extends { name: 'deviceGraph.redact' } ? { cleared: string[] } | null
                           : R extends { name: 'graph.pull' } ? GraphPull
@@ -165,3 +167,19 @@ export type CoreResponse<R extends CoreRequest> =
                           : R extends { name: 'graph.forgetAnswers' } ? { deleted: number; sent: number }
                           : R extends { name: 'graph.changeRemembered' } ? { ok: boolean }
                             : never;
+
+/**
+ * Requests the core runs one at a time (answer commits, outcome records, an answer's delivery
+ * record): a stale tab cannot overwrite a newer one. Each waits for every one before it, so under
+ * load they can wait minutes, but each still runs: a caller must not give up on them the way it
+ * gives up on a request to a dead core (the starter-tags spec, 2026-11-18: a chatbot answer whose
+ * commit waited past the 45 s bridge timeout was committed but never sent to its author).
+ */
+export function isSerialCoreRequest(request: CoreRequest): boolean {
+  return request.name === 'response.commit' || request.name === 'graph.recordOutcome'
+    || (request.name === 'delivery.record' && request.input.objectKind === 'talk-response');
+}
+
+/** How long a caller waits for a serial request (see `isSerialCoreRequest`) before deciding the core is gone. */
+export const SERIAL_CORE_REQUEST_TIMEOUT_MS = 10 * 60_000;
+

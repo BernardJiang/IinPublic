@@ -9,7 +9,7 @@ import { PrivateStore } from './private-store';
 import { ExchangeStore } from './exchanges';
 import { commitResponse } from './response-commit';
 import { createAnswerOutbox } from './answer-outbox';
-import type { CoreRequest } from './protocol';
+import { isSerialCoreRequest, type CoreRequest } from './protocol';
 import type { NodeStore } from './device-graph/node-store';
 import { createDeviceGraph } from './device-graph/device-graph';
 import { createReportedLocation, type Locator } from './device-graph/location-graph';
@@ -408,11 +408,17 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
   // Answer commits and outcome records go one at a time: a stale tab cannot overwrite a newer one.
   // Other requests keep their concurrency; no network/transport work holds this lock.
   let answerQueue: Promise<unknown> = Promise.resolve();
+  let serialDelayMs = 0;
   return (request) => {
-    const serial = request.name === 'response.commit' || request.name === 'graph.recordOutcome'
-      || (request.name === 'delivery.record' && request.input.objectKind === 'talk-response');
-    if (!serial) return execute(request);
-    const result = answerQueue.then(() => execute(request));
+    if (request.name === 'test.slowSerialQueue') {
+      if (options.allowTestOverrides !== true) return Promise.reject(new Error('test.slowSerialQueue: test builds only'));
+      serialDelayMs = Math.max(0, Number(request.ms) || 0);
+      return Promise.resolve({ ok: true });
+    }
+    if (!isSerialCoreRequest(request)) return execute(request);
+    const result = answerQueue
+      .then(() => (serialDelayMs ? new Promise((resolve) => setTimeout(resolve, serialDelayMs)) : undefined))
+      .then(() => execute(request));
     answerQueue = result.catch(() => undefined);
     return result;
   };

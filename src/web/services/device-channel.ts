@@ -86,12 +86,12 @@ export class DeviceChannel {
     return () => this.closeListeners.delete(listener);
   }
 
-  request(kind: DeviceChannelKind, body: unknown, lane: DeviceChannelLane = 'ui'): Promise<any> {
+  /** `timeoutMs`: this request's own wait (a serial core request waits its turn, see protocol.ts). */
+  request(kind: DeviceChannelKind, body: unknown, lane: DeviceChannelLane = 'ui', timeoutMs = this.options.requestTimeoutMs ?? 120_000): Promise<any> {
     const socket = this.socket;
     if (!socket || !this.session || socket.readyState !== 1) return Promise.reject(new DeviceChannelUnavailable());
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
-      const timeoutMs = this.options.requestTimeoutMs ?? 120_000;
       const timer = timeoutMs > 0
         ? setTimeout(() => {
           this.pending.delete(id);
