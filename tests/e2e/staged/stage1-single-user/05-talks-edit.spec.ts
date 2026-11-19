@@ -151,6 +151,9 @@ test.describe('Talks: create and edit', () => {
     // the talk/response dialog directly.
     const answerItem = page.locator('.answer-talk-item').filter({ hasText: 'Do you like tea?' }).first();
     await expect(answerItem).toBeVisible({ timeout: 15000 });
+    // The row is drawn first from myTalks (an own Talk has no senders, so 💬 Talk would open its
+    // replies) and again once the answer-history records load, which name the sender; wait for that.
+    await expect(answerItem).toHaveAttribute('data-has-senders', '1', { timeout: 15000 });
     // Me rows carry no buttons: long-press selects the row, 💬 Talk opens it (owner design 2026-10-25).
     await rowToolbarAction(page, answerItem, 'me-talk-btn');
     await expect(page.locator('#talk-response-modal')).toBeVisible({ timeout: 10000 });
