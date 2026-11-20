@@ -11,7 +11,7 @@ export function renderStarterContactRows(
   deps: StarterContactsViewDeps,
 ): string {
   return contacts.map((contact) => `
-    <div class="contact-item starter-practice-contact" data-starter-contact-id="${deps.escapeHtml(contact.id)}" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;margin-bottom:8px;background:var(--accent-soft);border-radius:12px;border:1px solid var(--accent-border);">
+    <div class="contact-item starter-practice-contact" data-starter-contact-id="${deps.escapeHtml(contact.id)}" role="button" tabindex="0" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;margin-bottom:8px;background:var(--accent-soft);border-radius:12px;border:1px solid var(--accent-border);">
       <div style="display:flex;align-items:center;gap:12px;min-width:0;">
         <span class="contact-item-avatar" aria-hidden="true" style="width:40px;height:40px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:1.2em;flex-shrink:0;">${contact.icon}</span>
         <div style="min-width:0;">

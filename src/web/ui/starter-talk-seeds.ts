@@ -77,10 +77,10 @@ function contactName(id: StarterPracticeContactId, locale: UiLanguage): string {
 function contactDescription(id: StarterPracticeContactId, locale: UiLanguage): string {
   const zh = locale === 'zh';
   const descriptions: Record<StarterPracticeContactId, [string, string]> = {
-    'tag-guide': ['Sends simple and paired Tag Talks', '发送简单标签和成对标签话题'],
-    'flow-guide': ['Sends step-by-step Flow Talks', '发送分步流程话题'],
-    'survey-guide': ['Sends Survey Talks', '发送问卷话题'],
-    'route-guide': ['Sends branching Route Talks', '发送分支路线话题'],
+    'tag-guide': ['Practice bot, not a person: sample Tag Talks to answer. Tap to try them.', '练习机器人，不是真人：可以回答的标签话题示例。点按试试。'],
+    'flow-guide': ['Practice bot, not a person: a step-by-step Flow Talk. Tap to try it.', '练习机器人，不是真人：一个分步流程话题。点按试试。'],
+    'survey-guide': ['Practice bot, not a person: a Survey Talk. Tap to try it.', '练习机器人，不是真人：一个问卷话题。点按试试。'],
+    'route-guide': ['Practice bot, not a person: a branching Route Talk. Tap to try it.', '练习机器人，不是真人：一个分支路线话题。点按试试。'],
   };
   return descriptions[id][zh ? 1 : 0];
 }
@@ -307,7 +307,10 @@ export function starterSeedsFor(
   const contacts = getStarterPracticeContacts(userId, locale, eligible);
   // Once a real person has sent the same tag, theirs is the row: answering it must reach them.
   const sentByPeople = new Set((state.incoming || []).map((cluster) => String(cluster?.identityKey || '')));
-  const interests = starterInterestClusters(userId, locale, eligible).filter((cluster) => !sentByPeople.has(cluster.identityKey));
+  // Someone still on the demo contacts is still starting out: an identity enrolled before the
+  // starter tags (or a new version of them) gets them too, even after making a Talk of its own.
+  const interestsEligible = eligible || contacts.length > 0;
+  const interests = starterInterestClusters(userId, locale, interestsEligible).filter((cluster) => !sentByPeople.has(cluster.identityKey));
   return { contacts, clusters: [...interests, ...starterIncomingTalkClusters(contacts)] };
 }
 

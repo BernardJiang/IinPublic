@@ -77,6 +77,14 @@ describe('starter interest tags', () => {
     expect(starterSeedsFor('u3', 'en', fresh).clusters).toHaveLength(0);
   });
 
+  it('an identity still on the demo contacts gets the tags even with Talks of its own (enrolled before them)', () => {
+    // Demo contacts were enrolled while the identity was new; the starter tag version came later.
+    localStorage.setItem('iinpublic_starter_contacts_v1:u4', JSON.stringify({ activeIds: ['flow-guide'] }));
+    const madeTalks = { ...fresh, myTalks: { liked: { role: 'copied' } as any } };
+    const { clusters } = starterSeedsFor('u4', 'en', madeTalks);
+    expect(clusters.filter((cluster) => cluster.starterContactId === STARTER_TAGS_CONTACT_ID)).toHaveLength(EN.length);
+  });
+
   it('gives way to the same tag sent by a real person, so answering reaches them', () => {
     const hiking = starterTagTalk(EN[0]!);
     const { clusters } = starterSeedsFor('u1', 'en', { ...fresh, incoming: [{ identityKey: hiking.id }] });

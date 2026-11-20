@@ -1,3 +1,4 @@
+import { talkPathLength } from '../../shared/talk-path-length';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 
 export type TalkExpiryTone = 'neutral' | 'green' | 'amber' | 'red';
@@ -14,15 +15,20 @@ export function formatTalkExpiryTone(
   return 'green';
 }
 
+/** Questions a person answers: a flow or route counts its longest branch, not every question. */
 export function getIncomingQuestionCount(cluster: any): number {
-  const explicit = Number(cluster?.questionCount);
-  if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
-  const questions = cluster?.latestTalk?.questions;
-  if (Array.isArray(questions)) return questions.length;
-  try {
-    const parsed = JSON.parse(String(cluster?.questionsJson || '[]'));
-    return Array.isArray(parsed) ? parsed.length : 0;
-  } catch {
-    return 0;
+  const type = String(cluster?.type || cluster?.latestTalk?.type || '');
+  let questions: unknown = cluster?.latestTalk?.questions;
+  if (!Array.isArray(questions)) {
+    try {
+      questions = JSON.parse(String(cluster?.questionsJson || 'null'));
+    } catch {
+      questions = null;
+    }
   }
+  if (Array.isArray(questions) && questions.length > 0) {
+    return type === 'flow' || type === 'route' ? talkPathLength({ type, questions }) : questions.length;
+  }
+  const explicit = Number(cluster?.questionCount);
+  return Number.isFinite(explicit) && explicit > 0 ? Math.floor(explicit) : 0;
 }

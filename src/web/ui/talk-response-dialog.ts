@@ -1,3 +1,4 @@
+import { remainingPathLength } from '../../shared/talk-path-length';
 import { immediateParentQAPairs, type QAPair } from '../../shared/flattened-answer-keys';
 import { checkIfMatch, getRouteRootChildQuestionIds } from '../../shared/talk-engine';
 import type { UiTranslationKey } from './ui-translations';
@@ -199,6 +200,21 @@ function estimateCompletionMinutes(questionCount: number): number {
   return Math.max(1, Math.ceil(Math.max(1, questionCount) * 0.45));
 }
 
+/** "Question {step} of {total}" along the way this person is taking (a branch, not every question). */
+export function responseProgress(
+  talk: any,
+  currentQuestionIndex: number,
+  answers: Array<{ questionId: string }>,
+): { step: number; total: number } {
+  const questions = Array.isArray(talk?.questions) ? talk.questions : [];
+  const current = questions[currentQuestionIndex];
+  if (!current) return { step: currentQuestionIndex + 1, total: questions.length };
+  if (talk.type === 'survey') return { step: currentQuestionIndex + 1, total: questions.length };
+  const answeredBefore = new Set(answers.map((answer) => answer.questionId).filter((id) => id && id !== current.id)).size;
+  const step = answeredBefore + 1;
+  return { step, total: Math.max(step, answeredBefore + remainingPathLength(talk, current.id)) };
+}
+
 function renderStepIndicator(
   talk: any,
   currentQuestionIndex: number,
@@ -206,16 +222,10 @@ function renderStepIndicator(
   text: (key: UiTranslationKey, fallback: string) => string,
   escapeHtml: (text: string) => string,
 ): string {
-  const questions = Array.isArray(talk.questions) ? talk.questions : [];
-  const total = questions.length;
+  const { step, total } = responseProgress(talk, currentQuestionIndex, answers);
   if (total <= 1) return '';
-  const completedIds = new Set(answers.map((answer) => answer.questionId));
-  const dots = questions.map((question: any, index: number) => {
-    const state = index === currentQuestionIndex
-      ? 'current'
-      : completedIds.has(question.id)
-        ? 'done'
-        : 'pending';
+  const dots = Array.from({ length: total }, (_, index) => {
+    const state = index + 1 === step ? 'current' : index + 1 < step ? 'done' : 'pending';
     return `<span class="response-step-dot response-step-${state}" aria-hidden="true"></span>`;
   }).join('');
   const minutes = estimateCompletionMinutes(total);
@@ -224,7 +234,7 @@ function renderStepIndicator(
   return `
     <div class="response-step-panel">
       <div class="response-step-summary">
-        <span>${escapeHtml(text('responseQuestion', 'Question'))} ${currentQuestionIndex + 1} ${escapeHtml(text('responseOf', 'of'))} ${total}</span>
+        <span>${escapeHtml(text('responseQuestion', 'Question'))} ${step} ${escapeHtml(text('responseOf', 'of'))} ${total}</span>
         <span>${escapeHtml(timeLabel)}</span>
       </div>
       <div class="response-step-dots" aria-label="${escapeHtml(text('responseProgress', 'Response progress'))}">
@@ -235,21 +245,26 @@ function renderStepIndicator(
 }
 
 /**
- * TODO §Q: Talk → Me-tab Q&A reverse edge. Appends a small "View in My Answers" link into the
- * modal header, common to all talk-type branches, right before each is attached to the DOM.
+ * TODO §Q: Talk → Me-tab Q&A reverse edge. Appends a small "View in My Answers" link at the
+ * bottom of the dialog, common to all talk-type branches, right before each is attached to the DOM.
  */
 function injectViewInMyAnswersLink(modal: HTMLElement, options: TalkResponseDialogOptions): void {
   if (!options.viewInMyAnswers) return;
-  const header = modal.querySelector('.modal-header');
-  if (!header) return;
+  // At the bottom of the dialog: in the header it pushed the × close button into the middle.
+  const content = modal.querySelector('.modal-content');
+  if (!content) return;
+  const footer = document.createElement('div');
+  footer.className = 'response-footer-actions';
+  footer.style.cssText = 'display:flex;justify-content:flex-end;padding:0 20px 20px;';
   const link = document.createElement('button');
   link.type = 'button';
   link.id = 'view-in-my-answers-btn';
   link.className = 'btn';
-  link.style.cssText = 'margin-top:8px;font-size:0.85em;';
+  link.style.cssText = 'font-size:0.85em;';
   link.textContent = options.text?.('talksViewInMyAnswers') || 'View in My Answers';
   link.addEventListener('click', () => options.viewInMyAnswers?.());
-  header.appendChild(link);
+  footer.appendChild(link);
+  content.appendChild(footer);
 }
 
 /**
@@ -807,6 +822,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
           }
         : undefined);
     const stepIndicator = renderStepIndicator(talk, currentQuestionIndex, answers, text, options.escapeHtml);
+    const headerProgress = responseProgress(talk, currentQuestionIndex, answers);
     // Spec §3.4 FR-QA-15/16, §30.8: "pick any that apply" — a plain checklist + one Submit
     // action, not the auto/manual/permanent grid (which assumes exactly one final answer).
     // A multi-select question is always chain-terminal by construction (the talk editor
@@ -820,7 +836,7 @@ export function showTalkResponseDialog(options: TalkResponseDialogOptions): void
         <div class="modal-header" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
           <div>
             <h2 class="modal-title">${options.escapeHtml(talk.title)}</h2>
-            <p>${text('responseQuestion', 'Question')} ${currentQuestionIndex + 1} ${text('responseOf', 'of')} ${talk.questions.length}</p>
+            <p>${text('responseQuestion', 'Question')} ${headerProgress.step} ${text('responseOf', 'of')} ${headerProgress.total}</p>
           </div>
           <div class="response-header-actions">
             ${showBackButton ? `<button type="button" class="btn btn-back-question" data-testid="back-question-btn">← ${text('responsePrevious', 'Previous question')}</button>` : ''}

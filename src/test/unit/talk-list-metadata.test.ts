@@ -28,12 +28,24 @@ describe('formatTalkExpiryTone', () => {
 });
 
 describe('getIncomingQuestionCount', () => {
-  it('prefers a positive explicit count and floors fractional values', () => {
+  it('uses a positive explicit count, floored, only when the questions are not at hand', () => {
+    expect(getIncomingQuestionCount({ questionCount: '3.9' })).toBe(3);
+    expect(getIncomingQuestionCount({ questionCount: 3, latestTalk: { questions: [{}, {}] } })).toBe(2);
+  });
+
+  it('counts a route by its longest branch, not every question it holds', () => {
+    const answer = (extra: object) => ({ id: Math.random().toString(36), ...extra });
     expect(getIncomingQuestionCount({
-      questionCount: '3.9',
-      latestTalk: { questions: [{}, {}] },
-      questionsJson: '[{}]',
-    })).toBe(3);
+      type: 'route',
+      latestTalk: {
+        type: 'route',
+        questions: [
+          { id: 'q_0', answers: [answer({ nextQuestionId: 'q_1' }), answer({ nextQuestionId: 'q_2' }), answer({ isIgnore: true, isTerminal: true })] },
+          { id: 'q_1', answers: [answer({ isMatch: true, isTerminal: true }), answer({ isIgnore: true, isTerminal: true })] },
+          { id: 'q_2', answers: [answer({ isMatch: true, isTerminal: true }), answer({ isIgnore: true, isTerminal: true })] },
+        ],
+      },
+    })).toBe(2);
   });
 
   it('falls back to the latest talk questions', () => {

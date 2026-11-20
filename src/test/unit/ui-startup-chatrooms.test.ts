@@ -41,19 +41,19 @@ describe('startup chatroom first paint', () => {
     expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(false);
   });
 
-  it('remembers the list view once the user switches to it', () => {
+  it('opens on the map again after the user switched to the list', () => {
     const ui = new UIManager();
     ui.initialize();
     ui.showStartupInterface();
     (document.querySelector('#chatroom-list-view-btn') as HTMLButtonElement).click();
-    expect(localStorage.getItem('iinpublic_chatroom_browse_mode')).toBe('list');
+    expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('true');
 
     document.body.innerHTML = '<div id="app"></div>';
     const reopened = new UIManager();
     reopened.initialize();
     reopened.showStartupInterface();
-    expect(document.querySelector('#chatroom-list-view-btn')?.getAttribute('aria-pressed')).toBe('true');
-    expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(true);
+    expect(document.querySelector('#chatroom-map-view-btn')?.getAttribute('aria-pressed')).toBe('true');
+    expect((document.querySelector('#chatroom-map') as HTMLElement | null)?.hidden).toBe(false);
   });
 
   it('keeps selection-independent header tools working in both map and list views', () => {

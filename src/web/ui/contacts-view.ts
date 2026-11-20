@@ -15,7 +15,7 @@ import { showBlockNotifyModal, type BlockNotifyResult } from './block-notify-mod
 import type { StarterPracticeContact, StarterPracticeContactId } from './starter-talk-seeds';
 import { renderStarterContactRows } from './starter-contacts-view';
 import { contactsRowSelection } from './contacts-row-selection';
-import { clearContactsFocus, getContactsFocus, syncFocusChip, syncTopicOptions } from './graph-focus';
+import { clearContactsFocus, getContactsFocus, openTalksFocus, syncFocusChip, syncTopicOptions } from './graph-focus';
 import { sharedTagCounter, sharedTagsChipHtml, similarityCounter } from './tag-graph-view';
 import { publicProfileFromFoundation } from './public-profile-foundation';
 import { getPrunedPeerIds } from '../services/contacts-prune';
@@ -843,6 +843,13 @@ function renderContactsListCore(deps: ContactsViewDeps, listEl: HTMLElement): vo
         if (!currentDeps) return;
         const target = event.target as HTMLElement;
         const row = target.closest('.contact-item') as HTMLElement | null;
+        // A demo guide is not a person: a tap shows the practice Talks it sent, on the Talks tab.
+        const starterId = row?.dataset.starterContactId;
+        if (starterId) {
+          const guide = currentDeps.getStarterPracticeContacts().find((contact) => contact.id === starterId);
+          if (guide) openTalksFocus({ label: `${guide.icon} ${guide.name}`, talkIds: guide.talks.map((talk) => String(talk.id)) });
+          return;
+        }
         const userId = row?.dataset.contactUserId;
         const stageName = row?.dataset.contactName;
         if (!userId || !stageName) return;

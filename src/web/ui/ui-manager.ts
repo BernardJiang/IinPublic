@@ -202,7 +202,7 @@ import { bindTalksRowGestures as bindTalksRowGesturesImpl } from './talks-row-ge
 import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity-password-dialog';
 import { type PairingPayload } from '../../shared/identity-linking';
 import { coExchangedPeers } from '../services/exchange-state';
-import { initialChatroomBrowseMode, saveChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
+import { initialChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
 import { getMyConversations, setMyConversations } from './my-conversations-storage';
 import { settingsStorage } from '../services/core-storage';
 import { renderStatusLinks as renderStatusLinksImpl } from './status-links';
@@ -891,7 +891,7 @@ export class UIManager extends EventEmitter {
         getTravelModeActive: () => this.travelModeActive,
         setSessionUser: (user) => { this.currentUser = user; this.currentUserId = user.id; },
         setCurrentUserId: (userId) => { this.currentUserId = userId; },
-        setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; saveChatroomBrowseMode(mode); },
+        setChatroomBrowseMode: (mode) => { this.chatroomBrowseMode = mode; },
         setCurrentChatroom: (chatroomId) => { this.currentChatroom = chatroomId; },
         setCurrentChatroomMembers: (members) => { this.currentChatroomMembers = members; },
         setChatroomsDetailRoomId: (chatroomId) => { this.chatroomsDetailRoomId = chatroomId; },
@@ -1269,7 +1269,8 @@ export class UIManager extends EventEmitter {
     if (Array.isArray(state.enabledTypes) && state.enabledTypes.length > 0) this.talksEnabledTypes = new Set(state.enabledTypes);
     if (state.sort) this.talksOutSortMode = state.sort;
     if (state.query) this.talksQuery = state.query;
-    if (state.completion) this.talksCompletionFilter = state.completion;
+    // Completion is not restored: the Talks tab always opens on unanswered incoming Talks; answered
+    // ones come back only through the filter, for this visit (owner, 2026-11-19).
     if (state.outcome) this.talksOutcomeFilter = state.outcome;
     if (state.dateFrom) this.talksDateFrom = state.dateFrom;
     if (state.dateTo) this.talksDateTo = state.dateTo;

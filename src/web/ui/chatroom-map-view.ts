@@ -196,6 +196,7 @@ type MapState = {
 
 /** A room with no area of its own (Contacts only, custom rooms) shows my neighbourhood. */
 const SELF_ZOOM = 12;
+const WORLD_ZOOM = 1; // Nearby with no one else on the list
 
 const SOURCE_ID = 'iinpublic-chatrooms';
 const CLUSTER_LAYER_ID = 'iinpublic-chatroom-clusters';
@@ -621,6 +622,7 @@ function fitToList(state: MapState): boolean {
   const lngs = points.map((point) => point.longitude);
   const [south, north, west, east] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
   state.options.container.dataset.mapFitPoints = String(points.length);
+  delete state.options.container.dataset.mapWorldView;
   if (south === north && west === east) {
     state.map.jumpTo({ center: [west, south], zoom: SELF_ZOOM });
   } else {
@@ -672,17 +674,16 @@ function focusCurrentRoom(state: MapState): void {
   // neighbourhood.
   const nearby = !focus && isNearbyRoomId(state.options.currentChatroom);
   state.awaitingListFit = nearby;
-  if (nearby && fitToList(state)) {
-    state.awaitingListFit = false;
-    state.awaitingSelfCenter = false;
-    return;
-  }
+  state.awaitingSelfCenter = false;
+  if (nearby && fitToList(state)) return void (state.awaitingListFit = false);
   const self = focus ? undefined : selfCenter(state);
   state.roomZoom = focus ? zoomForRoom(currentRoom) : SELF_ZOOM;
-  state.awaitingSelfCenter = !focus && !self;
+  // Nearby, no one else on my list: the world with my dot, until someone arrives (owner 2026-11-19).
+  if (nearby) state.options.container.dataset.mapWorldView = 'true';
+  state.awaitingSelfCenter = !focus && !self && !nearby;
   state.map.jumpTo({
-    center: focus ? [focus.longitude, focus.latitude] : self ?? [0, 20],
-    zoom: focus || self ? state.roomZoom : zoomForRoom(currentRoom),
+    center: focus ? [focus.longitude, focus.latitude] : nearby ? [self?.[0] ?? 0, 20] : self ?? [0, 20],
+    zoom: nearby ? WORLD_ZOOM : focus || self ? state.roomZoom : zoomForRoom(currentRoom),
   });
 }
 
