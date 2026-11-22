@@ -1,5 +1,5 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
-import { isStarterTagTalk, STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
+import { isStarterTagContent, isStarterTagTalk, STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { answeredTalkIdsByContent, getAnsweredTalkId } from './answered-talks';
 import { deleteFlatAnswerHistoryForTalk, getTalkContentKey, saveFlatAnswerHistoryRecord } from './answer-history-storage';
 import { getCopyTalkAutoSave } from './ui-settings-storage';
@@ -111,9 +111,9 @@ export function completeTalk(
     fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
     // A new copy of someone's Talk stays as received — private — until I switch it on (owner,
     // 2026-11-13, OPEN-112); an existing copy keeps my choice. A liked starter tag is no one's Talk:
-    // it is my own interest and public (OPEN-87). Other roles keep whatever they had.
+    // it is my own interest and public (OPEN-87), also a person's copy of one (`isStarterTagContent`). Other roles keep whatever they had.
     ...(role === 'copied'
-      ? { disabled: existingEntry?.role === 'copied' ? !!existingEntry.disabled : !isStarterTagTalk(talk) }
+      ? { disabled: existingEntry?.role === 'copied' ? !!existingEntry.disabled : !isStarterTagContent(talk) }
       : {}),
     completedAnswers,
     outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',

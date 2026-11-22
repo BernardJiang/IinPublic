@@ -14,3 +14,24 @@ describe('isSerialCoreRequest', () => {
     expect(SERIAL_CORE_REQUEST_TIMEOUT_MS).toBeGreaterThan(45_000);
   });
 });
+
+describe('serial core requests: one lane per record (five-phone starter tags, 2026-11-21)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createCoreHandler } = require('../../core/core-handler');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { memoryGraphStore } = require('../../core/graph-store');
+  const record = (objectId: string) => ({ name: 'delivery.record', input: { objectId, recipientId: 'ann', objectKind: 'talk-response', state: 'sent' } });
+
+  it('runs different records side by side and the same record in order', async () => {
+    const handle = createCoreHandler(memoryGraphStore(), { allowTestOverrides: true });
+    await handle({ name: 'test.slowSerialQueue', ms: 300 });
+    let started = Date.now();
+    await Promise.all([handle(record('r1')), handle(record('r2')), handle(record('r3'))]);
+    const sideBySide = Date.now() - started;
+    started = Date.now();
+    await Promise.all([handle(record('r4')), handle(record('r4'))]);
+    const inOrder = Date.now() - started;
+    expect(sideBySide).toBeLessThan(550);
+    expect(inOrder).toBeGreaterThanOrEqual(590);
+  });
+});

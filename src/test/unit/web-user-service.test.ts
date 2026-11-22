@@ -528,6 +528,44 @@ describe('WebUserService', () => {
     );
   });
 
+  // Five-phone starter tags (2026-11-21): a rename reached Gun but not the API, or a slow first
+  // sync landed after it, so other phones' Contacts flipped between the new and generated names.
+  it('a rename updates the API record too, after any sync still in flight', async () => {
+    const realFetch = global.fetch;
+    const g = globalThis as unknown as { window?: unknown };
+    const hadWindow = 'window' in g;
+    const previousWindow = g.window;
+    g.window = { location: { protocol: 'http:', hostname: '127.0.0.1', port: '3001' } };
+    const posted: string[] = [];
+    let releaseFirst: () => void = () => {};
+    global.fetch = jest.fn((_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      posted.push(body.stageName);
+      // The first sync (the generated name) is slow; later ones answer at once.
+      if (posted.length === 1) return new Promise((resolve) => { releaseFirst = () => resolve({ ok: true } as Response); });
+      return Promise.resolve({ ok: true } as Response);
+    }) as unknown as typeof fetch;
+    try {
+      const user = { id: 'user-1', stageName: 'Userabc', knownPeople: [], pub: pair.pub, epub: pair.epub };
+      const gunService = { put: jest.fn().mockResolvedValue(undefined), getStoredPair: jest.fn(() => pair) };
+      /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+      const service = new WebUserService(gunService as any);
+      let current: any = user;
+      service.setCurrentUserProvider(() => current);
+      (service as any).syncPublicUserToApiBestEffort(user);
+      current = { ...user, stageName: 'Ben Starter' };
+      await service.updateStageName('user-1', 'Ben Starter');
+      expect(posted).toEqual(['Userabc']); // the rename waits for the sync in flight
+      releaseFirst();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(posted).toEqual(['Userabc', 'Ben Starter']);
+    } finally {
+      global.fetch = realFetch;
+      if (hadWindow) g.window = previousWindow;
+      else delete g.window;
+    }
+  });
+
   // F5 (docs/testing/gui-responsiveness-audit.md): a block must hold on this device even when the
   // hub never answers; the hub is told in the background.
   it('saves a block to private data without waiting for a hung hub', async () => {

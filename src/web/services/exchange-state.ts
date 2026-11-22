@@ -20,6 +20,8 @@ let stopChanges: (() => void) | null = null;
 let refreshing: Promise<void> | null = null;
 let again = false;
 const atomsCache = new Map<string, ExchangeAtom[]>();
+/** The pause before reading the state again when it was asked for during a read. */
+export const EXCHANGE_STATE_REPEAT_GAP_MS = 1_500;
 
 const listeners = new Set<() => void>();
 
@@ -54,10 +56,15 @@ export function refreshExchangeState(): Promise<void> {
   if (refreshing) { again = true; return refreshing; }
   refreshing = (async () => {
     try {
-      do {
+      for (;;) {
         again = false;
         setState(await source!());
-      } while (again);
+        if (!again) break;
+        // Asked again meanwhile: a burst of offers and answers asks after every write, and each
+        // read walks every Talk of mine. Back to back, these reads kept a phone's core busy for
+        // minutes (five-phone starter tags, 2026-11-21), so a repeat waits a moment first.
+        await new Promise((resolve) => setTimeout(resolve, EXCHANGE_STATE_REPEAT_GAP_MS));
+      }
     } catch (error) {
       console.warn('[exchange-state] read failed:', error);
     } finally {

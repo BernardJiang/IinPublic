@@ -71,10 +71,14 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   // The node's disk is its Gun's only storage: a miss it reports is final (no cold-load grace).
   const store = () => gunGraphStore(gun, { missWaitMs: 0 });
   const allowTestOverrides = process.env.E2E_GUN_MEMORY_ONLY === '1';
+  // Debug builds log how long the core's requests take (a phone's node-stdio.log).
+  const logTimings = process.env.NODE_ENV !== 'production';
   const randomBytes = (length: number) => new Uint8Array(crypto.randomBytes(length));
   const radata = path.join(dataDir, 'radata');
   const deviceGraph = () => ({
-    nodeStore: gunNodeStore(gun, { missWaitMs: 0 }),
+    // A RAM copy in front of the disk (`cacheInRam`): the node's core is the one writer of its
+    // device graph, and any other write evicts the copy.
+    nodeStore: gunNodeStore(gun, { missWaitMs: 0, cacheInRam: true }),
     randomBytes,
     log: (message: string) => console.warn(message),
     // OPEN-106 step 3: direct links carry the graph through this Gun.
@@ -82,7 +86,7 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
     crypto: seaGraphCrypto(SEA, randomBytes),
     storageUsage: async () => directoryBytes(radata),
   });
-  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir), allowTestOverrides, deviceGraph: deviceGraph() });
+  let handle = createCoreHandler(store(), { freshDevice: freshDataDir(dataDir), allowTestOverrides, logTimings, deviceGraph: deviceGraph() });
   const authorized = (req: express.Request): boolean => token.length >= 32 && req.get('authorization') === `Bearer ${token}`;
 
   app.post('/api/core', async (req, res) => {
@@ -126,7 +130,7 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
       const rad = (Radisk as any).has?.[String((gun as any)?._?.opt?.file ?? 'radata')];
       if (rad) rad.disk = {};
       forgetDeviceSouls(gun);
-      handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides, deviceGraph: deviceGraph() });
+      handle = createCoreHandler(store(), { freshDevice: true, allowTestOverrides, logTimings, deviceGraph: deviceGraph() });
     },
   };
 }

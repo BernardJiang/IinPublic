@@ -8,7 +8,9 @@
 /** How long the two-step motion runs before the answer re-renders the list (CSS keeps in step). */
 export const TAG_CHIP_FLY_MS = 520;
 
-const UNANSWERED_STARTER_CHIP = '.talk-tag-chip.talk-incoming-new[data-starter-tag="true"]';
+// A chip already liked or passed carries `data-decided` until the list redraws (redraws are
+// gathered, `displayTalksList`): a later like must not pass it again from the stale list.
+const UNANSWERED_STARTER_CHIP = '.talk-tag-chip.talk-incoming-new[data-starter-tag="true"]:not([data-decided])';
 
 /** Unanswered starter tag chips above `row` in the list, top first. */
 export function starterChipsScrolledPast(row: HTMLElement): HTMLElement[] {

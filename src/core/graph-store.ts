@@ -34,7 +34,8 @@ export function gunNodeReader(gun: any, options: GunReadOptions = {}): (soul: st
   // A node that does not exist answers at once (undefined); no answer at all means storage is slow
   // or busy — an error, so the caller can retry rather than mistake it for "nothing here".
   // Gun's `once(cb, { wait })` always waits the whole `wait` before calling back, found or not.
-  // A read storage never answered is asked again (GUN_READ_REASK_MS) until the overall timeout.
+  // A read storage never answered is asked again (GUN_READ_REASK_MS, then twice as long each time)
+  // until the overall timeout.
   const onceWithin = (path: string, wait: number): Promise<any> => new Promise((resolve, reject) => {
     let done = false;
     let reask: ReturnType<typeof setTimeout> | undefined;
@@ -44,6 +45,10 @@ export function gunNodeReader(gun: any, options: GunReadOptions = {}): (soul: st
       if (reask) clearTimeout(reask);
       reject(new Error(`storage did not answer for ${path}`));
     }, options.getTimeoutMs ?? 6000);
+    // Each re-ask waits twice as long as the one before: a read lost by radisk is still asked again
+    // soon, but a store that is only busy is not sent the same read every 500 ms, which made a slow
+    // phone slower (five-phone starter tags, 2026-11-21: up to ~11 asks per read under load).
+    let every = options.reaskMs ?? GUN_READ_REASK_MS;
     const ask = (): void => {
       gun.get(soul(path)).once((data: any) => {
         if (done) return;
@@ -52,8 +57,11 @@ export function gunNodeReader(gun: any, options: GunReadOptions = {}): (soul: st
         if (reask) clearTimeout(reask);
         resolve(data ?? null);
       }, { wait });
-      const every = options.reaskMs ?? GUN_READ_REASK_MS;
-      if (every > 0) reask = setTimeout(() => { if (!done) ask(); }, wait + every);
+      if (every > 0) {
+        const delay = wait + every;
+        every *= 2;
+        reask = setTimeout(() => { if (!done) ask(); }, delay);
+      }
     };
     ask();
   });

@@ -156,8 +156,12 @@ export function actOnTalkRow(row: HTMLElement, intent: TalkRowIntent, deps: Disp
     else deps.quickIgnoreIncomingTalk(talkId, identityKey);
     return;
   }
+  // Liked or passed a moment ago, waiting for the list to redraw: nothing more to do.
+  if (row.dataset.decided === 'true') return;
   const like = intent === 'like';
   const passedAbove = like ? starterChipsScrolledPast(row) : [];
+  // Decided now, on the page too: until the list redraws, these chips must not count as unanswered.
+  for (const chip of [...passedAbove, row]) chip.dataset.decided = 'true';
   flyTagChips([
     ...passedAbove.map((above) => ({ chip: above, direction: 'pass' as const })),
     { chip: row, direction: like ? 'like' as const : 'pass' as const },

@@ -41,8 +41,9 @@ export function overlapOf(likes: number[][], a: number, b: number): number {
   return likes[b]!.filter((index) => mine.has(index)).length;
 }
 
+// A chip liked or passed a moment ago keeps `data-decided` until the list redraws (redraws are gathered).
 export const unansweredStarterChips = (page: Page) =>
-  page.locator('#talks-list .talk-tag-chip[data-role="incoming"][data-starter-tag="true"]');
+  page.locator('#talks-list .talk-tag-chip[data-role="incoming"][data-starter-tag="true"]:not([data-decided])');
 
 /** Each starter keyword's myTalks role: 'copied' (liked), 'ignored' (passed) or '' (undecided). */
 export const starterRoles = (page: Page) => page.evaluate((keywords) => {
@@ -102,7 +103,7 @@ export async function decideStarterTags(page: Page, likes: number[], pollTimeout
   // detached by the next (PH-1, 2026-11-16).
   while ((await unansweredStarterChips(page).count()) > 0) {
     const passed = await page.evaluate(() => {
-      const chip = document.querySelector<HTMLElement>('#talks-list .talk-tag-chip[data-role="incoming"][data-starter-tag="true"]');
+      const chip = document.querySelector<HTMLElement>('#talks-list .talk-tag-chip[data-role="incoming"][data-starter-tag="true"]:not([data-decided])');
       if (!chip) return '';
       chip.focus();
       chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));

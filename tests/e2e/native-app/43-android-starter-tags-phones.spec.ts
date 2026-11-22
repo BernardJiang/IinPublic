@@ -14,6 +14,7 @@
  * Companion doc: 43-android-starter-tags-phones.md
  */
 import { test, expect, type Page } from '@playwright/test';
+import * as fs from 'fs';
 import * as os from 'os';
 import { bootstrapNativeWindow } from './helpers/native-app';
 import {
@@ -37,6 +38,7 @@ const LIKES_PER_USER = Number(process.env.STARTER_SIMILAR_LIKES) || 30;
 const SETTLE_MS = Number(process.env.STARTER_PHONES_SETTLE_MS) || 900_000;
 const MESSAGE_STEP = process.env.STARTER_PHONES_MESSAGE !== '0';
 const SHOTS_DIR = process.env.STARTER_SIMILAR_SHOTS_DIR;
+const CONSOLE_DIR = process.env.STARTER_PHONES_CONSOLE_DIR || SHOTS_DIR;
 const NAMES = ['Ann', 'Ben', 'Cy', 'Dee', 'Eli', 'Fay'].slice(0, SERIALS.length);
 const LIKES = NAMES.map((_, index) => pickLikes(SEED, index, LIKES_PER_USER));
 const overlap = (a: number, b: number) => overlapOf(LIKES, a, b);
@@ -82,6 +84,14 @@ test.describe('Real phones: starter tags find the most similar person', () => {
       const user = await launchAndroidUserViaAdb({ hubGunUrl, deviceSerial: serial });
       users[index] = user;
       pages[index] = user.window;
+      // Each phone's page console, timestamped, so a slow exchange can be traced afterwards.
+      if (CONSOLE_DIR) {
+        const file = `${CONSOLE_DIR}/${NAMES[index]}-console.txt`;
+        fs.writeFileSync(file, '');
+        user.window.on('console', (message) => {
+          fs.appendFileSync(file, `${new Date().toISOString()} ${message.type()} ${message.text().slice(0, 2000)}\n`);
+        });
+      }
       const id = await bootstrapNativeWindow(user.window, `${NAMES[index]} Starter`, { waitForSupportGreeting: false, readinessTimeoutMs: 150_000 });
       await user.window.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.setNotificationsSuppressedForE2e?.(true));
       return id;
@@ -120,9 +130,20 @@ test.describe('Real phones: starter tags find the most similar person', () => {
       let rows: SharedTagRow[] = [];
       try {
         await expect.poll(async () => {
-          rows = (await sharedTagRows(page)).filter((row) => indexById.has(row.peerId));
-          return rows.length === SERIALS.length - 1 && rows.every((row) => row.shared === overlap(index, indexById.get(row.peerId)!));
-        }, { timeout: SETTLE_MS, intervals: [10_000] }).toBe(true);
+          // One failed read (a re-render hid the Sort box) must not end the wait.
+          try {
+            rows = (await sharedTagRows(page)).filter((row) => indexById.has(row.peerId));
+          } catch (error) {
+            log(`${NAMES[index]} read failed, retrying: ${String(error).split('\n')[0]}`);
+            return false;
+          }
+          const done = rows.length === SERIALS.length - 1 && rows.every((row) => row.shared === overlap(index, indexById.get(row.peerId)!));
+          log(`${NAMES[index]} +${Math.round((Date.now() - decidedAt) / 1000)} s: ${ids.filter((_, j) => j !== index).map((id) => {
+            const row = rows.find((r) => r.peerId === id);
+            return `${name(id)} ${row?.shared ?? 0}/${overlap(index, indexById.get(id)!)}`;
+          }).join(' ')}${done ? ' ✓' : ''}`);
+          return done;
+        }, { timeout: SETTLE_MS, intervals: [5_000] }).toBe(true);
       } catch (error) {
         const want = ids.filter((_, j) => j !== index).map((id) => `${name(id)}=${overlap(index, indexById.get(id)!)}`);
         log(`${NAMES[index]} short: want ${want.join(' ')} · shows ${rows.map((row) => `${name(row.peerId)}=${row.shared}`).join(' ')}`);

@@ -256,6 +256,7 @@ import { tagAtom } from '../../core/device-graph/exchanged';
 import { NEARBY_REPEAT_WINDOW_MS } from '../../core/device-graph/nearby-events';
 import type { ImportedMessage } from '../../core/device-graph/message-events';
 import { getMyConversations } from '../ui/my-conversations-storage';
+import { coalesced } from '../services/coalesced-refresh';
 
 /** Private records that held Talk bodies before the device graph (erased, never read): the SEA
  *  Talk copies (authored, received, their index) and the incoming rows envelope. */
@@ -312,6 +313,12 @@ const CHATBOT_WAIT_FAST_RETRIES = 20;
 const CHATBOT_WAIT_SLOW_RETRIES = 30;
 /** How long after the last like or Broadcast switch my public Talks are exchanged (OPEN-112). */
 const PUBLISH_EXCHANGE_SETTLE_MS = 3_000;
+/** The longest a run of likes waits before its first batch goes out. */
+const PUBLISH_EXCHANGE_MAX_WAIT_MS = 6_000;
+/** Catch-ups owed to several people within this long go out as one broadcast. */
+const CATCH_UP_GATHER_MS = 250;
+/** The pause before the tabs' projection is read again when it was asked for during a read. */
+const GRAPH_TAB_REPEAT_GAP_MS = 1_500;
 /** How often online dots (Contacts, conversations, room members) are asked again. */
 const PRESENCE_REFRESH_MS = 60_000;
 /** On a phone the native mailbox watch wakes a drain; the page's own drain is a safety net. */
@@ -427,6 +434,10 @@ export class IinPublicApp {
   /** Peer id → a catch-up scheduled because an offer to them failed (see retryOfferLater). */
   private readonly offerRetries = new Map<string, { timer: ReturnType<typeof setTimeout> | undefined; attempt: number }>();
   private publishExchangeTimer: ReturnType<typeof setTimeout> | undefined;
+  private publishExchangeFirstAt = 0;
+  /** Catch-ups owed to several people, gathered for a moment and sent as one broadcast. */
+  private readonly pendingCatchUps = new Map<string, { roomId: string; stageName?: string; talkIds: string[] }>();
+  private catchUpFlushTimer: ReturnType<typeof setTimeout> | undefined;
   /** Re-offers a Talk someone's receiving limit turned away (`core/declined-retry.ts`). */
   private readonly declinedRetry = new DeclinedRetry((peerId) => {
     // The core forgot the send; read the exchange state again so what is owed includes it.
@@ -453,6 +464,7 @@ export class IinPublicApp {
   private readonly legacyDmMigrations = new Map<string, Promise<void>>();
   /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
   private graphTabRefresh: Promise<void> | null = null;
+  private graphTabRefreshAgain = false;
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
   private talkSendQuotaUnlimitedForE2e = false;
@@ -3667,13 +3679,37 @@ export class IinPublicApp {
     const talkIds = candidates.filter((talkId) => !this.talkBroadcastsInFlight.has(talkId));
     if (talkIds.length === 0) return;
     this.roomCatchupSentAt.set(key, now);
-    this.uiManager.emit('broadcastTalk', {
-      chatroomId: roomId,
-      members: [{ userId: peerId, stageName: stageName || peerId }],
-      talkIds,
-      automatic: true,
-      catchUp: true,
-    });
+    // Gathered for a moment: everyone owed something now goes out in one broadcast, each Talk
+    // offered once to all its receivers, instead of one broadcast per person (five-phone starter
+    // tags, 2026-11-21: 4 people × 30 likes were 120 separate offers, each writing the Talk again).
+    this.pendingCatchUps.set(peerId, { roomId, ...(stageName ? { stageName } : {}), talkIds });
+    this.catchUpFlushTimer ??= setTimeout(() => this.flushCatchUps(), CATCH_UP_GATHER_MS);
+  }
+
+  private flushCatchUps(): void {
+    this.catchUpFlushTimer = undefined;
+    const byRoom = new Map<string, Array<[string, { stageName?: string; talkIds: string[] }]>>();
+    for (const [peerId, pending] of this.pendingCatchUps) {
+      const list = byRoom.get(pending.roomId) ?? [];
+      list.push([peerId, pending]);
+      byRoom.set(pending.roomId, list);
+    }
+    this.pendingCatchUps.clear();
+    for (const [roomId, peers] of byRoom) {
+      if (this.currentChatroomId !== roomId) continue;
+      const talkReceiverIds: Record<string, string[]> = {};
+      for (const [peerId, { talkIds }] of peers) {
+        for (const talkId of talkIds) (talkReceiverIds[talkId] ??= []).push(peerId);
+      }
+      this.uiManager.emit('broadcastTalk', {
+        chatroomId: roomId,
+        members: peers.map(([userId, { stageName }]) => ({ userId, stageName: stageName || userId })),
+        talkIds: Object.keys(talkReceiverIds),
+        talkReceiverIds,
+        automatic: true,
+        catchUp: true,
+      });
+    }
   }
 
   private syncPeerMeshRoom(
@@ -6059,6 +6095,9 @@ export class IinPublicApp {
     if (!core || !this.currentUser?.id) return;
     let identity = '';
     try { identity = buildTalkIdentityKey(starterTalk); } catch { return; }
+    // Read from the core, not the rows the page shows: those are refreshed at most every 1.5 s, and a
+    // sender whose Talk had just arrived was missed and never answered (stage5, 2026-11-22: Fay's
+    // Cats stayed open on Ann's list).
     const rows = await core({ name: 'graph.incoming' }).catch(() => []) as Array<Record<string, any>>;
     for (const row of rows) {
       if (String(row?.identityKey || '') !== identity) continue;
@@ -6542,17 +6581,54 @@ export class IinPublicApp {
   }
 
   /** Load the graph-owned read model used synchronously by the four tab renderers. */
+  /** The Talks list's response counts for these Talks of mine, from the device graph (`ix/outcome`). */
+  private async applyTalkStats(talkIds: string[]): Promise<void> {
+    if (!talkIds.length) return;
+    // Only the newest read's counts are shown (stage5 HR route: an older read answering late left a
+    // row an answer short).
+    const request = ++this.talkStatsRequest;
+    const outcomes = this.coreRequest
+      ? await this.coreRequest({ name: 'graph.outcomes', talkIds }).catch(() => ({} as Record<string, Record<string, string>>))
+      : {};
+    if (request !== this.talkStatsRequest) return;
+    const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
+    for (const talkId of talkIds) {
+      const rows = Object.values(outcomes[talkId] ?? {});
+      statsMap[talkId] = {
+        responses: rows.length,
+        matches: rows.filter((outcome) => outcome === 'matched').length,
+        ignores: rows.filter((outcome) => outcome === 'ignored').length,
+      };
+    }
+    this.uiManager.setTalkStats(statsMap);
+    // Refresh status bar so match count is shown
+    this.refreshStatusBar();
+  }
+
+  /**
+   * The tabs' projection read again. A snapshot reads every Talk, conversation and person, and every
+   * graph event asks for one: calls made during a read coalesce into one more read after a short
+   * pause, not a read per event back to back (that kept a phone's core at 100 % for minutes during
+   * the five-phone starter tags, 2026-11-21).
+   */
   private refreshGraphTabSnapshot(): Promise<void> {
-    if (this.graphTabRefresh) return this.graphTabRefresh;
+    if (this.graphTabRefresh) { this.graphTabRefreshAgain = true; return this.graphTabRefresh; }
     const core = this.coreRequest;
     if (!core) return Promise.resolve();
-    const refresh = core({ name: 'graph.tabSnapshot' })
+    const readOnce = () => core({ name: 'graph.tabSnapshot' })
       .then((next: GraphTabSnapshot) => {
         setGraphTabSnapshot(next);
         if (typeof window !== 'undefined') (window as any).__iinpublic_graph_tab_snapshot = () => next;
       })
-      .catch((error) => console.warn('[graph] tab projection refresh failed:', error))
-      .finally(() => { if (this.graphTabRefresh === refresh) this.graphTabRefresh = null; });
+      .catch((error) => console.warn('[graph] tab projection refresh failed:', error));
+    const refresh = (async () => {
+      for (;;) {
+        this.graphTabRefreshAgain = false;
+        await readOnce();
+        if (!this.graphTabRefreshAgain) break;
+        await new Promise((resolve) => setTimeout(resolve, GRAPH_TAB_REPEAT_GAP_MS));
+      }
+    })().finally(() => { if (this.graphTabRefresh === refresh) this.graphTabRefresh = null; });
     this.graphTabRefresh = refresh;
     return refresh;
   }
@@ -6956,6 +7032,8 @@ export class IinPublicApp {
     talk: Talk,
     members: Array<{ userId: string; stageName: string }>,
     eligibleReceiverIds?: string[],
+    /** How many people this offer actually reached (0 when everyone had it already). */
+    onSent?: (sentCount: number) => void,
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
@@ -7034,6 +7112,7 @@ export class IinPublicApp {
     const skipped = Object.entries(offer.skipped);
     if (skipped.length) console.debug(`[exchange] ${talkId} not sent to ${skipped.map(([peer, reason]) => `${peer} (${reason})`).join(', ')}`);
     console.log(`📡 Mesh talk announcement published: talkId=${talkId} receivers=${offer.sent.length} (suppressed=${skipped.length}, partialFiltered=${Object.keys(offer.omitted).length})`);
+    onSent?.(offer.sent.length);
     return true;
   }
 
@@ -7520,7 +7599,11 @@ export class IinPublicApp {
     // the OTHER side's talk, not mine — recordMyDealTalkForConversation needs my own talkId,
     // resolved from chatbot memory rather than known directly the way the author-side call
     // sites above already know it from payload.talkId.
-    const responderSourceTalkId = await this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers);
+    // Only a deal's match records which listing of mine it came through (the lookup walks every
+    // Talk of mine, so it is not made for the others).
+    const responderSourceTalkId = isDealEligibleTalk(params.talkData)
+      ? await this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers)
+      : undefined;
     if (responderSourceTalkId) {
       this.recordMyDealTalkForConversation(conversationId, responderSourceTalkId, params.talkData);
     }
@@ -7554,6 +7637,10 @@ export class IinPublicApp {
    * qualifying Pair-tag ancestor.
    */
   private async resolveResponderSelfTagForAnswers(talkData: any, answers: any[]): Promise<string | undefined> {
+    // My side only matters against a Pair-tag question (`reciprocalTagContext`, checkIfMatch): a
+    // Talk without one skips the lookup, which walks every Talk of mine (every starter-tag answer
+    // asked it, ~1500 storage reads a minute on a phone, 2026-11-21).
+    if (!Array.isArray(talkData?.questions) || !talkData.questions.some((q: any) => q?.reciprocalTagContext)) return undefined;
     const lastAnswer = answers?.[answers.length - 1];
     const question = talkData?.questions?.find((q: any) => q.id === lastAnswer?.questionId);
     if (!question?.text) return undefined;
@@ -8113,11 +8200,12 @@ export class IinPublicApp {
     return true;
   }
 
-  private async refreshIncomingTalkClustersFromLocalGun(): Promise<void> {
+  /** One read of the list at a time; a burst of arrivals shares one more read (`coalesced`). */
+  private readonly refreshIncomingTalkClustersFromLocalGun = coalesced(async (): Promise<void> => {
     if (!this.currentUser?.id) return;
     // Read only: rows are never written back (that once made a write/refresh loop on phones).
     this.applyIncomingTalkClusters(await this.collectIncomingRows());
-  }
+  }, 1_500);
 
   /** These rows replace the shown rows with the same content; the others stay. */
   private mergeIncomingClusterIntoUi(clusters: any[]): void {
@@ -9073,6 +9161,7 @@ export class IinPublicApp {
         catchUp?: boolean;
       }) => {
         let releaseInFlight = (): void => {};
+        const broadcastStartedAt = Date.now();
         try {
           const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
           if (!chatroomId || !this.currentUser) {
@@ -9168,6 +9257,8 @@ export class IinPublicApp {
           // catch-up is a few entries, not one per Talk.
           const REGISTER_BATCH = BATCH_MAX_ITEMS;
           const registeredTalkIds: string[] = [];
+          /** Talks that went to at least one person now (a repeat catch-up often sends nothing). */
+          const reachedTalkIds = new Set<string>();
           const previewByTalkId = new Map(audiencePreviews.map((p) => [p.talkId, p]));
           const broadcastableSnapshot = new Set(broadcastableIds);
           for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
@@ -9196,6 +9287,7 @@ export class IinPublicApp {
                   talk,
                   receivers,
                   eligibleIds,
+                  (count) => { if (count > 0) reachedTalkIds.add(tid); },
                 );
                 if (ok) registeredTalkIds.push(tid);
                 return ok;
@@ -9203,9 +9295,10 @@ export class IinPublicApp {
             );
             sent += batchResults.filter(Boolean).length;
           }
-          const broadcastableNowForGun = new Set(registeredTalkIds);
-          // Phase E: ledger hook — TALK_BROADCAST (one event per broadcasted talk)
-          for (const { tid } of talkPayloads.filter(({ tid }) => broadcastableNowForGun.has(tid))) {
+          // Phase E: ledger hook — TALK_BROADCAST, one event per Talk that reached someone now. Each
+          // event is several encrypted writes; a repeat catch-up that sent nothing wrote them for
+          // every Talk again (five-phone starter tags, 2026-11-21).
+          for (const { tid } of talkPayloads.filter(({ tid }) => reachedTalkIds.has(tid))) {
             this.ledgerEmit(InteractionKind.TALK_BROADCAST, {
               talkId: tid,
               recipientCount: sent,
@@ -9214,7 +9307,7 @@ export class IinPublicApp {
           }
 
           if (data.catchUp) {
-            console.info(`[catch-up] sent ${broadcastableIds.length} talk(s) to ${sent}/${targetCount} newly linked peer(s) in ${chatroomId}`);
+            console.info(`[catch-up] offered ${sent}/${talkPayloads.length} talk(s) to ${targetCount} peer(s) in ${chatroomId} in ${Date.now() - broadcastStartedAt} ms`);
           } else {
             this.uiManager.setBroadcastBulkAck(sent, targetCount);
             this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent, targetCount), 'success');
@@ -9332,12 +9425,17 @@ export class IinPublicApp {
     // A Talk switched to Broadcast On goes out to my current list at once (OPEN-112).
     // A run of likes (or Broadcast switches) goes out as one exchange shortly after the last one:
     // one at a time, everyone's likes flood each other's receiving limit (starter-tags spec).
+    // Someone liking steadily still sends as they go: a run waits at most PUBLISH_EXCHANGE_MAX_WAIT_MS
+    // from its first like, so 30 likes go out as a few batches, not one batch after the last.
     this.uiManager.on('publishTalk', () => {
+      const now = Date.now();
       if (this.publishExchangeTimer) clearTimeout(this.publishExchangeTimer);
+      else this.publishExchangeFirstAt = now;
+      const delay = Math.min(PUBLISH_EXCHANGE_SETTLE_MS, Math.max(0, this.publishExchangeFirstAt + PUBLISH_EXCHANGE_MAX_WAIT_MS - now));
       this.publishExchangeTimer = setTimeout(() => {
         this.publishExchangeTimer = undefined;
         this.exchangeWithCurrentList();
-      }, PUBLISH_EXCHANGE_SETTLE_MS);
+      }, delay);
     });
 
     this.uiManager.on('retractTalk', (data: { talkId: string; retractedAt: number }) => {
@@ -9404,33 +9502,23 @@ export class IinPublicApp {
       void this.refreshIncomingTalkClustersFromLocalGun();
     });
 
-    this.uiManager.on('needTalkStats', async (data: { talkIds: string[] }) => {
+    // Every redraw of the Talks list asks; reading every Talk's outcomes each time kept a phone's
+    // core busy during an exchange (2026-11-21). Requests during a read share one more read.
+    const talkStatsIds = new Set<string>();
+    const readTalkStats = coalesced(async () => {
+      const talkIds = [...talkStatsIds];
+      talkStatsIds.clear();
+      await this.applyTalkStats(talkIds);
+    }, 1_500);
+    this.uiManager.on('needTalkStats', (data: { talkIds: string[] }) => {
       if (data.talkIds.length === 0) {
+        talkStatsIds.clear();
         this.uiManager.setTalkStats({});
         this.uiManager.displayTalksList();
         return;
       }
-      const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
-      // Requests overlap (every redraw asks): one that read fewer outcomes could answer after a newer
-      // one and leave the row an answer short until something redrew it (stage5 HR route, "Responses:
-      // 3" of 4 for 30 s, ~1 run in 10). Only the newest request's counts are shown.
-      const request = ++this.talkStatsRequest;
-      // Each answer to my Talks as I decided it, from the device graph (`ix/outcome`).
-      const outcomes = this.coreRequest
-        ? await this.coreRequest({ name: 'graph.outcomes', talkIds: data.talkIds }).catch(() => ({} as Record<string, Record<string, string>>))
-        : {};
-      if (request !== this.talkStatsRequest) return;
-      for (const talkId of data.talkIds) {
-        const rows = Object.values(outcomes[talkId] ?? {});
-        statsMap[talkId] = {
-          responses: rows.length,
-          matches: rows.filter((outcome) => outcome === 'matched').length,
-          ignores: rows.filter((outcome) => outcome === 'ignored').length,
-        };
-      }
-      this.uiManager.setTalkStats(statsMap);
-      // Refresh status bar so match count is shown
-      this.refreshStatusBar();
+      for (const talkId of data.talkIds) talkStatsIds.add(talkId);
+      void readTalkStats();
     });
 
     this.uiManager.on(

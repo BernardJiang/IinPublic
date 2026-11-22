@@ -23,6 +23,11 @@ import { builtInValues, talkStructureKey, talkStructureOf, type Perspective, typ
 import { appAnswersOf, appTalkOf, type AppAnswer } from './graph-host';
 import type { createGraphSync } from './graph-sync';
 
+/** How many arrivals `targets` reads side by side. */
+const TARGET_READ_CHUNK = 16;
+/** How many saved answer records `recordHistory` writes side by side. */
+const RECORD_HISTORY_CONCURRENCY = 4;
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const appAnswerSoul = (prefix: string, talkId: string) => `${prefix}ix/app-answer/${talkId}`;
@@ -167,14 +172,19 @@ export function createAppAnswers(options: {
     const others = new Set(authors.filter((author) => author !== base.author));
     if (!others.size) return out;
     const key = talkStructureKey(talkStructureOf(base.talk));
-    for (const talkId of await graph.arrivals.incoming()) {
-      if (!others.size) break;
-      if (talkId === base.talkId) continue;
-      const talk = await graph.arrivals.read(talkId);
-      const author = talk?.senders.find((sender) => others.has(sender));
-      if (!talk || !author || talkStructureKey(talkStructureOf(talk)) !== key) continue;
-      others.delete(author);
-      out.push({ talkId, talk: talk as any, perspective: 'responder', author });
+    // Read in chunks side by side, matched in list order as before: one read after another this
+    // walked every arrival for each starter-tag answer, 27 s a call on a phone (2026-11-21).
+    const incoming = (await graph.arrivals.incoming()).filter((talkId) => talkId !== base.talkId);
+    for (let i = 0; i < incoming.length && others.size; i += TARGET_READ_CHUNK) {
+      const chunk = incoming.slice(i, i + TARGET_READ_CHUNK);
+      const talks = await Promise.all(chunk.map((talkId) => graph.arrivals.read(talkId)));
+      chunk.forEach((talkId, index) => {
+        const talk = talks[index];
+        const author = talk?.senders.find((sender) => others.has(sender));
+        if (!talk || !author || talkStructureKey(talkStructureOf(talk)) !== key) return;
+        others.delete(author);
+        out.push({ talkId, talk: talk as any, perspective: 'responder', author });
+      });
     }
     return out;
   }
@@ -214,11 +224,11 @@ export function createAppAnswers(options: {
   return {
     /** The app saved its answer history (`answerHistory` records): each answer into the graph. */
     async recordHistory(records: Record<string, unknown>): Promise<void> {
-      for (const record of Object.values(records) as any[]) {
-        if (!record || typeof record.talkId !== 'string' || !Array.isArray(record.items)) continue;
-        if (record.supportMessage === true || record.supportChannel === true) continue;
+      const recordOne = async (record: any): Promise<void> => {
+        if (!record || typeof record.talkId !== 'string' || !Array.isArray(record.items)) return;
+        if (record.supportMessage === true || record.supportChannel === true) return;
         const mode = record.answeredBy === 'chatbot' ? 'chatbot' : 'manual';
-        if (!record.items.length) continue;
+        if (!record.items.length) return;
         const senders = Array.isArray(record.senderIds) ? record.senderIds.map(String) : [];
         try {
           await locked(record.talkId, async () => {
@@ -238,7 +248,15 @@ export function createAppAnswers(options: {
         } catch (error) {
           options.log?.(`[app-answers] ${record.talkId}: ${(error as Error).message}`);
         }
-      }
+      };
+      // A few records side by side (each Talk keeps its own lock): one after another, a batch of
+      // the chatbot's answers waited tens of seconds on a phone (2026-11-21).
+      const list = Object.values(records);
+      let next = 0;
+      const worker = async (): Promise<void> => {
+        while (next < list.length) await recordOne(list[next++]);
+      };
+      await Promise.all(Array.from({ length: Math.min(RECORD_HISTORY_CONCURRENCY, list.length) }, worker));
     },
 
     /** I answered a Talk that came over a graph link: write it once and send it to its author. */
@@ -300,56 +318,62 @@ export function createAppAnswers(options: {
       // The source is looked up among my own Talks, not through my latest answer to the question:
       // the chatbot answering the same question on someone else's Talk replaces that answer's
       // pointer, and the listing was lost (e2e taxi §JJ: confirming one deal disabled both).
-      let newest = '';
-      for (const talkId of await graph.talks.list()) {
+      // The newest answered of my Talks that asks this question. Reads run side by side (one after
+      // another this was ~90 reads per arriving question, seconds on a phone, 2026-11-21); the
+      // earliest Talk in list order wins a tie, as before.
+      const talkIds = await graph.talks.list();
+      const states = await Promise.all(talkIds.map(async (talkId, order) => {
         const mine = await store.get(`${prefix}mine/talk/${talkId}`);
-        if (!mine || mine.deleted === true) continue;
+        if (!mine || mine.deleted === true) return undefined;
         const answered = await graph.answers.answered(talkId);
-        if (!answered || answered <= newest) continue;
-        const talk = await graph.talks.read(talkId);
-        if (!talk || norm(talk.language || 'en') !== norm(language)) continue;
-        if (!talk.questions.some((q) => norm(q.text) === norm(text))) continue;
-        newest = answered;
-        out.sourceTalkId = await options.ownTalks.appTalkId(talkId);
-      }
+        return answered ? { talkId, answered, order } : undefined;
+      }));
+      const candidates = states.filter((row): row is { talkId: string; answered: string; order: number } => !!row)
+        .sort((a, b) => (a.answered === b.answered ? a.order - b.order : a.answered < b.answered ? 1 : -1));
+      const talks = await Promise.all(candidates.map((row) => graph.talks.read(row.talkId)));
+      const match = candidates.findIndex((_, i) => {
+        const talk = talks[i];
+        return !!talk && norm(talk.language || 'en') === norm(language) && talk.questions.some((q) => norm(q.text) === norm(text));
+      });
+      if (match >= 0) out.sourceTalkId = await options.ownTalks.appTalkId(candidates[match]!.talkId);
       return out;
     },
 
     /** Every Talk I answered, with my latest answers, newest first (the Me tab). */
     async history(options_: { months?: number } = {}): Promise<AppAnswerRecord[]> {
       const rows = await graph.answers.me(options_);
+      // Reads side by side: one after another this took 12–30 s on a phone mid-exchange (2026-11-21).
+      const eventIds = [...new Set(rows.flatMap((row) => row.contexts.map(({ eventId }) => eventId)))];
       const talkOfEvent = new Map<string, string>();
-      for (const row of rows) for (const { eventId } of row.contexts) {
-        if (talkOfEvent.has(eventId)) continue;
-        const node = await store.get(event(eventId));
-        const talkSoul = linkSoul(node?.talk);
+      const nodes = await Promise.all(eventIds.map((eventId) => store.get(event(eventId))));
+      eventIds.forEach((eventId, i) => {
+        const talkSoul = linkSoul(nodes[i]?.talk);
         if (talkSoul) talkOfEvent.set(eventId, talkSoul.slice(event('').length));
-      }
-      const out: AppAnswerRecord[] = [];
-      for (const talkId of new Set(talkOfEvent.values())) {
+      });
+      const records = await Promise.all([...new Set(talkOfEvent.values())].map(async (talkId): Promise<AppAnswerRecord | undefined> => {
         const eventId = await graph.answers.answered(talkId);
-        if (!eventId) continue;
+        if (!eventId) return undefined;
         const [node, mineState] = await Promise.all([store.get(event(eventId)), store.get(`${prefix}mine/talk/${talkId}`)]);
-        if (!node) continue;
+        if (!node) return undefined;
         const mine = !!mineState;
         const appTalkId = mine ? await options.ownTalks.appTalkId(talkId) : talkId;
         // A Talk only the app has (a starter tag) is answered under its app id: its body is the app's.
         const talk = mine ? await graph.talks.read(talkId) : (await graph.arrivals.read(talkId)) ?? (await local(talkId))?.talk;
         const set = await graph.answers.answerSet(eventId);
-        if (!talk || !set) continue;
+        if (!talk || !set) return undefined;
         const mode = typeof node.mode === 'string' ? node.mode : 'manual';
         const withUser = personIdOf(prefix, linkSoul(node.with));
         // How my answer came out when I sent it (`response.commit`, with my Pair-tag side).
         const responded = withUser ? await graph.exchange.responded(talkId, withUser) : undefined;
-        out.push({
+        return {
           appTalkId, graphTalkId: talkId, eventId, when: Number(node.when) || 0, mode, mine,
           ...(withUser ? { withUser } : {}),
           ...(responded ? { outcome: responded.outcome === 'matched' ? 'match' as const : 'mismatch' as const } : {}),
           talk: appTalkOf(talk as any),
           answers: appAnswersOf(talk as any, set, mode, mine ? 'author' : 'responder'),
-        });
-      }
-      return out.sort((a, b) => b.when - a.when);
+        };
+      }));
+      return records.filter((record): record is AppAnswerRecord => !!record).sort((a, b) => b.when - a.when);
     },
   };
 }

@@ -61,13 +61,15 @@ export function createIncomingList(options: { store: NodeStore; graph: DeviceGra
 
     /** The list, newest row last-updated first, at most `maxRows` rows. */
     async rows(): Promise<IncomingTalkClusterWire[]> {
-      const deliveries: Array<{ talkId: string; talkData: Record<string, unknown>; senderId: string; senderName: string; when: number }> = [];
-      for (const talkId of await graph.arrivals.incoming()) {
+      type Delivery = { talkId: string; talkData: Record<string, unknown>; senderId: string; senderName: string; when: number };
+      // Each arrived Talk is read side by side (one after another this took 15–37 s on a phone
+      // mid-exchange, 2026-11-21), then flattened in list order as before.
+      const perTalk = await Promise.all((await graph.arrivals.incoming()).map(async (talkId): Promise<Delivery[]> => {
+        const found: Delivery[] = [];
         const shown = await store.get(shownSoul(talkId));
-        if (!shown) continue;
-        const talk = await graph.arrivals.read(talkId);
-        if (!talk) continue;
-        const times = await arrivalTimes(talkId);
+        if (!shown) return found;
+        const [talk, times] = await Promise.all([graph.arrivals.read(talkId), arrivalTimes(talkId)]);
+        if (!talk) return found;
         const base = appTalkOf(talk as any);
         for (const senderId of talk.senders) {
           const accepted = parseShown(shown[senderId]);
@@ -78,9 +80,11 @@ export function createIncomingList(options: { store: NodeStore; graph: DeviceGra
             if (!trimmed) continue;
             body = trimmed.filtered as Record<string, any>;
           }
-          deliveries.push({ talkId, senderId, senderName: accepted.name, when: times.get(senderId)!, talkData: { ...body, id: talkId, authorId: senderId, authorName: accepted.name } });
+          found.push({ talkId, senderId, senderName: accepted.name, when: times.get(senderId)!, talkData: { ...body, id: talkId, authorId: senderId, authorName: accepted.name } });
         }
-      }
+        return found;
+      }));
+      const deliveries = perTalk.flat();
       // Oldest first, so each row ends on its latest delivery.
       deliveries.sort((a, b) => a.when - b.when);
       const rows = new Map<string, IncomingTalkClusterWire>();

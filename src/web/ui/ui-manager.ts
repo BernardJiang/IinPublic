@@ -209,6 +209,7 @@ import { settingsStorage } from '../services/core-storage';
 import { renderStatusLinks as renderStatusLinksImpl } from './status-links';
 import { bindTipOnTap, showTipOnce as showTipOnceImpl } from './ui-tips';
 import { readTalksTabState, writeTalksTabState } from './talks-tab-state';
+import { adaptiveRedraw } from './adaptive-redraw';
 
 /** Spec §7.4 FR-FIN-1: the mandatory safety reminder is a toast, not a layout-shifting
  * banner, and is throttled to once per checkpoint per day rather than every occurrence. */
@@ -1151,7 +1152,11 @@ export class UIManager extends EventEmitter {
   setMapTalkConnections(talks: ReadonlyMap<string, readonly string[]>): void { this.chatroomShell().setMapTalkConnections(talks); }
   setNearbyGroup(group: { group: number; exhausted: boolean; pageable?: boolean; hasMore?: boolean } | null): void { this.chatroomShell().setNearbyGroup(group); }
 
-  displayTalksList(): void {
+  /** Redraws the Talks list; a burst of calls shares one redraw (`adaptiveRedraw`). */
+  readonly displayTalksList: () => void = adaptiveRedraw(() => this.displayTalksListNow(), 250, Date.now,
+    () => typeof document !== 'undefined' && !!document.querySelector('#talks-list [data-decided]'));
+
+  private displayTalksListNow(): void {
     displayTalksListView({
       currentUser: this.currentUser,
       currentLocation: this.currentLocation,

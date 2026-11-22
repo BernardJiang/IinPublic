@@ -239,9 +239,27 @@ export function createExchangeIndex(store: NodeStore, options: { prefix?: string
       ]);
     },
 
+    /**
+     * Today's and this week's sends to this person, for many limit checks in a row (`graph.offerMany`
+     * reads them once per person instead of up to 8 reads per Talk and person).
+     */
+    async sendCounts(peer: string): Promise<{ today: Set<string>; week: number }> {
+      const ms = now();
+      const days = weekDaysUpTo(ms);
+      const nodes = await Promise.all(days.map((day) => store.get(sentDaySoul(peer, day))));
+      const sent = (node: GraphNode | null) => Object.entries(node || {}).filter(([, v]) => v === true).map(([k]) => k);
+      return { today: new Set(sent(nodes[nodes.length - 1] ?? null)), week: nodes.reduce((sum, node) => sum + sent(node).length, 0) };
+    },
+
     /** The send limit: may this Talk go to them now? A Talk already counted today is free. */
-    async withinLimit(peer: string, talkId: string, unlimited = false): Promise<OfferPlan> {
+    async withinLimit(peer: string, talkId: string, unlimited = false, counts?: { today: Set<string>; week: number }): Promise<OfferPlan> {
       if (unlimited) return { send: true };
+      if (counts) {
+        if (counts.today.has(talkId)) return { send: true };
+        if (counts.today.size >= TALK_SEND_DAILY) return { send: false, reason: 'daily_talk_send_rate_limit' };
+        if (counts.week >= TALK_SEND_WEEKLY) return { send: false, reason: 'weekly_talk_send_rate_limit' };
+        return { send: true };
+      }
       const ms = now();
       const today = await sentToday(peer, ms);
       if (today[talkId] === true) return { send: true };

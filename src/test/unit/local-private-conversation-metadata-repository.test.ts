@@ -39,4 +39,24 @@ describe('LocalPrivateConversationMetadataRepository', () => {
     expect(h.getGun).not.toHaveBeenCalled();
     off();
   });
+
+  // Five-phone starter tags (2026-11-21): each match rewrote the whole encrypted envelope.
+  test('updates made during a write share one write; an unchanged record writes nothing', async () => {
+    const h = harness();
+    const repo = new LocalPrivateConversationMetadataRepository(h.gun);
+    await repo.upsert('alice', { conversationId: 'c0', otherUserId: 'zed' });
+    expect(h.putPrivate).toHaveBeenCalledTimes(1);
+    const writes = [
+      repo.upsert('alice', { conversationId: 'c1', otherUserId: 'bob' }),
+      repo.upsert('alice', { conversationId: 'c2', otherUserId: 'cy' }),
+      repo.upsert('alice', { conversationId: 'c3', otherUserId: 'dee' }),
+    ];
+    await Promise.all(writes);
+    expect(h.putPrivate).toHaveBeenCalledTimes(2); // the three made together share one write
+    const ids = Object.keys(JSON.parse(h.values.get([...h.values.keys()][0]).recordsJson)).sort();
+    expect(ids).toEqual(['c0', 'c1', 'c2', 'c3']);
+    const before = h.putPrivate.mock.calls.length;
+    await repo.upsert('alice', { conversationId: 'c1', otherUserId: 'bob' });
+    expect(h.putPrivate).toHaveBeenCalledTimes(before);
+  });
 });

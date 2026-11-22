@@ -12,7 +12,7 @@
  * Order: groups go from the most widely shared (food, screen, music) to the more specific; inside a
  * group the most common tag comes first, so it is reached before liking anything below passes it.
  */
-import { computeTalkIdFromTalkData } from './cid';
+import { buildTalkIdentityKey, computeTalkIdFromTalkData } from './cid';
 
 export const STARTER_TAGS_VERSION = 2;
 
@@ -170,4 +170,24 @@ export function detachStarterTagTalk(talk: any, author: { id: string; name: stri
 
 export function isStarterTagTalk(talk: any): boolean {
   return talk?.starterContactId === STARTER_TAGS_CONTACT_ID;
+}
+
+let starterIdentityKeys: Set<string> | undefined;
+/**
+ * A starter tag by its content: the starter list's own Talk, or a person's copy of the same tag
+ * (same identity key, `placeInStarterSlot`). Liking either is liking my own interest, so it is
+ * public and exchanged (OPEN-87). A liked copy someone sent used to stay private, so it was never
+ * offered: two people who both liked "Formula 1" from a third never exchanged it (2026-11-21).
+ */
+export function isStarterTagContent(talk: any): boolean {
+  if (isStarterTagTalk(talk)) return true;
+  if (talk?.type !== 'tag' || !Array.isArray(talk?.questions) || talk.questions.length !== 1) return false;
+  starterIdentityKeys ??= new Set((Object.keys(STARTER_TAG_SETS) as StarterTagLanguage[])
+    .flatMap((language) => starterTagsFor(language))
+    .map((entry) => buildTalkIdentityKey(starterTagTalk(entry))));
+  try {
+    return starterIdentityKeys.has(buildTalkIdentityKey(talk));
+  } catch {
+    return false;
+  }
 }

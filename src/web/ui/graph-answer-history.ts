@@ -6,6 +6,7 @@
 import { checkIfMatch } from '../../shared/talk-engine';
 import type { TypedAnswerValue } from '../../shared/typed-preference-store';
 import { buildFlatAnswerHistoryRecord, type FlatAnswerHistoryRecord } from './answer-history-records';
+import { coalesced } from '../services/coalesced-refresh';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -52,8 +53,11 @@ export function graphRecordToFlat(record: GraphAnswerRecord): FlatAnswerHistoryR
   );
 }
 
-/** Ask the core again; true when the records changed (the caller then redraws). */
-export async function refreshGraphAnswerHistory(): Promise<boolean> {
+/** Ask the core again; true when the records changed (the caller then redraws). A burst of calls
+ * shares one read in flight and one more after a short gap (`coalesced`). */
+export const refreshGraphAnswerHistory: () => Promise<boolean> = coalesced(() => readGraphAnswerHistory(), 1_500, (a, b) => a || b);
+
+async function readGraphAnswerHistory(): Promise<boolean> {
   if (!requester) return false;
   const records = await requester();
   if (!Array.isArray(records)) return false;

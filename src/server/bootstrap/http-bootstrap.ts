@@ -234,6 +234,12 @@ export function warnIfBuildIdsDrifted(webRoot: string): void {
   }
 }
 
+/** How long an embedded node's Radisk gathers writes before a flush (IINPUBLIC_RADISK_FLUSH_MS overrides 1 s). */
+export function radiskFlushMs(env: NodeJS.ProcessEnv): number {
+  const fromEnv = Number(env.IINPUBLIC_RADISK_FLUSH_MS);
+  return Number.isFinite(fromEnv) && fromEnv >= 50 && fromEnv <= 10_000 ? Math.floor(fromEnv) : 1_000;
+}
+
 /**
  * P2P-Z: Warn at startup if a stale radata/ directory exists while the server
  * is configured as a relay-only hub (no application-layer persistence).
@@ -318,6 +324,11 @@ export function attachGun(server: HttpServer): any {
     ...(embedded.enabled ? { sharingRelayPeers: upstreamHubPeers } : {}),
     // Embedded nodes always persist on-device (Gun-on-device is source of truth).
     radisk: embedded.enabled ? true : !isolatedGun,
+    // Radisk writes whole files on each flush (parse + stringify): flushing once a second instead of
+    // every 250 ms puts 4× the writes in each, for the same per-file cost (five-phone starter tags,
+    // 2026-11-21: flushes were ~30 % of a C10's CPU). The device graph's reads are answered from
+    // RAM meanwhile (`cacheInRam`, core-routes.ts).
+    ...(embedded.enabled ? { until: radiskFlushMs(process.env) } : {}),
     // IINPUBLIC_HUB_AXE=1 turns Gun AXE (subscription-based routing) ON for a relay-only/isolated hub, so a
     // write is forwarded only to peers that asked for it instead of flooding every connected client.
     // Off by default (unchanged behaviour); used by scripts/load-test-room-heartbeat.mjs --axe.

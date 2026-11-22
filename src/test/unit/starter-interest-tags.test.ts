@@ -179,3 +179,21 @@ describe('starter interest tags', () => {
     expect(openStarterTalks).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('isStarterTagContent (2026-11-21)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const tags = require('../../shared/starter-tags');
+  it("is a starter tag by content: the list's Talk, or a person's copy of it, in either language", () => {
+    for (const language of ['en', 'zh']) {
+      const entry = tags.starterTagsFor(language)[3];
+      const own = tags.starterTagTalk(entry);
+      const personCopy = { ...tags.detachStarterTagTalk(own, { id: 'cy', name: 'Cy' }), id: 'cy-talk-1', createdAt: '2026-11-21T00:00:00.000Z' };
+      expect(tags.isStarterTagContent(own)).toBe(true);
+      expect(tags.isStarterTagTalk(personCopy)).toBe(false);
+      expect(tags.isStarterTagContent(personCopy)).toBe(true);
+    }
+    const other = { ...tags.starterTagTalk(tags.starterTagsFor('en')[0]), starterContactId: undefined };
+    other.questions = [{ ...other.questions[0], text: 'Underwater basket weaving', answers: other.questions[0].answers.map((a: any) => (a.isMatch ? { ...a, text: 'Underwater basket weaving' } : a)) }];
+    expect(tags.isStarterTagContent(other)).toBe(false);
+  });
+});

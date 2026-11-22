@@ -41,10 +41,31 @@ function scheduleRefresh(): void {
   }, 2_000);
 }
 
+/**
+ * Saves made within a moment go to the core as one request: each answer (by hand or the chatbot's)
+ * used to be its own `graph.recordAnswers`, ~120 for one person's starter tags (2026-11-21).
+ */
+const ANSWER_SAVE_GATHER_MS = 250;
+let outgoing: Record<string, FlatAnswerHistoryRecord> = {};
+let outgoingTimer: ReturnType<typeof setTimeout> | null = null;
+
 function send(records: Record<string, FlatAnswerHistoryRecord>): void {
   if (!core || !Object.keys(records).length) return;
+  Object.assign(outgoing, JSON.parse(JSON.stringify(records)));
+  outgoingTimer ??= setTimeout(flushOutgoing, ANSWER_SAVE_GATHER_MS);
+}
+
+/** A Talk whose answers were removed: a save of it still gathering is not sent. */
+function dropOutgoing(talkId: string): void {
+  for (const [id, record] of Object.entries(outgoing)) if (record.talkId === talkId) delete outgoing[id];
+}
+
+function flushOutgoing(): void {
+  outgoingTimer = null;
+  const copy = outgoing;
+  outgoing = {};
+  if (!core || !Object.keys(copy).length) return;
   const request = core;
-  const copy = JSON.parse(JSON.stringify(records));
   // After the My Talks writes already made: a new Talk of mine must be in the core (and so in the
   // graph) before my answers to it, or they are taken for answers to a Talk only the app has.
   void myTalksView.flush().catch(() => undefined)
@@ -88,6 +109,7 @@ export function setFlatAnswerHistory(history: FlatAnswerHistoryMap): void {
   }
   for (const [talkId, senders] of gone) {
     for (const [id, record] of pending) if (record.talkId === talkId) pending.delete(id);
+    dropOutgoing(talkId);
     removedTalks.add(talkId);
     if (core) {
       void core({ name: 'graph.forgetAnswers', talkId, senders: [...senders] })

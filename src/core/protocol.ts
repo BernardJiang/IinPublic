@@ -169,9 +169,10 @@ export type CoreResponse<R extends CoreRequest> =
                             : never;
 
 /**
- * Requests the core runs one at a time (answer commits, outcome records, an answer's delivery
- * record): a stale tab cannot overwrite a newer one. Each waits for every one before it, so under
- * load they can wait minutes, but each still runs: a caller must not give up on them the way it
+ * Requests the core runs one at a time per record (answer commits per Talk and author, outcome
+ * records, an answer's delivery record): a stale tab cannot overwrite a newer one. Each waits for
+ * the ones before it on the same record, so under load they can wait minutes, but each still runs:
+ * a caller must not give up on them the way it
  * gives up on a request to a dead core (the starter-tags spec, 2026-11-18: a chatbot answer whose
  * commit waited past the 45 s bridge timeout was committed but never sent to its author).
  */

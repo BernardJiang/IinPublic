@@ -89,4 +89,24 @@ describe('actOnTalkRow: Like and Pass on every kind of row', () => {
     actOnTalkRow(row('<div class="talk-list-item" data-talk-id="q" data-role="ignored"></div>'), 'pass', deps);
     expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
   });
+
+  // Five-phone starter tags (2026-11-21): redraws are gathered, so a tag liked a moment ago still
+  // looked unanswered and the next like below it passed it ("Beaches" liked, then passed).
+  it('a like below a tag liked a moment ago does not pass it before the list redraws', () => {
+    const html = '<div class="talk-list-item talk-tag-chip talk-incoming-new" data-starter-tag="true" data-talk-id="a" data-identity-key="ka" data-role="incoming"></div>'
+      + '<div class="talk-list-item talk-tag-chip talk-incoming-new" data-starter-tag="true" data-talk-id="b" data-identity-key="kb" data-role="incoming"></div>';
+    document.body.innerHTML = `<div id="talks-list">${html}</div>`;
+    const [first, second] = Array.from(document.querySelectorAll<HTMLElement>('#talks-list .talk-list-item'));
+    const deps = makeDeps();
+    actOnTalkRow(first!, 'like', deps);
+    actOnTalkRow(second!, 'like', deps);
+    jest.runAllTimers();
+    expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
+    expect(deps.quickAnswerIncomingTag).toHaveBeenCalledWith('a', 'ka', true);
+    expect(deps.quickAnswerIncomingTag).toHaveBeenCalledWith('b', 'kb', true);
+    // And a pass on the chip just liked does nothing until the redraw shows its real state.
+    actOnTalkRow(first!, 'pass', deps);
+    jest.runAllTimers();
+    expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
+  });
 });

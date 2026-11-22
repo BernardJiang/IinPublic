@@ -82,7 +82,18 @@ function deviceGraphGate(options: DeviceGraphOptions | undefined, localTalk?: (a
  * was never written waits out the not-found grace period, which held every new device's first
  * boot by 1.5 s or more under load (e2e stage2/95, stage2/37).
  */
-export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean; deviceGraph?: DeviceGraphOptions } = {}): (request: CoreRequest) => Promise<unknown> {
+/** The record a serial request writes: requests for the same one run in order (`isSerialCoreRequest`). */
+function serialLaneOf(request: CoreRequest): string {
+  if (request.name === 'response.commit') return `answer:${request.input.talkId}|${request.input.authorId}`;
+  if (request.name === 'graph.recordOutcome') return `outcome:${request.talkId}|${request.responderId}`;
+  if (request.name === 'delivery.record') return `delivery:${request.input.objectId}|${request.input.recipientId}`;
+  return request.name;
+}
+
+/** How many offers of one `graph.offerMany` run side by side. */
+const OFFER_MANY_CONCURRENCY = 3;
+
+export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean; logTimings?: boolean; deviceGraph?: DeviceGraphOptions } = {}): (request: CoreRequest) => Promise<unknown> {
   // A Talk only the app has is answered from the body its `myTalks` entry keeps (`app-answers.ts`).
   // Through My Talks' bodies: once such a Talk is also my graph Talk (a copy I sent), its stored
   // entry keeps only what the graph does not give back, and the body comes from the graph.
@@ -135,6 +146,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
     },
     ...(options.deviceGraph?.log ? { log: options.deviceGraph.log } : {}),
   });
+  /** Send counts per person for the `graph.offerMany` in progress (read once per batch). */
+  let offerSendCounts: Map<string, Promise<{ today: Set<string>; week: number }>> | undefined;
   const execute = async (request: CoreRequest): Promise<unknown> => {
     if (fresh) {
       if (request.name === 'exchanges.snapshot') return [];
@@ -183,10 +196,26 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         // Many Talks, each to its own recipients, in one request: the page says what to offer once
         // and this core fans it out (a newcomer's catch-up, a batch of likes). One at a time,
         // giving the event loop back between them, so a request someone waits on is not held up.
-        const results: unknown[] = [];
-        for (const offer of request.offers) {
-          results.push(await execute({ ...offer, name: 'graph.offer' }).catch((error: unknown) => ({ error: String((error as Error)?.message || error) })));
-          await new Promise((resolve) => setTimeout(resolve, 0));
+        // A few at a time (each is a chain of storage reads that mostly waits), and each person's
+        // send counts are read once for the whole batch (five-phone starter tags, 2026-11-21: 30
+        // likes to 4 people took over 2 minutes on a C10, one offer after another).
+        const results: unknown[] = new Array(request.offers.length);
+        const counts = new Map<string, Promise<{ today: Set<string>; week: number }>>();
+        const previous = offerSendCounts;
+        offerSendCounts = counts;
+        try {
+          let next = 0;
+          const worker = async () => {
+            while (next < request.offers.length) {
+              const index = next++;
+              results[index] = await execute({ ...request.offers[index]!, name: 'graph.offer' })
+                .catch((error: unknown) => ({ error: String((error as Error)?.message || error) }));
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+          };
+          await Promise.all(Array.from({ length: Math.min(OFFER_MANY_CONCURRENCY, request.offers.length) }, worker));
+        } finally {
+          offerSendCounts = previous;
         }
         return { results };
       }
@@ -215,18 +244,32 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const skipped: Record<string, string> = {};
         const groups = new Map<string, { omit: string[]; recipients: string[] }>();
         const waiting: string[] = [];
-        for (const recipient of new Set(request.recipients)) {
+        // Each recipient's checks are independent reads: all at once, then grouped in order.
+        const sendCounts = offerSendCounts;
+        const plans = await Promise.all([...new Set(request.recipients)].map(async (recipient) => {
           const had = suppress ? await exchange.has(recipient, atoms.map((a) => a.atom)) : new Set<string>();
           const sentVersion = typeof sentTo[recipient] === 'string' ? sentTo[recipient] as string : undefined;
           let plan: OfferPlan = planOffer({ versionId: current.versionId, sentVersion, atoms, has: (atom) => had.has(atom) });
           if (plan.send) {
-            const limit = await exchange.withinLimit(recipient, talkId, unlimited);
+            let counts: { today: Set<string>; week: number } | undefined;
+            if (sendCounts && !unlimited) {
+              let pending = sendCounts.get(recipient);
+              if (!pending) { pending = exchange.sendCounts(recipient); sendCounts.set(recipient, pending); }
+              counts = await pending;
+            }
+            const limit = await exchange.withinLimit(recipient, talkId, unlimited, counts);
             if (!limit.send) plan = limit;
+            // Counted now, so the next Talk in this batch sees it (the limit counts distinct Talks).
+            else if (counts && !counts.today.has(talkId)) { counts.today.add(talkId); counts.week += 1; }
           }
-          if (!plan.send) { skipped[recipient] = plan.reason; continue; }
           // No keys yet (never linked): nothing can go in our pair log. The app asks for a link and
           // offers again once it opens (its room catch-up).
-          if (!(await sync.knows(recipient))) { waiting.push(recipient); continue; }
+          const knows = plan.send ? await sync.knows(recipient) : false;
+          return { recipient, plan, knows };
+        }));
+        for (const { recipient, plan, knows } of plans) {
+          if (!plan.send) { skipped[recipient] = plan.reason; continue; }
+          if (!knows) { waiting.push(recipient); continue; }
           const omit = plan.omit ?? [];
           const group = groups.get(omit.join(',')) ?? { omit, recipients: [] };
           group.recipients.push(recipient);
@@ -237,8 +280,8 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const omitted: Record<string, string[]> = {};
         for (const { omit, recipients } of groups.values()) {
           offered += await sync.offerTalk(talkId, recipients, { ...(request.context ?? {}), ...(omit.length ? { omit } : {}) });
+          await Promise.all(recipients.map((recipient) => exchange.recordOffer(recipient, talkId, current.versionId, atoms, omit)));
           for (const recipient of recipients) {
-            await exchange.recordOffer(recipient, talkId, current.versionId, atoms, omit);
             sent.push(recipient);
             if (omit.length) omitted[recipient] = omit;
           }
@@ -407,19 +450,50 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
   };
   // Answer commits and outcome records go one at a time: a stale tab cannot overwrite a newer one.
   // Other requests keep their concurrency; no network/transport work holds this lock.
-  let answerQueue: Promise<unknown> = Promise.resolve();
+  const serialLanes = new Map<string, Promise<unknown>>();
   let serialDelayMs = 0;
+  // Debug builds (`logTimings`): how long each kind of request takes, summed every 30 s into the log, so a slow
+  // exchange on a phone shows which requests the core spends its time on.
+  const timings = options.logTimings === true ? new Map<string, { count: number; total: number; max: number }>() : undefined;
+  let timingsTimer: ReturnType<typeof setTimeout> | undefined;
+  const timed = (request: CoreRequest, run: () => Promise<unknown>): Promise<unknown> => {
+    if (!timings) return run();
+    const started = Date.now();
+    const done = () => {
+      const ms = Date.now() - started;
+      const row = timings.get(request.name) ?? { count: 0, total: 0, max: 0 };
+      row.count += 1; row.total += ms; row.max = Math.max(row.max, ms);
+      timings.set(request.name, row);
+      timingsTimer ??= setTimeout(() => {
+        timingsTimer = undefined;
+        const rows = [...timings].sort((a, b) => b[1].total - a[1].total).slice(0, 12)
+          .map(([name, r]) => `${name} ${r.count}× avg ${Math.round(r.total / r.count)} max ${r.max} ms`);
+        timings.clear();
+        console.log(`[core-timing] last 30 s: ${rows.join(' · ')}`);
+      }, 30_000);
+    };
+    const result = run();
+    result.then(done, done);
+    return result;
+  };
   return (request) => {
     if (request.name === 'test.slowSerialQueue') {
       if (options.allowTestOverrides !== true) return Promise.reject(new Error('test.slowSerialQueue: test builds only'));
       serialDelayMs = Math.max(0, Number(request.ms) || 0);
       return Promise.resolve({ ok: true });
     }
-    if (!isSerialCoreRequest(request)) return execute(request);
-    const result = answerQueue
+    if (!isSerialCoreRequest(request)) return timed(request, () => execute(request));
+    // One lane per Talk and person (or per response and recipient): what must not overtake is a
+    // newer write to the same record. One lane for everything held every answer behind every other
+    // (five-phone starter tags, 2026-11-21: 2–3 s each, a dozen a minute on a C10).
+    const lane = serialLaneOf(request);
+    const previous = serialLanes.get(lane) ?? Promise.resolve();
+    const result = previous
       .then(() => (serialDelayMs ? new Promise((resolve) => setTimeout(resolve, serialDelayMs)) : undefined))
-      .then(() => execute(request));
-    answerQueue = result.catch(() => undefined);
+      .then(() => timed(request, () => execute(request)));
+    const settled = result.catch(() => undefined);
+    serialLanes.set(lane, settled);
+    void settled.then(() => { if (serialLanes.get(lane) === settled) serialLanes.delete(lane); });
     return result;
   };
 }

@@ -379,6 +379,7 @@ describe('displayTalksList', () => {
     jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
     expect(quickIgnoreIncomingTalk).not.toHaveBeenCalled();
     chip().removeAttribute('aria-busy');
+    delete chip().dataset.decided; // as a redraw would
     chip().dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
     expect(document.querySelectorAll('.talk-tag-fly-ghost.talk-tag-fly-pass')).toHaveLength(1);
     jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
@@ -387,6 +388,7 @@ describe('displayTalksList', () => {
     // Toolbar ✕ on the long-pressed row.
     quickIgnoreIncomingTalk.mockClear();
     chip().removeAttribute('aria-busy');
+    delete chip().dataset.decided; // as a redraw would
     chip().style.visibility = '';
     selectTalkRow(chip());
     const passButton = document.getElementById('talks-tap-pass-btn') as HTMLButtonElement;

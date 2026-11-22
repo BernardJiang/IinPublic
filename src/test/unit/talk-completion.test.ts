@@ -267,14 +267,24 @@ describe('starter tags have no sender (OPEN-87)', () => {
     expect(getMyTalks()[starter.id]?.senders).toEqual(['person-1']);
   });
 
-  it('a liked starter tag is my own interest and public; a liked tag from a person starts private (OPEN-112)', () => {
+  it('a liked starter tag is my own interest and public, also a person\'s copy of one; another liked tag from a person starts private (OPEN-112)', () => {
     const starter = starterTagTalk(starterTagsFor('en')[0]!);
     const like = [{ questionId: 'q_0', answerId: 'q_0_match', answerText: 'Match.' }];
     completeTalk(starter, like, 'match', { forceCopyToMyTalks: true }, deps());
     expect(getMyTalks()[starter.id]).toMatchObject({ role: 'copied', disabled: false });
 
+    // A person's copy of a starter tag sits in that tag's place (placeInStarterSlot): liking it is
+    // liking my interest, so it is exchanged (2026-11-21: "Formula 1" liked from Cy was never sent).
     const fromPerson = starterTagTalk(starterTagsFor('en')[1]!);
-    const personTag = { ...fromPerson, id: 'person-tag', authorId: 'person-1', starterContactId: undefined };
+    const personStarter = { ...fromPerson, id: 'person-starter', authorId: 'person-1', starterContactId: undefined };
+    completeTalk(personStarter, like, 'match', { forceCopyToMyTalks: true }, deps());
+    expect(getMyTalks()['person-starter']).toMatchObject({ role: 'copied', disabled: false });
+
+    const word = 'Underwater basket weaving';
+    const personTag = {
+      ...fromPerson, id: 'person-tag', authorId: 'person-1', starterContactId: undefined,
+      questions: [{ ...fromPerson.questions[0], text: word, answers: fromPerson.questions[0].answers.map((a: any) => (a.isMatch ? { ...a, text: word } : a)) }],
+    };
     completeTalk(personTag, like, 'match', { forceCopyToMyTalks: true }, deps());
     expect(getMyTalks()['person-tag']).toMatchObject({ role: 'copied', disabled: true });
   });

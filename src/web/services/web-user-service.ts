@@ -307,8 +307,31 @@ export class WebUserService {
     }
   }
 
+  /**
+   * Public-record syncs to the API, one at a time per user, newest record last. A new user's first
+   * sync retries in the background (up to 10 s a try); a rename right after could land first and
+   * the late first sync then put the generated `User…` name back on the hub. Contacts elsewhere
+   * read the API record as the live name, so the row flipped between the two names (five-phone
+   * starter tags, 2026-11-21).
+   */
+  private readonly apiSyncs = new Map<string, { running: Promise<void>; latest: User }>();
+
   private syncPublicUserToApiBestEffort(user: User): void {
-    void this.syncPublicUserToApi(user).catch(() => {});
+    const queued = this.apiSyncs.get(user.id);
+    if (queued) {
+      queued.latest = { ...queued.latest, ...user };
+      return;
+    }
+    const entry = { latest: user, running: Promise.resolve() };
+    this.apiSyncs.set(user.id, entry);
+    entry.running = (async () => {
+      let sent: User | undefined;
+      // Whatever arrives while one sync is in flight is sent next, merged, so the last word wins.
+      while (sent !== entry.latest) {
+        sent = entry.latest;
+        await this.syncPublicUserToApi(sent).catch(() => {});
+      }
+    })().finally(() => { this.apiSyncs.delete(user.id); });
   }
 
   async syncPublicUserForRelay(user: User): Promise<void> {
@@ -697,6 +720,9 @@ export class WebUserService {
       allowTechSupportRoot: userId === TECHSUPPORT_ROOT_USER_ID,
     });
     await this.gunService.put(`users/${userId}`, { stageName: newStageName });
+    // The API's copy of my public record too: other phones read it as my live name.
+    const current = this.currentUserProvider?.();
+    if (current?.id === userId && current.pub) this.syncPublicUserToApiBestEffort({ ...current, stageName: newStageName });
   }
 
   async updateProfileFoundation(
