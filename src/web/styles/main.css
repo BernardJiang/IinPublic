@@ -2475,6 +2475,14 @@ button:focus:not(:focus-visible) {
   color: var(--text-primary, inherit);
 }
 
+/* A tap on a tag that is already mine points at its ✕ (undo). */
+.talk-row-pass.talk-row-pass-hint {
+  opacity: 1;
+  background: var(--accent-soft, var(--bg-muted));
+  color: var(--text-primary, inherit);
+  outline: 2px solid var(--accent, currentColor);
+}
+
 .talk-tag-chip .talk-row-pass {
   width: 18px;
   height: 18px;

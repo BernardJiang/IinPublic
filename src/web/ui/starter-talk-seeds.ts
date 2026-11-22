@@ -8,7 +8,7 @@ import {
   starterTagTalk,
   starterTagsFor,
 } from '../../shared/starter-tags';
-import { getMyTalks, patchMyTalk } from './my-talks-storage';
+import { getMyTalk, patchMyTalk } from './my-talks-storage';
 import type { KnownPerson } from '../../shared/types';
 import type { MyTalkMap } from './my-talks-storage';
 import type { UiLanguage } from './ui-translations';
@@ -332,7 +332,7 @@ export function findStarterTalk(clusters: any[], talkId: string, identityKeyFall
  */
 export function adoptLikedStarterTag(talk: any, author: { id: string; name: string }): void {
   if (!isStarterTagTalk(talk) || !author.id) return;
-  const entry = getMyTalks()[talk.id];
+  const entry = getMyTalk(talk.id);
   if (!entry?.fullTalk) return;
   patchMyTalk(talk.id, { fullTalk: detachStarterTagTalk(entry.fullTalk, author) });
 }

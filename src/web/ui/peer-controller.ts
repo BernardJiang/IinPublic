@@ -14,6 +14,8 @@ import { openPeerDetailView, shownPeerDetailId } from './user-detail-view';
 import type { UiTranslationKey } from './ui-translations';
 import { configureTagGraphView, renderPeerPlacesInto, renderPeerTagsInto } from './tag-graph-view';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
+import { exchangesRevision } from '../services/exchange-view';
+import { myTalksRevision, readMyTalks } from './my-talks-storage';
 import { settingsStorage } from '../services/core-storage';
 
 export interface PeerControllerDeps {
@@ -23,6 +25,8 @@ export interface PeerControllerDeps {
   getCurrentChatroomMembers: () => Array<{ userId: string; stageName: string }>;
   getIncomingTalkClusters: () => any[];
   getMyConversations: () => Record<string, any>;
+  /** The same map without a copy, for lookups that only read it (a name per Talks row). */
+  readMyConversations?: () => Readonly<Record<string, any>>;
   getMyTalks: () => Record<string, any>;
   getContactsViewDeps: () => ContactsViewDeps;
   getPublicProfileFoundationReader: () => ((userId: string) => Promise<any>) | undefined;
@@ -295,7 +299,7 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
     getPeerName(userId, fallbackName) {
       const currentMember = deps.getCurrentChatroomMembers()
         .find((member) => member.userId === userId);
-      const conversation = Object.values(deps.getMyConversations()).find(
+      const conversation = Object.values((deps.readMyConversations ?? deps.getMyConversations)()).find(
         (candidate: any) => candidate.otherUserId === userId && candidate.otherUserName,
       ) as { otherUserName?: string } | undefined;
       const incomingName = deps.getIncomingTalkClusters()
@@ -350,9 +354,10 @@ export function createPeerController(deps: PeerControllerDeps): PeerController {
     graphInput: () => ({
       currentUserId: deps.getCurrentUserId(),
       incoming: deps.getIncomingTalkClusters(),
-      myTalks: deps.getMyTalks(),
+      myTalks: readMyTalks(),
       exchanges: readLocalTalkExchanges(),
     }),
+    graphInputKey: () => [deps.getCurrentUserId(), deps.getIncomingTalkClusters(), myTalksRevision(), exchangesRevision()],
     openPerson: (peerId, name) => openPeerDetailForUser(peerId, name),
     peerName: (peerId, fallback) => controller.getPeerName(peerId, fallback),
     t: deps.t,

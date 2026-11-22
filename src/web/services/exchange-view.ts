@@ -27,7 +27,15 @@ let core: ExchangeCoreLink | null = null;
 
 const time = (record: ExchangeRecord | undefined): number => Date.parse(String(record?.date || '')) || 0;
 
+let revision = 0;
+
+/** Goes up whenever the log changes: a cache's key (the tag graph, `graph-focus.ts`). */
+export function exchangesRevision(): number {
+  return revision;
+}
+
 function notify(): void {
+  revision++;
   for (const listener of listeners) {
     try {
       listener();
@@ -180,6 +188,7 @@ export function resetExchangeViewForTests(): void {
   records.clear();
   listeners.clear();
   core = null;
+  revision++;
 }
 
 /**

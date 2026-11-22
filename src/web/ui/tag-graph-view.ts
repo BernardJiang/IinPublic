@@ -25,6 +25,8 @@ import type { UiTranslationKey } from './ui-translations';
 
 export type TagGraphViewDeps = {
   graphInput: () => TagGraphInput;
+  /** Values that change whenever the input does: the graph is rebuilt only then. */
+  graphInputKey?: () => readonly unknown[];
   /** Reopens a person page — stepping back along the graph to one (graph-focus.ts). */
   openPerson?: (peerId: string, name: string) => void;
   /** The best known display name (Contacts, conversations, peer cache) over a stored placeholder. */
@@ -36,7 +38,7 @@ let configured: TagGraphViewDeps | null = null;
 
 export function configureTagGraphView(deps: TagGraphViewDeps): void {
   configured = deps;
-  configureTagGraphSource(deps.graphInput);
+  configureTagGraphSource(deps.graphInput, deps.graphInputKey);
   if (deps.openPerson) configureGraphPersonPage(deps.openPerson);
 }
 

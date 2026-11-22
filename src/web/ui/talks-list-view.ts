@@ -141,7 +141,12 @@ export function actOnTalkRow(row: HTMLElement, intent: TalkRowIntent, deps: Disp
     return;
   }
   if (role === 'copied' || role === 'created') {
-    if (intent !== 'pass' || !talkId) return;
+    if (!talkId) return;
+    if (intent !== 'pass') {
+      // Already mine: a tap points at the ✕ (undo) instead of doing nothing (phone-path 10).
+      if (isTag) hintRowPass(row);
+      return;
+    }
     const undo = (): void => {
       if (role === 'created') deps.deleteMyTalk(talkId);
       else if (isTag) deps.quickIgnoreIncomingTalk(talkId, undefined);
@@ -170,6 +175,16 @@ export function actOnTalkRow(row: HTMLElement, intent: TalkRowIntent, deps: Disp
     if (like) deps.quickAnswerIncomingTag(talkId, identityKey, true);
     else deps.quickIgnoreIncomingTalk(talkId, identityKey);
   });
+}
+
+const ROW_PASS_HINT_MS = 900;
+
+/** Briefly highlights a row's ✕: the answer to a tap on a tag that is already mine. */
+function hintRowPass(row: HTMLElement): void {
+  const pass = row.querySelector<HTMLElement>('.talk-row-pass');
+  if (!pass) return;
+  pass.classList.add('talk-row-pass-hint');
+  window.setTimeout(() => pass.classList.remove('talk-row-pass-hint'), ROW_PASS_HINT_MS);
 }
 
 /** A swipe on a row (talks-row-gestures.ts), with the deps of the latest render. */

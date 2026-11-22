@@ -5,12 +5,21 @@
  * is written.
  */
 import { myConversationsView } from '../services/core-views';
-import { graphConversationsForView } from '../services/graph-tab-projection';
+import { graphConversationsForView, graphProjectionRevision } from '../services/graph-tab-projection';
 
 export type MyConversationMap = Record<string, any>;
 
 export function getMyConversations(): MyConversationMap {
-  return JSON.parse(JSON.stringify(graphConversationsForView(myConversationsView.all()))) as MyConversationMap;
+  return JSON.parse(JSON.stringify(readMyConversations())) as MyConversationMap;
+}
+
+let shown: { revision: string; conversations: MyConversationMap } | null = null;
+
+/** My Conversations without a copy, built once per change, for readers only (names per Talks row). */
+export function readMyConversations(): Readonly<MyConversationMap> {
+  const revision = `${myConversationsView.revision()}:${graphProjectionRevision()}`;
+  if (shown?.revision !== revision) shown = { revision, conversations: graphConversationsForView(myConversationsView.all()) };
+  return shown.conversations;
 }
 
 /**

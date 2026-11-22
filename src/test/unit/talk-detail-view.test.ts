@@ -112,4 +112,12 @@ describe('showTalkDetail', () => {
     retry();
     expect(d.showTalkDetail).toHaveBeenCalledWith(VALID_ID, 'fallback-key', { questionId: 'q1' });
   });
+  it('a second tap while the Talk is still loading says it is opening, without a second lookup', () => {
+    const d = deps();
+    showTalkDetail(VALID_ID, 'fallback-key', undefined, d);
+    showTalkDetail(VALID_ID, 'fallback-key', undefined, d);
+    expect((d.emit as jest.Mock).mock.calls.filter((c) => c[0] === 'demandFullTalk')).toHaveLength(1);
+    expect(d.showNotification).toHaveBeenCalledWith('talksOpening', 'info');
+    (d.emit as jest.Mock).mock.calls[0][1].callback(null);
+  });
 });

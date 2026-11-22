@@ -1,5 +1,5 @@
 import { myTalksView } from '../services/core-views';
-import { forgetGraphTalks, getGraphTabSnapshot, graphTalksForView, keepGraphTalks } from '../services/graph-tab-projection';
+import { forgetGraphTalks, getGraphTabSnapshot, graphProjectionRevision, graphTalksForView, keepGraphTalks } from '../services/graph-tab-projection';
 
 export type MyTalkRole = 'created' | 'answered' | 'copied' | 'ignored';
 
@@ -37,12 +37,29 @@ export type MyTalkMap = Record<string, MyTalkEntry>;
  * and hand it back to `setMyTalks`, so this is a copy: the view keeps its own entries.
  */
 export function getMyTalks(): MyTalkMap {
-  return JSON.parse(JSON.stringify(graphTalksForView(myTalksView.all()))) as MyTalkMap;
+  return JSON.parse(JSON.stringify(readMyTalks())) as MyTalkMap;
+}
+
+/** Goes up whenever My Talks as shown can change (the view or the graph snapshot): a cache's key. */
+export function myTalksRevision(): string {
+  return `${myTalksView.revision()}:${graphProjectionRevision()}`;
+}
+
+let shown: { revision: string; talks: MyTalkMap } | null = null;
+
+/**
+ * My Talks without a copy, built once per change: for readers only (a Talks redraw read and copied
+ * the whole map once per row, C10 2026-11-22). The caller must not change it.
+ */
+export function readMyTalks(): Readonly<MyTalkMap> {
+  const revision = myTalksRevision();
+  if (shown?.revision !== revision) shown = { revision, talks: graphTalksForView(myTalksView.all()) as MyTalkMap };
+  return shown.talks;
 }
 
 /** One entry without copying the map. The caller must not change it. */
 export function getMyTalk(talkId: string): MyTalkEntry | undefined {
-  return getMyTalks()[talkId];
+  return readMyTalks()[talkId];
 }
 
 /**

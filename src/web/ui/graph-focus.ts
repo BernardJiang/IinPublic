@@ -12,7 +12,7 @@ import { buildTagGraph, tagNodeFor, type TagGraph, type TagGraphInput } from '..
 import { tagPopularity, type TagPopularity } from '../../core/tag-stats';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { NEARBY_V3_ROOM_ID } from '../../shared/nearby-rooms';
-import { readExchanges } from '../services/exchange-view';
+import { exchangesRevision, readExchanges } from '../services/exchange-view';
 import { getFlatAnswerHistory } from './answer-history-storage';
 import { uiText, type UiTranslationKey } from './ui-translations';
 import { escapeHtml } from './ui-formatters';
@@ -106,12 +106,25 @@ let navBound = false;
 const norm = (text: string): string => text.trim().toLowerCase();
 
 /** The person↔tag graph's data (configured by the peer controller via tag-graph-view.ts). */
-export function configureTagGraphSource(input: () => TagGraphInput): void {
+export function configureTagGraphSource(input: () => TagGraphInput, inputKey?: () => readonly unknown[]): void {
   tagGraphInput = input;
+  tagGraphInputKey = inputKey ?? null;
+  tagGraphCache = null;
 }
 
+let tagGraphInputKey: (() => readonly unknown[]) | null = null;
+let tagGraphCache: { key: readonly unknown[]; graph: TagGraph } | null = null;
+const sameKey = (a: readonly unknown[], b: readonly unknown[]): boolean =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
+/** The graph, rebuilt only when its inputs changed (each Talks row asked for it: C10 2026-11-22). */
 export function currentTagGraph(): TagGraph | null {
-  return tagGraphInput ? buildTagGraph(tagGraphInput()) : null;
+  if (!tagGraphInput) return null;
+  const key = tagGraphInputKey?.();
+  if (key && tagGraphCache && sameKey(key, tagGraphCache.key)) return tagGraphCache.graph;
+  const graph = buildTagGraph(tagGraphInput());
+  tagGraphCache = key ? { key, graph } : null;
+  return graph;
 }
 
 /** One popularity table per render (rows ask one by one); rebuilt after half a second. */
@@ -196,6 +209,25 @@ export function answerTopics(): Map<string, GraphTopic> {
  * The people who exchanged any of these Talks with me, most recent first. `likedOnly` keeps the
  * matched exchanges: for a tag, the people who like it.
  */
+type IndexedExchange = ReturnType<typeof readLocalTalkExchanges>[number];
+let exchangeIndex: { revision: number; byTalk: Map<string, IndexedExchange[]> } | null = null;
+
+/** The exchanges of these Talks, from an index kept per log change (each Talks row asked: C10 2026-11-22). */
+function exchangesOfTalks(talkIds: Set<string>): IndexedExchange[] {
+  const revision = exchangesRevision();
+  if (exchangeIndex?.revision !== revision) {
+    const byTalk = new Map<string, IndexedExchange[]>();
+    for (const exchange of readLocalTalkExchanges()) {
+      const talkId = String(exchange?.talkId || '');
+      const list = byTalk.get(talkId);
+      if (list) list.push(exchange);
+      else byTalk.set(talkId, [exchange]);
+    }
+    exchangeIndex = { revision, byTalk };
+  }
+  return [...talkIds].flatMap((talkId) => exchangeIndex!.byTalk.get(talkId) ?? []);
+}
+
 export function peopleWhoExchanged(talkIds: Iterable<string>, likedOnly: boolean): string[] {
   const ids = new Set(talkIds);
   const latest = new Map<string, number>();
@@ -204,9 +236,9 @@ export function peopleWhoExchanged(talkIds: Iterable<string>, likedOnly: boolean
       for (const person of graphPeopleForTalk(talkId)) latest.set(person.userId, Math.max(person.when, latest.get(person.userId) ?? 0));
     }
   }
-  for (const exchange of readLocalTalkExchanges()) {
+  for (const exchange of exchangesOfTalks(ids)) {
     const peerId = String(exchange?.peerId || '');
-    if (!peerId || peerId === STARTER_TAGS_SOURCE_ID || !ids.has(String(exchange?.talkId || ''))) continue;
+    if (!peerId || peerId === STARTER_TAGS_SOURCE_ID) continue;
     if (likedOnly && exchange?.outcome !== 'match') continue;
     const at = Date.parse(String(exchange?.date || '')) || 0;
     if (at >= (latest.get(peerId) ?? -1)) latest.set(peerId, at);
@@ -527,10 +559,9 @@ export function placesOf(filter: { talkIds?: Iterable<string>; peerId?: string }
       places.set(scope.scopeId, { roomId: scope.scopeId, roomName: scope.scopeId, at: scope.at });
     }
   }
-  for (const exchange of readLocalTalkExchanges()) {
+  for (const exchange of ids ? exchangesOfTalks(ids) : readLocalTalkExchanges()) {
     const roomId = String(exchange?.roomId || '');
     if (!roomId) continue;
-    if (ids && !ids.has(String(exchange?.talkId || ''))) continue;
     if (filter.peerId && String(exchange?.peerId || '') !== filter.peerId) continue;
     const at = Date.parse(String(exchange?.date || '')) || 0;
     const known = places.get(roomId);

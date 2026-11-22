@@ -53,7 +53,11 @@ export function showTalkDetail(
   } else {
     // Incoming: load by id; if Gun gave a bad id, app retries via identityKey from server API.
     // One lookup per Talk at a time, and a slow one says so (gui-responsiveness-audit.md F6).
-    if (openingTalkIds.has(tid)) return;
+    // Tapped again while it is still loading: say so again rather than ignore the tap.
+    if (openingTalkIds.has(tid)) {
+      deps.showNotification(deps.t('talksOpening'), 'info');
+      return;
+    }
     openingTalkIds.add(tid);
     const slowNotice = setTimeout(() => deps.showNotification(deps.t('talksOpening'), 'info'), 400);
     // Safety release: a lookup that never answers must not leave this Talk's taps dead.

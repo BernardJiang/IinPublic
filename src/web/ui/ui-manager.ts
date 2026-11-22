@@ -85,7 +85,7 @@ import { connectivityDiagnosticsText, type ConnectivityDiagnostics } from './con
 import {
   clearMyTalks,
   getMyTalks,
-  type MyTalkEntry,
+  readMyTalks, type MyTalkEntry, type MyTalkMap,
 } from './my-talks-storage';
 import {
   getFlatAnswerHistory,
@@ -204,7 +204,7 @@ import { showIdentityUnlockDialog as openIdentityUnlockDialog } from './identity
 import { type PairingPayload } from '../../shared/identity-linking';
 import { coExchangedPeers } from '../services/exchange-state';
 import { initialChatroomBrowseMode, type ChatroomBrowseMode } from './chatroom-browse-mode';
-import { getMyConversations, setMyConversations } from './my-conversations-storage';
+import { getMyConversations, readMyConversations, setMyConversations } from './my-conversations-storage';
 import { settingsStorage } from '../services/core-storage';
 import { renderStatusLinks as renderStatusLinksImpl } from './status-links';
 import { bindTipOnTap, showTipOnce as showTipOnceImpl } from './ui-tips';
@@ -833,7 +833,7 @@ export class UIManager extends EventEmitter {
         getApiBase: () => this.apiBase,
         getCurrentChatroomMembers: () => this.currentChatroomMembers,
         getIncomingTalkClusters: () => this.incomingTalkClusters,
-        getMyConversations: () => this.getMyConversations(),
+        getMyConversations: () => this.getMyConversations(), readMyConversations,
         getMyTalks: () => this.getMyTalks(),
         getContactsViewDeps: () => this.contactsViewDeps(() => this.displayContactsList()),
         getPublicProfileFoundationReader: () => this.publicProfileFoundationReader,
@@ -2471,7 +2471,7 @@ export class UIManager extends EventEmitter {
   /** Demo contacts and starter clusters (interest tags first, OPEN-87, then the demo Talks). */
   private starterSeeds() {
     return starterSeedsFor(this.currentUserId, this.getUiLanguage(), {
-      myTalks: this.getMyTalks(), conversations: this.getMyConversations(), knownPeople: this.currentUser?.knownPeople || [], incoming: this.incomingTalkClusters,
+      myTalks: readMyTalks() as MyTalkMap, conversations: this.getMyConversations(), knownPeople: this.currentUser?.knownPeople || [], incoming: this.incomingTalkClusters,
     });
   }
 

@@ -80,6 +80,17 @@ describe('actOnTalkRow: Like and Pass on every kind of row', () => {
     expect(before.quickAnswerIncomingTag).not.toHaveBeenCalled();
   });
 
+  it('a tap on a tag already mine points at its ✕ instead of doing nothing (phone-path 10)', () => {
+    const deps = makeDeps();
+    const mine = row('<div class="talk-list-item talk-tag-chip" data-talk-id="t" data-role="copied"><button class="talk-row-pass">×</button></div>');
+    actOnTalkRow(mine, 'like', deps);
+    const pass = mine.querySelector('.talk-row-pass')!;
+    expect(pass.classList.contains('talk-row-pass-hint')).toBe(true);
+    jest.advanceTimersByTime(1_000);
+    expect(pass.classList.contains('talk-row-pass-hint')).toBe(false);
+    expect(deps.quickIgnoreIncomingTalk).not.toHaveBeenCalled();
+  });
+
   it('a passed row: Like takes it back, Pass does nothing', () => {
     const deps = makeDeps();
     actOnTalkRow(row('<div class="talk-list-item talk-tag-chip" data-talk-id="p" data-role="ignored"></div>'), 'like', deps);

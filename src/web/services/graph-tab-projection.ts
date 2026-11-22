@@ -21,8 +21,15 @@ const removedTalkIds = new Set<string>();
 
 const appIdOf = (row: GraphTabTalk): string => row.appTalkId || row.talkId;
 
+let revision = 0;
+/** Goes up whenever what `graphTalksForView` returns can change: a cache's key. */
+export function graphProjectionRevision(): number {
+  return revision;
+}
+
 export function setGraphTabSnapshot(next: GraphTabSnapshot | null): void {
   snapshot = next ? JSON.parse(JSON.stringify(next)) as GraphTabSnapshot : null;
+  revision++;
   const listed = new Set((snapshot?.talks ?? []).map(appIdOf));
   for (const talkId of removedTalkIds) if (!listed.has(talkId)) removedTalkIds.delete(talkId);
 }
@@ -34,16 +41,19 @@ export function getGraphTabSnapshot(): GraphTabSnapshot | null {
 export function resetGraphTabSnapshotForTests(): void {
   snapshot = null;
   removedTalkIds.clear();
+  revision++;
 }
 
 /** The app removed these My Talks: the snapshot's copies stay hidden until the graph drops them. */
 export function forgetGraphTalks(talkIds: Iterable<string>): void {
   for (const talkId of talkIds) removedTalkIds.add(talkId);
+  revision++;
 }
 
 /** The app saved this My Talk again (re-enabled after a delete): show it. */
 export function keepGraphTalks(talkIds: Iterable<string>): void {
   for (const talkId of talkIds) removedTalkIds.delete(talkId);
+  revision++;
 }
 
 function talkEntry(row: GraphTabTalk): Record<string, any> {
@@ -186,11 +196,28 @@ export function graphPersonHistory(userId: string): GraphPersonHistoryItem[] {
 }
 
 /** Talk → people edge projection used by graph-focus while the full query loads on demand. */
+let peopleByTalk: { revision: number; byTalk: Map<string, Array<{ userId: string; when: number }>> } | null = null;
+
+/** Who exchanged this Talk with me, newest first; indexed once per snapshot (asked per Talks row). */
 export function graphPeopleForTalk(talkId: string): Array<{ userId: string; when: number }> {
-  return (snapshot?.people ?? []).flatMap((person) => {
-    const newest = person.history.find((event) => event.talkId === talkId);
-    return newest ? [{ userId: person.userId, when: newest.when }] : [];
-  }).sort((a, b) => b.when - a.when || a.userId.localeCompare(b.userId));
+  if (peopleByTalk?.revision !== revision) {
+    const byTalk = new Map<string, Array<{ userId: string; when: number }>>();
+    for (const person of snapshot?.people ?? []) {
+      const seen = new Set<string>();
+      // The first event per Talk in the history is the one shown (as `find` did).
+      for (const event of person.history) {
+        const id = event.talkId;
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        const list = byTalk.get(id) ?? [];
+        list.push({ userId: person.userId, when: event.when });
+        byTalk.set(id, list);
+      }
+    }
+    for (const list of byTalk.values()) list.sort((a, b) => b.when - a.when || a.userId.localeCompare(b.userId));
+    peopleByTalk = { revision, byTalk };
+  }
+  return (peopleByTalk.byTalk.get(talkId) ?? []).map((person) => ({ ...person }));
 }
 
 export function graphTalkIdsForPerson(userId: string): string[] {
