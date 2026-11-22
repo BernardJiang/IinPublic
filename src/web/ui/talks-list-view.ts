@@ -22,6 +22,10 @@ import {
   type TalkToolbarAction,
 } from './tag-tap-mode';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
+import { incomingSortTime } from './starter-talk-seeds';
+
+/** A starter interest tag row, the local one or a person's copy in its place. */
+const isStarterTagRow = (cluster: any): boolean => cluster?.starterContactId === STARTER_TAGS_CONTACT_ID || cluster?.starterSlot === true;
 import type { UiTranslationKey } from './ui-translations';
 import { answersLinkHtml, peopleLinkHtml, peopleWhoExchanged, bindGraphLinks, clearTalksFocus, getTalksFocus, peopleWhoLike, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText } from './graph-focus';
 import { settingsStorage } from '../services/core-storage';
@@ -428,8 +432,8 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         .sort((a: any, b: any) => {
           if (a.isAnswered !== b.isAnswered) return a.isAnswered ? 1 : -1;
           if (deps.talksOutSortMode === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
-          if (deps.talksOutSortMode === 'oldest') return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
-          return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+          if (deps.talksOutSortMode === 'oldest') return incomingSortTime(a) - incomingSortTime(b);
+          return incomingSortTime(b) - incomingSortTime(a);
         })
     : [];
   // The In / Out boxes carry their counts; the other tabs' numbers are the AppBar's links
@@ -724,7 +728,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 const heading = starterHeadings.get(identityKey);
                 return `${heading ? `
       <div class="starter-tag-group-heading" data-testid="starter-tag-group-heading" data-starter-group="${escapeHtml(heading.id)}"><span aria-hidden="true">${escapeHtml(heading.icon)}</span> ${escapeHtml(heading.label)}</div>` : ''}
-      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${cluster?.starterContactId === STARTER_TAGS_CONTACT_ID ? ' data-starter-tag="true"' : ''}${cluster?.starterGroup?.id ? ` data-starter-group="${escapeHtml(cluster.starterGroup.id)}"` : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}" role="button" tabindex="0" aria-label="${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}">
+      <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${isStarterTagRow(cluster) ? ' data-starter-tag="true"' : ''}${cluster?.starterGroup?.id ? ` data-starter-group="${escapeHtml(cluster.starterGroup.id)}"` : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}" role="button" tabindex="0" aria-label="${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}">
         ${tagFace({ state: 'open', talk: cluster?.latestTalk || cluster, talkId: String(talkId) })}
         ${pinButtonHtml(pinKey)}
       </div>${identityKey === lastStarterKey ? `
@@ -846,7 +850,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     }));
     const inRows: MergedTalkRow[] = inEntries.map((cluster: any) => ({
       direction: 'in' as const,
-      sortTime: new Date(cluster?.updatedAt || 0).getTime(),
+      sortTime: incomingSortTime(cluster),
       needsAnswer: !cluster?.isAnswered,
       pinKey: incomingPinKey(cluster, deps.pickIncomingRowTalkId(cluster)),
       payload: cluster,
@@ -865,7 +869,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     starterHeadings = starterGroupHeadings(inPayloads);
     // The last starter interest tag carries the "Create my tag" prompt, just above the Tag Guide demo.
     lastStarterKey = String([...inPayloads].reverse()
-      .find((cluster: any) => cluster?.starterContactId === STARTER_TAGS_CONTACT_ID)?.identityKey || '');
+      .find(isStarterTagRow)?.identityKey || '');
     const renderMergedRow = (row: MergedTalkRow): string =>
       row.direction === 'divider'
         ? `<div class="talks-direction-divider" data-testid="talks-direction-divider" role="separator"><span>${escapeHtml(deps.t('talksOutgoingSection'))}</span></div>`

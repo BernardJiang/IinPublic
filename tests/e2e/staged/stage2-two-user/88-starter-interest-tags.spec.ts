@@ -13,6 +13,8 @@
  *    match; Carol's chatbot passes it from her pass, and nothing matches for her.
  * 3. The graph, from Alice's side: Contacts 🏷️ → type the shared tag → Bob → Bob's tags, that one
  *    marked shared → the same people; his 💬 → our Talks; ♡ in common → my answers on Me.
+ * 4. A starter tag a person sent keeps that tag's place: Bob likes the first tag and sends it to Dee;
+ *    Dee's list still has every starter chip, Bob's copy first, and liking the third passes it too.
  */
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { test, expect } from '../../helpers/fixtures';
@@ -188,5 +190,42 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     await expect(a.locator('[data-testid="me-focus-chip"]')).toContainText('Bob Tags');
     await expect(a.locator('#answers-list .answer-talk-item:visible')).toHaveCount(1);
     await expect(a.locator('#answers-list .answer-talk-item:visible')).toHaveAttribute('data-topic', shared.text);
+  });
+
+  test("a person's copy of a starter tag stays in that tag's place and is passed by a Like below it", async () => {
+    test.setTimeout(240_000);
+    const launch = async () => {
+      const browser = await chromium.launch({ headless, args: [...WEBRTC_CHROMIUM_ARGS] });
+      browsers.push(browser);
+      return browser;
+    };
+    const [bob, dee] = await Promise.all([
+      launch().then((b) => bootstrapUser(b, 'Bob', 'Bob Slot')),
+      launch().then((b) => bootstrapUser(b, 'Dee', 'Dee Slot')),
+    ]);
+    const [first, , third] = STARTER_TAGS;
+    for (const user of [bob, dee]) await showStarterTags(user.page);
+    await like(bob.page, first!.text);
+    const deeId = await dee.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.id as string);
+    const sent = await bob.page.evaluate(async (receiverUsers) =>
+      (window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(0, {
+        skipAudiencePreview: true, skipDeliveryAcks: true, receiverUsers,
+      }), [{ userId: deeId, stageName: 'Dee Slot' }]);
+    expect(sent.talksSent).toBeGreaterThanOrEqual(1);
+
+    await expect.poll(() => dee.page.evaluate((keyword) => {
+      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
+      return (ui?.incomingTalkClusters || []).some((cluster: any) => String(cluster?.title || '').includes(keyword));
+    }, first!.text), { timeout: 90_000 }).toBe(true);
+    await dee.page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
+    // Bob's row stands in for the first starter tag: still a starter chip, still first, under its heading.
+    await expect(starterChips(dee.page)).toHaveCount(STARTER_TAGS.length);
+    await expect(starterChips(dee.page).first()).toContainText(first!.text);
+    await expect(dee.page.locator('[data-testid="starter-tag-group-heading"]').first()).toContainText(first!.group.label);
+
+    await chipFor(dee.page, third!.text).click();
+    await expect(dee.page.locator('.talk-tag-fly-ghost.talk-tag-fly-pass')).toHaveCount(2);
+    await expect.poll(() => myTalkRole(dee.page, third!.text), { timeout: 10_000 }).toBe('copied');
+    await expect(chipFor(dee.page, first!.text)).toHaveCount(0, { timeout: 10_000 });
   });
 });

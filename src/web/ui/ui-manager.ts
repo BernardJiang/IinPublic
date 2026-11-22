@@ -109,6 +109,7 @@ import {
   findStarterTalk,
   removeStarterPracticeContact,
   starterSeedsFor,
+  placeInStarterSlot,
   type StarterPracticeContactId,
 } from './starter-talk-seeds';
 import { isStarterTagTalk } from '../../shared/starter-tags';
@@ -2478,7 +2479,8 @@ export class UIManager extends EventEmitter {
       this.currentUser?.talkFilters ?? getTalkIntakeFilters(),
       this.currentUser?.knownPeople,
     );
-    return [...this.starterSeeds().clusters, ...actualIncoming];
+    const seeds = this.starterSeeds();
+    return [...seeds.clusters, ...actualIncoming.map((cluster) => placeInStarterSlot(cluster, seeds.slots))];
   }
 
   private removeStarterPracticeContact(id: StarterPracticeContactId): void {

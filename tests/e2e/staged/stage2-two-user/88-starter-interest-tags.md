@@ -31,3 +31,12 @@ starter seeds the harness turns off for ordinary specs.
 From Alice's side: Contacts → 🏷️ Tags → search the shared tag (marked as hers) → the tag page says
 "In your tags" and lists Bob → Bob's person view lists his tags with that one marked shared →
 tapping it opens its tag page again.
+
+## 4. A person's copy of a starter tag keeps the tag's place
+
+1. Bob likes the first starter tag and sends his Talks to Dee, a fresh identity with the starter tags.
+2. Dee's list still has every starter chip: Bob's copy stands in for the first one, first in the
+   list and under its group heading (before the fix it jumped to the top, ungrouped, and was not a
+   starter chip).
+3. Dee taps the third starter tag: the two above fly away as passed, Bob's copy included, and the
+   third is liked.

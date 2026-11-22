@@ -302,7 +302,7 @@ export function starterSeedsFor(
   userId: string,
   locale: UiLanguage,
   state: { myTalks: MyTalkMap; conversations: Record<string, any>; knownPeople: KnownPerson[]; incoming?: any[] },
-): { contacts: StarterPracticeContact[]; clusters: any[] } {
+): { contacts: StarterPracticeContact[]; clusters: any[]; slots: Map<string, any> } {
   const eligible = isStarterContactEligible(state.myTalks, state.conversations, state.knownPeople);
   const contacts = getStarterPracticeContacts(userId, locale, eligible);
   // Once a real person has sent the same tag, theirs is the row: answering it must reach them.
@@ -310,8 +310,11 @@ export function starterSeedsFor(
   // Someone still on the demo contacts is still starting out: an identity enrolled before the
   // starter tags (or a new version of them) gets them too, even after making a Talk of its own.
   const interestsEligible = eligible || contacts.length > 0;
-  const interests = starterInterestClusters(userId, locale, interestsEligible).filter((cluster) => !sentByPeople.has(cluster.identityKey));
-  return { contacts, clusters: [...interests, ...starterIncomingTalkClusters(contacts)] };
+  const allInterests = starterInterestClusters(userId, locale, interestsEligible);
+  const interests = allInterests.filter((cluster) => !sentByPeople.has(cluster.identityKey));
+  // The person's row keeps the starter tag's place (group, order, passed by a Like below it).
+  const slots = new Map(allInterests.filter((cluster) => sentByPeople.has(cluster.identityKey)).map((cluster) => [cluster.identityKey, cluster]));
+  return { contacts, clusters: [...interests, ...starterIncomingTalkClusters(contacts)], slots };
 }
 
 /** The starter Talk a list row stands for, by talk id or identity key. */
@@ -332,4 +335,20 @@ export function adoptLikedStarterTag(talk: any, author: { id: string; name: stri
   const entry = getMyTalks()[talk.id];
   if (!entry?.fullTalk) return;
   patchMyTalk(talk.id, { fullTalk: detachStarterTagTalk(entry.fullTalk, author) });
+}
+
+/**
+ * A tag a person sent that is also a starter tag stays in the starter list where that tag sits:
+ * its group, its order and the pass-by-Like-below all apply, while answering it still reaches
+ * the person (it is not a starter cluster, so no delivery is skipped).
+ */
+export function placeInStarterSlot(cluster: any, slots: Map<string, any>): any {
+  const slot = slots.get(String(cluster?.identityKey || ''));
+  if (!slot || cluster?.isAnswered) return cluster;
+  return { ...cluster, starterSlot: true, starterTagId: slot.starterTagId, starterGroup: slot.starterGroup, starterSlotAt: slot.updatedAt };
+}
+
+/** Where an incoming row sorts by time: a starter slot sorts with the starter list. */
+export function incomingSortTime(cluster: any): number {
+  return new Date(cluster?.starterSlotAt || cluster?.updatedAt || 0).getTime();
 }

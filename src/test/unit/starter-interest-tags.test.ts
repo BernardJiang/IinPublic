@@ -17,6 +17,8 @@ import {
   STARTER_CONTACTS_DISABLED_KEY,
   adoptLikedStarterTag,
   findStarterTalk,
+  incomingSortTime,
+  placeInStarterSlot,
   starterSeedsFor,
 } from '../../web/ui/starter-talk-seeds';
 import { getMyTalks, setMyTalks } from '../../web/ui/my-talks-storage';
@@ -90,6 +92,25 @@ describe('starter interest tags', () => {
     const { clusters } = starterSeedsFor('u1', 'en', { ...fresh, incoming: [{ identityKey: hiking.id }] });
     expect(clusters.some((cluster) => cluster.identityKey === hiking.id)).toBe(false);
     expect(findStarterTalk(clusters, hiking.id, hiking.id)).toBeNull();
+  });
+
+  it("puts a person's copy of a starter tag in that tag's place, so a Like below it passes it", () => {
+    const tag = EN[3]!;
+    const talk = starterTagTalk(tag);
+    const personRow = { identityKey: talk.id, updatedAt: new Date().toISOString(), senders: { p1: { senderId: 'p1' } } };
+    const { clusters, slots } = starterSeedsFor('u1', 'en', { ...fresh, incoming: [personRow] });
+    const placed = placeInStarterSlot(personRow, slots);
+    expect(placed.starterSlot).toBe(true);
+    expect(placed.starterGroup.id).toBe(tag.group.id);
+    expect(placed.starterContactId).toBeUndefined(); // still the person's row: answering reaches them
+    // Sorts between the starter tags before and after it in the catalog, not at the top by date.
+    const before = clusters.find((cluster) => cluster.starterTagId === EN[2]!.id);
+    const after = clusters.find((cluster) => cluster.starterTagId === EN[4]!.id);
+    expect(incomingSortTime(placed)).toBeLessThan(incomingSortTime(before));
+    expect(incomingSortTime(placed)).toBeGreaterThan(incomingSortTime(after));
+    // Answered, or not a starter tag: left as it is.
+    expect(placeInStarterSlot({ ...personRow, isAnswered: true }, slots).starterSlot).toBeUndefined();
+    expect(placeInStarterSlot({ identityKey: 'other' }, slots).starterSlot).toBeUndefined();
   });
 
   it("adopts a liked starter copy as the user's own Talk with the same identity key", () => {
