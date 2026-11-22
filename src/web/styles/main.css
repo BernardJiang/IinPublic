@@ -2433,14 +2433,55 @@ button:focus:not(:focus-visible) {
   transform: translateX(4px) scale(0.98);
 }
 
-/* Row gestures (incoming: down = retain, left = Ignore/Pass, right = Like for tags;
- * outgoing: left = delete):
+/* Row gestures, the same on every row: left = Pass (undo on my own row), right or down = Like:
  * `.talk-gesture-live` suspends the row's own hover/active transition while a drag is in
  * progress so the row tracks the pointer 1:1, then removing it lets the base transition
  * animate the snap-back on release. The hint classes preview the color of the
  * retain/Ignore/delete outcome before the commit threshold is reached. */
 .talk-list-item.talk-gesture-live {
   transition: none;
+}
+
+/* A sideways finger swipe belongs to the row (a pan the browser would cancel otherwise);
+ * scrolling the list up and down still works. */
+#talks-list .talk-list-item {
+  touch-action: pan-y;
+  position: relative;
+}
+
+/* The row's one ✕ (owner 2026-11-21): Pass, or undo on my own row. Top right of a card, the end
+ * of a tag pill. Quiet until hovered so a list of rows does not read as a list of buttons. */
+.talk-row-pass {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.talk-row-pass:hover,
+.talk-row-pass:focus-visible {
+  opacity: 1;
+  background: var(--bg-muted);
+  color: var(--text-primary, inherit);
+}
+
+.talk-tag-chip .talk-row-pass {
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  font-size: 0.95rem;
+  margin-left: 0;
+  margin-right: -4px;
 }
 
 .talk-list-item.talk-gesture-hint-copy {
@@ -2459,8 +2500,8 @@ button:focus:not(:focus-visible) {
   background: #dcfce7 !important;
 }
 
-.talk-list-item[data-role="incoming"].talk-gesture-hint-ignore::after,
-.talk-list-item[data-role="incoming"].talk-gesture-hint-like::after {
+.talk-list-item.talk-gesture-hint-ignore::after,
+.talk-list-item.talk-gesture-hint-like::after {
   content: attr(data-gesture-label);
   font-size: 0.75rem;
   font-weight: 700;

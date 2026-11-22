@@ -55,8 +55,8 @@ interests, the Tag Guide and the other guides lead to the next step, creating th
   become Contacts exactly as with any tag match today.
 - **One-tap answering.** Tapping a tag likes it: the chip moves right, then down into a **My tags**
   tray. Tags above it that were scrolled past without a tap are passed and fly left, then up off the
-  screen; reaching the end passes the rest. Swipe right likes, swipe left passes; tapping a tray chip
-  undoes a like. Two-step transforms of about 250 ms; with reduced motion the chips fade. The same
+  screen. Swipe right or down likes; swipe left or the chip's ✕ passes that tag only; the ✕ on a
+  liked chip undoes the like (owner, 2026-11-21). Two-step transforms of about 250 ms; with reduced motion the chips fade. The same
   list behaviour is meant for every incoming tag later, not only starter tags.
 - **Catalog: content tags, one set per language.** `src/shared/starter-tags.ts` holds an English
   and a Chinese set (60 tags each, 9 groups), written for each audience: specific things people

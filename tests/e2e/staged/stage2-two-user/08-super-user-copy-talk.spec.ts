@@ -147,7 +147,8 @@ test.describe('Super user: copy talk broadcast toggle + delete', () => {
       .filter({ hasText: copyTalkTitle })
       .first();
     await expect(answeredRow).toBeVisible({ timeout: 15000 });
-    await dragTalkRow(pageTom, answeredRow, 'down');
+    // 📋 keeps the Talk in My Talks (a swipe down now likes, like a swipe right).
+    await answeredRow.locator('[data-testid="talk-copy-toggle"]').click();
     await pageTom.locator('#talks-filter-completion').selectOption('unanswered');
     await afterNav();
     const copyTalkRow = pageTom

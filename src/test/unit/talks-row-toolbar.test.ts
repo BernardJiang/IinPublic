@@ -38,7 +38,7 @@ describe('talks row toolbar and layout', () => {
     expect(['pass', 'like', 'pin'].map((a) => toolbarActionApplies(a as any, incomingTag))).toEqual([true, true, true]);
     expect(['pass', 'like', 'pin'].map((a) => toolbarActionApplies(a as any, likedTag))).toEqual([true, false, true]);
     expect(['pass', 'like', 'pin'].map((a) => toolbarActionApplies(a as any, passedTag))).toEqual([false, true, false]);
-    expect(['pass', 'like', 'pin'].map((a) => toolbarActionApplies(a as any, incomingCard))).toEqual([true, false, true]);
+    expect(['pass', 'like', 'pin'].map((a) => toolbarActionApplies(a as any, incomingCard))).toEqual([true, true, true]);
   });
 
   it('shows no "?answer" suffix on a simple tag whose title adds an emoji', () => {

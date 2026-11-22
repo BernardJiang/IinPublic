@@ -318,7 +318,7 @@ describe('displayTalksList', () => {
     expect(emit).not.toHaveBeenCalledWith('loadTalkForEdit', expect.anything());
   });
 
-  it('keeps the copied Tag text as the primary Pass target beside its broadcast toggle', () => {
+  it('a liked tag in Outgoing: a tap keeps it, its ✕ passes it (undo)', () => {
     jest.useFakeTimers();
     installTalksDom();
     localStorage.setItem('myTalks', JSON.stringify({
@@ -335,7 +335,10 @@ describe('displayTalksList', () => {
     expect(chip?.querySelector('.talk-tag-text')?.nextElementSibling?.classList).toContain('talk-tag-broadcast-toggle');
     chip?.querySelector<HTMLElement>('.talk-tag-text')?.click();
     jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
+    expect(quickIgnoreIncomingTalk).not.toHaveBeenCalled();
 
+    chip?.querySelector<HTMLElement>('[data-testid="talk-row-pass"]')?.click();
+    jest.advanceTimersByTime(TAG_CHIP_FLY_MS);
     expect(quickIgnoreIncomingTalk).toHaveBeenCalledWith('tag', undefined);
   });
 
@@ -361,9 +364,10 @@ describe('displayTalksList', () => {
       }],
     }));
 
-    // No buttons on the row: a tap likes it, Delete passes it, and the toolbar acts on a selection.
+    // One ✕ on the row and no other button: a tap likes it, Delete or ✕ passes it, and the toolbar
+    // acts on a selection.
     const chip = () => document.querySelector<HTMLElement>('.talk-tag-in')!;
-    expect(chip().querySelector('button')).toBeNull();
+    expect([...chip().querySelectorAll('button')].map((button) => button.dataset.testid)).toEqual(['talk-row-pass']);
     chip().click();
     expect(document.querySelectorAll('.talk-tag-fly-ghost.talk-tag-fly-like')).toHaveLength(1);
     expect(quickAnswerIncomingTag).not.toHaveBeenCalled();
@@ -411,10 +415,10 @@ describe('displayTalksList', () => {
       }],
     }));
 
-    // Same tap-to-like chip, no buttons.
+    // Same tap-to-like chip, with only the row's ✕.
     const row = document.querySelector('.talk-tag-in');
     expect(row?.getAttribute('role')).toBe('button');
-    expect(row?.querySelector('button')).toBeNull();
+    expect([...(row?.querySelectorAll('button') ?? [])].map((button) => (button as HTMLElement).dataset.testid)).toEqual(['talk-row-pass']);
     expect(row?.textContent).toContain('Sell');
   });
 

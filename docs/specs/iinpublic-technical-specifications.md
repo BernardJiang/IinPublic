@@ -533,7 +533,7 @@ The system defines exactly four talk types, arranged from simplest to most compl
 | **survey** | Star graph (height 1) | Root + each independent current question/choices | Exact known-context match |
 | **route** | DAG / general tree | Rolling active-parent context/answer + current question/choices | Exact known-context match |
 
-**Tag** — *The Atom of Interest.* Isolated node with a single keyword or short phrase; no question mark. The receiver chooses Pass or Like directly: left swipe mirrors Pass and right swipe mirrors Like. Like records match/interested and retains the tag for later broadcast; Pass moves it to the recoverable Ignored list. Pair-tags use the same interaction. Its root context still commits to the tag/question and complete choices.
+**Tag** — *The Atom of Interest.* Isolated node with a single keyword or short phrase; no question mark. The receiver chooses Pass or Like directly: a left swipe or the row's ✕ is Pass; a tap, a right swipe or a down swipe is Like (the same gestures on every Talks row; on a Flow, Survey or Route, Like opens it to answer, and on my own row ✕ is undo). Like records match/interested and retains the tag for later broadcast; Pass moves it to the recoverable Ignored list. Pair-tags use the same interaction. Its root context still commits to the tag/question and complete choices.
 
 **Flow** — *The Linear Thread.* Questions are presented in strict sequence. `C1 = H(ROOT, Frame(Q1))`; each later context is `Cn = H(Cn-1, Answer(n-1), Frame(Qn))`. Only the immediately preceding hash and answer are processed, while the hash transitively commits to the complete earlier path.
 
@@ -4887,6 +4887,14 @@ card was removed — Broadcast is the existing AppBar icon and fills the current
 Chatrooms status line opens Contacts narrowed to the collection's people (`📣 <label>` chip), and
 collecting on/off is the Settings switch.
 
+**One exception: the Talks row ✕ (owner, 2026-11-21).** Each Talks row carries one small ✕ at its
+top right (the end of a tag pill): Pass on an incoming row, undo on my own row (pass a liked tag,
+remove a copy, delete a Talk I made). Nothing else is added to rows. The row gestures are the same
+on every row, incoming and outgoing, every type: swipe left or ✕ = Pass; a tap, swipe right or
+swipe down = Like (a tag is liked; a Flow, Survey or Route opens to answer); long-press selects the
+row for the AppBar's ✕ ♡ 📌 and shows its details. A two-finger sideways trackpad swipe works like a
+swipe; rows are `touch-action: pan-y`, so a finger swipe is the row's, not a page pan.
+
 ##### 2. Chatrooms tab
 
 Merge the two rows into the single top bar. Actions are contextual instead of exposing every
@@ -5097,7 +5105,7 @@ Banners and toasts: at ≥ 768 toasts stack top-right (max 3 visible, newest on 
 | Camera capture | `settings-camera-capture-modal`, `settings-camera-capture`, `settings-camera-cancel` | S | live `<video>` preview, Capture, Cancel; permission-denied ⇒ status text + error toast, modal never opens | Capture (→ Photo preview) · Cancel | bottom sheet; video letterboxed |
 | Photo preview | `settings-photo-preview-modal`, `-confirm`, `-cancel` | S | image preview, Save, Cancel | Save · Cancel | bottom sheet |
 | Talk Editor | `#talk-editor-modal` | XL | title (req), language select, type radios ×4 (tag/flow/survey/route — switching swaps question area), tag-like checkbox (tag only), questions container + Add Question, route DAG editor (`route-branch-*`), expiration (forever/1y/1M/1w/1d), location radius (anywhere/10/100/1000 mi), Send-to-Chatroom checkbox (create only), 🔞 adult checkbox, validation-error + autofix banners | Cancel · Create/Save (validation blocks submit, errors shown inline) | full-screen takeover; route editor scrolls internally |
-| Talk Response | tag-row `talk-tag-in-pass` / `talk-tag-in-like`; `#talk-response-modal`, `close-response-btn`, `back-question-btn` for other types | M | tag/Pair-tag: direct Pass/Like icons, with left/right swipe shortcuts and no manual-answer mode; flow/route: one question per step with answer buttons + Back; survey: sequential questions; review screen (620): pre-filled radios, "(pre-filled)" tags, superseded banner, Edit-manually + Confirm | Tag direct decision; other types Submit path · close · scrim | Tag stays inline; other answer options full-width |
+| Talk Response | tag-row `talk-tag-in-pass` / `talk-tag-in-like`; `#talk-response-modal`, `close-response-btn`, `back-question-btn` for other types | M | tag/Pair-tag: tap / swipe right or down = Like, ✕ / swipe left = Pass, no manual-answer mode; flow/route: one question per step with answer buttons + Back; survey: sequential questions; review screen (620): pre-filled radios, "(pre-filled)" tags, superseded banner, Edit-manually + Confirm | Tag direct decision; other types Submit path · close · scrim | Tag stays inline; other answer options full-width |
 | Survey stats | `survey-stats-button` opens | L | per-question response counts/funnel | close · scrim | full-screen takeover |
 | My Talks | `close-my-talks-modal` | L | per-talk cards: role + type badges, last interaction, talk id, broadcast enable/disable toggle | `✕` · scrim | full-screen takeover |
 | Preferences (My Answers) | `close-preferences-modal` | L | per answered question: answer select (all options) + mode select (ask again / auto once / always auto / skip) | `✕` · scrim | full-screen takeover |

@@ -228,6 +228,10 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 - **No extra buttons inside views (owner hard rule, 2026-11-09).** Actions go in the AppBar (right
   zone or `⋯`), or on a tap of something already shown (a row, the status line). Never add a card or
   section with its own buttons in the middle of a list or page. Spec §1 "One top bar per screen".
+  One exception (owner, 2026-11-21): each Talks row carries a single small ✕ (Pass; undo on my own
+  row), nothing more. Row gestures are the same on every row: swipe left / ✕ = Pass, tap / swipe
+  right / swipe down = Like (a Flow/Survey/Route opens to answer), long-press = select for ✕ ♡ 📌
+  (`src/web/ui/talks-row-gestures.ts`, `actOnTalkRow` in `talks-list-view.ts`).
 
 - **Match logic is in `src/shared/talk-engine.ts`** — never duplicate it in routes or UI.
 - **TechSupport is the built-in first user and counts as exactly 1 in every headcount** (status bar, room badges) — see spec `docs/specs/iinpublic-technical-specifications.md` §19.7.1 (merged from the former `docs/design/techsupport-bootstrap-contract.md`, now in `docs/archive/consolidated-2026-07-29/`).

@@ -1,40 +1,94 @@
 /**
- * Talks-list row gestures: swipe any incoming talk left to Ignore/Pass that content; swipe a
- * Tag/Pair-tag right to Like it; or swipe down to retain it in My Talks. Swipe an outgoing/authored row
- * left to delete; or long-press a card to open its details popup. Bound once, globally, on
- * `document.body` (delegated, since rows are
- * re-rendered often). Extracted from `ui-manager.ts` (UIManager decomposition cluster #12,
- * docs/TODO.md Priority 6) — moved as-is, not rewritten, with one deliberate simplification:
- * the original kept its "already bound" flag and in-flight gesture state as `UIManager`
- * instance fields, but neither was ever read outside this one method (confirmed by grep before
- * moving), so they become ordinary module-scoped state here instead of deps — behaviorally
- * identical for a singleton `UIManager`, one fewer thing threaded through the deps object.
+ * Talks-list row gestures, the same on every row (owner design 2026-11-21): swipe left = Pass
+ * (on my own row: undo — pass a liked tag, remove a copy, delete a Talk I made); swipe right or
+ * down = Like (a tag is liked; a Flow, Survey, Route or Pair-tag opens to answer); long-press
+ * selects the row for the AppBar's ✕ ♡ 📌 and shows its details. The row's ✕ and a tap do the
+ * same as a swipe left / right (`actOnTalkRow`, talks-list-view.ts).
+ *
+ * Bound once on `window` (delegated, since rows are re-rendered often). A drag captures the
+ * pointer, so it finishes even when the pointer leaves the row or the window; rows carry
+ * `touch-action: pan-y`, so a sideways finger swipe belongs to the row (not a page pan the browser
+ * cancels) while scrolling up and down still works. A two-finger sideways swipe on a trackpad
+ * sends wheel events, not pointer events: it swipes the row under it too.
  */
 
 import { selectTalkRow } from './tag-tap-mode';
 
+export type TalkRowIntent = 'like' | 'pass';
+
 export interface TalksRowGesturesDeps {
-  /** A committed or cancelled drag swallows the click that would otherwise follow release —
-   *  the only piece of this method's state actually read elsewhere in `UIManager`. */
+  /** A committed or cancelled drag swallows the click that would otherwise follow release. */
   setSuppressClickUntil: (timestamp: number) => void;
   showDetailsPopupFor: (detailsEl: HTMLElement, originalParent: HTMLElement) => void;
-  quickIgnoreIncomingTalk: (talkId: string, identityKeyFallback: string | undefined) => void;
-  quickAnswerIncomingTag: (talkId: string, identityKeyFallback: string | undefined, checked: boolean) => void;
-  quickCopyIncomingTalk: (talkId: string, identityKeyFallback: string | undefined) => void;
-  deleteMyTalk: (talkId: string) => void;
+  /** Likes or passes the row: the same as a tap or its ✕. */
+  actOnRow: (row: HTMLElement, intent: TalkRowIntent) => void;
 }
 
 type GestureState = {
   row: HTMLElement;
-  talkId: string;
-  identityKey: string;
-  role: string;
+  pointerId: number;
   startX: number;
   startY: number;
   dragging: boolean;
-  committedAt: number;
-  longPressOnly: boolean;
 };
+
+const MOVE_THRESHOLD = 12;
+const COMMIT_THRESHOLD = 64;
+// Tag chips are short and sit side by side from the left edge: a smaller swipe commits them.
+const TAG_COMMIT_THRESHOLD = 48;
+const LONG_PRESS_MS = 500;
+/** Trackpad: horizontal wheel distance that commits, and the pause that ends one swipe. */
+const WHEEL_COMMIT = 80;
+const WHEEL_IDLE_MS = 250;
+/** Inside a row but not part of its swipe: links, toggles and the row's own ✕. */
+const EXCLUDED = '.talk-item-actions, .talk-item-inline-actions, .talk-copy-button, .talk-icon-badge, .talk-matched-people, .talk-sender-people, .talk-item-details, .talk-restore-ignored-btn, .talk-row-pass, .graph-link';
+
+const commitThreshold = (row: HTMLElement): number =>
+  (row.classList.contains('talk-tag-chip') ? TAG_COMMIT_THRESHOLD : COMMIT_THRESHOLD);
+
+/** Which way a finished swipe went, or null when it was too short or went up. */
+export function swipeIntent(dx: number, dy: number, threshold: number): TalkRowIntent | null {
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  if (absDx > absDy) {
+    if (absDx < threshold) return null;
+    return dx < 0 ? 'pass' : 'like';
+  }
+  return dy >= threshold ? 'like' : null;
+}
+
+const clearHints = (row: HTMLElement): void => {
+  row.classList.remove('talk-gesture-live', 'talk-gesture-hint-ignore', 'talk-gesture-hint-like');
+  row.style.transform = '';
+  delete row.dataset.gestureLabel;
+};
+
+/** The live preview while dragging: the row follows the pointer and shows what release will do. */
+function showHint(row: HTMLElement, dx: number, dy: number): void {
+  row.classList.add('talk-gesture-live');
+  const sideways = Math.abs(dx) >= Math.abs(dy);
+  const intent = sideways
+    ? (dx < -MOVE_THRESHOLD ? 'pass' : dx > MOVE_THRESHOLD ? 'like' : null)
+    : (dy > MOVE_THRESHOLD ? 'like' : null);
+  row.style.transform = sideways
+    ? `translateX(${Math.max(-100, Math.min(100, dx))}px)`
+    : `translateY(${Math.max(0, Math.min(100, dy))}px)`;
+  row.classList.toggle('talk-gesture-hint-ignore', intent === 'pass');
+  row.classList.toggle('talk-gesture-hint-like', intent === 'like');
+  if (intent === 'pass') row.dataset.gestureLabel = row.dataset.passLabel || row.dataset.ignoreLabel || '';
+  else if (intent === 'like') row.dataset.gestureLabel = row.dataset.likeLabel || '';
+  else delete row.dataset.gestureLabel;
+}
+
+/** Swallows exactly the one click a gesture's release fires — not a time window (OPEN-90). */
+function swallowNextClick(): void {
+  const swallow = (event: MouseEvent): void => {
+    event.stopPropagation();
+    event.preventDefault();
+  };
+  window.addEventListener('click', swallow, { once: true, capture: true });
+  window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+}
 
 let bound = false;
 
@@ -42,149 +96,98 @@ export function bindTalksRowGestures(deps: TalksRowGesturesDeps): void {
   if (bound) return;
   bound = true;
 
-  const MOVE_THRESHOLD = 12;
-  const COMMIT_THRESHOLD = 64;
-  // Tag chips are short and sit side by side from the left edge: a smaller swipe commits them.
-  const TAG_COMMIT_THRESHOLD = 48;
-  const commitThreshold = (row: HTMLElement): number =>
-    (row.classList.contains('talk-tag-chip') ? TAG_COMMIT_THRESHOLD : COMMIT_THRESHOLD);
-  const LONG_PRESS_MS = 500;
-  const excluded = '.talk-item-actions, .talk-item-inline-actions, .talk-copy-button, .talk-icon-badge, .view-talk-btn, .talk-matched-people, .talk-sender-people, .talk-item-details, .talk-restore-ignored-btn';
-
   let gestureState: GestureState | null = null;
 
-  const clearHints = (row: HTMLElement): void => {
-    row.classList.remove('talk-gesture-live');
-    row.style.transform = '';
-    row.classList.remove('talk-gesture-hint-copy', 'talk-gesture-hint-delete', 'talk-gesture-hint-ignore', 'talk-gesture-hint-like');
-    delete row.dataset.gestureLabel;
+  const rowAt = (target: EventTarget | null): HTMLElement | null => {
+    const element = target as HTMLElement | null;
+    if (!element?.closest?.('#talks-list')) return null;
+    if (element.closest(EXCLUDED)) return null;
+    return element.closest('.talk-list-item') as HTMLElement | null;
   };
 
-  document.body.addEventListener('pointerdown', (e: PointerEvent) => {
+  window.addEventListener('pointerdown', (e: PointerEvent) => {
     if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (!target.closest('#talks-list')) return;
-    const row = target.closest('.talk-list-item') as HTMLElement | null;
+    const row = rowAt(e.target);
     if (!row) return;
-    const isIncoming = row.dataset.role === 'incoming';
-    if (target.closest(excluded) && !(isIncoming && target.closest('.view-talk-btn'))) return;
-    // My own tags and passed tags only take a long-press (to select them); they do not drag.
-    const longPressOnly = row.classList.contains('talk-tag-chip') && !isIncoming;
-    const state: GestureState = {
-      row,
-      talkId: row.dataset.talkId || '',
-      identityKey: row.dataset.identityKey || '',
-      role: row.dataset.role || '',
-      startX: e.clientX,
-      startY: e.clientY,
-      dragging: false,
-      committedAt: 0,
-      longPressOnly,
-    };
+    const state: GestureState = { row, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragging: false };
     gestureState = state;
     const longPressTimer = window.setTimeout(() => {
       if (gestureState !== state || state.dragging) return;
       gestureState = null;
-      // Short window, just long enough to swallow the synthetic click the pointerup
-      // that follows the long-press would otherwise fire — NOT long enough to also
-      // swallow a real, separate click on something inside the popup that just opened
-      // (e.g. a test or a fast double-tap landing on the sender-name a moment later).
       deps.setSuppressClickUntil(Date.now() + 60);
-      // The finger or button is still down: swallow exactly the one click its release fires, however
-      // long the press lasted, so it neither opens the row nor clears the selection made here. Any
-      // later click (e.g. on the details popup) goes through.
-      window.addEventListener('pointerup', () => {
-        const swallow = (event: MouseEvent): void => {
-          event.stopPropagation();
-          event.preventDefault();
-        };
-        window.addEventListener('click', swallow, { once: true, capture: true });
-        window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
-      }, { once: true, capture: true });
+      // The finger or button is still down: swallow exactly the one click its release fires,
+      // however long the press lasted, so it neither opens the row nor clears this selection.
+      window.addEventListener('pointerup', swallowNextClick, { once: true, capture: true });
       // A long-press selects the row for the AppBar's ✕ Pass · ♡ Like · 📌 Pin (tag-tap-mode.ts).
       selectTalkRow(row);
       const details = row.querySelector('.talk-item-details') as HTMLElement | null;
       if (details) deps.showDetailsPopupFor(details, row);
     }, LONG_PRESS_MS);
     const clearTimer = () => window.clearTimeout(longPressTimer);
-    row.addEventListener('pointerup', clearTimer, { once: true });
-    row.addEventListener('pointercancel', clearTimer, { once: true });
+    window.addEventListener('pointerup', clearTimer, { once: true });
+    window.addEventListener('pointercancel', clearTimer, { once: true });
   }, { passive: true });
 
-  document.body.addEventListener('pointermove', (e: PointerEvent) => {
+  window.addEventListener('pointermove', (e: PointerEvent) => {
     const state = gestureState;
-    if (!state || state.longPressOnly) return;
+    if (!state) return;
     const dx = e.clientX - state.startX;
     const dy = e.clientY - state.startY;
     if (!state.dragging && Math.max(Math.abs(dx), Math.abs(dy)) < MOVE_THRESHOLD) return;
-    if (!state.dragging) state.row.classList.add('talk-gesture-live');
-    state.dragging = true;
-    if (state.role === 'incoming') {
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        state.row.classList.remove('talk-gesture-hint-copy');
-        const isTag = state.row.dataset.incomingType === 'tag' || state.row.classList.contains('talk-tag-in');
-        const clamped = isTag ? Math.max(-100, Math.min(100, dx)) : Math.max(-100, Math.min(0, dx));
-        state.row.style.transform = `translateX(${clamped}px)`;
-        state.row.classList.toggle('talk-gesture-hint-ignore', dx < -MOVE_THRESHOLD);
-        state.row.classList.toggle('talk-gesture-hint-like', isTag && dx > MOVE_THRESHOLD);
-        if (dx < -MOVE_THRESHOLD) state.row.dataset.gestureLabel = state.row.dataset.passLabel || state.row.dataset.ignoreLabel || '';
-        else if (isTag && dx > MOVE_THRESHOLD) state.row.dataset.gestureLabel = state.row.dataset.likeLabel || '';
-        else delete state.row.dataset.gestureLabel;
-      } else if (dy > MOVE_THRESHOLD) {
-        state.row.classList.remove('talk-gesture-hint-ignore', 'talk-gesture-hint-like');
-        delete state.row.dataset.gestureLabel;
-        const clamped = Math.min(100, dy);
-        state.row.style.transform = `translateY(${clamped}px)`;
-        state.row.classList.toggle('talk-gesture-hint-copy', true);
-      }
-      return;
+    if (!state.dragging) {
+      state.dragging = true;
+      // Keep the drag when the pointer leaves the row or the window. Only once dragging: a
+      // capture from the press would retarget taps on links inside the row.
+      try { state.row.setPointerCapture?.(state.pointerId); } catch { /* synthetic pointer */ }
     }
-    if (Math.abs(dx) > Math.abs(dy)) {
-      const clamped = Math.max(-100, Math.min(0, dx));
-      state.row.style.transform = `translateX(${clamped}px)`;
-      state.row.classList.toggle('talk-gesture-hint-delete', dx < -MOVE_THRESHOLD);
-    }
+    showHint(state.row, dx, dy);
   }, { passive: true });
 
-  document.body.addEventListener('pointerup', (e: PointerEvent) => {
+  window.addEventListener('pointerup', (e: PointerEvent) => {
     const state = gestureState;
     gestureState = null;
-    if (!state) return;
-    if (!state.dragging) return; // plain tap or a long-press already handled by its own timer
+    if (!state || !state.dragging) return; // a plain tap, or a long-press its own timer handled
     clearHints(state.row);
-    // Swallow exactly the one click this release fires — not a time window, which also ate a
-    // quick next tap, e.g. on the Talk a drag-down had just copied (OPEN-90).
-    const swallow = (clickEvent: MouseEvent): void => {
-      clickEvent.stopPropagation();
-      clickEvent.preventDefault();
-    };
-    window.addEventListener('click', swallow, { once: true, capture: true });
-    window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
-    const dx = e.clientX - state.startX;
-    const dy = e.clientY - state.startY;
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    const threshold = commitThreshold(state.row);
-    if (state.role === 'incoming' && absDx > absDy && absDx >= threshold && dx < 0) {
-      deps.quickIgnoreIncomingTalk(state.talkId, state.identityKey || undefined);
-    } else if (
-      state.role === 'incoming'
-      && absDx > absDy
-      && absDx >= threshold
-      && dx > 0
-      && (state.row.dataset.incomingType === 'tag' || state.row.classList.contains('talk-tag-in'))
-    ) {
-      deps.quickAnswerIncomingTag(state.talkId, state.identityKey || undefined, true);
-    } else if (state.role === 'incoming' && absDy >= absDx && dy >= threshold) {
-      deps.quickCopyIncomingTalk(state.talkId, state.identityKey || undefined);
-    } else if (absDx > absDy && absDx >= threshold && (state.role === 'created' || state.role === 'copied') && dx < 0 && state.talkId) {
-      deps.deleteMyTalk(state.talkId);
-    }
+    swallowNextClick();
+    const intent = swipeIntent(e.clientX - state.startX, e.clientY - state.startY, commitThreshold(state.row));
+    if (intent) deps.actOnRow(state.row, intent);
   });
 
-  document.body.addEventListener('pointercancel', () => {
+  window.addEventListener('pointercancel', () => {
     const state = gestureState;
     gestureState = null;
     if (state) clearHints(state.row);
   });
+
+  // Trackpad two-finger swipe (wheel deltaX). With natural scrolling, fingers moving left send a
+  // positive deltaX, so the row moves the other way to the wheel delta.
+  let wheel: { row: HTMLElement; dx: number; done: boolean; idle: number } | null = null;
+  const endWheel = (): void => {
+    if (wheel && !wheel.done) clearHints(wheel.row);
+    wheel = null;
+  };
+  window.addEventListener('wheel', (e: WheelEvent) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    // A swipe under way stays on its row: the row slides, so what is under the pointer changes
+    // (its ✕, the next row). A new one may start anywhere on a row, links included.
+    const target = e.target as HTMLElement | null;
+    const row = wheel?.row ?? (target?.closest?.('#talks-list') ? target.closest('.talk-list-item') as HTMLElement | null : null);
+    if (!row) return;
+    e.preventDefault(); // no back/forward navigation, no sideways scroll
+    if (!wheel || wheel.row !== row) {
+      endWheel();
+      wheel = { row, dx: 0, done: false, idle: 0 };
+    }
+    const current = wheel;
+    window.clearTimeout(current.idle);
+    current.idle = window.setTimeout(endWheel, WHEEL_IDLE_MS);
+    if (current.done) return; // one commit per swipe
+    current.dx -= e.deltaX;
+    showHint(row, current.dx, 0);
+    if (Math.abs(current.dx) >= WHEEL_COMMIT) {
+      current.done = true;
+      clearHints(row);
+      deps.actOnRow(row, current.dx < 0 ? 'pass' : 'like');
+    }
+  }, { passive: false });
 }

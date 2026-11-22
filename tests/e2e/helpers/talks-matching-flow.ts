@@ -418,9 +418,12 @@ export async function bootstrapUser(
   appUrl: string = webAppURLStableChatroom(),
   /** Set before the app loads, so its first signed Nearby card is born at this point. */
   location: { latitude: number; longitude: number } = DEFAULT_E2E_COORDS,
+  /** A phone-like context (touch input, phone viewport) for finger-swipe journeys. */
+  touch = false,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
-    viewport: { width: 640, height: 1000 },
+    viewport: touch ? { width: 390, height: 844 } : { width: 640, height: 1000 },
+    ...(touch ? { hasTouch: true, isMobile: true } : {}),
     deviceScaleFactor: 1,
     // Give every browser context a real browser-level GPS fix as well as the app's deterministic
     // test injection below. This keeps the identity a Resident on every code path; no fallback
@@ -976,4 +979,29 @@ export async function dragTalkRow(
   await page.mouse.move(startX + dx, startY + dy, { steps: 5 });
   await page.mouse.up();
   await release();
+}
+
+/**
+ * A finger swipe on a row through real touch input (CDP touch events), the way a phone sends it:
+ * the browser decides between scrolling and the row's swipe from the row's `touch-action`.
+ */
+export async function touchSwipeTalkRow(
+  page: Page,
+  row: import('@playwright/test').Locator,
+  direction: 'left' | 'right',
+): Promise<void> {
+  await row.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'center' }));
+  const box = await row.boundingBox();
+  if (!box) throw new Error('touchSwipeTalkRow: row has no bounding box');
+  const cdp = await page.context().newCDPSession(page);
+  const x0 = box.x + box.width / 2;
+  const y0 = box.y + box.height / 2;
+  const step = direction === 'left' ? -10 : 10;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
+  for (let i = 1; i <= 10; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + i * step, y: y0 }] });
+    await page.waitForTimeout(16);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.detach().catch(() => undefined);
 }

@@ -7,7 +7,7 @@
  *    and up, the liked one right and down. Nothing is sent and no Contact appears; the Like is
  *    copied into My Talks as the user's own Talk (no starter author or marker, same identity key).
  *    A divider splits Incoming from Outgoing. The toolbar is grayed out until a long-press selects
- *    a row; ✕ then passes it. Tapping the liked tag in Outgoing passes it (a regretted Like).
+ *    a row; ✕ then passes it. The liked tag's ✕ in Outgoing passes it (a regretted Like).
  * 2. Matching: Alice and Bob both like the first starter tag; Carol likes the second, which passes the
  *    first above it. Bob broadcasts: Alice's chatbot answers his copy from her own Like and they
  *    match; Carol's chatbot passes it from her pass, and nothing matches for her.
@@ -110,8 +110,8 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     const fourth = STARTER_TAGS[3]!;
     await talkToolbarAction(page, chipFor(page, fourth.text), 'pass');
     await expect.poll(() => myTalkRole(page, fourth.text), { timeout: 10_000 }).toBe('ignored');
-    // A regretted Like: a tap on the liked tag in Outgoing passes it.
-    await likedOut.click();
+    // A regretted Like: the liked tag's ✕ in Outgoing passes it (undo).
+    await likedOut.locator('[data-testid="talk-row-pass"]').click();
     await expect.poll(() => myTalkRole(page, third!.text), { timeout: 10_000 }).toBe('ignored');
   });
 

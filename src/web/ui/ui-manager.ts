@@ -143,7 +143,7 @@ import { countMatchConversations, updateStatusBar as updateStatusBarImpl, syncSt
 import { showTalkDetail as showTalkDetailImpl } from './talk-detail-view';
 import { showLocationRoomSuggestion as showLocationRoomSuggestionImpl } from './location-room-suggestion';
 import { formatTalkDistanceFromAuthor as formatTalkDistanceFromAuthorImpl } from './talk-distance';
-import { displayTalksList as displayTalksListView } from './talks-list-view';
+import { actOnTalkRowFromGesture, displayTalksList as displayTalksListView } from './talks-list-view';
 import { updateChatroomInfo as updateChatroomInfoImpl } from './chatroom-info';
 import { setCurrentChatroomId as setCurrentChatroomIdImpl } from './current-chatroom';
 import { navigateToMyAnswerForTalk as navigateToMyAnswerForTalkImpl } from './navigate-to-answer';
@@ -1837,10 +1837,7 @@ export class UIManager extends EventEmitter {
     bindTalksRowGesturesImpl({
       setSuppressClickUntil: (timestamp) => { this.talksGestureSuppressClickUntil = timestamp; },
       showDetailsPopupFor: (detailsEl, originalParent) => this.showDetailsPopupFor(detailsEl, originalParent),
-      quickIgnoreIncomingTalk: (talkId, identityKeyFallback) => this.quickIgnoreIncomingTalk(talkId, identityKeyFallback),
-      quickAnswerIncomingTag: (talkId, identityKeyFallback, checked) => this.quickAnswerIncomingTag(talkId, identityKeyFallback, checked),
-      quickCopyIncomingTalk: (talkId, identityKeyFallback) => this.quickCopyIncomingTalk(talkId, identityKeyFallback),
-      deleteMyTalk: (talkId) => this.deleteMyTalk(talkId),
+      actOnRow: (row, intent) => actOnTalkRowFromGesture(row, intent),
     });
   }
 

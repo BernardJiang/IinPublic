@@ -23,6 +23,7 @@ import {
 } from './tag-tap-mode';
 import { STARTER_TAGS_CONTACT_ID } from '../../shared/starter-tags';
 import { incomingSortTime } from './starter-talk-seeds';
+import type { TalkRowIntent } from './talks-row-gestures';
 
 /** A starter interest tag row, the local one or a person's copy in its place. */
 const isStarterTagRow = (cluster: any): boolean => cluster?.starterContactId === STARTER_TAGS_CONTACT_ID || cluster?.starterSlot === true;
@@ -117,40 +118,60 @@ export type DisplayTalksListDeps = {
 
 /** Owns Talks-tab filtering, rendering, delegated events, and progressive-render lifecycle. */
 /**
- * What a tag row does (owner design 2026-10-24). `tap` is a plain tap: an incoming tag is liked
- * and moves to Outgoing (liking a starter tag also passes the starter tags scrolled past above it),
- * a liked tag in Outgoing is passed — the way back from a regretted Like — and a passed tag is
- * liked again; a tag I created ignores taps. `like` / `pass` come from the toolbar for a selected
- * row (Pass removes a tag I created).
+ * Like or Pass a Talks row — the same on every row (owner design 2026-11-21). Like is a tap, a
+ * swipe right or down, or the AppBar's ♡; Pass is the row's ✕, a swipe left, or the AppBar's ✕.
+ * - Incoming tag (Pair-tag too): Like likes it and moves it to Outgoing; liking a starter tag also
+ *   passes the starter tags scrolled past above it. Pass passes that tag only.
+ * - Incoming Flow / Survey / Route: Like opens it to answer; Pass ignores it.
+ * - My own row (Outgoing): Pass is undo — a liked tag is passed, a copy is removed, a Talk I made
+ *   is deleted. Like does nothing there (a tap on a card opens it, as before).
+ * - A passed row: Like takes it back; Pass does nothing.
  */
-function actOnTagRow(chip: HTMLElement, intent: 'tap' | 'like' | 'pass', deps: DisplayTalksListDeps): void {
-  if (chip.getAttribute('aria-busy') === 'true') return;
-  const talkId = chip.dataset.talkId || '';
-  const identityKey = chip.dataset.identityKey || undefined;
-  const role = chip.dataset.role || '';
-  if (!talkId) return;
+export function actOnTalkRow(row: HTMLElement, intent: TalkRowIntent, deps: DisplayTalksListDeps): void {
+  if (row.getAttribute('aria-busy') === 'true') return;
+  const talkId = row.dataset.talkId || '';
+  const identityKey = row.dataset.identityKey || undefined;
+  const role = row.dataset.role || '';
+  const isTag = row.classList.contains('talk-tag-chip');
+  if (!talkId && !identityKey) return;
   if (role === 'ignored') {
-    if (intent !== 'pass') deps.quickAnswerIncomingTag(talkId, undefined, true);
+    if (intent !== 'like') return;
+    if (isTag) deps.quickAnswerIncomingTag(talkId, undefined, true);
+    else deps.restoreIgnoredTalk(talkId);
     return;
   }
   if (role === 'copied' || role === 'created') {
-    if (intent === 'like' || (intent === 'tap' && role === 'created')) return;
-    flyTagChips([{ chip, direction: 'pass' }], () => {
-      if (role === 'copied') deps.quickIgnoreIncomingTalk(talkId, undefined);
-      else deps.deleteMyTalk(talkId);
-    });
+    if (intent !== 'pass' || !talkId) return;
+    const undo = (): void => {
+      if (role === 'created') deps.deleteMyTalk(talkId);
+      else if (isTag) deps.quickIgnoreIncomingTalk(talkId, undefined);
+      else uncopyIncomingTalk(talkId, { showNotification: deps.showNotification, t: deps.t, refreshTalksList: () => displayTalksList(deps) });
+    };
+    if (isTag) flyTagChips([{ chip: row, direction: 'pass' }], undo);
+    else undo();
     return;
   }
-  const like = intent !== 'pass';
-  const passedAbove = like ? starterChipsScrolledPast(chip) : [];
+  if (!isTag) {
+    if (intent === 'like') deps.showTalkDetail(talkId, identityKey);
+    else deps.quickIgnoreIncomingTalk(talkId, identityKey);
+    return;
+  }
+  const like = intent === 'like';
+  const passedAbove = like ? starterChipsScrolledPast(row) : [];
   flyTagChips([
     ...passedAbove.map((above) => ({ chip: above, direction: 'pass' as const })),
-    { chip, direction: like ? 'like' as const : 'pass' as const },
+    { chip: row, direction: like ? 'like' as const : 'pass' as const },
   ], () => {
     for (const above of passedAbove) deps.quickIgnoreIncomingTalk(above.dataset.talkId || '', above.dataset.identityKey || undefined);
     if (like) deps.quickAnswerIncomingTag(talkId, identityKey, true);
     else deps.quickIgnoreIncomingTalk(talkId, identityKey);
   });
+}
+
+/** A swipe on a row (talks-row-gestures.ts), with the deps of the latest render. */
+export function actOnTalkRowFromGesture(row: HTMLElement, intent: TalkRowIntent): void {
+  const deps = getDocumentState().latestDeps;
+  if (deps) actOnTalkRow(row, intent, deps);
 }
 
 /** A toolbar action on the long-press-selected row. */
@@ -163,12 +184,7 @@ function actOnSelectedRow(action: TalkToolbarAction, deps: DisplayTalksListDeps)
     return;
   }
   clearTalkRowSelection();
-  if (row.classList.contains('talk-tag-chip')) {
-    actOnTagRow(row, action, deps);
-    return;
-  }
-  // An incoming Flow/Survey/Route: Pass ignores it.
-  deps.quickIgnoreIncomingTalk(row.dataset.talkId || '', row.dataset.identityKey || undefined);
+  actOnTalkRow(row, action, deps);
 }
 
 export function displayTalksList(deps: DisplayTalksListDeps): void {
@@ -189,8 +205,13 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     const label = deps.t('unpinItem');
     return `<span class="talk-pin-badge" data-testid="talk-pin-badge" data-pin-id="${escapeHtml(pinKey)}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">📌</span>`;
   };
+  // One ✕ per row, top right (owner 2026-11-21): Pass on an incoming row, undo on my own row.
+  const passButtonHtml = (undo: boolean): string => {
+    const label = deps.t(undo ? 'talksRowUndo' : 'talksTagPass');
+    return `<button type="button" class="talk-row-pass" data-testid="talk-row-pass" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">×</button>`;
+  };
   // A non-tag talk is copied into My Talks (and so re-broadcast) only by the user's own choice:
-  // this toggle, or dragging the row down. Same look as the pin; ✓ once copied.
+  // this toggle. Same look as the pin; ✓ once copied.
   const copyButtonHtml = (talkId: string, identityKey: string): string => {
     const copied = myTalks[talkId]?.role === 'copied';
     const label = deps.t(copied ? 'talksRemoveCopy' : 'talksCopyToMyTalks');
@@ -562,13 +583,14 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                   : '➡️';
                 if (talkTypeLower === 'tag') {
                   return `
-      <div class="talk-list-item talk-tag-chip talk-tag-out is-liked ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag" role="button" tabindex="0" aria-label="${escapeHtml(`${deps.t('talksTagLiked')}: ${talk.title || ''}`)}">
+      <div class="talk-list-item talk-tag-chip talk-tag-out is-liked ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="tag" data-pass-label="${escapeHtml(deps.t('talksRowUndo'))}" role="button" tabindex="0" aria-label="${escapeHtml(`${deps.t('talksTagLiked')}: ${talk.title || ''}`)}">
         ${tagFace({ state: 'liked', talk, talkId, suffixHtml: tagAnswerSuffix(talk) })}
         <label class="talk-icon-badge talk-tag-broadcast-toggle" title="${escapeHtml(deps.t(disabled ? 'talksBroadcastOff' : 'talksBroadcastOn'))}">
           <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'} aria-label="${escapeHtml(deps.t(disabled ? 'talksBroadcastOff' : 'talksBroadcastOn'))}">
           <span aria-hidden="true">📣</span>
         </label>
         ${pinButtonHtml(`out:${talkId}`)}
+        ${passButtonHtml(true)}
       </div>
     `;
                 }
@@ -584,7 +606,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 // its own row button. matchedLine stays visible on the row: it's the interactive
                 // N3 click-to-DM affordance, not decorative detail.
                 return `
-      <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}${outByChatbot ? ' talk-answered-by-chatbot' : ''}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}"${outByChatbot ? ' data-answered-by="chatbot"' : ''} style="border-right:5px solid ${outByChatbot ? 'var(--chatbot-accent, #7c5cd6)' : typeAccent};background:${outByChatbot ? 'var(--chatbot-soft, #f1ecfb)' : 'var(--surface)'};">
+      <div class="talk-list-item talk-direction-out talk-type-${escapeHtml(talkTypeLower || 'flow')} ${disabled ? 'talk-broadcast-disabled' : 'talk-broadcast-enabled'}${outByChatbot ? ' talk-answered-by-chatbot' : ''}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(`out:${talkId}`)}" data-role="${talk.role || 'created'}" data-talk-type="${escapeHtml(talkTypeLower || 'flow')}" data-pass-label="${escapeHtml(deps.t('talksRowUndo'))}"${outByChatbot ? ' data-answered-by="chatbot"' : ''} style="border-right:5px solid ${outByChatbot ? 'var(--chatbot-accent, #7c5cd6)' : typeAccent};background:${outByChatbot ? 'var(--chatbot-soft, #f1ecfb)' : 'var(--surface)'};">
         <div class="talk-item-header">
           <label class="talk-icon-badge" title="${disabled ? deps.t('talksBroadcastOff') : deps.t('talksBroadcastOn')}">
             <input type="checkbox" class="talk-broadcast-toggle-checkbox" data-talk-id="${talkId}" ${disabled ? '' : 'checked'}>
@@ -593,7 +615,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           ${outChatbotBadge}
           <div class="talk-item-title">${escapeHtml(talk.title)}${tagAnswerSuffix(talk)}</div>
           ${pinButtonHtml(`out:${talkId}`)}
-          <span class="talk-item-chevron" aria-hidden="true">›</span>
+          ${passButtonHtml(true)}
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="font-size:0.85em;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(statsLine)} · ${escapeHtml(deps.formatTalkRelativeTime(new Date(talk.lastInteraction || 0)))}</span>
@@ -731,6 +753,7 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       <div class="talk-list-item talk-tag-chip talk-tag-in ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="tag"${isStarterTagRow(cluster) ? ' data-starter-tag="true"' : ''}${cluster?.starterGroup?.id ? ` data-starter-group="${escapeHtml(cluster.starterGroup.id)}"` : ''} data-pass-label="${escapeHtml(deps.t('talksTagPass'))}" data-like-label="${escapeHtml(deps.t('talksTagLike'))}" role="button" tabindex="0" aria-label="${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}">
         ${tagFace({ state: 'open', talk: cluster?.latestTalk || cluster, talkId: String(talkId) })}
         ${pinButtonHtml(pinKey)}
+        ${passButtonHtml(false)}
       </div>${identityKey === lastStarterKey ? `
       <div class="starter-tag-create-prompt" data-testid="starter-tag-create-prompt">
         <div class="starter-tag-create-title">✨ ${escapeHtml(deps.t('starterCreatePromptTitle'))}</div>
@@ -739,16 +762,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
       </div>` : ''}
     `;
               }
-              // Row is a single tap target (opens the talk to answer, with the details below
-              // already visible rather than a separate popup). 📋 or drag down retains it in My Talks,
-              // a left swipe ignores this content; right swipe is intentionally reserved for
-              // the complete one-tap Like answer available only to Tag/Pair-tag rows.
-              // Long-press still reaches the exact
-              // same .talk-item-details/showDetailsPopupFor content the ℹ️ button used to
-              // (full sender identity + co-exchanged people), nothing dropped, just a different
-              // trigger. Row 2 now carries what fit in the freed-up space: time, sender count,
-              // location, question progress — the "quick glance" subset of the popup's fuller
-              // detail set.
+              // Row is a single tap target (opens the talk to answer). A swipe right or down opens it
+              // too, a swipe left or the row's ✕ passes it, 📋 keeps it in My Talks, and a long-press
+              // shows the details popup (sender identity, co-exchanged people) and selects the row.
+              // Row 2 carries the quick glance: time, sender count, location, question progress.
               const questionProgressText = (incomingType === 'flow' || incomingType === 'route') && questionCount > 0
                 ? `Q1/${questionCount}`
                 : questionCount > 0 ? `${questionCount} Q` : '';
@@ -769,14 +786,14 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
                 ? `<span class="talk-badge talk-badge-chatbot" data-testid="talk-answered-by-chatbot" title="${escapeHtml(deps.t('talksAnsweredByChatbot'))}">🤖<span class="visually-hidden"> ${escapeHtml(deps.t('talksAnsweredByChatbot'))}</span></span>`
                 : '';
               return `
-      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}${byChatbot ? ' talk-answered-by-chatbot' : ''}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}"${byChatbot ? ' data-answered-by="chatbot"' : ''} data-ignore-label="${escapeHtml(deps.t('talksIgnore'))}" style="border-left:5px solid ${byChatbot ? 'var(--chatbot-accent, #7c5cd6)' : typeAccent};background:${byChatbot ? 'var(--chatbot-soft, #f1ecfb)' : isAnswered ? 'var(--bg-muted)' : 'var(--accent-soft)'};">
+      <div class="talk-list-item talk-direction-in talk-type-${escapeHtml(incomingType)} ${isAnswered ? 'talk-incoming-answered' : 'talk-incoming-new'}${byChatbot ? ' talk-answered-by-chatbot' : ''}" data-talk-id="${talkId}" data-pin-id="${escapeHtml(pinKey)}" data-identity-key="${escapeHtml(identityKey)}" data-role="incoming" data-incoming-type="${escapeHtml(incomingType)}"${byChatbot ? ' data-answered-by="chatbot"' : ''} data-ignore-label="${escapeHtml(deps.t('talksIgnore'))}" data-like-label="${escapeHtml(deps.t('talksAnswerAction'))}" style="border-left:5px solid ${byChatbot ? 'var(--chatbot-accent, #7c5cd6)' : typeAccent};background:${byChatbot ? 'var(--chatbot-soft, #f1ecfb)' : isAnswered ? 'var(--bg-muted)' : 'var(--accent-soft)'};">
         <div class="talk-item-header">
           <span class="talk-icon-badge" title="${escapeHtml(deps.formatTalkType(String(cluster?.type || 'flow')))}" aria-hidden="true">📥 ${typeIcon}</span>
           ${chatbotBadge}
           <button type="button" class="talk-item-title view-talk-btn" data-talk-id="${talkId}" data-identity-key="${escapeHtml(identityKey)}" style="${titleStyle}background:none;border:none;padding:0;text-align:left;cursor:pointer;font:inherit;">${escapeHtml(cluster?.title || deps.t('talksIncomingFallback'))}</button>
           ${copyButtonHtml(talkId, identityKey)}
           ${pinButtonHtml(pinKey)}
-          <span class="talk-item-chevron" aria-hidden="true">›</span>
+          ${passButtonHtml(false)}
         </div>
         <div class="talk-item-status-line" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <span class="talk-item-status-summary" style="${metaStyle}font-size:0.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(row2Parts.join(' · '))}</span>
@@ -877,9 +894,9 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
 
     // mergedRows is guaranteed non-empty here — the outer `filteredOutEntries.length
     // === 0 && inEntries.length === 0` check above already handled the true-empty case.
-    const hasTagChips = mergedRows.some((row) => String(row.payload?.type || row.payload?.[1]?.type || '').toLowerCase() === 'tag');
-    // How to tap a tag is a one-time tip, not a line kept in the list (owner, 2026-11-16).
-    if (hasTagChips) deps.showTipOnce?.('talksTapHint', deps.t('talksTapHint'));
+    // The row gestures are a one-time tip, not a line kept in the list (owner, 2026-11-16). A new
+    // key since the gestures changed (2026-11-21), so people who saw the old tip see this one.
+    deps.showTipOnce?.('talksGestureHint', deps.t('talksTapHint'));
     renderListProgressively(talksList, mergedRows, {
       firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
       renderRow: renderMergedRow,
@@ -914,10 +931,10 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
         const currentDeps = documentState.latestDeps || deps;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          actOnTagRow(chip, 'tap', currentDeps);
+          actOnTalkRow(chip, 'like', currentDeps);
         } else if (e.key === 'Delete' || e.key === 'Backspace') {
           e.preventDefault();
-          actOnTagRow(chip, 'pass', currentDeps);
+          actOnTalkRow(chip, 'pass', currentDeps);
         }
       });
       document.body.addEventListener('click', (e) => {
@@ -943,12 +960,21 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
           e.stopPropagation();
           return;
         }
-        // A plain tap on a tag acts at once (see actOnTagRow).
-        const tappedChip = target.closest('#talks-list .talk-tag-chip') as HTMLElement | null;
-        if (tappedChip) {
+        // The row's ✕: Pass, or undo on my own row (see actOnTalkRow).
+        const passButton = target.closest('#talks-list .talk-row-pass') as HTMLElement | null;
+        const passRow = passButton?.closest('.talk-list-item') as HTMLElement | null;
+        if (passRow) {
           e.preventDefault();
           e.stopPropagation();
-          actOnTagRow(tappedChip, 'tap', currentDeps);
+          actOnTalkRow(passRow, 'pass', currentDeps);
+          return;
+        }
+        // A plain tap on a tag likes it at once (see actOnTalkRow); graph links inside go on.
+        const tappedChip = target.closest('#talks-list .talk-tag-chip') as HTMLElement | null;
+        if (tappedChip && !target.closest('.graph-link')) {
+          e.preventDefault();
+          e.stopPropagation();
+          actOnTalkRow(tappedChip, 'like', currentDeps);
           return;
         }
 

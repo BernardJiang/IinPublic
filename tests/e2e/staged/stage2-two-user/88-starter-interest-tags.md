@@ -17,7 +17,7 @@ starter seeds the harness turns off for ordinary specs.
 5. A divider splits Incoming from Outgoing, where the liked tag now sits.
 6. The AppBar's ✕ ♡ 📌 are grayed out until a long-press selects a row; ✕ then passes the
    selected tag.
-7. Tapping the liked tag in Outgoing passes it — the way back from a regretted Like.
+7. The liked tag's ✕ in Outgoing passes it (undo) — the way back from a regretted Like.
 
 ## 2. Same starter tag, ordinary Talk exchange, a match
 

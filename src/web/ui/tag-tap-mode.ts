@@ -1,7 +1,7 @@
 /**
- * Talks rows without per-row buttons (owner design 2026-10-24):
- * - a tap on a tag acts at once: an incoming tag is liked (it moves to Outgoing), a liked tag in
- *   Outgoing is passed (the way back from a regretted Like), a passed tag is liked again;
+ * Talks rows (owner design 2026-10-24, gestures 2026-11-21): one ✕ per row and no other buttons;
+ * - a tap likes (a tag at once, a Flow/Survey/Route opens to answer); ✕ or a swipe left passes,
+ *   or undoes on my own row (`actOnTalkRow`);
  * - a long-press selects a row, and the AppBar's ✕ Pass · ♡ Like · 📌 Pin act on the selection,
  *   like the Chatrooms and Contacts actions. With nothing selected they are grayed out.
  * Consecutive tag chips are laid out side by side (`flowTagChips`).
@@ -47,14 +47,16 @@ export function reapplyTalkRowSelection(): void {
   syncTalkToolbar(row);
 }
 
-/** What each toolbar action can do to a row: Pin needs a pinnable row; Like/Pass need a tag (or Pass an incoming Talk). */
+/**
+ * What each toolbar action can do to a row (the same as its gestures, `actOnTalkRow`): Pin needs a
+ * pinnable row; Like an incoming or passed row; Pass (undo on my own row) any row not passed yet.
+ */
 export function toolbarActionApplies(action: TalkToolbarAction, row: HTMLElement | null): boolean {
   if (!row) return false;
-  const isTag = row.classList.contains('talk-tag-chip');
   const role = row.dataset.role || '';
   if (action === 'pin') return !!row.dataset.pinId;
-  if (action === 'like') return isTag && (role === 'incoming' || role === 'ignored');
-  return (isTag && role !== 'ignored') || role === 'incoming';
+  if (action === 'like') return role === 'incoming' || role === 'ignored';
+  return role !== 'ignored' && !!role;
 }
 
 export function syncTalkToolbar(row: HTMLElement | null = getSelectedTalkRow()): void {
