@@ -203,13 +203,14 @@ export class ContentFilter {
   static findDirtyWord(content: string, customWords: readonly string[] = []): string | null {
     const normalized = foldForMatching(content);
     const words = normalized.match(WORD_PATTERN) || [];
-    const merged = new Set<string>(this.latinBlockedWords);
+    // The built-in list is checked in place, not copied per call (O(1) per word).
+    const custom = new Set<string>();
     for (const w of customWords) {
       const t = foldForMatching(String(w ?? '')).trim();
-      if (t) merged.add(t);
+      if (t) custom.add(t);
     }
     for (const word of words) {
-      if (merged.has(word)) return word;
+      if (this.latinBlockedWords.has(word) || custom.has(word)) return word;
     }
     for (const term of this.cjkBlockedTerms) {
       if (normalized.includes(term)) return term;

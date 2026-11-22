@@ -117,20 +117,25 @@ test.describe('Find similar people with starter tags', () => {
     }
 
     // ── 2. Each sees all 60 starter tags and decides every one ───────────────
+    const decidedAt: number[] = [];
     await Promise.all(users.map(async ({ page, index }) => {
       // The harness turns starter seeds off for ordinary specs; these new users opt back in.
       await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_starter_contacts_disabled'] }), localStorage.removeItem('iinpublic_starter_contacts_disabled')));
       await page.locator('.nav-btn[data-view="talks"]').click();
       await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
       await expect(unansweredStarterChips(page)).toHaveCount(STARTER_TAGS.length, { timeout: 30_000 });
+      const decideStart = Date.now();
 
       // Like the picks top-down (each tap passes the unanswered tags above it), pass the rest.
       const roles = await decideStarterTags(page, LIKES[index]!);
       const liked = new Set(LIKES[index]);
       expect(roles.map((role, tagIndex) => role === (liked.has(tagIndex) ? 'copied' : 'ignored')).every(Boolean),
         `${NAMES[index]} decided all 60 tags as picked: ${JSON.stringify(roles)}`).toBe(true);
+      decidedAt[index] = Date.now();
+      console.log(`[starter-similar] ${NAMES[index]} decided 60 tags in ${Math.round((decidedAt[index]! - decideStart) / 1000)} s`);
       console.log(`[${NAMES[index]}] liked ${LIKES[index]!.map((i) => STARTER_TAGS[i]!.text).join(', ')}`);
     }));
+    const allDecidedAt = Math.max(...decidedAt);
 
     // ── 3. Each broadcasts their likes to their Nearby group (3 of the 5 others) ─
     await Promise.all(users.map(({ page }) => page.locator('.nav-btn[data-view="chatrooms"]').click()));
@@ -180,6 +185,7 @@ test.describe('Find similar people with starter tags', () => {
           }
           return true;
         }, { timeout: 600_000, intervals: [5_000] }).toBe(true);
+        console.log(`[starter-similar] ${NAMES[index]} Contacts settled ${Math.round((Date.now() - allDecidedAt) / 1000)} s after the last user decided`);
       } catch (error) {
         const state = await page.evaluate(() => {
           const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;

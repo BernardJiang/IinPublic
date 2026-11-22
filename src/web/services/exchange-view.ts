@@ -11,6 +11,7 @@
  *   after one can stop the worker mid-save (found by e2e stage1/94). Until then the record waits in
  *   a small localStorage list of unsaved writes, sent again at the next start.
  */
+import { forgetLocalReads, readLocal } from './local-read-scope';
 import { exchangeKey, type ExchangeRecord } from '../../core/exchanges';
 
 export type ExchangeCoreLink = {
@@ -47,7 +48,7 @@ function notify(): void {
 
 function readUnsaved(): Record<string, ExchangeRecord> {
   try {
-    const parsed = JSON.parse((typeof localStorage === 'undefined' ? null : localStorage.getItem(UNSAVED_KEY)) || '{}');
+    const parsed = JSON.parse(readLocal(UNSAVED_KEY) || '{}');
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
@@ -58,6 +59,7 @@ function writeUnsaved(unsaved: Record<string, ExchangeRecord>): void {
   try {
     if (Object.keys(unsaved).length === 0) localStorage.removeItem(UNSAVED_KEY);
     else localStorage.setItem(UNSAVED_KEY, JSON.stringify(unsaved));
+    forgetLocalReads();
   } catch {
     // Storage unavailable: the write still goes to the core; only its crash safety is lost.
   }
@@ -90,13 +92,14 @@ function send(write: (link: ExchangeCoreLink) => Promise<unknown>): void {
 function importLegacy(): void {
   let raw: string | null = null;
   try {
-    raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(LEGACY_KEY);
+    raw = readLocal(LEGACY_KEY);
   } catch {
     return;
   }
   if (raw === null) return;
   try {
     localStorage.removeItem(LEGACY_KEY);
+    forgetLocalReads();
   } catch {
     // Storage gone mid-way: the parsed copy below still lands in the view and the core.
   }

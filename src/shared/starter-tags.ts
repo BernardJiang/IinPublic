@@ -130,6 +130,10 @@ export function starterTagLabel(tag: StarterTag): string {
  * The Talk for one starter tag. Only `type`, `language` and the keyword enter the identity key
  * (src/shared/cid.ts); the emoji title and the Ignore label do not.
  */
+// A starter tag's content never changes, so neither does its id: hashed once per tag, not on every
+// Talks redraw (C10, 2026-11-22: 120 hashes per redraw).
+const starterTagIds = new Map<string, string>();
+
 export function starterTagTalk(tag: StarterTagEntry): any {
   const talk = {
     type: 'tag',
@@ -154,7 +158,13 @@ export function starterTagTalk(tag: StarterTagEntry): any {
     starterContactId: STARTER_TAGS_CONTACT_ID,
     starterTagId: tag.id,
   };
-  return { ...talk, id: computeTalkIdFromTalkData(talk) };
+  const key = `${tag.language}\u0000${tag.id}\u0000${tag.text}`;
+  let id = starterTagIds.get(key);
+  if (id === undefined) {
+    id = computeTalkIdFromTalkData(talk);
+    starterTagIds.set(key, id);
+  }
+  return { ...talk, id };
 }
 
 /**

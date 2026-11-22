@@ -7,7 +7,7 @@ import type { CreatorReplyRow } from './creator-replies-view';
 import { getMyTalks } from './my-talks-storage';
 import { uncopyIncomingTalk } from './quick-incoming-talk-actions';
 import { avatarInnerHtml } from './profile-avatar';
-import { renderListProgressively } from './render-list-progressively';
+import { renderRowsKeyed, type FlowRuns } from './render-rows-keyed';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { filterIncomingTalkClusters, getTalkIntakeFilters } from './talk-intake-filters';
 import { formatTalkExpiryTone, getIncomingQuestionCount } from './talk-list-metadata';
@@ -34,6 +34,8 @@ import { readExchanges } from '../services/exchange-view';
 import { TALKS_TAB_STATE_KEY } from './talks-tab-state';
 
 const TALKS_FIRST_CHUNK_SIZE = 25;
+// Consecutive tag chips side by side, as `flowTagChips` lays them out.
+const TALK_CHIP_FLOW: FlowRuns = { itemClass: 'talk-tag-chip', wrapperClass: 'talk-tag-chip-flow', groupedAfterClass: 'starter-tag-group-heading', groupedClass: 'is-grouped' };
 
 type TalkStatsMap = Record<string, { responses: number; matches: number; ignores: number }>;
 type PersonTarget = { type: 'person'; id: string; name: string };
@@ -916,10 +918,12 @@ export function displayTalksList(deps: DisplayTalksListDeps): void {
     // The row gestures are a one-time tip, not a line kept in the list (owner, 2026-11-16). A new
     // key since the gestures changed (2026-11-21), so people who saw the old tip see this one.
     deps.showTipOnce?.('talksGestureHint', deps.t('talksTapHint'));
-    renderListProgressively(talksList, mergedRows, {
+    // Unchanged rows keep their nodes; only new or changed rows are parsed (C10, 2026-11-22).
+    renderRowsKeyed(talksList, mergedRows, {
       firstChunkSize: TALKS_FIRST_CHUNK_SIZE,
       renderRow: renderMergedRow,
       prefixHtml: '',
+      flow: TALK_CHIP_FLOW,
       onFirstChunkRendered: () => { flowTagChips(talksList); reapplyTalkRowSelection(); },
       onRemainderRendered: () => { flowTagChips(talksList); reapplyTalkRowSelection(); },
       isStale,

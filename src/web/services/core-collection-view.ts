@@ -10,6 +10,7 @@
  *   stage1/94). Until then it waits in a small localStorage list (a removal as `null`) and is sent
  *   again at the next start; while listed it wins over the core's copy.
  */
+import { forgetLocalReads, readLocal } from './local-read-scope';
 import type { CoreCollection } from '../../core/collections';
 
 export type CollectionCoreLink = {
@@ -184,7 +185,7 @@ export class CoreCollectionView<T> {
 
   private readUnsaved(): Record<string, T | null> {
     try {
-      const parsed = JSON.parse((typeof localStorage === 'undefined' ? null : localStorage.getItem(this.unsavedKey)) || '{}');
+      const parsed = JSON.parse(readLocal(this.unsavedKey) || '{}');
       return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     } catch {
       return {};
@@ -195,6 +196,7 @@ export class CoreCollectionView<T> {
     try {
       if (Object.keys(unsaved).length === 0) localStorage.removeItem(this.unsavedKey);
       else localStorage.setItem(this.unsavedKey, JSON.stringify(unsaved));
+    forgetLocalReads();
     } catch {
       // Storage unavailable: the change still goes to the core; only its crash safety is lost.
     }
@@ -227,13 +229,14 @@ export class CoreCollectionView<T> {
   private importLegacy(): void {
     let raw: string | null = null;
     try {
-      raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(this.legacyKey);
+      raw = readLocal(this.legacyKey);
     } catch {
       return;
     }
     if (raw === null) return;
     try {
       localStorage.removeItem(this.legacyKey);
+      forgetLocalReads();
     } catch {
       // Storage gone mid-way: the parsed copy below still lands in the view and the core.
     }

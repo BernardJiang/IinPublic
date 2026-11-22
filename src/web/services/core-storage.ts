@@ -8,6 +8,7 @@
  * core and removes it from localStorage.
  */
 import { appDataView, settingsView } from './core-views';
+import { forgetLocalReads, readLocal } from './local-read-scope';
 
 function legacyStorage(): Storage | null {
   try {
@@ -21,11 +22,11 @@ const warnedEarly = new Set<string>();
 
 export const appStorage = {
   getItem(key: string): string | null {
-    const legacy = legacyStorage();
-    const found = legacy?.getItem(key) ?? null;
+    const found = readLocal(key);
     if (found !== null) {
       appDataView.set({ [key]: found });
-      try { legacy!.removeItem(key); } catch { /* the core holds it now either way */ }
+      try { legacyStorage()?.removeItem(key); } catch { /* the core holds it now either way */ }
+      forgetLocalReads();
       return found;
     }
     if (!appDataView.isConnected() && !warnedEarly.has(key)) {
@@ -41,11 +42,13 @@ export const appStorage = {
   setItem(key: string, value: string): void {
     appDataView.set({ [key]: String(value) });
     try { legacyStorage()?.removeItem(key); } catch { /* nothing to clear */ }
+    forgetLocalReads();
   },
 
   removeItem(key: string): void {
     appDataView.remove([key]);
     try { legacyStorage()?.removeItem(key); } catch { /* nothing to clear */ }
+    forgetLocalReads();
   },
 };
 
@@ -66,8 +69,7 @@ export function appDataLoaded(): boolean {
  */
 export const settingsStorage = {
   getItem(key: string): string | null {
-    const legacy = legacyStorage();
-    const copy = legacy?.getItem(key) ?? null;
+    const copy = readLocal(key);
     if (!settingsView.isConnected()) return copy ?? (settingsView.get(key) ?? null);
     const value = settingsView.get(key);
     if (copy !== null && copy !== value) {
@@ -75,7 +77,8 @@ export const settingsStorage = {
       return copy;
     }
     if (typeof value === 'string' && copy === null) {
-      try { legacy?.setItem(key, value); } catch { /* the core holds it either way */ }
+      try { legacyStorage()?.setItem(key, value); } catch { /* the core holds it either way */ }
+      forgetLocalReads();
     }
     return typeof value === 'string' ? value : null;
   },
@@ -83,11 +86,13 @@ export const settingsStorage = {
   setItem(key: string, value: string): void {
     settingsView.set({ [key]: String(value) });
     try { legacyStorage()?.setItem(key, String(value)); } catch { /* the core holds it either way */ }
+    forgetLocalReads();
   },
 
   removeItem(key: string): void {
     settingsView.remove([key]);
     try { legacyStorage()?.removeItem(key); } catch { /* nothing to clear */ }
+    forgetLocalReads();
   },
 };
 
