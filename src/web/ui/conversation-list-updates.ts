@@ -4,6 +4,9 @@ import { mergeConversationRecord } from '../../core/conversation-state';
 import { setMyConversations } from './my-conversations-storage';
 import { settingsStorage } from '../services/core-storage';
 
+/** When this page loaded: a message newer than this is news, not history. */
+const PAGE_LOADED_AT = Date.now();
+
 export interface ConversationListUpdatesDeps {
   getMyConversations: () => Record<string, any>;
   getPeerName: (userId: string, fallback?: string) => string;
@@ -224,9 +227,12 @@ export function syncConversationMessageSummary(
   const alreadySeen = deps.lastNotifiedMessageIdByConversation.has(conversationId);
   const isDelta = deps.lastNotifiedMessageIdByConversation.get(conversationId) !== latestId;
   deps.lastNotifiedMessageIdByConversation.set(conversationId, latestId);
+  // First sight of a conversation is history (seeded silently, no burst at boot) — unless its
+  // latest message arrived after this page loaded: the first update can already carry two new
+  // messages, and then none was announced (e2e stage2/73 with slower storage reads, 2026-11-23).
+  const arrivedSinceLoad = new Date(latest.timestamp || 0).getTime() > PAGE_LOADED_AT;
   if (
-    alreadySeen &&
-    isDelta &&
+    (alreadySeen ? isDelta : arrivedSinceLoad) &&
     isIncoming &&
     deps.getCurrentConversationId() !== conversationId &&
     !conversation.supportChannel

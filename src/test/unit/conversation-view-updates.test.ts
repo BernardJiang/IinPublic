@@ -253,6 +253,26 @@ describe('conversation view and list update extraction', () => {
     expect(deps.showNotification).not.toHaveBeenCalled();
   });
 
+  it('announces messages that arrived since the page loaded, even on the first sight of a conversation', () => {
+    // stage2/73: with slower storage reads the first update carried two new messages at once, and
+    // the first-sight seed swallowed both. History older than the page load stays silent.
+    const conversations: Record<string, any> = { c1: { conversationId: 'c1', otherUserId: 'peer', otherUserName: 'Tom' } };
+    const deps = listDeps(conversations);
+    syncConversationMessageSummary('c1', [
+      { id: 'old', senderId: 'peer', text: 'from yesterday', timestamp: '2026-01-01T00:00:00.000Z' },
+    ], 'me', deps);
+    expect(deps.showNotification).not.toHaveBeenCalled();
+
+    const fresh: Record<string, any> = { c2: { conversationId: 'c2', otherUserId: 'peer', otherUserName: 'Tom' } };
+    const freshDeps = listDeps(fresh);
+    const now = Date.now() + 1_000;
+    syncConversationMessageSummary('c2', [
+      { id: 'm1', senderId: 'peer', text: 'one', timestamp: new Date(now).toISOString() },
+      { id: 'm2', senderId: 'peer', text: 'two', timestamp: new Date(now + 1).toISOString() },
+    ], 'me', freshDeps);
+    expect(freshDeps.showNotification).toHaveBeenCalledTimes(1);
+  });
+
   // talks-matching/08-retraction: a re-sync after the author retracted kept 'withdrawn' but
   // dropped retractedAt, so the list lost the "match gone" time.
   it('keeps a withdrawn conversation\'s retraction time when it is re-synced', () => {

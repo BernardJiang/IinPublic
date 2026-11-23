@@ -64,7 +64,10 @@ test.describe('DM-arrival toast navigation (N1)', () => {
         { timeout: 15_000 },
       )
       .toBe('Hello from Tom');
-    await sendConversationMessage(pageA, conversationId, userIdA, 'Second message from Tom');
+    // Watched while it is sent: the toast lives 3 s, and the send can return after Jerry already
+    // showed it (it waits for the sender's own storage writes; 2026-11-23, browser store without RAM
+    // copy).
+    const sending = sendConversationMessage(pageA, conversationId, userIdA, 'Second message from Tom');
 
     // Match on the toast's fixed prefix, not the peer's display name: setupFastMatchedDm's
     // synthetic pair-direct match doesn't populate conversation.otherUserName the way a normal
@@ -73,6 +76,7 @@ test.describe('DM-arrival toast navigation (N1)', () => {
     const toast = pageB.locator('.notification').filter({ hasText: 'New message from' });
     await expect(toast).toBeVisible({ timeout: 20_000 });
     await toast.click();
+    await sending;
     await afterAction();
 
     await expect(pageB.locator('#conversation-detail-overlay')).toBeVisible({ timeout: 10_000 });

@@ -95,10 +95,24 @@ test.describe('Messaging: grammar filter blocks on send and hides on receive', (
 
     // --- RECEIVE HIDE: B grammar off sends the bad message; A (grammar on) hides it. ---
     await setFilters(pageB, { blockDirtyWords: false, requireGoodGrammar: false, dirtyWords: [] });
+    // A toast lives 3 s and A may render the message before the send helper returns: record the
+    // notices A shows from now on, rather than look for one still on screen afterwards.
+    await pageA.evaluate(() => {
+      const seen: string[] = ((window as any).__e2eContentFilterNotices = []);
+      new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of Array.from(mutation.addedNodes)) {
+            const marker = (node as HTMLElement).dataset?.contentFilterNotification;
+            if (marker) seen.push(marker);
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
     await sendConversationMessage(pageB, conversationId, userIdB, BAD_GRAMMAR);
 
     await expect(pageA.locator('[data-testid="hidden-message-placeholder"]').first()).toBeVisible({ timeout: 20_000 });
-    await expect(pageA.locator('[data-content-filter-notification="grammar-receive"]').first()).toBeVisible({ timeout: 5000 });
+    await expect.poll(() => pageA.evaluate(() => (window as any).__e2eContentFilterNotices as string[]), { timeout: 5000 })
+      .toContain('grammar-receive');
     expect(
       await pageA.locator('#conversation-messages .message-text').filter({ hasText: 'aa aa aa' }).count(),
     ).toBe(0);
