@@ -13,7 +13,8 @@ function fnv1a32(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-const tagKey = (text: unknown) => `qa_tag_${fnv1a32(String(text ?? '').trim().replace(/\s+/g, ' ').toLowerCase())}`;
+// Exact text, ends trimmed: "Cats" and "cats" are two tags (owner, 2026-11-22).
+const tagKey = (text: unknown) => `qa_tag_${fnv1a32(String(text ?? '').trim())}`;
 
 /**
  * The keys of a tag Talk's tags: one per tag, or one for a one-keyword tag (its question). Any

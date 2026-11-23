@@ -1,5 +1,5 @@
 import type { Tag } from './types';
-import { canonicalSerialize, hashIdentityPayload, normalizeIdentityText } from './cid';
+import { canonicalSerialize, exactText, hashIdentityPayload } from './cid';
 
 export const USER_TAGS_KEY = 'user-tags';
 export const USER_TAGS_VERSION = 1;
@@ -19,8 +19,9 @@ function toPositiveWeight(value: unknown): number {
   return n;
 }
 
+/** A tag as written, ends trimmed: tags match exactly (owner, 2026-11-22). */
 function normalizeTagKey(raw: unknown): string {
-  return normalizeIdentityText(raw);
+  return exactText(raw);
 }
 
 export function buildUserTagWeightMap(interests: Array<Partial<Tag> & { weight?: number }> | undefined): UserTagWeightMap {

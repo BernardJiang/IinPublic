@@ -2,7 +2,8 @@
  * Normalize a tag/title string for overlap checks (broadcast preamble vs profile interests).
  */
 export function normalizeTagToken(raw: unknown): string {
-  return String(raw ?? '').trim().toLowerCase();
+  // Exact, ends trimmed: tags match exactly (owner, 2026-11-22).
+  return String(raw ?? '').trim();
 }
 
 /** Union of preamble selections and talk-authored tags for targeting signals. */

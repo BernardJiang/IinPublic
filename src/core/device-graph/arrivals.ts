@@ -12,15 +12,13 @@
  *   ix/deleted/<talkId>       { ev: →the author's deletion event }   the author deleted it
  *   ix/person/<userId>/ev        bucketed
  *
- * A repeat arrival writes one arrival event and no content. A Talk whose text the grammar filter
- * would change is ignored whole: its arrival is still written, with `ignored: 'grammar'`, and its
- * structure is not stored.
+ * A repeat arrival writes one arrival event and no content. A Talk need not follow the grammar
+ * filter (owner, 2026-11-22): it is received like any other and its text matches exactly.
  */
 import { putEvent } from './events';
 import type { EventChainSigner } from './chain';
 import type { StorageBudget } from './storage-budget';
 import { personIdOf, personSoul, personWrites } from './people-graph';
-import { talkGrammarErrors } from '../../shared/grammar-filter';
 import { addToIndex, bucketOf, readIndex } from './index-buckets';
 import { link, linkSoul, type GraphNode, type NodeStore } from './node-store';
 import { GRAPH_SCHEMA_VERSION, graphSouls, talkStructureOf, writeTalkStructure } from './talk-structure';
@@ -70,8 +68,9 @@ export function createArrivalGraph(store: NodeStore, ids: EventIds, options: { p
       const when = now();
       // A Talk its author deleted stays deleted: a copy still travelling is recorded, not shown.
       const deleted = !!linkSoul((await store.get(souls.index(`deleted/${incoming.talkId}`)))?.ev);
-      const ignored = deleted ? 'deleted' as const
-        : !from.importing && talkGrammarErrors(incoming.talk).length ? 'grammar' as const : undefined;
+      // The grammar rules are on by default in the editor, but a Talk need not follow them (owner,
+      // 2026-11-22): one that does not is received like any other, and its text matches exactly.
+      const ignored = deleted ? 'deleted' as const : undefined;
       const [people, versionStored] = await Promise.all([
         personWrites(store, prefix, [{ userId: incoming.authorId, pub: incoming.authorPub }, { userId: from.userId, pub: from.pub }], when),
         store.get(souls.event(incoming.versionId)),

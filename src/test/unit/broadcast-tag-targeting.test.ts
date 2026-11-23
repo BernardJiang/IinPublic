@@ -5,8 +5,8 @@ import {
 } from '../../shared/broadcast-tag-targeting';
 
 describe('broadcast-tag-targeting', () => {
-  it('normalizeTagToken lowercases and trims', () => {
-    expect(normalizeTagToken('  Tennis  ')).toBe('tennis');
+  it('normalizeTagToken trims the ends only: tags match exactly', () => {
+    expect(normalizeTagToken('  Tennis  ')).toBe('Tennis');
     expect(normalizeTagToken(undefined)).toBe('');
   });
 
@@ -29,13 +29,19 @@ describe('broadcast-tag-targeting', () => {
     ).toBe(true);
   });
 
-  it('receiverPassesBroadcastTagTargeting matches on normalized overlap', () => {
+  it('receiverPassesBroadcastTagTargeting matches the exact tag, ends trimmed', () => {
+    expect(
+      receiverPassesBroadcastTagTargeting({
+        broadcastTargetTags: [' Tennis '],
+        receiverInterestTokens: ['Tennis'],
+      }),
+    ).toBe(true);
     expect(
       receiverPassesBroadcastTagTargeting({
         broadcastTargetTags: ['Tennis'],
         receiverInterestTokens: ['tennis'],
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('receiverPassesBroadcastTagTargeting includes talk.tags in the targeting union', () => {
@@ -43,7 +49,7 @@ describe('broadcast-tag-targeting', () => {
       receiverPassesBroadcastTagTargeting({
         broadcastTargetTags: [],
         talkTags: [{ name: 'Music' }],
-        receiverInterestTokens: ['music'],
+        receiverInterestTokens: ['Music'],
       }),
     ).toBe(true);
   });
@@ -58,7 +64,7 @@ describe('broadcast-tag-targeting', () => {
   });
 
   it('buildTargetingTokenSet merges preamble and authored tags deduped', () => {
-    const s = buildTargetingTokenSet(['A'], [{ name: 'a' }, { name: 'b' }]);
-    expect(Array.from(s).sort()).toEqual(['a', 'b']);
+    const s = buildTargetingTokenSet(['a'], [{ name: ' a ' }, { name: 'b' }, { name: 'A' }]);
+    expect(Array.from(s).sort()).toEqual(['A', 'a', 'b']);
   });
 });

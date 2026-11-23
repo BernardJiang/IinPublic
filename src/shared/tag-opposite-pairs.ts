@@ -21,9 +21,9 @@ export interface TagOppositePairRegistryState {
   pairs: Record<string, TagOppositePairEntry>;
 }
 
-/** Tags are canonicalized case-insensitively, unlike question text (tags are short labels). */
+/** Tags match exactly, ends trimmed, like question text (owner, 2026-11-22). */
 function normalizeTagName(tagName: string): string {
-  return normalizeText(tagName, { caseInsensitive: true });
+  return normalizeText(tagName);
 }
 
 export function makeTagId(tagName: string): string {

@@ -184,6 +184,15 @@ export const DEFAULT_TALK_CONTENT_ID_OPTIONS: Required<TalkContentIdOptions> = {
   includeLocation: false,
 };
 
+/**
+ * Tag and question text as written, only its ends trimmed (owner, 2026-11-22: tags match exactly,
+ * "Cats" and "cats" are two tags; the editor's grammar filter keeps spellings consistent by
+ * default). Codes (type, language, ids) still go through `normalizeIdentityText`.
+ */
+export function exactText(input: unknown): string {
+  return String(input ?? '').trim();
+}
+
 export function normalizeIdentityText(input: unknown): string {
   return String(input ?? '')
     .trim()
@@ -227,9 +236,9 @@ export function buildIdentityPayloadFromTalk(
   const rawQuestions = Array.isArray(talkData?.questions) ? talkData.questions : [];
   const questions = rawQuestions
     .map((q: any) => ({
-      text: normalizeIdentityText(q?.text),
+      text: exactText(q?.text),
       answers: (Array.isArray(q?.answers) ? q.answers : [])
-        .map((a: any) => normalizeIdentityText(a?.text))
+        .map((a: any) => exactText(a?.text))
         .sort(),
     }))
     .sort((a: { text: string }, b: { text: string }) => String(a.text).localeCompare(String(b.text)));
@@ -237,11 +246,11 @@ export function buildIdentityPayloadFromTalk(
   let payload: TalkIdentityPayload;
   if (type === 'tag') {
     const question = rawQuestions[0];
-    const questionTag = normalizeIdentityText(question?.text || talkData?.title);
+    const questionTag = exactText(question?.text || talkData?.title);
     const answers = Array.isArray(question?.answers) ? question.answers : [];
     const realAnswerTags = answers
       .filter((answer: any) => !answer?.isIgnore)
-      .map((answer: any) => normalizeIdentityText(answer?.text))
+      .map((answer: any) => exactText(answer?.text))
       .filter(Boolean);
     const isPairTag = question?.reciprocalTagContext === true;
     const isSimpleTag = question?.tagKind === 'simple' || answers.some((answer: any) => answer?.isIgnore);

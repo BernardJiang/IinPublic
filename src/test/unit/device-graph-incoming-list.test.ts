@@ -72,7 +72,7 @@ describe('the incoming list from graph arrivals', () => {
       title: 'Hobbies', type: 'tag', language: 'en', isAdult: false,
       questions: [{ id: 'q_0', text: 'Hobbies', answers: [{ id: 'a0', text: 'Tennis', isMatch: true }, { id: 'a1', text: 'Chess', isMatch: true }] }],
     };
-    const [tennisKey] = buildTagIdentityKeys({ type: 'tag', questions: [{ answers: [{ text: 'tennis' }] }] }, 'whole');
+    const [tennisKey] = buildTagIdentityKeys({ type: 'tag', questions: [{ answers: [{ text: 'Tennis' }] }] }, 'whole');
     const talkId = await d.receive('adam', tags);
     await d.list.accept(talkId, 'adam', 'Adam', [tennisKey!]);
     const [row] = await d.list.rows();

@@ -78,7 +78,7 @@ describe('talk-content-id', () => {
     const tennisB = {
       type: 'tag', title: 'TENNIS', language: 'zh',
       questions: [{
-        id: 'different', text: 'tennis', tagKind: 'simple',
+        id: 'different', text: 'Tennis', tagKind: 'simple',
         answers: [
           { id: 'accept', text: 'Interested.', isMatch: true },
           { id: 'reject', text: 'Not interested.', isIgnore: true },
@@ -86,6 +86,9 @@ describe('talk-content-id', () => {
       }],
     };
     expect(computeTalkIdFromTalkData(tennisA)).toBe(computeTalkIdFromTalkData(tennisB));
+    // Exact text (owner, 2026-11-22): another spelling is another tag.
+    const lower = { ...tennisB, questions: [{ ...tennisB.questions[0], text: 'tennis' }] };
+    expect(computeTalkIdFromTalkData(lower)).not.toBe(computeTalkIdFromTalkData(tennisA));
   });
 
   it('hashes an ordered Pair-tag from both tag atoms', () => {
@@ -99,7 +102,8 @@ describe('talk-content-id', () => {
         ],
       }],
     });
-    expect(computeTalkIdFromTalkData(pair('sell'))).toBe(computeTalkIdFromTalkData(pair(' SELL ')));
+    expect(computeTalkIdFromTalkData(pair('sell'))).toBe(computeTalkIdFromTalkData(pair(' sell ')));
+    expect(computeTalkIdFromTalkData(pair('sell'))).not.toBe(computeTalkIdFromTalkData(pair('SELL')));
     expect(computeTalkIdFromTalkData(pair('sell'))).not.toBe(computeTalkIdFromTalkData(pair('rent')));
   });
 

@@ -25,11 +25,9 @@ export type WeightedTagInput =
 
 export type MatchScoreCombine = (viewerWeight: number, otherWeight: number, tag: string) => number;
 
+/** A tag as written, ends trimmed: tags match exactly (owner, 2026-11-22). */
 function normalizeTagKey(raw: unknown): string {
-  return String(raw ?? '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
+  return String(raw ?? '').trim();
 }
 
 function toWeightMap(input: WeightedTagInput): Map<string, number> {

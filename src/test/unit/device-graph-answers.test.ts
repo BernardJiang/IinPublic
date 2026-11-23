@@ -92,14 +92,12 @@ describe('Talks arriving (REQ-GRAPH-16, -21, -22)', () => {
     expect((await arrivals.read(v1.talkId))!.title).toBe('Tennis buddy');
   });
 
-  it('ignores a whole Talk with grammar errors, but records that it arrived', async () => {
-    const { store, arrivals } = bob();
-    const bad = offer({ ...tennis(), questions: [{ ...tennis().questions[0], text: 'do you play tennis' }, tennis().questions[1]] }, 'eve');
-    const result = await arrivals.receive(bad, { userId: 'eve' });
-    expect(result.ignored).toBe('grammar');
-    expect(await store.get(graphSouls().event(result.arrivalId!))).toMatchObject({ ignored: 'grammar' });
-    expect(await arrivals.read(bad.talkId)).toBeUndefined();
-    expect(store.souls().some((s) => s.startsWith('local/rev/'))).toBe(false);
+  it('receives a Talk that does not follow the grammar rules like any other (owner, 2026-11-22)', async () => {
+    const { arrivals } = bob();
+    const loose = offer({ ...tennis(), questions: [{ ...tennis().questions[0], text: 'do you play tennis' }, tennis().questions[1]] }, 'eve');
+    const result = await arrivals.receive(loose, { userId: 'eve' });
+    expect(result.ignored).toBeUndefined();
+    expect((await arrivals.read(loose.talkId))?.questions?.[0]?.text).toBe('do you play tennis');
   });
 
   it('stores a received Pair-tag Talk from the responder’s side, apart from the author’s copy', async () => {

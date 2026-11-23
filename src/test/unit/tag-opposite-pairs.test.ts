@@ -10,9 +10,9 @@ import {
 } from '../../shared/tag-opposite-pairs';
 
 describe('tag-opposite-pairs', () => {
-  it('canonicalizes tag identity case-insensitively', () => {
-    expect(makeTagId('Buy')).toBe(makeTagId('buy'));
-    expect(makeTagId('  Buy  ')).toBe(makeTagId('buy'));
+  it('keeps tag identity exact, ends trimmed (owner, 2026-11-22)', () => {
+    expect(makeTagId('Buy')).not.toBe(makeTagId('buy'));
+    expect(makeTagId('  buy  ')).toBe(makeTagId('buy'));
     expect(makeTagId('buy')).not.toBe(makeTagId('sell'));
   });
 
@@ -32,12 +32,13 @@ describe('tag-opposite-pairs', () => {
     expect(getOppositeTagId(state, makeTagId('sell'))).toBe(makeTagId('buy'));
   });
 
-  it('resolves pairs registered with different casing/whitespace to the same identity', () => {
+  it('resolves pairs registered with spaces around them, but not another spelling', () => {
     let state = createEmptyTagOppositePairRegistryState();
-    state = registerOppositeTagPair(state, ' Buy ', 'SELL');
+    state = registerOppositeTagPair(state, ' buy ', 'sell ');
 
     expect(getOppositeTagName(state, 'buy')).toBe('sell');
     expect(getOppositeTagName(state, 'sell')).toBe('buy');
+    expect(getOppositeTagName(state, 'Buy')).toBeUndefined();
   });
 
   it('does not mutate the input state (returns a new state)', () => {

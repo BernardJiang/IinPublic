@@ -36,8 +36,8 @@ export function languageCode(language: string | undefined): string {
   return String(language || 'en').trim().toLowerCase();
 }
 
-/** A Pair-tag side as a word: "Sell" on one Talk is "sell" on its counterpart. */
-const tagWord = (tag: string | undefined): string => String(tag || '').trim().toLowerCase();
+/** A Pair-tag side as written, ends trimmed: tags match exactly (owner, 2026-11-22). */
+const tagWord = (tag: string | undefined): string => String(tag || '').trim();
 
 /** `q/<key>`: exact question text, language, selection mode and Pair-tag scope. No choices. */
 export function questionKey(params: { text: string; language?: string | undefined; selection?: string | undefined } & TagScope): string {

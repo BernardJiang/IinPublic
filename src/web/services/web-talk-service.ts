@@ -2,7 +2,7 @@ import { fetchWithTimeout } from './fetch-with-timeout';
 import { Talk, type IpfsAttachment, type Question } from '../../shared/types';
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
-import { computeTalkCIDv1, computeCIDv1, normalizeIdentityText } from '../../shared/cid';
+import { computeTalkCIDv1, computeCIDv1, exactText } from '../../shared/cid';
 import { getMyTalks, upsertMyTalk } from '../ui/my-talks-storage';
 
 /** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
@@ -80,8 +80,8 @@ export class WebTalkService {
     return Promise.all(
       questions.map(async (q) => {
         const stable = {
-          text: normalizeIdentityText(q.text),
-          answers: (q.answers || []).map((a) => normalizeIdentityText(a.text)).sort(),
+          text: exactText(q.text),
+          answers: (q.answers || []).map((a) => exactText(a.text)).sort(),
         };
         const cidId = await computeCIDv1(stable);
         return { ...q, cidId };

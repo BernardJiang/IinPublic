@@ -121,12 +121,12 @@ describe('WebUserService', () => {
       expect.objectContaining({
         version: 1,
         hash: expect.any(String),
-        tags: { coffee: 1 },
+        tags: { Coffee: 1 },
       }),
     );
     // Inverted index (spec §22.4.1): the new user is registered under each tag.
     expect(gunService.put).toHaveBeenCalledWith(
-      `tag-index/coffee`,
+      `tag-index/Coffee`,
       { [createdUserId]: true },
     );
 
@@ -394,7 +394,7 @@ describe('WebUserService', () => {
       expect.objectContaining({
         version: 1,
         hash: expect.any(String),
-        tags: { tennis: 1 },
+        tags: { Tennis: 1 },
       }),
     );
     expect(gunService.putPrivate).toHaveBeenCalledWith(
