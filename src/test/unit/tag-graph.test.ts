@@ -171,3 +171,25 @@ describe('a tag shows its popularity on Talks and Me (OPEN-113)', () => {
     expect(popularityHtml(['lone'], deps)).toBe('');
   });
 });
+
+describe('buildTagGraph: a row\'s Talk ids', () => {
+  it('reads the ids from talkIds keys, so tags that came in the same instant stay apart', () => {
+    // Browser starter-tags (2026-11-22): talkIds maps id → arrival time; reading the values made two
+    // tags with one arrival time one node, and Contacts counted a tag in common too many.
+    const at = '2026-11-22T23:00:00.000Z';
+    const graph = buildTagGraph({
+      currentUserId: 'me',
+      incoming: [
+        { ...tagCluster('qa_hero', '🦸 Superhero movies', { dee: 'Dee' }), talkIds: { t_hero: at } },
+        { ...tagCluster('qa_cats', '🐱 Cats', { eli: 'Eli' }), talkIds: { t_cats: at } },
+      ],
+      myTalks: { qa_hero: { role: 'copied', fullTalk: { id: 'qa_hero', type: 'tag', title: '🦸 Superhero movies' } } },
+      exchanges: {},
+    });
+    expect(graph.tags.size).toBe(2);
+    expect(sharedTagCount(graph, 'eli')).toBe(0);
+    expect(sharedTagCount(graph, 'dee')).toBe(1);
+    expect(graph.byId.get('t_cats')?.label).toBe('🐱 Cats');
+    expect(graph.byId.has(at)).toBe(false);
+  });
+});

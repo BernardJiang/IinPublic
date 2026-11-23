@@ -161,6 +161,76 @@ describe('PeerMeshService', () => {
     expect(dispose).not.toHaveBeenCalled();
   });
 
+  it('counts one failed connect once, however often reconcile asked while it waited', async () => {
+    // Browser starter-tags (2026-11-22): reconcile asked about once a second while a link was down;
+    // a dozen waiting attempts failed together and gave the person up for five minutes at once.
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const unreachable = jest.fn();
+    const service = new PeerMeshService(mockGunService(alicePair, { bob: { pub: bobPair.pub } }), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      personalRoster: true,
+      createSession: () => { throw new Error('not used'); },
+      onPersonalPeerUnreachable: unreachable,
+    });
+    let fail: (error: Error) => void = () => undefined;
+    const ensureConnected = jest.fn(() => new Promise<void>((_, reject) => { fail = reject; }));
+    const neighbor = {
+      userId: 'bob',
+      stageName: 'Bob',
+      pub: bobPair.pub,
+      connected: false,
+      session: { ensureConnected, getState: jest.fn(() => 'failed'), sendMeshFrame: jest.fn(), setOnRemoteMeshFrame: jest.fn(), dispose: jest.fn() },
+    };
+    (service as any).neighbors.set('bob', neighbor);
+    (service as any).personalLinkOpenedAt.set('bob', 0);
+
+    for (let i = 0; i < 12; i++) (service as any).connectNeighbor(neighbor);
+    expect(ensureConnected).toHaveBeenCalledTimes(1);
+    fail(new Error('WebRTC connection timeout'));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect((service as any).connectFailures.get('bob')).toBe(1);
+    expect((service as any).gaveUpAt.has('bob')).toBe(false);
+    // Never connected before: no reason yet to think they left.
+    expect(unreachable).not.toHaveBeenCalled();
+    // The next attempt is a new one: a second failure is the real "two connects failed".
+    (service as any).connectNeighbor(neighbor);
+    expect(ensureConnected).toHaveBeenCalledTimes(2);
+    fail(new Error('WebRTC connection timeout'));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((service as any).gaveUpAt.has('bob')).toBe(true);
+    (service as any).leaveRoom?.();
+  });
+
+  it('asks the list to check on a person at once when a link that was up fails, without giving up', async () => {
+    // Phone-path J-ROOM-03: Alice moved into a Place; Bob's list must notice soon, but one failure
+    // is no proof she left, so it is a check (a swap), not a give-up.
+    const [alicePair, bobPair] = await Promise.all([SEA.pair(), SEA.pair()]) as SeaSigningPair[];
+    const unreachable = jest.fn();
+    const service = new PeerMeshService(mockGunService(alicePair, { bob: { pub: bobPair.pub } }), {
+      apiBase: 'http://127.0.0.1:8080',
+      localUserId: 'alice',
+      localStageName: 'Alice',
+      personalRoster: true,
+      createSession: () => { throw new Error('not used'); },
+      onPersonalPeerUnreachable: unreachable,
+    });
+    const neighbor = {
+      userId: 'bob', stageName: 'Bob', pub: bobPair.pub, connected: false, wasLive: true,
+      session: { ensureConnected: jest.fn().mockRejectedValue(new Error('WebRTC connection timeout')), getState: jest.fn(() => 'failed'), sendMeshFrame: jest.fn(), setOnRemoteMeshFrame: jest.fn(), dispose: jest.fn() },
+    };
+    (service as any).neighbors.set('bob', neighbor);
+    (service as any).personalLinkOpenedAt.set('bob', 0);
+    (service as any).connectNeighbor(neighbor);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(unreachable).toHaveBeenCalledWith('bob', bobPair.pub);
+    expect((service as any).gaveUpAt.has('bob')).toBe(false);
+    expect((service as any).neighbors.get('bob')).toBe(neighbor);
+    (service as any).leaveRoom?.();
+  });
+
   it('tries again someone it gave up on once they are owed something new or the network changes', async () => {
     // native-app/30 (2026-11-05): a client tried another client a moment before the Wi-Fi Direct
     // group formed, gave up, and did not try again for five minutes while a Talk waited for them.

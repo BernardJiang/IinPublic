@@ -205,3 +205,13 @@ export function memoryNodeStore(): NodeStore & { souls(): string[]; writes: numb
   };
   return store;
 }
+
+/**
+ * The device graph's node store, the same on every host (phone node, browser worker): a RAM copy in
+ * front of Gun's storage (the host's core is the one writer of its device graph; any other write
+ * evicts the copy), and a miss is final (node-store reads never had a cold-load grace). Only the
+ * storage under Gun differs by platform (disk on a phone, IndexedDB in a browser).
+ */
+export function hostDeviceGraphNodeStore(gun: any): NodeStore {
+  return gunNodeStore(gun, { missWaitMs: 0, cacheInRam: true });
+}

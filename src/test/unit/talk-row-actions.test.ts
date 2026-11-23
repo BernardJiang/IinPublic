@@ -5,6 +5,7 @@
  */
 import { actOnTalkRow, type DisplayTalksListDeps } from '../../web/ui/talks-list-view';
 import { setMyTalks, getMyTalks } from '../../web/ui/my-talks-storage';
+import { buildTalkIdentityKey } from '../../shared/cid';
 
 function makeDeps(): DisplayTalksListDeps {
   return {
@@ -46,6 +47,24 @@ describe('actOnTalkRow: Like and Pass on every kind of row', () => {
     jest.runAllTimers();
     expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('a', 'ka');
     expect(deps.quickAnswerIncomingTag).toHaveBeenCalledWith('b', 'kb', true);
+  });
+
+  it('a Like never passes a tag above it that I already decided (someone\'s copy waiting for the chatbot)', () => {
+    // Browser starter-tags (2026-11-22): Eli's Thrillers arrived after Dee liked hers and sat
+    // undecided for a moment; Dee's next Like passed it and her Thrillers ended passed.
+    const thrillers = { id: 'qa_thrillers', type: 'tag', language: 'en', title: '🔪 Thrillers', questions: [{ id: 'q_0', text: 'Thrillers', tagKind: 'simple', answers: [{ id: 'm', text: 'Thrillers', isMatch: true }, { id: 'i', text: 'Ignore', isIgnore: true }] }] };
+    const identity = buildTalkIdentityKey(thrillers);
+    setMyTalks({ qa_thrillers: { talkId: 'qa_thrillers', title: '🔪 Thrillers', type: 'tag', timestamp: '2026-11-22T00:00:00.000Z', role: 'copied', fullTalk: thrillers } as any });
+    const html = `<div class="talk-list-item talk-tag-chip talk-incoming-new" data-starter-tag="true" data-talk-id="eli_thrillers" data-identity-key="${identity}" data-role="incoming"></div>`
+      + '<div class="talk-list-item talk-tag-chip talk-incoming-new" data-starter-tag="true" data-talk-id="x" data-identity-key="kx" data-role="incoming"></div>'
+      + '<div class="talk-list-item talk-tag-chip talk-incoming-new" data-starter-tag="true" data-talk-id="b" data-identity-key="kb" data-role="incoming"></div>';
+    const deps = makeDeps();
+    actOnTalkRow(row(html), 'like', deps);
+    jest.runAllTimers();
+    expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledTimes(1);
+    expect(deps.quickIgnoreIncomingTalk).toHaveBeenCalledWith('x', 'kx');
+    expect(deps.quickAnswerIncomingTag).toHaveBeenCalledWith('b', 'kb', true);
+    setMyTalks({});
   });
 
   it('an incoming Flow, Survey or Route: Like opens it to answer, Pass ignores it', () => {

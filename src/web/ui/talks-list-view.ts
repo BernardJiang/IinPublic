@@ -1,10 +1,10 @@
-import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { buildTalkIdentityKey, computeTalkIdFromTalkData } from '../../shared/cid';
 import type { GPSCoordinate, User } from '../../shared/types';
 import { answeredTalkIdsByContent } from './answered-talks';
 import { getFlatAnswerHistory, getTalkContentKey } from './answer-history-storage';
 import { resolveExpiresAtMs } from './broadcast-audience-preview';
 import type { CreatorReplyRow } from './creator-replies-view';
-import { getMyTalks } from './my-talks-storage';
+import { getMyTalks, readMyTalks } from './my-talks-storage';
 import { uncopyIncomingTalk } from './quick-incoming-talk-actions';
 import { avatarInnerHtml } from './profile-avatar';
 import { renderRowsKeyed, type FlowRuns } from './render-rows-keyed';
@@ -166,7 +166,11 @@ export function actOnTalkRow(row: HTMLElement, intent: TalkRowIntent, deps: Disp
   // Liked or passed a moment ago, waiting for the list to redraw: nothing more to do.
   if (row.dataset.decided === 'true') return;
   const like = intent === 'like';
-  const passedAbove = like ? starterChipsScrolledPast(row) : [];
+  // A tag I already decided myself is never passed by a Like below it: someone's copy of it can
+  // arrive and sit undecided for a moment before the chatbot answers it (browser starter-tags,
+  // 2026-11-22: Dee's liked Thrillers was passed by her next Like).
+  const decided = decidedTagIdentities();
+  const passedAbove = like ? starterChipsScrolledPast(row).filter((chip) => !decided.has(chip.dataset.identityKey || '')) : [];
   // Decided now, on the page too: until the list redraws, these chips must not count as unanswered.
   for (const chip of [...passedAbove, row]) chip.dataset.decided = 'true';
   flyTagChips([
@@ -177,6 +181,17 @@ export function actOnTalkRow(row: HTMLElement, intent: TalkRowIntent, deps: Disp
     if (like) deps.quickAnswerIncomingTag(talkId, identityKey, true);
     else deps.quickIgnoreIncomingTalk(talkId, identityKey);
   });
+}
+
+/** Content identities of the tags I liked or passed myself. */
+function decidedTagIdentities(): Set<string> {
+  const decided = new Set<string>();
+  for (const entry of Object.values<any>(readMyTalks())) {
+    const talk = entry?.fullTalk;
+    if (String(talk?.type || '').toLowerCase() !== 'tag' || !['copied', 'ignored', 'created'].includes(String(entry?.role || ''))) continue;
+    try { decided.add(buildTalkIdentityKey(talk)); } catch { /* not a tag we can key */ }
+  }
+  return decided;
 }
 
 const ROW_PASS_HINT_MS = 900;

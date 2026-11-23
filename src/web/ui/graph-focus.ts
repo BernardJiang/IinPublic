@@ -103,6 +103,7 @@ export function goBackAlongGraph(): void {
 const linkedTopics = new Map<string, GraphTopic>();
 let navBound = false;
 
+// A typed search (Contacts' topic box) ignores case; tags themselves match exactly (cid.ts).
 const norm = (text: string): string => text.trim().toLowerCase();
 
 /** The person↔tag graph's data (configured by the peer controller via tag-graph-view.ts). */
@@ -125,6 +126,19 @@ export function currentTagGraph(): TagGraph | null {
   const graph = buildTagGraph(tagGraphInput());
   tagGraphCache = key ? { key, graph } : null;
   return graph;
+}
+
+/**
+ * Tests and diagnostics: the tags counted as shared with a person, from the cached graph and from
+ * one built fresh now (they differ only if the cache is stale), with each tag's Talk ids.
+ */
+if (typeof window !== 'undefined') {
+  (window as any).__iinpublic_sharedTagsWith = (peerId: string) => {
+    const shared = (graph: TagGraph | null) => (graph ? Array.from(graph.tags.values()) : [])
+      .filter((tag) => tag.mine && tag.likers.has(peerId))
+      .map((tag) => ({ label: tag.label, key: tag.key, talkIds: tag.talkIds }));
+    return { cached: shared(currentTagGraph()), fresh: shared(tagGraphInput ? buildTagGraph(tagGraphInput()) : null) };
+  };
 }
 
 /** One popularity table per render (rows ask one by one); rebuilt after half a second. */

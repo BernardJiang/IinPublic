@@ -126,6 +126,8 @@ type Neighbor = {
   connected: boolean;
   /** This neighbor's session has been live at least once (a later connect is a reconnect). */
   wasLive?: boolean;
+  /** A connect attempt on this session has not settled yet (reconcile must not stack more). */
+  connecting?: boolean;
 };
 
 /**
@@ -784,8 +786,16 @@ export class PeerMeshService {
   }
 
   private connectNeighbor(neighbor: Neighbor): void {
+    // One attempt at a time per link. Reconcile runs about once a second, and each pass used to
+    // start another attempt while the last still waited: when the link failed, a dozen attempts
+    // failed at once, each counted, and "two connects failed" gave the person up for five minutes
+    // after a single failure (browser starter-tags, 2026-11-22: 18–28 give-ups per user, Contacts
+    // settled ~5 min after deciding instead of seconds).
+    if (neighbor.connecting) return;
+    neighbor.connecting = true;
     const startedAt = Date.now();
     void neighbor.session.ensureConnected()
+      .finally(() => { neighbor.connecting = false; })
       .then(() => {
         const newlyConnected = !neighbor.connected;
         const reconnected = newlyConnected && !!neighbor.wasLive;
@@ -840,6 +850,10 @@ export class PeerMeshService {
             this.opts.onPersonalPeerUnreachable?.(neighbor.userId, neighbor.pub);
           } else {
             this.knockIfPersonal(neighbor);
+            // A link that was up has just failed: they may have left (moved into a Place, closed the
+            // app). Ask the list to check with a swap now; it drops them only if the swaps stay
+            // silent, so a live person who lost the link a moment stays (phone-path J-ROOM-03).
+            if (neighbor.wasLive) this.opts.onPersonalPeerUnreachable?.(neighbor.userId, neighbor.pub);
           }
         }
         this.scheduleReconcile(500);

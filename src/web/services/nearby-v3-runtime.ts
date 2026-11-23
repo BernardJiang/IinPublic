@@ -297,7 +297,16 @@ export class NearbyV3Runtime {
   start(): void {
     const localPub = this.pair()?.pub;
     // The gate drops a knock seen before, so one that comes both ways counts once.
-    const receive = (knock: unknown) => { void this.gate.receive(knock); };
+    const receive = (knock: unknown) => {
+      const at = Date.now();
+      void this.gate.receive(knock).then((result) => {
+        // Each knock comes two ways; the second copy is "rejected" as seen. Not worth a line.
+        if (result === 'rejected') return;
+        const from = String((knock as { fromUserId?: unknown })?.fromUserId || '').slice(0, 8);
+        const signed = Date.parse(String((knock as { issuedAt?: unknown })?.issuedAt || ''));
+        console.info(`[nearby] knock from ${from}: ${result} (${Number.isFinite(signed) ? at - signed : '?'} ms after it was signed)`);
+      });
+    };
     if (localPub && !this.stopKnocks) this.stopKnocks = this.knocks.listen(localPub, receive);
     if (localPub && !this.stopHubKnocks) this.stopHubKnocks = this.hubKnocks.listen(localPub, receive);
     this.service.start();
@@ -328,6 +337,7 @@ export class NearbyV3Runtime {
     const local = this.pair();
     if (!local?.pub || !local.priv) return;
     const knock = await this.knocks.send({ fromUserId: this.deps.userId, pair: local, toPub: peer.pub, card: this.service.card() });
+    console.info(`[nearby] knocked ${peer.userId.slice(0, 8)}`);
     await this.hubKnocks.send(knock).catch(() => undefined);
   }
 

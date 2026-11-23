@@ -169,6 +169,7 @@ test.describe('Find similar people with starter tags', () => {
       const [mine, theirs] = await Promise.all([nearbyIds(users[index]!.page), nearbyIds(users[peerIndex]!.page)]);
       return mine.includes(users[peerIndex]!.id) || theirs.includes(users[index]!.id);
     };
+    const lastProgress: string[] = [];
     const results = await Promise.all(users.map(async ({ page, index }) => {
       const expected = new Map<string, number>();
       let rows: Array<{ peerId: string; shared: number }> = [];
@@ -177,13 +178,22 @@ test.describe('Find similar people with starter tags', () => {
           rows = (await sharedTagRows(page)).filter((row) => indexById.has(row.peerId));
           expected.clear();
           for (const row of rows) expected.set(row.peerId, overlap(index, indexById.get(row.peerId)!));
-          if (rows.length < Math.min(CAPACITY, NUM_USERS - 1)) return false;
+          let done = rows.length >= Math.min(CAPACITY, NUM_USERS - 1);
+          const parts: string[] = [];
           for (const row of rows) {
             const want = expected.get(row.peerId)!;
-            const ok = (await linked(index, indexById.get(row.peerId)!)) ? row.shared === want : row.shared <= want;
-            if (!ok) return false;
+            const isLinked = await linked(index, indexById.get(row.peerId)!);
+            const ok = isLinked ? row.shared === want : row.shared <= want;
+            parts.push(`${NAMES[indexById.get(row.peerId)!]} ${row.shared}/${want}${isLinked ? '' : '~'}${ok ? '' : '✗'}`);
+            done &&= ok;
           }
-          return true;
+          // Progress, when it changes (as the phone spec logs it): "~" not on either list now.
+          const line = parts.join(' ');
+          if (line !== lastProgress[index]) {
+            lastProgress[index] = line;
+            console.log(`[starter-similar] ${NAMES[index]} +${Math.round((Date.now() - allDecidedAt) / 1000)} s: ${line}${done ? ' ✓' : ''}`);
+          }
+          return done;
         }, { timeout: 600_000, intervals: [5_000] }).toBe(true);
         console.log(`[starter-similar] ${NAMES[index]} Contacts settled ${Math.round((Date.now() - allDecidedAt) / 1000)} s after the last user decided`);
       } catch (error) {
@@ -200,6 +210,60 @@ test.describe('Find similar people with starter tags', () => {
             outcomes: exchanges.slice(0, 5).map((row) => `${row.peerName}:${row.title}:${row.outcome}`),
           };
         });
+        // Shown more than the true overlap: the tags this user counts as liked that it did not pick,
+        // with every My Talks entry for each.
+        if (rows.some((r) => r.shared > (expected.get(r.peerId) ?? 0))) {
+          const picked = LIKES[index]!.map((tagIndex) => STARTER_TAGS[tagIndex]!.text);
+          const unpicked = await page.evaluate((keywords) => {
+            const mine = (window as any).__iinpublic_collection?.('myTalks') ?? {};
+            const entries = Object.entries<any>(mine).filter(([, entry]) => entry?.fullTalk?.type === 'tag');
+            const liked = (entry: any) => (entry?.role === 'copied' && (Array.isArray(entry?.completedAnswers) && entry.completedAnswers.length ? entry?.outcome === 'match' : !entry?.disabled))
+              || (entry?.role === 'created' && (typeof entry?.likesTag === 'boolean' ? entry.likesTag : !entry?.disabled));
+            const extra = new Set(entries.filter(([, entry]) => liked(entry)).map(([, entry]) => String(entry?.fullTalk?.questions?.[0]?.text || ''))
+              .filter((keyword) => keyword && !(keywords as string[]).includes(keyword)));
+            const likedByKeyword = new Map<string, Array<[string, any]>>();
+            for (const [id, entry] of entries) {
+              if (!liked(entry)) continue;
+              const keyword = String(entry?.fullTalk?.questions?.[0]?.text || '');
+              likedByKeyword.set(keyword, [...(likedByKeyword.get(keyword) ?? []), [id, entry]]);
+            }
+            const twice = [...likedByKeyword].filter(([, list]) => list.length > 1).map(([keyword, list]) => `TWICE ${keyword}: ${list
+              .map(([id, entry]) => `${id.slice(0, 14)} role=${entry?.role} lang=${entry?.fullTalk?.language} qs=${entry?.fullTalk?.questions?.length} kind=${entry?.fullTalk?.questions?.[0]?.tagKind ?? '-'} answers=${(entry?.fullTalk?.questions?.[0]?.answers ?? []).map((a: any) => a?.text).join('/')} starter=${entry?.fullTalk?.starterTagId ?? '-'} author=${String(entry?.fullTalk?.authorId || '').slice(0, 8)}`).join(' | ')}`);
+            return [...twice, ...[...extra].map((keyword) => `${keyword}: ${entries.filter(([, entry]) => entry?.fullTalk?.questions?.[0]?.text === keyword)
+              .map(([id, entry]) => `${id.slice(0, 14)} role=${entry?.role} outcome=${entry?.outcome} answeredBy=${entry?.answeredBy ?? '-'} author=${String(entry?.fullTalk?.authorId || '').slice(0, 8)} at=${entry?.lastInteraction}`).join(' | ')}`)];
+          }, picked);
+          console.log(`[${NAMES[index]} liked but not picked] ${unpicked.join(' ;; ') || '(none in My Talks)'}`);
+          // The other side: for each over-counted person, my liked tags where they count as liking it
+          // though they did not pick it, and why (a sender of my incoming row, or a matched exchange).
+          for (const row of rows.filter((r) => r.shared > (expected.get(r.peerId) ?? 0))) {
+            const peerIndex = indexById.get(row.peerId)!;
+            const theirPicks = LIKES[peerIndex]!.map((tagIndex) => STARTER_TAGS[tagIndex]!.text);
+            const why = await page.evaluate(async ([peerId, mine, theirs]) => {
+              const app = (window as any).__iinpublic_app?.getApp?.();
+              const clusters = app?.uiManager?.incomingTalkClusters ?? [];
+              const exchanges = Object.values<any>((await (window as any).__iinpublic_exchanges?.()) ?? {});
+              const has = (text: string, keyword: string) => new RegExp(`(?<![\\w-])${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(text);
+              return (mine as string[]).filter((keyword) => !(theirs as string[]).includes(keyword)).map((keyword) => {
+                const sent = clusters.filter((cluster: any) => has(String(cluster?.title || ''), keyword) && cluster?.senders?.[peerId as string])
+                  .map((cluster: any) => `sender of ${String(cluster.identityKey).slice(0, 10)} talk=${String(cluster.senders[peerId as string]?.lastTalkId || '').slice(0, 14)}`);
+                const matched = exchanges.filter((x: any) => x?.peerId === peerId && x?.outcome === 'match' && has(String(x?.title || ''), keyword))
+                  .map((x: any) => `match ${x?.direction} talk=${String(x?.talkId || '').slice(0, 14)} at=${x?.updatedAt ?? x?.at ?? '-'}`);
+                return sent.length || matched.length ? `${keyword}: ${[...sent, ...matched].join(', ')}` : '';
+              }).filter(Boolean);
+            }, [row.peerId, LIKES[index]!.map((tagIndex) => STARTER_TAGS[tagIndex]!.text), theirPicks] as const);
+            console.log(`[${NAMES[index]} counts ${NAMES[peerIndex]} as liking, unpicked by them] ${why.join(' ;; ') || '(none found)'}`);
+            const graphShared = await page.evaluate((peerId) => (window as any).__iinpublic_sharedTagsWith?.(peerId), row.peerId) as
+              { cached: Array<{ label: string; key: string; talkIds: string[] }>; fresh: Array<{ label: string }> } | undefined;
+            const labels = (list: Array<{ label: string }> | undefined) => (list ?? []).map((tag) => tag.label).sort();
+            const counts = new Map<string, number>();
+            for (const label of labels(graphShared?.cached)) counts.set(label, (counts.get(label) ?? 0) + 1);
+            console.log(`[${NAMES[index]} graph shared with ${NAMES[peerIndex]}] cached=${graphShared?.cached.length} fresh=${graphShared?.fresh.length}`
+              + ` repeated=${JSON.stringify([...counts].filter(([, n]) => n > 1))}`
+              + ` cachedOnly=${JSON.stringify(labels(graphShared?.cached).filter((label) => !labels(graphShared?.fresh).includes(label)))}`
+              + ` notCommon=${JSON.stringify((graphShared?.cached ?? []).filter((tag) => !LIKES[index]!.some((i) => LIKES[peerIndex]!.includes(i) && tag.label.includes(STARTER_TAGS[i]!.text))).map((tag) => `${tag.label} ${tag.key.slice(0, 14)} [${tag.talkIds.map((id) => id.slice(0, 14)).join(',')}]`))}`
+              + ` repeatedDetail=${JSON.stringify((graphShared?.cached ?? []).filter((tag) => (counts.get(tag.label) ?? 0) > 1).map((tag) => `${tag.label} ${tag.key.slice(0, 14)} [${tag.talkIds.map((id) => id.slice(0, 14)).join(',')}]`))}`);
+          }
+        }
         // Which common tags are missing with each short person, and where each one stands here.
         for (const row of rows.filter((r) => r.shared !== expected.get(r.peerId))) {
           const peerIndex = indexById.get(row.peerId)!;

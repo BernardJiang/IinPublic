@@ -32,6 +32,8 @@ export function attachFilteredConsoleLog(page: { on(event: 'console', handler: (
       if (NOISY_BROWSER_LOG_PATTERNS.some((pattern) => text.includes(pattern))) return;
       if (/^\s+-\s+[\w-]+:\s+\d+\s+members$/.test(text)) return;
     }
-    console.log(`[${label}]:`, text);
+    // E2E_CONSOLE_TIME=1: each line carries its time, to line events up across users.
+    if (process.env.E2E_CONSOLE_TIME === '1') console.log(`${new Date().toISOString().slice(11, 23)} [${label}]:`, text);
+    else console.log(`[${label}]:`, text);
   });
 }

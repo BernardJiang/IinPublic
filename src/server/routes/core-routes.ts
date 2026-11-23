@@ -12,7 +12,7 @@ import type express from 'express';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import crypto from 'crypto';
 import { createCoreHandler } from '../../core/core-handler';
-import { gunNodeStore } from '../../core/device-graph/node-store';
+import { hostDeviceGraphNodeStore } from '../../core/device-graph/node-store';
 import { seaGraphCrypto } from '../../core/device-graph/sync/sea-crypto';
 import SEA from 'gun/sea';
 import Radisk from 'gun/lib/radisk';
@@ -76,9 +76,8 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   const randomBytes = (length: number) => new Uint8Array(crypto.randomBytes(length));
   const radata = path.join(dataDir, 'radata');
   const deviceGraph = () => ({
-    // A RAM copy in front of the disk (`cacheInRam`): the node's core is the one writer of its
-    // device graph, and any other write evicts the copy.
-    nodeStore: gunNodeStore(gun, { missWaitMs: 0, cacheInRam: true }),
+    // The same node store as the browser worker's (RAM copy in front of the disk).
+    nodeStore: hostDeviceGraphNodeStore(gun),
     randomBytes,
     log: (message: string) => console.warn(message),
     // OPEN-106 step 3: direct links carry the graph through this Gun.

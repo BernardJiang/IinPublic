@@ -95,7 +95,9 @@ export async function sharedTagRows(page: Page): Promise<SharedTagRow[]> {
 export async function decideStarterTags(page: Page, likes: number[], pollTimeoutMs = 15_000): Promise<string[]> {
   for (const tagIndex of likes) {
     const keyword = STARTER_TAGS[tagIndex]!.text;
-    await unansweredStarterChips(page).filter({ hasText: keyword }).first().click();
+    // The keyword as a whole word: a plain substring also matched another tag ("Pop" is in "K-pop").
+    const whole = new RegExp(`(?<![\\w-])${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`);
+    await unansweredStarterChips(page).filter({ hasText: whole }).first().click();
     await expect.poll(async () => (await starterRoles(page))[tagIndex], { timeout: pollTimeoutMs }).toBe('copied');
   }
   // Pass the rest with Delete, finding the row and pressing the key in one step: on phones the

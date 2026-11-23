@@ -85,7 +85,10 @@ export function buildTagGraph(input: TagGraphInput): TagGraph {
     if (!isTag(cluster) || !cluster?.identityKey) continue;
     const talkIds = [
       String(cluster.latestTalkId || ''),
-      ...Object.values<any>(cluster.talkIds || {}).map(String),
+      // `talkIds` maps each Talk id to when it came: the keys are the ids. Taking the values made
+      // two tags that came in the same instant one node, so a like of one counted for the other
+      // (browser starter-tags, 2026-11-22: Contacts showed 1–2 tags too many in common).
+      ...Object.keys(cluster.talkIds || {}),
       ...Object.values<any>(cluster.senders || {}).map((sender) => String(sender?.lastTalkId || '')),
     ].filter(Boolean);
     const tag = node(String(cluster.identityKey), talkIds, String(cluster.title || ''));
