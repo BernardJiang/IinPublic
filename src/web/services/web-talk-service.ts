@@ -3,7 +3,7 @@ import { Talk, type IpfsAttachment, type Question } from '../../shared/types';
 import { FlowCapture } from '../../shared/talk-engine';
 import { WebGunService } from './web-gun-service';
 import { computeTalkCIDv1, computeCIDv1, exactText } from '../../shared/cid';
-import { getMyTalks, myTalksSaved, upsertMyTalk } from '../ui/my-talks-storage';
+import { getMyTalks, upsertMyTalk } from '../ui/my-talks-storage';
 
 /** Every hub call here gives up after 10 s (docs/testing/gui-responsiveness-audit.md F16). */
 const boundedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => fetchWithTimeout(input, init, 10_000);
@@ -196,10 +196,6 @@ export class WebTalkService {
 
     // My Talk is saved as a `myTalks` entry; the core writes it into the graph (own-talks.ts).
     projectAuthoredTalkToMyTalks(talk.id, talk);
-    // Created means the core has it: its row is shown, offered and read back from the core next
-    // (real-phone release smoke 07, 2026-11-23: the read right after creating found nothing). A
-    // core that does not answer delays this by at most 10 s; the entry stays unsaved and is resent.
-    await Promise.race([myTalksSaved(), new Promise((resolve) => setTimeout(resolve, 10_000))]);
     console.log('Talk saved:', talk.id);
     return talk;
   }

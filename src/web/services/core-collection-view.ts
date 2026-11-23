@@ -108,11 +108,6 @@ export class CoreCollectionView<T> {
     this.notify();
   }
 
-  /** The writes sent to the core so far have been answered (stored, or failed and kept unsaved). */
-  async whenSaved(): Promise<void> {
-    while (this.pending.size) await Promise.all([...this.pending]);
-  }
-
   /** Import/journal writes must finish before a host command reads this collection. */
   async flush(): Promise<void> {
     if (!this.core) throw new Error(`${this.collection}: device core is not connected`);

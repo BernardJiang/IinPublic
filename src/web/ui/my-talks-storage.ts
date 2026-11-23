@@ -78,11 +78,6 @@ export function setMyTalks(myTalks: MyTalkMap): void {
   forgetGraphTalks(Object.keys(shown).filter((talkId) => !(talkId in myTalks)));
 }
 
-/** My Talks' writes so far have reached the device core (stored there, or kept unsaved on failure). */
-export function myTalksSaved(): Promise<void> {
-  return myTalksView.whenSaved();
-}
-
 export function clearMyTalks(): void {
   myTalksView.remove(Object.keys(myTalksView.all()));
   forgetGraphTalks((getGraphTabSnapshot()?.talks ?? []).map((row) => row.appTalkId || row.talkId));
