@@ -4,7 +4,8 @@
  * Capacity C = 3. The first user pages through all 13 other people in Nearby with one tag Talk per
  * page ("page1" … "page5"), creates a Place that five others enter ("custompage1", "custompage2"),
  * then travels to Los Angeles ("LAPage1", "LApage2"). Each tag reaches exactly the people on that
- * page, who like it; the author collects exactly those likes; nobody else holds it.
+ * page, who like it; the author collects exactly those likes; nobody else gets it from the author
+ * (a liker's public copy may reach people off the page).
  * The deliberate headed pauses make this suitable as both an E2E gate and a visual demo.
  */
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
@@ -150,19 +151,21 @@ async function expectFreshPage(
 type Person = { page: Page; name: string; userId: string };
 
 /** Incoming Talk titles on this device's own local graph (exact titles, not substrings). */
-const incomingTalks = (page: Page): Promise<Array<{ title: string; talkId: string }>> => page.evaluate(async () => {
+const incomingTalks = (page: Page): Promise<Array<{ title: string; talkId: string; senders: string[] }>> => page.evaluate(async () => {
   const app = (window as any).__iinpublic_app?.getApp?.();
   const clusters = (await app?.getLocalIncomingClustersForE2e?.()) ?? [];
-  return clusters.map((cluster: { title?: string; latestTalkId?: string }) => ({
+  return clusters.map((cluster: { title?: string; latestTalkId?: string; senders?: Record<string, { senderId?: string }> }) => ({
     title: String(cluster.title || ''),
     talkId: String(cluster.latestTalkId || '').split('__')[0] || '',
+    // Who sent it: the author, or someone who liked it (a liked tag is the liker's public copy).
+    senders: Object.values(cluster.senders ?? {}).map((sender) => String(sender?.senderId || '')).filter(Boolean),
   }));
 });
 
 /**
  * The first user's Talk exchanges with the people on their current page (Nearby or Place). Each
  * exchange: create a tag, broadcast, every person on the page receives and likes it, the author
- * collects exactly those likes, nobody else holds that tag, and the author then disables it before
+ * collects exactly those likes, nobody else gets that tag from the author, and the author then disables it before
  * the next exchange. A broadcast carries all of the author's active Talks and each
  * new audience catches up on them (§3.7), so without disabling, an older tag would follow the
  * author to the next page; disabled, every tag stays with exactly the page it was sent to.
@@ -224,27 +227,28 @@ class TalkExchanges {
     // Done with this page: disable the tag on the Talks tab so it cannot follow me to the next one.
     await this.disable(talk.talkId, title);
 
-    // Nobody else holds this tag, and no earlier tag reached anyone outside its own page. (A
-    // disabled tag is retracted, so a person on its page may no longer hold it; that is fine.)
+    // The author's tag reached nobody else, and no earlier tag of the author's reached anyone outside
+    // its own page. Tags are all public (owner, 2026-11-23): each person on the page who liked it
+    // offers their own copy to their list, so someone outside may hold it — but from a liker, never
+    // from the author. (A disabled tag is retracted, so a person on its page may no longer hold it.)
     await page.waitForTimeout(5_000);
+    const authorId = this.author.userId;
     const holdings = await Promise.all(this.people.slice(1).map(async (person) => ({
       person,
-      titles: new Set((await incomingTalks(person.page)).map((entry) => entry.title)),
+      rows: new Map((await incomingTalks(person.page)).map((entry) => [entry.title, entry.senders])),
     })));
-    // Retraction works since OPEN-106, so the page usually no longer holds it either.
-    const outsiders = holdings
-      .filter(({ person, titles }) => titles.has(title) && !pageIds.includes(person.userId))
+    const fromAuthorOutside = (tag: string, page: Set<string>) => holdings
+      .filter(({ person, rows }) => !page.has(person.userId) && (rows.get(tag) ?? []).includes(authorId))
       .map(({ person }) => person.name);
-    expect(outsiders, `only the people on this page may hold ${title}`).toEqual([]);
+    expect(fromAuthorOutside(title, new Set(pageIds)), `only the people on this page get ${title} from its author`).toEqual([]);
     for (const [earlier, itsPage] of this.sent) {
       if (earlier === title) continue;
-      const leaked = holdings
-        .filter(({ person, titles }) => titles.has(earlier) && !itsPage.has(person.userId))
-        .map(({ person }) => person.name);
-      expect(leaked, `${earlier} (disabled) must not reach anyone outside its own page`).toEqual([]);
+      expect(fromAuthorOutside(earlier, itsPage), `${earlier} (disabled) must not reach anyone outside its own page from its author`).toEqual([]);
     }
+    const viaLikers = holdings.filter(({ person, rows }) => !pageIds.includes(person.userId) && rows.has(title)).map(({ person }) => person.name);
+    if (viaLikers.length) console.log(`[20-user demo] ${title}: ${viaLikers.join(', ')} hold it from someone who liked it`);
     console.log(`[20-user demo] ${title}: ${recipients.map((person) => person.name).join(', ')} liked it `
-      + `(${Date.now() - startedAt} ms); nobody else holds it; disabled`);
+      + `(${Date.now() - startedAt} ms); nobody else has it from the author; disabled`);
   }
 
   /**

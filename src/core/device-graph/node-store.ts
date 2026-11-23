@@ -66,14 +66,38 @@ function createRamCache(gun: any, max: number) {
   /** Reads in flight: a write meanwhile (anyone's) means what they return may be old, so it is not kept. */
   const reading = new Map<string, { count: number; written: boolean }>();
   const written = (soul: string) => { const r = reading.get(soul); if (r) r.written = true; };
-  /** Fields this store wrote that Gun has not reported yet: their `put` events are ours. */
-  const own = new Map<string, Map<string, unknown>>();
+  /**
+   * Values this store wrote that Gun has not reported yet, oldest first per field, with when they
+   * were written: their `put` events are ours. Gun can report an earlier write after a newer one is
+   * in the copy (05b, 2026-11-23), so a report matching any of them is ours (it and the older ones
+   * are done). Until Gun reports them — at most OWN_PENDING_MS — they are laid over what a read
+   * from Gun returns: Gun may not hold them yet. Past that a write is taken as done, so a later
+   * write by someone else is never hidden for longer.
+   */
+  const OWN_PENDING_MS = 2_000;
+  const own = new Map<string, Map<string, Array<{ v: unknown; at: number }>>>();
   const isOwn = (soul: string, field: string, value: unknown): boolean => {
     const fields = own.get(soul);
-    if (!fields || !fields.has(field) || !sameValue(fields.get(field), value)) return false;
-    fields.delete(field);
+    const values = fields?.get(field);
+    if (!fields || !values) return false;
+    const at = values.findIndex((entry) => sameValue(entry.v, value));
+    if (at < 0) return false;
+    values.splice(0, at + 1);
+    if (!values.length) fields.delete(field);
     if (!fields.size) own.delete(soul);
     return true;
+  };
+  /** My writes Gun has not reported yet (and not older than OWN_PENDING_MS), newest value per field. */
+  const pendingOwn = (soul: string): GraphNode | undefined => {
+    const fields = own.get(soul);
+    if (!fields?.size) return undefined;
+    const since = Date.now() - OWN_PENDING_MS;
+    const out: Record<string, unknown> = {};
+    for (const [field, values] of fields) {
+      const last = values[values.length - 1];
+      if (last && last.at >= since) out[field] = last.v;
+    }
+    return Object.keys(out).length ? out as GraphNode : undefined;
   };
   gun._?.on?.('put', function (this: any, msg: any) {
     // An answer to a read (`@` names the request: a load from disk or a peer's reply) changes
@@ -97,14 +121,21 @@ function createRamCache(gun: any, max: number) {
       if (nodes.has(soul)) touch(soul, node);
       return node ? { ...node } : null;
     },
-    /** Around a disk read: what it returns is kept only if nothing wrote the node meanwhile. */
+    /**
+     * Around a disk read: what it returns is kept only if nothing wrote the node meanwhile. My own
+     * writes Gun has not reported yet are laid over it: Gun may report an earlier write of mine after
+     * a newer one is in the copy, which drops the copy, and Gun's graph may not hold the newer one yet
+     * (05b, 2026-11-23: an edited Talk read back as its previous version, so it was "already sent").
+     */
     async read(soul: string, load: () => Promise<GraphNode | null>): Promise<GraphNode | null> {
       const r = reading.get(soul) ?? { count: 0, written: false };
       if (!r.count) r.written = false;
       r.count += 1;
       reading.set(soul, r);
       try {
-        const node = await load();
+        const loaded = await load();
+        const mine = pendingOwn(soul);
+        const node = mine ? { ...(loaded ?? {}), ...mine } as GraphNode : loaded;
         if (!r.written) touch(soul, node ? { ...node } : null);
         return node;
       } finally {
@@ -118,7 +149,14 @@ function createRamCache(gun: any, max: number) {
       // Bounded: a write Gun never reports (same value, same state) must not stay forever.
       if (!fields && own.size >= max) own.delete(own.keys().next().value as string);
       if (!fields) own.set(soul, fields = new Map());
-      for (const [field, v] of Object.entries(value)) fields.set(field, v);
+      const at = Date.now();
+      for (const [field, v] of Object.entries(value)) {
+        const values = fields.get(field) ?? [];
+        values.push({ v, at });
+        // Bounded too: writes Gun never reports (the same value again) must not pile up.
+        if (values.length > 16) values.shift();
+        fields.set(field, values);
+      }
       const r = reading.get(soul);
       // A read in flight may have started before this write: what it returns is not kept.
       if (r) r.written = true;

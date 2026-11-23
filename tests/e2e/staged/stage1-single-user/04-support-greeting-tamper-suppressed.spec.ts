@@ -111,9 +111,14 @@ test.describe('TechSupport — tampered greeting suppressed, never rendered (doc
     ).not.toContain(TAMPER_SNIPPET);
     const finalText = await page.locator('#conversation-messages').innerText();
     expect(finalText).not.toContain(TAMPER_SNIPPET);
-    // The pre-tamper valid text is also gone (same soul was overwritten) — nothing
-    // attributed to TechSupport in this thread beyond what verifies.
-    expect(finalText).not.toContain('Welcome to IinPublic');
+    // Nothing attributed to TechSupport beyond what verified: the greeting may still show, but only
+    // as the genuine text, from the device graph's message log (OPEN-110), which takes a TechSupport
+    // message only once it verified — the tampered copy never enters it (2026-11-23).
+    if (finalText.includes('Welcome to IinPublic')) expect(finalText).toContain(originalText);
+    const graphTexts = await page.evaluate(async (cid) => ((await (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({
+      name: 'graph.conversationMessages', conversationId: cid, limit: 50,
+    })) ?? []).map((row: { text?: string }) => String(row.text || '')), conversationId);
+    expect(graphTexts.some((text: string) => text.includes(TAMPER_SNIPPET)), 'the tampered greeting never enters the graph').toBe(false);
 
     // Silent means silent: no error/warning toast surfaced because of the failed verification.
     const notificationCountAfter = await page.locator('.notification').count();

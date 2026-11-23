@@ -20,7 +20,15 @@ const dir = process.argv[2];
 const gun = Gun({ file: dir + '/radata', peers: [], multicast: false, axe: false, localStorage: false, WebSocket: function () {} });
 let reads = 0;
 const realGet = gun.get.bind(gun);
-const counted = Object.assign(Object.create(Object.getPrototypeOf(gun)), gun, { _: gun._, get: (soul) => { reads += 1; return realGet(soul); } });
+// Writes Gun applies late (a busy browser's Gun): the next store writes wait these many ms first.
+const putDelays = [];
+const counted = Object.assign(Object.create(Object.getPrototypeOf(gun)), gun, { _: gun._, get: (soul) => {
+  reads += 1;
+  const ref = realGet(soul);
+  if (!putDelays.length) return ref;
+  const delay = putDelays.shift();
+  return Object.assign(Object.create(ref), { put: (value, cb) => { setTimeout(() => ref.put(value, cb), delay); return ref; } });
+} });
 const store = gunNodeStore(counted, { missWaitMs: 0, cacheInRam: true });
 const settle = () => new Promise((r) => setTimeout(r, 400));
 const direct = (soul, v) => new Promise((ok) => gun.get(soul).put(v, () => ok()));
@@ -55,6 +63,18 @@ const direct = (soul, v) => new Promise((ok) => gun.get(soul).put(v, () => ok())
   await pending;
   await settle();
   out.overlap = (await store.get('local/ix/b')).v;
+  // 5. Gun reports my earlier write after my newer one is in the copy (05b, 2026-11-23: an edited
+  // Talk read as its old version): the copy is dropped, and the read must still see the newer write.
+  await store.put('local/mine/talk/t', { latest: { '#': 'local/ev/v0' } });
+  await settle();
+  await store.get('local/mine/talk/t');
+  putDelays.push(30, 600);
+  await store.put('local/mine/talk/t', { latest: { '#': 'local/ev/v1' } });
+  await store.put('local/mine/talk/t', { latest: { '#': 'local/ev/v2' } });
+  await new Promise((r) => setTimeout(r, 150));
+  out.pendingWrite = (await store.get('local/mine/talk/t')).latest;
+  await new Promise((r) => setTimeout(r, 700));
+  out.afterGun = (await store.get('local/mine/talk/t')).latest;
   process.stdout.write(JSON.stringify(out));
   setTimeout(() => process.exit(0), 300);
 })();
@@ -79,6 +99,8 @@ describe('device graph RAM cache', () => {
       expect(out.tampered).toBe('tampered');
       expect(out.fromPeer).toBe('from peer');
       expect(out.overlap).toBe('new');
+      expect(out.pendingWrite).toEqual({ '#': 'local/ev/v2' });
+      expect(out.afterGun).toEqual({ '#': 'local/ev/v2' });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

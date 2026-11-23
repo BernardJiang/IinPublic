@@ -244,6 +244,7 @@ import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionRece
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
 import { OfferBatcher } from '../services/offer-batcher';
+import { filterVerifiedSupportMessages } from '../ui/verified-support-messages';
 import { GraphLinkBridge } from '../services/graph-link-bridge';
 import type { GraphConversationMessage, GraphEvent, GraphTabSnapshot } from '../../core/device-graph/sync/graph-host';
 import { setGraphTabSnapshot } from '../services/graph-tab-projection';
@@ -8468,10 +8469,18 @@ export class IinPublicApp {
 
   /** Compatibility importer for support/device-sync batches; ordinary DMs write the graph directly. */
   private recordConversationMessagesInGraph(conversationId: string, otherUserId: string, messages: readonly any[]): void {
-    const imports = this.graphImportsForMessages(otherUserId, messages);
-    if (imports.length === 0) return;
-    void this.writeConversationMessagesToGraph(conversationId, otherUserId, imports)
-      .catch((error) => console.warn('[graph] conversation message import failed:', error));
+    void (async () => {
+      // A TechSupport message enters the graph only once it verifies (K2/K5): its graph copy carries
+      // no signature, and is shown from then on as an ordinary message. Imported unchecked, a greeting
+      // altered before its first import rendered from the graph with nothing left to check (found
+      // when the device graph's reads stopped missing, stage1/04, 2026-11-23).
+      const verified = conversationId.startsWith('conv_support_')
+        ? await filterVerifiedSupportMessages([...messages], this.currentUser?.stageName || '')
+        : messages;
+      const imports = this.graphImportsForMessages(otherUserId, verified);
+      if (imports.length === 0) return;
+      await this.writeConversationMessagesToGraph(conversationId, otherUserId, imports);
+    })().catch((error) => console.warn('[graph] conversation message import failed:', error));
   }
 
   private graphImportsForMessages(

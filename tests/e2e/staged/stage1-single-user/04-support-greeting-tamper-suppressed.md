@@ -22,9 +22,11 @@ and never surfaced as an error/warning toast.
    *stored displayed text* no longer matches what that verified template renders to.
 4. **Re-render:** reopens the conversation (the same action a real re-click or fresh load would
    trigger), forcing a fresh pass through the render-time verification.
-5. **Assert suppression:** the tampered snippet never appears anywhere in the thread — and
-   neither does the original valid text, because the same soul was overwritten and the whole
-   record now fails the render-time check.
+5. **Assert suppression:** the tampered snippet never appears anywhere in the thread, and the
+   overwritten record fails the render-time check. The genuine greeting may still show, but only
+   with its original text: the device graph's message log (OPEN-110) keeps the copy taken when it
+   verified, and takes a TechSupport message only once it verifies, so the tampered text never
+   enters it (asserted on `graph.conversationMessages`).
 6. **Assert silence:** no new `.notification` toast appears because of the failed verification
    (K2-3 is silent suppression, not an error surface).
 
