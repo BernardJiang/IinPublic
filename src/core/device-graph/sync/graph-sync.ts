@@ -972,6 +972,16 @@ export function createGraphSync(options: {
       for (const { h } of ask) link.wanted.set(h, now());
       sendFrame(peerUserId, link, { t: 'want', w: ask });
     }
+    // How far I applied is saved once the entries applied are in storage (`durable`), never before,
+    // and before any acknowledgement: with the RAM copy's write-behind a reload could keep the
+    // position (and tell them they need not resend) yet lose the messages it covers (stage2/29).
+    let saved = next;
+    const saveProgress = async (): Promise<void> => {
+      if (next === saved) return;
+      await store.durable?.();
+      await store.put(stateSoul, { next, hash: prev, sub: null });
+      saved = next;
+    };
     try {
       while (link.pending.has(next)) {
         const entry = await decode(next);
@@ -1010,6 +1020,7 @@ export function createGraphSync(options: {
           }));
           const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
           if (failed) {
+            await saveProgress().catch(() => undefined);
             if (start > 0) await store.put(stateSoul, { sub: start }).catch(() => undefined);
             throw failed.reason;
           }
@@ -1018,10 +1029,10 @@ export function createGraphSync(options: {
         link.decoded.delete(next);
         prev = entryHash(entry);
         next += 1;
-        await store.put(stateSoul, { next, hash: prev, sub: null });
         state = { next, hash: prev };
       }
     } finally {
+      await saveProgress().catch(() => undefined);
       await sendAck(peerUserId, link, next - 1, prev).catch(() => undefined);
     }
     if ((link.theirHead ?? -1) < next) return false;
@@ -1267,6 +1278,9 @@ export function createGraphSync(options: {
         store.put(souls.index('convs'), { [conv]: when }),
       ]);
       await append(peerUserId, { message: { conv, text, eventId, ...(re ? { re } : {}) } });
+      // Sent means stored: with the RAM copy's write-behind a reload right after sending lost my
+      // own message (e2e stage2/29, 2026-11-23). Bounded by the store.
+      await store.durable?.();
       return { eventId };
     },
 

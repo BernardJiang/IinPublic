@@ -581,6 +581,9 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
             eventIds[message.sourceMessageId] = result.eventId;
             if (result.created) recorded += 1;
           }
+          // Recorded means stored: with the RAM copy's write-behind a reload right after sending
+          // lost my own last message (e2e stage2/29, 2026-11-23). Bounded by the store.
+          if (recorded) await options.store.durable?.();
           return { recorded, eventIds };
         }
         case 'graph.personHistory': {

@@ -18,6 +18,11 @@ export interface NodeStore {
   get(soul: string): Promise<GraphNode | null>;
   /** Merge these fields into the node (Gun semantics: a null field is deleted). */
   put(soul: string, value: GraphNode): Promise<void>;
+  /**
+   * The writes made so far are in storage (a store that answers a write before storage confirms it,
+   * the RAM copy's write-behind). Bounded: a write storage never confirms is waited for 1.5 s at most.
+   */
+  durable?(): Promise<void>;
 }
 
 export const link = (soul: string): GraphLink => ({ '#': soul });
@@ -37,6 +42,11 @@ export const KNOWN_SOULS_MAX = 100_000;
 /** Device graph souls keyed by a hash of their content (spec §31.4): they never change. Events are
  * not among them (sidecars such as `ev/<id>/x` change; e2e stage4/05 read a stale one). */
 const UNCHANGING_SOUL = /^[^/]+\/(q|a|s|rev)\//;
+
+/** `durable()` waits this long at most for writes storage has not confirmed: a write Gun does not
+ * store again (the same value) is never confirmed, and a send waited out a 10 s cap on it (e2e
+ * stage2/29 took 5x as long). Storage confirms a real write well within this. */
+const DURABLE_WAIT_MS = 1_500;
 
 /** How many nodes the RAM cache keeps (oldest used leave first). */
 export const RAM_CACHE_MAX = 20_000;
@@ -165,7 +175,16 @@ export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; remembe
     const { _: _meta, ...rest } = data;
     return rest as GraphNode;
   };
+  /** Write-behind writes Gun has not confirmed yet (`durable`). */
+  const unconfirmed = new Set<Promise<void>>();
   return {
+    async durable(): Promise<void> {
+      const waiting = [...unconfirmed];
+      if (!waiting.length) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([Promise.all(waiting), new Promise<void>((resolve) => { timer = setTimeout(resolve, DURABLE_WAIT_MS); })]);
+      if (timer) clearTimeout(timer);
+    },
     get: async (soul) => {
       if (ram?.has(soul)) return ram.get(soul);
       if (known?.has(soul)) {
@@ -187,11 +206,16 @@ export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; remembe
         // it on disk with the others in its next flush. A write the disk refuses is logged and its
         // copy dropped, so the next read goes to Gun.
         ram.write(soul, value);
-        gun.get(soul).put(value, (ack: any) => {
-          if (!ack?.err) return;
-          ram.forget(soul);
-          console.warn(`[node-store] disk refused ${soul}: ${String(ack.err)}`);
+        const confirmed = new Promise<void>((resolve) => {
+          gun.get(soul).put(value, (ack: any) => {
+            resolve();
+            if (!ack?.err) return;
+            ram.forget(soul);
+            console.warn(`[node-store] disk refused ${soul}: ${String(ack.err)}`);
+          });
         });
+        unconfirmed.add(confirmed);
+        void confirmed.then(() => unconfirmed.delete(confirmed));
         return Promise.resolve();
       }
       return new Promise((resolve, reject) => {
