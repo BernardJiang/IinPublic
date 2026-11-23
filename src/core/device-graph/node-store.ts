@@ -71,10 +71,11 @@ function createRamCache(gun: any, max: number) {
    * were written: their `put` events are ours. Gun can report an earlier write after a newer one is
    * in the copy (05b, 2026-11-23), so a report matching any of them is ours (it and the older ones
    * are done). Until Gun reports them — at most OWN_PENDING_MS — they are laid over what a read
-   * from Gun returns: Gun may not hold them yet. Past that a write is taken as done, so a later
-   * write by someone else is never hidden for longer.
+   * from Gun returns: Gun may not hold them yet. Under load (test:all: three phases, dozens of
+   * browsers) Gun took longer than 2 s, and the edit was read stale again. Past the limit a write is
+   * taken as done, so a later write by someone else to a field I wrote is never hidden for longer.
    */
-  const OWN_PENDING_MS = 2_000;
+  const OWN_PENDING_MS = 30_000;
   const own = new Map<string, Map<string, Array<{ v: unknown; at: number }>>>();
   const isOwn = (soul: string, field: string, value: unknown): boolean => {
     const fields = own.get(soul);
