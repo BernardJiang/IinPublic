@@ -137,13 +137,19 @@ export function createAppChatbot(options: {
         ? walk.answers.map((a) => appAnswerOf(talk, a))
         : null;
       // Answered already: my latest answer is to this version (an edit is a newer version, to
-      // answer again). Event ids begin with their time, so they compare in time order.
+      // answer again). The version my answer names decides; ids compared as times only for an
+      // answer naming none. Comparing ids alone took an answer to the previous version for one to
+      // the edit when the answer's id was the later one (two devices' clocks, a busy device):
+      // the edit was never answered (e2e stage3/05b in every test:all run, 2026-11-23).
       let answered = false;
       if (opts.talkId) {
         const mine = await graph.answers.answered(opts.talkId);
         // Only which version: the Talk itself is not read again.
         const version = (await graph.arrivals.latest(opts.talkId))?.versionId ?? (await graph.talks.read(opts.talkId))?.versionId;
-        answered = !!mine && (!version || mine > version);
+        if (mine) {
+          const answeredVersion = version ? await graph.answers.answeredVersion(mine) : undefined;
+          answered = !version || (answeredVersion ? answeredVersion === version : mine > version);
+        }
       }
       return { answers: answers && answers.every(Boolean) ? answers as AppChatbotAnswer[] : null, passed: view.passed, answered };
     },

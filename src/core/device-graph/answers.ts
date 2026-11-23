@@ -734,6 +734,21 @@ export function createAnswerGraph(store: NodeStore, ids: EventIds, options: { pr
       return soul ? soul.slice(souls.event('').length) : undefined;
     },
 
+    /**
+     * The Talk version an answer of mine answered: its `re` names the arrival of that version (or
+     * the version itself, a version event carrying its structure `rev`). Undefined for an answer
+     * that names neither.
+     */
+    async answeredVersion(answerEventId: string): Promise<string | undefined> {
+      const event = await store.get(souls.event(answerEventId));
+      const reSoul = linkSoul(event?.re);
+      if (!reSoul) return undefined;
+      const target = await store.get(reSoul);
+      if (!target) return undefined;
+      const versionSoul = target.rev !== undefined ? reSoul : linkSoul(target.re);
+      return versionSoul ? versionSoul.slice(souls.event('').length) : undefined;
+    },
+
     /** Set the Whenever offered list for a question, highest priority first (choice texts). */
     async setWhenever(questionKey: string, answerTexts: string[]): Promise<void> {
       const keys = [...new Set(answerTexts)];

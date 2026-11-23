@@ -233,4 +233,28 @@ describe('the graph chatbot does what the answer engine did', () => {
     await graphOf.arrivals.receive({ talkId: v1, versionId: v2, authorId: 'ann', when: Date.now() + 60_000, device, talk: { ...talk, title: 'Coffee break' } }, { userId: 'ann' });
     expect((await app.answer(talk, { talkId: v1 })).answered).toBe(false);
   });
+
+  it('an answer to the previous version is not one to the edit, though its id is the later one (05b)', async () => {
+    // e2e stage3/05b in every test:all run: Jerry's answer to version 1 got an id later than Tom's
+    // edit (two devices' clocks, a busy device), so comparing ids called the edit answered already.
+    const graphOf = createDeviceGraph(memoryNodeStore(), { randomBytes: (n) => new Uint8Array(n).fill(7) });
+    const app = createAppChatbot({ graph: graphOf });
+    const talk = flow('Tennis', [{ text: 'Sunday?', choices: ['Yes', 'No'] }]);
+    const device = 'd'.repeat(32);
+    const v1 = `${Date.now() - 120_000}-${device}-1`;
+    await graphOf.arrivals.receive({ talkId: v1, versionId: v1, authorId: 'tom', when: Date.now() - 120_000, device, talk }, { userId: 'tom' });
+    const first = (await graphOf.arrivals.latest(v1))!;
+    await graphOf.answers.answer({ talkId: v1, structure: (await graphOf.arrivals.read(v1))!, mode: 'manual', withUser: 'tom', re: first.latestArrival, steps: [{ questionId: 'q_0', answerIds: ['a_0_0'] }] });
+    expect((await app.answer(talk, { talkId: v1 })).answered).toBe(true);
+    // The edit's id is older than my answer's, but it is a newer version.
+    const v2 = `${Date.now() - 60_000}-${device}-2`;
+    const edited = flow('Tennis', [{ text: 'Saturday?', choices: ['Yes', 'No'] }]);
+    await graphOf.arrivals.receive({ talkId: v1, versionId: v2, authorId: 'tom', when: Date.now() - 60_000, device, talk: edited }, { userId: 'tom' });
+    expect((await graphOf.arrivals.latest(v1))!.versionId).toBe(v2);
+    expect((await app.answer(edited, { talkId: v1 })).answered).toBe(false);
+    // Once answered, it is.
+    const second = (await graphOf.arrivals.latest(v1))!;
+    await graphOf.answers.answer({ talkId: v1, structure: (await graphOf.arrivals.read(v1))!, mode: 'chatbot', withUser: 'tom', re: second.latestArrival, steps: [{ questionId: 'q_0', answerIds: ['a_0_0'] }] });
+    expect((await app.answer(edited, { talkId: v1 })).answered).toBe(true);
+  });
 });

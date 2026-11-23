@@ -208,10 +208,16 @@ export function createAppAnswers(options: {
     const known = await store.get(appAnswerSoul(prefix, target.talkId));
     const latest = await graph.answers.answered(target.talkId);
     if (known?.sig === sig && typeof known.ev === 'string' && known.ev === latest) return { eventId: known.ev, sent: known.sent === true };
+    // Which version this answers (`re`): the latest arrival of someone's Talk, or my own latest
+    // version. Whether the chatbot answered an edit already follows it (`answeredVersion`).
+    const re = target.author
+      ? (await graph.arrivals.latest(target.talkId))?.latestArrival
+      : (await graph.talks.read(target.talkId))?.versionId;
     const eventId = await graph.answers.answer({
       talkId: target.talkId, structure: target.talk, steps, mode, perspective: target.perspective, title: String(target.talk.title ?? ''),
       ...(target.author ? { withUser: target.author } : {}),
       ...(latest ? { replaces: latest } : {}),
+      ...(re ? { re } : {}),
     });
     await store.put(appAnswerSoul(prefix, target.talkId), { sig, ev: eventId, sent: false });
     return { eventId, sent: false };
@@ -357,8 +363,14 @@ export function createAppAnswers(options: {
         if (!node) return undefined;
         const mine = !!mineState;
         const appTalkId = mine ? await options.ownTalks.appTalkId(talkId) : talkId;
+        // The version my answer answered (`re`), not the latest: an edit that arrived since is a Talk
+        // I have not answered, and reading it here made it look answered (its content then mapped
+        // to my answer, so the chatbot skipped the edit: e2e stage3/05b, 2026-11-23). An answer
+        // naming no version reads the latest, as before.
+        const answeredVersion = await graph.answers.answeredVersion(eventId);
+        const atVersion = answeredVersion ? await graph.talks.readVersion(talkId, answeredVersion) : undefined;
         // A Talk only the app has (a starter tag) is answered under its app id: its body is the app's.
-        const talk = mine ? await graph.talks.read(talkId) : (await graph.arrivals.read(talkId)) ?? (await local(talkId))?.talk;
+        const talk = atVersion ?? (mine ? await graph.talks.read(talkId) : (await graph.arrivals.read(talkId)) ?? (await local(talkId))?.talk);
         const set = await graph.answers.answerSet(eventId);
         if (!talk || !set) return undefined;
         const mode = typeof node.mode === 'string' ? node.mode : 'manual';
