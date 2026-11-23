@@ -417,7 +417,14 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         return incoming ? incoming.rows() : [];
       case 'graph.talkBody': {
         if (!graph.graph) return null;
-        const own = graph.ownTalks ? await graph.ownTalks.graphTalkId(request.talkId) : undefined;
+        let own = graph.ownTalks ? await graph.ownTalks.graphTalkId(request.talkId) : undefined;
+        if (!own && graph.ownTalks) {
+          // A Talk I just created whose entry the core has, but not yet written into the graph (that
+          // follows the collection write): written now, as an offer does (real-phone release smoke
+          // 07, 2026-11-23: the read right after creating it found nothing).
+          const stored = await (myTalks ? myTalks.get(request.talkId) : collections.get('myTalks', request.talkId)) as Record<string, any> | undefined;
+          if (stored?.role === 'created' && Array.isArray(stored.fullTalk?.questions)) own = await graph.ownTalks.ensure({ ...stored, talkId: request.talkId });
+        }
         const talk = own ? await graph.graph.talks.read(own) : await graph.graph.arrivals.read(request.talkId);
         return talk ? { ...appTalkOf(talk), id: request.talkId } : null;
       }
