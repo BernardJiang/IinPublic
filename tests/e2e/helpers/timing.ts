@@ -119,7 +119,7 @@ export const E2E_SUITE_TARGET_MINUTES = 10;
 
 /**
  * Whether to run browsers in headless mode.
- * Always headless in CI; show the window in local dev.
+ * Always headless in CI or with PW_HEADLESS=1; show the window in local dev.
  * Matches the `use.headless` value in playwright.config.ts.
  */
-export const headless = !!process.env.CI;
+export const headless = !!process.env.CI || process.env.PW_HEADLESS === '1';

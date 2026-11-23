@@ -410,6 +410,55 @@ describe('Talk exchange by Gun sync', () => {
     // Four answers in fewer entries.
     expect((await pat.sync.status('ola-b')).sentUpTo).toBeLessThan(3);
   });
+  it('offers made one after another inside a hold go in one entry (stage5 late joiners)', async () => {
+    const [quin, rae] = [await device('quin-h'), await device('rae-h')];
+    void pump();
+    await Promise.all([quin.sync.open('rae-h'), rae.sync.open('quin-h')]);
+    const ids = await Promise.all(Array.from({ length: 10 }, (_, i) => quin.graph.talks.create(tennis(`Held tennis ${i}`))));
+    // One at a time, each finding the queue empty: without the hold, ten entries.
+    await quin.sync.holdOut(async () => {
+      for (const id of ids) await quin.sync.offerTalk(id, ['rae-h'], undefined, { detach: true });
+    });
+    await until(async () => (await Promise.all(ids.map((id) => rae.graph.arrivals.read(id)))).every(Boolean));
+    expect((await quin.sync.status('rae-h')).sentUpTo).toBe(0);
+    expect(quin.sync.batching()).toMatchObject({ entries: 1, items: 10, largest: 10 });
+  });
+
+  it('an offer that waits for its entry inside a hold is written when the hold times out, not never (stage5 late joiners)', async () => {
+    const [uma, vic] = [await device('uma-h'), await device('vic-h')];
+    void pump();
+    await Promise.all([uma.sync.open('vic-h'), vic.sync.open('uma-h')]);
+    const id = await uma.graph.talks.create(tennis('Waited tennis'));
+    const started = Date.now();
+    // Not detached: it waits for its own entry, which the hold keeps back (two overlapping
+    // offerMany requests did this in the app and stopped the core for good).
+    await uma.sync.holdOut(() => uma.sync.offerTalk(id, ['vic-h']));
+    expect(Date.now() - started).toBeLessThan(10_000);
+    await until(async () => !!(await vic.graph.arrivals.read(id)));
+  });
+
+  it('answers to a batch of offers go back together though made a moment apart (stage5 late joiners)', async () => {
+    const [sam, tia] = [await device('sam-h'), await device('tia-h')];
+    void pump();
+    await Promise.all([sam.sync.open('tia-h'), tia.sync.open('sam-h')]);
+    const ids = await Promise.all([1, 2, 3, 4].map((i) => sam.graph.talks.create(tennis(`Batch answered tennis ${i}`))));
+    await sam.sync.holdOut(async () => { for (const id of ids) await sam.sync.offerTalk(id, ['tia-h'], undefined, { detach: true }); });
+    await until(async () => (await Promise.all(ids.map((id) => tia.graph.arrivals.read(id)))).every(Boolean));
+    const sends: Array<Promise<void>> = [];
+    for (const id of ids) {
+      const answerId = await tia.graph.answers.answer({
+        talkId: id, structure: (await tia.graph.arrivals.read(id))!, withUser: 'sam-h', mode: 'chatbot',
+        steps: [{ questionId: 'q_0', answerIds: ['a_0_0'] }, { questionId: 'q_1', answerIds: ['a_1_0'] }],
+      });
+      sends.push(tia.sync.sendAnswer(answerId));
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+    await Promise.all(sends);
+    await until(async () => (await Promise.all(ids.map((id) => sam.graph.answers.theirs(id)))).every((by) => !!by['tia-h']));
+    // Four answers, 60 ms apart, in one entry.
+    expect((await tia.sync.status('sam-h')).sentUpTo).toBe(0);
+  });
+
   it('a link that carries only small frames (BLE-sized) gets the same Talks, in parts (OPEN-114)', async () => {
     const [ray, sue] = [await device('ray-b'), await device('sue-b')];
     void pump();

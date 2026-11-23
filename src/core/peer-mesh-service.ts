@@ -155,6 +155,13 @@ const PERSONAL_CONNECT_GRACE_MS = 8_000;
 /** A link opened for one reason (an answer, a direct send) stays this long; we wait this long for it. */
 const PERSONAL_RESPONSE_PIN_MS = 60_000;
 const PERSONAL_RESPONSE_CONNECT_MS = 15_000;
+/**
+ * A link that carried my log to someone stays open this long after they read all of it: the next
+ * like follows within seconds, and dropping the link at once made each one wait for a new WebRTC
+ * connect (and a knock), with a failed connect now and then (stage5 starter-tags, 2026-11-22). It
+ * only keeps a live link; it opens none.
+ */
+const PERSONAL_WARM_MS = 30_000;
 /** After giving up on a person, the broadcast loop leaves them to the mailbox for this long. */
 const PERSONAL_GAVE_UP_COOLDOWN_MS = 5 * 60_000;
 
@@ -374,11 +381,16 @@ export class PeerMeshService {
    * in the outbox, each is a reason to open a link (Nearby v3 opens links only for a reason).
    */
   private graphOwed = new Set<string>();
+  /** People who read everything I owed them, and until when their live link is kept (PERSONAL_WARM_MS). */
+  private readonly warmUntil = new Map<string, number>();
   setGraphOwed(userIds: string[]): void {
     const next = new Set(userIds.filter((id) => id && id !== this.opts.localUserId));
     const added = [...next].filter((id) => !this.graphOwed.has(id));
     const read = [...this.graphOwed].filter((id) => !next.has(id));
     this.graphOwed = next;
+    const nowMs = this.opts.now?.() ?? Date.now();
+    for (const id of read) this.warmUntil.set(id, nowMs + PERSONAL_WARM_MS);
+    for (const id of added) this.warmUntil.delete(id);
     // Something new to give them is a new reason to try, even someone I recently gave up on.
     for (const id of added) { this.gaveUpAt.delete(id); this.connectFailures.delete(id); }
     // Each person who read what I owed them is a delivered Talk: the Nearby loop may widen.
@@ -516,9 +528,18 @@ export class PeerMeshService {
       const loop = [...listed, ...outside]
         .filter((userId) => !this.pinnedPeers.has(userId) && nowMs - (this.gaveUpAt.get(userId) ?? -Infinity) >= PERSONAL_GAVE_UP_COOLDOWN_MS)
         .slice(0, this.personalConcurrencyLimit());
-      return [...pins, ...loop].map((userId) => byId.get(userId) ?? (pins.includes(userId) ? undefined : { userId, stageName: userId }))
+      // Warm links stay while live, outside the limit: keeping one costs nothing, opening one does.
+      const taken = new Set([...pins, ...loop]);
+      const warm: string[] = [];
+      const warmNow = this.opts.now?.() ?? nowMs;
+      for (const [userId, until] of this.warmUntil) {
+        if (until <= warmNow) { this.warmUntil.delete(userId); continue; }
+        const neighbor = this.neighbors.get(userId);
+        if (!taken.has(userId) && neighbor && isNeighborLive(neighbor)) warm.push(userId);
+      }
+      return [...pins, ...loop, ...warm].map((userId) => byId.get(userId) ?? (pins.includes(userId) ? undefined : { userId, stageName: userId }))
         .filter((member): member is RoomMember => !!member)
-        .slice(0, Math.max(K, pins.length + loop.length));
+        .slice(0, Math.max(K, pins.length + loop.length + warm.length));
     }
     // Contacts only: the members I was given (a DM warm-up, the recipients of a Talk).
     return members
@@ -543,6 +564,7 @@ export class PeerMeshService {
       this.manifestReadyPeerIds.clear();
       this.manifestRejectedPeerIds.clear();
         this.pinnedPeers.clear();
+      this.warmUntil.clear();
       this.knockedAt.clear();
       this.gaveUpAt.clear();
       this.connectFailures.clear();
@@ -885,6 +907,7 @@ export class PeerMeshService {
     this.manifestReadyPeerIds.clear();
     this.manifestRejectedPeerIds.clear();
     this.pinnedPeers.clear();
+    this.warmUntil.clear();
     this.knockedAt.clear();
     this.gaveUpAt.clear();
     this.connectFailures.clear();

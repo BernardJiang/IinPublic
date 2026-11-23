@@ -286,15 +286,93 @@ export function createGraphSync(options: {
     return new Promise<number>((resolve, reject) => {
       const queue = pendingOut.get(peerUserId) ?? [];
       queue.push({ body, size: JSON.stringify(body).length, resolve, reject });
-      if (queue.length === 1) {
-        pendingOut.set(peerUserId, queue);
-        void serial(`out:${peerUserId}`, () => flushOut(peerUserId));
-      }
+      pendingOut.set(peerUserId, queue);
+      if ('answer' in body) noteAnswerHeld(peerUserId);
+      // Held (a many-offer request, or answers to a batch that just arrived): written when the hold
+      // ends, or now when a full entry is waiting.
+      // A chat message is never held (and takes what waits with it).
+      if (isHeld(peerUserId) && queue.length < BATCH_MAX_ITEMS && !('message' in body)) return;
+      if (!flushing.has(peerUserId)) startFlush(peerUserId);
     });
   }
+  /** People whose queue has a write started (it takes whatever is queued when it runs). */
+  const flushing = new Set<string>();
+  function startFlush(peerUserId: string): void {
+    flushing.add(peerUserId);
+    void serial(`out:${peerUserId}`, () => flushOut(peerUserId));
+  }
 
-  /** How full my entries are (diagnostics): entries written, items in them, the largest batch. */
-  const batching = { entries: 0, items: 0, largest: 0 };
+  /**
+   * Holds (OPEN-114): writing an entry takes a few ms, so items made a moment apart (the 30 offers of
+   * one catch-up, a run of chatbot answers) each found the queue empty and went one per entry, each
+   * its own frame and acknowledgement (stage5 late joiners, 2026-11-22: 1.0 items per entry). Nothing
+   * here waits for a person: a hold lasts while the machine is still producing the batch.
+   * - `holdOut(fn)`: my queues are not written while `fn` runs (one request offering many Talks),
+   *   at most OUT_HOLD_MAX_MS.
+   * - Answers to a batch of offers that just arrived from someone wait until as many answers are
+   *   queued as offers came, or none came for ANSWER_IDLE_MS since the last one, at most
+   *   ANSWER_HOLD_MAX_MS after the batch arrived. A single offer (a like just made) is never held.
+   */
+  let outHolds = 0;
+  const answerHolds = new Map<string, { expected: number; idle?: ReturnType<typeof setTimeout>; cap: ReturnType<typeof setTimeout> }>();
+  /** Each answer is a few reads, a signature and (in the app) a chatbot walk: on a slow phone well
+   * over 300 ms apart, which ended a shorter hold between them. */
+  const ANSWER_IDLE_MS = 1_000;
+  const ANSWER_HOLD_MAX_MS = 3_000;
+  const isHeld = (peerUserId: string): boolean => outHolds > 0 || answerHolds.has(peerUserId);
+  function releaseQueues(): void {
+    for (const peerUserId of pendingOut.keys()) {
+      if (!isHeld(peerUserId) && !flushing.has(peerUserId)) startFlush(peerUserId);
+    }
+  }
+  /** A hold ends by this time even while `fn` still runs: something `fn` waits for may itself wait
+   * for an entry of mine to be written (an ordinary offer made meanwhile), and a hold without an end
+   * stopped that core for good (stage5 late joiners, 2026-11-22: every offer timed out). */
+  const OUT_HOLD_MAX_MS = 5_000;
+  async function holdOut<T>(fn: () => Promise<T>): Promise<T> {
+    outHolds += 1;
+    let held = true;
+    const release = () => {
+      if (!held) return;
+      held = false;
+      clearTimeout(timer);
+      outHolds -= 1;
+      if (outHolds === 0) releaseQueues();
+    };
+    const timer = setTimeout(release, OUT_HOLD_MAX_MS);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+  function endAnswerHold(peerUserId: string): void {
+    const hold = answerHolds.get(peerUserId);
+    if (!hold) return;
+    if (hold.idle) clearTimeout(hold.idle);
+    clearTimeout(hold.cap);
+    answerHolds.delete(peerUserId);
+    if (pendingOut.has(peerUserId) && !isHeld(peerUserId) && !flushing.has(peerUserId)) startFlush(peerUserId);
+  }
+  function holdAnswersFor(peerUserId: string, offers: number): void {
+    const hold = answerHolds.get(peerUserId);
+    if (hold) { hold.expected += offers; return; }
+    const cap = setTimeout(() => endAnswerHold(peerUserId), ANSWER_HOLD_MAX_MS);
+    // Until the first answer only the cap applies: the app reads the Talk and asks its chatbot first.
+    answerHolds.set(peerUserId, { expected: offers, cap });
+  }
+  function noteAnswerHeld(peerUserId: string): void {
+    const hold = answerHolds.get(peerUserId);
+    if (!hold) return;
+    hold.expected -= 1;
+    if (hold.idle) clearTimeout(hold.idle);
+    if (hold.expected <= 0) { endAnswerHold(peerUserId); return; }
+    hold.idle = setTimeout(() => endAnswerHold(peerUserId), ANSWER_IDLE_MS);
+  }
+
+  /** How full my entries are (diagnostics): entries written, items in them, the largest batch,
+   * items by kind (offer, answer, …) and entries by size (1, 2–9, 10–63, 64+ items). */
+  const batching = { entries: 0, items: 0, largest: 0, kinds: {} as Record<string, number>, sizes: { one: 0, few: 0, many: 0, full: 0 } };
 
   async function flushOut(peerUserId: string): Promise<void> {
     const queue = pendingOut.get(peerUserId) ?? [];
@@ -305,14 +383,21 @@ export function createGraphSync(options: {
       take.push(item);
       chars += item.size;
     }
+    flushing.delete(peerUserId);
     if (!queue.length) pendingOut.delete(peerUserId);
-    else void serial(`out:${peerUserId}`, () => flushOut(peerUserId));
+    else if (!isHeld(peerUserId) || queue.length >= BATCH_MAX_ITEMS) startFlush(peerUserId);
     if (!take.length) return;
     try {
       const n = await writeEntry(peerUserId, take.length === 1 ? take[0]!.body : { batch: take.map((item) => item.body) });
       batching.entries += 1;
       batching.items += take.length;
       batching.largest = Math.max(batching.largest, take.length);
+      for (const item of take) {
+        const kind = Object.keys(item.body)[0] ?? '?';
+        batching.kinds[kind] = (batching.kinds[kind] ?? 0) + 1;
+      }
+      const size = take.length;
+      batching.sizes[size === 1 ? 'one' : size < 10 ? 'few' : size < BATCH_MAX_ITEMS ? 'many' : 'full'] += 1;
       for (const item of take) item.resolve(n);
     } catch (error) {
       for (const item of take) item.reject(error);
@@ -911,6 +996,9 @@ export function createGraphSync(options: {
         // items about the same Talk keep their order. When one fails, the ones before it are not
         // applied again on the retry (`sub`: how many of entry `next` are applied).
         const items = 'batch' in entry.body && Array.isArray(entry.body.batch) ? entry.body.batch : [entry.body];
+        // Several Talks at once: my answers to them go back together (see `holdAnswersFor`).
+        const offers = items.filter((item) => 'offer' in item).length;
+        if (offers > 1) holdAnswersFor(peerUserId, offers);
         for (let start = state.sub ?? 0; start < items.length; start += BATCH_APPLY_PARALLEL) {
           const groups = new Map<string, LogBody[]>();
           items.slice(start, start + BATCH_APPLY_PARALLEL).forEach((item, i) => {
@@ -1053,7 +1141,10 @@ export function createGraphSync(options: {
       return !!keys?.pub && !!keys.epub;
     },
 
-    async offerTalk(talkId: string, recipients: string[], context?: Record<string, unknown>): Promise<number> {
+    async offerTalk(talkId: string, recipients: string[], context?: Record<string, unknown>,
+      /** `detach`: return once the offers are queued (inside `holdOut`, where they are written only
+       * when the hold ends); `afterWritten` runs once they are in the log, either way. */
+      opts: { detach?: boolean; afterWritten?: (sent: string[]) => Promise<unknown> } = {}): Promise<number> {
       // Which version is my latest: one read. The Talk itself is read only for a version whose
       // offer is not made yet (a Talk offered to many people is read once, not once per offer).
       const mine = await store.get(souls.mine(`talk/${talkId}`));
@@ -1070,15 +1161,20 @@ export function createGraphSync(options: {
       const sent = await getKeyedMany(store, sentSoul, recipients);
       const fresh = [...new Set(recipients)].filter((id) => id !== me.userId && sent[id] !== talk.versionId);
       // One entry per person; offers made at the same time share it (`append`).
-      await Promise.all(fresh.map((peerUserId) => append(peerUserId, { offer: { talkId, versionId: talk.versionId, head, content, ...(context ? { context } : {}) } })));
-      // Only a hint for the next offer (skip who has this version): the offers are in the pair logs
-      // already. A write the store never acknowledges (Gun in a busy browser stalls some for over
-      // 8 s) must not fail them — at worst the version is offered again and the receiver, holding
-      // it, ignores it (stage5 starter-tags sent 28 of 30, 2026-11-15).
-      if (fresh.length) {
-        await putKeyed(store, sentSoul, Object.fromEntries(fresh.map((peerUserId) => [peerUserId, talk.versionId])))
-          .catch((error) => console.warn(`[graph-sync] who was sent ${talkId} was not recorded:`, error));
-      }
+      const written = (async () => {
+        await Promise.all(fresh.map((peerUserId) => append(peerUserId, { offer: { talkId, versionId: talk.versionId, head, content, ...(context ? { context } : {}) } })));
+        // Only a hint for the next offer (skip who has this version): the offers are in the pair logs
+        // already. A write the store never acknowledges (Gun in a busy browser stalls some for over
+        // 8 s) must not fail them — at worst the version is offered again and the receiver, holding
+        // it, ignores it (stage5 starter-tags sent 28 of 30, 2026-11-15).
+        if (fresh.length) {
+          await putKeyed(store, sentSoul, Object.fromEntries(fresh.map((peerUserId) => [peerUserId, talk.versionId])))
+            .catch((error) => console.warn(`[graph-sync] who was sent ${talkId} was not recorded:`, error));
+        }
+        if (opts.afterWritten) await opts.afterWritten(fresh);
+      })();
+      if (opts.detach) written.catch((error) => options.log?.(`[graph-sync] offer of ${talkId} failed: ${(error as Error)?.message || error}`));
+      else await written;
       return fresh.length;
     },
 
@@ -1267,6 +1363,8 @@ export function createGraphSync(options: {
     },
 
     openLinks: () => [...links.keys()],
-    batching: () => ({ ...batching }),
+    /** My log entries are not written while `fn` runs: what it queues goes in as few entries as fit. */
+    holdOut,
+    batching: () => ({ ...batching, kinds: { ...batching.kinds }, sizes: { ...batching.sizes } }),
   };
 }

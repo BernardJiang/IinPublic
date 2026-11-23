@@ -64,7 +64,7 @@ process.env.PW_WORKERS = String(NUM_WORKERS);
  * single-worker debug keeps 5 min. Helpers use E2E_ASSERT_TIMEOUT_MS (10s) for polls — fail fast.
  */
 const E2E_TEST_TIMEOUT_MS = NUM_WORKERS >= 4 ? 120_000 : 300_000;
-const FORCE_HEADLESS = !!process.env.CI || NUM_WORKERS >= 4;
+const FORCE_HEADLESS = !!process.env.CI || process.env.PW_HEADLESS === '1' || NUM_WORKERS >= 4;
 // E2E_VIDEO=off disables failure videos explicitly (e.g. CPU-constrained sandboxes where
 // recording overhead pushes specs past their runtime budget).
 const VIDEO_MODE: 'off' | 'retain-on-failure' =

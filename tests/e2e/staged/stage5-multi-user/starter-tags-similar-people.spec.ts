@@ -34,7 +34,14 @@ import {
 // Up to 14 users (one per core of the 14-core Mac mini); 6 unless STARTER_SIMILAR_USERS says more.
 const ALL_NAMES = ['Ann', 'Ben', 'Cy', 'Dee', 'Eli', 'Fay', 'Gus', 'Hal', 'Ivy', 'Jo', 'Kim', 'Lu', 'Max', 'Ned'];
 const NUM_USERS = Math.min(ALL_NAMES.length, Number(process.env.STARTER_SIMILAR_USERS) || 6);
-const CAPACITY = 3;
+// The room capacity C (each Nearby list holds C people). 3 unless STARTER_SIMILAR_CAPACITY says more
+// (14 puts all 14 users on every list).
+const CAPACITY = Number(process.env.STARTER_SIMILAR_CAPACITY) || 3;
+// The last STARTER_SIMILAR_LATE users join STARTER_SIMILAR_LATE_MS after the others have joined
+// (60 s by default): by then the early ones decided their tags, so a late user receives all of them
+// at once, as a catch-up (the pair log carries up to 64 per entry), not one like at a time.
+const LATE_USERS = Math.min(Math.max(0, Number(process.env.STARTER_SIMILAR_LATE) || 0), NUM_USERS - 1);
+const LATE_MS = Number(process.env.STARTER_SIMILAR_LATE_MS) || 60_000;
 const LIKES_PER_USER = Number(process.env.STARTER_SIMILAR_LIKES) || 30;
 const SEED = Number.parseInt(process.env.STARTER_SIMILAR_SEED || '', 10) || DEFAULT_STARTER_SEED;
 const HOLD_MS = process.env.STARTER_SIMILAR_HOLD_MS !== undefined
@@ -77,31 +84,35 @@ test.describe('Find similar people with starter tags', () => {
     await clearGunForStage5Spec();
   });
 
-  test('six users decide all 60 starter tags, broadcast to their Nearby group, find who is most similar, befriend and message them', async () => {
+  test('users decide all 60 starter tags (some joining late), broadcast to their Nearby group, find who is most similar, befriend and message them', async () => {
     test.setTimeout(1_200_000 + HOLD_MS);
     console.log(`[starter-similar] seed=${SEED} users=${NUM_USERS} capacity=${CAPACITY} likes=${LIKES_PER_USER}/${STARTER_TAGS.length}`);
 
-    // ── 1. Six new users at the same point, C = 3, tour skipped ──────────────
+    // ── 1. New users at the same point, tour skipped; the late ones join LATE_MS after the others ─
+    // ── 2. Each sees all 60 starter tags and decides every one ───────────────
     const url = `${webAppURLStableChatroom().replace('e2e_capacity=50', `e2e_capacity=${CAPACITY}`)}&skip_tour=1`;
-    browsers.push(...await Promise.all(NAMES.map((_, index) => chromium.launch({
-      headless,
-      args: [
-        ...WEBRTC_CHROMIUM_ARGS,
-        // Side by side, six to a row (later rows overlap): bootstrapUser sizes each to 640 × 1000.
-        `--window-position=${(index % 6) * 640},${Math.floor(index / 6) * 80}`,
-        '--window-size=640,1100',
-        '--force-device-scale-factor=1',
-      ],
-    }))));
-    const users = await Promise.all(NAMES.map(async (name, index) => {
+    type User = { page: Page; index: number; stageName: string; id: string };
+    const users: User[] = [];
+    const decidedAt: number[] = [];
+    const startedAt = Date.now();
+    const join = async (index: number): Promise<User> => {
+      const name = NAMES[index]!;
+      browsers[index] = await chromium.launch({
+        headless,
+        args: [
+          ...WEBRTC_CHROMIUM_ARGS,
+          // Side by side, six to a row (later rows overlap): bootstrapUser sizes each to 640 × 1000.
+          `--window-position=${(index % 6) * 640},${Math.floor(index / 6) * 80}`,
+          '--window-size=640,1100',
+          '--force-device-scale-factor=1',
+        ],
+      });
       const { context, page } = await bootstrapUser(browsers[index]!, name, `${name} Starter`, 30_000, url);
       contexts.push(context);
       pages[index] = page;
-      return { page, index, stageName: `${name} Starter`, id: '' };
-    }));
-    for (const user of users) {
-      user.id = String((await app(user.page, 'currentUser'))?.id || '');
-      await user.page.evaluate(() => {
+      const user: User = { page, index, stageName: `${name} Starter`, id: String((await app(page, 'currentUser'))?.id || '') };
+      users[index] = user;
+      await page.evaluate(() => {
         const instance = (window as any).__iinpublic_app?.getApp?.();
         instance?.setTalkLedgerQuotaUnlimitedForE2e?.(true);
         instance?.setTalkLedgerSuppressionDisabledForE2e?.(true);
@@ -110,17 +121,12 @@ test.describe('Find similar people with starter tags', () => {
       // A busy device core, as under test:all load (run 6, 2026-11-18): each answer and outcome
       // waits this long in the core's serial queue. Off unless asked for.
       const slowMs = Number(process.env.E2E_CORE_SERIAL_DELAY_MS || 0);
-      if (slowMs > 0) await user.page.evaluate((ms) => (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({ name: 'test.slowSerialQueue', ms }), slowMs);
-    }
-    const indexById = new Map(users.map((user) => [user.id, user.index]));
-    const indexByName = new Map(users.map((user) => [user.stageName, user.index]));
-    for (const user of users) {
-      await expect(user.page.locator('#walkthrough-modal')).toHaveCount(0);
-    }
-
-    // ── 2. Each sees all 60 starter tags and decides every one ───────────────
-    const decidedAt: number[] = [];
-    await Promise.all(users.map(async ({ page, index }) => {
+      if (slowMs > 0) await page.evaluate((ms) => (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({ name: 'test.slowSerialQueue', ms }), slowMs);
+      await expect(page.locator('#walkthrough-modal')).toHaveCount(0);
+      console.log(`[starter-similar] ${name} joined at +${Math.round((Date.now() - startedAt) / 1000)} s`);
+      return user;
+    };
+    const decide = async ({ page, index }: User): Promise<void> => {
       // The harness turns starter seeds off for ordinary specs; these new users opt back in.
       await page.evaluate(() => ((window as any).__iinpublic_collection_edit?.('settings', { remove: ['iinpublic_starter_contacts_disabled'] }), localStorage.removeItem('iinpublic_starter_contacts_disabled')));
       await page.locator('.nav-btn[data-view="talks"]').click();
@@ -136,7 +142,20 @@ test.describe('Find similar people with starter tags', () => {
       decidedAt[index] = Date.now();
       console.log(`[starter-similar] ${NAMES[index]} decided 60 tags in ${Math.round((decidedAt[index]! - decideStart) / 1000)} s`);
       console.log(`[${NAMES[index]}] liked ${LIKES[index]!.map((i) => STARTER_TAGS[i]!.text).join(', ')}`);
-    }));
+    };
+    const EARLY = NUM_USERS - LATE_USERS;
+    const early = await Promise.all(NUM_USERS_RANGE.slice(0, EARLY).map(join));
+    const earlyDecided = Promise.all(early.map(decide));
+    let lateJoinedAt = 0;
+    const late = LATE_USERS ? (async () => {
+      await new Promise((resolve) => setTimeout(resolve, LATE_MS));
+      const joined = await Promise.all(NUM_USERS_RANGE.slice(EARLY).map(join));
+      lateJoinedAt = Date.now();
+      await Promise.all(joined.map(decide));
+    })() : Promise.resolve();
+    await Promise.all([earlyDecided, late]);
+    const indexById = new Map(users.map((user) => [user.id, user.index]));
+    const indexByName = new Map(users.map((user) => [user.stageName, user.index]));
     const allDecidedAt = Math.max(...decidedAt);
 
     // ── 3. Each broadcasts their likes to their Nearby group (3 of the 5 others) ─
@@ -150,7 +169,9 @@ test.describe('Find similar people with starter tags', () => {
       }));
       console.log(`[${NAMES[index]} broadcast] to ${group.map((i) => NAMES[i]).join(', ')} → ${JSON.stringify(sent)}`);
       expect(sent.talksSent).toBeGreaterThanOrEqual(LIKES_PER_USER);
-      expect(sent.receivers).toBe(Math.min(CAPACITY, NUM_USERS - 1));
+      // Whoever is on the list now: someone two connects failed to is off it for a while (the mesh's
+      // give-up, frequent with 14 browsers on one machine). Step 4 checks what everyone received.
+      expect(sent.receivers).toBeGreaterThanOrEqual(1);
     }));
 
     // ── 4. Each collects the feedback: Contacts show the true overlap ────────
@@ -172,6 +193,7 @@ test.describe('Find similar people with starter tags', () => {
       return mine.includes(users[peerIndex]!.id) || theirs.includes(users[index]!.id);
     };
     const lastProgress: string[] = [];
+    const caughtUp: number[] = [];
     const results = await Promise.all(users.map(async ({ page, index }) => {
       const expected = new Map<string, number>();
       let rows: Array<{ peerId: string; shared: number }> = [];
@@ -188,6 +210,14 @@ test.describe('Find similar people with starter tags', () => {
             const ok = isLinked ? row.shared === want : row.shared <= want;
             parts.push(`${NAMES[indexById.get(row.peerId)!]} ${row.shared}/${want}${isLinked ? '' : '~'}${ok ? '' : '✗'}`);
             done &&= ok;
+          }
+          // A late user: when the early users' tags, sent as a catch-up, all showed.
+          if (index >= EARLY && lateJoinedAt && !caughtUp[index]) {
+            const earlyRows = rows.filter((row) => indexById.get(row.peerId)! < EARLY);
+            if (earlyRows.length === EARLY && earlyRows.every((row) => row.shared === expected.get(row.peerId))) {
+              caughtUp[index] = Date.now();
+              console.log(`[starter-similar] ${NAMES[index]} shows all ${EARLY} early users' tags ${Math.round((caughtUp[index]! - lateJoinedAt) / 1000)} s after joining`);
+            }
           }
           // Progress, when it changes (as the phone spec logs it): "~" not on either list now.
           const line = parts.join(' ');
@@ -365,7 +395,10 @@ test.describe('Find similar people with starter tags', () => {
     for (const { page, index } of users) {
       const status = await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({ name: 'graph.status' }).catch(() => null));
       const b = status?.batching;
-      if (b) console.log(`[starter-similar] ${NAMES[index]} log entries: ${b.entries} carrying ${b.items} items (avg ${(b.items / Math.max(1, b.entries)).toFixed(1)}, largest ${b.largest})`);
+      if (b) {
+        console.log(`[starter-similar] ${NAMES[index]} log entries: ${b.entries} carrying ${b.items} items (avg ${(b.items / Math.max(1, b.entries)).toFixed(1)}, largest ${b.largest})`
+          + ` · items ${JSON.stringify(b.kinds ?? {})} · entries of 1 / 2–9 / 10–63 / 64 items: ${b.sizes ? `${b.sizes.one} / ${b.sizes.few} / ${b.sizes.many} / ${b.sizes.full}` : '-'}`);
+      }
     }
 
     // ── 5. Who is most similar to whom ───────────────────────────────────────

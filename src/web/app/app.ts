@@ -6264,6 +6264,8 @@ export class IinPublicApp {
   private coreRequest: CoreRequester | null = null;
   /** Offers made in one moment go to the core as one `graph.offerMany` (step 4, 2026-11-16). */
   private offerBatcher: OfferBatcher | null = null;
+  /** Offers of one broadcast of several Talks (both hosts), one `graph.offerMany` per batch. */
+  private manyOfferBatcher: OfferBatcher | null = null;
 
   private async resolveCoreHost(nativeNode: NativeNode | null): Promise<void> {
     const worker: CoreRequester | null = this.gunService.isBridgeReady()
@@ -6287,6 +6289,11 @@ export class IinPublicApp {
     // request gains nothing and makes each caller wait for the whole batch: that delay made a taxi
     // deal's Confirm Deal miss the other side half the time (05-taxi, 2026-11-17).
     this.offerBatcher = node ? new OfferBatcher({ request: node, maxPerRequest: 20 }) : null;
+    // Several Talks offered together (a catch-up, a broadcast of many) are one `graph.offerMany` on
+    // either host: the core then writes each person's offers in as few log entries as fit, not one
+    // entry, frame and acknowledgement per Talk (stage5 late joiners, 2026-11-22).
+    const core = this.coreRequest;
+    this.manyOfferBatcher = core ? new OfferBatcher({ request: core, maxPerRequest: BATCH_MAX_ITEMS }) : null;
     console.log(`[core] device core host: ${node ? 'app node' : worker ? 'web worker' : 'none'}`);
     this.coreLocationKey = '';
     this.reportLocationToCore();
@@ -7034,6 +7041,8 @@ export class IinPublicApp {
     eligibleReceiverIds?: string[],
     /** How many people this offer actually reached (0 when everyone had it already). */
     onSent?: (sentCount: number) => void,
+    /** One of several Talks offered together: sent with the others as one `graph.offerMany`. */
+    together = false,
   ): Promise<boolean> {
     const me = this.currentUser;
     if (!me?.id || members.length === 0) return false;
@@ -7087,7 +7096,8 @@ export class IinPublicApp {
       ...(this.talkLedgerSuppressionDisabledForE2e ? { suppress: false } : {}),
       ...(this.talkSendQuotaUnlimitedForE2e ? { unlimitedForTesting: true } : {}),
     };
-    const offer = await (this.offerBatcher ? this.offerBatcher.offer(offerRequest) : this.coreRequest(offerRequest))
+    const batcher = together && this.manyOfferBatcher ? this.manyOfferBatcher : this.offerBatcher;
+    const offer = await (batcher ? batcher.offer(offerRequest) : this.coreRequest(offerRequest))
       .catch((error) => { console.warn(`[graph-link] offer of ${talkId} failed:`, error); return null; });
     if (!offer?.known) {
       // Nothing was recorded as sent (a busy core timed out, or a storage read missed): offer again
@@ -9288,6 +9298,7 @@ export class IinPublicApp {
                   receivers,
                   eligibleIds,
                   (count) => { if (count > 0) reachedTalkIds.add(tid); },
+                  talkPayloads.length > 1,
                 );
                 if (ok) registeredTalkIds.push(tid);
                 return ok;

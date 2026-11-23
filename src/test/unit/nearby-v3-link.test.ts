@@ -211,6 +211,8 @@ describe('Nearby v3 broadcast loop', () => {
     const gates: Record<string, NearbyKnockGate> = {};
     const delivered: string[] = [];
     let mostLinks = 0;
+    // Adam's clock, moved on below to let the warm links expire.
+    let skewMs = 0;
     // A person reads Adam's log once linked (OPEN-106): then the graph owes them nothing more.
     const owed = new Set(names.slice(1));
     for (const name of names) {
@@ -227,6 +229,7 @@ describe('Nearby v3 broadcast loop', () => {
           await gates[peer.userId]!.receive(await createNearbyKnock({ fromUserId: name, pair, toPub: peer.pub, card: null }));
         },
         ...(name === 'adam' ? {
+          now: () => Date.now() + skewMs,
           onNeighborConnected: (userId: string) => {
             if (!owed.delete(userId)) return;
             delivered.push(userId);
@@ -240,7 +243,9 @@ describe('Nearby v3 broadcast loop', () => {
     const list = names.slice(1).map((name) => ({ userId: name, stageName: name, pub: pairs[name]!.pub }));
     await meshes.adam!.joinRoom('nearby-v3', list, { replace: true, personal: true });
     for (const name of names.slice(1)) await meshes[name]!.joinRoom('nearby-v3', [], { replace: true, personal: true });
-    const watch = setInterval(() => { mostLinks = Math.max(mostLinks, meshes.adam!.getDiagnostics().neighborCount); }, 5);
+    // Links for a reason now: to people still owed (a delivered person's link stays warm, below).
+    const owedLinks = () => [...(meshes.adam as any).neighbors.keys()].filter((id: string) => owed.has(id)).length;
+    const watch = setInterval(() => { mostLinks = Math.max(mostLinks, owedLinks()); }, 5);
 
     meshes.adam!.setGraphOwed([...owed]);
     const deadline = Date.now() + 10_000;
@@ -251,6 +256,12 @@ describe('Nearby v3 broadcast loop', () => {
     expect([...delivered].sort()).toEqual(names.slice(1));
     expect(mostLinks).toBeLessThanOrEqual(3);
     expect(meshes.adam!.getPersonalConcurrency()).toBe(3);
+    // Delivered links stay open a while (the next like comes within seconds), then close.
+    await (meshes.adam as any).reconcileNeighbors();
+    expect(meshes.adam!.getDiagnostics().connectedNeighborCount).toBe(6);
+    skewMs = 31_000;
+    await (meshes.adam as any).reconcileNeighbors();
+    expect(meshes.adam!.getDiagnostics().neighborCount).toBe(0);
     for (const mesh of Object.values(meshes)) mesh.leaveRoom();
   }, 20_000);
 

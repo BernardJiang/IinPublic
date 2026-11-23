@@ -150,7 +150,7 @@ export type GraphTabSnapshot = {
 };
 export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown;
   /** How full my log entries are: entries written, items (offers, answers, …) in them, largest batch. */
-  batching?: { entries: number; items: number; largest: number };
+  batching?: { entries: number; items: number; largest: number; kinds: Record<string, number>; sizes: Record<string, number> };
   /** My event chain as verified on this call (REQ-GRAPH-41); absent until an identity is set. */
   chain?: { ok: boolean; checked: number; chainBreaks: number; firstBadSeq?: number; reason?: 'gap' | 'prev' | 'sig' | 'head' | 'cp';
     /** The first seq the verification walk covered: cp.seq + 1 with a checkpoint, else 0 (REQ-GRAPH-46). */

@@ -148,6 +148,10 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
   });
   /** Send counts per person for the `graph.offerMany` in progress (read once per batch). */
   let offerSendCounts: Map<string, Promise<{ today: Set<string>; week: number }>> | undefined;
+  /** `graph.offerMany` requests running (they overlap): inside one, offers return once queued (their
+   * log entries wait for the batch). A flag saved and restored per request was turned off by the
+   * first to finish while another still held its entries: that one then waited for itself. */
+  let offerManyRunning = 0;
   const execute = async (request: CoreRequest): Promise<unknown> => {
     if (fresh) {
       if (request.name === 'exchanges.snapshot') return [];
@@ -203,6 +207,7 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const counts = new Map<string, Promise<{ today: Set<string>; week: number }>>();
         const previous = offerSendCounts;
         offerSendCounts = counts;
+        offerManyRunning += 1;
         try {
           let next = 0;
           const worker = async () => {
@@ -213,9 +218,14 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
               await new Promise((resolve) => setTimeout(resolve, 0));
             }
           };
-          await Promise.all(Array.from({ length: Math.min(OFFER_MANY_CONCURRENCY, request.offers.length) }, worker));
+          // My log entries wait until all are offered: each person gets them in as few entries as fit
+          // (graph-sync `holdOut`), not one entry, frame and acknowledgement per Talk.
+          const all = () => Promise.all(Array.from({ length: Math.min(OFFER_MANY_CONCURRENCY, request.offers.length) }, worker));
+          const sync = graph.host?.sync();
+          await (sync ? sync.holdOut(all) : all());
         } finally {
           offerSendCounts = previous;
+          offerManyRunning -= 1;
         }
         return { results };
       }
@@ -279,8 +289,12 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
         const sent: string[] = [];
         const omitted: Record<string, string[]> = {};
         for (const { omit, recipients } of groups.values()) {
-          offered += await sync.offerTalk(talkId, recipients, { ...(request.context ?? {}), ...(omit.length ? { omit } : {}) });
-          await Promise.all(recipients.map((recipient) => exchange.recordOffer(recipient, talkId, current.versionId, atoms, omit)));
+          // Recorded once the offers are in the log; inside a `graph.offerMany` that is after the
+          // whole batch is queued (`offerManyRunning`), so this request does not wait for it.
+          offered += await sync.offerTalk(talkId, recipients, { ...(request.context ?? {}), ...(omit.length ? { omit } : {}) }, {
+            detach: offerManyRunning > 0,
+            afterWritten: () => Promise.all(recipients.map((recipient) => exchange.recordOffer(recipient, talkId, current.versionId, atoms, omit))),
+          });
           for (const recipient of recipients) {
             sent.push(recipient);
             if (omit.length) omitted[recipient] = omit;
