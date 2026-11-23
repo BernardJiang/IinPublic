@@ -31,14 +31,16 @@ import {
 
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 
-const NUM_USERS = Math.min(6, Number(process.env.STARTER_SIMILAR_USERS) || 6);
+// Up to 14 users (one per core of the 14-core Mac mini); 6 unless STARTER_SIMILAR_USERS says more.
+const ALL_NAMES = ['Ann', 'Ben', 'Cy', 'Dee', 'Eli', 'Fay', 'Gus', 'Hal', 'Ivy', 'Jo', 'Kim', 'Lu', 'Max', 'Ned'];
+const NUM_USERS = Math.min(ALL_NAMES.length, Number(process.env.STARTER_SIMILAR_USERS) || 6);
 const CAPACITY = 3;
 const LIKES_PER_USER = Number(process.env.STARTER_SIMILAR_LIKES) || 30;
 const SEED = Number.parseInt(process.env.STARTER_SIMILAR_SEED || '', 10) || DEFAULT_STARTER_SEED;
 const HOLD_MS = process.env.STARTER_SIMILAR_HOLD_MS !== undefined
   ? Number(process.env.STARTER_SIMILAR_HOLD_MS) || 0
   : headless ? 0 : 180_000;
-const NAMES = ['Ann', 'Ben', 'Cy', 'Dee', 'Eli', 'Fay'].slice(0, NUM_USERS);
+const NAMES = ALL_NAMES.slice(0, NUM_USERS);
 
 // ─── Test data (not app logic): tests/e2e/journeys/starter-tags-shared.ts ─────────
 
@@ -85,8 +87,8 @@ test.describe('Find similar people with starter tags', () => {
       headless,
       args: [
         ...WEBRTC_CHROMIUM_ARGS,
-        // Side by side in one row: bootstrapUser sizes each window's content to 640 × 1000.
-        `--window-position=${index * 640},0`,
+        // Side by side, six to a row (later rows overlap): bootstrapUser sizes each to 640 × 1000.
+        `--window-position=${(index % 6) * 640},${Math.floor(index / 6) * 80}`,
         '--window-size=640,1100',
         '--force-device-scale-factor=1',
       ],
@@ -358,6 +360,13 @@ test.describe('Find similar people with starter tags', () => {
       await page.locator('.nav-btn[data-view="contacts"]').click();
       return { index, known };
     }));
+
+    // How full each user's log entries were: one entry carries every item queued while the last was written.
+    for (const { page, index } of users) {
+      const status = await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({ name: 'graph.status' }).catch(() => null));
+      const b = status?.batching;
+      if (b) console.log(`[starter-similar] ${NAMES[index]} log entries: ${b.entries} carrying ${b.items} items (avg ${(b.items / Math.max(1, b.entries)).toFixed(1)}, largest ${b.largest})`);
+    }
 
     // ── 5. Who is most similar to whom ───────────────────────────────────────
     console.log('[starter-similar] true overlap (liked tags in common, of 30):');

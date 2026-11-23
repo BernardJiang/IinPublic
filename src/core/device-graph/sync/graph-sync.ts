@@ -293,6 +293,9 @@ export function createGraphSync(options: {
     });
   }
 
+  /** How full my entries are (diagnostics): entries written, items in them, the largest batch. */
+  const batching = { entries: 0, items: 0, largest: 0 };
+
   async function flushOut(peerUserId: string): Promise<void> {
     const queue = pendingOut.get(peerUserId) ?? [];
     const take: typeof queue = [];
@@ -307,6 +310,9 @@ export function createGraphSync(options: {
     if (!take.length) return;
     try {
       const n = await writeEntry(peerUserId, take.length === 1 ? take[0]!.body : { batch: take.map((item) => item.body) });
+      batching.entries += 1;
+      batching.items += take.length;
+      batching.largest = Math.max(batching.largest, take.length);
       for (const item of take) item.resolve(n);
     } catch (error) {
       for (const item of take) item.reject(error);
@@ -1261,5 +1267,6 @@ export function createGraphSync(options: {
     },
 
     openLinks: () => [...links.keys()],
+    batching: () => ({ ...batching }),
   };
 }

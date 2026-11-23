@@ -149,6 +149,8 @@ export type GraphTabSnapshot = {
   nearbyScopes: GraphNearbyScope[];
 };
 export type GraphHostStatus = { userId?: string; links: GraphLinkStatus[]; storage?: unknown;
+  /** How full my log entries are: entries written, items (offers, answers, …) in them, largest batch. */
+  batching?: { entries: number; items: number; largest: number };
   /** My event chain as verified on this call (REQ-GRAPH-41); absent until an identity is set. */
   chain?: { ok: boolean; checked: number; chainBreaks: number; firstBadSeq?: number; reason?: 'gap' | 'prev' | 'sig' | 'head' | 'cp';
     /** The first seq the verification walk covered: cp.seq + 1 with a checkpoint, else 0 (REQ-GRAPH-46). */
@@ -682,6 +684,7 @@ export function createGraphHost(options: { gun: any; store: NodeStore; graph: De
         case 'graph.status': {
           const status: GraphHostStatus = { links: sync ? await Promise.all(sync.openLinks().map((peer) => sync!.status(peer))) : [] };
           if (userId) status.userId = userId;
+          if (sync) status.batching = sync.batching();
           if (graph.budget) status.storage = await graph.budget.status();
           if (chainMe) {
             // Verify my event chain over the day index, as rebuildIndexes loads it (REQ-GRAPH-41).
