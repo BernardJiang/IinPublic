@@ -49,4 +49,17 @@ describe('conversation records', () => {
     expect(conversations.c1.lastMessage).toMatch(/^Author removed this talk/);
     expect(conversations.c2.lastMessage).toMatch(/^They deleted their answer/);
   });
+
+  it('a Talk removed while its deal is being confirmed does not withdraw that conversation (stage4/05 taxi)', () => {
+    // Adam disables his Talk once both confirmed; that can reach Alice before his confirmation does.
+    const conversations: Record<string, any> = {
+      c1: { otherUserId: 'adam', talkId: 't1', status: 'active', dealConfirmedByJson: JSON.stringify(['alice']) },
+      c2: { otherUserId: 'frank', talkId: 't2', status: 'active' },
+    };
+    expect(withdrawConversation(conversations, 'adam', 't1', Date.parse(NOW))).toBe(false);
+    expect(conversations.c1.status).toBe('active');
+    // Without a confirmation the removal withdraws it as before.
+    expect(withdrawConversation(conversations, 'frank', 't2', Date.parse(NOW))).toBe(true);
+    expect(conversations.c2.status).toBe('withdrawn');
+  });
 });

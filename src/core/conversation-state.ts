@@ -8,6 +8,17 @@ import { conversationReferencesTalk } from './retraction';
 
 type Conversations = Record<string, any>;
 
+/** Who confirmed a deal in this conversation (`dealConfirmedByJson`, or the array form). */
+function dealConfirmedBy(conversation: any): string[] {
+  if (Array.isArray(conversation?.dealConfirmedBy)) return conversation.dealConfirmedBy.map(String);
+  try {
+    const parsed = JSON.parse(String(conversation?.dealConfirmedByJson || '[]'));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 function findConversation(conversations: Conversations, otherUserId: string, talkId: string, fallback: (c: any) => boolean): string | undefined {
   return Object.keys(conversations).find((id) => conversations[id]?.otherUserId === otherUserId && conversations[id]?.talkId === talkId)
     ?? Object.keys(conversations).find((id) => fallback(conversations[id]));
@@ -28,6 +39,10 @@ export function withdrawConversation(
     ? c?.otherUserId === otherUserId && conversationReferencesTalk(c, talkId)
     : c?.talkId === talkId);
   if (!id) return false;
+  // A deal being confirmed through this match is not undone by the Talk's removal: the author
+  // disables the Talk once both confirmed, and that can arrive before their confirmation does
+  // (stage4/05 taxi: Alice's confirmed conversation with Adam turned "withdrawn", 1 run in 10).
+  if (reason === 'talk-removed' && dealConfirmedBy(conversations[id]).length > 0) return false;
   const at = new Date(retractedAt).toISOString();
   Object.assign(conversations[id], {
     status: 'withdrawn',
