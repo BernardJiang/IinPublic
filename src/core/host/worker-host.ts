@@ -151,7 +151,7 @@ function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<voi
         // OPEN-106: the device graph. A miss there is final: a false miss only rewrites identical
         // content.
         deviceGraph: {
-          nodeStore: hostDeviceGraphNodeStore(gun, { cacheInRam: false }),
+          nodeStore: hostDeviceGraphNodeStore(gun, { cacheInRam: true }),
           randomBytes: (length) => crypto.getRandomValues(new Uint8Array(length)),
           log: (message) => console.warn(message),
           // OPEN-106 step 3: direct links carry the graph through this Gun.

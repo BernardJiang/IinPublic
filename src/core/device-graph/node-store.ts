@@ -229,9 +229,8 @@ export function memoryNodeStore(): NodeStore & { souls(): string[]; writes: numb
  * The device graph's node store, the same on every host (phone node, browser worker): a miss is
  * final (node-store reads never had a cold-load grace), and only the storage under Gun differs by
  * platform (disk on a phone, IndexedDB in a browser). `cacheInRam`: a RAM copy in front of Gun's
- * storage — on for the phone node (its disk reads kept a C10 at 100 % CPU, 2026-11-21), off in the
- * browser worker (owner, 2026-11-23): there an edited Talk was read as its previous version under
- * load (e2e stage3/05b, every test:all run) and the cause was not found; IndexedDB reads are cheap.
+ * storage, on both hosts (its disk reads kept a C10 at 100 % CPU, 2026-11-21; without it the browser
+ * waited for every write's acknowledgement and starter tags took 8.7 min instead of 1.2, 2026-11-23).
  */
 export function hostDeviceGraphNodeStore(gun: any, options: { cacheInRam: boolean }): NodeStore {
   return gunNodeStore(gun, { missWaitMs: 0, cacheInRam: options.cacheInRam });
