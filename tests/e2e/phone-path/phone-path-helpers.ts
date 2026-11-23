@@ -201,10 +201,16 @@ export async function createPlace(page: Page, name: string): Promise<string> {
   });
   await clickAppBarAction(page, '#create-custom-chatroom-btn');
   await page.locator('[data-testid="custom-room-name-input"]').fill(name);
+  // A phone node can still have the creator in an earlier Place (the spec before, or a repeat):
+  // that one already looks like a Place, so only a different one is the new Place (J-PLACE-09 got
+  // the old id half the time and expected Bob to join it).
+  const before = await currentRoomId(page);
   const startedAt = Date.now();
   await page.locator('[data-testid="custom-room-submit-btn"]').click();
-  await expect.poll(() => currentRoomId(page), { timeout: ROOM_MOVE_TIMEOUT_MS, message: `creator never entered Place "${name}"` })
-    .toMatch(/^place_b[a-z2-7]+$/);
+  await expect.poll(async () => {
+    const room = await currentRoomId(page);
+    return /^place_b[a-z2-7]+$/.test(room) && room !== before;
+  }, { timeout: ROOM_MOVE_TIMEOUT_MS, message: `creator never entered Place "${name}"` }).toBe(true);
   recordTiming('create Place → creator inside', startedAt);
   return currentRoomId(page);
 }
