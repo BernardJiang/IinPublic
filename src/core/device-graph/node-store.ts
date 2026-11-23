@@ -67,37 +67,26 @@ function createRamCache(gun: any, max: number) {
   const reading = new Map<string, { count: number; written: boolean }>();
   const written = (soul: string) => { const r = reading.get(soul); if (r) r.written = true; };
   /**
-   * Values this store wrote that Gun has not reported yet, oldest first per field, with when they
-   * were written: their `put` events are ours. Gun can report an earlier write after a newer one is
-   * in the copy (05b, 2026-11-23), so a report matching any of them is ours (it and the older ones
-   * are done). Until Gun reports them — at most OWN_PENDING_MS — they are laid over what a read
-   * from Gun returns: Gun may not hold them yet. Past that a write is taken as done, so a later
-   * write by someone else is never hidden for longer.
+   * Values this store wrote that Gun has not reported yet, oldest first per field: their `put`
+   * events are ours. Gun can report an earlier write of mine after a newer one is in the copy (05b,
+   * 2026-11-23): that report matches one of them, so it is mine (it and the older ones are done) and
+   * the copy, which already holds the newer value, stays. Before, only the newest value counted as
+   * mine: the late report looked like someone else's write, dropped the copy, and the next read went
+   * to Gun before it held the newer write (an edited Talk read as its previous version). Nothing is
+   * laid over a read: a report matching none of them is someone else's and drops the copy as before
+   * (laying my pending writes over reads hid the other person's newer messages, e2e stage2/29).
    */
-  const OWN_PENDING_MS = 2_000;
-  const own = new Map<string, Map<string, Array<{ v: unknown; at: number }>>>();
+  const own = new Map<string, Map<string, unknown[]>>();
   const isOwn = (soul: string, field: string, value: unknown): boolean => {
     const fields = own.get(soul);
     const values = fields?.get(field);
     if (!fields || !values) return false;
-    const at = values.findIndex((entry) => sameValue(entry.v, value));
+    const at = values.findIndex((v) => sameValue(v, value));
     if (at < 0) return false;
     values.splice(0, at + 1);
     if (!values.length) fields.delete(field);
     if (!fields.size) own.delete(soul);
     return true;
-  };
-  /** My writes Gun has not reported yet (and not older than OWN_PENDING_MS), newest value per field. */
-  const pendingOwn = (soul: string): GraphNode | undefined => {
-    const fields = own.get(soul);
-    if (!fields?.size) return undefined;
-    const since = Date.now() - OWN_PENDING_MS;
-    const out: Record<string, unknown> = {};
-    for (const [field, values] of fields) {
-      const last = values[values.length - 1];
-      if (last && last.at >= since) out[field] = last.v;
-    }
-    return Object.keys(out).length ? out as GraphNode : undefined;
   };
   gun._?.on?.('put', function (this: any, msg: any) {
     // An answer to a read (`@` names the request: a load from disk or a peer's reply) changes
@@ -121,21 +110,14 @@ function createRamCache(gun: any, max: number) {
       if (nodes.has(soul)) touch(soul, node);
       return node ? { ...node } : null;
     },
-    /**
-     * Around a disk read: what it returns is kept only if nothing wrote the node meanwhile. My own
-     * writes Gun has not reported yet are laid over it: Gun may report an earlier write of mine after
-     * a newer one is in the copy, which drops the copy, and Gun's graph may not hold the newer one yet
-     * (05b, 2026-11-23: an edited Talk read back as its previous version, so it was "already sent").
-     */
+    /** Around a disk read: what it returns is kept only if nothing wrote the node meanwhile. */
     async read(soul: string, load: () => Promise<GraphNode | null>): Promise<GraphNode | null> {
       const r = reading.get(soul) ?? { count: 0, written: false };
       if (!r.count) r.written = false;
       r.count += 1;
       reading.set(soul, r);
       try {
-        const loaded = await load();
-        const mine = pendingOwn(soul);
-        const node = mine ? { ...(loaded ?? {}), ...mine } as GraphNode : loaded;
+        const node = await load();
         if (!r.written) touch(soul, node ? { ...node } : null);
         return node;
       } finally {
@@ -149,10 +131,9 @@ function createRamCache(gun: any, max: number) {
       // Bounded: a write Gun never reports (same value, same state) must not stay forever.
       if (!fields && own.size >= max) own.delete(own.keys().next().value as string);
       if (!fields) own.set(soul, fields = new Map());
-      const at = Date.now();
       for (const [field, v] of Object.entries(value)) {
         const values = fields.get(field) ?? [];
-        values.push({ v, at });
+        values.push(v);
         // Bounded too: writes Gun never reports (the same value again) must not pile up.
         if (values.length > 16) values.shift();
         fields.set(field, values);
@@ -245,11 +226,13 @@ export function memoryNodeStore(): NodeStore & { souls(): string[]; writes: numb
 }
 
 /**
- * The device graph's node store, the same on every host (phone node, browser worker): a RAM copy in
- * front of Gun's storage (the host's core is the one writer of its device graph; any other write
- * evicts the copy), and a miss is final (node-store reads never had a cold-load grace). Only the
- * storage under Gun differs by platform (disk on a phone, IndexedDB in a browser).
+ * The device graph's node store, the same on every host (phone node, browser worker): a miss is
+ * final (node-store reads never had a cold-load grace), and only the storage under Gun differs by
+ * platform (disk on a phone, IndexedDB in a browser). `cacheInRam`: a RAM copy in front of Gun's
+ * storage — on for the phone node (its disk reads kept a C10 at 100 % CPU, 2026-11-21), off in the
+ * browser worker (owner, 2026-11-23): there an edited Talk was read as its previous version under
+ * load (e2e stage3/05b, every test:all run) and the cause was not found; IndexedDB reads are cheap.
  */
-export function hostDeviceGraphNodeStore(gun: any): NodeStore {
-  return gunNodeStore(gun, { missWaitMs: 0, cacheInRam: true });
+export function hostDeviceGraphNodeStore(gun: any, options: { cacheInRam: boolean }): NodeStore {
+  return gunNodeStore(gun, { missWaitMs: 0, cacheInRam: options.cacheInRam });
 }

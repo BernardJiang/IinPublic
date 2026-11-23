@@ -77,7 +77,7 @@ export function registerCoreRoutes(app: express.Application, gun: unknown, token
   const radata = path.join(dataDir, 'radata');
   const deviceGraph = () => ({
     // The same node store as the browser worker's (RAM copy in front of the disk).
-    nodeStore: hostDeviceGraphNodeStore(gun),
+    nodeStore: hostDeviceGraphNodeStore(gun, { cacheInRam: true }),
     randomBytes,
     log: (message: string) => console.warn(message),
     // OPEN-106 step 3: direct links carry the graph through this Gun.

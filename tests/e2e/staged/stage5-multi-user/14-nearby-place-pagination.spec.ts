@@ -201,12 +201,11 @@ class TalkExchanges {
 
     // Every person on the page receives the tag and likes it.
     await Promise.all(recipients.map(async (person) => {
-      let talkId = '';
-      await expect.poll(async () => {
-        talkId = (await incomingTalks(person.page)).find((entry) => entry.title === title)?.talkId ?? '';
-        return talkId;
-      }, { timeout: 120_000, intervals: [1_000, 2_000], message: `${person.name} should receive ${title}` }).not.toBe('');
-      expect(talkId).toBe(talk.talkId);
+      // From the author (the row may also hold a liker's public copy of the same tag, and then name
+      // that copy as its latest Talk): open the author's own Talk.
+      await expect.poll(async () => (await incomingTalks(person.page)).find((entry) => entry.title === title)?.senders.includes(this.author.userId) ?? false,
+        { timeout: 120_000, intervals: [1_000, 2_000], message: `${person.name} should receive ${title} from its author` }).toBe(true);
+      const talkId = talk.talkId;
       const talkData = await person.page.evaluate((id) =>
         (window as any).__iinpublic_app?.getApp?.()?.talkService?.getTalkWithRetry?.(id, { attempts: 30, gapMs: 250 }) ?? null, talkId);
       expect(talkData, `${person.name} should open ${title}`).toBeTruthy();
