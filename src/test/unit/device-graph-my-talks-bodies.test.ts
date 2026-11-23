@@ -34,6 +34,22 @@ function setup() {
 }
 
 describe('my Talks read from the device graph (my-talks-bodies)', () => {
+  it('an entry being written is read back whole before storage confirms it (release smoke 07)', async () => {
+    const d = setup();
+    const id = await d.graph.ids.next(Date.parse('2026-11-04T09:00:00.000Z'));
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => { release = resolve; });
+    const upsert = d.collections.upsert.bind(d.collections);
+    (d.collections as any).upsert = async (...args: Parameters<typeof upsert>) => { await slow; return upsert(...args); };
+    const saved = d.entry(id);
+    const writing = d.bodies.upsert({ [id]: saved });
+    expect(await d.bodies.get(id)).toEqual(saved);
+    release();
+    await writing;
+    await d.bodies.idle();
+    expect(await d.bodies.get(id)).toMatchObject({ talkId: id, fullTalk: { title: 'Tennis partner' } });
+  });
+
   it('stores a created Talk once and gives it back exactly as saved', async () => {
     const d = setup();
     const id = await d.graph.ids.next(Date.parse('2026-11-04T09:00:00.000Z'));

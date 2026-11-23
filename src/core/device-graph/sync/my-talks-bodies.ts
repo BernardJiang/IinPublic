@@ -33,6 +33,8 @@ export function createMyTalksBodies(options: { collections: CollectionStore; gra
   const { collections, graph, ownTalks } = options;
   // Bumped on every app write of an entry: a body is taken out only if none came after.
   const generation = new Map<string, number>();
+  /** Entries whose write is not confirmed yet (whole, as the app sent them), by generation. */
+  const writing = new Map<string, { entry: unknown; at: number }>();
   const pending = new Set<Promise<unknown>>();
   const counts: MyTalksBodiesStatus = { stripped: 0, kept: 0, unreadable: 0 };
 
@@ -96,7 +98,15 @@ export function createMyTalksBodies(options: { collections: CollectionStore; gra
         generation.set(key, next);
         at.set(key, next);
       }
-      const written = await collections.upsert(COLLECTION, entries);
+      // Until storage confirms the write, a read of these entries gets them from here: on a phone the
+      // confirmation is slow, and a read of the Talk just created found it nowhere (release smoke 07).
+      for (const [key, entry] of Object.entries(entries)) writing.set(key, { entry, at: at.get(key)! });
+      let written: number;
+      try {
+        written = await collections.upsert(COLLECTION, entries);
+      } finally {
+        for (const key of Object.keys(entries)) if (writing.get(key)?.at === at.get(key)) writing.delete(key);
+      }
       for (const [key, entry] of Object.entries(entries) as Array<[string, any]>) {
         if (entry?.role !== 'created' || !entry.fullTalk || !Array.isArray(entry.fullTalk.questions)) continue;
         track(settle(key, entry, at.get(key)!));
@@ -119,6 +129,8 @@ export function createMyTalksBodies(options: { collections: CollectionStore; gra
     },
 
     async get(key: string): Promise<unknown> {
+      const inFlight = writing.get(key);
+      if (inFlight) return inFlight.entry;
       return rebuild(key, await collections.get(COLLECTION, key));
     },
 
