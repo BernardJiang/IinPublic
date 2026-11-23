@@ -24,6 +24,7 @@ import { headless } from '../../helpers/timing';
 import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { webAppURLStableChatroom } from '../../helpers/ports';
+import { createTagTalkViaEditor } from '../../helpers/talk-demo-ui';
 import {
   DEFAULT_STARTER_SEED, STARTER_TAGS, backToContactsList, captureStarterTabs, decideStarterTags, overlapOf, pickLikes,
   sharedTagRows, unansweredStarterChips,
@@ -414,6 +415,116 @@ test.describe('Find similar people with starter tags', () => {
       console.log(`[${NAMES[index]}] Contacts by tags in common: ${list} · most similar overall: ${bestAll} (${best})`);
     }
 
+    // ── 5b. Each creates a new tag of their own; the others like or pass it at random ─
+    // The starter exchange is done, so each person already has everyone's 30 likes: publishing
+    // offers all of a user's Talks again, and only the new tag may go out (a person met before
+    // gets only what is new; nothing new, nothing sent). Each tag is its own Talk.
+    // Per user: tags liked in step 5b besides the starter likes (their own new tag and the ones liked).
+    const extraLiked: number[] = NUM_USERS_RANGE.map(() => 0);
+    // Only when every list holds everyone (STARTER_SIMILAR_CAPACITY ≥ users − 1): each new tag must
+    // reach all the others. The default run (6 users, C = 3) skips it.
+    if (CAPACITY >= NUM_USERS - 1 && process.env.STARTER_SIMILAR_NEW_TAGS !== '0') {
+      const NEW_TAGS = ['Pottery', 'Chess', 'Surfing', 'Yoga', 'Karaoke', 'Origami', 'Gardening', 'Climbing', 'Sailing', 'Poetry', 'Juggling', 'Skating', 'Birdwatching', 'Archery'];
+      // i likes the new tag of j (each likes their own), seeded: about half.
+      const likesNew = (i: number, j: number): boolean =>
+        i === j || ((Math.imul((SEED ^ Math.imul(i + 1, 73856093) ^ Math.imul(j + 1, 19349663)) >>> 0, 2654435761) >>> 16) & 1) === 0;
+      // A liked copy of a person's own tag stays private (OPEN-112; only starter tags are shared on), so
+      // two people who both like a third one's tag never exchange it: what counts between i and j is
+      // i's tag if j liked it, and j's tag if i liked it.
+      const newOverlap = (i: number, j: number): number => (likesNew(j, i) ? 1 : 0) + (likesNew(i, j) ? 1 : 0);
+      const expectedAll = (i: number, j: number): number => overlap(i, j) + newOverlap(i, j);
+      const batchingOf = (page: Page) => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({ name: 'graph.status' })
+        .then((status: any) => status?.batching ?? null).catch(() => null));
+      const before = await Promise.all(users.map(({ page }) => batchingOf(page)));
+      const newTagPattern = new RegExp(`(?<![\\w-])(${NEW_TAGS.slice(0, NUM_USERS).join('|')})(?![\\w-])`);
+
+      await Promise.all(users.map(async ({ page, index }) => {
+        await createTagTalkViaEditor(page, { title: NEW_TAGS[index]!, timeoutMs: 60_000 });
+        const sent = await page.evaluate(() => (window as any).__iinpublic_app.getApp().deliverPendingBroadcastTalksForE2e(1, { skipAudiencePreview: true }));
+        console.log(`[${NAMES[index]} new tag] ${NEW_TAGS[index]} published → ${JSON.stringify(sent)}`);
+      }));
+      const publishedAt = Date.now();
+
+      // Each decides every other person's new tag, top-down one at a time once all have arrived (a
+      // tap also passes the undecided tags above it, so nothing undecided may be above).
+      const newChips = (page: Page) => page.locator('#talks-list .talk-tag-chip[data-role="incoming"]:not([data-decided])').filter({ hasText: newTagPattern });
+      const roleOf = (page: Page, keyword: string) => page.evaluate((text) => {
+        const entry = Object.values<any>((window as any).__iinpublic_collection?.('myTalks') ?? {})
+          .find((e) => e?.fullTalk?.type === 'tag' && e?.fullTalk?.questions?.[0]?.text === text);
+        return String(entry?.role || '');
+      }, keyword);
+      const newDecidedAt: number[] = [];
+      await Promise.all(users.map(async ({ page, index }) => {
+        await page.locator('.nav-btn[data-view="talks"]').click();
+        await expect.poll(async () => {
+          await page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.uiManager?.displayTalksList?.());
+          const texts = await newChips(page).allTextContents();
+          return new Set(texts.map((text) => text.match(newTagPattern)?.[1]).filter(Boolean)).size;
+        }, { timeout: 180_000, intervals: [2_000], message: `${NAMES[index]} received every new tag` }).toBe(NUM_USERS - 1);
+        console.log(`[starter-similar] ${NAMES[index]} has all ${NUM_USERS - 1} new tags ${Math.round((Date.now() - publishedAt) / 1000)} s after publishing`);
+        for (let guard = 0; guard < NUM_USERS * 3; guard++) {
+          const top = await page.evaluate((source) => {
+            const pattern = new RegExp(source);
+            const chip = Array.from(document.querySelectorAll<HTMLElement>('#talks-list .talk-tag-chip[data-role="incoming"]:not([data-decided])'))
+              .find((element) => pattern.test(element.textContent || ''));
+            return chip ? { id: chip.dataset.talkId || '', keyword: (chip.textContent || '').match(pattern)?.[1] || '' } : null;
+          }, newTagPattern.source);
+          if (!top) break;
+          const owner = NEW_TAGS.indexOf(top.keyword);
+          if (likesNew(index, owner)) {
+            await page.locator(`#talks-list .talk-tag-chip[data-role="incoming"][data-talk-id="${top.id}"]`).first().click();
+            await expect.poll(() => roleOf(page, top.keyword), { timeout: 15_000 }).toBe('copied');
+          } else {
+            await page.evaluate((id) => {
+              const chip = document.querySelector<HTMLElement>(`#talks-list .talk-tag-chip[data-role="incoming"][data-talk-id="${id}"]`);
+              chip?.focus();
+              chip?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+            }, top.id);
+            await expect.poll(() => roleOf(page, top.keyword), { timeout: 15_000 }).toBe('ignored');
+          }
+        }
+        newDecidedAt[index] = Date.now();
+        extraLiked[index] = 1 + NUM_USERS_RANGE.filter((j) => j !== index && likesNew(index, j)).length;
+        const liked = NUM_USERS_RANGE.filter((j) => j !== index && likesNew(index, j)).map((j) => NEW_TAGS[j]);
+        console.log(`[${NAMES[index]}] liked new tags ${liked.join(', ') || '(none)'}`);
+      }));
+      const allNewDecidedAt = Math.max(...newDecidedAt);
+
+      // Contacts count every tag in common now: the starter overlap plus the new tags both like.
+      const progress: string[] = [];
+      await Promise.all(users.map(async ({ page, index }) => {
+        await expect.poll(async () => {
+          const rows = (await sharedTagRows(page)).filter((row) => indexById.has(row.peerId));
+          const parts = rows.map((row) => {
+            const want = expectedAll(index, indexById.get(row.peerId)!);
+            return `${NAMES[indexById.get(row.peerId)!]} ${row.shared}/${want}${row.shared === want ? '' : '✗'}`;
+          });
+          const done = rows.length >= NUM_USERS - 1 && !parts.some((part) => part.endsWith('✗'));
+          const line = parts.join(' ');
+          if (line !== progress[index]) {
+            progress[index] = line;
+            console.log(`[starter-similar] ${NAMES[index]} new tags +${Math.round((Date.now() - allNewDecidedAt) / 1000)} s: ${line}${done ? ' ✓' : ''}`);
+          }
+          return done;
+        }, { timeout: 300_000, intervals: [5_000], message: `${NAMES[index]}: Contacts count the new tags in common` }).toBe(true);
+        console.log(`[starter-similar] ${NAMES[index]} new tags settled ${Math.round((Date.now() - allNewDecidedAt) / 1000)} s after the last user decided`);
+      }));
+
+      // What went out for the new tags: my tag to the 13 others and my answers (liked copies stay
+      // private). A starter tag offered again would show as more offers than that.
+      for (const { page, index } of users) {
+        const after = await batchingOf(page);
+        const was = before[index];
+        if (!after || !was) continue;
+        const offers = (after.kinds?.offer ?? 0) - (was.kinds?.offer ?? 0);
+        const answers = (after.kinds?.answer ?? 0) - (was.kinds?.answer ?? 0);
+        const likedCount = NUM_USERS_RANGE.filter((j) => j !== index && likesNew(index, j)).length;
+        console.log(`[starter-similar] ${NAMES[index]} new-tag phase: ${after.entries - was.entries} entries carrying ${after.items - was.items} items`
+          + ` (offers ${offers}, answers ${answers}; liked ${likedCount} new tags)`);
+        expect(offers, `${NAMES[index]} offered only new Talks`).toBeLessThanOrEqual(NUM_USERS - 1);
+      }
+    }
+
     // ── 6. Each opens their most similar person, marks them a Friend, and messages them ─
     const MESSAGE = 'we share lots of interests.';
     const picks = new Map(results.map(({ index, known }) => [index, known[0]!.peerId]));
@@ -454,10 +565,11 @@ test.describe('Find similar people with starter tags', () => {
       const knownPeers = new Set(results.find((result) => result.index === index)!.known.map((row) => row.peerId));
       await page.locator('.nav-btn[data-view="me"]').click();
       const visibleTags = page.locator('#answers-list .answer-talk-item[data-tag-state]:visible');
-      // Passed tags are hidden by default: the 30 liked ones show, each with ♡.
-      await expect(page.locator('#answers-list .answer-talk-item[data-tag-state="checked"]:visible')).toHaveCount(LIKES_PER_USER, { timeout: 20_000 });
+      // Passed tags are hidden by default: the liked ones show (30 starters, plus step 5b's), each with ♡.
+      const likedCount = LIKES_PER_USER + extraLiked[index]!;
+      await expect(page.locator('#answers-list .answer-talk-item[data-tag-state="checked"]:visible')).toHaveCount(likedCount, { timeout: 20_000 });
       await expect(page.locator('#answers-list .answer-talk-item[data-tag-state="unchecked"]:visible')).toHaveCount(0);
-      expect(await visibleTags.locator('[data-testid="answer-tag-mark"]').allTextContents()).toEqual(Array(LIKES_PER_USER).fill('♡'));
+      expect(await visibleTags.locator('[data-testid="answer-tag-mark"]').allTextContents()).toEqual(Array(likedCount).fill('♡'));
       // The liked tag shared with the most people I know: its row lists exactly them.
       const best = LIKES[index]!
         .map((tagIndex) => ({ tagIndex, likers: users.filter((other) => knownPeers.has(other.id) && LIKES[other.index]!.includes(tagIndex)) }))
