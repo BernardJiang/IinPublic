@@ -260,7 +260,10 @@ describe('Nearby v3 broadcast loop', () => {
     await (meshes.adam as any).reconcileNeighbors();
     expect(meshes.adam!.getDiagnostics().connectedNeighborCount).toBe(6);
     skewMs = 31_000;
-    await (meshes.adam as any).reconcileNeighbors();
+    // The last delivery's "owed nothing" lands a tick after its connect: reconcile until it has.
+    const closeBy = Date.now() + 5_000;
+    do await (meshes.adam as any).reconcileNeighbors();
+    while (meshes.adam!.getDiagnostics().neighborCount > 0 && Date.now() < closeBy && await new Promise((resolve) => setTimeout(resolve, 50, true)));
     expect(meshes.adam!.getDiagnostics().neighborCount).toBe(0);
     for (const mesh of Object.values(meshes)) mesh.leaveRoom();
   }, 20_000);

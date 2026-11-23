@@ -267,7 +267,7 @@ describe('starter tags have no sender (OPEN-87)', () => {
     expect(getMyTalks()[starter.id]?.senders).toEqual(['person-1']);
   });
 
-  it('a liked starter tag is my own interest and public, also a person\'s copy of one; another liked tag from a person starts private (OPEN-112)', () => {
+  it('a liked tag is public, a starter tag or a person\'s; a liked copy of another kind of Talk starts private (owner 2026-11-23, OPEN-112)', () => {
     const starter = starterTagTalk(starterTagsFor('en')[0]!);
     const like = [{ questionId: 'q_0', answerId: 'q_0_match', answerText: 'Match.' }];
     completeTalk(starter, like, 'match', { forceCopyToMyTalks: true }, deps());
@@ -286,6 +286,11 @@ describe('starter tags have no sender (OPEN-87)', () => {
       questions: [{ ...fromPerson.questions[0], text: word, answers: fromPerson.questions[0].answers.map((a: any) => (a.isMatch ? { ...a, text: word } : a)) }],
     };
     completeTalk(personTag, like, 'match', { forceCopyToMyTalks: true }, deps());
-    expect(getMyTalks()['person-tag']).toMatchObject({ role: 'copied', disabled: true });
+    // Tags are all public (owner, 2026-11-23): a person's own tag, liked, is my public copy.
+    expect(getMyTalks()['person-tag']).toMatchObject({ role: 'copied', disabled: false });
+
+    const flow = { ...personTag, id: 'person-flow', type: 'flow' };
+    completeTalk(flow, like, 'match', { forceCopyToMyTalks: true }, deps());
+    expect(getMyTalks()['person-flow']).toMatchObject({ role: 'copied', disabled: true });
   });
 });

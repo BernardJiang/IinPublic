@@ -428,10 +428,9 @@ test.describe('Find similar people with starter tags', () => {
       // i likes the new tag of j (each likes their own), seeded: about half.
       const likesNew = (i: number, j: number): boolean =>
         i === j || ((Math.imul((SEED ^ Math.imul(i + 1, 73856093) ^ Math.imul(j + 1, 19349663)) >>> 0, 2654435761) >>> 16) & 1) === 0;
-      // A liked copy of a person's own tag stays private (OPEN-112; only starter tags are shared on), so
-      // two people who both like a third one's tag never exchange it: what counts between i and j is
-      // i's tag if j liked it, and j's tag if i liked it.
-      const newOverlap = (i: number, j: number): number => (likesNew(j, i) ? 1 : 0) + (likesNew(i, j) ? 1 : 0);
+      // Tags are all public (owner, 2026-11-23): a liked tag is the liker's public copy, so two people
+      // who both like a third one's tag exchange their copies too. Every new tag both like counts.
+      const newOverlap = (i: number, j: number): number => NUM_USERS_RANGE.filter((t) => likesNew(i, t) && likesNew(j, t)).length;
       const expectedAll = (i: number, j: number): number => overlap(i, j) + newOverlap(i, j);
       const batchingOf = (page: Page) => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.coreRequest?.({ name: 'graph.status' })
         .then((status: any) => status?.batching ?? null).catch(() => null));
@@ -467,21 +466,20 @@ test.describe('Find similar people with starter tags', () => {
             const pattern = new RegExp(source);
             const chip = Array.from(document.querySelectorAll<HTMLElement>('#talks-list .talk-tag-chip[data-role="incoming"]:not([data-decided])'))
               .find((element) => pattern.test(element.textContent || ''));
-            return chip ? { id: chip.dataset.talkId || '', keyword: (chip.textContent || '').match(pattern)?.[1] || '' } : null;
+            return chip ? { identity: chip.dataset.identityKey || '', keyword: (chip.textContent || '').match(pattern)?.[1] || '' } : null;
           }, newTagPattern.source);
           if (!top) break;
           const owner = NEW_TAGS.indexOf(top.keyword);
-          if (likesNew(index, owner)) {
-            await page.locator(`#talks-list .talk-tag-chip[data-role="incoming"][data-talk-id="${top.id}"]`).first().click();
-            await expect.poll(() => roleOf(page, top.keyword), { timeout: 15_000 }).toBe('copied');
-          } else {
-            await page.evaluate((id) => {
-              const chip = document.querySelector<HTMLElement>(`#talks-list .talk-tag-chip[data-role="incoming"][data-talk-id="${id}"]`);
-              chip?.focus();
-              chip?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
-            }, top.id);
-            await expect.poll(() => roleOf(page, top.keyword), { timeout: 15_000 }).toBe('ignored');
-          }
+          const like = likesNew(index, owner);
+          // Found and decided in one step, by its identity (the row's Talk id changes as other
+          // people's public copies of the same tag merge into it, redrawing the row): Enter likes
+          // (as a tap), Delete passes.
+          await page.evaluate(({ identity, key }) => {
+            const chip = document.querySelector<HTMLElement>(`#talks-list .talk-tag-chip[data-role="incoming"][data-identity-key="${identity}"]`);
+            chip?.focus();
+            chip?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+          }, { identity: top.identity, key: like ? 'Enter' : 'Delete' });
+          await expect.poll(() => roleOf(page, top.keyword), { timeout: 15_000 }).toBe(like ? 'copied' : 'ignored');
         }
         newDecidedAt[index] = Date.now();
         extraLiked[index] = 1 + NUM_USERS_RANGE.filter((j) => j !== index && likesNew(index, j)).length;
@@ -510,8 +508,8 @@ test.describe('Find similar people with starter tags', () => {
         console.log(`[starter-similar] ${NAMES[index]} new tags settled ${Math.round((Date.now() - allNewDecidedAt) / 1000)} s after the last user decided`);
       }));
 
-      // What went out for the new tags: my tag to the 13 others and my answers (liked copies stay
-      // private). A starter tag offered again would show as more offers than that.
+      // What went out for the new tags: my tag to the 13 others, my public copy of each new tag I liked
+      // (to the others but its author), my answers. A starter tag offered again would show as more.
       for (const { page, index } of users) {
         const after = await batchingOf(page);
         const was = before[index];
@@ -521,7 +519,7 @@ test.describe('Find similar people with starter tags', () => {
         const likedCount = NUM_USERS_RANGE.filter((j) => j !== index && likesNew(index, j)).length;
         console.log(`[starter-similar] ${NAMES[index]} new-tag phase: ${after.entries - was.entries} entries carrying ${after.items - was.items} items`
           + ` (offers ${offers}, answers ${answers}; liked ${likedCount} new tags)`);
-        expect(offers, `${NAMES[index]} offered only new Talks`).toBeLessThanOrEqual(NUM_USERS - 1);
+        expect(offers, `${NAMES[index]} offered only new Talks`).toBeLessThanOrEqual((NUM_USERS - 1) + likedCount * (NUM_USERS - 2));
       }
     }
 

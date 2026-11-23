@@ -12,9 +12,15 @@ export function ignoreAnswersFor(fullTalk: any): Array<{ questionId: string; ans
   return question ? [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore', mode: 'manual' }] : [];
 }
 
+/** A tag Talk (a set of tags, each its own Talk). Tags are all public (owner, 2026-11-23). */
+export function isTagTalk(talk: any): boolean {
+  return String(talk?.type || '').toLowerCase() === 'tag';
+}
+
 /**
- * A received Talk copied into my own list, without answering it; its senders come along. A copy
- * stays as received — private (Broadcast Off) — until I switch it on (owner, 2026-11-13, OPEN-112).
+ * A received Talk copied into my own list, without answering it; its senders come along. A copied
+ * tag is public (tags are all public, owner 2026-11-23); any other copy stays as received —
+ * private (Broadcast Off) — until I switch it on (owner, 2026-11-13, OPEN-112).
  */
 export function copiedTalkEntry(fullTalk: any, talkId: string, cluster: any, nowIso: string): Entry {
   const senders = cluster?.senders && typeof cluster.senders === 'object'
@@ -26,7 +32,7 @@ export function copiedTalkEntry(fullTalk: any, talkId: string, cluster: any, now
     type: fullTalk.type,
     timestamp: nowIso,
     role: 'copied',
-    disabled: true,
+    disabled: !isTagTalk(fullTalk),
     fullTalk,
     ...(senders && senders.length > 0 ? { senders } : {}),
   };

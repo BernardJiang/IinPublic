@@ -1,4 +1,5 @@
 import { computeTalkIdFromTalkData } from '../../shared/cid';
+import { isTagTalk } from '../../core/my-talk-rules';
 import { isStarterTagContent, isStarterTagTalk, STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { answeredTalkIdsByContent, getAnsweredTalkId } from './answered-talks';
 import { deleteFlatAnswerHistoryForTalk, getTalkContentKey, saveFlatAnswerHistoryRecord } from './answer-history-storage';
@@ -109,11 +110,12 @@ export function completeTalk(
     // docs/TODO.md §Y1: auto-copy on completion is still just a copy — original authorship
     // is preserved either way until a real edit happens.
     fullTalk: existingTalkId && myTalks[existingTalkId]?.fullTalk ? myTalks[existingTalkId].fullTalk : talk,
-    // A new copy of someone's Talk stays as received — private — until I switch it on (owner,
-    // 2026-11-13, OPEN-112); an existing copy keeps my choice. A liked starter tag is no one's Talk:
-    // it is my own interest and public (OPEN-87), also a person's copy of one (`isStarterTagContent`). Other roles keep whatever they had.
+    // Tags are all public (owner, 2026-11-23): a liked tag, a starter one or a person's, is my own
+    // copy and public — my decision is mine to show. (A passed one stays on this device.) A new copy
+    // of another kind of Talk stays as received — private — until I switch it on (OPEN-112); an
+    // existing copy keeps my choice. Other roles keep whatever they had.
     ...(role === 'copied'
-      ? { disabled: existingEntry?.role === 'copied' ? !!existingEntry.disabled : !isStarterTagContent(talk) }
+      ? { disabled: isTagTalk(talk) || isStarterTagContent(talk) ? false : existingEntry?.role === 'copied' ? !!existingEntry.disabled : true }
       : {}),
     completedAnswers,
     outcome: outcome ?? existingEntry?.outcome ?? 'mismatch',
