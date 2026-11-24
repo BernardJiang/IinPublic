@@ -34,19 +34,21 @@ describe('app download manifest', () => {
       mac: '/downloads/IinPublic-1.0.7-arm64.dmg',
       windows: '/downloads/IinPublic%20Setup%201.0.7.exe',
       linux: '/downloads/IinPublic-1.0.7.AppImage',
-      android: null, // forced "Coming soon" — Play Store is the primary Android channel, see below
+      android: '/downloads/IinPublic-1.0.7.apk',
       ios: null,
     });
   });
 
-  it('always reports android as unavailable ("Coming soon") even with a real staged APK or a configured URL — Play Store is the primary channel for the release', () => {
-    fs.writeFileSync(path.join(downloadsDir, 'IinPublic-1.0.9.apk'), 'fixture');
-    expect(buildDownloadManifest(downloadsDir, {}, '1.0.9')).toMatchObject({ android: null });
+  it('offers the release APK beside the Play .aab (owner, 2026-11-24)', () => {
+    fs.writeFileSync(path.join(downloadsDir, 'IinPublic-1.0.9-android.apk'), 'fixture');
+    expect(buildDownloadManifest(downloadsDir, {}, '1.0.9')).toMatchObject({
+      android: '/downloads/IinPublic-1.0.9-android.apk',
+    });
     expect(
       buildDownloadManifest(downloadsDir, {
         IINPUBLIC_DOWNLOAD_ANDROID_URL: 'https://downloads.example/{version}/IinPublic.apk',
       }, '1.0.9'),
-    ).toMatchObject({ android: null });
+    ).toMatchObject({ android: 'https://downloads.example/1.0.9/IinPublic.apk' });
   });
 
   it('does not fall back to an installer from an older release', () => {

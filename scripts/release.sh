@@ -186,7 +186,7 @@ for _ in $(seq 1 30); do
   sleep 4
 done
 [ "$ok" = 1 ] || die "$SITE_URL/api/downloads does not report $VERSION (last: ${body:-none})"
-echo "$body" | grep -q "android" || echo "[release] warning: /api/downloads lists no android file"
+echo "$body" | grep -q "\"android\":\"[^\"]*$VERSION[^\"]*\.apk\"" || die "/api/downloads does not offer the $VERSION APK (last: $body)"
 ssh "$VPS_HOST" "systemctl is-active iinpublic" >/dev/null || die "iinpublic service not active"
 
 END=$(date +%s)

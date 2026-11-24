@@ -222,16 +222,12 @@ device installed from — a sideloaded user and a Play Store user find and
 talk to each other exactly like any other two devices. The channel only
 affects how one phone installs the app, never who it can reach afterward.
 
-**Decision: Play Store becomes the one primary Android channel.** The
-website's `/downloads` page keeps offering the `.apk`, but only as a
-secondary "direct install" option (testers, anyone who can't use Play) —
-not the path ordinary users are steered toward. Revisit this default if
-Play rejection/review risk, F-Droid-style distribution, or a real
-sideload-only user base ever makes a second first-class channel worth the
-cost below. Not yet implemented: no copy change has been made to the
-`/downloads` page or its banners to actually reflect "Play is primary" —
-this section records the decision; the messaging update is a separate,
-still-open task.
+**Decision (owner, 2026-11-24): every release ships both.** `npm run release` uploads the
+signed `.apk` to the VPS's `public/downloads/` and `/api/downloads` offers it in the same release
+as the `.aab` goes to Play Console (by hand); step 9 fails if the APK is not offered. This replaces
+the 2026-09-28 decision that forced `android: null` (Play only). The two installs still cannot
+replace each other on one phone (different signing certificates, above); backup plans A and B
+below remain the ways out of that.
 
 **Backup plan A — separate `applicationId` for the sideload build**, if
 true side-by-side coexistence on one device is ever wanted (e.g.
