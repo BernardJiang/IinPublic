@@ -31,6 +31,10 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <!-- The Wi-Fi permissions above make Play treat Wi-Fi as required, which hides the app from
+         devices without it (Play pre-review warning, 1.0.285). Wi-Fi Direct is an optional mesh path. -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
 
     <application
         android:allowBackup="false"
