@@ -91,6 +91,35 @@ describe('syncAppBarOverflow', () => {
   });
 });
 
+describe('syncAppBarOverflow — owner rules 2026-11-24 (OPEN-118)', () => {
+  const inlineIds = () => Array.from(document.querySelectorAll('#app-bar-actions .app-bar-action-btn')).map((el) => el.getAttribute('data-testid'));
+  const panelIds = () => Array.from(document.querySelectorAll('#app-bar-overflow-panel .app-bar-action-btn')).map((el) => el.getAttribute('data-testid'));
+
+  it('a menu-only action (ℹ️ legend) always sits under ⋯, even when everything fits', () => {
+    renderFixture(2);
+    const legend = document.createElement('button');
+    legend.className = 'app-bar-action-btn';
+    legend.dataset.appbarPriority = '6';
+    legend.dataset.appbarMenuOnly = '1';
+    legend.dataset.testid = 'legend';
+    document.getElementById('app-bar-actions')!.appendChild(legend);
+    setWidth(document.getElementById('top-header')!, 1000);
+    syncAppBarOverflow();
+    expect(inlineIds()).toEqual(['btn-1', 'btn-2']);
+    expect(panelIds()).toEqual(['legend']);
+    expect((document.getElementById('app-bar-overflow-menu') as HTMLElement).style.display).toBe('flex');
+  });
+
+  it('keeps the most important action inline even when the middle needs all the room', () => {
+    renderFixture(3);
+    // 200 - 40 - 150 - 30 - 40 = -60 available: nothing fits, yet btn-1 stays.
+    setWidth(document.getElementById('top-header')!, 200);
+    syncAppBarOverflow();
+    expect(inlineIds()).toEqual(['btn-1']);
+    expect(panelIds()).toEqual(['btn-2', 'btn-3']);
+  });
+});
+
 describe('setupAppBarChrome', () => {
   function renderChromeFixture(): void {
     document.body.innerHTML = `

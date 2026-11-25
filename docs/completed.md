@@ -2,6 +2,23 @@
 
 Last updated: 2026-11-24
 
+## 2026-11-24 — OPEN-118 phone AppBar headcount whole; ℹ️ always under ⋯
+
+- At 390 px the Me AppBar showed "1. My answers" and Talks "0 nearby · 1 …". Causes in
+  `syncAppBarOverflow` (`app-bar-overflow.ts`): it measured the headcount after CSS had shrunk it
+  (scrollWidth 11 px), so it kept buttons inline; it left out the fixed ✉️ inbox button; it ran only
+  on resize and tab switches, before the headcount arrived. Now it measures natural widths (flex
+  rows summed), counts the fixed buttons, reflows when the middle's text or a Back button changes
+  (MutationObserver, once per frame), gives the middle up to 70% on bars under 480 px, and drops the
+  empty Back slot there.
+- Owner rules (2026-11-24): on a phone the full headcount wins over buttons, but the most important
+  action stays inline (Map on Nearby, ➕ on Talks); ℹ️ "What the icons mean" always sits under ⋯
+  (`data-appbar-menu-only`). Unit tests in `app-bar-overflow.test.ts`; stage1 52 updated to these
+  rules (headcount drawn whole at 390/320), 53 opens ⋯ for List at 360. stage1 00/50/52/53/59 and
+  cross-platform x4 pass (26/26). Left as is: Me at 390 keeps 🎚️ inline beside "My answers", so
+  its headcount shows "0 nearby · 1 on…"; Settings at 390 had and has no room for the headcount
+  beside "Feature and filter controls".
+
 ## 2026-11-24 — OPEN-111 (a) waiting offer re-checked; OPEN-112 (b) audience dialog removed
 
 - **OPEN-111 (a):** an offer that came back `waiting` (no keys yet) after the person's link had

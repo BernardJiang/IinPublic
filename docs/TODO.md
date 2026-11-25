@@ -36,7 +36,7 @@ its ID.
   fails a rotating 1–3 cases that pass alone (`82-tag-graph-tour`, `14-contacts-relationship`,
   taxi 05 most often), so every release currently needs a manual "load flakes only" judgement
   (OPEN-117). 1.0.285 phone smoke passed on FRD + C10.
-- **Recommended order:** OPEN-112 (a) → OPEN-117 → OPEN-118 → the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
+- **Recommended order:** OPEN-112 (a) → OPEN-117 → the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
 
 ## Active maintenance queue — website and Android first
 
@@ -46,10 +46,6 @@ its ID.
   was done for the HR Talks-count flake (09279948), so a release no longer needs a manual
   "only load flakes" call and real regressions are not hidden among them. Likely related to the
   core queue backing up >45 s under load (OPEN-112 (a)).
-
-- [ ] **OPEN-118 — Me AppBar status cut to "1." at phone width (seen 2026-11-24).** At 390 px the
-  Me tab's AppBar shows "1. My answers": the "N nearby · M online" text is squeezed out by the
-  title and actions. The overflow measures the title (5d2c6966) but not the status text.
 
 - [ ] **OPEN-112 — Automatic Talk exchange, no Broadcast button (owner, 2026-11-13).** Users only
   decide which Talks are public (Broadcast On); each public Talk goes to everyone on my list

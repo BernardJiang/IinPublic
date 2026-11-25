@@ -130,6 +130,8 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
     await expect(map.locator('[data-testid="map-tile-card"]')).toHaveCount(0);
     expect(await currentRoomId(p)).toBe(before);
 
+    // At phone width List folds into ⋯ so the headcount stays whole (owner, 2026-11-24).
+    if (!(await listButton.isVisible())) await p.locator('#app-bar-overflow-btn').click();
     await listButton.click();
     await expect(list).toBeVisible();
     await p.setViewportSize({ width: 1100, height: 1100 });

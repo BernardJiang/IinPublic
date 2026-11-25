@@ -325,6 +325,11 @@ button:focus:not(:focus-visible) {
   flex-shrink: 0;
 }
 
+/* Phone width, no Back on this screen: the slot gives its room to the middle (app-bar-overflow.ts). */
+.app-bar-left.is-empty {
+  display: none;
+}
+
 .app-bar-back-btn {
   width: 36px;
   height: 36px;
