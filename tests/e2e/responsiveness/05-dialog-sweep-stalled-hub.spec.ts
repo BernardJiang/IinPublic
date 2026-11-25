@@ -19,6 +19,7 @@ import {
   type HubFaultHandle,
   type SweepReport,
 } from '../helpers/ui-responsiveness';
+import { clickAppBarActionAt } from '../helpers/list-row-actions';
 
 type Dialog = { name: string; scope: string; open: (page: Page) => Promise<void> };
 
@@ -41,7 +42,7 @@ const DIALOGS: Dialog[] = [
   {
     name: 'Answer preferences',
     scope: '#preferences-modal',
-    open: async (page) => { await tab(page, 'me'); await page.locator('#view-preferences-btn').click(); },
+    open: async (page) => { await tab(page, 'me'); await clickAppBarActionAt(page, '#view-preferences-btn'); },
   },
   {
     name: 'Edit profile',
@@ -74,7 +75,7 @@ const DIALOGS: Dialog[] = [
   {
     name: 'New Room',
     scope: '.modal-overlay:has(#create-custom-chatroom-form)',
-    open: async (page) => { await tab(page, 'chatrooms'); await page.locator('#create-custom-chatroom-btn').click(); },
+    open: async (page) => { await tab(page, 'chatrooms'); await clickAppBarActionAt(page, '#create-custom-chatroom-btn'); },
   },
 ];
 

@@ -9,6 +9,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterLoad, afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 test.describe('Nearby and Place navigation — back, list/map, create, return home', () => {
   let context: BrowserContext | undefined;
@@ -50,7 +51,7 @@ test.describe('Nearby and Place navigation — back, list/map, create, return ho
       await back.click();
       await afterNav();
     }
-    await p.locator('[data-testid="chatroom-list-view-btn"]').click();
+    await clickAppBarActionAt(p, '[data-testid="chatroom-list-view-btn"]');
   }
 
   const currentRoomId = (p: Page) => p.evaluate(() =>

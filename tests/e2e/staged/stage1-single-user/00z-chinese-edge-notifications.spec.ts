@@ -17,6 +17,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
 import { ensureChatroomList, openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 async function switchUiLanguage(page: Page, code: 'zh' | 'en'): Promise<void> {
   await page.locator('.nav-btn[data-view="settings"]').click();
@@ -104,7 +105,7 @@ test.describe('Chinese UI edge surface localization (D2)', () => {
     // --- Chatroom create modal: verify labels are in Chinese ---
     // "New room" is a list action; leave the Nearby detail opened above.
     await ensureChatroomList(p);
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     const createModal = p.locator('#chatroom-create-modal');
     const createModalVisible = await createModal.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true).catch(() => false);
     if (createModalVisible) {

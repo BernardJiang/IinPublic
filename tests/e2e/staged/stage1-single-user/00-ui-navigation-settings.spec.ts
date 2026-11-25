@@ -10,6 +10,7 @@ import { webBaseURL } from '../../helpers/ports';
 import { version as APP_VERSION } from '../../../../package.json';
 import { openSettingsSection, backToSettingsMenu, SETTINGS_SECTION } from '../../helpers/settings-nav';
 import { openCurrentChatroom } from '../../helpers/chatroom-nav';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 test.describe('UI navigation and settings shell', () => {
   test.describe.configure({ retries: 0 });
@@ -258,7 +259,7 @@ test.describe('UI navigation and settings shell', () => {
     await expect(p.locator('#back-to-chatrooms')).toHaveAttribute('title', '返回');
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     const createRoomModal = p.locator('#create-custom-chatroom-form').locator('xpath=..');
     await expect(createRoomModal).toContainText('新建聊天室');
     await expect(createRoomModal).toContainText('创建社区或商业房间');
@@ -787,7 +788,7 @@ test.describe('UI navigation and settings shell', () => {
 
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await p.locator('#custom-room-type').selectOption('business');
     await p.locator('#custom-room-business-headline').fill(headline);
     await p.locator('#custom-room-name').fill(roomName);

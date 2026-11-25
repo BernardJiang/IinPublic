@@ -20,6 +20,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser, waitForTabActive } from '../../helpers/talks-matching-flow';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { openSettingsSection, SETTINGS_SECTION } from '../../helpers/settings-nav';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -151,7 +152,7 @@ test.describe('Nearby audience shapes at C = 3 (OPEN-86 E5)', () => {
       return { green: count('room'), yellow: count('other') };
     }), { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }).toEqual({ green: 4, yellow: 1 });
     await expect(map).toBeVisible();
-    await s1.locator('[data-testid="chatroom-list-view-btn"]').click();
+    await clickAppBarActionAt(s1, '[data-testid="chatroom-list-view-btn"]');
     await backAction(s1).click();
     await expect.poll(async () => (await nearbyNames(s1)).length, { timeout: 90_000 }).toBe(3);
 

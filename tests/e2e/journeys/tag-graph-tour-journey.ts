@@ -19,6 +19,7 @@ import { starterTagsFor } from '../../../src/shared/starter-tags';
 import { openCurrentChatroom } from '../helpers/chatroom-nav';
 import { createSimpleFlowTalk } from '../helpers/broadcast-cancellation-helpers';
 import { openIncomingTalkModal, waitForResponseModalClosed } from '../helpers/talks-matching-flow';
+import { clickAppBarActionAt } from '../helpers/list-row-actions';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -140,7 +141,7 @@ export async function tagGraphTourJourney(ann: Page, ben: Page, cy: Page): Promi
 
   // ── Typed into Contacts: the same list as tapped ────────────────────────
   await a.locator('.nav-btn[data-view="contacts"]').click();
-  await a.locator('[data-testid="contacts-tag-directory-btn"]').click();
+  await clickAppBarActionAt(a, '[data-testid="contacts-tag-directory-btn"]');
   await a.locator('[data-testid="contacts-filter-topic"]').fill(COFFEE.toLowerCase());
   await expect(people(a)).toHaveCount(1);
   await expect.poll(() => peopleIds(a), { timeout: 15_000 }).toEqual([cyId]);

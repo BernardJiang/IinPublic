@@ -26,6 +26,7 @@ import {
   UI_FREEZE_GAP_MS,
   type HubFaultHandle,
 } from '../helpers/ui-responsiveness';
+import { clickAppBarActionAt } from '../helpers/list-row-actions';
 
 test.describe('GUI responsiveness: stalled hub regressions', () => {
   let context: BrowserContext | undefined;
@@ -108,7 +109,7 @@ test.describe('GUI responsiveness: stalled hub regressions', () => {
     await afterNav();
     fault = await stallHub(p);
     await dismissNotificationOverlays(p);
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await expect(p.locator('[data-testid="custom-room-name-input"]')).toBeVisible({ timeout: 2_000 });
   });
 
@@ -118,7 +119,7 @@ test.describe('GUI responsiveness: stalled hub regressions', () => {
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
     await p.context().route(/\/room-creation-credit/, (route) => route.abort('internetdisconnected'));
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await expect(p.locator('[data-testid="custom-room-name-input"]')).toBeVisible({ timeout: 2_000 });
     await p.locator('#cancel-custom-room-btn').click();
   });

@@ -29,8 +29,19 @@ export async function longPressRow(page: Page, row: Locator): Promise<void> {
 
 /** Clicks an AppBar action, from the ⋯ overflow panel when the bar has no room for it. */
 export async function clickAppBarAction(page: Page, buttonId: string): Promise<void> {
-  const button = page.locator(`#${buttonId}`);
-  if (!(await button.isVisible())) await page.locator('#app-bar-overflow-btn').click();
+  await clickAppBarActionAt(page, `#${buttonId}`);
+}
+
+/**
+ * The same by any selector (a `data-testid`). On a phone the headcount wins over buttons and only
+ * the most important action stays inline (owner, 2026-11-24): the rest are one tap away under ⋯.
+ */
+export async function clickAppBarActionAt(page: Page, selector: string): Promise<void> {
+  const button = page.locator(selector).first();
+  if (!(await button.isVisible())) {
+    const panelOpen = await page.locator('#app-bar-overflow-panel.open').isVisible().catch(() => false);
+    if (!panelOpen) await page.locator('#app-bar-overflow-btn').click();
+  }
   await expect(button).toBeEnabled();
   await button.click();
 }

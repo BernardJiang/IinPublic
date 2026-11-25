@@ -2,6 +2,19 @@
 
 Last updated: 2026-11-24
 
+## 2026-11-24 — OPEN-117 first findings: stage3 82 race fixed; ⋯-aware AppBar clicks in specs
+
+- `82-tag-graph-tour` (and its phone-path twin 09) failed under test:all load at "a person → our
+  Talks": the person page drew its "💬 our Talks" link once, from the exchanges known at that moment;
+  when Ann opened Cy's page before their exchange record landed, the link never appeared. The
+  person page's tags section now redraws on `onExchangesChanged` (once per frame, only while shown,
+  `tag-graph-view.ts`), as its history section already did. Unit test in `graph-traversal.test.ts`
+  (fails without the fix).
+- test:all run 1 also failed stage5 14 and phone-path 09 on OPEN-118's phone AppBar rules (Meet new
+  people and 🏷️ Tags fold under ⋯): 25 direct AppBar clicks in specs now go through
+  `clickAppBarActionAt` (`tests/e2e/helpers/list-row-actions.ts`), which opens ⋯ when needed.
+- test:all run 2: every phase rc=0, 23.5 min.
+
 ## 2026-11-24 — OPEN-112 automatic Talk exchange closed
 
 - (b) and (c): see the entries below. (a), Talks missing when a link opens with many owed: not

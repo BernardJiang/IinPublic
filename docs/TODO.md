@@ -41,13 +41,12 @@ its ID.
 ## Active maintenance queue — website and Android first
 
 - [ ] **OPEN-117 — Load-only E2E flakes block a clean `test:all` (2026-11-24).** Each full run
-  fails a different 1–3 of ~380 cases that pass alone: `82-tag-graph-tour`,
-  `14-contacts-relationship`, taxi 05 (1/10 alone after 8c7c153c). Find the race behind each, as
-  was done for the HR Talks-count flake (09279948), so a release no longer needs a manual
-  "only load flakes" call and real regressions are not hidden among them. Likely related to the
-  core queue backing up >45 s under load (seen 2026-11-15; not reproduced 2026-11-24, see OPEN-112
-  in `docs/completed.md`). Also seen 2026-11-24: 24 "Gun put ack timed out" on `user-tags/` hub
-  writes in 4 parallel starter-tags runs (all passed).
+  failed a different 1–3 of ~380 cases that pass alone: `82-tag-graph-tour`,
+  `14-contacts-relationship`, taxi 05 (1/10 alone after 8c7c153c). 2026-11-24: 82 was a real race,
+  fixed (see `docs/completed.md`); two test:all runs since (one with 82 + two OPEN-118 click
+  regressions, then one fully green, 23.5 min). 14-contacts-relationship and taxi 05 did not fail in
+  either run. Close after two more clean runs; otherwise find the race behind whichever fails, as
+  for the HR Talks-count flake (09279948).
 
 - [ ] **OPEN-114 — Talk exchange that scales: batched pair log, own link frames, content once
   (owner, 2026-11-14).** A tag exchange cost ~1.6 s a Talk (one signed entry per Talk per person,

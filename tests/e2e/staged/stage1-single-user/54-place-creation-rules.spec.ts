@@ -9,6 +9,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 test.describe('Place creation rules', () => {
   let context: BrowserContext | undefined;
@@ -41,14 +42,14 @@ test.describe('Place creation rules', () => {
 
   test('New Room needs the minimum number of incoming Friend marks', async () => {
     const p = await open('?e2e_place_min_friends=3');
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await expect(p.locator('.notification', { hasText: /at least 3 people.*Friend.*0 Friend marks/i })).toBeVisible({ timeout: 10_000 });
     await expect(p.locator('[data-testid="custom-room-name-input"]')).toHaveCount(0);
   });
 
   test('the form reminds the creator of trademark law', async () => {
     const p = await open();
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await afterNav();
     await expect(p.locator('[data-testid="custom-room-trademark-notice"]')).toContainText(/trademark/i);
     await p.locator('#cancel-custom-room-btn').click();
@@ -57,7 +58,7 @@ test.describe('Place creation rules', () => {
   test('an empty Place is listed under Places near you; one Place per person', async () => {
     const p = await open();
     const name = `Empty Place ${Date.now()}`;
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await afterNav();
     await p.locator('[data-testid="custom-room-name-input"]').fill(name);
     await p.locator('[data-testid="custom-room-submit-btn"]').click();
@@ -69,7 +70,7 @@ test.describe('Place creation rules', () => {
     // Leave it: the Place is now empty, so it is listed under "Places near you".
     await p.locator('#back-to-chatrooms').click();
     await afterNav();
-    await p.locator('#return-home-btn').click();
+    await clickAppBarActionAt(p, '#return-home-btn');
     await afterNav();
     await expect(p.locator('#return-home-btn')).toBeHidden({ timeout: 15_000 });
     await expect.poll(() => currentRoomId(p), { timeout: 15_000 }).toMatch(/^nearby-v3$/);
@@ -77,7 +78,7 @@ test.describe('Place creation rules', () => {
     await expect(section).toContainText(name, { timeout: 20_000 });
 
     // A second Place by the same person is refused.
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await afterNav();
     await p.locator('[data-testid="custom-room-name-input"]').fill(`Second ${Date.now()}`);
     await p.locator('[data-testid="custom-room-submit-btn"]').click();

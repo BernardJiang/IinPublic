@@ -23,6 +23,7 @@ import { webAppURLStableChatroom } from '../../helpers/ports';
 import { completeTalkInAppByAnswerIds } from '../../helpers/talk-demo-ui';
 import type { TestActor } from '../../helpers/test-actor';
 import { createTagTalk } from '../../journeys/nearby-ring-journey';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -457,7 +458,7 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
       await visualPause(first);
       if (index === nearbyPageSizes.length - 1) break;
 
-      await first.locator('[data-testid="nearby-meet-new-people-action"]').click();
+      await clickAppBarActionAt(first, '[data-testid="nearby-meet-new-people-action"]');
       await expect(first.locator('[data-testid="nearby-meet-confirm"]')).toHaveCount(0);
     }
 
@@ -466,7 +467,7 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
 
     // The first user creates the Place through the real UI while still visible.
     const roomName = `Capacity Three Room ${Date.now()}`;
-    await first.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(first, '#create-custom-chatroom-btn');
     await expect(first.locator('[data-testid="custom-room-name-input"]')).toBeVisible();
     await first.locator('[data-testid="custom-room-name-input"]').fill(roomName);
     await visualPause(first);
@@ -510,11 +511,12 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     const firstPlacePage = await expectFreshPage(() => placeNames(first), 3, placeSeen);
     console.log(`[20-user demo] Place page 1: ${firstPlacePage.join(', ')}`);
     await expect(first.locator('[data-testid="nearby-group-bar"]')).toHaveCount(0);
-    await expect(first.locator('[data-testid="nearby-meet-new-people-action"]')).toBeVisible();
+    // Offered here (inline, or under ⋯ when the phone bar keeps only the headcount and one action).
+    await expect(first.locator('[data-testid="nearby-meet-new-people-action"]')).not.toHaveCSS('display', 'none');
     await exchanges.run('custompage1', 3);
     await visualPause(first);
 
-    await first.locator('[data-testid="nearby-meet-new-people-action"]').click();
+    await clickAppBarActionAt(first, '[data-testid="nearby-meet-new-people-action"]');
     await expect(first.locator('[data-testid="nearby-meet-confirm"]')).toHaveCount(0);
     const secondPlacePage = await expectFreshPage(() => placeNames(first), 2, placeSeen);
     console.log(`[20-user demo] Place page 2: ${secondPlacePage.join(', ')}`);
@@ -537,7 +539,7 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
     await outsider.locator('[data-testid="chatroom-map-view-btn"]').click();
     await expect(outsider.locator(`.chatroom-map-marker[data-chatroom-id="${placeId}"] .chatroom-map-marker-count`))
       .toHaveText('6', { timeout: 60_000 });
-    await outsider.locator('[data-testid="chatroom-list-view-btn"]').click();
+    await clickAppBarActionAt(outsider, '[data-testid="chatroom-list-view-btn"]');
 
     // The first user travels to Los Angeles: a new area, group 1, and six people there (R = 6 > C).
     await first.evaluate((point) =>
@@ -554,7 +556,7 @@ test.describe('20-user San Diego/Los Angeles Nearby and Place pagination demo', 
       expect(names.every((name) => LOS_ANGELES_NAMES.includes(name))).toBe(true);
       await exchanges.run(title, 3);
       await visualPause(first);
-      if (index === 0) await first.locator('[data-testid="nearby-meet-new-people-action"]').click();
+      if (index === 0) await clickAppBarActionAt(first, '[data-testid="nearby-meet-new-people-action"]');
     }
     expect([...laSeen].sort()).toEqual([...LOS_ANGELES_NAMES].sort());
   });

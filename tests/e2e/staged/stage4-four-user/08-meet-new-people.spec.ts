@@ -14,6 +14,7 @@ import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { webAppURLStableChatroom } from '../../helpers/ports';
 import { createTagTalk, waitForIncomingTalk } from '../../journeys/nearby-ring-journey';
 import type { TestActor } from '../../helpers/test-actor';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const NAMES = ['Adam', 'Eve', 'Bob', 'Alice', 'Carol'] as const;
@@ -144,7 +145,7 @@ test.describe('Chatroom browser layout and Nearby paging (§3.7)', () => {
 
     // Back to group 1: the currently highest-ranked two again. Membership can differ from the
     // early snapshot if gossip learned a better-ranked card while Adam visited later groups.
-    await adam.locator('[data-testid="nearby-back-to-first-group-action"]').click();
+    await clickAppBarActionAt(adam, '[data-testid="nearby-back-to-first-group-action"]');
     await expect(groupMembers(adam)).toHaveCount(3, { timeout: 90_000 });
     const returnedGroup = await memberNames(adam);
     expect(returnedGroup.every((name) => othersByName.has(name))).toBe(true);

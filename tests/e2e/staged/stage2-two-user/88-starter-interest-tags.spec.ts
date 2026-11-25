@@ -24,6 +24,7 @@ import { WEBRTC_CHROMIUM_ARGS } from '../../helpers/webrtc-chromium';
 import { bootstrapUser } from '../../helpers/talks-matching-flow';
 import { starterTagsFor } from '../../../../src/shared/starter-tags';
 import { talkToolbarAction } from '../../helpers/talk-row-actions';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 const STARTER_TAGS = starterTagsFor('en');
 
@@ -162,7 +163,7 @@ test.describe('Starter interest tags (OPEN-87)', () => {
     // tags → that tag → the same people; his 💬 → our Talks; ♡ in common → my answers on Me.
     const a = alice.page;
     await a.locator('.nav-btn[data-view="contacts"]').click();
-    await a.locator('[data-testid="contacts-tag-directory-btn"]').click();
+    await clickAppBarActionAt(a, '[data-testid="contacts-tag-directory-btn"]');
     const topic = a.locator('[data-testid="contacts-filter-topic"]');
     await expect(topic).toBeFocused();
     await topic.fill(shared.text.toLowerCase());

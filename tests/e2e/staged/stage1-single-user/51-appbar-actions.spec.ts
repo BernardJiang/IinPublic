@@ -9,6 +9,7 @@ import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
 import { openTalkEditor } from '../../helpers/open-talk-editor';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 test.describe('AppBar actions', () => {
   let context: BrowserContext | undefined;
@@ -54,7 +55,7 @@ test.describe('AppBar actions', () => {
 
   test('🆕 opens the create-room dialog', async () => {
     const p = page!;
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await afterNav();
     await expect(p.locator('[data-testid="custom-room-name-input"]')).toBeVisible();
     await p.locator('#cancel-custom-room-btn').click();
@@ -67,7 +68,7 @@ test.describe('AppBar actions', () => {
     await p.locator('.nav-btn[data-view="chatrooms"]').click();
     await afterNav();
     await expect(p.locator('#return-home-btn')).toBeHidden();
-    await p.locator('#create-custom-chatroom-btn').click();
+    await clickAppBarActionAt(p, '#create-custom-chatroom-btn');
     await afterNav();
     await p.locator('[data-testid="custom-room-name-input"]').fill(`AppBar Place ${Date.now()}`);
     await p.locator('[data-testid="custom-room-submit-btn"]').click();

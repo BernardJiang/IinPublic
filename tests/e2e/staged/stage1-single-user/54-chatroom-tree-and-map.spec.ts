@@ -9,6 +9,7 @@ import { injectIdbClear, gotoWebApp } from '../../helpers/clear-database';
 import { clearGunForStage1Spec } from '../../helpers/e2e-stage-pipeline';
 import { afterNav, afterSync } from '../../helpers/timing';
 import { webBaseURL } from '../../helpers/ports';
+import { clickAppBarActionAt } from '../../helpers/list-row-actions';
 
 test.describe('Nearby and Places list/map views', () => {
   let context: BrowserContext | undefined;
@@ -46,7 +47,7 @@ test.describe('Nearby and Places list/map views', () => {
       await page!.locator('#back-to-chatrooms').click();
       await afterNav();
     }
-    await page!.locator('[data-testid="chatroom-list-view-btn"]').click();
+    await clickAppBarActionAt(page, '[data-testid="chatroom-list-view-btn"]');
   };
 
   test('list exposes no synthetic Nearby room or Global/tree/capacity shards', async () => {
