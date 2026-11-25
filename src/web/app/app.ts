@@ -245,6 +245,7 @@ import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
 import { OfferBatcher } from '../services/offer-batcher';
 import { filterVerifiedSupportMessages } from '../ui/verified-support-messages';
+import { GraphWaitingOffers } from '../services/graph-waiting-offers';
 import { GraphLinkBridge } from '../services/graph-link-bridge';
 import type { GraphConversationMessage, GraphEvent, GraphTabSnapshot } from '../../core/device-graph/sync/graph-host';
 import { setGraphTabSnapshot } from '../services/graph-tab-projection';
@@ -3463,7 +3464,7 @@ export class IinPublicApp {
         void this.resolveBlockStatusEitherWay(userId).catch(() => undefined);
         // The graph link first: it brings their keys, which a waiting offer needs (the catch-up
         // offers this room's Talks again).
-        const waited = this.graphWaitingPeers.delete(userId);
+        const waited = this.graphWaiting.take(userId);
         const opened = this.graphLinks?.open(userId).catch(() => false) ?? Promise.resolve(false);
         void opened.then(() => {
           if (waited) this.pushGraphOwedToMesh();
@@ -6578,14 +6579,22 @@ export class IinPublicApp {
    * our pair log for them yet. They are a reason to link (as the owed are); the room catch-up offers
    * the Talk again when the link opens (offline Wi-Fi Direct clients, native-app/30, 2026-11-05).
    */
-  private graphWaitingPeers = new Set<string>();
+  /** Offers waiting for a link (no keys yet); offered again when it opens (OPEN-111 a). */
+  private readonly graphWaiting = new GraphWaitingOffers({
+    isOpen: (userId) => this.graphLinks?.isOpen(userId) ?? false,
+    onReady: (userId) => {
+      this.pushGraphOwedToMesh();
+      const roomId = this.currentChatroomId;
+      if (roomId) this.catchUpPeerInActiveRoom(userId, roomId, undefined, { ignoreInterval: true });
+    },
+  });
 
   /** The newest Talks-tab count request (`needTalkStats`); older answers are dropped. */
   private talkStatsRequest = 0;
 
   /** The people the mesh should link to for my log: owed entries, and offers waiting for keys. */
   private pushGraphOwedToMesh(): void {
-    this.peerMeshService?.setGraphOwed([...new Set([...this.graphOwedPeers, ...this.graphWaitingPeers])]);
+    this.peerMeshService?.setGraphOwed([...new Set([...this.graphOwedPeers, ...this.graphWaiting.peers()])]);
   }
 
   /** Load the graph-owned read model used synchronously by the four tab renderers. */
@@ -6666,12 +6675,7 @@ export class IinPublicApp {
       },
       // A link that opened after the neighbor connected (their keys came late): what waited for it
       // is offered now, as on connect — else it waited until they reconnected (native-app/12).
-      onOpened: (peerUserId) => {
-        if (!this.graphWaitingPeers.delete(peerUserId)) return;
-        this.pushGraphOwedToMesh();
-        const roomId = this.currentChatroomId;
-        if (roomId) this.catchUpPeerInActiveRoom(peerUserId, roomId, undefined, { ignoreInterval: true });
-      },
+      onOpened: (peerUserId) => { this.graphWaiting.opened(peerUserId); },
       log: (message) => console.warn(message),
     });
     try {

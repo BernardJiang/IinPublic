@@ -70,6 +70,9 @@ export class GraphLinkBridge {
 
   isRunning(): boolean { return this.running; }
 
+  /** The link to this person is open now (their keys are known). */
+  isOpen(userId: string): boolean { return this.running && this.opened.has(userId); }
+
   /** A direct neighbor connected. */
   open(userId: string): Promise<boolean> {
     if (!this.running) return Promise.resolve(false);
