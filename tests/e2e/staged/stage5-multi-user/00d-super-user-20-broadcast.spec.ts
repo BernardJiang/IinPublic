@@ -187,6 +187,23 @@ test.describe('Super user: 20 talks completed by Tom', () => {
     // An answer given before the Talk reaches Tom's device graph is dropped (OPEN-106): wait for
     // all 20 to arrive first.
     const wanted = createdTalks.map((talk) => String(talk.talkId));
+    // OPEN-112 (a): on a miss, show where each missing Talk stopped — did Alice record it as sent
+    // to Tom (her exchange state), and what did Tom's graph link log about arrivals.
+    const dumpArrivalState = async (): Promise<void> => {
+      const alice = await pageTechSupport.evaluate(async (tom) => {
+        const w = window as any;
+        const state = await w.__iinpublic_app?.getApp?.()?.getExchangesForE2e?.([]).catch(() => null);
+        const talks = Object.fromEntries(Object.entries(state?.talks ?? {}).map(([id, v]: [string, any]) => [id, { version: v?.versionId, sentToTom: v?.sent?.[tom] ?? null }]));
+        const events = (w.__iinpublic_graph_events ?? []).slice(-60);
+        return { talks, tomExchanged: state?.peers?.[tom]?.exchanged?.length ?? 0, events };
+      }, tomUserId).catch((error) => ({ error: String(error) }));
+      const tom = await pageTom.evaluate(() => {
+        const w = window as any;
+        return { events: (w.__iinpublic_graph_events ?? []).slice(-80) };
+      }).catch((error) => ({ error: String(error) }));
+      console.log(`[00d arrival dump] alice=${JSON.stringify(alice)}`);
+      console.log(`[00d arrival dump] tom=${JSON.stringify(tom)}`);
+    };
     await expect
       .poll(
         async () => {
@@ -199,7 +216,8 @@ test.describe('Super user: 20 talks completed by Tom', () => {
         },
         { message: 'all 20 of Alice\'s Talks should reach Tom', timeout: 90_000, intervals: [1_000] },
       )
-      .toBe('ok');
+      .toBe('ok')
+      .catch(async (error) => { await dumpArrivalState(); throw error; });
     await completeTalksInAppByAnswerIds(
       pageTom,
       createdTalks.map((talk) => ({
