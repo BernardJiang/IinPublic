@@ -8,6 +8,8 @@ import type { UiTranslationKey } from './ui-translations';
 import { appDataLoaded } from '../services/core-storage';
 import { settingsStorage } from '../services/core-storage';
 import { openMatchCollectionContacts } from './graph-focus';
+import { showIconLegendDialog } from './icon-legend-dialog';
+import { escapeHtml } from './ui-formatters';
 
 const chatroomActionDelegationDocuments = new WeakSet<Document>();
 
@@ -196,6 +198,7 @@ function bindPrimaryControls(deps: AppShellControlsDeps): void {
   }
   document.getElementById('create-talk-btn')?.addEventListener('click', deps.showTalkEditorDialog);
   document.getElementById('view-preferences-btn')?.addEventListener('click', deps.showPreferencesDialog);
+  document.getElementById('icon-legend-btn')?.addEventListener('click', () => showIconLegendDialog({ text: deps.t, escapeHtml }));
   document.getElementById('back-to-chatrooms')?.addEventListener('click', deps.showChatroomList);
   if (!chatroomActionDelegationDocuments.has(document)) {
     chatroomActionDelegationDocuments.add(document);

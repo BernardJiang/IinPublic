@@ -6019,3 +6019,11 @@ body[data-graph-place-active] #back-to-chatrooms { display: none !important; }
 .nearby-browser-people #nearby-browser-members {
   padding: 8px 8px 0;
 }
+
+/* "What the icons mean" (OPEN-116 e, icon-legend-dialog.ts) */
+.icon-legend-section { margin: 0 0 14px; }
+.icon-legend-heading { margin: 0 0 6px; font-size: 0.9em; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.icon-legend-list { margin: 0; display: grid; gap: 6px; }
+.icon-legend-row { display: grid; grid-template-columns: 6.5em 1fr; gap: 10px; align-items: baseline; }
+.icon-legend-icon { margin: 0; font-weight: 600; white-space: nowrap; text-align: right; }
+.icon-legend-meaning { margin: 0; font-size: 0.92em; }
