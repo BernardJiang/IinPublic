@@ -138,3 +138,13 @@ it('Place summaries do not invent an answer when there is no answer history', ()
   setFlatAnswerHistory({});
   expect(placeLinksHtml('place_old', 'Old Place', deps)).not.toContain('graph-my-answers');
 });
+
+it('a person page shows our Talks once an exchange is recorded after it opened (OPEN-117, stage3 82)', async () => {
+  renderPeerTagsInto(document.getElementById('peer')!, 'zed', 'Zed');
+  expect(document.querySelector('[data-testid="peer-talks-link"]')).toBeNull();
+  upsertExchange({ peerId: 'zed', peerName: 'Zed', talkId: 'pizza', type: 'tag', title: 'Pizza', direction: 'received', outcome: 'match', date: '2026-11-24T00:00:00Z', roomId: 'nearby-v3', roomName: 'Nearby' });
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+  const link = document.querySelector('[data-testid="peer-talks-link"]');
+  expect(link?.textContent).toContain('1');
+  expect(document.querySelectorAll('[data-testid="peer-tags-section"]')).toHaveLength(1);
+});

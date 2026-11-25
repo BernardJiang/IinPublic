@@ -20,6 +20,7 @@ import {
   tagKeyword,
 } from './graph-focus';
 import { readLocalTalkExchanges } from '../services/local-peer-derivation';
+import { onExchangesChanged } from '../services/exchange-view';
 import { escapeHtml } from './ui-formatters';
 import type { UiTranslationKey } from './ui-translations';
 
@@ -97,6 +98,8 @@ export function sharedTagsChipHtml(
  * A person's tags inside the person view, the ones I like too first. Each tag opens the people
  * who like it; the heading leads to the Me rows of the tags we share and to the Talks we exchanged.
  */
+let stopPeerTagsWatch: (() => void) | null = null;
+
 export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerName = ''): void {
   const deps = configured;
   const graph = currentTagGraph();
@@ -133,6 +136,23 @@ export function renderPeerTagsInto(container: HTMLElement, peerId: string, peerN
     openMeFocus({ label: `♡ ${name}`, talkIds: shared.flatMap((tag) => tag.talkIds) }));
   section.querySelector('[data-testid="peer-talks-link"]')?.addEventListener('click', () =>
     openPeerTalks(peerId, `💬 ${name}`));
+  // An exchange recorded after the page opened (Talks still arriving) shows its 💬 link and counts:
+  // drawn once, the page kept "no Talks" until reopened (stage3 82 under test:all load, OPEN-117).
+  stopPeerTagsWatch?.();
+  let scheduled = false;
+  const stop = onExchangesChanged(() => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      if (!section.isConnected) { stop(); return; }
+      const holder = document.createElement('div');
+      renderPeerTagsInto(holder, peerId, peerName);
+      const fresh = holder.firstElementChild;
+      if (fresh) section.replaceWith(fresh);
+    });
+  });
+  stopPeerTagsWatch = stop;
 }
 
 /** "Met in 📍 Nearby": where I exchanged with this person (most recently), a link to that place. */
