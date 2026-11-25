@@ -371,6 +371,19 @@ Wi-Fi interruption, offline resynchronization, and Android Keystore custody are 
 The following IDs remain open for traceability, but website/Android work takes precedence. Do not
 start them unless they become a direct blocker or are explicitly promoted.
 
+### Android distribution channels
+
+- [ ] **OPEN-115 — Website APK and Play install cannot replace each other (deferred).** Since
+  2026-11-24 every release offers the signed `.apk` on iinpublic.com beside the Play `.aab`. Both
+  use `applicationId "com.iinpublic.app"`, but the website copy is signed with
+  `secrets/android-release.keystore` and the Play copy with Google's managed app-signing key, so a
+  phone with one installed rejects the other (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) until it is
+  uninstalled, which loses that phone's local identity, keys and contacts unless it was linked to
+  another device first. Options (`docs/guides/DEPLOY_PRODUCTION.md`, "Android distribution channel
+  strategy"): a separate `applicationId` for the website build (plan A), a guided device-link
+  migration before switching (plan B), or uploading our own key to Play so both copies share one
+  certificate. Deferred by the product owner 2026-11-24.
+
 ### TechSupport identity protocol
 
 - [ ] **OPEN-28 — Split TechSupport authority by role (deferred).** Introduce a versioned identity
