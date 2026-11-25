@@ -270,26 +270,8 @@ test.describe('UI navigation and settings shell', () => {
     await p.locator('#cancel-custom-room-btn').click();
     // The custom-room rename dialog was retired with the owner/role model (74f437d8), so there
     // is no rename modal left to check for Chinese copy.
-    await p.evaluate(() => {
-      const ui = (window as any).__iinpublic_app?.getApp?.()?.uiManager;
-      void ui.confirmBroadcastAudience([{
-        talkId: 'preview-zh',
-        title: 'Preview Talk',
-        totalCandidates: 2,
-        eligibleReceivers: 1,
-        rejectedByCounts: { intake_language: 1, blocked_user: 1 },
-        eligibleReceiverNames: ['Ming'],
-        rejectedReceiverDetails: [{ name: 'Lin', rejectedBy: ['intake_language', 'blocked_user'] }],
-        supportExcludedCount: 1,
-      }]);
-    });
-    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('检查广播接收对象');
-    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('不接受该语言');
-    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('已被用户屏蔽');
-    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('接收对象：Ming');
-    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('已跳过：Lin');
-    await expect(p.locator('[data-testid="broadcast-preamble-modal"]')).toContainText('TechSupport 支持频道不参与普通广播');
-    await p.locator('[data-testid="broadcast-preamble-cancel"]').click();
+    // The broadcast-audience dialog was unreachable once every broadcast became automatic
+    // (OPEN-112) and is removed (OPEN-112 b); no Chinese copy to check there.
     await p.locator('.nav-btn[data-view="contacts"]').click();
     await afterNav();
     await expect(p.locator('#contacts-filter-relation option[value="all"]')).toHaveText('全部关系');

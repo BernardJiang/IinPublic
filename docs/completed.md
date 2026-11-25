@@ -2,6 +2,38 @@
 
 Last updated: 2026-11-24
 
+## 2026-11-24 — OPEN-111 (a) waiting offer re-checked; OPEN-112 (b) audience dialog removed
+
+- **OPEN-111 (a):** an offer that came back `waiting` (no keys yet) after the person's link had
+  already opened was not offered again until they reconnected: `onOpened` had fired while the offer
+  was still in the core and found nobody waiting. The waiting set is now `GraphWaitingOffers`
+  (`src/web/services/graph-waiting-offers.ts`): adding a person whose link is already open
+  (`GraphLinkBridge.isOpen`) offers again at once, at most once per 5 s per person so a core that
+  keeps answering `waiting` cannot loop. Unit test `graph-waiting-offers.test.ts` covers the race.
+  stage5 `00d-super-user-20-broadcast` and `route-hr-hiring-match-detection` pass (2/2); neither
+  run hit a `waiting` answer, so the race itself is proven only by the unit test.
+- **OPEN-112 (b):** every `broadcastTalk` is automatic since the Broadcast button went, so the
+  audience-confirm dialog could not open. Removed `broadcast-audience-dialog.ts` and its test,
+  `confirmBroadcastAudience`, `getSenderOmittedBroadcastPreviews` and its tests, and the dialog
+  check in stage1 `00-ui-navigation-settings`. The preview lookup in the broadcast path only ever
+  held Talks not being sent, so it never narrowed a receiver list; it is gone too. stage1 00 and
+  stage2 00i / 15b pass (12/12).
+
+## 2026-11-24 — OPEN-116 GUI defects from the starter screenshots closed
+
+- A fresh 6-user `starter-tags-similar-people` run with `STARTER_SIMILAR_SHOTS_DIR` (current code)
+  showed (a)–(d) already fixed, mostly by 5d2c6966 and 8cc1edb4 (2026-11-16): the status line reads
+  "5 nearby · 6 online" on every tab (the 0 came from a failed hub heartbeat that was never
+  retried); Contacts filters fit in two rows with sort; every person row is the name plus at most
+  two lines (relationship · matches · talks · ↑sent ↓received, then the tags-in-common chip);
+  the Nearby list's met here / Talks here / answered links sit at the top (now in the AppBar), and
+  its rows use the same `person-row.ts` renderer as Contacts; "Answered quest…" and the second
+  speech-bubble icon on Me are gone (DM inbox is ✉️, 💬 means Talks).
+- (e) Done: "ℹ️ What the icons mean" is an AppBar action on Nearby, Contacts, Talks and Me (into ⋯
+  on a phone) that lists every row icon with its meaning, in English and Chinese
+  (`src/web/ui/icon-legend-dialog.ts`; unit test `icon-legend-dialog.test.ts`). Checked in the
+  browser at 640 px and 390 px.
+
 ## 2026-11-24 — TODO reconciliation: finished sub-goals moved from TODO.md
 
 Moved verbatim when `docs/TODO.md` was reconciled with the 2026-11-24 status summary. The parent

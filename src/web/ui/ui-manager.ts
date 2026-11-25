@@ -22,8 +22,6 @@ import { openEraseDeviceDialog as openEraseDeviceDialogImpl } from './erase-devi
 import {
   getBroadcastableTalkIds as getBroadcastableTalkIdsImpl,
   getBroadcastTalkPayload as getBroadcastTalkPayloadImpl,
-  type BroadcastAudiencePreview,
-  getSenderOmittedBroadcastPreviews as getSenderOmittedBroadcastPreviewsImpl,
 } from './broadcast-audience-preview';
 import {
   createBroadcastController,
@@ -121,7 +119,6 @@ import {
   showChooseWhoToDmPicker as renderChooseWhoToDmPicker,
   showDmInboxPicker as renderDmInboxPicker,
 } from './person-picker-dialogs';
-import { confirmBroadcastAudience as renderConfirmBroadcastAudience } from './broadcast-audience-dialog';
 import { showNotification as renderNotificationToast, type NotificationOptions } from './notification-toast';
 import { createPeerController, type PeerController } from './peer-controller';
 import {
@@ -134,7 +131,7 @@ import { showDetailsPopupFor as renderItemDetailsPopup } from './item-details-po
 import { setTalkDisabled as setTalkDisabledImpl } from './talk-broadcast-toggle';
 import { saveCreatedTalk as saveCreatedTalkImpl } from './talk-creation-storage';
 import { sendableTalkIds } from '../../core/broadcast-selection';
-import { deliveryReasonLabel, formatReasonCounts } from './delivery-reason-labels';
+import { formatReasonCounts } from './delivery-reason-labels';
 import {
   updateConversationTransportMode as updateConversationTransportModeImpl,
   setConversationOnlineStatus as setConversationOnlineStatusImpl,
@@ -402,10 +399,6 @@ export class UIManager extends EventEmitter {
       route: 'talkTypeRoute',
     } as const)[type.toLowerCase() as 'tag' | 'flow' | 'survey' | 'route'];
     return key ? this.t(key) : type;
-  }
-
-  private deliveryReasonLabel(reason: string): string {
-    return deliveryReasonLabel(reason, this.t.bind(this));
   }
 
   private formatReasonCounts(counts: Record<string, number>): string {
@@ -2273,14 +2266,6 @@ export class UIManager extends EventEmitter {
   showBroadcastToGroupDialog(): void {
     this.broadcast().showBroadcastToGroupDialog();
   }
-  confirmBroadcastAudience(previews: BroadcastAudiencePreview[]): Promise<boolean> {
-    return renderConfirmBroadcastAudience(previews, {
-      t: this.t.bind(this),
-      tf: this.tf.bind(this),
-      deliveryReasonLabel: this.deliveryReasonLabel.bind(this),
-      formatReasonCounts: this.formatReasonCounts.bind(this),
-    });
-  }
 
   updateStatusBar(
     _stageName: string,
@@ -2517,10 +2502,6 @@ export class UIManager extends EventEmitter {
 
   getBroadcastableTalkIds(): string[] {
     return getBroadcastableTalkIdsImpl();
-  }
-
-  getSenderOmittedBroadcastPreviews(): BroadcastAudiencePreview[] {
-    return getSenderOmittedBroadcastPreviewsImpl();
   }
 
   getBroadcastTalkPayload(talkId: string): any | null {

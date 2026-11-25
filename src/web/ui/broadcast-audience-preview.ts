@@ -37,28 +37,3 @@ export function getBroadcastTalkPayload(talkId: string): any | null {
   }
   return full;
 }
-
-/** OUT talks omitted from broadcast/peer send because they are disabled or expired. */
-export function getSenderOmittedBroadcastPreviews(): BroadcastAudiencePreview[] {
-  const myTalks = getMyTalks();
-  const now = Date.now();
-  const previews: BroadcastAudiencePreview[] = [];
-  for (const [talkId, talk] of Object.entries(myTalks)) {
-    if (talk?.role !== 'created' && talk?.role !== 'copied') continue;
-    const omittedBy: string[] = [];
-    if (talk?.disabled) omittedBy.push('broadcast_disabled');
-    const expiresAt = talk?.expiresAt ?? talk?.fullTalk?.expiresAt;
-    const expiresAtMs = resolveExpiresAtMs(expiresAt);
-    if (Number.isFinite(expiresAtMs) && now > expiresAtMs) omittedBy.push('talk_expired');
-    if (omittedBy.length === 0) continue;
-    previews.push({
-      talkId,
-      title: String(talk?.title || talk?.fullTalk?.title || talkId),
-      totalCandidates: 0,
-      eligibleReceivers: 0,
-      rejectedByCounts: Object.fromEntries(omittedBy.map((reason) => [reason, 1])),
-      senderOmittedBy: omittedBy,
-    });
-  }
-  return previews.sort((a, b) => a.title.localeCompare(b.title));
-}

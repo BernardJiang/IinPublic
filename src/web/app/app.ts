@@ -7119,9 +7119,10 @@ export class IinPublicApp {
     // Sending stays visible without a Broadcast button (OPEN-112): only when it really went out.
     if (offer.sent.length > 0) this.uiManager.showExchangeActivity('outgoing', offer.sent);
     if (offer.waiting?.length) {
-      for (const recipientId of offer.waiting) this.graphWaitingPeers.add(recipientId);
-      this.pushGraphOwedToMesh();
       console.log(`[graph-link] ${talkId} waits for a link to ${offer.waiting.length} person(s)`);
+      // Also offers again at once to anyone whose link opened while this offer was in the core.
+      this.graphWaiting.add(offer.waiting);
+      this.pushGraphOwedToMesh();
     }
     void refreshExchangeState();
     const skipped = Object.entries(offer.skipped);
@@ -9202,24 +9203,8 @@ export class IinPublicApp {
             return;
           }
 
-          // Show the audience-confirmation modal immediately: its content (sender-omitted
-          // previews) is built entirely from localStorage/in-memory state and doesn't need
-          // receivers or talk payloads resolved first — both of those can take several
-          // seconds on a slow/real device (resolveBroadcastReceivers does a network fetch
-          // with up to a 5s timeout plus Gun-observation retries; getTalkWithRetry below is
-          // a per-talk retry loop up to 1.5s each). Blocking the modal on that work made
-          // every broadcast tap feel unresponsive for no reason — confirm first, only pay
-          // the slow cost after the user has actually said yes.
-          const previews: BroadcastAudiencePreview[] = [];
-          const previewTalkIds = new Set(broadcastableIds);
-          const senderOmittedPreviews = this.uiManager
-            .getSenderOmittedBroadcastPreviews()
-            .filter((preview) => !previewTalkIds.has(preview.talkId));
-          const audiencePreviews = [...previews, ...senderOmittedPreviews];
-          if (!data.automatic && !(await this.uiManager.confirmBroadcastAudience(audiencePreviews))) {
-            this.uiManager.showNotification(this.uiManager.formatBroadcastCancelled(), 'info');
-            return;
-          }
+          // No audience confirmation: every broadcast is automatic since the Broadcast button went
+          // (OPEN-112); the confirm dialog was unreachable and is removed (OPEN-112 b).
           if (!data.catchUp) releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
 
           // Immediate feedback before the slow work below (resolving receivers, fetching
@@ -9282,20 +9267,13 @@ export class IinPublicApp {
           const registeredTalkIds: string[] = [];
           /** Talks that went to at least one person now (a repeat catch-up often sends nothing). */
           const reachedTalkIds = new Set<string>();
-          const previewByTalkId = new Map(audiencePreviews.map((p) => [p.talkId, p]));
           const broadcastableSnapshot = new Set(broadcastableIds);
           for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
             const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
             const batchResults = await Promise.all(
               batch.map(async ({ tid, talk }) => {
                 if (!broadcastableSnapshot.has(tid)) return false;
-                const preview = previewByTalkId.get(tid);
-                let eligibleIds =
-                  usesMeshTalkDelivery(this.p2pRuntimeFlags) &&
-                  !preview?.previewUnavailable &&
-                  Array.isArray(preview?.eligibleReceiverIds)
-                    ? preview.eligibleReceiverIds
-                    : undefined;
+                let eligibleIds: string[] | undefined;
                 // docs/TODO.md §W Gap 1: further narrow to receivers who don't already have
                 // this specific talk, when the caller supplied that per-talk information —
                 // fixes the room-wide "any member still needs it" batch re-attempting

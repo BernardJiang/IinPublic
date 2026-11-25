@@ -235,10 +235,6 @@
       "reason": "imports a Node built-in"
     },
     {
-      "file": "broadcast-audience-dialog.test.ts",
-      "reason": "needs a DOM test environment"
-    },
-    {
       "file": "broadcast-audience-preview.test.ts",
       "reason": "needs a DOM test environment"
     },

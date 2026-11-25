@@ -101,7 +101,7 @@ export async function waitForDistinctGunPeersExcludingSelf(
 /** Direct/legacy fallback when audience-preview UI does not open in time — see broadcast-register-fallback.ts */
 export { deliverBroadcastViaAppPath, deliverBroadcastViaRegisterApi, waitForChatroomMemberCountViaApi } from './broadcast-register-fallback';
 
-/** Full production broadcastTalk path with audience modal auto-confirmed (P0 fallback when register-only deliver sends 0). */
+/** Full production broadcastTalk path (P0 fallback when register-only deliver sends 0). */
 async function deliverViaUiBroadcastTalk(page: Page, minSent: number): Promise<void> {
   await page.evaluate(
     async ({ min }) => {
@@ -110,31 +110,25 @@ async function deliverViaUiBroadcastTalk(page: Page, minSent: number): Promise<v
       if (!app?.chatroomService || !ui?.emit) throw new Error('broadcastTalk emit unavailable');
       const ack = document.querySelector('[data-testid="broadcast-bulk-ack"]');
       const genBefore = Number(ack?.getAttribute('data-broadcast-bulk-gen')) || 0;
-      const orig = ui.confirmBroadcastAudience?.bind(ui);
-      ui.confirmBroadcastAudience = async () => true;
-      try {
-        const chatroomId = app.chatroomService.getCurrentChatroomId() || ui.currentChatroom || 'global';
-        const talkIds = (ui.getBroadcastableTalkIds?.() || []) as string[];
-        if (!Array.isArray(talkIds) || talkIds.length === 0) {
-          throw new Error('no broadcastable talk ids for UI broadcast fallback');
-        }
-        ui.emit('broadcastTalk', {
-          chatroomId,
-          members: ui.getCurrentChatroomMembers?.() || ui.currentChatroomMembers || [],
-          talkIds,
-        });
-        const deadline = Date.now() + 12_000;
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 100));
-          const el = document.querySelector('[data-testid="broadcast-bulk-ack"]');
-          const gen = Number(el?.getAttribute('data-broadcast-bulk-gen'));
-          const sent = Number(el?.getAttribute('data-broadcast-talks-sent'));
-          if (Number.isFinite(gen) && gen > genBefore && Number.isFinite(sent) && sent >= min) return;
-        }
-        throw new Error(`broadcastTalk fallback ack timeout (minSent=${min})`);
-      } finally {
-        if (orig) ui.confirmBroadcastAudience = orig;
+      const chatroomId = app.chatroomService.getCurrentChatroomId() || ui.currentChatroom || 'global';
+      const talkIds = (ui.getBroadcastableTalkIds?.() || []) as string[];
+      if (!Array.isArray(talkIds) || talkIds.length === 0) {
+        throw new Error('no broadcastable talk ids for UI broadcast fallback');
       }
+      ui.emit('broadcastTalk', {
+        chatroomId,
+        members: ui.getCurrentChatroomMembers?.() || ui.currentChatroomMembers || [],
+        talkIds,
+      });
+      const deadline = Date.now() + 12_000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+        const el = document.querySelector('[data-testid="broadcast-bulk-ack"]');
+        const gen = Number(el?.getAttribute('data-broadcast-bulk-gen'));
+        const sent = Number(el?.getAttribute('data-broadcast-talks-sent'));
+        if (Number.isFinite(gen) && gen > genBefore && Number.isFinite(sent) && sent >= min) return;
+      }
+      throw new Error(`broadcastTalk fallback ack timeout (minSent=${min})`);
     },
     { min: minSent },
   );

@@ -36,27 +36,9 @@ its ID.
   fails a rotating 1–3 cases that pass alone (`82-tag-graph-tour`, `14-contacts-relationship`,
   taxi 05 most often), so every release currently needs a manual "load flakes only" judgement
   (OPEN-117). 1.0.285 phone smoke passed on FRD + C10.
-- **Recommended order:** OPEN-116 (owner-reported GUI defects, online count first) → OPEN-111 (a)
-  → OPEN-112 (a) → OPEN-117 → the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
+- **Recommended order:** OPEN-112 (a) → OPEN-117 → OPEN-118 → the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
 
 ## Active maintenance queue — website and Android first
-
-- [ ] **OPEN-116 — GUI defects from the 2026-11-23 starter screenshots (owner, merged from the former
-  `docs/TODO3.md`).** Shots: `scratchpad/starter-shots2/Ann-{1,2,4,5}-*.png`,
-  `scratchpad/run1-failure/test-failed-1.png`. Fix all, then take another round of screenshots.
-  - [ ] **(a) Wrong "online" count in the status line.** "5 nearby 0 online · 46 matches" on the
-    Nearby map, Nearby list and Talks, and "5 nearby 3 online" on Me; with everyone up it should
-    read 6. Correctness bug — do first.
-  - [ ] **(b) Contacts filters:** the filter section takes an irregular 3 rows; it must fit in at
-    most 2 rows and hold both sorting and filters.
-  - [ ] **(c) Contacts rows:** at most 2 lines under the StageName. "16 talks · 16 matches ·
-    Stranger / Sent 14 · Received 16" is redundant — make it one line, ordered by importance.
-    "16 in common · 53% alike · #1 most alike" stays for now.
-  - [ ] **(d) Nearby list:** move "4 met here, 29 Talks here, My answers" up, under "You <name>".
-    The person rows must use the same component and look as the Contacts tab.
-  - [ ] **(e) Icons explained:** on Talks, the ♡, History, people 3, #3 and Nearby/broadcast icons;
-    on Me, "Answered quest…" is not understandable, and the two speech-bubble icons must either
-    mean the same thing or look different. Explain every icon (no new buttons in views).
 
 - [ ] **OPEN-117 — Load-only E2E flakes block a clean `test:all` (2026-11-24).** Each full run
   fails a different 1–3 of ~380 cases that pass alone: `82-tag-graph-tour`,
@@ -64,6 +46,10 @@ its ID.
   was done for the HR Talks-count flake (09279948), so a release no longer needs a manual
   "only load flakes" call and real regressions are not hidden among them. Likely related to the
   core queue backing up >45 s under load (OPEN-112 (a)).
+
+- [ ] **OPEN-118 — Me AppBar status cut to "1." at phone width (seen 2026-11-24).** At 390 px the
+  Me tab's AppBar shows "1. My answers": the "N nearby · M online" text is squeezed out by the
+  title and actions. The overflow measures the title (5d2c6966) but not the status text.
 
 - [ ] **OPEN-112 — Automatic Talk exchange, no Broadcast button (owner, 2026-11-13).** Users only
   decide which Talks are public (Broadcast On); each public Talk goes to everyone on my list
@@ -84,8 +70,7 @@ its ID.
   test:all failed stage5 starter-tags on load: Fay's core requests timed out (45 s, 70 outcome
   records + 15 delivery records lost) and her shared counts with two people stayed short; it
   passes alone (8.9 min). Next: why one browser's core queue backs up over 45 s under load.
-  (b) The audience-preview dialog (`broadcast-audience-dialog.ts`) is no longer
-  reachable from the UI — remove it. (c) is done (`docs/completed.md`, 2026-11-24).
+  (b) and (c) are done (`docs/completed.md`, 2026-11-24).
 - [ ] **OPEN-114 — Talk exchange that scales: batched pair log, own link frames, content once
   (owner, 2026-11-14).** A tag exchange cost ~1.6 s a Talk (one signed entry per Talk per person,
   the receiver pulling each Talk node by node over the link, a fixed Gun wait on every read); under
@@ -123,10 +108,7 @@ its ID.
   The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
   let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
   runs, was ~1 in 10). Found on the way, not fixed:
-  (a) An offer that comes back `waiting` (no keys yet) after the person's link has already opened
-  is not offered again until they reconnect: `onNeighborConnected` checked the waiting set before
-  the offer finished, and `onOpened` had already fired (`app.ts`, `graph.offer` result handling).
-  Not seen to cause a failure in 30 HR runs; fix with a re-check when `waiting` is added.
+  (a) is fixed (`docs/completed.md`, 2026-11-24).
   (b) `[graph] Nearby scope projection was not recorded: storage did not acknowledge write for
   local/mine/nearby/nearby-v3/members` — 108 times in 10 HR runs, on every user. The Nearby list
   projection (2026-11-09) fails its write under e2e load; find out whether it also fails on phones.
