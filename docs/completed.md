@@ -2,6 +2,13 @@
 
 Last updated: 2026-11-24
 
+## 2026-11-25 — OPEN-117 closed: three clean test:all runs in a row
+
+- After the 82 race fix (2fb05b99) and the ⋯-aware AppBar clicks (7c28df11), test:all ran fully
+  green three times in a row (runs 2–4, 23.4–23.5 min each, no failed and no flaky cases).
+  `14-contacts-relationship` and taxi 05 did not fail in any of the four runs since 2026-11-24.
+  If one of them comes back, open a new item and find its race as for 82.
+
 ## 2026-11-24 — OPEN-117 first findings: stage3 82 race fixed; ⋯-aware AppBar clicks in specs
 
 - `82-tag-graph-tour` (and its phone-path twin 09) failed under test:all load at "a person → our

@@ -32,21 +32,12 @@ its ID.
 - **Architecture is closed:** device core (OPEN-91), device graph (OPEN-106), signed event chain,
   trimming and the four tabs from the log (OPEN-108..110). The priority is bug fixes and
   improvements to existing website and Android features — no new features.
-- **Health:** `test:all` runs ~28–44 min (~380 Playwright cases + ~3,600 Jest tests). Each full run
-  fails a rotating 1–3 cases that pass alone (`82-tag-graph-tour`, `14-contacts-relationship`,
-  taxi 05 most often), so every release currently needs a manual "load flakes only" judgement
-  (OPEN-117). 1.0.285 phone smoke passed on FRD + C10.
-- **Recommended order:** OPEN-117 (load-only flakes), then the phone proofs in OPEN-114 / OPEN-113 / OPEN-101 → the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
+- **Health:** `test:all` runs ~23.5 min (~390 Playwright cases + ~3,600 Jest tests). Three clean
+  runs in a row on 2026-11-24/25 after the 82 race fix (OPEN-117 closed). 1.0.285 phone smoke
+  passed on FRD + C10.
+- **Recommended order:** the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
 
 ## Active maintenance queue — website and Android first
-
-- [ ] **OPEN-117 — Load-only E2E flakes block a clean `test:all` (2026-11-24).** Each full run
-  failed a different 1–3 of ~380 cases that pass alone: `82-tag-graph-tour`,
-  `14-contacts-relationship`, taxi 05 (1/10 alone after 8c7c153c). 2026-11-24: 82 was a real race,
-  fixed (see `docs/completed.md`); two test:all runs since (one with 82 + two OPEN-118 click
-  regressions, then one fully green, 23.5 min). 14-contacts-relationship and taxi 05 did not fail in
-  either run. Close after two more clean runs; otherwise find the race behind whichever fails, as
-  for the HR Talks-count flake (09279948).
 
 - [ ] **OPEN-114 — Talk exchange that scales: batched pair log, own link frames, content once
   (owner, 2026-11-14).** A tag exchange cost ~1.6 s a Talk (one signed entry per Talk per person,
