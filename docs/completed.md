@@ -1,6 +1,136 @@
 # IinPublic Completed Work
 
-Last updated: 2026-11-11
+Last updated: 2026-11-24
+
+## 2026-11-24 — TODO reconciliation: finished sub-goals moved from TODO.md
+
+Moved verbatim when `docs/TODO.md` was reconciled with the 2026-11-24 status summary. The parent
+issues stay open in `docs/TODO.md` for their remaining gates.
+
+### OPEN-81 — Match collection outings: finished sub-goals (G1–G6, parts of G7 and G8)
+
+  - [x] **G1 — Durable outing identity and evidence (first slice, 2026-10-20).** Add a bounded,
+    versioned local collection-session store; snapshot the active scope, selected Talk ids and
+    blurred public point; associate each intended peer + Talk delivery with the active outing; keep
+    late match/mismatch/ignore results attached after Stop or process restart; stamp the existing
+    local exchange projection with the collection id. Focused unit tests cover delayed replies,
+    receiver narrowing, repeated encounters and corrupt storage.
+  - [x] **G2 — One Start/Stop collection control (2026-10-21).** Put the control beside the current Nearby/Place
+    group, show elapsed time / people reached / replies / matches, restore an active outing after a
+    restart, and make Broadcast clearly feed it. Starting a new outing ends the previous one; Stop
+    freezes the send/location context but continues accepting late replies.
+    The restored card now reports elapsed/reached/replies/pending/matches, has a primary Broadcast
+    action using the existing audited send path, and opens the latest outing review. Starting a new
+    outing still ends the previous one; late replies continue to attach after Stop.
+  - [x] **G3 — Correct place and time semantics (2026-10-21).** Snapshot a freshly confirmed, privacy-blurred
+    location at send time rather than relying on `Talk.authorLocation` from Talk creation; retain
+    distance-at-encounter; handle indoor/no-GPS and subway movement without pretending the reading
+    is precise; define when a moving outing rolls to a new area. Each send now records GPS,
+    traveler, Place or unavailable explicitly; only the public snapped cell is stored. Encounter
+    distance uses the peer's public Nearby card, and a changed public cell starts a new area segment
+    inside the same outing.
+  - [x] **G4 — Materialized outing review (2026-10-21).** Add a collection detail screen with reached, pending,
+    matched, mismatched and late counts; preserve repeated peer + Talk outcomes instead of the
+    current latest-only `peerId::talkId` projection; link each person to their replies and chat;
+    allow pin, dismiss and private notes. Review preserves the repeated outcome timeline, exposes
+    late/location evidence, links each row to the existing replies + DM view, and persists local-only
+    pin/dismiss/note state.
+  - [x] **G5 — Importance-aware ranking (2026-10-21).** Let the author mark Talks/questions as important or
+    must-have, then rank within this outing by must-have failures, weighted answer strength,
+    matched-Talk breadth, trust/relationship, distance-at-encounter and freshness. Reuse the
+    weighted `find-similar` primitives rather than the Contacts tab's current fixed relevance
+    formula. Explain the top reasons and never silently hide candidates. Talk and question editors
+    now persist Normal/Important/Must-have weights; outing ranking uses shared `matchScore`, hard
+    failures, breadth, relationship history, blurred encounter distance and freshness. The default
+    review includes every person and explains its leading signals; pin/dismiss are explicit.
+  - [x] **G6 — Real background collection (2026-10-21, code gate).** Move the minimum receive/match/outbox/session work out
+    of the Android WebView into the foreground-service path, survive screen-off and process death,
+    reconcile without duplicate outcomes, and disclose vendor battery restrictions. "Always" mode
+    must resume the exact active outing; "While open" must say collection is paused.
+    - [x] The reviewed boundary is now implemented: Android keeps approved policy in a
+      Keystore-encrypted store, reads the SEA pair through an app-internal custody method (never the
+      new WebView bridge), and provisions a bearer-protected loopback processor in the embedded
+      foreground node. It decrypts Talk mailbox bodies/responses, enforces room/intake/contact/age/
+      block policy, uses only exact pre-approved auto-answers, durably relays the response outbox,
+      classifies matches and binds late responses to the snapshotted outing.
+    - [x] Reconciliation is encrypted, persistent and idempotent: the native processor journals
+      before mailbox acknowledgement; WebView resume replays through the existing Talk/ledger
+      handlers and acknowledges only completed events. The active room, outing associations and
+      policy survive ordinary Android process recreation. Rejected/blocked mail is consumed rather
+      than waking repeatedly; unsupported non-Talk mail remains for the foreground UI.
+    - [x] Product disclosure distinguishes **Always — background Talk exchange** from **While open —
+      pauses in background**, states that a persistent notification is used, and warns that vendor
+      battery savers can still delay/stop delivery unless unrestricted battery use is allowed.
+      Host SEA-cycle, authorization, durable-relay, policy, mailbox-relay and packaged-mobile gates
+      pass. Physical screen-off/process-death bench paths now pass on P30, C10, PH-1 and Honor
+      FRD-L04 (2026-10-28); carried-field and real vendor battery behavior remain open under G7.
+  - G7 — Qualification gate (finished parts):
+    - [x] Deterministic host gates (2026-10-21): 498-person delivery/storage/review and a 16-client
+      moving outing with pending, cold-start, delayed and repeated cases
+      (`match-collection-scale.test.ts`, `match-collection-outing-model.ts`).
+    - [x] Automated physical Android bench matrix (2026-10-21, app 1.0.187): P30/C10/PH-1
+      Wi-Fi-off catch-up; P30 cellular-only ↔ C10 Wi-Fi; four-phone online ring; and a C10 receiver
+      with Activity closed, screen off, forced Doze and killed process. Android restarted the
+      foreground service, returned the exact approved encrypted answer in 5.727 s after the outing
+      had stopped, and WebView resume reconciled it exactly once. See
+      `docs/testing/android-match-collection-g7.md`. **2026-10-28 regression:** repaired native
+      Gun RPC acknowledgement stalls and connection-replacement races; the 1.0.199 four-phone
+      ring (3.7 min) and P30/C10/PH-1 offline catch-up (2.6 min) pass again. Native screen-off
+      process recovery, late reply and exact replay pass with all four phones as receivers:
+      P30 6.153 s, C10 5.626 s, PH-1 6.313 s, Honor FRD-L04 5.895 s. Every run retains one
+      outing result, the exact whole-Talk/selected-tag responder identities and zero pending events.
+  - G8 — Adoption and abuse edges (finished parts):
+    - [x] Cold-start pending pairs are measured in the 16-client model; review has a default-visible
+      **Needs follow-up** filter and opens the person's existing replies/chat directly.
+    - [x] The OPEN-70 starter credit/block-count defenses are complete: 12 distinct incoming Friend
+      marks, fewer than three received blocks, one lifetime Place, and continuing lifecycle checks.
+      Optional stronger Place defenses remain a separate owner decision; iOS remains unsupported
+      until its separate native qualification exists.
+
+### OPEN-76 — Physical transport, radio and battery measurements: automatable parts A–D
+
+  - [x] **Automatable A — Measurement harness:** add per-provider scan-window/duty-cycle counters,
+    logical-delivery and wire-byte/duplicate accounting, timer overrides, and retained JSON evidence.
+  - [x] **Automatable B — Physical bench matrix:** on at least three attached phones, isolate BLE
+    discovery, exercise 30 s / 10 min / 30 min schedules, and run online↔offline Talk exchange with
+    Wi-Fi STA + Wi-Fi Direct concurrency across PH-1, P30, C10 and Honor where supported.
+    Completed on P30, C10 and PH-1 on 2026-10-22. The supported Honor FCP-AN10 closeout then passed
+    the complete three-phone offline Wi-Fi Direct journey with P30 and C10 (ring Talks plus Honor
+    background delivery); the old Honor Android 7 remains unable to join a credentialed group. The
+    hardware run used accelerated windows while deterministic tests cover the production 30 s /
+    10 min / 30 min caps.
+  - [x] **Automatable C — Tune from evidence:** select production discovery timers and adjust the
+    mesh ACK timeout only if the measurements justify it; wire `NearbyCandidateRegistry` route
+    selection only if duplicate hardware routes are observed.
+    Retained 30 s / 10 min / 30 min and the 3 s ACK: 306 sent and 306 received frames produced zero
+    duplicate frames and zero duplicate Talk bodies, so neither ACK inflation nor route-selection
+    wiring is justified. Native idempotence reduced P30 BLE advertiser starts from 67 to 4 per
+    ~200 s mixed run. **2026-10-27 follow-up:** fixed conflicting scan policies in the discovery
+    tick and advertisement refresh. The P30/C10 mixed-nearby bench passed with native P30 scan
+    starts reduced from 19 to 3 over comparable ~200 s windows; all four Talk bodies arrived
+    without duplicate accepted bodies. Both online owner/client regression tests pass. This
+    removes the repeated scan-toggle defect, but does not establish real unplugged energy use;
+    timers and the ACK timeout remain unchanged. See the transport report for limitations.
+  - [x] **Automatable D — Regression/reporting:** add focused deterministic tests, rerun the relevant
+    Android matrix, and append the measurements and limitations to the transport report.
+
+### OPEN-111 (c) — answer's place link ~12 s late (fixed 2026-11-11)
+
+- A manual answer recorded my exchange only after `sendToAuthor` committed it to the author's log,
+  so when the first link to the author waited out the 10 s WebRTC connect, the answer's 📍 place link
+  showed ~12 s late (stage3 82 tag-graph-tour failed on it every run). Fixed the same day: the sends
+  run while the exchange is recorded, and the answer still waits for them before a match
+  conversation; 82 passes again.
+
+### OPEN-112 (c) — copies stay private; no Talk sent back to its author (done 2026-11-13)
+
+- Copies stay as received (private) until the copier switches them on (owner, 2026-11-13); a Talk is
+  never sent back to its author (copies used to return to the author, mass/06).
+
+### Already recorded here, now removed from TODO.md
+
+- OPEN-79 delegate roster watcher (see 2026-11-06 entry) and the E2E spec tagging backlog (see
+  2026-11-06 entry).
 
 ## 2026-11-11 — OPEN-92 and OPEN-96 closed on 1.0.246
 
