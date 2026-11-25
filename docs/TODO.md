@@ -36,7 +36,7 @@ its ID.
   fails a rotating 1–3 cases that pass alone (`82-tag-graph-tour`, `14-contacts-relationship`,
   taxi 05 most often), so every release currently needs a manual "load flakes only" judgement
   (OPEN-117). 1.0.285 phone smoke passed on FRD + C10.
-- **Recommended order:** OPEN-112 (a) → OPEN-117 → the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
+- **Recommended order:** OPEN-117 (load-only flakes), then the phone proofs in OPEN-114 / OPEN-113 / OPEN-101 → the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
 
 ## Active maintenance queue — website and Android first
 
@@ -45,28 +45,10 @@ its ID.
   `14-contacts-relationship`, taxi 05 (1/10 alone after 8c7c153c). Find the race behind each, as
   was done for the HR Talks-count flake (09279948), so a release no longer needs a manual
   "only load flakes" call and real regressions are not hidden among them. Likely related to the
-  core queue backing up >45 s under load (OPEN-112 (a)).
+  core queue backing up >45 s under load (seen 2026-11-15; not reproduced 2026-11-24, see OPEN-112
+  in `docs/completed.md`). Also seen 2026-11-24: 24 "Gun put ack timed out" on `user-tags/` hub
+  writes in 4 parallel starter-tags runs (all passed).
 
-- [ ] **OPEN-112 — Automatic Talk exchange, no Broadcast button (owner, 2026-11-13).** Users only
-  decide which Talks are public (Broadcast On); each public Talk goes to everyone on my list
-  (capped at room capacity) and the chatbot answers. Spec §6.1a. Done in code: catch-up no longer
-  needs a Broadcast in the room, create/edit/switch-on offer at once, editor box is "Public",
-  edits keep the choice, capture drafts start private, T1 toast on publish, button removed.
-  Phone check passed 2026-11-13 on 1.0.247, C10 + FRD (native-app/42, browser twin stage2/98):
-  publish → arrival 30 s with no tap → match 11 s; the other's chatbot answered a Talk with nobody
-  tapping → match 49 s. Note: a question a pair already exchanged is not offered again
-  (REQ-LEDGER-16), and one author reaches a person with at most 10 distinct Talks a day.
-  Open: (a) when a link opens with many public Talks owed (stage5/00d: 20 at once), 1–4 sometimes
-  never arrived (5 of ~12 runs, all while the machine was busy; 0 of 6 when idle). No receiving-limit
-  declines were logged (`[intake]` warning added). Next: find where they stop (sender's pair log vs
-  receiver's intake). 2026-11-15: an offer that failed before anything was recorded as sent (a busy
-  core timing out, a storage read missing) was never made again until the next catch-up trigger; it
-  is now retried with backoff (`retryOfferLater`, 5 s → 60 s, 6 tries). Not proven to be this gap:
-  00d passed 6/6 (with stage2/98) and in the 2026-11-15 test:all, where no offer failed. The same
-  test:all failed stage5 starter-tags on load: Fay's core requests timed out (45 s, 70 outcome
-  records + 15 delivery records lost) and her shared counts with two people stayed short; it
-  passes alone (8.9 min). Next: why one browser's core queue backs up over 45 s under load.
-  (b) and (c) are done (`docs/completed.md`, 2026-11-24).
 - [ ] **OPEN-114 — Talk exchange that scales: batched pair log, own link frames, content once
   (owner, 2026-11-14).** A tag exchange cost ~1.6 s a Talk (one signed entry per Talk per person,
   the receiver pulling each Talk node by node over the link, a fixed Gun wait on every read); under

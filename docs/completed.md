@@ -2,6 +2,39 @@
 
 Last updated: 2026-11-24
 
+## 2026-11-24 — OPEN-112 automatic Talk exchange closed
+
+- (b) and (c): see the entries below. (a), Talks missing when a link opens with many owed: not
+  reproduced on 2026-11-24. stage5 `00d-super-user-20-broadcast` passed 8/8 with 4 parallel workers
+  and 20/20 with 10; `starter-tags-similar-people` passed 4/4 with 4 parallel workers (5.0 min each,
+  no core request over 45 s). The 2026-11-13/15 misses (5 of ~12 runs under test:all load) came
+  before the failed-offer retry (2026-11-15), batched catch-ups (2026-11-23) and the waiting-offer
+  re-check (OPEN-111 a, today); which one closed it is not known. 00d now dumps, on a miss, Alice's
+  record of what she sent Tom and both graph event logs (be4ee4ca). Reopen if that dump fires;
+  remaining load-only failures are OPEN-117.
+- The issue as it stood when closed:
+
+  - [ ] **OPEN-112 — Automatic Talk exchange, no Broadcast button (owner, 2026-11-13).** Users only
+    decide which Talks are public (Broadcast On); each public Talk goes to everyone on my list
+    (capped at room capacity) and the chatbot answers. Spec §6.1a. Done in code: catch-up no longer
+    needs a Broadcast in the room, create/edit/switch-on offer at once, editor box is "Public",
+    edits keep the choice, capture drafts start private, T1 toast on publish, button removed.
+    Phone check passed 2026-11-13 on 1.0.247, C10 + FRD (native-app/42, browser twin stage2/98):
+    publish → arrival 30 s with no tap → match 11 s; the other's chatbot answered a Talk with nobody
+    tapping → match 49 s. Note: a question a pair already exchanged is not offered again
+    (REQ-LEDGER-16), and one author reaches a person with at most 10 distinct Talks a day.
+    Open: (a) when a link opens with many public Talks owed (stage5/00d: 20 at once), 1–4 sometimes
+    never arrived (5 of ~12 runs, all while the machine was busy; 0 of 6 when idle). No receiving-limit
+    declines were logged (`[intake]` warning added). Next: find where they stop (sender's pair log vs
+    receiver's intake). 2026-11-15: an offer that failed before anything was recorded as sent (a busy
+    core timing out, a storage read missing) was never made again until the next catch-up trigger; it
+    is now retried with backoff (`retryOfferLater`, 5 s → 60 s, 6 tries). Not proven to be this gap:
+    00d passed 6/6 (with stage2/98) and in the 2026-11-15 test:all, where no offer failed. The same
+    test:all failed stage5 starter-tags on load: Fay's core requests timed out (45 s, 70 outcome
+    records + 15 delivery records lost) and her shared counts with two people stayed short; it
+    passes alone (8.9 min). Next: why one browser's core queue backs up over 45 s under load.
+    (b) and (c) are done (`docs/completed.md`, 2026-11-24).
+
 ## 2026-11-24 — OPEN-118 phone AppBar headcount whole; ℹ️ always under ⋯
 
 - At 390 px the Me AppBar showed "1. My answers" and Talks "0 nearby · 1 …". Causes in
