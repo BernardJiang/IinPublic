@@ -35,25 +35,9 @@ its ID.
 - **Health:** `test:all` runs ~23.5 min (~390 Playwright cases + ~3,600 Jest tests). Three clean
   runs in a row on 2026-11-24/25 after the 82 race fix (OPEN-117 closed). Debug 1.0.288 release
   smoke passed on P30 + C10 (2026-11-25).
-- **Recommended order:** OPEN-120 (fix on phones; commit), then watch OPEN-99.
+- **Recommended order:** watch OPEN-99 in later phone runs; the rest of the queue is paused or deferred.
 
 ## Active maintenance queue — website and Android first
-
-- [ ] **OPEN-120 — Four phones settle slower than three (2026-11-25).** native-app/43 on 1.0.289:
-  three phones settled 2–25 s after deciding (one 71 s); with the PH-1 as a fourth, Contacts settled
-  7–56 s in run 1 and 3 but 149 s (P30) and 176 s (FRD) in run 2, and FRD 72 s in run 3 — over the
-  owner's 1-min target for four phones. Deciding stayed 34–45 s; every overlap was exact.
-  **Cause (2026-11-25, per-phone consoles):** not the radio — a receiver got each answer within a
-  second of its sending. Tags that arrive while a phone is still deciding are answered later through
-  the one-at-a-time answer queue (`TalkCompletionPipeline`), and each answer held it ~11–14 s: the
-  commit, then the send (it waits for the link to the author), then re-creating the same
-  conversation, each ~4–6 s on a busy core. The first phone to finish deciding has its tags stuck in
-  everyone else's queue (one tag every ~13.7 s; FRD 134 s on 1.0.289). Tags arriving after deciding
-  go through the chatbot path, which never queued. **Fix (debug 1.0.290):** an answer
-  releases the queue once its writes are done; its send and conversation finish beside the next one
-  (a later answer to the same Talk still waits for it). Four phones, three runs: settled 12–61 s
-  (51/35/61/18, 24/14/25/12, 30/17/32/12). The 61 s: the PH-1 still answers ~one every 5 s (the
-  commit on a busy core) plus one 14 s WebRTC reconnect. Unit: `talk-completion-pipeline.test.ts`.
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no

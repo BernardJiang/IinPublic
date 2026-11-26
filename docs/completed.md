@@ -1,6 +1,34 @@
 # IinPublic Completed Work
 
-Last updated: 2026-11-24
+Last updated: 2026-11-25
+
+## 2026-11-25 — OPEN-120 closed: four phones settle within a minute
+
+- Cause: the one-at-a-time answer queue held each answer for its send and conversation (~11–14 s an
+  answer), so the first phone to finish deciding had its tags reach the others one every ~14 s.
+  Fixed in `7d90189a` (an answer releases the queue once its writes are done).
+- native-app/43 on P30, C10, FRD and PH-1, six runs with the fix (1.0.290 ×3, 1.0.291 ×3): worst
+  phone per run 61, 25, 32, 26, 30, 54 s after deciding (was 49, 176, 72, 134 s on 1.0.289); 23 of
+  24 phone results within the 1-min target, the 61 s one 1 s over (the PH-1's ~5 s commit under load
+  plus one WebRTC reconnect). Deciding 35–50 s; every overlap exact.
+
+Previous text:
+
+- [ ] **OPEN-120 — Four phones settle slower than three (2026-11-25).** native-app/43 on 1.0.289:
+  three phones settled 2–25 s after deciding (one 71 s); with the PH-1 as a fourth, Contacts settled
+  7–56 s in run 1 and 3 but 149 s (P30) and 176 s (FRD) in run 2, and FRD 72 s in run 3 — over the
+  owner's 1-min target for four phones. Deciding stayed 34–45 s; every overlap was exact.
+  **Cause (2026-11-25, per-phone consoles):** not the radio — a receiver got each answer within a
+  second of its sending. Tags that arrive while a phone is still deciding are answered later through
+  the one-at-a-time answer queue (`TalkCompletionPipeline`), and each answer held it ~11–14 s: the
+  commit, then the send (it waits for the link to the author), then re-creating the same
+  conversation, each ~4–6 s on a busy core. The first phone to finish deciding has its tags stuck in
+  everyone else's queue (one tag every ~13.7 s; FRD 134 s on 1.0.289). Tags arriving after deciding
+  go through the chatbot path, which never queued. **Fix (debug 1.0.290):** an answer
+  releases the queue once its writes are done; its send and conversation finish beside the next one
+  (a later answer to the same Talk still waits for it). Four phones, three runs: settled 12–61 s
+  (51/35/61/18, 24/14/25/12, 30/17/32/12). The 61 s: the PH-1 still answers ~one every 5 s (the
+  commit on a busy core) plus one 14 s WebRTC reconnect. Unit: `talk-completion-pipeline.test.ts`.
 
 ## 2026-11-25 — OPEN-111 closed: (b) the Nearby projection write no longer fails
 
