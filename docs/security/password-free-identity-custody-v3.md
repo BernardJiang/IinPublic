@@ -89,8 +89,11 @@ write/read/verify/remove contract through narrow native bridges:
   backup is disabled; physical tests preserve every SEA field through v1 migration, refuse a
   conflicting identity, and prove erase plus uninstall/reinstall each create unrelated native
   custody. Run the availability-first gate with `npm run test:e2e:android-custody`.
-- Written, not yet built/run: Apple Keychain (`AppleCustodyBridge.swift`, after-first-unlock, this
-  device only) and Electron macOS `safeStorage` (`platforms/desktop/custody.js`, verified by spec 22; Windows/Linux
+- Apple Keychain (`AppleCustodyBridge.swift`, after-first-unlock, this device only): first compiled
+  2026-11-25, which fixed a type error in `read`. It type-checks for the iOS 15 simulator SDK, and a
+  macOS harness drove the real handler through describe/read/write/overwrite/remove, refused an
+  invalid pair, a mismatched remove and an unknown op, and left no item behind. Not yet run on an
+  iPhone or in the simulator (no iOS shell builds yet, OPEN-21). Electron macOS `safeStorage` (`platforms/desktop/custody.js`, verified by spec 22; Windows/Linux
   refused until a provider is reviewed).
 - Decide the Windows/Linux desktop provider.
 - Obtain external security review before completing deferred OPEN-26 for the broader platform set.

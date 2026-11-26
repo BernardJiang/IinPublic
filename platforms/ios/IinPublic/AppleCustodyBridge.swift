@@ -20,7 +20,10 @@ final class AppleCustodyBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "describe":
             replyHandler(["version": 1, "provider": "apple-keychain", "available": true, "hardwareBacked": NSNull()], nil)
         case "read":
-            do { replyHandler(["pair": try readPair() ?? NSNull()], nil) } catch { replyHandler(nil, "read-failed") }
+            do {
+                let pair: Any = try readPair() ?? NSNull()
+                replyHandler(["pair": pair], nil)
+            } catch { replyHandler(nil, "read-failed") }
         case "write":
             guard let pair = body["pair"] as? [String: String], Self.isValid(pair) else { return replyHandler(nil, "invalid-pair") }
             do {

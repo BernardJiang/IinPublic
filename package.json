@@ -49,6 +49,7 @@
     "release": "bash scripts/release.sh",
     "release:website-apk": "bash scripts/publish-website-apk.sh",
     "release:verify-checksums": "node scripts/verify-release-checksums.js",
+    "check:apple-custody": "bash scripts/check-apple-custody.sh",
     "check:android-16kb": "bash scripts/check-android-16kb.sh android/app/build/outputs/apk/debug/app-debug.apk",
     "desktop:dev": "npm run build:embedded && cd platforms/desktop && npm install && npm start",
     "desktop:stage-deps": "node scripts/stage-desktop-prod-deps.mjs",
