@@ -12,7 +12,7 @@ import { renderListProgressively } from './render-list-progressively';
 import { avatarInnerHtml } from './profile-avatar';
 import { getPinnedIds, pinnedFirst, toggleListItemPin } from './list-pins';
 import { createRowSelection, type RowSelection } from './list-row-selection';
-import { bindGraphLinks, clearMeFocus, getMeFocus, openContactsTopic, peopleForTopic, peopleLinkHtml, placeLinkHtml, placesOf, syncFocusChip, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
+import { bindGraphLinks, clearMeFocus, getMeFocus, openContactsTopic, peopleForTopic, peopleLinkHtml, placeLinkHtml, placesOf, popularityHtml, syncFocusChip, tagFaceHtml, tagText, talksLinkHtml } from './graph-focus';
 import { STARTER_TAGS_SOURCE_ID } from '../../shared/starter-tags';
 import { refreshGraphAnswerHistory } from './graph-answer-history';
 
@@ -625,7 +625,9 @@ export function displayAnswersList(deps: AnswersViewDeps): void {
       // Who exchanged this question with me (for a tag, who like it), the most recent first, and the
       // Talks that asked it: the two ways a row leads through the graph (graph-focus.ts).
       const people = peopleForTopic({ talkIds, isTag: tagState !== '' });
+      // A tag also shows its popularity (#rank · ✕ passes) after 👥, as on Talks (spec §6.1b).
       const linksHtml = peopleLinkHtml(group.prompt, people.length, deps, talkIds, tagState !== '')
+        + (tagState ? popularityHtml(talkIds, deps) : '')
         + talksLinkHtml(group.prompt, talkIds, deps)
         + placeLinkHtml(placesOf({ talkIds }), deps);
       const bodyHtml = tagState

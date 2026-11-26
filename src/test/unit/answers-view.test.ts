@@ -5,7 +5,8 @@ import { resetAnswerHistoryForTests } from '../../web/ui/answer-history-storage'
 
 import { answerTalkMatchesQuery, applyMeAnswerFilter, buildAnswerItemModels, displayAnswersList, getAnswerDisplayText } from '../../web/ui/answers-view';
 import { longPress } from './helpers/long-press';
-import { bindGraphLinks, clearContactsFocus, clearMeFocus, getContactsFocus, getMeFocus, openMeFocus, tagFaceHtml } from '../../web/ui/graph-focus';
+import { bindGraphLinks, clearContactsFocus, clearMeFocus, getContactsFocus, getMeFocus, invalidateTagPopularity, openMeFocus, tagFaceHtml } from '../../web/ui/graph-focus';
+import { configureTagGraphView } from '../../web/ui/tag-graph-view';
 import {
   appendAutoUse,
   createEmptyExactChatbotMemoryState,
@@ -1059,6 +1060,34 @@ describe('Me rows lead through the graph (owner design 2026-10-25)', () => {
     expect(jazz.querySelector('[data-testid="answer-people"]')).toBeNull();
     jazz.click();
     expect(opened).toBe(false);
+  });
+
+  it('a tag row shows its popularity (#rank · ✕ passes) after 👥, as on Talks (OPEN-113, spec §6.1b)', () => {
+    // Phone check 2026-11-25: Me rows showed 👥 but never the rank; the face was drawn without Talk ids.
+    const tagTalk = { id: 'tag-pizza', type: 'tag', title: 'Pizza', questions: [{ id: 'q_0', text: 'Pizza', answers: [{ id: 'm', text: 'Pizza', isMatch: true }] }] };
+    configureTagGraphView({
+      graphInput: () => ({
+        currentUserId: 'me',
+        incoming: [],
+        myTalks: { 'tag-pizza': { role: 'created', likesTag: true, fullTalk: tagTalk } },
+        exchanges: {
+          a: { peerId: 'ann', peerName: 'ann', talkId: 'tag-pizza', type: 'tag', title: 'Pizza', outcome: 'match' },
+          b: { peerId: 'ben', peerName: 'ben', talkId: 'tag-pizza', type: 'tag', title: 'Pizza', outcome: 'mismatch' },
+        },
+      }),
+      t: (key) => key,
+    });
+    invalidateTagPopularity();
+    try {
+      displayAnswersList(deps(tagHistory('Pizza', 'tag-pizza', true)) as any);
+      const pizza = document.querySelector<HTMLElement>('.answer-talk-item[data-talk-id="tag-pizza"]')!;
+      const popularity = pizza.querySelector<HTMLElement>('[data-testid="tag-popularity"]');
+      expect(popularity?.textContent).toBe('#1 · ✕ 1');
+      expect(popularity?.dataset.rank).toBe('1');
+    } finally {
+      invalidateTagPopularity();
+      configureTagGraphView({ graphInput: () => ({ currentUserId: '', incoming: [], myTalks: {}, exchanges: {} }), t: (key) => key });
+    }
   });
 
   it('a passed tag shows ✕ and can be liked again from the AppBar; a liked one can be passed', () => {

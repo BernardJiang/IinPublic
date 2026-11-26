@@ -58,6 +58,9 @@ its ID.
   root-only "do I have it" check (the root is written last), folder links only for a new bucket, no
   stored blob (made again from the nodes): ~142 → ~96 reads and ~50 → ~36 writes a Talk, 65 → 62 ms
   (time is bound by chains of dependent reads, not their count).
+  **Phones 2026-11-25 (debug 1.0.287/1.0.288, P30 + C10 + FRD; PH-1 off USB):** native-app/43 passed
+  twice: deciding 36–38 s and 35–46 s, settled 19–22 s and 12/45/71 s after deciding (FRD's 71 s once
+  over the 1-min target). DM, release smoke (phone-path 19/19, one-phone, two-phone Place) passed.
 - [ ] **OPEN-113 — Live tag statistics in Contacts, Talks and Me (owner, 2026-11-14).** One model,
   three views, all from what this device holds (people I exchanged with; no hub counts):
   - Model (`src/core/tag-graph.ts` + a pure `tag-stats`): per tag — who likes it, who passed it,
@@ -72,6 +75,9 @@ its ID.
   unit tests, stage5 starter-tags checks the #1 rank. Open: a phone look at the three tabs; whether
   redrawing Contacts/Me on every exchange burst disturbs someone scrolling (debounced 600 ms).
   Also done: sending/receiving animation without the Broadcast button (spec §6.1a).
+  **Phone look 2026-11-25 (1.0.287, 3 phones):** Contacts "15 in common · 33% alike · #1 most alike"
+  and Talks "👥 N #rank" correct; Me showed 👥 but no #rank (face drawn without Talk ids) → fixed in
+  `answers-view.ts` with a unit test; seen on phones in 1.0.288. Still open: the scrolling question.
 - [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
   The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
   let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
@@ -119,6 +125,9 @@ its ID.
   catch-up and `native-app/37` match → chat passed. (a) no longer applies: ordinary DMs are not in
   the private history segments any more. (b)(c)(e) were not reproduced but were not forced either;
   (d) is still unexplained.
+  **Phone run 2026-11-25, debug 1.0.287 (P30, C10, FRD):** `test:android:dm` P30→C10, C10→P30,
+  FRD→C10, C10→FRD each received once in 2–13 s, longest freeze ≤ 241 ms; `--hung-hub` FRD→P30 kept
+  the composer responsive (freeze 99 ms). (b)(c)(e) still not forced; (d) not seen.
 
 ## Paused implementation and field qualification — track, but do not start new features
 

@@ -86,6 +86,7 @@ test.describe('Real phones: starter tags find the most similar person', () => {
       pages[index] = user.window;
       // Each phone's page console, timestamped, so a slow exchange can be traced afterwards.
       if (CONSOLE_DIR) {
+        fs.mkdirSync(CONSOLE_DIR, { recursive: true });
         const file = `${CONSOLE_DIR}/${NAMES[index]}-console.txt`;
         fs.writeFileSync(file, '');
         user.window.on('console', (message) => {
