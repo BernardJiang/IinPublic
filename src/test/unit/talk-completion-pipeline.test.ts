@@ -58,4 +58,39 @@ describe('TalkCompletionPipeline', () => {
     await pipeline.submit('c', Promise.resolve(), async () => { ran.push('c'); });
     expect(ran).toEqual(['a', 'c']);
   });
+
+  it('starts the next completion once one releases the line, while the first still finishes (OPEN-120)', async () => {
+    const pipeline = new TalkCompletionPipeline();
+    const send = deferred();
+    const order: string[] = [];
+    const a = pipeline.submit('talk-a', Promise.resolve(), async (release) => {
+      order.push('a commit');
+      release();
+      await send.promise; // the send waits for the link to the author
+      order.push('a sent');
+    });
+    const b = pipeline.submit('talk-b', Promise.resolve(), async () => { order.push('b commit'); });
+    await b;
+    expect(order).toEqual(['a commit', 'b commit']);
+    send.resolve();
+    await a;
+    expect(order).toEqual(['a commit', 'b commit', 'a sent']);
+  });
+
+  it('a released completion still holds back a later completion of the same Talk until it ends', async () => {
+    const pipeline = new TalkCompletionPipeline();
+    const send = deferred();
+    const order: string[] = [];
+    const first = pipeline.submit('talk-a', Promise.resolve(), async (release) => {
+      release();
+      await send.promise;
+      order.push('answer');
+    });
+    const second = pipeline.submit('talk-a', Promise.resolve(), async () => { order.push('change-of-mind'); });
+    await tick();
+    expect(order).toEqual([]);
+    send.resolve();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['answer', 'change-of-mind']);
+  });
 });

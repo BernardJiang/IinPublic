@@ -7275,7 +7275,7 @@ export class IinPublicApp {
      *  opt-out, distinct from any of the asker's own provided answers): the sender must
      *  receive nothing at all. Local bookkeeping above still runs as normal. */
     withholdFromSender?: boolean;
-  }): Promise<void> {
+  }, releaseLine?: () => void): Promise<void> {
     console.log('📝 User completed talk:', data);
     // Starter contacts are local demo senders. Their Talks exercise the normal Answer/Copy
     // UI and local Q&A memory, but there is no remote identity to deliver a response to.
@@ -7378,6 +7378,7 @@ export class IinPublicApp {
           ? data.talkData.authorName
           : undefined) || String(data.talkData.authorName || 'Unknown'),
         isAutoResponse: !data.answers.some((a: any) => a?.mode === 'manual'),
+        ...(releaseLine ? { releaseLine } : {}),
       });
     }
     // If no authorId (e.g. self-test or malformed talk), no-op: mesh delivery requires an author.
@@ -7412,6 +7413,8 @@ export class IinPublicApp {
     authorId: string;
     authorName: string;
     isAutoResponse: boolean;
+    /** Called once my writes are done: the answer queue may start the next answer (OPEN-120). */
+    releaseLine?: () => void;
   }): Promise<void> {
     if (!this.currentUser?.id) return;
     if (!talkContactPolicyAllowsPeer(
@@ -7602,6 +7605,9 @@ export class IinPublicApp {
         direction: 'received',
       },
     );
+    // The commits are written: the next answer need not wait for this one's sends (each waits for
+    // the link to the author) or its conversation (OPEN-120: ~10 s an answer on a busy phone).
+    params.releaseLine?.();
     await Promise.all(deliveries);
     void refreshExchangeState();
 
@@ -9539,7 +9545,7 @@ export class IinPublicApp {
         const keyReady = authorId && authorId !== this.currentUser?.id && !data.isChatbotResponse
           ? this.resolvePeerEpub(authorId, firstKeyHint(data.talkData?.authorEpub, data.talkData?.senderEpub))
           : Promise.resolve();
-        const completion = this.talkCompletions.submit(String(data.talkId || ''), keyReady, () => this.handleTalkCompleted(data));
+        const completion = this.talkCompletions.submit(String(data.talkId || ''), keyReady, (release) => this.handleTalkCompleted(data, release));
         (globalThis as any).__iinpublic_lastTalkCompletion = completion;
         try {
           await completion;
