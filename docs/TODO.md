@@ -191,9 +191,14 @@ start them unless they become a direct blocker or are explicitly promoted.
   `npm run release:website-apk -- <universal.apk> [--dry-run]` checks the Play signing certificate
   (`PLAY_APP_SIGNING_CERT_SHA256`), package, version and 16 KB alignment, then publishes it
   (`docs/guides/DEPLOY_PRODUCTION.md`). Checked on this Mac with the debug APK (wrong cert and
-  wrong version refused, dry run passes). Left: the owner sets `PLAY_APP_SIGNING_CERT_SHA256` and
-  runs it with the first release's Play APK; the 1.0.286 website APK (our key) moves once by
-  device link (plan B).
+  wrong version refused, dry run passes).
+  2026-11-26: `PLAY_APP_SIGNING_CERT_SHA256` set in `.env.local` from Play's
+  `deployment_cert.der` (`secrets/certificates/`, RSA 4096, `75:18:82:C3:…:F3:C0`; ours is
+  `6b35ab4b…`). Dry run on Play's real 1.0.286 "Signed, universal APK" passes. It found two fixes:
+  Play adds a v3.2 hybrid post-quantum (ML-DSA) signer for SDK 37+ that apksigner cannot read on a
+  JDK before 24 (the script then verifies up to SDK 36 and says so), and a "Source Stamp Signer"
+  line that is not an app signer. Left: run it (not `--dry-run`) after the next release's `.aab`
+  upload; the 1.0.286 website APK (our key) moves once by device link (plan B).
 
 ### TechSupport identity protocol
 

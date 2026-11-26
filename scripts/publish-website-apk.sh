@@ -50,10 +50,18 @@ AAPT="$(ls -d "$SDK"/build-tools/*/aapt 2>/dev/null | sort -V | tail -1)"
 [ -x "$AAPT" ] || die "aapt not found under $SDK/build-tools"
 
 # 1. Google's certificate (not ours: that would bring the install conflict back).
-SIG="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)" || die "signature not verified: $SIG"
-# "Signer #1 certificate SHA-256 digest:" or "V2 Signer: certificate SHA-256 digest:" by build-tools
-# version; every signer must be the one certificate.
-GOT="$(sed -n 's/^.*[Ss]igner.*certificate SHA-256 digest: //p' <<<"$SIG" | tr -d ': ' | tr 'A-F' 'a-f' | sort -u)"
+if ! SIG="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"; then
+  # Play adds a v3.2 hybrid post-quantum (ML-DSA) signer for SDK 37+; a JDK before 24 cannot read
+  # it. Then verify what every device up to Android 16 checks, and say so.
+  grep -q 'ML-DSA KeyFactory not available' <<<"$SIG" || die "signature not verified: $SIG"
+  SIG="$("$APKSIGNER" verify --max-sdk-version 36 --print-certs "$APK" 2>&1)" \
+    || die "signature not verified (up to SDK 36): $SIG"
+  say "verified up to Android 16 (SDK 36); this JDK cannot check the SDK 37+ post-quantum signer"
+fi
+# "Signer #1 certificate SHA-256 digest:" or "V3.0 Signer: certificate SHA-256 digest:" by
+# build-tools version; every app signer must be the one certificate. Play's "Source Stamp Signer"
+# is Google's install-source stamp, not an app signer.
+GOT="$(grep -v 'Source Stamp' <<<"$SIG" | sed -n 's/^.*[Ss]igner.*certificate SHA-256 digest: //p' | tr -d ': ' | tr 'A-F' 'a-f' | sort -u)"
 [ -n "$GOT" ] || die "no signer certificate found: $SIG"
 [ "$(wc -l <<<"$GOT" | tr -d ' ')" = 1 ] || die "more than one signer certificate: $GOT"
 [ "$GOT" = "$WANT" ] || die "signed by $GOT, not the Play app signing key $WANT (is this our own release APK?)"
