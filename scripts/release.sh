@@ -194,5 +194,5 @@ END=$(date +%s)
 step "released $VERSION in $(( (END-START)/60 ))m$(( (END-START)%60 ))s"
 echo "  live:  $SITE_URL  (/api/downloads reports $VERSION)"
 echo "  Play:  upload $OUT/IinPublic-$VERSION.aab in Play Console (versionCode $(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle))"
-echo "  APK:   then App bundle explorer → $VERSION → Downloads → Signed, universal APK, and"
-echo "         npm run release:website-apk -- <that.apk>   (the website offers Play's APK, OPEN-115)"
+echo "  APK:   then App bundle explorer → $VERSION → Downloads → \"Signed, universal APK\" (saves as"
+echo "         ~/Downloads/<versionCode>.apk), and npm run release:website-apk   (Play's APK, OPEN-115)"

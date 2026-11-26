@@ -231,10 +231,12 @@ the 2026-09-28 decision that forced `android: null` (Play only).
 signs a universal APK from each uploaded bundle with the Play app signing key, so the website
 copy and the Play copy carry one certificate and update each other. `npm run release` still
 builds and checks our own `.apk` but no longer publishes it. After the `.aab` upload: Play
-Console → App bundle explorer → the version → Downloads → "Signed, universal APK", then
-`npm run release:website-apk -- <file.apk>` (`--dry-run` checks only). The script refuses an APK
-not signed with `PLAY_APP_SIGNING_CERT_SHA256` (env or `.env.local`; Play Console → App integrity
-→ App signing key certificate), of another package or version, or not 16 KB aligned, then
+Console → App bundle explorer → the version → Downloads → "Signed, universal APK" (saves as
+`~/Downloads/<versionCode>.apk`), then `npm run release:website-apk` (`--dry-run` checks only;
+pass a path for another file). The Play app signing certificate's SHA-256 is public and fixed, so
+it is in the script (`75:18:82:C3:…:F3:C0`, copy in `secrets/certificates/deployment_cert.der`;
+`PLAY_APP_SIGNING_CERT_SHA256` overrides it). The script refuses an APK signed with any other
+certificate, of another package or version, or not 16 KB aligned, then
 publishes it and checks `/api/downloads` offers it. Phones that installed the website APK signed
 with our keystore (1.0.286, 2026-11-24) cannot update to it: they move once by plan B below.
 Fetching the APK with the Play Developer API (`generatedapks`) would need a service account; not

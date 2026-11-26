@@ -7,12 +7,15 @@
 # After `npm run release` and the .aab upload: Play Console → Test and release → App bundle
 # explorer → this version → Downloads → "Signed, universal APK". Then:
 #
-#   npm run release:website-apk -- <universal.apk> --dry-run   # checks only, nothing leaves this Mac
-#   npm run release:website-apk -- <universal.apk>             # checks, then publishes to the website
+#   npm run release:website-apk -- --dry-run      # checks only, nothing leaves this Mac
+#   npm run release:website-apk                   # checks, then publishes to the website
 #
-# Needs PLAY_APP_SIGNING_CERT_SHA256 (env or .env.local): Play Console → Test and release → App
-# integrity → App signing → "App signing key certificate", SHA-256 (colons are fine).
-# The version must be package.json's (the release's); override with RELEASE_VERSION.
+# With no path it takes ~/Downloads/<versionCode>.apk, the name Play gives the download
+# (1.0.286 → 1000286.apk); pass a path to use another file.
+# The Play app signing certificate is public and fixed for the app's life, so its SHA-256 is below
+# (Play Console → Protected with Play → Manage Play app signing → "App signing key certificate";
+# copy in secrets/certificates/deployment_cert.der). PLAY_APP_SIGNING_CERT_SHA256 (env or
+# .env.local) overrides it. The version must be package.json's; override with RELEASE_VERSION.
 #
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,18 +33,25 @@ for arg in "$@"; do
     *) APK="$arg" ;;
   esac
 done
-[ -n "$APK" ] || die "usage: npm run release:website-apk -- <universal.apk> [--dry-run]"
+VERSION="${RELEASE_VERSION:-$(node -p 'require("./package.json").version')}"
+# android/app/build.gradle: versionCode = major*1000000 + minor*1000 + patch.
+VERSION_CODE="$(awk -F. '{ printf "%d", $1 * 1000000 + $2 * 1000 + $3 }' <<<"$VERSION")"
+if [ -z "$APK" ]; then
+  APK="$HOME/Downloads/$VERSION_CODE.apk"
+  [ -f "$APK" ] || die "no $APK: Play Console → Test and release → App bundle explorer → $VERSION → Downloads → \"Signed, universal APK\" (or pass a path)"
+  say "using $APK"
+fi
 [ -f "$APK" ] || die "no such file: $APK"
 
-VERSION="${RELEASE_VERSION:-$(node -p 'require("./package.json").version')}"
 VPS_HOST="${RELEASE_VPS_HOST:-ovh}"
 VPS_DIR="${RELEASE_VPS_DIR:-IinPublic}"
 SITE_URL="${RELEASE_SITE_URL:-https://iinpublic.com}"
 if [ -z "${PLAY_APP_SIGNING_CERT_SHA256:-}" ] && [ -f .env.local ]; then
   PLAY_APP_SIGNING_CERT_SHA256="$(sed -n 's/^PLAY_APP_SIGNING_CERT_SHA256=//p' .env.local | tail -1 | tr -d "\"' ")"
 fi
-WANT="$(printf '%s' "${PLAY_APP_SIGNING_CERT_SHA256:-}" | tr -d ': ' | tr 'A-F' 'a-f')"
-[ "${#WANT}" = 64 ] || die "set PLAY_APP_SIGNING_CERT_SHA256 (64 hex digits; Play Console → App integrity → App signing)"
+PLAY_CERT_DEFAULT='75:18:82:C3:4A:CF:79:7E:11:0E:6D:1D:67:9E:7E:74:CB:E4:86:42:3C:DB:2E:03:87:9C:81:BA:46:DA:F3:C0'
+WANT="$(printf '%s' "${PLAY_APP_SIGNING_CERT_SHA256:-$PLAY_CERT_DEFAULT}" | tr -d ': ' | tr 'A-F' 'a-f')"
+[ "${#WANT}" = 64 ] || die "PLAY_APP_SIGNING_CERT_SHA256 must be 64 hex digits"
 
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 APKSIGNER="$(ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
