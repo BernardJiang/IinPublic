@@ -37,12 +37,6 @@ export function linkSoul(value: unknown): string | undefined {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/** How many souls a store remembers as fully read (beyond it, it starts over: only a speed-up). */
-export const KNOWN_SOULS_MAX = 100_000;
-/** Device graph souls keyed by a hash of their content (spec §31.4): they never change. Events are
- * not among them (sidecars such as `ev/<id>/x` change; e2e stage4/05 read a stale one). */
-const UNCHANGING_SOUL = /^[^/]+\/(q|a|s|rev)\//;
-
 /** `durable()` waits this long at most for writes storage has not confirmed: a write Gun does not
  * store again (the same value) is never confirmed, and a send waited out a 10 s cap on it (e2e
  * stage2/29 took 5x as long). Storage confirms a real write well within this. */
@@ -59,8 +53,9 @@ const sameValue = (a: unknown, b: unknown): boolean =>
  * node, or of one known to be absent, need no disk read or Gun read wait; writes update the copy
  * and go to Gun as before (Radisk batches them to disk). A write by anything else (the page, a
  * test editing records, a peer) evicts the copy: Gun's `put` event, fired for every field written
- * from any source, is compared with it. Unlike the old `remembersReads` it keeps its own copies,
- * never Gun's graph objects (which Gun changes and `.off()` deletes, OPEN-114).
+ * from any source, is compared with it. It keeps its own copies, never Gun's graph objects: the
+ * removed `remembersReads` answered repeat reads from `gun._.graph` and read stale records in e2e
+ * stage1/04 and stage4/05 (Gun changes those objects, `.off()` deletes them; OPEN-114, OPEN-119).
  *
  * Five-phone starter tags (2026-11-21): ~6000 of 8450 storage operations in 3 minutes on a C10
  * were re-reads of the same few nodes (my Talks' indexes), keeping its node at 100 % CPU.
@@ -158,18 +153,9 @@ function createRamCache(gun: any, max: number) {
   };
 }
 
-export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; remembersReads?: boolean; cacheInRam?: boolean } & GunReadOptions = {}): NodeStore {
+export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; cacheInRam?: boolean } & GunReadOptions = {}): NodeStore {
   const read = gunNodeReader(gun, options);
   const ram = options.cacheInRam === true ? createRamCache(gun, RAM_CACHE_MAX) : undefined;
-  /**
-   * Nodes this store read in full, for souls whose content never changes once written (content-
-   * addressed questions, answers and structures): Gun's graph holds them, so the next
-   * read is answered from it without Gun's read wait (OPEN-114: reads were most of a Talk exchange's
-   * time, ~20 ms each). Mutable records (indexes, collections, conversations) and misses are always
-   * read: something else may write them (e2e stage1/04 read a stale conversation record).
-   */
-  // Off unless asked for: e2e stage4/05 and stage1/04 read stale records with it on (OPEN-114).
-  const known = options.remembersReads === true ? new Set<string>() : undefined;
   const strip = (data: any): GraphNode | null => {
     if (!data || typeof data !== 'object') return null;
     const { _: _meta, ...rest } = data;
@@ -187,18 +173,8 @@ export function gunNodeStore(gun: any, options: { putTimeoutMs?: number; remembe
     },
     get: async (soul) => {
       if (ram?.has(soul)) return ram.get(soul);
-      if (known?.has(soul)) {
-        const cached = gun._?.graph?.[soul];
-        if (cached) return strip({ ...cached });
-        known.delete(soul); // gone from the graph: read it again
-      }
       if (ram) return ram.read(soul, async () => strip(await read(soul)));
-      const data = await read(soul);
-      if (known && data && typeof data === 'object' && UNCHANGING_SOUL.test(soul)) {
-        if (known.size >= KNOWN_SOULS_MAX) known.clear();
-        known.add(soul);
-      }
-      return strip(data);
+      return strip(await read(soul));
     },
     put: (soul, value) => {
       if (ram) {
