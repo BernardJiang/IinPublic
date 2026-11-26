@@ -170,8 +170,11 @@ start them unless they become a direct blocker or are explicitly promoted.
 - [ ] **OPEN-119 — Exchange transport and storage beyond OPEN-114 (deferred, new work).** Split out
   of OPEN-114 when it closed (2026-11-25). A BLE transport (link frames are already split to its
   size); UDP multicast for content only, as an optional route on Android Wi-Fi (researched: not on
-  web, iOS needs an entitlement, lossy in crowds); local storage as the next cost; remembered local
-  reads (20 ms a Talk) read stale records in stage1/04 and stage4/05 — cause not found, kept off.
+  web, iOS needs an entitlement, lossy in crowds); local storage as the next cost.
+  Remembered local reads: settled 2026-11-25 — the off-by-default `remembersReads` (answered repeat
+  reads from Gun's own graph objects, which Gun changes and `.off()` deletes) was replaced on
+  2026-11-21 by the RAM node cache (`cacheInRam`, own copies, evicted on any write), on in every
+  host; the unused option was removed.
 
 - [ ] **OPEN-115 — Website APK and Play install cannot replace each other (deferred).** Since
   2026-11-24 every release offers the signed `.apk` on iinpublic.com beside the Play `.aab`. Both
@@ -183,6 +186,14 @@ start them unless they become a direct blocker or are explicitly promoted.
   strategy"): a separate `applicationId` for the website build (plan A), a guided device-link
   migration before switching (plan B), or uploading our own key to Play so both copies share one
   certificate. Deferred by the product owner 2026-11-24.
+  **2026-11-25 owner decision: the website offers Play's own signed universal APK** (same
+  certificate as the Play install). Done locally: `npm run release` no longer publishes our APK;
+  `npm run release:website-apk -- <universal.apk> [--dry-run]` checks the Play signing certificate
+  (`PLAY_APP_SIGNING_CERT_SHA256`), package, version and 16 KB alignment, then publishes it
+  (`docs/guides/DEPLOY_PRODUCTION.md`). Checked on this Mac with the debug APK (wrong cert and
+  wrong version refused, dry run passes). Left: the owner sets `PLAY_APP_SIGNING_CERT_SHA256` and
+  runs it with the first release's Play APK; the 1.0.286 website APK (our key) moves once by
+  device link (plan B).
 
 ### TechSupport identity protocol
 
@@ -246,6 +257,20 @@ review capacity is available and the issue is promoted after the website/Android
 - [ ] **OPEN-23 — Prototype BLE discovery and route upgrade (deferred).** Measure throughput,
   battery use, background behavior, and upgrade to a high-bandwidth route. Do not select BLE as a
   Gun data transport until measurements demonstrate a product need.
+  **Android measurements 2026-11-25 (debug 1.0.291, C10 Android 14 + PH-1 Android 10, offline):**
+  discovery from a cold launch: beacons on 15–25 s after launch (app start), each phone saw the
+  other 0–9 s after both beacons were on (one 26 s), 3 runs. Background: with Nearby "while the
+  app is open" (the default) the screen going off stops discovery by design (beacons 1–2 % of
+  30 min); with "Always" both beacons ran the whole 30 min screen-off (C10 211 scan results, saw
+  the PH-1 2 s before the end; the PH-1's page last saw the C10 179 s before the end although its
+  radio counted 1,341 results — one sample, maybe the WebView throttled while the screen was off).
+  Battery (C10 on USB, `batterystats` estimate, 30 min screen-off): the app 4.4 mAh with the beacon
+  off, 3.3 mAh with it on all the time — mostly the node's wakelock; the beacon's own cost is below
+  the estimate's noise (~7–9 mAh/h ≈ 0.2 %/h of 5000 mAh). A real drain number needs an unplugged
+  run. Route upgrade: native-app/30 offline (`E2E_NEARBY_OFFLINE_WIFI_DIRECT=1`, 2 phones) passed —
+  found over BLE only, the PH-1 hosted a Wi-Fi Direct group, the C10 joined by credential, Talks in
+  3.2–5.5 s (p50 4.3 s), background delivery OK. Not measured: BLE data throughput (no BLE data
+  transport; DEFERRED-08), iPhone.
 
 - [ ] **OPEN-24 — Maintain the physical-device certification matrix (deferred).** Keep at least two
   iPhones, two Android devices, and one desktop node across supported OS ranges. Cover foreground,
