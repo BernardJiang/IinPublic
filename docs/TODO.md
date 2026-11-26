@@ -70,6 +70,16 @@ its ID.
   events"). IinPublic opens no LE connections; whether its advertiser restarts reach those HALs is
   unproven. Possible hardening: change the advertised data in place (`AdvertisingSet
   .setAdvertisingData`, API 26+) instead of stop/start per rotation.
+  **Hardening (debug 1.0.291):** on Android 8+ the presence beacon is one advertising
+  set (`BlePresenceAdvertisingSet.kt`, loaded by name for Android 7's verifier) whose data is
+  replaced in place; a refused update starts it over; Android 7 keeps the old path. Same air
+  format (legacy, non-connectable, ~250 ms, medium power). Phones, offline 20 min: P30 and PH-1
+  each 1 advertise start and 2 in-place updates (two 15-min id rotations), each saw the other's
+  current id within 3 s and both earlier ids; no Bluetooth crash. Diagnostics now report
+  `bleAdvertise.updates` / `inPlace`. The C10 and FRD start no beacon offline, by design: the C10
+  had no Nearby-devices permission after the spec's data reset, and the FRD (Android 7) cannot join
+  a group by credential, which the beacon requires. Keep OPEN-99 open as an observation; close it if
+  no PH-1/C10 Bluetooth abort appears in later runs.
 
 ## Paused implementation and field qualification — track, but do not start new features
 

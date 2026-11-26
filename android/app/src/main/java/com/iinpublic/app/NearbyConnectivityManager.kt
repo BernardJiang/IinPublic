@@ -364,7 +364,7 @@ class NearbyConnectivityManager(
             put("version", 1)
             put("elapsedMs", (now - measurementStartedAt).coerceAtLeast(0L))
             put("nsd", provider(nsdActiveMs, nsdStartedAt, nsdStarts))
-            put("bleAdvertise", provider(bleAdvertiseActiveMs, bleAdvertiseStartedAt, bleAdvertiseStarts))
+            put("bleAdvertise", provider(bleAdvertiseActiveMs, bleAdvertiseStartedAt, bleAdvertiseStarts).put("updates", bleAdvertiseUpdates).put("inPlace", presenceSet != null))
             put("bleScan", provider(bleScanActiveMs, bleScanStartedAt, bleScanStarts).put("results", bleResults))
             put("wifiDirectDiscovery", provider(wifiDirectDiscoveryActiveMs, wifiDirectDiscoveryStartedAt, wifiDirectDiscoveryStarts).put("results", wifiDirectServiceResults))
         }
@@ -423,6 +423,10 @@ class NearbyConnectivityManager(
     private var presenceAdvertiseCallback: AdvertiseCallback? = null
     private var presenceScanCallback: ScanCallback? = null
     private var presencePayload: ByteArray? = null
+    /** Android 8+: one advertising set, its data replaced in place (OPEN-99). Null: the old way. */
+    private var presenceSet: BlePresenceAdvertiser? = null
+    private var presenceSetLoaded = false
+    private var bleAdvertiseUpdates = 0
 
     /**
      * Battery (measured on PH-1, 2026-10-04): LOW_LATENCY scan + advertise cost ~79 mAh per 20 min
@@ -437,7 +441,21 @@ class NearbyConnectivityManager(
         // The foreground service replays its checkpoint when Android redelivers/configures it.
         // Do not churn an already-identical advertiser, and do not restart advertising merely
         // because the policy opens or closes a scan window.
-        if (presencePayload?.contentEquals(payload) != true || presenceAdvertiseCallback == null) {
+        val set = loadPresenceAdvertisingSet()
+        if (set != null) {
+            if (presencePayload?.contentEquals(payload) != true || !set.active) {
+                if (set.active) {
+                    // A new rotating id: the same advertisement, new data (no stop/start).
+                    set.update(payload)
+                    bleAdvertiseUpdates += 1
+                } else {
+                    bleAdvertiseStartedAt = SystemClock.elapsedRealtime()
+                    bleAdvertiseStarts += 1
+                    set.start(adapter, parcelUuid, payload)
+                }
+                presencePayload = payload.copyOf()
+            }
+        } else if (presencePayload?.contentEquals(payload) != true || presenceAdvertiseCallback == null) {
             val now = SystemClock.elapsedRealtime()
             bleAdvertiseStartedAt?.let { bleAdvertiseActiveMs += now - it }
             presenceAdvertiseCallback?.let { runCatching { adapter.bluetoothLeAdvertiser?.stopAdvertising(it) } }
@@ -505,6 +523,7 @@ class NearbyConnectivityManager(
         bleScanStartedAt?.let { bleScanActiveMs += now - it }
         bleScanStartedAt = null
         presenceAdvertiseCallback?.let { runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(it) } }; presenceAdvertiseCallback = null
+        presenceSet?.stop(adapter)
         presencePayload = null
         presenceScanCallback?.let { runCatching { adapter?.bluetoothLeScanner?.stopScan(it) } }; presenceScanCallback = null
     }
@@ -540,6 +559,33 @@ class NearbyConnectivityManager(
         }.getOrNull()?.also { wifiAwareProvider = it }
     }
 
+    private fun loadPresenceAdvertisingSet(): BlePresenceAdvertiser? {
+        if (presenceSetLoaded) return presenceSet
+        presenceSetLoaded = true
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        val events = object : BlePresenceAdvertiser.Events {
+            override fun running() = listener.onStatus("android-ble-presence", "running")
+            override fun failed(reason: String) {
+                val failedAt = SystemClock.elapsedRealtime()
+                bleAdvertiseStartedAt?.let { bleAdvertiseActiveMs += failedAt - it }
+                bleAdvertiseStartedAt = null
+                presencePayload = null
+                listener.onStatus("android-ble-presence", "degraded", reason)
+            }
+            override fun restarted(reason: String) {
+                bleAdvertiseStarts += 1
+                listener.onStatus("android-ble-presence", "running", "restarted:$reason")
+            }
+        }
+        return runCatching {
+            Class.forName("com.iinpublic.app.BlePresenceAdvertisingSet")
+                .getDeclaredConstructor(BlePresenceAdvertiser.Events::class.java)
+                .newInstance(events) as BlePresenceAdvertiser
+        }.onFailure { error ->
+            listener.onStatus("android-ble-presence", "degraded", "advertising-set-load:${error.javaClass.simpleName}")
+        }.getOrNull()?.also { presenceSet = it }
+    }
+
     /** Android 13+: NEARBY_WIFI_DEVICES. Older: Wi-Fi Direct scan/group APIs require fine location. */
     private fun hasNearbyWifiPermission(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
@@ -556,4 +602,18 @@ class NearbyConnectivityManager(
         val epoch = System.currentTimeMillis() / (15 * 60_000)
         return MessageDigest.getInstance("SHA-256").digest("$seaPub:$epoch".toByteArray()).take(12).joinToString("") { "%02x".format(it) }
     }
+}
+
+/** The presence advertiser on Android 8+ (`BlePresenceAdvertisingSet`); no API-26 types here. */
+interface BlePresenceAdvertiser {
+    interface Events {
+        fun running()
+        fun failed(reason: String)
+        /** An in-place update was refused, so the advertisement was started over. */
+        fun restarted(reason: String)
+    }
+    val active: Boolean
+    fun start(adapter: BluetoothAdapter, uuid: ParcelUuid, payload: ByteArray)
+    fun update(payload: ByteArray)
+    fun stop(adapter: BluetoothAdapter?)
 }
