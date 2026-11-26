@@ -225,9 +225,20 @@ affects how one phone installs the app, never who it can reach afterward.
 **Decision (owner, 2026-11-24): every release ships both.** `npm run release` uploads the
 signed `.apk` to the VPS's `public/downloads/` and `/api/downloads` offers it in the same release
 as the `.aab` goes to Play Console (by hand); step 9 fails if the APK is not offered. This replaces
-the 2026-09-28 decision that forced `android: null` (Play only). The two installs still cannot
-replace each other on one phone (different signing certificates, above); backup plans A and B
-below remain the ways out of that.
+the 2026-09-28 decision that forced `android: null` (Play only).
+
+**Decision (owner, 2026-11-25, OPEN-115): the website offers Play's own signed APK.** Google
+signs a universal APK from each uploaded bundle with the Play app signing key, so the website
+copy and the Play copy carry one certificate and update each other. `npm run release` still
+builds and checks our own `.apk` but no longer publishes it. After the `.aab` upload: Play
+Console → App bundle explorer → the version → Downloads → "Signed, universal APK", then
+`npm run release:website-apk -- <file.apk>` (`--dry-run` checks only). The script refuses an APK
+not signed with `PLAY_APP_SIGNING_CERT_SHA256` (env or `.env.local`; Play Console → App integrity
+→ App signing key certificate), of another package or version, or not 16 KB aligned, then
+publishes it and checks `/api/downloads` offers it. Phones that installed the website APK signed
+with our keystore (1.0.286, 2026-11-24) cannot update to it: they move once by plan B below.
+Fetching the APK with the Play Developer API (`generatedapks`) would need a service account; not
+set up. Plans A and B remain the alternatives.
 
 **Backup plan A — separate `applicationId` for the sideload build**, if
 true side-by-side coexistence on one device is ever wanted (e.g.

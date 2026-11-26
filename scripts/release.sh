@@ -14,15 +14,17 @@
 #                  and on `dev` with no tracked edits
 #   2. test:all    type-check, lint, jest, both builds, every e2e phase — must exit 0
 #   3. bump        npm version patch (syncs Android/desktop/iOS), commit "release: <v>"
-#   4. build       build:production, then signed Android .aab (Play) + .apk (website download)
+#   4. build       build:production, then signed Android .aab (Play) + .apk (checked, not published:
+#                  the website offers Play's own signed APK, `npm run release:website-apk`, OPEN-115)
 #   5. verify      both artifacts signed with CN=IinPublic, versionName == <v>, 16 KB page aligned
 #   6. phones      real-phone release smoke on two phones (debug APK of <v>): fresh install boots,
 #                  a Talk commits, a Place round trip — must pass (owner 2026-11-16)
 #   7. push        origin/dev fast-forwarded to HEAD, tag v<v>, current branch pushed
 #   8. deploy      VPS: ff to origin/dev, stop service, npm ci, build:production, start
-#   9. check       https://iinpublic.com/api/downloads reports <v>; APK published to downloads
+#   9. check       https://iinpublic.com/api/downloads reports <v>
 #
-# Artifacts land in dist/release/<v>/ (gitignored). The .aab is uploaded to Play Console by hand.
+# Artifacts land in dist/release/<v>/ (gitignored). The .aab is uploaded to Play Console by hand;
+# then Play's signed universal APK goes to the website with `npm run release:website-apk`.
 # Log of the run: dist/release/<v>/release.log (and test:all's own phase logs).
 #
 set -euo pipefail
@@ -175,10 +177,10 @@ npm run build:production
 sudo systemctl start iinpublic
 EOF
 
-# ─── 9. live check + APK download ──────────────────────────────────────────────────────────
+# ─── 9. live check ─────────────────────────────────────────────────────────────────────────
+# Our own APK is not published (OPEN-115): a phone with it could not take a Play update, nor the
+# reverse. The website gets Play's signed universal APK after the .aab upload (release:website-apk).
 step "9/9 live check"
-scp -q "$OUT/IinPublic-$VERSION-android.apk" "$VPS_HOST:$VPS_DIR/public/downloads/"
-ssh "$VPS_HOST" "cd ~/$VPS_DIR && node -e \"require('./scripts/lib/sha256sums').generateManifestForDir('public/downloads', 'SHA256SUMS')\""
 ok=0
 for _ in $(seq 1 30); do
   body="$(ssh "$VPS_HOST" "curl -fsS $SITE_URL/api/downloads" 2>/dev/null || true)"
@@ -186,10 +188,11 @@ for _ in $(seq 1 30); do
   sleep 4
 done
 [ "$ok" = 1 ] || die "$SITE_URL/api/downloads does not report $VERSION (last: ${body:-none})"
-echo "$body" | grep -q "\"android\":\"[^\"]*$VERSION[^\"]*\.apk\"" || die "/api/downloads does not offer the $VERSION APK (last: $body)"
 ssh "$VPS_HOST" "systemctl is-active iinpublic" >/dev/null || die "iinpublic service not active"
 
 END=$(date +%s)
 step "released $VERSION in $(( (END-START)/60 ))m$(( (END-START)%60 ))s"
 echo "  live:  $SITE_URL  (/api/downloads reports $VERSION)"
 echo "  Play:  upload $OUT/IinPublic-$VERSION.aab in Play Console (versionCode $(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle))"
+echo "  APK:   then App bundle explorer → $VERSION → Downloads → Signed, universal APK, and"
+echo "         npm run release:website-apk -- <that.apk>   (the website offers Play's APK, OPEN-115)"

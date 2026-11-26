@@ -47,6 +47,7 @@
     "build:embedded": "npm run build:web && node scripts/add-sri.js && npm run build:server && node scripts/stamp-build-id.js && node scripts/generate-web-checksums.js",
     "build:production": "npm run build:embedded",
     "release": "bash scripts/release.sh",
+    "release:website-apk": "bash scripts/publish-website-apk.sh",
     "release:verify-checksums": "node scripts/verify-release-checksums.js",
     "check:android-16kb": "bash scripts/check-android-16kb.sh android/app/build/outputs/apk/debug/app-debug.apk",
     "desktop:dev": "npm run build:embedded && cd platforms/desktop && npm install && npm start",
