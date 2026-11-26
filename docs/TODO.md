@@ -205,15 +205,6 @@ start them unless they become a direct blocker or are explicitly promoted.
   2026-09-22: OPEN-27/29/30 must not depend on this, and it adds real protocol complexity (a new
   versioned identity format, more trust-anchor categories) that isn't worth taking on yet.
 
-### macOS-native host testing
-
-- [ ] **OPEN-04 — Exercise temporary Mac firewall isolation (deferred).** The opt-in scenario and
-  loopback/port-scoped PF helper are implemented (`npm run test:e2e:macos-firewall`) with
-  trap-based cleanup. `pmset`/`pfctl` sudo is granted (2026-11-25). The first run failed before any
-  rule: macOS puts only `127.0.0.1` on lo0, so the isolated peer's `127.0.0.2` page never loaded
-  (the spec now says so up front). Needs `sudo ifconfig lo0 alias 127.0.0.2 up` (until reboot),
-  then a run.
-
 ### Other desktop platforms
 
 - [ ] **OPEN-07 — Sign the Windows release artifacts (deferred).** Select a trusted code-signing

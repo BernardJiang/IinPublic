@@ -1,6 +1,15 @@
 # IinPublic Completed Work
 
-Last updated: 2026-11-25
+Last updated: 2026-11-26
+
+## 2026-11-26 — OPEN-04 closed: Mac firewall isolation of one peer
+
+- The native-app/18 PF scenario passed on the Mac mini (26.7 s): with the PF rule on, the
+  `127.0.0.1` browser peer's marker reached the hub and the `127.0.0.2` peer's did not; after the
+  rule was removed the isolated peer's marker arrived and its SEA public key was unchanged.
+- First run had failed before any rule: macOS puts only `127.0.0.1` on lo0, so the isolated page
+  never loaded. The spec now checks for the alias up front and names the command
+  (`sudo ifconfig lo0 alias 127.0.0.2 up`, lasts until reboot).
 
 ## 2026-11-25 — OPEN-03 closed: the Mac app survives a real sleep/wake
 
