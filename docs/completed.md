@@ -2,6 +2,25 @@
 
 Last updated: 2026-11-25
 
+## 2026-11-25 — OPEN-03 closed: the Mac app survives a real sleep/wake
+
+- `npm run test:e2e:macos-sleep-wake` passed on the Mac mini (desktop 1.0.291): the host slept 33 s
+  (power log: Software Sleep 23:51:59, Wake 23:52:32 by the timer), and after wake the app kept its
+  exact SEA public key and joined a fresh room the hub listed it in.
+- The app needed no change; the scenario did (it last ran before OPEN-91/106):
+  - The hub check wrote a Gun marker and waited for it in the hub's snapshot. The desktop node talks
+    to the hub by explicit HTTP calls only, so that write never arrives; it now joins a fresh room
+    before and after the sleep and reads the hub's member list.
+  - `macos-sleep-wake-cycle.sh` judged the sleep 2 s after `pmset sleepnow`, but the host sleeps
+    ~3–5 s later; it now waits for a Sleep then a Wake entry in `pmset -g log`. A USB device (the
+    phones) can wake the host after 2–19 s, so the length is reported, not required.
+  - Playwright's page target detaches on system suspend and never re-attaches while the window lives
+    on (the main process saw only power suspend/resume, no close or renderer loss); after wake the
+    checks run in the window through the main process. `E2E_MACOS_SLEEP_DRY=1` runs the scenario
+    with a 40 s wait instead.
+  - Cleanup could throw over a still-flushing profile and hide the result; it retries and never
+    throws.
+
 ## 2026-11-25 — OPEN-120 closed: four phones settle within a minute
 
 - Cause: the one-at-a-time answer queue held each answer for its send and conversation (~11–14 s an

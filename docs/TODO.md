@@ -207,15 +207,12 @@ start them unless they become a direct blocker or are explicitly promoted.
 
 ### macOS-native host testing
 
-- [ ] **OPEN-03 — Test Mac sleep/wake recovery (deferred).** The opt-in native-app scenario and
-  bounded `pmset` helper are implemented (`npm run test:e2e:macos-sleep-wake`), but this Mac's
-  current user lacks the required noninteractive `pmset` sudo permission. No physical sleep was
-  requested.
-
 - [ ] **OPEN-04 — Exercise temporary Mac firewall isolation (deferred).** The opt-in scenario and
   loopback/port-scoped PF helper are implemented (`npm run test:e2e:macos-firewall`) with
-  trap-based cleanup, but this Mac's current user lacks noninteractive `pfctl` sudo permission. No
-  firewall rules were changed.
+  trap-based cleanup. `pmset`/`pfctl` sudo is granted (2026-11-25). The first run failed before any
+  rule: macOS puts only `127.0.0.1` on lo0, so the isolated peer's `127.0.0.2` page never loaded
+  (the spec now says so up front). Needs `sudo ifconfig lo0 alias 127.0.0.2 up` (until reboot),
+  then a run.
 
 ### Other desktop platforms
 
@@ -241,10 +238,12 @@ start them unless they become a direct blocker or are explicitly promoted.
 Do not start these until the required iPhone/nearby-transport hardware, owner access, or external
 review capacity is available and the issue is promoted after the website/Android queue.
 
-- [ ] **OPEN-26 — Complete other-platform custody adapters and review (deferred).** Accept the
-  Xcode license, compile and run the existing iOS Keychain adapter (`AppleCustodyBridge.swift`),
-  select reviewed credential-store providers for Windows/Linux, and obtain the external custody
-  security review. The website and Android custody boundary is complete under OPEN-06.
+- [ ] **OPEN-26 — Complete other-platform custody adapters and review (deferred).** The iOS
+  Keychain adapter (`AppleCustodyBridge.swift`) compiles since 2026-11-25 (a type error in `read`
+  fixed) and passes `npm run check:apple-custody` (iOS type-check + the real handler against the
+  macOS Keychain, 13 checks). Still to do: run it in an iOS shell (OPEN-21), select reviewed
+  credential-store providers for Windows/Linux, and obtain the external custody security review.
+  The website and Android custody boundary is complete under OPEN-06.
 
 - [ ] **OPEN-21 — Add iPhone native-shell coverage (deferred).** Build an iOS shell, add
   clean-profile and automation support, and include it in the central matrix when suitable

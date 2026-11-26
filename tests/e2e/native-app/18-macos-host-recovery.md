@@ -5,9 +5,15 @@ These opt-in tests exercise real Mac-mini host boundaries that ordinary browser 
 prove.
 
 - `E2E_REAL_MACOS_SLEEP_WAKE=1` schedules a one-shot `pmset relative wake`, sleeps the host, and
-  verifies that the Electron app retains the exact SEA public identity, reconnects to the shared
-  hub, republishes after wake, and returns to the Global roster.
-- `E2E_REAL_MACOS_FIREWALL=1` serves one browser through `127.0.0.2`, installs a narrowly scoped PF
+  verifies that the Electron app retains the exact SEA public identity and reaches the shared hub
+  after wake: it joins a fresh room the hub then lists it in (the desktop node talks to the hub by
+  explicit HTTP calls, so a Gun write never shows in the hub's snapshot). The script proves the
+  cycle from the power log (a Sleep entry, then a Wake entry); a USB device can end the sleep
+  early. Playwright's page target detaches on system suspend and never re-attaches although the
+  window lives on, so after wake the checks run in the window through the main process.
+  `E2E_MACOS_SLEEP_DRY=1` replaces the sleep with a 40 s wait.
+- `E2E_REAL_MACOS_FIREWALL=1` (needs `sudo ifconfig lo0 alias 127.0.0.2 up` first; macOS puts
+  only `127.0.0.1` on lo0) serves one browser through `127.0.0.2`, installs a narrowly scoped PF
   rule for only that loopback destination and hub port, and proves a `127.0.0.1` peer continues
   publishing while the isolated peer cannot. Removing the rule must restore publication without
   changing the isolated peer's identity.
