@@ -33,51 +33,12 @@ its ID.
   trimming and the four tabs from the log (OPEN-108..110). The priority is bug fixes and
   improvements to existing website and Android features — no new features.
 - **Health:** `test:all` runs ~23.5 min (~390 Playwright cases + ~3,600 Jest tests). Three clean
-  runs in a row on 2026-11-24/25 after the 82 race fix (OPEN-117 closed). 1.0.285 phone smoke
-  passed on FRD + C10.
-- **Recommended order:** the phone proofs in OPEN-114 / OPEN-113 / OPEN-101.
+  runs in a row on 2026-11-24/25 after the 82 race fix (OPEN-117 closed). Debug 1.0.288 release
+  smoke passed on P30 + C10 (2026-11-25).
+- **Recommended order:** OPEN-111, then OPEN-99 (needs the PH-1).
 
 ## Active maintenance queue — website and Android first
 
-- [ ] **OPEN-114 — Talk exchange that scales: batched pair log, own link frames, content once
-  (owner, 2026-11-14).** A tag exchange cost ~1.6 s a Talk (one signed entry per Talk per person,
-  the receiver pulling each Talk node by node over the link, a fixed Gun wait on every read); under
-  load it surfaced as one-sided "in common" counts. Owner design: on connect two people set up their
-  pair's event chain; strangers send each other everything in one go, people met before send only
-  the difference; small data goes together in one transmission; any network (cellular, Wi-Fi,
-  Wi-Fi Direct, BLE); no work repeated across the many people one exchanges with.
-  Done in code 2026-11-14 (spec §31.9, §31.9a, REQ-GRAPH-50..52): step 1 batched entries + the
-  version in the offer + reads from Gun's graph (560350a9); steps 2–3 own link frames (`hi`, `log`,
-  `ack`, `cp`, `part`, `want`/`blob`) and content blobs made once per version (ee809cc4). Unit
-  benchmark: 1590 → 65 ms a Talk; 0.2 frames a Talk; intake limit counts people, not Talks (d6661891).
-  Open: test:all + phones; a phone measurement; remembered local reads (20 ms a Talk) read stale
-  records in stage1/04 and stage4/05 — cause not found, off;
-  a BLE transport (frames already split to its size); UDP multicast for content only as an optional
-  route on Android Wi-Fi (researched: not on web, iOS needs an entitlement, lossy in crowds); local
-  storage is the next cost. 2026-11-15 (REQ-GRAPH-53): a Talk read once per step and passed on, a
-  root-only "do I have it" check (the root is written last), folder links only for a new bucket, no
-  stored blob (made again from the nodes): ~142 → ~96 reads and ~50 → ~36 writes a Talk, 65 → 62 ms
-  (time is bound by chains of dependent reads, not their count).
-  **Phones 2026-11-25 (debug 1.0.287/1.0.288, P30 + C10 + FRD; PH-1 off USB):** native-app/43 passed
-  twice: deciding 36–38 s and 35–46 s, settled 19–22 s and 12/45/71 s after deciding (FRD's 71 s once
-  over the 1-min target). DM, release smoke (phone-path 19/19, one-phone, two-phone Place) passed.
-- [ ] **OPEN-113 — Live tag statistics in Contacts, Talks and Me (owner, 2026-11-14).** One model,
-  three views, all from what this device holds (people I exchanged with; no hub counts):
-  - Model (`src/core/tag-graph.ts` + a pure `tag-stats`): per tag — who likes it, who passed it,
-    popularity rank; per person — tags in common, similarity (shared ÷ union of liked tags), rank.
-    A tag I liked counts as mine whether or not I share it (today `mine` needs an active, not
-    disabled, Talk — wrong now that copies start private, OPEN-112).
-  - Contacts: each person's relationship with me (in common, % alike, "#1 most like you"),
-    "Most like me" order. Talks: each tag row shows likes · passes · popularity rank. Me: my tag
-    rows show how many people share each and its rank.
-  - Views redraw when an exchange arrives (no tap). Hard rule: no new buttons in views.
-  Done in code 2026-11-14 (spec §6.1b): model + Contacts chip + Talks/Me popularity + live redraw;
-  unit tests, stage5 starter-tags checks the #1 rank. Open: a phone look at the three tabs; whether
-  redrawing Contacts/Me on every exchange burst disturbs someone scrolling (debounced 600 ms).
-  Also done: sending/receiving animation without the Broadcast button (spec §6.1a).
-  **Phone look 2026-11-25 (1.0.287, 3 phones):** Contacts "15 in common · 33% alike · #1 most alike"
-  and Talks "👥 N #rank" correct; Me showed 👥 but no #rank (face drawn without Talk ids) → fixed in
-  `answers-view.ts` with a unit test; seen on phones in 1.0.288. Still open: the scrolling question.
 - [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
   The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
   let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
@@ -93,41 +54,6 @@ its ID.
   crash in the 30 minutes after it. Storage was fine (72% free). IinPublic's involvement is
   unknown: the planned force-stop test was not run before the reboot. Treat as an observation
   unless it recurs with a BLE-using Always mode.
-
-- [ ] **OPEN-101 — Open DM defects from the 2026-10-31 timing session.** (a) Private saves are
-  slow because every private write shares one queue and each DM rewrites and re-encrypts the whole
-  conversation; FRD-L04 took 7.9 s for one write and saw repeated main-thread stalls of about 1 s.
-  **Phone-free repair 2026-11-05:** native-core private writes now serialize per record instead of
-  sharing one device-wide queue, so a conversation save cannot wait behind unrelated owner-private
-  bookkeeping; same-record ordering is preserved. Conversation history now uses a small manifest
-  plus bounded encrypted segments (32 messages by default), so the common append re-encrypts only
-  the final segment instead of the whole retained history. Existing v1 envelopes migrate lazily on
-  their next append, with focused migration, pruning, and bounded-write coverage.
-  (b) "hi 12" (P30, 16:36; probably the slow read fixed under OPEN-102, not proven) was saved, but the mailbox refused it with `epub not found` although the
-  sender had just used that key. It reached FRD only about 30 minutes later, after the direct link
-  reconnected and the phones synced. The key is now passed through, posting retries 5 times, and a
-  successfully decrypted mailbox wrapper seeds the DM key cache immediately; this path has not been
-  re-proven on phones. Outgoing messages now show and persist sender-local `sending`, `sent`, `queued`,
-  or `failed` state: `sent` means the direct channel accepted the message and `queued` means the
-  mailbox accepted it; neither is presented as a recipient read receipt. (c) A received message can
-  stay undecrypted. Since 2026-11-01 it shows "This message could not be decrypted." instead of raw
-  `SEA{...}` (not yet on a phone). The message subscription now retries unchanged ciphertext with
-  bounded backoff when its peer key arrives, and no longer lets a stale initial private-store read
-  overwrite a newer live message; focused unit coverage passes. Phone proof remains. (d) P30's app died 12 s after launch at
-  16:51:30 with no crash record, and a local `/health` once took about 3 s; causes unknown.
-  (e) DM sessions reported `WebRTC connection replaced` around start-up. A send now follows a
-  coordinated replacement connection within its original deadline instead of treating that
-  internal handoff as a delivery failure; phone proof remains. (f) `getUserPub` gave up on
-  the first missing peer record instead of retrying; fixed in 1.0.215 with a unit test.
-  **Phone run 2026-11-11, app 1.0.246 (DMs now in the device graph, OPEN-110):** FCP-AN10 ↔ P30
-  `test:android:dm` both ways, each message received exactly once; `native-app/12` (lifecycle +
-  network loss, mailbox after WebRTC timeout) 3/3 on FCP; `native-app/13` three-phone offline
-  catch-up and `native-app/37` match → chat passed. (a) no longer applies: ordinary DMs are not in
-  the private history segments any more. (b)(c)(e) were not reproduced but were not forced either;
-  (d) is still unexplained.
-  **Phone run 2026-11-25, debug 1.0.287 (P30, C10, FRD):** `test:android:dm` P30→C10, C10→P30,
-  FRD→C10, C10→FRD each received once in 2–13 s, longest freeze ≤ 241 ms; `--hung-hub` FRD→P30 kept
-  the composer responsive (freeze 99 ms). (b)(c)(e) still not forced; (d) not seen.
 
 ## Paused implementation and field qualification — track, but do not start new features
 
@@ -230,6 +156,12 @@ The following IDs remain open for traceability, but website/Android work takes p
 start them unless they become a direct blocker or are explicitly promoted.
 
 ### Android distribution channels
+
+- [ ] **OPEN-119 — Exchange transport and storage beyond OPEN-114 (deferred, new work).** Split out
+  of OPEN-114 when it closed (2026-11-25). A BLE transport (link frames are already split to its
+  size); UDP multicast for content only, as an optional route on Android Wi-Fi (researched: not on
+  web, iOS needs an entitlement, lossy in crowds); local storage as the next cost; remembered local
+  reads (20 ms a Talk) read stale records in stage1/04 and stage4/05 — cause not found, kept off.
 
 - [ ] **OPEN-115 — Website APK and Play install cannot replace each other (deferred).** Since
   2026-11-24 every release offers the signed `.apk` on iinpublic.com beside the Play `.aab`. Both

@@ -53,6 +53,7 @@ import { setRememberedAnswersSource } from '../ui/answer-preference-mutations';
 import { getMyTalk, getMyTalks, setMyTalks } from '../ui/my-talks-storage';
 import { receiversExcludingAuthor } from '../../core/broadcast-selection';
 import { invalidateTagPopularity } from '../ui/graph-focus';
+import { isUserScrolling } from '../ui/user-scrolling';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { DeclinedRetry } from '../../core/declined-retry';
@@ -6803,12 +6804,18 @@ export class IinPublicApp {
     invalidateTagPopularity();
     this.scheduleTalksListRefresh();
     if (this.statsViewsRefreshTimer) return;
-    this.statsViewsRefreshTimer = setTimeout(() => {
+    const redraw = (): void => {
+      // Never mid-scroll: replacing the rows stops a fling (user-scrolling.ts). Try again shortly.
+      if (isUserScrolling()) {
+        this.statsViewsRefreshTimer = setTimeout(redraw, 300);
+        return;
+      }
       this.statsViewsRefreshTimer = null;
       invalidateTagPopularity();
       if (document.getElementById('contacts-view')?.classList.contains('active')) this.uiManager.displayContactsList();
       if (document.getElementById('me-view')?.classList.contains('active')) this.uiManager.displayAnswersList();
-    }, 600);
+    };
+    this.statsViewsRefreshTimer = setTimeout(redraw, 600);
   }
 
   private scheduleTalksListRefresh(): void {
