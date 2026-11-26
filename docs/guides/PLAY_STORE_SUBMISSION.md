@@ -213,6 +213,11 @@ actually declared in `android/app/src/main/AndroidManifest.xml`:
 **POST_NOTIFICATIONS**
 > Used to notify members of new incoming talks, matches, and messages.
 
+## Closed test testers
+
+Finding the 12 testers Play requires before production, and the swaps we owe: see
+[PLAY_CLOSED_TEST_TESTERS.md](PLAY_CLOSED_TEST_TESTERS.md).
+
 ## Still to decide (not text, decisions)
 
 - Whether to enroll TechSupport support-chat retention in a stated retention
