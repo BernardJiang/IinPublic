@@ -35,19 +35,9 @@ its ID.
 - **Health:** `test:all` runs ~23.5 min (~390 Playwright cases + ~3,600 Jest tests). Three clean
   runs in a row on 2026-11-24/25 after the 82 race fix (OPEN-117 closed). Debug 1.0.288 release
   smoke passed on P30 + C10 (2026-11-25).
-- **Recommended order:** OPEN-111, then OPEN-99 (needs the PH-1).
+- **Recommended order:** OPEN-99 (needs the PH-1 back on USB).
 
 ## Active maintenance queue — website and Android first
-
-- [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
-  The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
-  let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
-  runs, was ~1 in 10). Found on the way, not fixed:
-  (a) is fixed (`docs/completed.md`, 2026-11-24).
-  (b) `[graph] Nearby scope projection was not recorded: storage did not acknowledge write for
-  local/mine/nearby/nearby-v3/members` — 108 times in 10 HR runs, on every user. The Nearby list
-  projection (2026-11-09) fails its write under e2e load; find out whether it also fails on phones.
-  (c) is fixed (`docs/completed.md`, 2026-11-24).
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no

@@ -2,6 +2,28 @@
 
 Last updated: 2026-11-24
 
+## 2026-11-25 — OPEN-111 closed: (b) the Nearby projection write no longer fails
+
+- (b) `[graph] Nearby scope projection was not recorded: storage did not acknowledge write …` (108
+  times in 10 HR runs on 2026-11-11): 0 times in 3 HR runs alone (`--repeat-each=3`) and in all four
+  test:all runs of 2026-11-24/25 (every phase log searched); no "did not acknowledge write" at all.
+  The only projection warning in those runs was one `conversation projection … Device core bridge
+  closed` — a page closing at test teardown. On phones it cannot time out: the node core's store
+  confirms a write once it is in RAM (write-behind, `cacheInRam`, 2026-11-21), and six phone console
+  logs from native-app/43 had none. (a) and (c) were fixed 2026-11-24.
+
+Previous text:
+
+- [ ] **OPEN-111 — Delivery/storage findings from the stage5 HR flake hunt (2026-11-11).**
+  The HR flake itself was the Talks-tab counts, not delivery: overlapping `needTalkStats` requests
+  let an older read (3 outcomes) land after a newer one (4); only the newest is shown now (20/20
+  runs, was ~1 in 10). Found on the way, not fixed:
+  (a) is fixed (`docs/completed.md`, 2026-11-24).
+  (b) `[graph] Nearby scope projection was not recorded: storage did not acknowledge write for
+  local/mine/nearby/nearby-v3/members` — 108 times in 10 HR runs, on every user. The Nearby list
+  projection (2026-11-09) fails its write under e2e load; find out whether it also fails on phones.
+  (c) is fixed (`docs/completed.md`, 2026-11-24).
+
 ## 2026-11-25 — OPEN-101 closed: DM defects not seen on three phones, the mailbox fallback forced
 
 - debug 1.0.287–1.0.289 on P30, C10, FRD. `test:android:dm` in four directions: each message
