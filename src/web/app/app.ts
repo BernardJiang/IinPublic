@@ -230,6 +230,7 @@ import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
+import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
 import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
 import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
@@ -457,6 +458,8 @@ export class IinPublicApp {
   private readonly blockStatusCache = new BlockStatusCache({ fetchStatus: (peerId) => this.fetchBlockStatusEitherWay(peerId) });
   /** Portable policy/effect workflow; Gun/SEA/mailbox stay behind its host-facing ports. */
   private readonly blockSignalEffects: BlockSignalEffects;
+  /** Portable encrypted-mailbox sender; this page supplies key custody and network adapters. */
+  private readonly mailboxDelivery: MailboxDeliveryService<GunPair>;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
   private readonly graphMessageWrites = new Map<string, Promise<void>>();
@@ -907,25 +910,14 @@ export class IinPublicApp {
 
   private async postAttachmentShareToMailbox(payload: MailboxAttachmentSharePayload): Promise<void> {
     if (!this.currentUser?.id) return;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
-    try {
-      const recipientEpub = await this.resolvePeerEpub(payload.recipientId);
-      if (!recipientEpub) return;
-      const ciphertext = await mailbox.encryptForRecipient(
-        recipientEpub,
-        pair as import('../sea-gun').GunPair,
-        payload,
-      );
-      const envelopeId = `mbx_share_${payload.messageId}`;
-      await mailbox.postEnvelope({
-        id: envelopeId,
-        recipientId: payload.recipientId,
-        ciphertext,
-      });
-    } catch (err) {
-      console.warn('[Mailbox] Failed to post attachment-share envelope:', err);
+    const result = await this.mailboxDelivery.deliver({
+      envelopeId: mailboxEnvelopeId.attachmentShare(payload.messageId),
+      recipientId: payload.recipientId,
+      payload,
+      context: 'attachment-share',
+    });
+    if (!result.stored && result.attempts > 0) {
+      console.warn('[Mailbox] Failed to post attachment-share envelope:', result.error);
     }
   }
 
@@ -1033,20 +1025,11 @@ export class IinPublicApp {
    *  contacts" case is N calls to this. Best-effort: caller decides whether one failure stops
    *  the rest (it doesn't, in both current callers). */
   private async sendBlockSignalPayload(payload: BlockSignalPayload, recipientId: string): Promise<void> {
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
-    const recipientEpub = await this.resolvePeerEpub(recipientId);
-    if (!recipientEpub) return;
-    const mailbox = this.ensureMailboxClient();
-    const ciphertext = await mailbox.encryptForRecipient(
-      recipientEpub,
-      pair as import('../sea-gun').GunPair,
-      payload,
-    );
-    await mailbox.postEnvelope({
-      id: `blocksig_${payload.signalId}_${recipientId}`,
+    await this.mailboxDelivery.deliverOrThrow({
+      envelopeId: mailboxEnvelopeId.blockSignal(payload.signalId, recipientId),
       recipientId,
-      ciphertext,
+      payload,
+      context: 'block-signal',
     });
   }
 
@@ -1101,6 +1084,25 @@ export class IinPublicApp {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
     this.userService.setCurrentUserProvider(() => this.currentUser);
+    this.mailboxDelivery = new MailboxDeliveryService<GunPair>({
+      senderKey: () => {
+        const pair = this.gunService.getStoredPair();
+        return pair?.priv ? pair as GunPair : undefined;
+      },
+      resolveRecipientEpub: (recipientId, knownEpub) => this.resolvePeerEpub(recipientId, knownEpub),
+      transport: () => this.ensureMailboxClient(),
+      onEvent: (event) => {
+        if (event.type === 'retrying') {
+          console.warn(
+            `[Mailbox] Retrying ${event.context} envelope`,
+            event.envelopeId,
+            'for',
+            event.recipientId,
+            event.error,
+          );
+        }
+      },
+    });
     this.blockSignalEffects = new BlockSignalEffects({
       currentUser: () => this.currentUser,
       recordReceived: (userId, targetIdentity, signalId) =>
@@ -3943,44 +3945,36 @@ export class IinPublicApp {
     conversationId: string,
     recipientUserId: string,
     knownEpub?: string,
-    attempt = 1,
   ): Promise<boolean> {
     if (this.mailboxFallbackDisabledForE2e) return false;
     if (!this.currentUser?.id || !recipientUserId || recipientUserId === this.currentUser.id) return false;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return false;
-    try {
-      const recipientEpub = await this.resolvePeerEpub(recipientUserId, knownEpub);
-      if (!recipientEpub) throw new Error(`epub not found for ${recipientUserId}`);
-      const payload: MailboxConversationMessagePayload = {
-        kind: 'conversation-message-v1',
-        conversationId,
-        senderId: wire.senderId,
-        recipientUserId,
-        senderName: this.currentUser.stageName,
-        wire,
-      };
-      const ciphertext = await mailbox.encryptForRecipient(recipientEpub, pair as import('../sea-gun').GunPair, payload);
-      const result = await mailbox.postEnvelope({
-        id: `mbx_dm_${conversationId}_${wire.id}`,
-        recipientId: recipientUserId,
-        ciphertext,
-      });
-      if (!result.stored) throw new Error(`server rejected envelope: ${result.error}`);
+    const payload: MailboxConversationMessagePayload = {
+      kind: 'conversation-message-v1',
+      conversationId,
+      senderId: wire.senderId,
+      recipientUserId,
+      senderName: this.currentUser.stageName,
+      wire,
+    };
+    const result = await this.mailboxDelivery.deliver({
+      envelopeId: mailboxEnvelopeId.conversationMessage(conversationId, wire.id),
+      recipientId: recipientUserId,
+      payload,
+      ...(knownEpub ? { knownRecipientEpub: knownEpub } : {}),
+      maxAttempts: DM_MAILBOX_POST_ATTEMPTS,
+      retryDelayMs: DM_MAILBOX_POST_RETRY_MS,
+      context: 'conversation-message',
+    });
+    if (result.stored) {
       console.log('[Mailbox] Posted DM envelope', wire.id, 'for', recipientUserId);
       return true;
-    } catch (err) {
-      // The message exists only on this device until this works, so one failure must not end it.
-      if (attempt >= DM_MAILBOX_POST_ATTEMPTS) {
-        console.warn('[Mailbox] Gave up posting DM', wire.id, 'for', recipientUserId, err);
-        this.uiManager.showNotification(this.uiText('conversationDeliveryFailed'), 'error');
-        return false;
-      }
-      console.warn('[Mailbox] Retrying DM post', wire.id, err);
-      await new Promise<void>((resolve) => setTimeout(resolve, DM_MAILBOX_POST_RETRY_MS * attempt));
-      return this.postConversationMessageToMailbox(wire, conversationId, recipientUserId, knownEpub, attempt + 1);
     }
+    // The message exists only on this device until this works, so surface an exhausted delivery.
+    if (result.attempts > 0) {
+      console.warn('[Mailbox] Gave up posting DM', wire.id, 'for', recipientUserId, result.error);
+      this.uiManager.showNotification(this.uiText('conversationDeliveryFailed'), 'error');
+    }
+    return false;
   }
 
   /**
@@ -4025,9 +4019,7 @@ export class IinPublicApp {
   private async postSupportQuestionToMailbox(entry: SupportInboxEntry): Promise<void> {
     if (this.mailboxFallbackDisabledForE2e) return;
     if (!this.currentUser?.id) return;
-    const mailbox = this.ensureMailboxClient();
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) return;
+    if (!this.mailboxDelivery.hasSenderKey()) return;
 
     const payload: MailboxSupportQuestionPayload = {
       kind: 'support-question-v1',
@@ -4087,23 +4079,20 @@ export class IinPublicApp {
       }
     }
 
-    await Promise.all(recipients.map(async ({ id, epub }) => {
-      try {
-        const ciphertext = await mailbox.encryptForRecipient(epub, pair as import('../sea-gun').GunPair, payload);
-        const result = await mailbox.postEnvelope({
-          id: `mbx_support_${entry.questionKey}_${entry.askedBy}_${id}`,
-          recipientId: id,
-          ciphertext,
-        });
-        if (result.stored) {
-          console.log('[Mailbox] Posted support question envelope for', entry.questionKey, 'to', id);
-        } else {
-          console.warn('[Mailbox] Server rejected support question envelope for', id, ':', result.error);
-        }
-      } catch (err) {
-        console.warn('[Mailbox] postSupportQuestionToMailbox failed for', id, ':', err);
+    const results = await this.mailboxDelivery.fanOut(recipients.map(({ id, epub }) => ({
+      envelopeId: mailboxEnvelopeId.supportQuestion(entry.questionKey, entry.askedBy, id),
+      recipientId: id,
+      recipientEpub: epub,
+      payload,
+      context: 'support-question',
+    })));
+    for (const result of results) {
+      if (result.stored) {
+        console.log('[Mailbox] Posted support question envelope for', entry.questionKey, 'to', result.recipientId);
+      } else if (result.attempts > 0) {
+        console.warn('[Mailbox] Failed to post support question envelope for', result.recipientId, ':', result.error);
       }
-    }));
+    }
   }
 
   /**

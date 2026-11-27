@@ -94,8 +94,12 @@ active feature development.
   **Third no-phone slice (2026-11-26):** the fetch/decrypt/dispatch/delete loop moved into
   `core/mailbox-drain.ts`, including per-envelope failure isolation, authenticated sender-key hints,
   and explicit drain summaries/events. A failed DELETE is no longer logged as success; it remains a
-  retryable failure. Browser code now supplies transport, key-cache and observability adapters. The
-  coordinator ratchet is now 10,530 lines.
+  retryable failure. Browser code now supplies transport, key-cache and observability adapters.
+  **Fourth no-phone slice (2026-11-27):** all outbound mailbox encryption/posting now flows through
+  `core/mailbox-delivery.ts`. The core owns bounded retries, server-rejection semantics, deterministic
+  envelope ids, duplicate suppression and per-recipient fan-out isolation; the web host supplies key
+  custody, trusted recipient discovery and transport. DM, attachment, block-signal and TechSupport
+  senders are thin adapters. The coordinator ratchet is now 10,515 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport
