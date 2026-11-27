@@ -57,6 +57,9 @@ Previous text:
   (a later answer to the same Talk still waits for it). Four phones, three runs: settled 12–61 s
   (51/35/61/18, 24/14/25/12, 30/17/32/12). The 61 s: the PH-1 still answers ~one every 5 s (the
   commit on a busy core) plus one 14 s WebRTC reconnect. Unit: `talk-completion-pipeline.test.ts`.
+- 2026-11-26 recheck (debug 1.0.292, after the OPEN-119 node-store cleanup): native-app/43 on P30,
+  C10, FRD and PH-1 passed; phones decided in 35–40 s and settled 17, 29, 29, 30 s after deciding,
+  every Contacts list matching the true tags in common. Release smoke on P30 + C10 passed too.
 
 ## 2026-11-25 — OPEN-111 closed: (b) the Nearby projection write no longer fails
 

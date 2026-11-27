@@ -64,6 +64,9 @@ its ID.
   had no Nearby-devices permission after the spec's data reset, and the FRD (Android 7) cannot join
   a group by credential, which the beacon requires. Keep OPEN-99 open as an observation; close it if
   no PH-1/C10 Bluetooth abort appears in later runs.
+  **2026-11-26 (debug 1.0.292):** no Bluetooth abort on the C10 or PH-1 (crash buffers cleared
+  before, empty after) across native-app/43 on P30, C10, FRD and PH-1, after a P30 + C10 release
+  smoke.
 
 ## Paused implementation and field qualification — track, but do not start new features
 
