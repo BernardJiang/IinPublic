@@ -10,7 +10,7 @@ import { test, expect } from '../../helpers/fixtures';
 import { injectIdbClear } from '../../helpers/clear-database';
 import { clearGunForStage3Spec } from '../../helpers/e2e-stage-pipeline';
 import { ensureWindowFitsViewport } from '../../helpers/browser-window';
-import { afterNav, afterSync, headless } from '../../helpers/timing';
+import { afterNav, afterSync, headless, waitForAppReady } from '../../helpers/timing';
 import { gunBaseURL, webAppURLStableChatroom } from '../../helpers/ports';
 import { attachE2eBrowserTabLabel } from '../../helpers/e2e-tab-title';
 import { attachFilteredConsoleLog } from '../../helpers/e2e-console';
@@ -57,6 +57,9 @@ test.describe('Profile privacy visibility', () => {
     await injectIdbClear(nextPage);
     await nextPage.goto(webAppURLStableChatroom());
     await nextPage.waitForLoadState('load');
+    // Rename only once the app has made its user, as the shared bootstrapUser does: a name typed
+    // while start-up is still creating the user is lost (seen once start-up got ~1.5 s faster).
+    await waitForAppReady(nextPage);
     await ensureWindowFitsViewport(nextPage, 960, 1200);
     await afterSync();
 

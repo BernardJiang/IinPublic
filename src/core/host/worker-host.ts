@@ -122,6 +122,18 @@ installSharingPolicy(Gun);
 
 let initialized: Promise<void> | null = null;
 let hubPeerSeen = false;
+// Anything entering this Gun (a local write, the profile, a peer's data, a read from storage) ends
+// the core's fresh-device shortcut: its empty answers are true only while nothing is stored.
+// Registered like Gun's own lib/erase.js, before the instance exists, and passed on (OPEN-121).
+let storeTouched = false;
+Gun.on('opt', function (this: any, root: any) {
+  this.to.next(root);
+  if (root.once) return;
+  root.on('put', function (this: any, msg: any) {
+    storeTouched = true;
+    this.to.next(msg);
+  });
+});
 function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<void> {
   if (initialized) {
     if (options.peer && options.hubUrl) gun.opt({ peers: [options.hubUrl], sharingRelayPeers: [options.hubUrl] });
@@ -145,6 +157,7 @@ function initGun(options: { hubUrl?: string; peer?: boolean } = {}): Promise<voi
     .then((freshDevice) => {
       handleCore = createCoreHandler(gunGraphStore(gun), {
         freshDevice,
+        storeTouched: () => storeTouched,
         allowTestOverrides: process.env.DISABLE_HMR === 'true',
         // Like the phone node: development builds log how long the core's requests take.
         logTimings: process.env.NODE_ENV !== 'production',

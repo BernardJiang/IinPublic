@@ -114,6 +114,28 @@ describe('a fresh device', () => {
     expect(await handle({ name: 'collection.snapshot', collection: 'myTalks' })).toEqual({ t1: { role: 'created' } });
   });
 
+  it('stays fresh through the start-up location and erase of retired collections, which the app sends first', async () => {
+    const store = memoryGraphStore();
+    const childKeys = jest.spyOn(store, 'childKeys');
+    const handle = createCoreHandler(store, { freshDevice: true, storeTouched: () => false });
+    expect(await handle({ name: 'deviceGraph.setLocation', point: { lat: 32.7, lng: -117.1 } } as any)).toEqual({ ok: true });
+    expect(await handle({ name: 'collection.eraseRetired' })).toEqual({ erased: 0 });
+    expect(await handle({ name: 'exchanges.snapshot' })).toEqual([]);
+    expect(await handle({ name: 'collection.snapshot', collection: 'myTalks' })).toEqual({});
+    expect(childKeys).not.toHaveBeenCalled();
+  });
+
+  it('ends the fresh state when the host stored something by another path (a Gun put)', async () => {
+    const store = memoryGraphStore();
+    // Written straight into the store, as the host's Gun does for the profile and private data.
+    await new CollectionStore(store).upsert('myTalks', { t1: { role: 'created' } });
+    let touched = false;
+    const handle = createCoreHandler(store, { freshDevice: true, storeTouched: () => touched });
+    expect(await handle({ name: 'collection.snapshot', collection: 'myTalks' })).toEqual({});
+    touched = true;
+    expect(await handle({ name: 'collection.snapshot', collection: 'myTalks' })).toEqual({ t1: { role: 'created' } });
+  });
+
   it('a collection never written reads as empty from its parent listing alone', async () => {
     const store = memoryGraphStore();
     await new CollectionStore(store).upsert('myTalks', { t1: {} });

@@ -93,7 +93,21 @@ function serialLaneOf(request: CoreRequest): string {
 /** How many offers of one `graph.offerMany` run side by side. */
 const OFFER_MANY_CONCURRENCY = 3;
 
-export function createCoreHandler(store: GraphStore, options: { freshDevice?: boolean; allowTestOverrides?: boolean; logTimings?: boolean; deviceGraph?: DeviceGraphOptions } = {}): (request: CoreRequest) => Promise<unknown> {
+/**
+ * Requests that write nothing to storage, so a fresh device stays fresh through them. The app
+ * sends `deviceGraph.setLocation` (memory only) before its start-up snapshots; ending the fresh
+ * state there made every new user's start-up snapshots read an empty store for ~1.5 s (OPEN-121).
+ */
+const LEAVES_STORE_UNTOUCHED = new Set<string>(['delivery.get', 'deviceGraph.setLocation']);
+
+export function createCoreHandler(store: GraphStore, options: {
+  freshDevice?: boolean;
+  /** True once anything reached the store by another path than this handler (a host's Gun put). */
+  storeTouched?: () => boolean;
+  allowTestOverrides?: boolean;
+  logTimings?: boolean;
+  deviceGraph?: DeviceGraphOptions;
+} = {}): (request: CoreRequest) => Promise<unknown> {
   // A Talk only the app has is answered from the body its `myTalks` entry keeps (`app-answers.ts`).
   // Through My Talks' bodies: once such a Talk is also my graph Talk (a copy I sent), its stored
   // entry keeps only what the graph does not give back, and the body comes from the graph.
@@ -153,12 +167,16 @@ export function createCoreHandler(store: GraphStore, options: { freshDevice?: bo
    * first to finish while another still held its entries: that one then waited for itself. */
   let offerManyRunning = 0;
   const execute = async (request: CoreRequest): Promise<unknown> => {
+    if (fresh && options.storeTouched?.()) fresh = false;
     if (fresh) {
       if (request.name === 'exchanges.snapshot') return [];
       if (request.name === 'collection.snapshot') return {};
       if (request.name === 'private.get' || request.name === 'device.get') return null;
       if (request.name === 'private.keys') return [];
-      if (request.name !== 'delivery.get') fresh = false; // any write: storage holds something now
+      // Nothing retired to erase in an empty store; the app sends this at start-up (OPEN-121).
+      if (request.name === 'collection.eraseRetired') return { erased: 0 };
+      // Any other request may write: storage holds something now.
+      if (!LEAVES_STORE_UNTOUCHED.has(request.name)) fresh = false;
     }
     switch (request.name) {
       case 'response.commit':
