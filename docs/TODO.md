@@ -23,19 +23,25 @@ Run the Android availability preflight before physical-device work. When an issu
 move its outcome and verification evidence to `docs/completed.md`, remove it here, and do not reuse
 its ID.
 
-## Current status (2026-11-24)
+## Current status (2026-11-26)
 
-- **Release:** 1.0.286 is live — deployed to iinpublic.com, tagged `release-v1` (32974e1c), and in
-  Google Play Closed testing (Alpha) awaiting review. The website offers the release APK beside the
-  Play .aab. **Since `release-v1` all changes stay local** (owner, 2026-11-24): commit only; no push,
-  tag, deploy, Play or APK upload until the owner says otherwise.
+- **Release:** 1.0.286 is live: deployed to iinpublic.com, tagged `release-v1` (32974e1c), and in
+  Google Play Closed testing (Alpha). The website still offers that release's APK signed with our
+  key. **No release until the owner says so** (2026-11-24): commit locally, push `dev.claude` only
+  when asked (pushed 2026-11-26), no tag, deploy, Play or APK upload.
+- **Next release, website APK (OPEN-115):** the website will offer Play's own signed universal APK.
+  After the `.aab` upload, download it from App bundle explorer and run
+  `npm run release:website-apk` (Play certificate built in; dry run passed on Play's 1.0.286).
 - **Architecture is closed:** device core (OPEN-91), device graph (OPEN-106), signed event chain,
   trimming and the four tabs from the log (OPEN-108..110). The priority is bug fixes and
   improvements to existing website and Android features — no new features.
-- **Health:** `test:all` runs ~23.5 min (~390 Playwright cases + ~3,600 Jest tests). Three clean
-  runs in a row on 2026-11-24/25 after the 82 race fix (OPEN-117 closed). Debug 1.0.288 release
-  smoke passed on P30 + C10 (2026-11-25).
-- **Recommended order:** watch OPEN-99 in later phone runs; the rest of the queue is paused or deferred.
+- **Health:** `test:all` runs ~23.5 min (~390 Playwright cases + ~3,600 Jest tests), three clean
+  runs in a row on 2026-11-24/25. Debug 1.0.292 (2026-11-26): release smoke passed on P30 + C10;
+  native-app/43 on four phones settled in 17–30 s. Mac host checks passed: sleep/wake (OPEN-03)
+  and PF isolation (OPEN-04).
+- **Recommended order:** watch OPEN-99 in later phone runs; everything else is paused, deferred or
+  waiting on the owner (OPEN-76 unplugged battery run, OPEN-77 key backups) or on an iPhone
+  (OPEN-21..23, OPEN-26).
 
 ## Active maintenance queue — website and Android first
 
