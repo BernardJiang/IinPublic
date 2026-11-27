@@ -72,7 +72,7 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-NEARBY-08 | Audience shapes (OPEN-86): everyone fits; sparse nearest-C with no page 2; exactly R = C; crowded area pages inside it; green/yellow map dots; travel and a larger area restart at group 1; a Place shows occupancy − me | ✅ `stage5/15`, `stage5/14` | — | ✅ `native-app/30` with `E2E_NEARBY_AREA_SIZES=neighborhood,regional`, offline Wi-Fi Direct and online (1.0.190) |
 | J-NEARBY-09 | One tag per page reaches exactly that page (5 Nearby pages, 2 Place pages, 2 pages after travel); each person likes it, the author collects exactly those likes, nobody else holds it | ✅ `stage5/14` | — | — |
 | J-NEARBY-07 | Online dots (Contacts, room members) come from the hub's card heartbeats; "Online now" filter | ✅ `stage4/08` (dots), unit (filter) | — | ✅ `native-app/30` (1.0.187: query through the phone's node) |
-| J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | ✅ `phone-path/04` | — |
+| J-ROOM-03 | Leaving a room updates everyone else's headcount | ✅ `stage2/01`, `stage2/42`, `43` | ✅ `phone-path/04` | ✅ `native-app/38` |
 | **Places** | | | | |
 | J-PLACE-01 | Create a Place; the creator stands in it | ✅ `stage1/54-place-creation-rules` | ✅ `phone-path/01` | ✅ `native-app/33` |
 | J-PLACE-02 | The hub has the Place and lists it as a room with people | — | ✅ `phone-path/01` | ✅ `native-app/33` |
@@ -90,8 +90,8 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-TALK-01 | Write and broadcast a Talk in the room | ✅ many (`talks-matching/*`, `stage2/*`) | ✅ `phone-path/02` | ✅ `native-app/07` |
 | J-TALK-02 | The other person receives it and answers | ✅ many | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-TALK-03 | Matching answer → both get a conversation | ✅ many | ✅ `phone-path/02` | ✅ `native-app/37` |
-| J-TALK-04 | Non-matching answer → no conversation for either | ✅ `stage3/11` | ✅ `phone-path/04` | — |
-| J-TALK-05 | Blocked person's Talks stop arriving | ✅ `stage2/15b` | ✅ `phone-path/04` | — |
+| J-TALK-04 | Non-matching answer → no conversation for either | ✅ `stage3/11` | ✅ `phone-path/04` | ✅ `native-app/38` |
+| J-TALK-05 | Blocked person's Talks stop arriving | ✅ `stage2/15b` | ✅ `phone-path/04` | ✅ `native-app/38` |
 | J-TALK-06 | A phone and a browser offer each other a Talk right after they meet; each arrives | — | ✅ `phone-path/13` | ◐ `native-app/12` setup |
 | J-ANS-01 | Delete my answer from Me: it leaves my Me tab at once; the author's device forgets it and withdraws our conversation ("They deleted their answer") | — | ✅ `phone-path/11` | — |
 | **Signed log (OPEN-108)** | | | | |
@@ -105,19 +105,34 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | **TechSupport** | | | | |
 | J-SUPPORT-01 | New user gets the signed greeting | ✅ `stage1/03` | — | ◐ `native-app/08` (support conversation) |
 
-### Gaps worth filling next (in order)
+| **Added 2026-11-26 (OPEN-121): features newer than this matrix** | | | | |
+| J-AUTO-01..03 | Auto exchange: a Talk switched to Broadcast reaches people with no send step; *Auto* answers it; replies come back (OPEN-112) | ✅ `stage2/98` | — | ✅ `native-app/42` |
+| J-TAGS-01 | Starter tags: each person likes some tags; everyone's Contacts list orders the others by tags in common, with the right counts | ✅ `stage5/starter-tags-similar-people`, `stage2/88` | — | ✅ `native-app/43` (4 phones) |
+| J-ROW-01 | Talks row gestures: ✕ / swipe left = Pass, tap / swipe right = Like, long-press selects; same on every row | ◐ `stage1/83-incoming-talk-gesture-actions` (own screen) | — | — |
+| J-LINK-01 | Link two devices of one person; both show the link; history moves; unlink supersedes | ✅ `stage1/71`, `stage2/73-identity-link-mutual`, `74-device-handoff-transfer`, `95-device-sync-continuous` | — | ✅ `cross-platform/x3` (website ↔ phone, in `test:android:full`) |
+| J-DEAL-01 | Buy/sell Talks whose prices overlap match and open a deal conversation | ✅ `stage2/87`, `89`, `stage4/04` | — | — |
+| J-MAP-01 | Map tab: Places and areas at the right spot; tap opens them | ✅ `mass/06`, `stage1/54-chatroom-tree-and-map` | ◐ `phone-path/01` (Place block) | — |
+| J-DM-02 | A DM arriving elsewhere shows a toast that opens it; the inbox lists senders | ✅ `stage2/73-dm-arrival-toast-navigation`, `78-dm-inbox-affordance`, `stage3/79` | — | ◐ `test:android:dm` (timings only) |
+| J-SHELL-01 | Right after launch every tab and AppBar action responds within budget | ✅ `responsiveness/*` | ✅ `phone-path/10` (hung hub) | ✅ `native-app/41` |
+| J-PERM-01 | Permissions asked in one batch; camera / files / location each work or degrade cleanly | — (needs the Android shell) | — | ✅ `native-app/36`, `26`, `35` |
+| J-ERASE-01 | Erase this device: everything local is gone, after offering to sync first | ✅ `stage1/72`, `stage2/72-sync-before-erase` | — | — |
 
-1. ~~**J-START-04 (location refused)** on a real phone~~ — `native-app/35` (2026-10-15).
-2. ~~**J-ROOM-02 (split/promote) on the phone path.**~~ Retired 2026-10-20: Nearby v3 has no
-   shared rooms to split (OPEN-70); J-NEARBY-01–03 replace it.
-3. ~~**J-PLACE-12 (map block)** and **J-PLACE-11 on the map** — only the lists are checked.~~
-   Covered in `phone-path/01` and `phone-path/03` (2026-10-31).
-4. ~~**Real phone ◐ rows** (J-TALK-02/03, J-CHAT-01): answer and match through the UI on two phones
-   instead of the shortcut in `native-app/12`.~~ Covered in `native-app/37` (2026-10-31).
-5. ~~A phone lists Places it learned from LAN neighbours even when its hub has never had them.~~
-   Decided 2026-10-15 (product owner): yes, a phone lists them — that is how Places work offline.
-   The release smoke now `pm clear`s both phones when it finishes (`--keep-data` skips that), so
-   the smoke Place no longer stays on the shared phones.
+### Gaps worth filling next (in order; OPEN-121, 2026-11-26)
+
+The October list is done (J-START-04, J-PLACE-11/12, real-phone J-TALK-02/03, J-CHAT-01). Next,
+cheapest first, each checked on the other user's side:
+
+1. **Real phone:** J-ANS-01 (delete an answer), J-SUPPORT-01 (signed greeting on the phone),
+   J-PROFILE-01 (rename seen by the other phone), J-ROW-01 (row gestures through the touch UI).
+   The phone-path journey bodies in `tests/e2e/journeys/` can be reused, as `native-app/38` does.
+2. **Phone path:** J-AUTO-01..03 and J-TAGS-01 (the newest product paths have no phone-route
+   check), J-START-04 (location refused), J-CHAT-02 (message to someone offline), J-NEARBY-02
+   (ring).
+3. **Web:** J-PLACE-02..06 (another user finds and enters a Place, on the web route), J-ANS-01,
+   J-CHAT-04, J-ROW-01 checked on the author's side.
+4. **Phone runtime without UI:** more portable core contracts (`npm run test:android:coverage`:
+   5 of 280 candidates implemented).
+5. **WebKit:** a few key journeys (start, Talk + match, chat) as the iPhone stand-in.
 
 ## Rules for new tests
 

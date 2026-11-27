@@ -200,7 +200,7 @@ Tests live in `tests/e2e/`. Each spec has a companion `.md` with a plain-English
 **Parallel isolation:** each Playwright worker gets its own Gun server on `8080+N` and webpack dev server on `3001+N`. `parallelSlot()` in `helpers/ports.ts` maps a worker to its port pair. Run `PW_WORKERS=N` to enable.
 
 **Key helpers** (`tests/e2e/helpers/`):
-- `timing.ts` — `afterSync()` (600ms), `afterAction()` (100ms), `afterLoad()` (1s); use these instead of raw `wait()`
+- `timing.ts` — `afterSync()` (200 ms), `afterAction()` (100 ms), `afterLoad()` (300 ms) in the default short mode; prefer waiting for the condition itself (`expect.poll`, a locator) over any fixed wait (OPEN-121)
 - `talks-matching-flow.ts` — `bootstrapUser`, `openIncomingTalkModal`, `waitForResponseModalClosed`, `resetTalksMatchingSession`, `finalCleanupPages`
 - `talks-matching-browsers.ts` — `launchThreeBrowsers` / `shutdownThreeBrowsers`
 - `clear-database.ts` — `clearGunDatabases()` (in-memory server clear via `POST /api/test/clear-database` + per-worker radata clear)

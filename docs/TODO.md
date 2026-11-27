@@ -39,11 +39,48 @@ its ID.
   runs in a row on 2026-11-24/25. Debug 1.0.292 (2026-11-26): release smoke passed on P30 + C10;
   native-app/43 on four phones settled in 17–30 s. Mac host checks passed: sleep/wake (OPEN-03)
   and PF isolation (OPEN-04).
-- **Recommended order:** watch OPEN-99 in later phone runs; everything else is paused, deferred or
+- **Recommended order:** OPEN-121 (faster tests, more coverage); watch OPEN-99 in later phone runs; everything else is paused, deferred or
   waiting on the owner (OPEN-76 unplugged battery run, OPEN-77 key backups) or on an iPhone
   (OPEN-21..23, OPEN-26).
 
 ## Active maintenance queue — website and Android first
+
+- [ ] **OPEN-121 — Faster tests with more coverage (owner, 2026-11-26).** Baseline (test:all
+  2026-11-25): 23.5 min wall; 419 browser results = 128 test-minutes. The critical path is the
+  "light" phase (stages 1–3 + responsiveness, 252 files): 85 test-minutes on 6 workers = 16.1 min,
+  while this Mac has 14 cores / 64 GB (`scale_down_only 6` never scales up). Phone path: 3 shards,
+  5.1 / 5.1 / 8.6 min. Android: release smoke 2.6 min; the full sweep records no step times.
+  Steps, each proven by test:all runs (owner allowed runs for this work):
+  1. **Measure.** A per-spec timing table in test:all from its blob reports; step times in the
+     Android sweeps.
+  2. **Quick speed wins.** Light-phase workers 6 vs 8 vs 10 (two runs each); split the longest
+     files (stage5/14 6.3 min, stage3/00 matrix 6.3, stage5 starter-tags 4.9, mass/06 4.6,
+     stage4/05 taxi 3.6) and start long files first; rebalance phone-path shards by measured time.
+     Target ~15–17 min, green twice.
+  3. **Fewer fixed sleeps.** Specs and helpers hold 741 `afterSync()` (0.2 s), 145 `afterLoad()`
+     (0.3 s), 264 `afterAction()` (0.1 s), 86 `waitForTimeout` (226 s) and 57 raw sleeps (161 s):
+     ~10 test-minutes counting each once, more inside loops (`helpers/talks-matching-flow.ts`
+     alone has 26). Replace with condition waits in the 20 slowest files; a lint rule
+     against new `waitForTimeout` in specs.
+  4. **Coverage.** Bring `docs/testing/journey-coverage.md` up to date (no rows for starter tags /
+     tags in common, auto exchange, row gestures, linked devices, Deals, map tab, DM
+     responsiveness; some "—" already covered, e.g. `native-app/38`). Fill, cheapest first: real
+     phone J-ANS-01, J-SUPPORT-01, J-PLACE-08..12, full J-PROFILE-01; phone path J-NEARBY-02..05,
+     J-START-04, J-CHAT-02; web J-PLACE-02..06, J-ANS-01, J-CHAT-04. More portable core contracts
+     on the phone's Node (5 of 280 candidates). A few key journeys on WebKit (iPhone stand-in).
+     Release smoke pairs the oldest and newest Android (FRD 7 + C10 14).
+  5. **Android sweep.** Step times; run independent phone pairs in parallel; track flaky specs.
+  **Progress 2026-11-26:** step 1 done: test:all prints a per-phase / per-spec timing table
+  against the previous run (`scripts/test-timing-report.mjs`, saved to `test-logs/timing-*.json`);
+  Android sweeps keep their step and spec times in `test-logs/android-sweeps/` (test:all used to
+  delete them with `blob-report/`). Step 2: light 8 workers on 14+ cores (10 failed one cross-user
+  deal wait under load; that wait is now 30 s like the spec's other cross-user waits), the 6-min
+  talk matrix in its own wave-1 lane (it started ~6 min into light and ran alone at its end),
+  phone-path shard times refreshed. Runs: 21m14s (8 workers), 19m23s (10, one failure), 18m38s
+  (lanes; Jest `system-routes` 404, its 3rd test:all one-off, now reports who answered), 18m25s all
+  green. Wave 1 is now paced by stage5 → heavy (6.1 + 4.6 min) and wave 3 by `mass/06`. Step 3
+  began: 7 sleeps before waiting calls left `helpers/talks-matching-flow.ts` (~1 test-minute);
+  next the slowest files' own waits. Step 4 began: `journey-coverage.md` brought up to date.
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no
