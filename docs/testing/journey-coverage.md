@@ -106,8 +106,8 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-SUPPORT-01 | New user gets the signed greeting | ✅ `stage1/03` | — | ◐ `native-app/08` (support conversation) |
 
 | **Added 2026-11-26 (OPEN-121): features newer than this matrix** | | | | |
-| J-AUTO-01..03 | Auto exchange: a Talk switched to Broadcast reaches people with no send step; *Auto* answers it; replies come back (OPEN-112) | ✅ `stage2/98` | — | ✅ `native-app/42` |
-| J-TAGS-01 | Starter tags: each person likes some tags; everyone's Contacts list orders the others by tags in common, with the right counts | ✅ `stage5/starter-tags-similar-people`, `stage2/88` | — | ✅ `native-app/43` (4 phones) |
+| J-AUTO-01..03 | Auto exchange: a Talk switched to Broadcast reaches people with no send step; *Auto* answers it; replies come back (OPEN-112) | ✅ `stage2/98` | ✅ `phone-path/14` | ✅ `native-app/42` |
+| J-TAGS-01 | Starter tags: each person likes some tags; everyone's Contacts list orders the others by tags in common, with the right counts | ✅ `stage5/starter-tags-similar-people`, `stage2/88` | ✅ `phone-path/15` (2 phones) | ✅ `native-app/43` (4 phones) |
 | J-ROW-01 | Talks row gestures: ✕ / swipe left = Pass, tap / swipe right = Like, long-press selects; same on every row | ◐ `stage1/83-incoming-talk-gesture-actions` (own screen) | — | — |
 | J-LINK-01 | Link two devices of one person; both show the link; history moves; unlink supersedes | ✅ `stage1/71`, `stage2/73-identity-link-mutual`, `74-device-handoff-transfer`, `95-device-sync-continuous` | — | ✅ `cross-platform/x3` (website ↔ phone, in `test:android:full`) |
 | J-DEAL-01 | Buy/sell Talks whose prices overlap match and open a deal conversation | ✅ `stage2/87`, `89`, `stage4/04` | — | — |
@@ -125,8 +125,7 @@ cheapest first, each checked on the other user's side:
 1. **Real phone:** J-ANS-01 (delete an answer), J-SUPPORT-01 (signed greeting on the phone),
    J-PROFILE-01 (rename seen by the other phone), J-ROW-01 (row gestures through the touch UI).
    The phone-path journey bodies in `tests/e2e/journeys/` can be reused, as `native-app/38` does.
-2. **Phone path:** J-AUTO-01..03 and J-TAGS-01 (the newest product paths have no phone-route
-   check), J-START-04 (location refused), J-CHAT-02 (message to someone offline), J-NEARBY-02
+2. **Phone path:** ~~J-AUTO-01..03, J-TAGS-01~~ (`phone-path/14`, `15`, 2026-11-26); J-START-04 (location refused), J-CHAT-02 (message to someone offline), J-NEARBY-02
    (ring).
 3. **Web:** J-PLACE-02..06 (another user finds and enters a Place, on the web route), J-ANS-01,
    J-CHAT-04, J-ROW-01 checked on the author's side.

@@ -23,6 +23,8 @@ const SECONDS = {
   '11-delete-answer': 42,
   '12-signed-exchange-chain': 52,
   '13-phone-and-browser-talk': 18,
+  '14-auto-exchange': 60,
+  '15-starter-tags': 66,
 };
 
 export function phonePathShards(files, n) {
