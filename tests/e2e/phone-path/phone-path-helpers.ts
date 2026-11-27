@@ -70,6 +70,8 @@ export type OpenUserOptions = {
   baseUrl?: string;
   /** Reuse a browser context (the same WebView storage), e.g. after the phone node restarted. */
   context?: BrowserContext;
+  /** The person refused location: no permission and no pinned fix (J-START-04, OPEN-121). */
+  denyLocation?: boolean;
 };
 
 /** The phone nodes' device-core secret (scripts/e2e-phone-node.mjs). */
@@ -82,11 +84,13 @@ export async function openUser(
   options: OpenUserOptions = {},
 ): Promise<JourneyUser> {
   const coords = options.coords ?? JOURNEY_COORDS;
-  const context = options.context ?? await browser.newContext({
-    viewport: { width: 480, height: 900 },
-    geolocation: { latitude: coords.latitude, longitude: coords.longitude, accuracy: 10 },
-    permissions: ['geolocation'],
-  });
+  const context = options.context ?? await browser.newContext(options.denyLocation
+    ? { viewport: { width: 480, height: 900 } }
+    : {
+      viewport: { width: 480, height: 900 },
+      geolocation: { latitude: coords.latitude, longitude: coords.longitude, accuracy: 10 },
+      permissions: ['geolocation'],
+    });
   const page = await context.newPage();
   page.on('console', (msg) => {
     if ((msg.type() === 'error' && process.env.PHONE_PATH_CONSOLE === '1') || process.env.PHONE_PATH_CONSOLE === 'all') {
@@ -117,7 +121,7 @@ export async function openUser(
   await page.goto(`${baseUrl}/?${query.toString()}`);
   await page.waitForLoadState('load');
   await waitForAppReady(page, 60_000);
-  await pinLocation(page, coords);
+  if (!options.denyLocation) await pinLocation(page, coords);
   return { label, origin, context, page, ...(origin !== 'hub' ? { nodeUrl: baseUrl } : {}), ...(phone ? { releasePhone: phone.release } : {}) };
 }
 

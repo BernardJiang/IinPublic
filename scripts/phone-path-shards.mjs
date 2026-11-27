@@ -25,6 +25,8 @@ const SECONDS = {
   '13-phone-and-browser-talk': 18,
   '14-auto-exchange': 60,
   '15-starter-tags': 66,
+  '16-message-while-offline': 5,
+  '17-location-refused': 12,
 };
 
 export function phonePathShards(files, n) {

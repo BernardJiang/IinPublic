@@ -22,12 +22,18 @@ import { currentRoomId, memberItem, openCurrentRoom, stageName, userId } from '.
 
 const MATCH_ANSWER = 'Yes match';
 
-async function reopenConversationFromContacts(page: TestActor['page'], peerId: string): Promise<void> {
+export async function reopenConversationFromContacts(page: TestActor['page'], peerId: string): Promise<void> {
   const overlay = page.locator('#conversation-detail-overlay');
   if (await overlay.isVisible().catch(() => false)) {
     await page.locator('#back-from-conversation').click();
   }
-  await page.locator('.nav-btn[data-view="contacts"]').click();
+  // A person view left open (it lies over the lists and the bottom bar) goes back first too.
+  for (let i = 0; i < 3 && await page.locator('#peer-detail-overlay').isVisible().catch(() => false); i++) {
+    await page.locator('#back-from-peer-detail').click();
+  }
+  // Clicked in the page: a person view's sort buttons can lie over the bottom bar at this size and
+  // take a pointer click (seen in phone-path/16), as native-app/43 also found on phones.
+  await page.locator('.nav-btn[data-view="contacts"]').evaluate((element) => (element as HTMLElement).click());
   await expect(page.locator('.nav-btn[data-view="contacts"].active')).toBeVisible({ timeout: 20_000 });
   const row = page
     .locator(`#contacts-list .contact-item[data-contact-user-id="${peerId}"]`)

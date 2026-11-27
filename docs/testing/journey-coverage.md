@@ -59,7 +59,7 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | J-START-01 | Fresh install opens, an identity is made, app is usable | ✅ `stage0/*`, `platform-smoke/00` | ✅ every phone-path spec | ✅ `native-app/05` |
 | J-START-02 | Restart keeps the same identity | ✅ `platform-smoke/01` | ✅ `phone-path/05` | ✅ `native-app/12` |
 | J-START-03 | Location given → placed in the right Nearby room | ✅ `stage1/27` | ✅ `phone-path/02` | ✅ `native-app/30` |
-| J-START-04 | Location refused → still usable | ✅ `platform-smoke/02` (opt-in, production bundle) | — | ✅ `native-app/35` (re-ask from Settings, OPEN-54) |
+| J-START-04 | Location refused → still usable | ✅ `platform-smoke/02` (opt-in, production bundle) | ✅ `phone-path/17` | ✅ `native-app/35` (re-ask from Settings, OPEN-54) |
 | J-PROFILE-01 | Rename → the welcome and other people show the new name | ◐ `native-app/08` setup | ✅ `phone-path/06` | ◐ `native-app/08`, `09` setup |
 | **Rooms** | | | | |
 | J-ROOM-01 | Two people nearby share one room and see each other in it | ✅ `stage2/01` | ✅ `phone-path/02` | ✅ `native-app/30` |
@@ -100,7 +100,7 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | **Chat** | | | | |
 | J-CHAT-01 | A message sent appears on the other person's screen | ✅ `stage2/09` | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-CHAT-04 | Sending never makes anyone wait: own message at once, Send stays free, arrival within 2 s, even during a slow local save | — | ✅ `phone-path/02` | ✅ `native-app/37` |
-| J-CHAT-02 | Message to someone offline arrives when they come back | ✅ `cross-platform/x6`, `talks-matching/05` | — | ✅ `native-app/13` |
+| J-CHAT-02 | Message to someone offline arrives when they come back | ✅ `cross-platform/x6`, `talks-matching/05` | ✘ `phone-path/16` (receiver's app and node stopped): fails, OPEN-122 | ✅ `native-app/13` (receiver offline, app running) |
 | J-CHAT-03 | A sleeping phone is notified and the message is there on wake | — | — | ✅ `native-app/28` |
 | **TechSupport** | | | | |
 | J-SUPPORT-01 | New user gets the signed greeting | ✅ `stage1/03` | — | ◐ `native-app/08` (support conversation) |
@@ -125,7 +125,7 @@ cheapest first, each checked on the other user's side:
 1. **Real phone:** J-ANS-01 (delete an answer), J-SUPPORT-01 (signed greeting on the phone),
    J-PROFILE-01 (rename seen by the other phone), J-ROW-01 (row gestures through the touch UI).
    The phone-path journey bodies in `tests/e2e/journeys/` can be reused, as `native-app/38` does.
-2. **Phone path:** ~~J-AUTO-01..03, J-TAGS-01~~ (`phone-path/14`, `15`, 2026-11-26); J-START-04 (location refused), J-CHAT-02 (message to someone offline), J-NEARBY-02
+2. **Phone path:** ~~J-AUTO-01..03, J-TAGS-01~~ (`phone-path/14`, `15`, 2026-11-26); ~~J-START-04~~ (`phone-path/17`), J-CHAT-02 (written: `phone-path/16`, fails, OPEN-122), J-NEARBY-02
    (ring).
 3. **Web:** J-PLACE-02..06 (another user finds and enters a Place, on the web route), J-ANS-01,
    J-CHAT-04, J-ROW-01 checked on the author's side.
