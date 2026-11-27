@@ -232,7 +232,8 @@ import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
 import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
-import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
+import { attachmentShareKeyPayload, attachmentSharePayload, formatAttachmentShareMessageText, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
+import { AttachmentShareEffects, type MailboxAttachmentSharePayload } from '../../core/attachment-share-effects';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
 import { answeredBeforeFor, isDealEligibleTalk, matchScoreParamsFor, talkRevisionPairKey } from '../../core/talk-rules';
@@ -262,18 +263,6 @@ import { coalesced } from '../services/coalesced-refresh';
 const OLD_TALK_COPY_KEY = /^(talks\/|receivedTalks\/|receivedTalkIndex$|incomingTalkClusters$)/;
 /** OPEN-38: how long after its last heartbeat a still-joined member keeps receiving queued Talks. */
 const LAPSED_MEMBER_DELIVERY_MS = 12 * 60 * 60_000;
-
-type MailboxAttachmentSharePayload = {
-  kind: 'ipfs-conversation-share-v1';
-  conversationId: string;
-  messageId: string;
-  senderId: string;
-  senderName: string;
-  recipientId: string;
-  recipientName: string;
-  text: string;
-  timestamp: string;
-};
 
 /**
  * Phase 4: an ordinary DM queued to the recipient's offline mailbox because WebRTC
@@ -460,6 +449,8 @@ export class IinPublicApp {
   private readonly blockSignalEffects: BlockSignalEffects;
   /** Portable encrypted-mailbox sender; this page supplies key custody and network adapters. */
   private readonly mailboxDelivery: MailboxDeliveryService<GunPair>;
+  /** Portable matched-attachment send/ingest policy; crypto, IPFS and UI remain host ports. */
+  private readonly attachmentShareEffects: AttachmentShareEffects;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
   private readonly graphMessageWrites = new Map<string, Promise<void>>();
@@ -819,25 +810,6 @@ export class IinPublicApp {
     });
   }
 
-  private async buildAttachmentSharePayload(params: {
-    conversationId: string;
-    talkId: string;
-    authorId: string;
-    recipientId: string;
-    attachment: IpfsAttachment;
-  }): Promise<AttachmentShareMessagePayload> {
-    // The share message is the core's (src/core/attachment-share.ts); the key goes encrypted.
-    const keyCiphertext = await this.encryptPairTalkResponsePayload(
-      params.recipientId,
-      attachmentShareKeyPayload(params.talkId, params.authorId, params.attachment),
-    );
-    return attachmentSharePayload(params, keyCiphertext, new Date().toISOString());
-  }
-
-  private formatAttachmentShareMessageText(payload: AttachmentShareMessagePayload): string {
-    return `IPFS_SHARE:${JSON.stringify(payload)}`;
-  }
-
   private async maybeFetchSharedAttachmentBytes(
     sharePayload: AttachmentShareMessagePayload,
     senderUserId: string,
@@ -929,94 +901,14 @@ export class IinPublicApp {
     responderName: string;
     talkData: any;
   }): Promise<void> {
-    if (!this.currentUser?.id || this.currentUser.id !== params.authorId) return;
-    const attachments = this.getTalkAttachmentsForShare(params.talkData);
-    if (attachments.length === 0) return;
-    // Courtesy/efficiency check, not the security boundary (that's the receive-side gate in
-    // maybeFetchSharedAttachmentBytes/ingestAttachmentShareFromMailbox) — skip encrypting and
-    // publishing to IPFS for a peer we already know is blocked either-way.
-    if (await this.resolveBlockStatusEitherWay(params.responderId)) return;
-
-    for (const attachment of attachments) {
-      try {
-        const messageId = await attachmentShareMessageId(
-          params.conversationId,
-          params.talkId,
-          params.authorId,
-          attachment.cid,
-        );
-        if (this.attachmentShareSentIds.has(messageId)) continue;
-
-        const sharePayload = await this.buildAttachmentSharePayload({
-          conversationId: params.conversationId,
-          talkId: params.talkId,
-          authorId: params.authorId,
-          recipientId: params.responderId,
-          attachment,
-        });
-        const messageText = this.formatAttachmentShareMessageText(sharePayload);
-        const timestamp = new Date().toISOString();
-        await this.conversationService.sendMessage(
-          params.conversationId,
-          params.authorId,
-          messageText,
-          {
-            otherUserId: params.responderId,
-            messageId,
-            channel: 'known',
-          },
-        );
-        await this.postAttachmentShareToMailbox({
-          kind: 'ipfs-conversation-share-v1',
-          conversationId: params.conversationId,
-          messageId,
-          senderId: params.authorId,
-          senderName: this.currentUser.stageName,
-          recipientId: params.responderId,
-          recipientName: params.responderName,
-          text: messageText,
-          timestamp,
-        });
-        this.attachmentShareSentIds.add(messageId);
-      } catch (err) {
-        console.warn('[L5] autoShareMatchedTalkAttachments failed:', err);
-      }
-    }
-
-    this.persistAttachmentShareSentIds();
+    await this.attachmentShareEffects.autoShareMatchedTalkAttachments({
+      ...params,
+      attachments: this.getTalkAttachmentsForShare(params.talkData),
+    });
   }
 
   private async ingestAttachmentShareFromMailbox(payload: MailboxAttachmentSharePayload): Promise<void> {
-    if (!this.currentUser?.id) return;
-    if (payload.kind !== 'ipfs-conversation-share-v1') return;
-    const messageId = String(payload.messageId || '').trim();
-    if (!messageId) return;
-    if (this.attachmentShareSentIds.has(messageId)) return;
-    // The actual enforcement boundary (a modified sender client could skip the send-side check
-    // in autoShareMatchedTalkAttachments) — never create a message record for, or fetch bytes
-    // from, a blocked-either-way sender.
-    if (await this.resolveBlockStatusEitherWay(payload.senderId)) return;
-
-    await this.conversationService.ingestOrdinaryMessageWire(
-      payload.conversationId,
-      {
-        id: messageId,
-        senderId: payload.senderId,
-        text: payload.text,
-        timestamp: payload.timestamp,
-        channel: 'pair',
-        transport: this.conversationService.getTransportMode(),
-      },
-      payload.senderId,
-    );
-    const sharePayload = parseAttachmentShareMessageText(payload.text);
-    if (sharePayload) {
-      void this.maybeFetchSharedAttachmentBytes(sharePayload, payload.senderId).catch((err) => {
-        console.warn('[L5] mailbox attachment fetch failed:', err);
-      });
-    }
-    this.attachmentShareSentIds.add(messageId);
-    this.persistAttachmentShareSentIds();
+    await this.attachmentShareEffects.ingestAttachmentShareFromMailbox(payload);
   }
 
   /** One pairwise mailbox-encrypted send — the atomic unit BlockSignalEffects loops over for
@@ -1140,6 +1032,49 @@ export class IinPublicApp {
     });
     this.conversationService = new WebConversationService(this.gunService);
     this.contentNodeService = new WebContentNodeService();
+    this.attachmentShareEffects = new AttachmentShareEffects({
+      currentUser: () => this.currentUser,
+      isBlockedEitherWay: (peerId) => this.resolveBlockStatusEitherWay(peerId),
+      hasProcessed: (messageId) => this.attachmentShareSentIds.has(messageId),
+      markProcessed: (messageId) => this.attachmentShareSentIds.add(messageId),
+      persistProcessed: () => this.persistAttachmentShareSentIds(),
+      buildPayload: async (params) => {
+        const keyCiphertext = await this.encryptPairTalkResponsePayload(
+          params.recipientId,
+          attachmentShareKeyPayload(params.talkId, params.authorId, params.attachment),
+        );
+        return attachmentSharePayload(params, keyCiphertext, params.sharedAt);
+      },
+      sendConversationMessage: ({ conversationId, senderId, recipientId, messageId, text }) =>
+        this.conversationService.sendMessage(conversationId, senderId, text, {
+          otherUserId: recipientId,
+          messageId,
+          channel: 'known',
+        }),
+      postMailbox: (payload) => this.postAttachmentShareToMailbox(payload),
+      ingestConversationMessage: (payload) => this.conversationService.ingestOrdinaryMessageWire(
+        payload.conversationId,
+        {
+          id: payload.messageId,
+          senderId: payload.senderId,
+          text: payload.text,
+          timestamp: payload.timestamp,
+          channel: 'pair',
+          transport: this.conversationService.getTransportMode(),
+        },
+        payload.senderId,
+      ),
+      fetchSharedAttachment: (payload, senderId) =>
+        this.maybeFetchSharedAttachmentBytes(payload, senderId),
+      onFailure: (context, error) => {
+        console.warn(
+          context === 'auto-share'
+            ? '[L5] autoShareMatchedTalkAttachments failed:'
+            : '[L5] mailbox attachment fetch failed:',
+          error,
+        );
+      },
+    });
     this.attestationService = new WebAttestationService(this.getBackendApiBase());
     // Scenario 2 (§16): every direct-p2p handshake evaluates a remote peer's presented
     // buildTrustCredential against our own pinned official identity, using whatever this
@@ -9705,7 +9640,7 @@ export class IinPublicApp {
           await this.conversationService.sendMessage(
             data.conversationId,
             this.currentUser.id,
-            this.formatAttachmentShareMessageText(payload),
+            formatAttachmentShareMessageText(payload),
             {
               messageId: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
               ...(otherUserId ? { otherUserId } : {}),

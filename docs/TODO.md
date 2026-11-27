@@ -100,6 +100,12 @@ active feature development.
   envelope ids, duplicate suppression and per-recipient fan-out isolation; the web host supplies key
   custody, trusted recipient discovery and transport. DM, attachment, block-signal and TechSupport
   senders are thin adapters. The coordinator ratchet is now 10,515 lines.
+  **Fifth no-phone slice (2026-11-27):** matched-Talk attachment-share orchestration moved into
+  `core/attachment-share-effects.ts`. The portable core now owns author/block gates, stable-message
+  deduplication, conversation-before-mailbox ordering, per-attachment failure isolation and
+  ingest-before-fetch semantics; the web host supplies SEA encryption, conversation/mailbox
+  transport, durable processed ids, IPFS retrieval and UI refresh. Compatibility wrappers preserve
+  the browser-test surface, and the coordinator ratchet is now 10,450 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

@@ -60,6 +60,11 @@ export function attachmentSharePayload(
   };
 }
 
+/** Serialize a share into the ordinary conversation-message text carried by every transport. */
+export function formatAttachmentShareMessageText(payload: AttachmentShareMessagePayload): string {
+  return `${MESSAGE_PREFIX}${JSON.stringify(payload)}`;
+}
+
 /** A share carried as message text (`IPFS_SHARE:{…}`); null for anything else or a malformed one. */
 export function parseAttachmentShareMessageText(text: string): AttachmentShareMessagePayload | null {
   const raw = String(text || '');
