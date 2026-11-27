@@ -677,7 +677,10 @@ describe('system routes', () => {
     expect(gunService.getSet).not.toHaveBeenCalled();
 
     const listed = await request(app).get('/api/support/delegate-grants');
-    expect(listed.status).toBe(200);
+    // This route never answers 404 itself; under test:all it got one three times (2026-11-08,
+    // -15, -26), passing alone. Show who answered when it happens again (OPEN-121).
+    expect({ status: listed.status, body: listed.text?.slice(0, 200), url: (listed as any).req?.path })
+      .toMatchObject({ status: 200 });
     expect(techSupportStore.getSet).toHaveBeenCalledWith('techsupport-delegates');
     expect(gunService.getSet).not.toHaveBeenCalled();
   });

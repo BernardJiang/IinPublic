@@ -271,12 +271,14 @@ test.describe('Asymmetric exact match (buyer wants "any iPhone") + IPFS photo au
     expect(await isTalkDisabled(pageEve, SIMPLE_TITLE)).toBe(false);
 
     await confirmDealWith(pageAdam, eveId);
-    await expect(pageAdam.locator('#conversation-deal-status')).toContainText('Deal confirmed', { timeout: 15_000 });
+    // 'Deal confirmed' needs Eve's confirmation to have crossed to Adam: a delivery between users,
+    // given the same 30 s as the attachment above (15 s ran out under a 10-worker test:all).
+    await expect(pageAdam.locator('#conversation-deal-status')).toContainText('Deal confirmed', { timeout: 30_000 });
 
     await pageEve.evaluate((cid: string) => {
       (window as any).__iinpublic_app?.getApp?.()?.uiManager?.showConversationDetail?.(cid);
     }, conversationId);
-    await expect(pageEve.locator('#conversation-deal-status')).toContainText('Deal confirmed', { timeout: 15_000 });
+    await expect(pageEve.locator('#conversation-deal-status')).toContainText('Deal confirmed', { timeout: 30_000 });
 
     // --- Only the matched (deal-eligible) simple talk disables; the un-deal-eligible detailed
     // route listing — which Adam never engaged — is left alone. ---

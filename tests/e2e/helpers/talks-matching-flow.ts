@@ -349,7 +349,6 @@ export async function clickIncomingTagDecision(
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await afterSync();
   await waitForIncomingTalkCluster(page, titleSubstring, options);
   await syncIncomingFromServer(page);
   await afterSync();
@@ -607,7 +606,6 @@ export async function openIncomingTalkModalByTalkId(
   if (!tid) throw new Error('openIncomingTalkModalByTalkId: empty talkId');
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await afterSync();
   await waitForIncomingTalkId(page, tid);
   await syncIncomingFromServer(page);
   await afterSync();
@@ -621,7 +619,6 @@ export async function openIncomingTalkModalByTalkId(
   const row = rowByTitle ? rowByAttrs.or(rowByTitle) : rowByAttrs;
   const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
-    await afterSync();
     try {
       await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
       break;
@@ -671,14 +668,12 @@ export async function openIncomingTalkModal(
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await afterSync();
   await waitForIncomingTalkCluster(page, titleSubstring, options);
   await syncIncomingFromServer(page);
   await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
   const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
-    await afterSync();
     try {
       await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
       break;
@@ -736,14 +731,12 @@ export async function openIncomingTalkModalWithAutoAnswers(
 ): Promise<void> {
   await page.click('.nav-btn[data-view="talks"]');
   await waitForTabActive(page, 'talks');
-  await afterSync();
   await waitForIncomingTalkCluster(page, titleSubstring);
   await syncIncomingFromServer(page);
   await afterSync();
   const row = page.locator('.talk-list-item[data-role="incoming"]').filter({ hasText: titleSubstring });
   const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
-    await afterSync();
     try {
       await expect(row.first()).toBeVisible({ timeout: INCOMING_ROW_POLL_MS });
       break;
