@@ -87,11 +87,15 @@ its ID.
   ~2.5 s start, **~1.5 s is the device core answering its first snapshots from an empty store**: the
   core has a fresh-device shortcut (empty answers, no reads), but the first request the app sends,
   `deviceGraph.setLocation` (memory only), ends it, so every start-up snapshot reads Gun for missing
-  records. Keeping it fresh through `setLocation` and `collection.eraseRetired` took start-up from
-  2.59 to ~1.0 s and test:all from 127 to 118 test-minutes, but broke stage3/24 (names and rooms
-  lost): the worker also writes storage outside core requests (Gun puts, profile), which the flag
-  does not see. Reverted. To do it safely, the worker host must end freshness on any store write
-  (`idbAdapter.put`, `gunPut`, Gun RPC writes) before the shortcut can outlive the first request.
+  records. **Fixed 2026-11-26:** the worker host ends freshness on any Gun put (`Gun.on('opt')` →
+  `root.on('put')`, like Gun's lib/erase.js; `createCoreHandler({ storeTouched })`), so the shortcut
+  survives `setLocation` and `collection.eraseRetired` safely. Start-up 2.59 → ~1.0 s; test:all
+  127.8 → 117.7 test-minutes, 18m44s → 17m31s, all e2e green. stage3/24 had its own bootstrap that
+  typed the new name without waiting for the app: with the faster start the name landed while the
+  user was still being made and was lost. The spec now waits for app ready; the app race (a rename
+  typed in the first second or two of a new user's first start is lost) is real but minor.
+  Jest flake found: `nearby-v3-link.test.ts` "opens a link to everyone the graph owes" fails ~1 in
+  10 alone on old and new code (a neighbour outlasts its 5 s close budget).
   This is a product start-up gain too: every new web user's first start. Also: `pinStableE2eLocation`
   awaits a full Nearby tick, whose announce swaps wait 15 s per gone neighbour (`SWAP_TIMEOUT_MS`);
   harmless when specs clear the hub between tests, 29 s when they do not.
