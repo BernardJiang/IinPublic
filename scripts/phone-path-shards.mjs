@@ -7,22 +7,22 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Seconds per file, from test:all 2026-11-16 (phone-path alone, one worker).
+// Seconds per file, from test:all 2026-11-26 (OPEN-121 run 1, three shards beside mass).
 const SECONDS = {
-  '01-place-journey': 51,
-  '02-talk-match-chat-journey': 66,
-  '03-place-refusals-and-expiry': 254,
-  '04-mismatch-block-leave': 186,
-  '05-restart-keeps-identity': 22,
-  '06-rename': 40,
-  '07-mesh-reconnect-delivery': 32,
-  '07b-reconnect-from-either-side': 28,
-  '08-nearby-v3-gossip': 22,
-  '09-tag-graph-tour': 108,
-  '10-hung-hub-responsiveness': 114,
-  '11-delete-answer': 50,
-  '12-signed-exchange-chain': 84,
-  '13-phone-and-browser-talk': 29,
+  '01-place-journey': 50,
+  '02-talk-match-chat-journey': 45,
+  '03-place-refusals-and-expiry': 193,
+  '04-mismatch-block-leave': 202,
+  '05-restart-keeps-identity': 25,
+  '06-rename': 45,
+  '07-mesh-reconnect-delivery': 23,
+  '07b-reconnect-from-either-side': 23,
+  '08-nearby-v3-gossip': 19,
+  '09-tag-graph-tour': 42,
+  '10-hung-hub-responsiveness': 102,
+  '11-delete-answer': 42,
+  '12-signed-exchange-chain': 52,
+  '13-phone-and-browser-talk': 18,
 };
 
 export function phonePathShards(files, n) {

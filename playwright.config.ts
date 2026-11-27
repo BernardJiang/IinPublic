@@ -100,6 +100,9 @@ const HEAVY_SPEC_PATTERNS = [
   /staged\/stage2-two-user\/01-login-two-users-headcount\.spec\.ts/,
   /staged\/stage3-three-user\/02-multi-user-headcount\.spec\.ts/,
   /staged\/stage3-three-user\/09-four-types-chatbot\.spec\.ts/,
+  // One 6-minute test: in the light run it started ~6 min in (files go in name order) and ran
+  // alone at the end. test:all gives it its own lane from the start of wave 1 (OPEN-121).
+  /staged\/stage3-three-user\/00-three-user-talk-matrix\.spec\.ts/,
 ];
 const SKIP_HEAVY = process.env.E2E_SKIP_HEAVY === '1';
 

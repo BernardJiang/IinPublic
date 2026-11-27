@@ -174,7 +174,27 @@ export function finishSweepReport() {
   if (failed.length) console.log(`[android-report] failed: ${failed.map((step) => `[${step.phase}] ${step.label}`).join('; ')}`);
   writeCoverage(steps);
   mergeBlobs();
+  keepTimings();
   return failed.length === 0;
+}
+
+/**
+ * OPEN-121: test:all deletes blob-report/ when it starts, which took every sweep's step times with
+ * it. Keep the steps and a per-spec timing table under test-logs/android-sweeps/.
+ */
+function keepTimings() {
+  const runId = process.env.E2E_RUN_ID;
+  const stepsFile = process.env.ANDROID_SWEEP_STEPS_FILE;
+  if (!runId || !stepsFile || !fs.existsSync(stepsFile)) return;
+  const dir = path.join(root, 'test-logs', 'android-sweeps');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(stepsFile, path.join(dir, `${runId}.steps.jsonl`));
+  const blobs = path.join(root, 'blob-report', runId);
+  const out = spawnSync(process.execPath, [
+    path.join(root, 'scripts', 'test-timing-report.mjs'), blobs, '--json', path.join(dir, `${runId}.timing.json`), '--top', '15',
+  ], { encoding: 'utf8' });
+  if (out.status === 0) console.log(out.stdout.trimEnd());
+  console.log(`[android-report] step and spec times kept in ${path.relative(root, dir)}/${runId}.*`);
 }
 
 // A sweep stopped part way never reaches finishSweepReport. Rebuild its report by hand:

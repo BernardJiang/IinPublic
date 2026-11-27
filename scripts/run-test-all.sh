@@ -77,7 +77,12 @@ scale_down_only() {
 # count. Two 14-core Mac-mini runs at 12 workers produced different load-only failures (including
 # the same route specs twice); every failed spec passed at one worker. Six is the established
 # correctness ceiling and remains overrideable for an explicitly soaked host.
-LIGHT_WORKERS="${PW_WORKERS:-$(scale_down_only 6)}"
+# OPEN-121 (2026-11-26, 14-core Mac mini): 8 workers passed clean (light 16.1 → 13.6 min, the
+# same test-minutes, stage5 beside it green); 10 failed one cross-user deal wait. With the 6-min
+# talk matrix in its own lane, 8 already ends light under the stage5 → heavy lane, so 8 it is on
+# 14+ cores and 6 (scaled down) elsewhere.
+if [ "$CORES" -ge 14 ]; then LIGHT_DEFAULT=8; else LIGHT_DEFAULT="$(scale_down_only 6)"; fi
+LIGHT_WORKERS="${PW_WORKERS:-$LIGHT_DEFAULT}"
 # mass at 2 workers (bumped from 1, 2026-08-18): split 5 specs across 2 workers — worker 1
 # gets 01+02 (the two long ~9min specs share wall clock), worker 2 gets 03+04+05. On a
 # 14-core M4 with 6GB per-worker heap this is headroom, not contention. Rollback per-run
@@ -446,6 +451,14 @@ lane_stage5() {
     env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$STAGE5_WORKERS" \
       npx playwright test tests/e2e/staged/stage5-multi-user
 }
+# OPEN-121: the three-user talk matrix is one ~6-minute test. In light it began ~6 min in (files
+# run in name order) and finished alone ~2.5 min after everything else. Here it starts with
+# wave 1 on mass's port band (offset 100; mass runs only in wave 3).
+lane_matrix() {
+  run_phase matrix 100 \
+    env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS=1 npx playwright test \
+      tests/e2e/staged/stage3-three-user/00-three-user-talk-matrix.spec.ts
+}
 lane_heavy-staged() {
   run_phase heavy-staged 400 \
     env E2E_SKIP_FIND_SIMILAR=1 E2E_SKIP_ALL_MESH=1 PW_WORKERS="$HEAVY_WORKERS" npx playwright test \
@@ -462,8 +475,9 @@ if [ "$SEQUENTIAL_TAIL" != "1" ]; then
 else
   start_lane stage5
 fi
+start_lane matrix
 wait_wave 1
-RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc")
+RC_LIGHT=$(cat "$LOG_DIR/light.rc"); RC_S5=$(cat "$LOG_DIR/stage5.rc"); RC_MATRIX=$(cat "$LOG_DIR/matrix.rc")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 2: mesh phases + find-similar + isolated + heavy-staged (all concurrent at offset
@@ -731,8 +745,19 @@ for name in light mass isolated stage5 mesh-batch mesh-isolated find-similar hea
   fi
 done
 
-E2E_RC=$(( RC_LIGHT || RC_MASS || RC_ISO || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA || RC_XB || RC_PP ))
+E2E_RC=$(( RC_LIGHT || RC_MATRIX || RC_MASS || RC_ISO || RC_S5 || RC_MESH || RC_MESHISO || RC_FS || RC_HA || RC_XB || RC_PP ))
 PREFIX_RC=$(( RC_TYPE || RC_LINT || RC_JEST ))
+
+# OPEN-121: where the time went, per phase and per spec file, against the previous run.
+if [ -d "$RUN_BLOB_DIR" ]; then
+  mkdir -p test-logs
+  TIMING_JSON="test-logs/timing-$E2E_RUN_ID.json"
+  echo ""
+  node scripts/test-timing-report.mjs "$RUN_BLOB_DIR" --json "$TIMING_JSON" --top 20 \
+    $([ -f test-logs/timing-latest.json ] && echo "--compare test-logs/timing-latest.json") \
+    && cp "$TIMING_JSON" test-logs/timing-latest.json \
+    || echo "[test:all] timing report failed (the run's result is unaffected)"
+fi
 
 phase_time() { cat "$LOG_DIR/$1.time" 2>/dev/null || echo '?'; }
 wave_label() { [ "$CONCURRENT_WAVES" = "1" ] && echo "concurrent" || echo "sequential"; }
@@ -740,6 +765,7 @@ echo ""
 echo "[test:all] ───────────── per-phase wall time ─────────────"
 printf '  %-26s %5ss  %s\n' "phase0 (builds gate e2e)" "$p0_dur" "type=$RC_TYPE lint=$RC_LINT jest=$RC_JEST$([ "$PREFIX_OVERLAP" = "1" ] && echo ' (overlapped)')"
 printf '  %-26s %5ss  rc=%s   ┐ wave 1 (%s)\n' "light"      "$(phase_time light)" "$RC_LIGHT"          "$(wave_label)"
+printf '  %-26s %5ss  rc=%s   │ (own lane, offset 100)\n' "matrix"   "$(phase_time matrix)"  "$RC_MATRIX"
 printf '  %-26s %5ss  rc=%s   │\n'                      "stage5"     "$(phase_time stage5)"  "$RC_S5"
 if [ "$SEQUENTIAL_TAIL" != "1" ]; then
   printf '  %-26s %5ss  rc=%s   ┘ (after stage5, same lane)\n' "heavy-staged" "$(phase_time heavy-staged)" "$RC_HA"
