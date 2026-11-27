@@ -86,7 +86,11 @@ active feature development.
   `core/block-signal-effects.ts`, behind explicit storage and encrypted-delivery ports. The core
   boundary test covers the new module; focused tests prove persist-before-send, idempotent ingest,
   recipient deduplication and catch-up with the original signal id. `app-size-budget.test.ts`
-  ratchets the coordinator at 10,570 lines so future work must keep extracting rather than regrow it.
+  ratchets the coordinator so future work must keep extracting rather than regrow it.
+  **Second no-phone slice (2026-11-26):** decrypted-mailbox routing and its acknowledge/retain
+  policy moved into `core/mailbox-envelope.ts`. The web host now supplies only ingest ports;
+  rejected TechSupport questions remain queued, handler failures still retry, and retired graph-only
+  payloads are acknowledged centrally. The coordinator ratchet is now 10,555 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

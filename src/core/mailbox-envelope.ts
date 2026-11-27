@@ -17,6 +17,20 @@ export type MailboxPayloadKind =
   | 'talk-retraction' // step 10
   | 'talk-response'; // step 6
 
+export type MailboxEnvelopeDisposition = 'acknowledge' | 'retain';
+
+/**
+ * Host capabilities needed after an envelope has been decrypted. The portable core owns which
+ * payloads are actionable and when an envelope may be acknowledged; browser/storage details stay
+ * behind these ports.
+ */
+export interface MailboxPayloadHandlers {
+  ingestConversationMessage(payload: unknown): Promise<void>;
+  ingestAttachmentShare(payload: unknown): Promise<void>;
+  ingestSupportQuestion(payload: unknown): Promise<boolean>;
+  ingestBlockSignal(payload: unknown): Promise<void>;
+}
+
 export function classifyMailboxPayload(payload: any): MailboxPayloadKind {
   switch (payload?.kind) {
     case TALK_WAKE_PAYLOAD_KIND: return 'wake';
@@ -34,4 +48,36 @@ export function classifyMailboxPayload(payload: any): MailboxPayloadKind {
 /** Who sent it, whatever its kind (their encryption key comes with the envelope). */
 export function mailboxSenderId(payload: any): string {
   return String(payload?.senderId || payload?.responderId || payload?.authorId || '').trim();
+}
+
+/**
+ * Dispatch one decrypted payload and decide whether its encrypted envelope is safe to delete.
+ * A rejected support question is deliberately retained: an eligible delegate may temporarily be
+ * unable to prove operator state, and acknowledging it here would lose the question.
+ */
+export async function dispatchMailboxPayload(
+  payload: unknown,
+  handlers: MailboxPayloadHandlers,
+): Promise<MailboxEnvelopeDisposition> {
+  switch (classifyMailboxPayload(payload)) {
+    case 'conversation-message':
+      await handlers.ingestConversationMessage(payload);
+      return 'acknowledge';
+    case 'attachment-share':
+      await handlers.ingestAttachmentShare(payload);
+      return 'acknowledge';
+    case 'support-question':
+      return await handlers.ingestSupportQuestion(payload) ? 'acknowledge' : 'retain';
+    case 'block-signal':
+      await handlers.ingestBlockSignal(payload);
+      return 'acknowledge';
+    case 'wake':
+      // OPEN-38: waking the device was the payload's whole job.
+      return 'acknowledge';
+    case 'talk-body':
+    case 'talk-retraction':
+    case 'talk-response':
+      // OPEN-106: these payloads now travel only over graph links; discard old envelopes.
+      return 'acknowledge';
+  }
 }

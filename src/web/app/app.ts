@@ -229,7 +229,7 @@ import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
-import { classifyMailboxPayload, mailboxSenderId } from '../../core/mailbox-envelope';
+import { dispatchMailboxPayload, mailboxSenderId } from '../../core/mailbox-envelope';
 import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
 import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
@@ -3931,38 +3931,23 @@ export class IinPublicApp {
             this.gunService.rememberRosterEpub(senderId, senderEpubHint);
           }
         }
-        // The kind is the core's call (src/core/mailbox-envelope.ts); each goes to its handler.
-        switch (classifyMailboxPayload(payload)) {
-          case 'wake':
-            // OPEN-38: the direct scheduler delivers the queued Talk now that this page runs.
-            break;
-          case 'conversation-message':
-            await this.ingestConversationMessageFromMailbox(payload as MailboxConversationMessagePayload);
-            break;
-          case 'attachment-share':
-            await this.ingestAttachmentShareFromMailbox(payload as MailboxAttachmentSharePayload);
-            break;
-          case 'support-question': {
-            const ingested = await this.ingestSupportQuestionFromMailbox(payload as MailboxSupportQuestionPayload);
-            if (!ingested) {
-              // OPEN-107: a delegate can temporarily lose its operator state while the grant
-              // relay is unreachable. Keep the encrypted question queued until a verified
-              // operator session actually materializes it; returning normally used to delete it.
-              console.warn('[Mailbox] Support question was not ingested — leaving envelope queued', envelope.id);
-              continue;
-            }
-            break;
-          }
-          case 'block-signal':
-            await this.blockSignalEffects.ingest(payload as BlockSignalPayload);
-            break;
-          case 'talk-body':
-            // Talks travel only over graph links now (OPEN-106): an old envelope is dropped.
-            break;
-          case 'talk-retraction':
-          case 'talk-response':
-            // Answers and retractions travel only over graph links now (OPEN-106).
-            break;
+        const disposition = await dispatchMailboxPayload(payload, {
+          ingestConversationMessage: (nextPayload) => this.ingestConversationMessageFromMailbox(
+            nextPayload as MailboxConversationMessagePayload,
+          ),
+          ingestAttachmentShare: (nextPayload) => this.ingestAttachmentShareFromMailbox(
+            nextPayload as MailboxAttachmentSharePayload,
+          ),
+          ingestSupportQuestion: (nextPayload) => this.ingestSupportQuestionFromMailbox(
+            nextPayload as MailboxSupportQuestionPayload,
+          ),
+          ingestBlockSignal: async (nextPayload) => {
+            await this.blockSignalEffects.ingest(nextPayload as BlockSignalPayload);
+          },
+        });
+        if (disposition === 'retain') {
+          console.warn('[Mailbox] Support question was not ingested — leaving envelope queued', envelope.id);
+          continue;
         }
         // Delete only after handler completes without throwing.
         await mailbox.deleteEnvelope(this.currentUser.id, envelope.id);
