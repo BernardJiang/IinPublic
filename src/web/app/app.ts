@@ -229,7 +229,7 @@ import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { planDealFinalization } from '../../core/deal-finalization';
-import { dispatchMailboxPayload, mailboxSenderId } from '../../core/mailbox-envelope';
+import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
 import { attachmentShareKeyPayload, attachmentShareMessageId, attachmentSharePayload, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
@@ -3878,10 +3878,8 @@ export class IinPublicApp {
 
   /**
    * Drain all envelopes addressed to the current user from the server mailbox.
-   * Decrypt each and dispatch:
-   *   - talk-body payloads (R-a step 7 fallback) → handleMeshTalkBody
-   *   - talk-response payloads → handleMeshTalkResponse
-   * Then delete each envelope (drain-then-delete; re-delivery on crash is safe — handlers dedup).
+   * The portable core owns decrypt/dispatch/acknowledgement and per-envelope retry isolation;
+   * this adapter supplies the browser transport, local handlers, key cache, and logging.
    */
   private async drainMailbox(): Promise<void> {
     if (this.mailboxDrainPromise) return this.mailboxDrainPromise;
@@ -3897,66 +3895,40 @@ export class IinPublicApp {
     const pair = this.gunService.getStoredPair();
     if (!pair?.priv) return; // keypair not ready
 
-    const envelopes = await mailbox.fetchEnvelopes(this.currentUser.id);
-    if (!envelopes.length) return;
-
-    console.log(`[Mailbox] Draining ${envelopes.length} envelope(s) for user ${this.currentUser.id}`);
-    for (const envelope of envelopes) {
-      try {
-        let senderEpubHint = '';
-        try {
-          const wrapper = JSON.parse(envelope.ciphertext) as { senderEpub?: unknown };
-          senderEpubHint = typeof wrapper.senderEpub === 'string' ? wrapper.senderEpub.trim() : '';
-        } catch {
-          /* malformed wrappers are handled by decryptEnvelope below */
+    await drainMailboxEnvelopes({
+      recipientId: this.currentUser.id,
+      recipientKey: pair as import('../sea-gun').GunPair,
+      transport: mailbox,
+      handlers: {
+        ingestConversationMessage: (payload) => this.ingestConversationMessageFromMailbox(
+          payload as MailboxConversationMessagePayload,
+        ),
+        ingestAttachmentShare: (payload) => this.ingestAttachmentShareFromMailbox(
+          payload as MailboxAttachmentSharePayload,
+        ),
+        ingestSupportQuestion: (payload) => this.ingestSupportQuestionFromMailbox(
+          payload as MailboxSupportQuestionPayload,
+        ),
+        ingestBlockSignal: async (payload) => {
+          await this.blockSignalEffects.ingest(payload as BlockSignalPayload);
+        },
+      },
+      rememberSenderKey: (senderId, senderEpub) => {
+        this.peerEpubByUserId.set(senderId, senderEpub);
+        this.gunService.rememberRosterEpub(senderId, senderEpub);
+      },
+      onEvent: (event) => {
+        if (event.type === 'batch') {
+          console.log(`[Mailbox] Draining ${event.count} envelope(s) for user ${event.recipientId}`);
+        } else if (event.type === 'retained') {
+          console.warn('[Mailbox] Support question was not ingested — leaving envelope queued', event.envelopeId);
+        } else if (event.type === 'acknowledged') {
+          console.log('[Mailbox] Drained and deleted envelope', event.envelopeId);
+        } else {
+          console.warn('[Mailbox] Failed to drain envelope', event.envelopeId, '— will retry on next connect:', event.error);
         }
-        const payload = await mailbox.decryptEnvelope<
-          | P2PMeshTalkResponsePayload
-          | MailboxAttachmentSharePayload
-          | MailboxConversationMessagePayload
-          | MailboxSupportQuestionPayload
-          | BlockSignalPayload
-        >(
-          envelope.ciphertext,
-          pair as import('../sea-gun').GunPair,
-        );
-        if (senderEpubHint) {
-          const senderId = mailboxSenderId(payload);
-          if (senderId) {
-            this.peerEpubByUserId.set(senderId, senderEpubHint);
-            // The mailbox wrapper already proved which encryption key produced this envelope.
-            // Seed the message store's shared key cache too; otherwise the inner DM wire can be
-            // persisted immediately but remain undecryptable while a redundant public-user
-            // lookup races or is unavailable offline.
-            this.gunService.rememberRosterEpub(senderId, senderEpubHint);
-          }
-        }
-        const disposition = await dispatchMailboxPayload(payload, {
-          ingestConversationMessage: (nextPayload) => this.ingestConversationMessageFromMailbox(
-            nextPayload as MailboxConversationMessagePayload,
-          ),
-          ingestAttachmentShare: (nextPayload) => this.ingestAttachmentShareFromMailbox(
-            nextPayload as MailboxAttachmentSharePayload,
-          ),
-          ingestSupportQuestion: (nextPayload) => this.ingestSupportQuestionFromMailbox(
-            nextPayload as MailboxSupportQuestionPayload,
-          ),
-          ingestBlockSignal: async (nextPayload) => {
-            await this.blockSignalEffects.ingest(nextPayload as BlockSignalPayload);
-          },
-        });
-        if (disposition === 'retain') {
-          console.warn('[Mailbox] Support question was not ingested — leaving envelope queued', envelope.id);
-          continue;
-        }
-        // Delete only after handler completes without throwing.
-        await mailbox.deleteEnvelope(this.currentUser.id, envelope.id);
-        console.log('[Mailbox] Drained and deleted envelope', envelope.id);
-      } catch (err) {
-        console.warn('[Mailbox] Failed to drain envelope', envelope.id, '— will retry on next connect:', err);
-        // Leave envelope on server for re-delivery.
-      }
-    }
+      },
+    });
   }
 
   /**

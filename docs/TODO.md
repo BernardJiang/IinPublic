@@ -90,7 +90,12 @@ active feature development.
   **Second no-phone slice (2026-11-26):** decrypted-mailbox routing and its acknowledge/retain
   policy moved into `core/mailbox-envelope.ts`. The web host now supplies only ingest ports;
   rejected TechSupport questions remain queued, handler failures still retry, and retired graph-only
-  payloads are acknowledged centrally. The coordinator ratchet is now 10,555 lines.
+  payloads are acknowledged centrally.
+  **Third no-phone slice (2026-11-26):** the fetch/decrypt/dispatch/delete loop moved into
+  `core/mailbox-drain.ts`, including per-envelope failure isolation, authenticated sender-key hints,
+  and explicit drain summaries/events. A failed DELETE is no longer logged as success; it remains a
+  retryable failure. Browser code now supplies transport, key-cache and observability adapters. The
+  coordinator ratchet is now 10,530 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport
