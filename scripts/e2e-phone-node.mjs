@@ -7,6 +7,9 @@
 // Usage: node scripts/e2e-phone-node.mjs <localPort> <hubPort>
 // PHONE_NODE_DATA_DIR=<dir> keeps the node's data in <dir> and leaves it on exit, so a journey can
 // stop the node and start it again on the same data, like an app restart on a phone.
+// Otherwise the data lives in $TMPDIR/iinpublic-e2e-phone/<localPort>: wiped at start, removed on
+// exit. Playwright stops its web servers with SIGKILL (no exit handler runs), so a fixed per-port
+// directory is what keeps killed runs from leaving a new directory behind each time.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,8 +24,10 @@ if (!localPort || !hubPort) {
 }
 
 const keptDataDir = process.env.PHONE_NODE_DATA_DIR || '';
-if (keptDataDir) fs.mkdirSync(keptDataDir, { recursive: true });
-const dataDir = keptDataDir || fs.mkdtempSync(path.join(os.tmpdir(), `iinpublic-phone-${localPort}-`));
+const dataDir = keptDataDir || path.join(os.tmpdir(), 'iinpublic-e2e-phone', String(localPort));
+// Only one node can listen on a port, so whatever is in this port's directory is a killed run's.
+if (!keptDataDir) fs.rmSync(dataDir, { recursive: true, force: true });
+fs.mkdirSync(dataDir, { recursive: true });
 const env = { ...process.env };
 // These isolate the worker hub's own Gun; on an embedded node they would also zero its hub link.
 delete env.E2E_GUN_MEMORY_ONLY;

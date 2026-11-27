@@ -84,7 +84,13 @@ async function main() {
     return;
   }
 
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iinpublic-embedded-smoke-'));
+  // One fixed directory per port (wiped at start, removed on exit), not a new temp dir per run.
+  const dataDir = path.join(os.tmpdir(), 'iinpublic-e2e-phone', `embedded-smoke-${PORT}`);
+  fs.rmSync(dataDir, { recursive: true, force: true });
+  fs.mkdirSync(dataDir, { recursive: true });
+  process.on('exit', () => {
+    try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
 
   const child = spawn(process.execPath, [nodeEntry], {
     env: {
