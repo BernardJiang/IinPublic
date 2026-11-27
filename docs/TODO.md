@@ -81,6 +81,24 @@ its ID.
   green. Wave 1 is now paced by stage5 → heavy (6.1 + 4.6 min) and wave 3 by `mass/06`. Step 3
   began: 7 sleeps before waiting calls left `helpers/talks-matching-flow.ts` (~1 test-minute);
   next the slowest files' own waits. Step 4 began: `journey-coverage.md` brought up to date.
+  **Where a test's time goes (2026-11-26, timed `bootstrapUser` steps):** fixed sleeps written in
+  specs total only ~6 of 127 test-minutes; creating users is the big cost: 449 users per run ×
+  ~3.8 s (open app 1.9 s + rename and hub check 1.6 s + place 0.3 s) ≈ 29 test-minutes. Of the app's
+  ~2.5 s start, **~1.5 s is the device core answering its first snapshots from an empty store**: the
+  core has a fresh-device shortcut (empty answers, no reads), but the first request the app sends,
+  `deviceGraph.setLocation` (memory only), ends it, so every start-up snapshot reads Gun for missing
+  records. Keeping it fresh through `setLocation` and `collection.eraseRetired` took start-up from
+  2.59 to ~1.0 s and test:all from 127 to 118 test-minutes, but broke stage3/24 (names and rooms
+  lost): the worker also writes storage outside core requests (Gun puts, profile), which the flag
+  does not see. Reverted. To do it safely, the worker host must end freshness on any store write
+  (`idbAdapter.put`, `gunPut`, Gun RPC writes) before the shortcut can outlive the first request.
+  This is a product start-up gain too: every new web user's first start. Also: `pinStableE2eLocation`
+  awaits a full Nearby tick, whose announce swaps wait 15 s per gone neighbour (`SWAP_TIMEOUT_MS`);
+  harmless when specs clear the hub between tests, 29 s when they do not.
+  **Coverage 2026-11-26:** the two newest product paths now run on the phone route:
+  `phone-path/14` auto exchange (J-AUTO-01..03, the shared journey) and `phone-path/15` starter tags
+  (J-TAGS-01: both Contacts show the true 15 tags in common, 6–13 s after deciding); each 3/3
+  alone and green inside test:all (18m44s, phone path 362 s beside mass 364 s).
 
 - [ ] **OPEN-99 — PH-1 Bluetooth crash loop during the walk (2026-10-31).** From 13:08:45 the
   stack aborted every ~4 s (`startup_timer_expired`, then the Bluetooth HAL) until a reboot; no

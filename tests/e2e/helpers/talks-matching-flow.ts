@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
 import {clearGunDatabases, injectIdbClear, maybeClearGunDatabases, gotoWebApp} from './clear-database';
 import { ensureWindowFitsViewport } from './browser-window';
 import { attachE2eBrowserTabLabel } from './e2e-tab-title';
@@ -405,6 +405,16 @@ export async function pinStableE2eLocation(
   }, { lat: coords.latitude, lng: coords.longitude });
 }
 
+/** A named step when inside a test (it shows in reports and timings); a plain call otherwise. */
+async function timedStep(title: string, body: () => Promise<void>): Promise<void> {
+  try {
+    test.info();
+  } catch {
+    return body();
+  }
+  return test.step(title, body, { box: true });
+}
+
 export async function bootstrapUser(
   browser: Browser,
   label: string,
@@ -438,54 +448,61 @@ export async function bootstrapUser(
     };
   }, location);
   const page = await context.newPage();
-  attachFilteredConsoleLog(page, label);
-  // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
-  await injectIdbClear(page);
-  await gotoWebApp(page, appUrl, appReadyTimeoutMs);
-  await ensureWindowFitsViewport(page, 640, 1000);
-  await afterLoad();
-  await page.click('.nav-btn[data-view="settings"]');
-  await afterNav();
-  await openSettingsSection(page, 'settings-section-profile');
-  await page.waitForSelector('#settings-stage-name-input', { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS });
-  await page.fill('#settings-stage-name-input', stageName);
-  await page.locator('#settings-stage-name-input').blur();
-  await afterNav();
-  await expect
-    .poll(
-      () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
-      { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
-    )
-    .toBe(stageName);
-  // Rename barrier: peers resolve this user's name through the hub's public user record
-  // (getPublicUser prefers the HTTP fast path). Anything captured downstream — broadcast
-  // exchange ledgers, match conversations, contact rows/detail — inherits whatever the
-  // server serves at capture time, so don't proceed until the rename has landed there.
-  // Without this, specs raced the propagation and intermittently froze the generated
-  // User<random> name into records that never re-resolve.
-  await expect
-    .poll(
-      () =>
-        page.evaluate(async () => {
-          const app = (window as any).__iinpublic_app?.getApp?.();
-          const base = app?.getBackendApiBase?.();
-          const id = app?.currentUser?.id;
-          if (!base || !id) return '';
-          try {
-            const res = await fetch(`${base}/api/users/${encodeURIComponent(id)}`, { cache: 'no-store' });
-            return res.ok ? String(((await res.json()) as { stageName?: string }).stageName || '') : '';
-          } catch {
-            return '';
-          }
-        }),
-      { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
-    )
-    .toBe(stageName);
-  await expectCurrentUserIsOrdinaryUser(page, stageName);
-  await page.click('.nav-btn[data-view="chatrooms"]');
-  await afterNav();
-  await pinStableE2eLocation(page, location);
-  await expectTechSupportGreetingReceived(page);
+  // OPEN-121: timed steps; scripts/test-timing-report.mjs adds up every '⏱ …' step.
+  await timedStep('⏱ bootstrap: open app', async () => {
+    attachFilteredConsoleLog(page, label);
+    // Clear the Web Worker's IndexedDB so each user starts with a fresh local Gun graph.
+    await injectIdbClear(page);
+    await gotoWebApp(page, appUrl, appReadyTimeoutMs);
+    await ensureWindowFitsViewport(page, 640, 1000);
+    await afterLoad();
+  });
+  await timedStep('⏱ bootstrap: name + hub barrier', async () => {
+    await page.click('.nav-btn[data-view="settings"]');
+    await afterNav();
+    await openSettingsSection(page, 'settings-section-profile');
+    await page.waitForSelector('#settings-stage-name-input', { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS });
+    await page.fill('#settings-stage-name-input', stageName);
+    await page.locator('#settings-stage-name-input').blur();
+    await afterNav();
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as any).__iinpublic_app?.getApp?.()?.currentUser?.stageName ?? ''),
+        { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
+      )
+      .toBe(stageName);
+    // Rename barrier: peers resolve this user's name through the hub's public user record
+    // (getPublicUser prefers the HTTP fast path). Anything captured downstream — broadcast
+    // exchange ledgers, match conversations, contact rows/detail — inherits whatever the
+    // server serves at capture time, so don't proceed until the rename has landed there.
+    // Without this, specs raced the propagation and intermittently froze the generated
+    // User<random> name into records that never re-resolve.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const app = (window as any).__iinpublic_app?.getApp?.();
+            const base = app?.getBackendApiBase?.();
+            const id = app?.currentUser?.id;
+            if (!base || !id) return '';
+            try {
+              const res = await fetch(`${base}/api/users/${encodeURIComponent(id)}`, { cache: 'no-store' });
+              return res.ok ? String(((await res.json()) as { stageName?: string }).stageName || '') : '';
+            } catch {
+              return '';
+            }
+          }),
+        { timeout: appReadyTimeoutMs ?? E2E_ASSERT_TIMEOUT_MS },
+      )
+      .toBe(stageName);
+    await expectCurrentUserIsOrdinaryUser(page, stageName);
+  });
+  await timedStep('⏱ bootstrap: place + support greeting', async () => {
+    await page.click('.nav-btn[data-view="chatrooms"]');
+    await afterNav();
+    await pinStableE2eLocation(page, location);
+    await expectTechSupportGreetingReceived(page);
+  });
   attachE2eBrowserTabLabel(page, label);
   return { context, page };
 }

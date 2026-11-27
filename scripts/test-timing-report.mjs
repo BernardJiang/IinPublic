@@ -33,10 +33,12 @@ const rel = (file) => String(file || '?').replace(/^.*?tests\/e2e\//, '');
 const folderOf = (file) => rel(file).split('/').slice(0, -1).join('/') || '(root)';
 const files = {};
 const phases = [];
+const timed = {}; // '⏱ …' test.step titles → { ms, n }
 for (const zip of zips) {
   const names = execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8' }).split('\n').filter((n) => n.endsWith('.jsonl'));
   for (const name of names) {
     const idToFile = {};
+    const stepTitles = {};
     const phase = { blob: path.basename(zip, '.zip'), project: '', workers: '?', wallMs: 0, folders: {} };
     const text = execFileSync('unzip', ['-p', zip, name], { encoding: 'utf8', maxBuffer: 1 << 30 });
     for (const line of text.split('\n')) {
@@ -59,6 +61,11 @@ for (const zip of zips) {
         if (r.retry > 0) e.retries++;
         if (r.status !== 'passed' && r.status !== 'skipped') e.failed++;
         phase.folders[folderOf(file)] = (phase.folders[folderOf(file)] || 0) + r.duration;
+      } else if (m.method === 'onStepBegin') {
+        if (m.params.step.title?.startsWith('⏱')) stepTitles[m.params.step.id] = m.params.step.title;
+      } else if (m.method === 'onStepEnd') {
+        const title = stepTitles[m.params.step.id];
+        if (title) { const t = timed[title] ||= { ms: 0, n: 0 }; t.ms += m.params.step.duration; t.n++; }
       } else if (m.method === 'onEnd') phase.wallMs = m.params.result.duration;
     }
     phases.push(phase);
@@ -93,7 +100,14 @@ for (const [f, v] of Object.entries(files).sort((a, b) => b[1].ms - a[1].ms).sli
   console.log(`  ${(v.ms / 60000).toFixed(2).padStart(6)} ${String(v.results).padStart(3)}${delta.padStart(earlier ? 7 : 0)}  ${f}${flags}`);
 }
 
+if (Object.keys(timed).length) {
+  console.log('\n[timing] timed helper steps (test-min, count, mean s)');
+  for (const [t, v] of Object.entries(timed).sort((a, b) => b[1].ms - a[1].ms)) {
+    console.log(`  ${min(v.ms).padStart(6)} ${String(v.n).padStart(5)} ${(v.ms / v.n / 1000).toFixed(1).padStart(6)}  ${t}`);
+  }
+}
+
 if (opt('--json')) {
-  fs.writeFileSync(opt('--json'), JSON.stringify({ totalMs, phases, files }, null, 1));
+  fs.writeFileSync(opt('--json'), JSON.stringify({ totalMs, phases, files, timed }, null, 1));
   console.log(`\n[timing] saved ${opt('--json')}`);
 }
