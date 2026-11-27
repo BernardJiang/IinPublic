@@ -15,7 +15,7 @@ covers: SPEC-3.8 <!-- shares the block-relationship area with 21a; refine by han
 5. **Two more signals are seeded directly** on Victor's own device (the same on-device store the real receive path writes to), bringing the tally to `3` — the configured threshold.
 6. **Victor's browser is reloaded**, and the tally is confirmed to still read `3` — proving it persisted via the same SEA-private round trip as `knownPeople`/`blockedUserIds`, not just an in-memory value.
 7. **"Block is a status" phase**: Alice shares a *different* block scoped to the `coworker` group, while Victor is still only labeled `friend`. He does not qualify yet, so the immediate fan-out reaches nobody, and his tally for this second target confirms `0`.
-8. **Alice relabels Victor to include `coworker`** through the real UI event path (`saveKnownPerson` → `addKnownPerson` → `resendSharedBlockSignalsToNewContact`) — the exact "a contact is later invited into a group I already shared a block with" case.
+8. **Alice relabels Victor to include `coworker`** through the real UI event path (`saveKnownPerson` → `addKnownPerson` → `BlockSignalEffects.resendToContact`) — the exact "a contact is later invited into a group I already shared a block with" case.
 9. **Victor's mailbox poll picks up the retroactive signal**, confirmed by his tally for the coworker-scoped target reaching `1` — proving a share persists as a status and reaches a contact who qualifies *after* the original share, not just the ones who qualified at that moment.
 
 ## Verifications:

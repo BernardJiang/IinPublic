@@ -78,7 +78,7 @@ export interface User {
   /**
    * Friend-circle block signal tally — `{ [targetIdentity]: signalId[] }`. Populated by
    * pairwise mailbox-encrypted signals from this account's own contacts (see
-   * src/shared/block-signal.ts, app.ts's fanOutBlockSignal/ingestBlockSignalFromMailbox).
+   * src/shared/block-signal.ts and src/core/block-signal-effects.ts).
    * Local-only in spirit (never re-shared), but persisted via the same SEA-private round trip
    * as knownPeople/blockedUserIds so it survives restarts and syncs across linked devices.
    */
@@ -87,7 +87,7 @@ export interface User {
    * This account's own record of which group scope it has shared each blocked identity with —
    * a status, re-sent to a contact who newly qualifies (added or relabeled into a matching
    * group), not a one-time push. See src/shared/block-signal.ts's resolveSharedSignalsForContact
-   * and app.ts's resendSharedBlockSignalsToNewContact.
+   * and BlockSignalEffects.resendToContact.
    */
   sharedBlockSignals?: SharedBlockSignals;
   talkFilters?: TalkIntakeFilters;

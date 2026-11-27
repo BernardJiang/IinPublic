@@ -3,8 +3,8 @@
  *
  * Alice adds Victor as a known contact, then blocks a target identity and fans out a
  * block-signal to her contacts (the real send path: ECDH-encrypt via Alice's own keypair,
- * post to Victor's mailbox — exercised directly via fanOutBlockSignal rather than clicking
- * through the notify modal, since that piece is already covered by unit tests for the pure
+ * post to Victor's mailbox — exercised through the app-wired BlockSignalEffects port rather
+ * than clicking through the notify modal, since that piece is already covered by unit tests for the pure
  * group-resolution/threshold logic; what unit tests CANNOT cover is real SEA encryption
  * between two distinct browsers' keypairs and the mailbox drain/decrypt/dispatch wiring).
  * Victor's mailbox poll picks it up and records exactly one signal for that target.
@@ -92,7 +92,7 @@ test.describe('Friend-circle block signal — threshold-gated warning', () => {
     await pageAlice.evaluate(async ({ targetId, recipientId }) => {
       const app = (window as any).__iinpublic_app?.getApp();
       await app.userService.blockUser(app.currentUser.id, targetId);
-      await app.fanOutBlockSignal(targetId, 'all', [recipientId]);
+      await app.blockSignalEffects.fanOut(targetId, 'all', [recipientId]);
     }, { targetId: targetIdentity, recipientId: victorUserId });
 
     // Victor's mailbox poll (every 3s, app.ts startMailboxPolling) drains, decrypts with his
@@ -111,7 +111,7 @@ test.describe('Friend-circle block signal — threshold-gated warning', () => {
       .toBe(1);
 
     // The other two signals a real threshold-3 case needs — same on-device store the real
-    // receive path (ingestBlockSignalFromMailbox) writes to, seeded directly rather than via
+    // receive path (BlockSignalEffects.ingest) writes to, seeded directly rather than via
     // two more browser contexts (see file doc comment for why that adds no extra coverage).
     // recordReceivedBlockSignal does its own fresh getUser()-under-lock read/write cycle, so
     // sequential calls must be polled (not read back immediately) — same Gun eventual-
@@ -139,8 +139,8 @@ test.describe('Friend-circle block signal — threshold-gated warning', () => {
     await seedAndPollCount('seeded-signal-2', 2);
     await seedAndPollCount('seeded-signal-3', 3);
 
-    // Mirror app.ts's own in-memory refresh after a mailbox-driven write
-    // (ingestBlockSignalFromMailbox does the same) for the rest of this test to read from.
+    // Mirror the portable effect's own in-memory refresh after a mailbox-driven write for the
+    // rest of this test to read from.
     await pageVictor.evaluate(async (victorId) => {
       const app = (window as any).__iinpublic_app?.getApp();
       const updated = await app.userService.getUser(victorId);
@@ -170,7 +170,7 @@ test.describe('Friend-circle block signal — threshold-gated warning', () => {
     await pageAlice.evaluate(async (targetId) => {
       const app = (window as any).__iinpublic_app?.getApp();
       await app.userService.blockUser(app.currentUser.id, targetId);
-      await app.fanOutBlockSignal(targetId, 'coworker', []); // no current 'coworker' contacts yet
+      await app.blockSignalEffects.fanOut(targetId, 'coworker', []); // no current 'coworker' contacts yet
     }, coworkerScopedTarget);
     await afterSync();
 
@@ -186,7 +186,7 @@ test.describe('Friend-circle block signal — threshold-gated warning', () => {
 
     // Alice relabels Victor to include 'coworker' — the exact "Tom is invited to my coworkers
     // group" case. Goes through the REAL UI event ('saveKnownPerson' → app.ts's handler →
-    // addKnownPerson → resendSharedBlockSignalsToNewContact), not a direct method call, since
+    // addKnownPerson → BlockSignalEffects.resendToContact), not a direct method call, since
     // the trigger wiring itself is what this phase is proving.
     await pageAlice.evaluate((victorId) => {
       const app = (window as any).__iinpublic_app?.getApp();

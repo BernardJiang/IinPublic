@@ -1,11 +1,5 @@
-import { User, GPSCoordinate, Talk, type Tag, type KnownPerson, type IpfsAttachment, InteractionKind } from '../../shared/types';
-import {
-  BLOCK_SIGNAL_PAYLOAD_KIND,
-  recordBlockSignal,
-  recordSharedBlockSignal as mergeSharedBlockSignal,
-  resolveSharedSignalsForContact,
-  type BlockSignalPayload,
-} from '../../shared/block-signal';
+import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import type { BlockSignalPayload } from '../../shared/block-signal';
 import { restoreLastTab } from '../ui/app-shell-controls';
 import {
   deriveBackendApiBaseFromLocation,
@@ -57,6 +51,7 @@ import { isUserScrolling } from '../ui/user-scrolling';
 import { applyTalkRevisionToAnsweredCopy } from '../ui/talk-completion';
 import { getUnsentBroadcastTalkIdsForReceiver } from '../ui/broadcast-delivery-selection';
 import { DeclinedRetry } from '../../core/declined-retry';
+import { BlockSignalEffects } from '../../core/block-signal-effects';
 import { BATCH_MAX_ITEMS } from '../../core/device-graph/sync/batch-limits';
 import { loadConnectivitySettings, routePreferencesFromSettings, saveConnectivitySettings, takeLegacyPrivacyMigration, type ConnectivitySettings, backgroundTalkAgentEnabled } from '../ui/connectivity-settings';
 import { ConnectionManager, type NetworkInterface } from '../../shared/connection-manager';
@@ -460,6 +455,8 @@ export class IinPublicApp {
   private presenceClient: P2PPresenceClient | null = null;
   /** The hub's either-way block answer per peer, for a minute (every incoming Talk asks). */
   private readonly blockStatusCache = new BlockStatusCache({ fetchStatus: (peerId) => this.fetchBlockStatusEitherWay(peerId) });
+  /** Portable policy/effect workflow; Gun/SEA/mailbox stay behind its host-facing ports. */
+  private readonly blockSignalEffects: BlockSignalEffects;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
   private readonly graphMessageWrites = new Map<string, Promise<void>>();
@@ -1030,29 +1027,8 @@ export class IinPublicApp {
     this.persistAttachmentShareSentIds();
   }
 
-  /**
-   * Receive side of the friend-circle block signal (src/shared/block-signal.ts). Records only
-   * the opaque signalId, never the sender's identity — recordReceivedBlockSignal's on-device
-   * tally is what user-detail-view.ts's threshold check reads. Rides the existing mailbox
-   * drain loop, no new polling.
-   */
-  private async ingestBlockSignalFromMailbox(payload: BlockSignalPayload): Promise<void> {
-    if (!this.currentUser?.id) return;
-    const targetIdentity = String(payload.targetIdentity || '').trim();
-    const signalId = String(payload.signalId || '').trim();
-    if (!targetIdentity || !signalId) return;
-    await this.userService.recordReceivedBlockSignal(this.currentUser.id, targetIdentity, signalId);
-    // Reflect immediately in the in-memory currentUser so a profile view opened right after
-    // this drain sees the updated tally without waiting for a separate reload.
-    this.currentUser.receivedBlockSignals = recordBlockSignal(
-      this.currentUser.receivedBlockSignals,
-      targetIdentity,
-      signalId,
-    );
-  }
-
-  /** One pairwise mailbox-encrypted send — the atomic unit both fanOutBlockSignal and
-   *  resendSharedBlockSignalsToNewContact loop over. No one-to-many encryption primitive
+  /** One pairwise mailbox-encrypted send — the atomic unit BlockSignalEffects loops over for
+   *  both initial fan-out and later contact catch-up. No one-to-many encryption primitive
    *  exists in this codebase (see web-mailbox-client.ts's doc comment), so every "notify N
    *  contacts" case is N calls to this. Best-effort: caller decides whether one failure stops
    *  the rest (it doesn't, in both current callers). */
@@ -1072,65 +1048,6 @@ export class IinPublicApp {
       recipientId,
       ciphertext,
     });
-  }
-
-  /**
-   * Send side of the friend-circle block signal (src/shared/block-signal.ts) — fans out to an
-   * already-resolved recipient list (the UI layer picked 'all contacts' or one contact-group,
-   * see contacts-view.ts's block-notify modal; resolveContactGroupUserIds already excludes
-   * blocked users). Also PERSISTS the share as this account's current status for that target
-   * (recordSharedBlockSignal) — a block-share is a status, not a one-time push: when a contact
-   * is later added or relabeled into a matching group, resendSharedBlockSignalsToNewContact
-   * catches them up using this same persisted signalId.
-   */
-  private async fanOutBlockSignal(targetIdentity: string, groupId: string, recipientUserIds: string[]): Promise<void> {
-    if (!this.currentUser?.id) return;
-    const signalId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const payload: BlockSignalPayload = {
-      kind: BLOCK_SIGNAL_PAYLOAD_KIND,
-      targetIdentity,
-      at: new Date().toISOString(),
-      signalId,
-    };
-    // Persist the status FIRST, unconditionally — a group can legitimately have zero CURRENT
-    // members (e.g. shared with 'coworker' before any contact is labeled that yet). The status
-    // must still be recorded so resendSharedBlockSignalsToNewContact can catch up whoever
-    // qualifies later; only the immediate send loop below is skippable when there's no one to
-    // send to right now.
-    await this.userService.recordSharedBlockSignal(this.currentUser.id, targetIdentity, groupId, signalId);
-    this.currentUser.sharedBlockSignals = mergeSharedBlockSignal(
-      this.currentUser.sharedBlockSignals, targetIdentity, groupId, signalId,
-    );
-    if (recipientUserIds.length === 0) return;
-    for (const recipientId of recipientUserIds) {
-      try {
-        await this.sendBlockSignalPayload(payload, recipientId);
-      } catch (err) {
-        console.warn('[BlockSignal] fan-out to contact failed (best-effort):', recipientId, err);
-      }
-    }
-  }
-
-  /**
-   * "Block is a status, not a one-time notification": called from the 'saveKnownPerson'
-   * handler whenever a contact is added or relabeled. Checks this account's persisted share
-   * scopes (sharedBlockSignals) against the contact's CURRENT labels and re-sends any match —
-   * e.g. Tom relabeled 'coworker' now receives a block-share that was scoped to 'coworker'
-   * before Tom was ever added, using the ORIGINAL signalId (so if Tom happens to already have
-   * it from some other path, his recordBlockSignal dedup is a no-op, not a double-count).
-   */
-  private async resendSharedBlockSignalsToNewContact(contact: KnownPerson): Promise<void> {
-    const matches = resolveSharedSignalsForContact(this.currentUser?.sharedBlockSignals, contact);
-    for (const { targetIdentity, signalId } of matches) {
-      try {
-        await this.sendBlockSignalPayload(
-          { kind: BLOCK_SIGNAL_PAYLOAD_KIND, targetIdentity, at: new Date().toISOString(), signalId },
-          contact.userId,
-        );
-      } catch (err) {
-        console.warn('[BlockSignal] catch-up resend failed (best-effort):', contact.userId, targetIdentity, err);
-      }
-    }
   }
 
   private async markSharedAttachmentLinksDead(params: {
@@ -1184,6 +1101,24 @@ export class IinPublicApp {
     this.gunService = new WebGunService();
     this.userService = new WebUserService(this.gunService);
     this.userService.setCurrentUserProvider(() => this.currentUser);
+    this.blockSignalEffects = new BlockSignalEffects({
+      currentUser: () => this.currentUser,
+      recordReceived: (userId, targetIdentity, signalId) =>
+        this.userService.recordReceivedBlockSignal(userId, targetIdentity, signalId),
+      recordShared: (userId, targetIdentity, groupId, signalId) =>
+        this.userService.recordSharedBlockSignal(userId, targetIdentity, groupId, signalId),
+      deliver: (payload, recipientId) => this.sendBlockSignalPayload(payload, recipientId),
+      deliveryFailed: (context, recipientId, targetIdentity, error) => {
+        console.warn(
+          context === 'fan-out'
+            ? '[BlockSignal] fan-out to contact failed (best-effort):'
+            : '[BlockSignal] catch-up resend failed (best-effort):',
+          recipientId,
+          ...(context === 'catch-up' ? [targetIdentity] : []),
+          error,
+        );
+      },
+    });
     this.chatroomService = new WebChatroomService(this.gunService);
     this.placeChatClient = new PlaceChatClient(() => this.getBackendApiBase());
     // Membership heartbeats must always carry the CURRENT stage name — a captured snapshot
@@ -4019,7 +3954,7 @@ export class IinPublicApp {
             break;
           }
           case 'block-signal':
-            await this.ingestBlockSignalFromMailbox(payload as BlockSignalPayload);
+            await this.blockSignalEffects.ingest(payload as BlockSignalPayload);
             break;
           case 'talk-body':
             // Talks travel only over graph links now (OPEN-106): an old envelope is dropped.
@@ -8792,7 +8727,7 @@ export class IinPublicApp {
           }
           // "Block is a status, not a one-time notification" — a contact added or relabeled
           // into a group scope this account already shared a block with catches up now.
-          void this.resendSharedBlockSignalsToNewContact({
+          void this.blockSignalEffects.resendToContact({
             userId: data.userId,
             labels: data.labels,
             addedAt: new Date(),
@@ -8842,11 +8777,11 @@ export class IinPublicApp {
             'success',
           );
           // Opt-in friend-circle notification (src/shared/block-signal.ts) — the UI layer
-          // already resolved which group and current members to notify; skipped entirely
-          // when the blocker declined or when unblocking.
-          if (data.blocked && data.notify && data.notify.recipientUserIds.length > 0) {
+          // already resolved which group and current members to notify. An empty group is still
+          // persisted as share status so a contact added to that group later catches up.
+          if (data.blocked && data.notify) {
             const { groupId, recipientUserIds } = data.notify;
-            void this.fanOutBlockSignal(data.userId, groupId, recipientUserIds).catch((err) => {
+            void this.blockSignalEffects.fanOut(data.userId, groupId, recipientUserIds).catch((err) => {
               console.warn('[BlockSignal] fan-out failed:', err);
             });
           }

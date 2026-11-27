@@ -7,15 +7,15 @@ import { resolveContactGroupUserIds } from './contact-groups';
  * other, and to the viewer beyond a bare count) flag an identity they've blocked. Once at least
  * BLOCK_SIGNAL_THRESHOLD of the viewer's own contacts have sent a signal about the same
  * identity, the viewer's UI shows a soft warning. See user-detail-view.ts for where this
- * surfaces, and app.ts's fanOutBlockSignal/ingestBlockSignalFromMailbox for the pairwise
- * mailbox-encrypted send/receive path — there is no one-to-many encryption primitive in this
- * codebase, so "notify my contacts" is N pairwise sends, one per contact.
+ * surfaces, and core/block-signal-effects.ts for the pairwise mailbox-encrypted send/receive
+ * workflow — there is no one-to-many encryption primitive in this codebase, so "notify my
+ * contacts" is N pairwise sends, one per contact.
  *
  * A block-share is a STATUS, not a one-time push: the sender persists which group scope they
  * shared each blocked identity with (SharedBlockSignals, below). Whenever a NEW contact is
  * added or relabeled and now qualifies for a previously-shared scope, the sender re-sends —
- * catching them up on shares that happened before they joined that scope. See app.ts's
- * resendSharedBlockSignalsToNewContact and the 'saveKnownPerson' handler that calls it.
+ * catching them up on shares that happened before they joined that scope. See
+ * BlockSignalEffects.resendToContact and the 'saveKnownPerson' handler that calls it.
  *
  * Modeled on src/shared/contact-groups.ts's resolveContactGroupUserIds idiom: pure, on-device,
  * no network calls, no server involvement in the aggregation itself.
