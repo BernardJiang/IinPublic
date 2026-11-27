@@ -133,6 +133,22 @@ its ID.
   before, empty after) across native-app/43 on P30, C10, FRD and PH-1, after a P30 + C10 release
   smoke.
 
+- [ ] **OPEN-122 — A DM to a phone that is off is lost on the phone route (found 2026-11-27,
+  OPEN-121 coverage work).** `phone-path/16` (J-CHAT-02, now `test.fixme`): Alice and Bob match and
+  chat; Alice's app closes and her phone node stops; Bob sends a message; Alice's node and app
+  start again on the same data. It never arrives (120 s), 2 of 2 runs. Three things seen in the app
+  logs (`PHONE_PATH_CONSOLE=all`):
+  1. Bob logs the message "delivered over WebRTC in 2 ms": the notify went into the link whose far
+     end had just closed (he notices "WebRTC session disposed" 6.6 s later), so the offline mailbox
+     was never used for it.
+  2. After the restart Alice's app loads 2 of the 6 messages she had before. Possibly messages
+     received live are not all stored on her phone; not yet confirmed.
+  3. Alice's link to Bob never reopens ("WebRTC connection replaced", repeatedly), so nothing
+     catches her up from Bob's store.
+  The web route (`cross-platform/x6`, `talks-matching/05`) and the real-phone run of
+  `native-app/13` cover J-CHAT-02 with the receiver's app still running (offline network), not a
+  stopped app, which is why this was not seen.
+
 ## Paused implementation and field qualification — track, but do not start new features
 
 OPEN-103/OPEN-104 and OPEN-81's remaining adoption work are paused under the maintenance-only
