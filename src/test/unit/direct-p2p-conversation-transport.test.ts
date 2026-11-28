@@ -159,6 +159,45 @@ describe('DirectP2PConversationTransport (P2P-H)', () => {
     buildSpy.mockRestore();
   });
 
+  it('queues to the mailbox when the channel took the DM but the other side never acknowledged it (OPEN-122)', async () => {
+    const buildSpy = jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
+    const sendDm = jest.fn(async () => undefined);
+    const waitForDmAck = jest.fn(async () => false);
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      sendDm, waitForDmAck, setLedgerHooks: jest.fn(), setOnRemoteDm: jest.fn(),
+    });
+    jest.spyOn(transport as unknown as { hasOpenLink: () => boolean }, 'hasOpenLink').mockReturnValue(true);
+    const onUndeliverable = jest.fn();
+    transport.setUndeliverableHandler(onUndeliverable);
+
+    await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
+    await waitForMockCall(onUndeliverable);
+    expect(waitForDmAck).toHaveBeenCalledWith(wire.id, expect.any(Number));
+    expect(onUndeliverable).toHaveBeenCalledWith(wire, 'conv1', 'bob', undefined);
+    buildSpy.mockRestore();
+  });
+
+  it('does not use the mailbox once the other side acknowledged the DM', async () => {
+    const buildSpy = jest.spyOn(GunMessageStore.prototype, 'buildMessage').mockResolvedValue(wire);
+    const waitForDmAck = jest.fn(async () => true);
+    const transport = new DirectP2PConversationTransport(mockGun);
+    jest.spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor').mockResolvedValue({
+      sendDm: jest.fn(async () => undefined), waitForDmAck, setLedgerHooks: jest.fn(), setOnRemoteDm: jest.fn(),
+    });
+    // An open link: otherwise the mailbox is used at once by design.
+    jest.spyOn(transport as unknown as { hasOpenLink: () => boolean }, 'hasOpenLink').mockReturnValue(true);
+    const onUndeliverable = jest.fn();
+    transport.setUndeliverableHandler(onUndeliverable);
+
+    await transport.sendMessage('conv1', 'alice', 'hello', { otherUserId: 'bob' });
+    await waitForMockCall(waitForDmAck);
+    // Past the grace period: an acknowledged DM never goes to the mailbox.
+    await new Promise((resolve) => setTimeout(resolve, 1_700));
+    expect(onUndeliverable).not.toHaveBeenCalled();
+    buildSpy.mockRestore();
+  });
+
   describe('showing the sender their own message', () => {
     const sessionless = (transport: DirectP2PConversationTransport) => jest
       .spyOn(transport as unknown as { sessionFor: () => Promise<unknown> }, 'sessionFor')

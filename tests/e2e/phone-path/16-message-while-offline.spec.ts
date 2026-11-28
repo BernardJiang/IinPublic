@@ -36,11 +36,9 @@ test.describe('A message to a phone that is off', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  // Flaky (OPEN-122, 2026-11-27): 2 of 3 pass since the sender's message saves were coalesced
-  // (message arrives ~15 s after the restart). The rest: Bob's notify is "delivered" into the dead
-  // link, so the mailbox is not used, and Alice's link to Bob sometimes never reopens. Remove
-  // `.fixme` to run it.
-  test.fixme('J-CHAT-02: Bob writes while Alice\'s phone is off; she has it once it is back', async ({ browser }) => {
+  // OPEN-122 (fixed 2026-11-27): the sender's messages are now stored together, and a DM the
+  // channel took but the other app never acknowledged ('dm-ack', on arrival) goes to the mailbox.
+  test('J-CHAT-02: Bob writes while Alice\'s phone is off; she has it once it is back', async ({ browser }) => {
     test.setTimeout(480_000);
     phone = await startPhoneNode(PHONE_PATH_SPEC_PORTS.offlineChatPhone, PHONE_PATH_PORTS.hub, dataDir);
     alice = await openUser(browser, 'Alice', 'phoneA', { baseUrl: phone.url });

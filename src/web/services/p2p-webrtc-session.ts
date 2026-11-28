@@ -94,6 +94,16 @@ type DmWirePayload = {
   };
 };
 
+/**
+ * The receiver's app has this DM (OPEN-122). Without it the sender counted a DM as delivered once
+ * the data channel took the frame, so one sent into a link whose far end had just closed never went
+ * to the mailbox. An older peer ignores the frame type.
+ */
+type DmAckWirePayload = {
+  type: 'dm-ack';
+  id: string;
+};
+
 type LedgerStateWirePayload = {
   type: 'ledger-state';
   feeds: LedgerState;
@@ -152,6 +162,7 @@ type ChannelFramePayload =
   | HandshakeWirePayload
   | LinkUpgradeWirePayload
   | DmWirePayload
+  | DmAckWirePayload
   | LedgerStateWirePayload
   | LedgerSyncRequestWirePayload
   | LedgerEventsWirePayload
@@ -434,6 +445,9 @@ export class P2PConversationSession {
   private readonly messages: Message[] = [];
   private readonly listeners = new Set<(messages: Message[]) => void>();
   private readonly lastSeenFromOther = new Map<string, string>();
+  /** DM ids the peer acknowledged (an ack can come before anyone waits for it), bounded. */
+  private readonly dmAcked = new Set<string>();
+  private readonly dmAckWaiters = new Map<string, Array<(acked: boolean) => void>>();
   private connectPromise: Promise<void> | null = null;
   private cancelConnectAttempt: ((error?: Error) => void) | null = null;
   private hasStarted = false;
@@ -1523,8 +1537,36 @@ export class P2PConversationSession {
       );
       return;
     }
+    if (frame.type === 'dm-ack') {
+      if (typeof frame.id === 'string' && frame.id) this.noteDmAck(frame.id);
+      return;
+    }
     if (frame.type !== 'dm' || !('message' in frame) || !frame.message) return;
     await this.receiveDm(frame.message);
+  }
+
+  private noteDmAck(id: string): void {
+    this.dmAcked.add(id);
+    if (this.dmAcked.size > 500) this.dmAcked.delete(this.dmAcked.values().next().value as string);
+    for (const resolve of this.dmAckWaiters.get(id) ?? []) resolve(true);
+    this.dmAckWaiters.delete(id);
+  }
+
+  /** Whether the peer acknowledged this DM (stored it) within `timeoutMs`. */
+  waitForDmAck(id: string, timeoutMs: number): Promise<boolean> {
+    if (this.dmAcked.has(id)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const waiters = this.dmAckWaiters.get(id) ?? [];
+      const done = (acked: boolean) => {
+        clearTimeout(timer);
+        const left = (this.dmAckWaiters.get(id) ?? []).filter((waiter) => waiter !== done);
+        if (left.length) this.dmAckWaiters.set(id, left); else this.dmAckWaiters.delete(id);
+        resolve(acked);
+      };
+      const timer = setTimeout(() => done(false), timeoutMs);
+      waiters.push(done);
+      this.dmAckWaiters.set(id, waiters);
+    });
   }
 
   /**
@@ -1534,6 +1576,10 @@ export class P2PConversationSession {
    * Waits as long as the sender does (`waitForLedgerReady`), then takes the DM.
    */
   private async receiveDm(message: DmWirePayload['message']): Promise<void> {
+    // It reached this app: tell the sender at once, which otherwise also queues it to the mailbox
+    // (OPEN-122). Acked on arrival, not after the save: a phone's save waits for its disk and its
+    // queue, which held acks past 10 s while the app was running and had the message.
+    if (message.id) void this.sendChannelFrame({ type: 'dm-ack', id: message.id }).catch(() => undefined);
     if (!this.ledgerReady && this.config.getLedgerState) await this.waitForLedgerReady();
     await this.ingestWireMessage(message);
   }

@@ -16,6 +16,12 @@ import type { OfficialBuildCredential } from '../../shared/official-build-creden
  */
 export const DM_OPEN_LINK_GRACE_MS = 1_500;
 
+/**
+ * How long a sender waits for the other app to say it has a DM it sent directly (OPEN-122): the
+ * receiver acks on arrival, so this only runs out when the link lost it; the mailbox carries it then.
+ */
+export const DM_ACK_TIMEOUT_MS = 5_000;
+
 /** Encrypting needs the peer's key. If that lookup stalls the send fails, returning the text. */
 export const DM_PREPARE_TIMEOUT_MS = 30_000;
 
@@ -727,6 +733,20 @@ export class DirectP2PConversationTransport implements ConversationTransport {
         const session = await this.sessionFor(conversationId, senderId, opts?.otherUserId, (next) => { stage = next; });
         stage = 'send';
         await session.sendDm(senderId, text, channel as Message['channel'], wire);
+        // Delivered once the other app says it has it: a frame the channel took can still be
+        // lost in a link whose far end just closed (OPEN-122). No ack in the grace period → the
+        // mailbox carries it too (the recipient keys messages by id, so it shows once).
+        stage = 'ack';
+        // The channel took it: the grace timer was for a link slow to take it, the ack is for one
+        // that took it and lost it.
+        if (grace) clearTimeout(grace);
+        const waitForAck = (session as { waitForDmAck?: (id: string, ms: number) => Promise<boolean> }).waitForDmAck;
+        const acked = waitForAck ? await waitForAck.call(session, wire.id, DM_ACK_TIMEOUT_MS) : true;
+        if (!acked) {
+          console.warn(`[dm-notify] ${wire.id} sent over WebRTC but not acknowledged in ${DM_ACK_TIMEOUT_MS} ms; queueing to mailbox`);
+          await queueToMailbox();
+          return;
+        }
         directSent = true;
         this.recordDeliveryState(conversationId, wire, 'sent');
         console.info(`[dm-notify] ${wire.id} delivered over WebRTC in ${Date.now() - startedAt} ms`);
