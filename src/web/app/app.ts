@@ -95,7 +95,7 @@ import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-
 import { graphAnswerHistoryTalkIds, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
 import { getFlatAnswerHistory, getTalkContentKey, setAnswerHistoryCore, setFlatAnswerHistory, upsertFlatAnswerHistory } from '../ui/answer-history-storage';
 import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
-import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize, computeCIDv1 } from '../../shared/cid';
+import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
@@ -529,8 +529,6 @@ export class IinPublicApp {
   private fetchedAttachmentBytesByCid = new Map<string, Uint8Array>();
   /** Cached object URLs for decrypted shared attachments, keyed by cid (L5 image preview). */
   private attachmentObjectUrlByCid = new Map<string, string>();
-  /** cids with an in-flight fetch loop, so overlapping message-update callbacks don't stack. */
-  private attachmentFetchInFlight = new Set<string>();
   private static readonly ATTACHMENT_SHARE_SENT_KEY = 'iinpublic_ipfs_share_sent_ids';
   public initialized = false;
   /**
@@ -815,69 +813,11 @@ export class IinPublicApp {
     senderUserId: string,
     attempts = 6,
   ): Promise<void> {
-    const cid = String(sharePayload.cid || '').trim();
-    if (!cid || this.fetchedAttachmentBytesByCid.has(cid)) return;
-
-    // De-dupe overlapping fetches: loadConversation re-fires per message update, so several
-    // callbacks race for the same cid; only run one fetch loop per cid at a time.
-    if (this.attachmentFetchInFlight.has(cid)) return;
-    this.attachmentFetchInFlight.add(cid);
-
-    // Same block gate as talk delivery (resolveBlockStatusEitherWay) — a blocked-by peer's
-    // shared attachment is never decrypted/ingested. See that method's doc comment.
-    if (await this.resolveBlockStatusEitherWay(senderUserId)) {
-      this.attachmentFetchInFlight.delete(cid);
-      return;
-    }
-
-    const pair = this.gunService.getStoredPair();
-    if (!pair?.priv) { this.attachmentFetchInFlight.delete(cid); return; }
-
-    try {
-      const senderEpub = await this.resolvePeerEpub(senderUserId);
-      if (sharePayload.enc === 'sea-pair') {
-        const secret = await this.getPairTalkResponseSecret(senderUserId, senderEpub);
-        const keyPayloadRaw = await getSEA().decrypt(sharePayload.keyCiphertext, secret);
-        if (!keyPayloadRaw) {
-          throw new Error('Attachment share key decrypt failed');
-        }
-      }
-
-      // Primary retrieval (no server/gateway): pull the bytes from the sender over the DM
-      // WebRTC DataChannel. The recipient's DM session can start cold (they never sent in this
-      // conversation), so retry each pass — the request connects the session, the sender serves
-      // its own block, and onAttachmentBytes stores the result. The content-node read is a
-      // secondary attempt for the same cid.
-      for (let i = 0; i < attempts && !this.fetchedAttachmentBytesByCid.has(cid); i += 1) {
-        if (this.currentUser?.id && senderUserId && sharePayload.conversationId) {
-          await this.conversationService
-            .requestAttachment(sharePayload.conversationId, this.currentUser.id, senderUserId, cid)
-            .catch(() => { /* session not ready yet — the next pass retries */ });
-        }
-        if (this.fetchedAttachmentBytesByCid.has(cid)) break;
-        let bytes: Uint8Array | null = null;
-        try {
-          bytes = await this.contentNodeService.fetchAttachmentBytes({
-            cid,
-            enc: sharePayload.enc,
-            senderEpub,
-            recipientPair: pair as GunPair,
-          });
-        } catch {
-          /* unreachable yet — retry below */
-        }
-        if (bytes) {
-          this.fetchedAttachmentBytesByCid.set(cid, bytes);
-          // The share message likely already rendered as a card; re-render so the now-available
-          // bytes appear as an image preview / working Download in the open conversation.
-          this.uiManager.refreshOpenConversationForAttachment();
-          return;
-        }
-        if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1500 * (i + 1)));
-      }
-    } finally {
-      this.attachmentFetchInFlight.delete(cid);
-    }
+    await this.attachmentShareEffects.fetchSharedAttachmentBytes(
+      sharePayload,
+      senderUserId,
+      attempts,
+    );
   }
 
   private async postAttachmentShareToMailbox(payload: MailboxAttachmentSharePayload): Promise<void> {
@@ -933,43 +873,7 @@ export class IinPublicApp {
     attachments: IpfsAttachment[];
     retractedAt: number;
   }): Promise<void> {
-    if (!this.currentUser?.id || params.attachments.length === 0) return;
-
-    for (const attachment of params.attachments) {
-      try {
-        const messageId = await computeCIDv1({
-          kind: 'ipfs-auto-share-retracted-v1',
-          conversationId: params.conversationId,
-          talkRef: `${params.talkId}::${params.authorId}`,
-          cid: attachment.cid,
-        });
-        if (this.attachmentShareSentIds.has(messageId)) continue;
-        const messageText = `IPFS_SHARE_RETRACTED:${JSON.stringify({
-          kind: 'ipfs-auto-share-retracted-v1',
-          talkId: params.talkId,
-          authorId: params.authorId,
-          cid: attachment.cid,
-          link: `ipfs://${attachment.cid}`,
-          retractedAt: params.retractedAt,
-          note: 'Link is now marked dead in this conversation. Remote copies may still exist.',
-        })}`;
-        await this.conversationService.sendMessage(
-          params.conversationId,
-          this.currentUser.id,
-          messageText,
-          {
-            otherUserId: params.conversationPeerId,
-            messageId,
-            channel: 'known',
-          },
-        );
-        this.attachmentShareSentIds.add(messageId);
-      } catch (err) {
-        console.warn('[L5] markSharedAttachmentLinksDead failed:', err);
-      }
-    }
-
-    this.persistAttachmentShareSentIds();
+    await this.attachmentShareEffects.markSharedAttachmentLinksDead(params);
   }
 
   constructor() {
@@ -1064,13 +968,35 @@ export class IinPublicApp {
         },
         payload.senderId,
       ),
-      fetchSharedAttachment: (payload, senderId) =>
-        this.maybeFetchSharedAttachmentBytes(payload, senderId),
+      hasFetched: (cid) => this.fetchedAttachmentBytesByCid.has(cid),
+      canDecryptAttachments: () => Boolean(this.gunService.getStoredPair()?.priv),
+      resolveSenderEpub: (senderId) => this.resolvePeerEpub(senderId),
+      verifyKeyCiphertext: async (payload, senderId, senderEpub) => {
+        const secret = await this.getPairTalkResponseSecret(senderId, senderEpub);
+        return Boolean(await getSEA().decrypt(payload.keyCiphertext, secret));
+      },
+      requestAttachment: ({ conversationId, recipientId, senderId, cid }) =>
+        this.conversationService.requestAttachment(conversationId, recipientId, senderId, cid),
+      fetchAttachmentBytes: (payload, senderEpub) => {
+        const pair = this.gunService.getStoredPair();
+        if (!pair?.priv) return Promise.resolve(null);
+        return this.contentNodeService.fetchAttachmentBytes({
+          cid: payload.cid,
+          enc: payload.enc,
+          senderEpub,
+          recipientPair: pair as GunPair,
+        });
+      },
+      storeFetched: (cid, bytes) => this.fetchedAttachmentBytesByCid.set(cid, bytes),
+      attachmentFetched: () => this.uiManager.refreshOpenConversationForAttachment(),
+      sleep: (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
       onFailure: (context, error) => {
         console.warn(
           context === 'auto-share'
             ? '[L5] autoShareMatchedTalkAttachments failed:'
-            : '[L5] mailbox attachment fetch failed:',
+            : context === 'retraction'
+              ? '[L5] markSharedAttachmentLinksDead failed:'
+              : '[L5] mailbox attachment fetch failed:',
           error,
         );
       },

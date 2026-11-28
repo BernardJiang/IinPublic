@@ -21,6 +21,16 @@ export type AttachmentShareMessagePayload = {
   sharedAt: string;
 };
 
+export type AttachmentShareRetractionPayload = {
+  kind: 'ipfs-auto-share-retracted-v1';
+  talkId: string;
+  authorId: string;
+  cid: string;
+  link: string;
+  retractedAt: number;
+  note: string;
+};
+
 const MESSAGE_PREFIX = 'IPFS_SHARE:';
 
 /** The same share always gets the same id, so a resend is not a second message. */
@@ -63,6 +73,27 @@ export function attachmentSharePayload(
 /** Serialize a share into the ordinary conversation-message text carried by every transport. */
 export function formatAttachmentShareMessageText(payload: AttachmentShareMessagePayload): string {
   return `${MESSAGE_PREFIX}${JSON.stringify(payload)}`;
+}
+
+export function attachmentShareRetractionPayload(
+  talkId: string,
+  authorId: string,
+  cid: string,
+  retractedAt: number,
+): AttachmentShareRetractionPayload {
+  return {
+    kind: 'ipfs-auto-share-retracted-v1',
+    talkId,
+    authorId,
+    cid,
+    link: `ipfs://${cid}`,
+    retractedAt,
+    note: 'Link is now marked dead in this conversation. Remote copies may still exist.',
+  };
+}
+
+export function formatAttachmentShareRetractionText(payload: AttachmentShareRetractionPayload): string {
+  return `IPFS_SHARE_RETRACTED:${JSON.stringify(payload)}`;
 }
 
 /** A share carried as message text (`IPFS_SHARE:{…}`); null for anything else or a malformed one. */

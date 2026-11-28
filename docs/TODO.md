@@ -106,6 +106,11 @@ active feature development.
   ingest-before-fetch semantics; the web host supplies SEA encryption, conversation/mailbox
   transport, durable processed ids, IPFS retrieval and UI refresh. Compatibility wrappers preserve
   the browser-test surface, and the coordinator ratchet is now 10,450 lines.
+  **Sixth no-phone slice (2026-11-27):** the remaining attachment receive/retraction lifecycle moved
+  into `core/attachment-share-effects.ts`. The core now owns CID in-flight claims, block/key gates,
+  WebRTC-before-content-node retrieval, bounded backoff, fetched-byte completion and stable
+  retraction deduplication; SEA, WebRTC, IPFS storage and rendering remain explicit host ports. The
+  coordinator ratchet is now 10,376 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

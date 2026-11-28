@@ -41,6 +41,7 @@ const inboxPayload = (overrides: Partial<MailboxAttachmentSharePayload> = {}): M
 
 function createPorts(overrides: Partial<AttachmentShareEffectsPorts> = {}) {
   const processed = new Set<string>();
+  const fetched = new Map<string, Uint8Array>();
   const ports: AttachmentShareEffectsPorts = {
     currentUser: jest.fn(() => ({ id: 'author-1', stageName: 'Author' })),
     isBlockedEitherWay: jest.fn(async () => false),
@@ -55,12 +56,20 @@ function createPorts(overrides: Partial<AttachmentShareEffectsPorts> = {}) {
     sendConversationMessage: jest.fn(async () => undefined),
     postMailbox: jest.fn(async () => undefined),
     ingestConversationMessage: jest.fn(async () => undefined),
-    fetchSharedAttachment: jest.fn(async () => undefined),
+    hasFetched: jest.fn((cid) => fetched.has(cid)),
+    canDecryptAttachments: jest.fn(() => true),
+    resolveSenderEpub: jest.fn(async () => 'sender-epub'),
+    verifyKeyCiphertext: jest.fn(async () => true),
+    requestAttachment: jest.fn(async () => undefined),
+    fetchAttachmentBytes: jest.fn(async () => new Uint8Array([1, 2, 3])),
+    storeFetched: jest.fn((cid, bytes) => { fetched.set(cid, bytes); }),
+    attachmentFetched: jest.fn(),
+    sleep: jest.fn(async () => undefined),
     now: jest.fn(() => new Date('2026-11-27T12:00:00.000Z')),
     onFailure: jest.fn(),
     ...overrides,
   };
-  return { ports, processed };
+  return { ports, processed, fetched };
 }
 
 describe('AttachmentShareEffects', () => {
@@ -201,7 +210,10 @@ describe('AttachmentShareEffects', () => {
     const { ports } = createPorts({
       currentUser: jest.fn(() => ({ id: 'recipient-1', stageName: 'Recipient' })),
       ingestConversationMessage: jest.fn(async () => { order.push('ingest'); }),
-      fetchSharedAttachment: jest.fn(async () => { order.push('fetch'); }),
+      fetchAttachmentBytes: jest.fn(async () => {
+        order.push('fetch');
+        return new Uint8Array([1]);
+      }),
       markProcessed: jest.fn(() => { order.push('mark'); }),
       persistProcessed: jest.fn(() => { order.push('persist'); }),
     });
@@ -209,10 +221,11 @@ describe('AttachmentShareEffects', () => {
     await expect(new AttachmentShareEffects(ports)
       .ingestAttachmentShareFromMailbox(inboxPayload())).resolves.toBe(true);
 
-    expect(order).toEqual(['ingest', 'fetch', 'mark', 'persist']);
-    expect(ports.fetchSharedAttachment).toHaveBeenCalledWith(
+    expect(order.slice(0, 3)).toEqual(['ingest', 'mark', 'persist']);
+    while ((ports.fetchAttachmentBytes as jest.Mock).mock.calls.length === 0) await Promise.resolve();
+    expect(ports.fetchAttachmentBytes).toHaveBeenCalledWith(
       expect.objectContaining({ cid: 'cid-inbox' }),
-      'sender-1',
+      'sender-epub',
     );
   });
 
@@ -224,8 +237,81 @@ describe('AttachmentShareEffects', () => {
 
     await expect(new AttachmentShareEffects(ports)
       .ingestAttachmentShareFromMailbox(inboxPayload())).rejects.toThrow('graph unavailable');
-    expect(ports.fetchSharedAttachment).not.toHaveBeenCalled();
+    expect(ports.fetchAttachmentBytes).not.toHaveBeenCalled();
     expect(ports.markProcessed).not.toHaveBeenCalled();
     expect(ports.persistProcessed).not.toHaveBeenCalled();
+  });
+
+  it('owns attachment retry/backoff and publishes fetched bytes once', async () => {
+    const bytes = new Uint8Array([7, 8, 9]);
+    const { ports, fetched } = createPorts({
+      fetchAttachmentBytes: jest.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(bytes),
+    });
+    const share = attachmentSharePayload({
+      conversationId: 'conversation-1',
+      talkId: 'talk-1',
+      authorId: 'sender-1',
+      attachment: attachment('cid-retry'),
+    }, 'encrypted-key', '2026-11-27T12:00:00.000Z');
+
+    await expect(new AttachmentShareEffects(ports)
+      .fetchSharedAttachmentBytes(share, 'sender-1', 3)).resolves.toBe('fetched');
+
+    expect(ports.requestAttachment).toHaveBeenCalledTimes(2);
+    expect(ports.fetchAttachmentBytes).toHaveBeenCalledTimes(2);
+    expect(ports.sleep).toHaveBeenCalledWith(1_500);
+    expect(fetched.get('cid-retry')).toEqual(bytes);
+    expect(ports.attachmentFetched).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces the receive block and key gates before requesting attachment bytes', async () => {
+    const share = attachmentSharePayload({
+      conversationId: 'conversation-1',
+      talkId: 'talk-1',
+      authorId: 'sender-1',
+      attachment: attachment('cid-blocked'),
+    }, 'encrypted-key', '2026-11-27T12:00:00.000Z');
+    const blocked = createPorts({ isBlockedEitherWay: jest.fn(async () => true) });
+    await expect(new AttachmentShareEffects(blocked.ports)
+      .fetchSharedAttachmentBytes(share, 'sender-1')).resolves.toBe('blocked');
+    expect(blocked.ports.resolveSenderEpub).not.toHaveBeenCalled();
+
+    const noKey = createPorts({ canDecryptAttachments: jest.fn(() => false) });
+    await expect(new AttachmentShareEffects(noKey.ports)
+      .fetchSharedAttachmentBytes(share, 'sender-1')).resolves.toBe('no-key');
+    expect(noKey.ports.requestAttachment).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates and isolates retraction messages with stable ids', async () => {
+    const { ports, processed } = createPorts({
+      sendConversationMessage: jest.fn()
+        .mockRejectedValueOnce(new Error('first retraction failed'))
+        .mockResolvedValue(undefined),
+    });
+    const effects = new AttachmentShareEffects(ports);
+    const params = {
+      conversationId: 'conversation-1',
+      talkId: 'talk-1',
+      authorId: 'author-1',
+      conversationPeerId: 'recipient-1',
+      attachments: [attachment('cid-fail'), attachment('cid-ok')],
+      retractedAt: 1234,
+    };
+
+    await expect(effects.markSharedAttachmentLinksDead(params)).resolves.toBe(1);
+    expect(ports.onFailure).toHaveBeenCalledWith('retraction', expect.any(Error));
+    expect(ports.persistProcessed).toHaveBeenCalledTimes(1);
+    expect(processed.size).toBe(1);
+    const sent = (ports.sendConversationMessage as jest.Mock).mock.calls[1]![0];
+    expect(sent.text).toContain('IPFS_SHARE_RETRACTED:');
+    expect(sent.text).toContain('cid-ok');
+
+    await expect(effects.markSharedAttachmentLinksDead({
+      ...params,
+      attachments: [attachment('cid-ok')],
+    })).resolves.toBe(0);
+    expect(ports.sendConversationMessage).toHaveBeenCalledTimes(2);
   });
 });

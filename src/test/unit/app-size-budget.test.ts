@@ -5,7 +5,7 @@ import path from 'path';
 // prevents unrelated work from putting those lines (or equivalent new policy) back into the
 // application coordinator. Lower the budget after each extraction; do not raise it for ordinary
 // feature work.
-const APP_LINE_BUDGET = 10_450;
+const APP_LINE_BUDGET = 10_376;
 
 describe('IinPublicApp architecture budget', () => {
   it(`keeps app.ts at or below ${APP_LINE_BUDGET.toLocaleString()} lines`, () => {
