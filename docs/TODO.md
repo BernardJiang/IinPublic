@@ -116,6 +116,12 @@ active feature development.
   bounded template retries, pass-versus-answer dispatch, starter-tag sender replay, failure release
   and answer recording order; graph queries, response transport and rendering remain host ports.
   The coordinator ratchet is now 10,343 lines.
+  **Eighth no-phone slice (2026-11-27):** conversation projection moved into
+  `core/conversation-projection-effects.ts`. The core now owns participant normalization and self
+  rejection, bounded display-name lookup, Talk-link projection, plaintext message validation,
+  serialized/batched graph writes, support verification ordering, legacy migration single-flight
+  and bounded device-sync snapshots. UI, transport, signature verification and graph persistence
+  remain host ports. The coordinator ratchet is now 10,196 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

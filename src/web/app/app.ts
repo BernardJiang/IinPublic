@@ -229,6 +229,7 @@ import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { ChatbotReplyEffects } from '../../core/chatbot-reply-effects';
+import { ConversationProjectionEffects } from '../../core/conversation-projection-effects';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
@@ -255,7 +256,6 @@ import { markStartupPhase } from '../performance/startup-metrics';
 import { filterTalkForRecipient } from '../../shared/tag-identity';
 import { tagAtom } from '../../core/device-graph/exchanged';
 import { NEARBY_REPEAT_WINDOW_MS } from '../../core/device-graph/nearby-events';
-import type { ImportedMessage } from '../../core/device-graph/message-events';
 import { getMyConversations } from '../ui/my-conversations-storage';
 import { coalesced } from '../services/coalesced-refresh';
 
@@ -447,11 +447,9 @@ export class IinPublicApp {
   private readonly attachmentShareEffects: AttachmentShareEffects;
   /** Portable chatbot scheduling/idempotency; graph, transport and rendering are host ports. */
   private readonly chatbotReplyEffects: ChatbotReplyEffects;
+  /** Portable conversation/message projection; storage, transport and rendering are host ports. */
+  private readonly conversationProjectionEffects: ConversationProjectionEffects;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
-  /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
-  private readonly graphMessageWrites = new Map<string, Promise<void>>();
-  /** One mixed-release encrypted-cache import per ordinary conversation. */
-  private readonly legacyDmMigrations = new Map<string, Promise<void>>();
   /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
   private graphTabRefresh: Promise<void> | null = null;
   private graphTabRefreshAgain = false;
@@ -1124,6 +1122,70 @@ export class IinPublicApp {
       void this.deviceSyncService.enqueuePreferencesChange(user.pub || '', user.talkFilters);
     });
     this.uiManager = new UIManager();
+    this.conversationProjectionEffects = new ConversationProjectionEffects({
+      currentUser: () => this.currentUser,
+      transportMode: () => this.conversationService.getTransportMode(),
+      resolveOtherUserName: async (userId) => {
+        try {
+          const publicUser = await this.gunService.getPublicUser(userId);
+          if (publicUser?.stageName) return publicUser.stageName;
+        } catch {
+          /* try the full private/public user record */
+        }
+        try {
+          return (await this.userService.getUser(userId))?.stageName || undefined;
+        } catch {
+          return undefined;
+        }
+      },
+      upsertConversation: (conversation) => this.uiManager.addNewConversation(conversation as any),
+      recordConversation: async (projection) => {
+        if (!this.coreRequest) return;
+        await this.coreRequest({ name: 'graph.recordConversation', ...projection });
+      },
+      applyDealConfirmations: (conversationId, confirmations) =>
+        this.uiManager.applyDealConfirmedBy(conversationId, confirmations),
+      maybeFinalizeDeal: (confirmations, otherUserId, conversationId) =>
+        this.maybeFinalizeConfirmedDeal(confirmations as any, otherUserId, conversationId),
+      verifySupportMessages: (messages, stageName) =>
+        filterVerifiedSupportMessages(messages, stageName),
+      readLegacyMessages: (conversationId, currentUserId, otherUserId) =>
+        this.conversationService.readLegacyOrdinaryMessages(
+          conversationId,
+          currentUserId,
+          otherUserId,
+        ),
+      clearLegacyMessages: (conversationId) =>
+        this.conversationService.clearLegacyOrdinaryMessages(conversationId),
+      waitForGraphWrite: () => this.coreLocationWrite,
+      recordMessages: async ({ conversationId, otherUserId, messages }) => {
+        if (!this.coreRequest) throw new Error('Device graph is unavailable');
+        await this.coreRequest({
+          name: 'graph.recordMessages',
+          conversationId,
+          otherUserId,
+          messages,
+        });
+      },
+      subscribeToMessages: (conversationId, listener, currentUserId, otherUserId) =>
+        this.conversationService.subscribeToMessages(
+          conversationId,
+          listener,
+          currentUserId,
+          otherUserId,
+        ),
+      refreshGraph: () => this.refreshGraphTabSnapshot(),
+      onFailure: (context, error) => {
+        console.warn(
+          context === 'conversation'
+            ? '[graph] conversation projection was not recorded:'
+            : context === 'legacy-migration'
+              ? '[graph] legacy DM cutover deferred:'
+              : '[graph] conversation message import failed:',
+          error,
+        );
+      },
+    });
     this.releaseEarlyUiEvents = bufferEmitsUntilReleased(this.uiManager);
     // A link change can move my Nearby count key; that audience refresh runs in the background so
     // the linked-devices dialog never waits on the hub (stage2/73 timed out on "Removed").
@@ -8021,116 +8083,7 @@ export class IinPublicApp {
   }
 
   private async ingestConversationRecords(conversations: any[]): Promise<void> {
-    if (!this.currentUser) return;
-
-    for (const conversationData of conversations) {
-      // Gun stores otherUserId/otherUserName; legacy or other sources may use userId1/userId2
-      const otherUserId =
-        conversationData.otherUserId ??
-        (conversationData.userId1 === this.currentUser.id
-          ? conversationData.userId2
-          : conversationData.userId1);
-      const otherUserName =
-        conversationData.otherUserName ??
-        (conversationData.userId1 === this.currentUser.id
-          ? conversationData.userName2
-          : conversationData.userName1);
-
-      // Never ingest a conversation whose other participant resolves to the local user.
-      // A content-collision (two authors, identical content-addressed talkId) can produce
-      // a `conv_<a>_<b>_<talkId>` record whose participants array, read back from the
-      // shared Gun node, leaves otherUserId ambiguous; guarding self here keeps the user
-      // out of their own contacts list.
-      if (!otherUserId || otherUserId === this.currentUser.id) continue;
-
-      let resolvedOtherUserName = otherUserName ?? 'Unknown';
-      if (
-        !resolvedOtherUserName ||
-        resolvedOtherUserName === 'Unknown' ||
-        resolvedOtherUserName === 'Someone'
-      ) {
-        // A display name is not worth holding a conversation open for: opening a DM used to wait
-        // here on hub/Gun lookups with no overall bound (gui-responsiveness-audit.md F2). The
-        // placeholder stays if neither answers within the budget; the record updates later.
-        const lookupName = async (): Promise<string | undefined> => {
-          try {
-            const publicUser = await this.gunService.getPublicUser(otherUserId);
-            if (publicUser?.stageName) return publicUser.stageName;
-          } catch {
-            /* try the full record */
-          }
-          try {
-            return (await this.userService.getUser(otherUserId))?.stageName || undefined;
-          } catch {
-            return undefined;
-          }
-        };
-        const found = await Promise.race([
-          lookupName(),
-          new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2_500)),
-        ]);
-        if (found) resolvedOtherUserName = found;
-      }
-
-      this.uiManager.addNewConversation({
-        conversationId: conversationData.conversationId,
-        otherUserId,
-        otherUserName: resolvedOtherUserName,
-        talkId: conversationData.talkId,
-        relatedTalkIds: conversationData.relatedTalkIds,
-        relatedTalkIdsJson: conversationData.relatedTalkIdsJson,
-        respondedByBot: conversationData.respondedByBot,
-        supportChannel: conversationData.supportChannel,
-        transportMode:
-          conversationData.transportMode ?? this.conversationService.getTransportMode(),
-        transportFallbackReason: conversationData.transportFallbackReason,
-        dealEligible: conversationData.dealEligible === true,
-        ...(conversationData.matchScore !== undefined ? { matchScore: conversationData.matchScore } : {}),
-        ...(conversationData.matchTotal !== undefined ? { matchTotal: conversationData.matchTotal } : {}),
-      });
-
-      // Conversation state is a mutable graph projection, but its participant and originating
-      // Talks are graph links. This makes Contact ↔ conversation ↔ Talk traversal available even
-      // before either person sends the first DM.
-      if (this.coreRequest && conversationData.conversationId) {
-        const related = Array.isArray(conversationData.relatedTalkIds)
-          ? conversationData.relatedTalkIds
-          : (() => {
-            try {
-              const parsed = JSON.parse(String(conversationData.relatedTalkIdsJson || '[]'));
-              return Array.isArray(parsed) ? parsed : [];
-            } catch { return []; }
-          })();
-        const talkIds = [...new Set([conversationData.talkId, ...related].map(String)
-          .filter((talkId) => talkId && talkId !== 'direct'))];
-        const hasTalkProjection = conversationData.talkId !== undefined
-          || conversationData.relatedTalkIds !== undefined
-          || conversationData.relatedTalkIdsJson !== undefined;
-        void this.coreRequest({
-          name: 'graph.recordConversation',
-          conversationId: String(conversationData.conversationId),
-          otherUserId: String(otherUserId),
-          ...(hasTalkProjection ? { talkIds } : {}),
-          ...(Number.isFinite(Date.parse(String(conversationData.createdAt || '')))
-            ? { startedAt: Date.parse(String(conversationData.createdAt)) }
-            : {}),
-        }).then(() => this.refreshGraphTabSnapshot()).catch((error) => {
-          console.warn('[graph] conversation projection was not recorded:', error);
-        });
-      }
-
-      if (typeof conversationData.dealConfirmedByJson === 'string') {
-        try {
-          const dealConfirmedBy = JSON.parse(conversationData.dealConfirmedByJson);
-          if (Array.isArray(dealConfirmedBy)) {
-            const mergedConfirmations = this.uiManager.applyDealConfirmedBy(conversationData.conversationId, dealConfirmedBy);
-            this.maybeFinalizeConfirmedDeal(mergedConfirmations, otherUserId, conversationData.conversationId);
-          }
-        } catch {
-          /* malformed sync payload — ignore, next sync tick will retry */
-        }
-      }
-    }
+    await this.conversationProjectionEffects.ingestRecords(conversations);
   }
 
   private subscribeToUserConversations(): void {
@@ -8196,101 +8149,25 @@ export class IinPublicApp {
 
   /** Compatibility importer for support/device-sync batches; ordinary DMs write the graph directly. */
   private recordConversationMessagesInGraph(conversationId: string, otherUserId: string, messages: readonly any[]): void {
-    void (async () => {
-      // A TechSupport message enters the graph only once it verifies (K2/K5): its graph copy carries
-      // no signature, and is shown from then on as an ordinary message. Imported unchecked, a greeting
-      // altered before its first import rendered from the graph with nothing left to check (found
-      // when the device graph's reads stopped missing, stage1/04, 2026-11-23).
-      const verified = conversationId.startsWith('conv_support_')
-        ? await filterVerifiedSupportMessages([...messages], this.currentUser?.stageName || '')
-        : messages;
-      const imports = this.graphImportsForMessages(otherUserId, verified);
-      if (imports.length === 0) return;
-      await this.writeConversationMessagesToGraph(conversationId, otherUserId, imports);
-    })().catch((error) => console.warn('[graph] conversation message import failed:', error));
-  }
-
-  private graphImportsForMessages(
-    otherUserId: string,
-    messages: readonly any[],
-  ): Array<Omit<ImportedMessage, 'conversationId' | 'otherUserId'>> {
-    const me = this.currentUser?.id;
-    if (!me || !otherUserId || otherUserId === me) return [];
-    return messages.flatMap((message) => {
-      const sourceMessageId = String(message?.id || '');
-      const senderId = String(message?.senderId || '');
-      const text = String(message?.text ?? '');
-      const when = (message?.timestamp instanceof Date
-        ? message.timestamp
-        : new Date(message?.timestamp)).getTime();
-      // Never make retryable ciphertext immutable or claim its source id before plaintext exists.
-      if (!sourceMessageId || sourceMessageId.length > 500
-        || (senderId !== me && senderId !== otherUserId)
-        || !Number.isFinite(when)
-        || text.length > 4_000
-        || text.startsWith('SEA{')) return [];
-      return [{
-        sourceMessageId,
-        senderId,
-        text,
-        when,
-        ...(message?.talkId ? { talkId: String(message.talkId) } : {}),
-        ...(message?.channel === 'public' || message?.channel === 'known' || message?.channel === 'mutual'
-          ? { channel: message.channel }
-          : {}),
-        ...(message?.isFromChatbot === true ? { isFromChatbot: true } : {}),
-      }];
-    });
+    this.conversationProjectionEffects.recordConversationMessages(
+      conversationId,
+      otherUserId,
+      messages,
+    );
   }
 
   /** Import every pre-cutover plaintext row before deleting that conversation's old cache. */
   private migrateLegacyOrdinaryMessageHistory(conversationId: string, otherUserId: string): Promise<void> {
-    const existing = this.legacyDmMigrations.get(conversationId);
-    if (existing) return existing;
-    const me = this.currentUser?.id;
-    if (!me) return Promise.reject(new Error('Current user is unavailable'));
-    const migration = (async () => {
-      const messages = await this.conversationService.readLegacyOrdinaryMessages(conversationId, me, otherUserId);
-      const imports = this.graphImportsForMessages(otherUserId, messages);
-      if (messages.length !== imports.length) {
-        throw new Error('Legacy conversation still contains undecryptable messages');
-      }
-      if (imports.length) await this.writeConversationMessagesToGraph(conversationId, otherUserId, imports);
-      await this.conversationService.clearLegacyOrdinaryMessages(conversationId);
-    })();
-    this.legacyDmMigrations.set(conversationId, migration);
-    void migration.catch(() => this.legacyDmMigrations.delete(conversationId));
-    return migration;
+    return this.conversationProjectionEffects.migrateLegacyHistory(conversationId, otherUserId);
   }
 
   /** Serialized graph write shared by live delivery, mailbox ingestion, and legacy import. */
   private writeConversationMessagesToGraph(
     conversationId: string,
     otherUserId: string,
-    imports: Array<Omit<ImportedMessage, 'conversationId' | 'otherUserId'>>,
+    imports: Parameters<ConversationProjectionEffects['writeMessages']>[2],
   ): Promise<void> {
-    const core = this.coreRequest;
-    const me = this.currentUser?.id;
-    if (!core || !me) return Promise.reject(new Error('Device graph is unavailable'));
-    if (!otherUserId || otherUserId === me) return Promise.reject(new Error('Invalid conversation participant'));
-    if (imports.length === 0) return Promise.resolve();
-    const previous = this.graphMessageWrites.get(conversationId) ?? Promise.resolve();
-    const write = previous.catch(() => undefined).then(async () => {
-      await this.coreLocationWrite.catch(() => undefined);
-      for (let offset = 0; offset < imports.length; offset += 200) {
-        await core({
-          name: 'graph.recordMessages',
-          conversationId,
-          otherUserId,
-          messages: imports.slice(offset, offset + 200),
-        });
-      }
-      await this.refreshGraphTabSnapshot();
-    }).finally(() => {
-      if (this.graphMessageWrites.get(conversationId) === write) this.graphMessageWrites.delete(conversationId);
-    });
-    this.graphMessageWrites.set(conversationId, write);
-    return write;
+    return this.conversationProjectionEffects.writeMessages(conversationId, otherUserId, imports);
   }
 
   /**
@@ -8301,34 +8178,10 @@ export class IinPublicApp {
    * callback firing so the same graph-backed read path serves device sync too.
    */
   private snapshotLocalMessagesForSync(conversationId: string, otherUserId: string): Promise<SyncedMessage[]> {
-    return new Promise((resolve) => {
-      if (!this.currentUser) {
-        resolve([]);
-        return;
-      }
-      let settled = false;
-      const finish = (messages: SyncedMessage[]) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        unsubscribe();
-        resolve(messages);
-      };
-      const timer = setTimeout(() => finish([]), 5_000);
-      const unsubscribe = this.conversationService.subscribeToMessages(
-        conversationId,
-        (messages) => finish(messages.map((message: any): SyncedMessage => ({
-          id: String(message.id),
-          senderId: String(message.senderId),
-          text: String(message.text ?? ''),
-          timestamp: (message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp)).toISOString(),
-          ...(message.talkId ? { talkId: String(message.talkId) } : {}),
-          ...(message.channel ? { channel: message.channel } : {}),
-        }))),
-        this.currentUser.id,
-        otherUserId,
-      );
-    });
+    return this.conversationProjectionEffects.snapshotLocalMessages(
+      conversationId,
+      otherUserId,
+    ) as Promise<SyncedMessage[]>;
   }
 
   /**
