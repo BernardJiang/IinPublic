@@ -122,6 +122,12 @@ active feature development.
   serialized/batched graph writes, support verification ordering, legacy migration single-flight
   and bounded device-sync snapshots. UI, transport, signature verification and graph persistence
   remain host ports. The coordinator ratchet is now 10,196 lines.
+  **Ninth no-phone slice, author half (2026-11-27):** incoming response effects moved into
+  `core/response-ingest-effects.ts`. The core now owns author/contact gates, response idempotency,
+  stale/retraction decisions, exchange ordering, first-match creation and both change-of-mind
+  transitions, including attachment sharing after conversation projection. Decryption, graph
+  reads, conversation storage and notifications remain host ports. The coordinator ratchet is now
+  10,079 lines; responder commit/fanout is the remaining half of this boundary.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

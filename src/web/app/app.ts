@@ -225,11 +225,11 @@ import { deriveLocalPeers } from '../services/local-peer-derivation';
 import { connectExchangeCore, upsertExchange } from '../services/exchange-view';
 import type { CoreRequest } from '../../core/protocol';
 import type { CoreCollection } from '../../core/collections';
-import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
 import { ChatbotReplyEffects } from '../../core/chatbot-reply-effects';
 import { ConversationProjectionEffects } from '../../core/conversation-projection-effects';
+import { ResponseIngestEffects } from '../../core/response-ingest-effects';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
@@ -449,6 +449,8 @@ export class IinPublicApp {
   private readonly chatbotReplyEffects: ChatbotReplyEffects;
   /** Portable conversation/message projection; storage, transport and rendering are host ports. */
   private readonly conversationProjectionEffects: ConversationProjectionEffects;
+  /** Portable author-side response/match orchestration; UI, graph and transport are host ports. */
+  private readonly responseIngestEffects: ResponseIngestEffects;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
   private graphTabRefresh: Promise<void> | null = null;
@@ -1184,6 +1186,78 @@ export class IinPublicApp {
               : '[graph] conversation message import failed:',
           error,
         );
+      },
+    });
+    this.responseIngestEffects = new ResponseIngestEffects({
+      currentUser: () => this.currentUser,
+      acceptsResponder: (responderId) => Boolean(this.currentUser) && talkContactPolicyAllowsPeer(
+        responderId,
+        getTalkIntakeFilters(),
+        this.currentUser!.knownPeople,
+        this.roomTravelerIds,
+      ),
+      hasProcessed: (key) => this.processedTalkResponseKeys.has(key),
+      markProcessed: (key) => this.processedTalkResponseKeys.add(key),
+      resolveTalk: (talkId) => this.resolveMeshTalkData(talkId),
+      decrypt: (payload) => this.decryptPairTalkResponsePayload(payload),
+      responseState: async (talkId, responderId) => {
+        if (!this.coreRequest) return { prior: null, retractedAt: null };
+        const [prior, retractedAt] = await Promise.all([
+          this.coreRequest({ name: 'graph.outcome', talkId, responderId }).catch(() => null),
+          this.coreRequest({ name: 'graph.deletedAt', talkId }).catch(() => null),
+        ]);
+        return { prior, retractedAt };
+      },
+      recordExchange: ({ peerId, peerName, talkId, talkData, outcome, meta }) =>
+        this.recordLocalTalkExchange(peerId, peerName, talkId, talkData, outcome, meta),
+      createConversation: (input) => this.conversationService.createConversation({
+        userId1: input.currentUserId,
+        userName1: input.currentUserName,
+        userId2: input.responderId,
+        userName2: input.responderName,
+        talkId: input.talkId,
+        respondedByBotForUser1: input.respondedByBot,
+        respondedByBotForUser2: false,
+        dealEligible: input.dealEligible,
+        ...(input.matchScore !== undefined ? { matchScore: input.matchScore } : {}),
+        ...(input.matchTotal !== undefined ? { matchTotal: input.matchTotal } : {}),
+      }),
+      recordDealTalk: (conversationId, talkId, talkData) =>
+        this.recordMyDealTalkForConversation(conversationId, talkId, talkData),
+      recordNeed: (conversationId, talkData) =>
+        this.recordConversationNeedKey(conversationId, talkData),
+      showSafetyToast: () => this.uiManager.maybeShowMatchSafetyToast(),
+      upsertConversation: (view) => this.uiManager.addNewConversation(view as any),
+      transportMode: () => this.conversationService.getTransportMode(),
+      showFirstMatch: ({ conversationId, responderName, talkTitle }) =>
+        this.uiManager.showNotification(
+          this.uiManager.formatTalkMatched(responderName, talkTitle),
+          'success',
+          { conversationId },
+        ),
+      showNowMatch: ({ responderName, changedAt }) => this.uiManager.showNotification(
+        `${responderName} changed their answer — now a match · ${new Date(changedAt).toLocaleTimeString()}`,
+        'success',
+      ),
+      showNoLongerMatch: ({ responderName, changedAt }) => this.uiManager.showNotification(
+        `${responderName} changed their answer — no longer a match · ${new Date(changedAt).toLocaleTimeString()}`,
+        'info',
+      ),
+      markConversationEnded: (responderId, talkId, changedAt) =>
+        this.uiManager.markConversationEnded(responderId, talkId, changedAt),
+      shareAttachments: (params) => this.autoShareMatchedTalkAttachments(params),
+      setMemberMatched: (responderId) => this.uiManager.setMemberMatched(responderId),
+      onEvent: (event) => {
+        const { payload } = event;
+        if (event.type === 'received') {
+          console.log(`[RESP-INGEST] talk=${String(payload.talkId).slice(-8)} from=${String(payload.responderId).slice(0, 8)} v=${payload.version ?? 1}`);
+        } else if (event.type === 'missing-talk') {
+          console.warn(`[RESP-INGEST] no Talk ${String(payload.talkId).slice(-8)} for the answer from ${String(payload.responderId).slice(0, 8)}: dropped`);
+        } else if (event.type === 'rejected') {
+          console.debug(`[RESP-INGEST] discarded (${event.reason}) from ${payload.responderId} v=${payload.version ?? 1}`);
+        } else {
+          console.debug(`[Step9] Version bump from ${payload.responderId}: v${event.priorVersion}→v${event.version}, outcome unchanged`);
+        }
       },
     });
     this.releaseEarlyUiEvents = bufferEmitsUntilReleased(this.uiManager);
@@ -4420,198 +4494,7 @@ export class IinPublicApp {
       isChatbotResponse?: boolean;
     } = {},
   ): Promise<void> {
-    if (!this.currentUser?.id || payload.authorId !== this.currentUser.id) return;
-    if (!talkContactPolicyAllowsPeer(
-      payload.responderId,
-      getTalkIntakeFilters(),
-      this.currentUser.knownPeople,
-      this.roomTravelerIds,
-    )) return;
-    console.log(`[RESP-INGEST] talk=${String(payload.talkId).slice(-8)} from=${String(payload.responderId).slice(0, 8)} v=${payload.version ?? 1}`);
-    const dedupeKey = `mesh-response::${payload.talkId}::${payload.responseId}::v${payload.version ?? 1}`;
-    if (this.processedTalkResponseKeys.has(dedupeKey)) return;
-    const talkData = await this.resolveMeshTalkData(payload.talkId);
-    if (!talkData) {
-      console.warn(`[RESP-INGEST] no Talk ${String(payload.talkId).slice(-8)} for the answer from ${String(payload.responderId).slice(0, 8)}: dropped`);
-      return;
-    }
-    const decrypted = Array.isArray(context.answers)
-      ? {
-          answers: context.answers,
-          responderName: context.responderName || payload.responderId,
-          isChatbotResponse: context.isChatbotResponse === true,
-        }
-      : await this.decryptPairTalkResponsePayload(payload);
-
-    // The decision is the core's (src/core/response-ingest.ts); this method carries it out.
-    const [prior, retractedAt] = this.coreRequest
-      ? await Promise.all([
-        this.coreRequest({ name: 'graph.outcome', talkId: payload.talkId, responderId: payload.responderId }).catch(() => null),
-        this.coreRequest({ name: 'graph.deletedAt', talkId: payload.talkId }).catch(() => null),
-      ])
-      : [null, null];
-    const decision = decideResponseIngest({
-      talkData,
-      answers: decrypted.answers,
-      ...(prior ? { prior } : {}),
-      ...(retractedAt !== null ? { retractedAt } : {}),
-      responderId: payload.responderId,
-      authorId: this.currentUser.id,
-      talkId: payload.talkId,
-      responseId: payload.responseId,
-      ...(payload.version !== undefined ? { version: payload.version } : {}),
-      ...(payload.respondedAt ? { respondedAt: payload.respondedAt } : {}),
-      submittedAt: payload.submittedAt,
-    });
-    if (decision.kind === 'reject') {
-      console.debug(`[RESP-INGEST] discarded (${decision.reason}) from ${payload.responderId} v=${payload.version ?? 1}`);
-      return;
-    }
-    const incomingVersion = decision.version;
-    const incomingRespondedAt = decision.respondedAt;
-
-    if (decision.kind !== 'first') {
-      const isMatch = decision.isMatch;
-      // Accepted: add to dedupeKey set, record exchange, and handle outcome flip.
-      this.processedTalkResponseKeys.add(dedupeKey);
-      this.recordLocalTalkExchange(
-        payload.responderId,
-        decrypted.responderName,
-        payload.talkId,
-        talkData,
-        isMatch ? 'match' : 'mismatch',
-        {
-          responseId: payload.responseId,
-          version: incomingVersion,
-          respondedAt: incomingRespondedAt,
-          answers: decrypted.answers,
-          ...(context.collectionSessionId ? { collectionSessionId: context.collectionSessionId } : {}),
-        },
-      );
-
-      const changedAt = incomingRespondedAt;
-
-      if (decision.kind === 'now-match') {
-        // ignore → match: create conversation. No auto-disable here — matches aren't
-        // exclusive; the talk only disables once a Deal is mutually confirmed (see the
-        // deal-confirmation flow).
-        this.uiManager.showNotification(
-          `${decrypted.responderName} changed their answer — now a match · ${new Date(changedAt).toLocaleTimeString()}`,
-          'success',
-        );
-        const conversationId = await this.conversationService.createConversation({
-          userId1: this.currentUser.id,
-          userName1: this.currentUser.stageName,
-          userId2: payload.responderId,
-          userName2: decrypted.responderName,
-          talkId: payload.talkId,
-          respondedByBotForUser1: !!decrypted.isChatbotResponse,
-          respondedByBotForUser2: false,
-          dealEligible: isDealEligibleTalk(talkData),
-          ...matchScoreParamsFor(talkData, decrypted.answers),
-        });
-        this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
-        this.recordConversationNeedKey(conversationId, talkData);
-        this.uiManager.maybeShowMatchSafetyToast();
-        this.uiManager.addNewConversation({
-          conversationId,
-          otherUserId: payload.responderId,
-          otherUserName: decrypted.responderName,
-          talkId: payload.talkId,
-          respondedByBot: !!decrypted.isChatbotResponse,
-          transportMode: this.conversationService.getTransportMode(),
-          changeOfMindAt: changedAt,
-          dealEligible: isDealEligibleTalk(talkData),
-          ...matchScoreParamsFor(talkData, decrypted.answers),
-        });
-        await this.autoShareMatchedTalkAttachments({
-          conversationId,
-          talkId: payload.talkId,
-          authorId: this.currentUser.id,
-          responderId: payload.responderId,
-          responderName: decrypted.responderName,
-          talkData,
-        });
-        this.uiManager.setMemberMatched(payload.responderId);
-      } else if (decision.kind === 'no-longer-match') {
-        // match → ignore: mark conversation ended with status 'ignored'
-        this.uiManager.showNotification(
-          `${decrypted.responderName} changed their answer — no longer a match · ${new Date(changedAt).toLocaleTimeString()}`,
-          'info',
-        );
-        this.uiManager.markConversationEnded(
-          payload.responderId,
-          payload.talkId,
-          changedAt,
-        );
-      } else {
-        // Outcome unchanged (both match or both not-match) — version bumped but no flip
-        console.debug(`[Step9] Version bump from ${payload.responderId}: v${decision.priorVersion}→v${incomingVersion}, outcome unchanged`);
-      }
-      return;
-    }
-
-    // No prior entry — first receipt (original flow from step 8)
-    this.processedTalkResponseKeys.add(dedupeKey);
-    const isMatch = decision.isMatch;
-    // R-2: pass responseId/version/respondedAt for forward-compat (steps 8–11)
-    this.recordLocalTalkExchange(
-      payload.responderId,
-      decrypted.responderName,
-      payload.talkId,
-      talkData,
-      isMatch ? 'match' : 'mismatch',
-      {
-        responseId: payload.responseId,
-        version: incomingVersion,
-        respondedAt: incomingRespondedAt,
-        answers: decrypted.answers,
-        ...(context.collectionSessionId ? { collectionSessionId: context.collectionSessionId } : {}),
-      },
-    );
-    if (!isMatch) return;
-    // No auto-disable here — matches aren't exclusive; multiple candidates can all form
-    // conversations for the same talk. The talk only disables once a Deal is mutually
-    // confirmed (see the deal-confirmation flow).
-    const conversationId = await this.conversationService.createConversation({
-      userId1: this.currentUser.id,
-      userName1: this.currentUser.stageName,
-      userId2: payload.responderId,
-      userName2: decrypted.responderName,
-      talkId: payload.talkId,
-      respondedByBotForUser1: !!decrypted.isChatbotResponse,
-      respondedByBotForUser2: false,
-      dealEligible: isDealEligibleTalk(talkData),
-      ...matchScoreParamsFor(talkData, decrypted.answers),
-    });
-    this.recordMyDealTalkForConversation(conversationId, payload.talkId, talkData);
-    this.recordConversationNeedKey(conversationId, talkData);
-    this.uiManager.maybeShowMatchSafetyToast();
-    this.uiManager.addNewConversation({
-      conversationId,
-      otherUserId: payload.responderId,
-      otherUserName: decrypted.responderName,
-      talkId: payload.talkId,
-      respondedByBot: !!decrypted.isChatbotResponse,
-      transportMode: this.conversationService.getTransportMode(),
-      dealEligible: isDealEligibleTalk(talkData),
-      ...matchScoreParamsFor(talkData, decrypted.answers),
-    });
-    // Match! toast after the conversation exists so clicking it navigates there (rule N6).
-    this.uiManager.showNotification(
-      this.uiManager.formatTalkMatched(decrypted.responderName, talkData.title),
-      'success',
-      { conversationId },
-    );
-    await this.autoShareMatchedTalkAttachments({
-      conversationId,
-      talkId: payload.talkId,
-      authorId: this.currentUser.id,
-      responderId: payload.responderId,
-      responderName: decrypted.responderName,
-      talkData,
-    });
-    this.uiManager.setMemberMatched(payload.responderId);
+    await this.responseIngestEffects.ingest(payload, context);
   }
 
   /**
