@@ -228,6 +228,7 @@ import type { CoreCollection } from '../../core/collections';
 import { decideResponseIngest } from '../../core/response-ingest';
 import { decideIncomingTalk, talkExpiresAtMs } from '../../core/talk-intake';
 import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '../../core/chatbot-reply';
+import { ChatbotReplyEffects } from '../../core/chatbot-reply-effects';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
@@ -296,9 +297,6 @@ type MailboxSupportQuestionPayload = {
 
 /** Debounce for automatic same-room catch-up to one peer (link flaps, roster heartbeats). */
 const ROOM_CATCHUP_MIN_INTERVAL_MS = 10_000;
-/** The chatbot's wait for my own answer to reach the device graph: 20 × 0.5 s, then 30 × 5 s. */
-const CHATBOT_WAIT_FAST_RETRIES = 20;
-const CHATBOT_WAIT_SLOW_RETRIES = 30;
 /** How long after the last like or Broadcast switch my public Talks are exchanged (OPEN-112). */
 const PUBLISH_EXCHANGE_SETTLE_MS = 3_000;
 /** The longest a run of likes waits before its first batch goes out. */
@@ -369,10 +367,6 @@ export class IinPublicApp {
   private currentChatroomId?: string;
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
-  /** One auto chatbot reply per announcer for the same content-hash talk id (same qa_* = same talk; keys are not author-based talk identity). */
-  private chatbotAutoReplySentForPair = new Set<string>();
-  /** Bounded retries for template races (announcement can arrive before manual answer persistence finishes). */
-  private chatbotAutoReplyRetryCountByPair = new Map<string, number>();
   private subscribedMemberCountRoomIds = new Set<string>();
   private stageZeroLastMemberCounts = new Map<string, number>();
   private stageZeroRepairInFlight = false;
@@ -451,6 +445,8 @@ export class IinPublicApp {
   private readonly mailboxDelivery: MailboxDeliveryService<GunPair>;
   /** Portable matched-attachment send/ingest policy; crypto, IPFS and UI remain host ports. */
   private readonly attachmentShareEffects: AttachmentShareEffects;
+  /** Portable chatbot scheduling/idempotency; graph, transport and rendering are host ports. */
+  private readonly chatbotReplyEffects: ChatbotReplyEffects;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
   private readonly graphMessageWrites = new Map<string, Promise<void>>();
@@ -1000,6 +996,67 @@ export class IinPublicApp {
           error,
         );
       },
+    });
+    this.chatbotReplyEffects = new ChatbotReplyEffects({
+      currentUserId: () => this.currentUser?.id,
+      decide: ({ talkId, talkData, authorId }) =>
+        this.chatbotReplyDecision(talkId, talkData, authorId),
+      recordPass: ({ talkId, talkData, authorId }) => {
+        const question = talkData.questions[0];
+        this.uiManager.recordChatbotAnsweredTalk(
+          { ...talkData, id: talkId, authorId },
+          [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore' }],
+          'mismatch',
+          true,
+        );
+      },
+      resolveAnswers: async ({ talkId, talkData }, graphAnswers) => {
+        let template = this.chatbotTemplateFor(talkId, talkData);
+        if (!template && talkData) {
+          const built = graphAnswers ?? (await this.uiManager.chatbotAnswersFor(talkData, talkId)).answers;
+          if (built?.length) template = { answers: built, talkData };
+        }
+        return template?.answers ?? null;
+      },
+      submitAnswer: ({ talkId, talkData, authorId, authorName }, answers) => {
+        void this.submitTalkResponsePairDirect({
+          talkId,
+          talkData,
+          answers,
+          isChatbotResponse: true,
+          authorId,
+          authorName,
+          isAutoResponse: true,
+        });
+      },
+      classifyOutcome: async ({ talkData }, answers) => checkIfMatch(
+        talkData,
+        answers,
+        await this.resolveResponderSelfTagForAnswers(talkData, answers),
+      ) ? 'match' : 'mismatch',
+      recordAnswer: ({ talkId, talkData, authorId }, answers, outcome) =>
+        this.uiManager.recordChatbotAnsweredTalk(
+          { ...talkData, id: talkId, authorId },
+          answers,
+          outcome,
+        ),
+      incomingRows: async () => this.coreRequest
+        ? await this.coreRequest({ name: 'graph.incoming' }).catch(() => []) as Array<Record<string, any>>
+        : [],
+      talkBody: async (talkId) => this.coreRequest
+        ? await this.coreRequest({ name: 'graph.talkBody', talkId }).catch(() => null) as Record<string, any> | null
+        : null,
+      schedule: (task, delayMs) => { setTimeout(task, delayMs); },
+      onEvent: (event) => {
+        if (event.type === 'passed') {
+          console.log('🤖 Chatbot passed a tag the user passed before', event);
+        } else if (event.type === 'triggered') {
+          console.log('🤖 Chatbot auto-reply triggered', event);
+        } else {
+          console.log(`🤖 Chatbot auto-reply skipped: ${event.reason}`, event);
+        }
+      },
+      onFailure: (error) => console.warn('🤖 Chatbot auto-reply failed:', error),
     });
     this.attestationService = new WebAttestationService(this.getBackendApiBase());
     // Scenario 2 (§16): every direct-p2p handshake evaluates a remote peer's presented
@@ -5809,11 +5866,11 @@ export class IinPublicApp {
    */
   private async chatbotReplyDecision(talkId: string, talkData: any, authorId: string): Promise<ChatbotReplyDecision & { answers?: any[] | null }> {
     const asks = !!authorId && authorId !== this.currentUser?.id && this.uiManager.getChatbotEnabled()
-      && !this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData));
+      && !this.chatbotReplyEffects.isHandled(talkId, authorId, talkData);
     const graph = asks ? await this.uiManager.chatbotAnswersFor(talkData, talkId) : { answers: null, passed: false, answered: false };
     const decision = decideChatbotReply(authorId, this.currentUser?.id, {
       enabled: () => this.uiManager.getChatbotEnabled(),
-      handled: () => this.chatbotAutoReplySentForPair.has(talkRevisionPairKey(talkId, authorId, talkData)),
+      handled: () => this.chatbotReplyEffects.isHandled(talkId, authorId, talkData),
       contentId: () => computeTalkIdFromTalkData(talkData),
       // This version answered already (the graph; an edit is a new version), or this content
       // for this sender (the app's map).
@@ -5836,25 +5893,7 @@ export class IinPublicApp {
    * was never exchanged between us (starter-tags spec under load; 1.0.248 phones).
    */
   private async answerSendersOfStarterTag(starterTalk: any): Promise<void> {
-    const core = this.coreRequest;
-    if (!core || !this.currentUser?.id) return;
-    let identity = '';
-    try { identity = buildTalkIdentityKey(starterTalk); } catch { return; }
-    // Read from the core, not the rows the page shows: those are refreshed at most every 1.5 s, and a
-    // sender whose Talk had just arrived was missed and never answered (stage5, 2026-11-22: Fay's
-    // Cats stayed open on Ann's list).
-    const rows = await core({ name: 'graph.incoming' }).catch(() => []) as Array<Record<string, any>>;
-    for (const row of rows) {
-      if (String(row?.identityKey || '') !== identity) continue;
-      for (const sender of Object.values<any>(row?.senders ?? {})) {
-        const senderId = String(sender?.senderId || '');
-        const talkId = String(sender?.lastTalkId || '');
-        if (!senderId || !talkId || senderId === this.currentUser.id) continue;
-        const body = await core({ name: 'graph.talkBody', talkId }).catch(() => null) as Record<string, any> | null;
-        if (!body) continue;
-        await this.maybeAutoChatbotReplyToAnnouncer(talkId, { ...body, authorId: senderId }, senderId, String(sender?.senderName || 'Unknown'));
-      }
-    }
+    await this.chatbotReplyEffects.answerSendersOfStarterTag(starterTalk);
   }
 
   private async maybeAutoChatbotReplyToAnnouncer(
@@ -5864,56 +5903,10 @@ export class IinPublicApp {
     authorName: string,
     known?: ChatbotReplyDecision & { answers?: any[] | null },
   ): Promise<void> {
-    const pairKey = talkRevisionPairKey(talkId, authorId, talkData);
-    const decision = known ?? await this.chatbotReplyDecision(talkId, talkData, authorId);
-    if (decision.act === 'skip') {
-      if (decision.reason !== 'self') console.log(`🤖 Chatbot auto-reply skipped: ${decision.reason}`, { talkId, authorId });
-      return;
-    }
-    const contentId = decision.contentId;
-    if (decision.act === 'pass') {
-      // A tag the user passed, sent again by someone: pass it again. A pass is a talk-level
-      // opt-out, so nothing goes back to the sender — only the user's list records it (🤖).
-      this.chatbotAutoReplySentForPair.add(pairKey);
-      const question = talkData.questions[0];
-      console.log('🤖 Chatbot passed a tag the user passed before', { talkId, authorId });
-      this.uiManager.recordChatbotAnsweredTalk(
-        { ...talkData, id: talkId, authorId },
-        [{ questionId: question.id, answerId: 'ignore', answerText: 'ignore' }],
-        'mismatch',
-        true,
-      );
-      return;
-    }
-    if (decision.act === 'wait') {
-      const retries = this.chatbotAutoReplyRetryCountByPair.get(pairKey) ?? 0;
-      // My own answers reach the device graph a moment after they are saved (a Talk I just made
-      // writes its self-answers after the Talk itself): ask again for about ten seconds.
-      // Under load the device graph can take longer: then every 5 s, for about two and a half
-      // minutes more (starter-tags spec: liked tags left waiting in Incoming for good).
-      if (retries < CHATBOT_WAIT_FAST_RETRIES + CHATBOT_WAIT_SLOW_RETRIES) {
-        this.chatbotAutoReplyRetryCountByPair.set(pairKey, retries + 1);
-        setTimeout(() => {
-          void this.maybeAutoChatbotReplyToAnnouncer(talkId, talkData, authorId, authorName);
-        }, retries < CHATBOT_WAIT_FAST_RETRIES ? 500 : 5_000);
-      } else {
-        this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
-        console.log('🤖 Chatbot auto-reply skipped: no reusable template', {
-          talkId,
-          contentId,
-          authorId,
-          retries,
-        });
-      }
-      return;
-    }
-    this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
-    this.chatbotAutoReplySentForPair.add(pairKey);
-
-    console.log('🤖 Chatbot auto-reply triggered', { talkId, contentId, authorId, authorName });
-    // Handled only once it answered: a reply that found no answer may be asked again.
-    const answered = await this.tryChatbotReply(talkId, talkData, authorId, authorName, decision.answers ?? null).catch(() => false);
-    if (!answered) this.chatbotAutoReplySentForPair.delete(pairKey);
+    await this.chatbotReplyEffects.reply(
+      { talkId, talkData, authorId, authorName },
+      known,
+    );
   }
 
   /** Load full talk for an incoming mesh/local announcement. */
@@ -6710,47 +6703,17 @@ export class IinPublicApp {
    * Auto-reply to a talk using saved template (chatbot). Puts response to Gun and creates
    * responder's conversation so the author will receive the match and see bot icon.
    */
-  private async tryChatbotReply(
+  public async tryChatbotReply(
     talkId: string,
     talkData: any,
     authorId: string,
     authorName: string,
     graphAnswers: any[] | null = null,
   ): Promise<boolean> {
-    let template = this.chatbotTemplateFor(talkId, talkData);
-    if (!template && talkData) {
-      const built = graphAnswers ?? (await this.uiManager.chatbotAnswersFor(talkData, talkId)).answers;
-      if (built && built.length > 0) {
-        template = { answers: built, talkData };
-      }
-    }
-    if (!template || !this.currentUser?.id) {
-      console.log('🤖 Chatbot reply aborted: missing template or user', {
-        talkId,
-        hasTemplate: !!template,
-        hasUser: !!this.currentUser?.id,
-      });
-      return false;
-    }
-
-    void this.submitTalkResponsePairDirect({
-      talkId,
-      talkData,
-      answers: template.answers,
-      isChatbotResponse: true,
-      authorId,
-      authorName,
-      isAutoResponse: true,
-    });
-    // Keep a visible record: the talk leaves the unanswered inbox and shows as answered by 🤖,
-    // reviewable and re-answerable later like any answered talk.
-    const outcome = checkIfMatch(
-      talkData,
-      template.answers,
-      await this.resolveResponderSelfTagForAnswers(talkData, template.answers),
-    ) ? 'match' : 'mismatch';
-    this.uiManager.recordChatbotAnsweredTalk({ ...talkData, id: talkId, authorId }, template.answers, outcome);
-    return true;
+    return this.chatbotReplyEffects.tryReply(
+      { talkId, talkData, authorId, authorName },
+      graphAnswers,
+    );
   }
 
 
@@ -7048,9 +7011,11 @@ export class IinPublicApp {
           respondedAt: new Date().toISOString(),
         },
       );
-      const pairKey = talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
-      this.chatbotAutoReplySentForPair.add(pairKey);
-      this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
+      this.chatbotReplyEffects.markHandled(
+        data.talkId,
+        String(data.talkData.authorId),
+        data.talkData,
+      );
       return;
     }
 
@@ -7087,9 +7052,11 @@ export class IinPublicApp {
     // A manual response already handled this sender/talk pair. Do not let later Gun replays
     // or duplicate room announcements trigger a chatbot follow-up to the same announcer.
     if (!isChatbot && this.currentUser?.id && data.talkData?.authorId) {
-      const pairKey = talkRevisionPairKey(data.talkId, String(data.talkData.authorId), data.talkData);
-      this.chatbotAutoReplySentForPair.add(pairKey);
-      this.chatbotAutoReplyRetryCountByPair.delete(pairKey);
+      this.chatbotReplyEffects.markHandled(
+        data.talkId,
+        String(data.talkData.authorId),
+        data.talkData,
+      );
     }
 
     // The receiver picked the dedicated Ignore choice — a talk-level opt-out, not one of

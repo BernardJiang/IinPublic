@@ -111,6 +111,11 @@ active feature development.
   WebRTC-before-content-node retrieval, bounded backoff, fetched-byte completion and stable
   retraction deduplication; SEA, WebRTC, IPFS storage and rendering remain explicit host ports. The
   coordinator ratchet is now 10,376 lines.
+  **Seventh no-phone slice (2026-11-27):** chatbot effect orchestration moved into
+  `core/chatbot-reply-effects.ts`. The core now owns per-revision handled state, single-flight
+  bounded template retries, pass-versus-answer dispatch, starter-tag sender replay, failure release
+  and answer recording order; graph queries, response transport and rendering remain host ports.
+  The coordinator ratchet is now 10,343 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport
