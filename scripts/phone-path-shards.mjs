@@ -27,6 +27,7 @@ const SECONDS = {
   '15-starter-tags': 66,
   '16-message-while-offline': 5,
   '17-location-refused': 12,
+  '18-sent-burst-survives-restart': 65,
 };
 
 export function phonePathShards(files, n) {

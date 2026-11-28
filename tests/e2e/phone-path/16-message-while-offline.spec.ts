@@ -36,11 +36,10 @@ test.describe('A message to a phone that is off', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  // Fails today (OPEN-122, 2 of 2 runs, 2026-11-27): Bob's message to the stopped phone is logged
-  // "delivered over WebRTC in 2 ms" into the dead link, so the mailbox is not used; after the
-  // restart Alice's app loads 2 of her 6 messages and her link to Bob never reopens. Run it with
-  // `npx playwright test --config tests/e2e/phone-path/playwright.config.ts <this file>` after
-  // removing `.fixme`.
+  // Flaky (OPEN-122, 2026-11-27): 2 of 3 pass since the sender's message saves were coalesced
+  // (message arrives ~15 s after the restart). The rest: Bob's notify is "delivered" into the dead
+  // link, so the mailbox is not used, and Alice's link to Bob sometimes never reopens. Remove
+  // `.fixme` to run it.
   test.fixme('J-CHAT-02: Bob writes while Alice\'s phone is off; she has it once it is back', async ({ browser }) => {
     test.setTimeout(480_000);
     phone = await startPhoneNode(PHONE_PATH_SPEC_PORTS.offlineChatPhone, PHONE_PATH_PORTS.hub, dataDir);

@@ -463,6 +463,17 @@ export class IinPublicApp {
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Per-conversation serialization keeps repeated live-subscription replays idempotent. */
   private readonly graphMessageWrites = new Map<string, Promise<void>>();
+  /**
+   * Messages waiting for the conversation's current graph write: they go together in the next one
+   * (OPEN-122). Each write waits until storage confirms (the phone node's Radisk gathers writes for
+   * 1 s), so one write per message made a burst of six take ~9 s to be stored, and an app closed
+   * in that window lost the sender's last messages.
+   */
+  private readonly graphMessageBatches = new Map<string, {
+    otherUserId: string;
+    imports: Array<Omit<ImportedMessage, 'conversationId' | 'otherUserId'>>;
+    write: Promise<void>;
+  }>();
   /** One mixed-release encrypted-cache import per ordinary conversation. */
   private readonly legacyDmMigrations = new Map<string, Promise<void>>();
   /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
@@ -8565,21 +8576,31 @@ export class IinPublicApp {
     if (!core || !me) return Promise.reject(new Error('Device graph is unavailable'));
     if (!otherUserId || otherUserId === me) return Promise.reject(new Error('Invalid conversation participant'));
     if (imports.length === 0) return Promise.resolve();
+    const waiting = this.graphMessageBatches.get(conversationId);
+    if (waiting && waiting.otherUserId === otherUserId) {
+      waiting.imports.push(...imports);
+      return waiting.write;
+    }
     const previous = this.graphMessageWrites.get(conversationId) ?? Promise.resolve();
+    const batch = { otherUserId, imports: [...imports], write: Promise.resolve() };
     const write = previous.catch(() => undefined).then(async () => {
+      // From here on this batch is being written: later messages start the next one.
+      if (this.graphMessageBatches.get(conversationId) === batch) this.graphMessageBatches.delete(conversationId);
       await this.coreLocationWrite.catch(() => undefined);
-      for (let offset = 0; offset < imports.length; offset += 200) {
+      for (let offset = 0; offset < batch.imports.length; offset += 200) {
         await core({
           name: 'graph.recordMessages',
           conversationId,
           otherUserId,
-          messages: imports.slice(offset, offset + 200),
+          messages: batch.imports.slice(offset, offset + 200),
         });
       }
       await this.refreshGraphTabSnapshot();
     }).finally(() => {
       if (this.graphMessageWrites.get(conversationId) === write) this.graphMessageWrites.delete(conversationId);
     });
+    batch.write = write;
+    this.graphMessageBatches.set(conversationId, batch);
     this.graphMessageWrites.set(conversationId, write);
     return write;
   }

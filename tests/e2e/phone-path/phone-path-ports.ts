@@ -23,6 +23,8 @@ export const PHONE_PATH_SPEC_PORTS = {
   chainPhone: 18193 + OFFSET,
   /** phone-path/16: a phone that is stopped while a message is sent to it. */
   offlineChatPhone: 18194 + OFFSET,
+  /** phone-path/18: a phone restarted right after a burst of messages. */
+  burstPhone: 18195 + OFFSET,
 } as const;
 
 export type PhonePathOrigin = keyof typeof PHONE_PATH_PORTS;
