@@ -100,7 +100,7 @@ actor's own screen, or only part of the case · — not covered · ⏳ written, 
 | **Chat** | | | | |
 | J-CHAT-01 | A message sent appears on the other person's screen | ✅ `stage2/09` | ✅ `phone-path/02` | ✅ `native-app/37` |
 | J-CHAT-04 | Sending never makes anyone wait: own message at once, Send stays free, arrival within 2 s, even during a slow local save | — | ✅ `phone-path/02` | ✅ `native-app/37` |
-| J-CHAT-02 | Message to someone offline arrives when they come back | ✅ `cross-platform/x6`, `talks-matching/05` | ✘ `phone-path/16` (receiver's app and node stopped): fails, OPEN-122 | ✅ `native-app/13` (receiver offline, app running) |
+| J-CHAT-02 | Message to someone offline arrives when they come back | ✅ `cross-platform/x6`, `talks-matching/05` | ◐ `phone-path/16` (receiver's app and node stopped): 2 of 3 pass, fixme on OPEN-122; `phone-path/18` (sender's burst survives a restart) ✅ | ✅ `native-app/13` (receiver offline, app running) |
 | J-CHAT-03 | A sleeping phone is notified and the message is there on wake | — | — | ✅ `native-app/28` |
 | **TechSupport** | | | | |
 | J-SUPPORT-01 | New user gets the signed greeting | ✅ `stage1/03` | — | ◐ `native-app/08` (support conversation) |
@@ -125,7 +125,7 @@ cheapest first, each checked on the other user's side:
 1. **Real phone:** J-ANS-01 (delete an answer), J-SUPPORT-01 (signed greeting on the phone),
    J-PROFILE-01 (rename seen by the other phone), J-ROW-01 (row gestures through the touch UI).
    The phone-path journey bodies in `tests/e2e/journeys/` can be reused, as `native-app/38` does.
-2. **Phone path:** ~~J-AUTO-01..03, J-TAGS-01~~ (`phone-path/14`, `15`, 2026-11-26); ~~J-START-04~~ (`phone-path/17`), J-CHAT-02 (written: `phone-path/16`, fails, OPEN-122), J-NEARBY-02
+2. **Phone path:** ~~J-AUTO-01..03, J-TAGS-01~~ (`phone-path/14`, `15`, 2026-11-26); ~~J-START-04~~ (`phone-path/17`), J-CHAT-02 (`phone-path/16`, flaky on OPEN-122), J-NEARBY-02
    (ring).
 3. **Web:** J-PLACE-02..06 (another user finds and enters a Place, on the web route), J-ANS-01,
    J-CHAT-04, J-ROW-01 checked on the author's side.

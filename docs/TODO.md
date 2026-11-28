@@ -133,21 +133,29 @@ its ID.
   before, empty after) across native-app/43 on P30, C10, FRD and PH-1, after a P30 + C10 release
   smoke.
 
-- [ ] **OPEN-122 — A DM to a phone that is off is lost on the phone route (found 2026-11-27,
-  OPEN-121 coverage work).** `phone-path/16` (J-CHAT-02, now `test.fixme`): Alice and Bob match and
-  chat; Alice's app closes and her phone node stops; Bob sends a message; Alice's node and app
-  start again on the same data. It never arrives (120 s), 2 of 2 runs. Three things seen in the app
-  logs (`PHONE_PATH_CONSOLE=all`):
-  1. Bob logs the message "delivered over WebRTC in 2 ms": the notify went into the link whose far
-     end had just closed (he notices "WebRTC session disposed" 6.6 s later), so the offline mailbox
-     was never used for it.
-  2. After the restart Alice's app loads 2 of the 6 messages she had before. Possibly messages
-     received live are not all stored on her phone; not yet confirmed.
-  3. Alice's link to Bob never reopens ("WebRTC connection replaced", repeatedly), so nothing
-     catches her up from Bob's store.
-  The web route (`cross-platform/x6`, `talks-matching/05`) and the real-phone run of
-  `native-app/13` cover J-CHAT-02 with the receiver's app still running (offline network), not a
-  stopped app, which is why this was not seen.
+- [ ] **OPEN-122 — A DM to a phone that is off can be lost on the phone route (found 2026-11-27,
+  OPEN-121 coverage work).** `phone-path/16` (J-CHAT-02): Alice and Bob match and chat; Alice's app
+  closes and her phone node stops; Bob sends a message; Alice's node and app start again on the
+  same data. Three causes found in the app logs (`PHONE_PATH_CONSOLE=all`):
+  1. **Fixed 2026-11-27: the sender's own messages were stored slowly and lost on a quick close.**
+     Each sent message's graph write waited for storage to confirm (the phone node's Radisk gathers
+     writes for 1 s, `durable()` waits up to 1.5 s) before the next one began, so six messages sent
+     in 0.3 s took ~9 s to store, and an app closed in that window lost the last ones (they were in
+     the page's queue only; nothing was overwritten). Writes queued behind a running one now go
+     together in one request (`writeConversationMessagesToGraph`, app.ts): the same six are stored
+     ~3.4 s after the first send. `phone-path/18` guards it (3/3; the old code lost 5 messages).
+     With this, `phone-path/16` passes 2 of 3 (the message arrives ~15 s after the restart).
+  2. **Open:** Bob logs the message "delivered over WebRTC in 2 ms": `sendDm` resolves when the data
+     channel takes the frame, not when the other side has it, so a frame into a link whose far end
+     just closed counts as delivered and the mailbox is never used. There is no DM receipt frame;
+     fixing it needs one (the receiver acks each DM by id; the sender keeps the 1.5 s grace timer
+     until the ack and queues to the mailbox without it; a peer that never acks costs a mailbox copy,
+     deduplicated by id). A wire-protocol change: owner's call.
+  3. **Open:** after the restart Alice's link to Bob sometimes never reopens ("WebRTC connection
+     replaced", repeatedly), so nothing catches her up; with (2) that loses the message (1 in 3).
+  `phone-path/16` stays `test.fixme` until (2) and (3) are fixed. The web route
+  (`cross-platform/x6`, `talks-matching/05`) and `native-app/13` test a receiver whose app keeps
+  running (network off), not a stopped app, which is why this was not seen.
 
 ## Paused implementation and field qualification — track, but do not start new features
 
