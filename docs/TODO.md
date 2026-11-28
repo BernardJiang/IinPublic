@@ -133,6 +133,15 @@ active feature development.
   ledger recording, and responder-side conversation projection. Crypto, graph links, persistence
   and rendering remain host ports. The completed response boundary ratchets the coordinator to
   9,948 lines.
+  **Tenth architecture slice (2026-11-27):** Nearby runtime ownership moved behind
+  `core/nearby-lifecycle-effects.ts`. The state machine now owns startup single-flight, stale-start
+  invalidation, idempotent stop and burst-coalesced refresh while `NearbyV3Service` remains the
+  discovery-policy authority and the web host remains the runtime factory.
+  **Eleventh architecture slice (2026-11-27):** the composition root now delegates cohesive UI feature
+  wiring to `web/app/profile-event-handlers.ts` and `web/app/messaging-event-handlers.ts`. Profile,
+  contact, block/review, stage-name, place-chat and direct-message workflows no longer live inside
+  the monolithic `setupEventHandlers`; session/navigation ownership remains in the app. Together
+  these final slices ratchet the coordinator to 9,588 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

@@ -1,4 +1,4 @@
-import { User, GPSCoordinate, Talk, type Tag, type IpfsAttachment, InteractionKind } from '../../shared/types';
+import { User, GPSCoordinate, Talk, type IpfsAttachment, InteractionKind } from '../../shared/types';
 import type { BlockSignalPayload } from '../../shared/block-signal';
 import { restoreLastTab } from '../ui/app-shell-controls';
 import {
@@ -14,7 +14,7 @@ import { WebDeviceHandoffService } from '../services/web-device-handoff-service'
 import { WebDeviceSyncService } from '../services/web-device-sync-service';
 import { WebAttestationService } from '../services/web-attestation-service';
 import { OFFICIAL_APPLICATION_ID, OFFICIAL_SIGNING_IDENTITY_HASH } from '../../shared/official-build-credential';
-import { addSyncedMessage, mergeMessagesWithGraph, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
+import { addSyncedMessage, mergeMessagesWithSynced, type SyncedMessage } from '../services/web-device-sync-message-cache';
 import { showDeviceSyncConflictDialog } from '../ui/device-sync-conflict-dialog';
 import { readLinkedDeviceRecords } from '../ui/linked-devices-dialog';
 import {
@@ -62,12 +62,13 @@ import { MapMatchView } from '../services/map-match-view';
 import { exchangeMapMatchSource } from '../services/map-match-source';
 import type { MapMatchSource } from '../../shared/map-matches';
 import { UIManager } from '../ui/ui-manager';
+import { registerProfileEventHandlers } from './profile-event-handlers';
+import { registerMessagingEventHandlers } from './messaging-event-handlers';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
 import { MAX_LIVE_PLACES_PER_CELL } from '../../shared/place-lifecycle';
 import { createSignedPlaceDescriptor } from '../../shared/place-descriptor';
-import { createSignedFriendMark } from '../../shared/friend-mark';
 import {
   ROOM_CREATE_MAX_BLOCKS_EXCLUSIVE,
   ROOM_CREATE_MIN_FRIEND_MARKS,
@@ -76,7 +77,6 @@ import {
   CONTACTS_ONLY_SCOPE_ID,
   isLocalOnlyRoomScope,
   NEARBY_V3_ROOM_ID,
-  hasNoHubRoster,
   hasRoomChat,
   isPersonalListScope,
   isCatchUpRecipient,
@@ -231,11 +231,12 @@ import { ChatbotReplyEffects } from '../../core/chatbot-reply-effects';
 import { ConversationProjectionEffects } from '../../core/conversation-projection-effects';
 import { ResponseIngestEffects } from '../../core/response-ingest-effects';
 import { ResponseSubmitEffects } from '../../core/response-submit-effects';
+import { NearbyLifecycleEffects } from '../../core/nearby-lifecycle-effects';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
 import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
-import { attachmentShareKeyPayload, attachmentSharePayload, formatAttachmentShareMessageText, parseAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
+import { attachmentShareKeyPayload, attachmentSharePayload, formatAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { AttachmentShareEffects, type MailboxAttachmentSharePayload } from '../../core/attachment-share-effects';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
@@ -401,7 +402,11 @@ export class IinPublicApp {
   private readonly graphEncounterRequestedAt = new Map<string, number>();
   private readonly graphPlaceVisitRequestedAt = new Map<string, number>();
   /** Nearby (§3.7): my personal list, the audience of `NEARBY_V3_ROOM_ID`. */
-  private nearbyV3: NearbyV3Runtime | null = null;
+  /** Race-safe owner of the web Nearby runtime; NearbyV3Service still owns discovery policy. */
+  private readonly nearbyLifecycle: NearbyLifecycleEffects<NearbyV3Runtime>;
+  private get nearbyV3(): NearbyV3Runtime | null {
+    return this.nearbyLifecycle.current();
+  }
   /** Verified direct-link proof when this device shares another device's Nearby count key. */
   private nearbyCountIdentity: NearbyCountIdentity | null = null;
   /** The latest Nearby broadcast, for "Sent to N of M". */
@@ -1126,6 +1131,21 @@ export class IinPublicApp {
       void this.deviceSyncService.enqueuePreferencesChange(user.pub || '', user.talkFilters);
     });
     this.uiManager = new UIManager();
+    this.nearbyLifecycle = new NearbyLifecycleEffects({
+      identityKey: () => {
+        const user = this.currentUser;
+        return user && !isTechSupportUser(user) ? user.id : null;
+      },
+      createRuntime: (identityKey) => this.createNearbyV3Runtime(identityKey),
+      startRuntime: (runtime) => {
+        (window as unknown as {
+          __iinpublicNearbyV3?: () => Record<string, unknown>;
+        }).__iinpublicNearbyV3 = () => runtime.diagnostics();
+        runtime.start();
+      },
+      stopRuntime: (runtime) => runtime.stop(),
+      refreshRuntime: (runtime) => runtime.service.refresh(),
+    });
     this.conversationProjectionEffects = new ConversationProjectionEffects({
       currentUser: () => this.currentUser,
       transportMode: () => this.conversationService.getTransportMode(),
@@ -2130,16 +2150,16 @@ export class IinPublicApp {
     }
   }
 
-  private async startNearbyV3(): Promise<void> {
+  private async createNearbyV3Runtime(identityKey: string): Promise<NearbyV3Runtime | null> {
     const user = this.currentUser;
-    if (this.nearbyV3 || !user || isTechSupportUser(user)) return;
+    if (!user || user.id !== identityKey || isTechSupportUser(user)) return null;
     const countIdentity = await this.identityLinkService.nearbyCountIdentity().catch(() => null);
-    if (this.nearbyV3 || this.currentUser !== user) return;
+    if (this.currentUser !== user) return null;
     this.nearbyCountIdentity = countIdentity;
     const mesh = this.ensurePeerMeshService();
-    if (!mesh) return;
+    if (!mesh) return null;
     const extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions;
-    this.nearbyV3 = new NearbyV3Runtime({
+    const runtime = new NearbyV3Runtime({
       gunService: this.gunService,
       mesh,
       apiBase: () => this.getBackendApiBase(),
@@ -2184,9 +2204,11 @@ export class IinPublicApp {
         this.applyChatroomMemberCount(scopeId, isPlaceRoomId(scopeId) ? people + 1 : people);
       },
     });
-    const runtime = this.nearbyV3;
-    (window as unknown as { __iinpublicNearbyV3?: () => Record<string, unknown> }).__iinpublicNearbyV3 = () => runtime.diagnostics();
-    runtime.start();
+    return runtime;
+  }
+
+  private async startNearbyV3(): Promise<void> {
+    await this.nearbyLifecycle.start();
   }
 
   /** Reissue immediately when linking or unlinking changes this device's count key. */
@@ -2194,7 +2216,7 @@ export class IinPublicApp {
     const next = await this.identityLinkService.nearbyCountIdentity().catch(() => null);
     const previousKey = this.nearbyCountIdentity?.countKey ?? null;
     this.nearbyCountIdentity = next;
-    if (previousKey !== (next?.countKey ?? null)) await this.nearbyV3?.service.refresh();
+    if (previousKey !== (next?.countKey ?? null)) await this.nearbyLifecycle.refresh();
   }
 
   private nearbyV3Config(extensions = BUNDLED_PROTOCOL_MANIFEST_HISTORY.at(-1)?.body.extensions) {
@@ -2278,8 +2300,7 @@ export class IinPublicApp {
   }
 
   private stopNearbyV3(): void {
-    this.nearbyV3?.stop();
-    this.nearbyV3 = null;
+    this.nearbyLifecycle.stop();
   }
 
   /** My point or travel state changed: reissue my card and redraw me (★) on the map. */
@@ -2381,7 +2402,7 @@ export class IinPublicApp {
     this.reportLocationToCore();
     this.recordActivePlaceVisitInGraph();
     if (!this.initialized) return; // boot ends with one refresh (startNearbyV3)
-    this.nearbyV3?.refresh();
+    void this.nearbyLifecycle.refresh();
     void this.refreshActiveRooms(); // Place distances follow where I now appear
     const location = this.nearbyPublicPoint();
     const traveler = this.appearsAsTraveler();
@@ -8036,263 +8057,22 @@ export class IinPublicApp {
       this.maybeFinalizeConfirmedDeal(mergedConfirmations, conversation.otherUserId, data.conversationId);
     });
 
-    this.uiManager.on('updateTalkFilters', async (filters: any) => {
-      if (!this.currentUser) return;
-      this.currentUser.talkFilters = filters;
-      this.writeCachedUser(this.currentUser);
-      try {
-        await this.userService.updateTalkFilters(this.currentUser.id, filters);
-      } catch (error) {
-        console.warn('Failed to persist talk filters:', error);
-      }
+    registerProfileEventHandlers({
+      ui: this.uiManager,
+      users: this.userService,
+      gun: this.gunService,
+      chatrooms: this.chatroomService,
+      blockSignals: this.blockSignalEffects,
+      blockStatus: this.blockStatusCache,
+      currentUser: () => this.currentUser,
+      setCurrentUser: (user) => { this.currentUser = user; },
+      writeCachedUser: (user) => this.writeCachedUser(user),
+      refreshStatusBar: () => this.refreshStatusBar(),
+      refreshNearby: () => { void this.nearbyLifecycle.refresh(); },
+      currentRoomId: () => this.currentChatroomId,
+      backendApiBase: () => this.getBackendApiBase(),
+      renderSupportGreeting: () => this.renderSupportGreeting({ notify: false }),
     });
-
-    this.uiManager.on('setCreditVisibility', async (data: { visible: boolean }) => {
-      if (!this.currentUser) return;
-      this.currentUser.reputation.isHidden = !data.visible;
-      try {
-        await this.userService.updateReputationVisibility(this.currentUser.id, !data.visible);
-      } catch (error) {
-        console.warn('Failed to persist credit visibility:', error);
-      }
-    });
-
-    this.uiManager.on(
-      'saveKnownPerson',
-      async (data: { userId: string; labels: any[]; nickname?: string; customLabel?: string; rating?: number; notes?: string }) => {
-        if (!this.currentUser) return;
-        try {
-          const extras = {
-            ...(data.customLabel ? { customLabel: data.customLabel } : {}),
-            ...(typeof data.rating === 'number' ? { rating: data.rating } : {}),
-            ...(data.notes ? { notes: data.notes } : {}),
-          };
-          const existing = this.currentUser.knownPeople?.find((known) => known.userId === data.userId);
-          const target = await this.userService.getUser(data.userId);
-          if (existing?.identityPub && target.pub && existing.identityPub !== target.pub) {
-            throw new Error('Contact identity key changed; remove and verify the contact before adding again');
-          }
-          const liveIdentityPub = listP2PSessions().find((session) => session.getOtherUserId() === data.userId)?.otherPub;
-          const identityPub = existing?.identityPub ?? target.pub ?? liveIdentityPub;
-          if (!identityPub) throw new Error('Cannot add Contact until the peer identity is verified');
-          const identityEpub = existing?.identityEpub ?? target.epub;
-          await this.userService.addKnownPerson(
-            this.currentUser.id,
-            data.userId,
-            data.labels,
-            data.nickname,
-            {
-              ...extras,
-              identityPub,
-              ...(identityEpub ? { identityEpub } : {}),
-            },
-          );
-          const pair = this.gunService.getStoredPair();
-          if (pair?.pub && pair?.priv && target.pub) {
-            const friendMark = await createSignedFriendMark({
-              markerUserId: this.currentUser.id,
-              targetUserId: data.userId,
-              targetPub: target.pub,
-              active: data.labels.includes('friend'),
-              pair,
-            });
-            await this.userService.setFriendMark(friendMark);
-          }
-          const currentEntry = this.currentUser.knownPeople?.find((known) => known.userId === data.userId);
-          if (currentEntry) {
-            currentEntry.identityPub = identityPub;
-            if (identityEpub) currentEntry.identityEpub = identityEpub;
-            currentEntry.identityPinnedAt ??= new Date();
-          }
-          // "Block is a status, not a one-time notification" — a contact added or relabeled
-          // into a group scope this account already shared a block with catches up now.
-          void this.blockSignalEffects.resendToContact({
-            userId: data.userId,
-            labels: data.labels,
-            addedAt: new Date(),
-            ...extras,
-          }).catch((err) => console.warn('[BlockSignal] catch-up on saveKnownPerson failed:', err));
-        } catch (error) {
-          console.warn('Failed to save known person:', error);
-        }
-      },
-    );
-
-    this.uiManager.on('submitPeerReview', async (data: { userId: string; rating: number }) => {
-      try {
-        await this.userService.submitPeerReview(data.userId, data.rating);
-      } catch (error) {
-        console.warn('Failed to submit peer review:', error);
-      }
-    });
-
-    this.uiManager.on('vouchAgeVerified', async (data: { userId: string }) => {
-      try {
-        await this.userService.vouchAgeVerified(data.userId);
-        this.uiManager.showNotification(this.uiManager.formatAgeVoteSubmitted(), 'success');
-      } catch (error) {
-        console.warn('Failed to vouch age:', error);
-      }
-    });
-
-    this.uiManager.on(
-      'setUserBlocked',
-      async (data: {
-        userId: string;
-        blocked: boolean;
-        notify?: { groupId: string; recipientUserIds: string[] };
-      }) => {
-        if (!this.currentUser) return;
-        try {
-          const blockedUserIds = data.blocked
-            ? await this.userService.blockUser(this.currentUser.id, data.userId)
-            : await this.userService.unblockUser(this.currentUser.id, data.userId);
-          this.blockStatusCache.invalidate(data.userId);
-          this.currentUser.blockedUserIds = blockedUserIds;
-          this.writeCachedUser(this.currentUser);
-          this.uiManager.adoptSessionUser(this.currentUser);
-          this.uiManager.showNotification(
-            this.uiManager.formatUserBlockChanged(data.blocked),
-            'success',
-          );
-          // Opt-in friend-circle notification (src/shared/block-signal.ts) — the UI layer
-          // already resolved which group and current members to notify. An empty group is still
-          // persisted as share status so a contact added to that group later catches up.
-          if (data.blocked && data.notify) {
-            const { groupId, recipientUserIds } = data.notify;
-            void this.blockSignalEffects.fanOut(data.userId, groupId, recipientUserIds).catch((err) => {
-              console.warn('[BlockSignal] fan-out failed:', err);
-            });
-          }
-        } catch (error) {
-          console.warn('Failed to update block state:', error);
-        }
-      },
-    );
-
-    // Handle stage name changes
-    this.uiManager.onStageNameChange = async (userId: string, newStageName: string) => {
-      try {
-        await this.userService.updateStageName(userId, newStageName);
-
-        // Update current user object. The local write above is the save: confirm now and
-        // publish to the hub in the background (gui-responsiveness-audit.md F3 — this used to
-        // wait ~13.5 s for the hub on a hung network before saying anything).
-        if (this.currentUser && this.currentUser.id === userId) {
-          this.currentUser.stageName = newStageName;
-          this.writeCachedUser(this.currentUser);
-          // Refresh the UI to show the new name
-          this.uiManager.showMainInterface(this.currentUser);
-          this.refreshStatusBar();
-
-          // Nearby: my card carries my name; reissue it and tell the nearest person now.
-          this.nearbyV3?.refresh();
-          // Update the stage name in the current Place so others can see it
-          const roomId = this.currentChatroomId;
-          if (roomId && !hasNoHubRoster(roomId)) {
-            const gun = this.gunService.getGun();
-            gun.get('chatrooms').get(roomId).get('users').get(userId).put({
-              stageName: newStageName,
-            });
-            // Restart the membership heartbeat with the new name — its ~30s beats re-put the
-            // member record with the name captured at heartbeat start and would otherwise
-            // clobber this write back to the old name (peers' rosters then stay stale forever).
-            this.chatroomService.refreshMembershipStageName(roomId, userId, newStageName);
-          }
-          const pair = this.gunService.getStoredPair();
-          const published = { ...this.currentUser };
-          void (async () => {
-            await this.userService.syncPublicUserForRelay({
-              ...published,
-              ...(pair?.pub ? { pub: pair.pub } : {}),
-              ...(pair?.epub ? { epub: pair.epub } : {}),
-            });
-            await this.renderSupportGreeting({ notify: false });
-            if (roomId && !hasNoHubRoster(roomId)) {
-              await fetchWithTimeout(
-                `${this.getBackendApiBase()}/api/chatrooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}`,
-                {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ stageName: newStageName, lastSeen: new Date().toISOString() }),
-                },
-              ).catch(() => undefined);
-            }
-          })().catch((error) => console.warn('Publishing the new stage name failed (kept locally):', error));
-        }
-
-        this.uiManager.showNotification(this.uiManager.formatStageNameUpdated(), 'success');
-      } catch (error) {
-        console.error('Failed to update stage name:', error);
-        throw error;
-      }
-    };
-
-    this.uiManager.onProfileChange = async (
-      userId: string,
-      updates: {
-        headshot?: string;
-        languages: string[];
-        profile: Array<{ id: string; question: string; answer: string; isAuto: boolean; answeredAt: Date }>;
-        interests: Tag[];
-      },
-    ) => {
-      const previousUser = this.currentUser;
-      try {
-        // Apply the change at once (local-first); the writes below take up to ~1 s even locally,
-        // and the screen used to wait for them (gui-responsiveness-audit.md F3).
-        if (previousUser && previousUser.id === userId) {
-          const applied: User = {
-            ...previousUser,
-            languages: updates.languages,
-            profile: updates.profile,
-            interests: updates.interests,
-            ...(updates.headshot ? { headshot: updates.headshot } : {}),
-          };
-          if (!updates.headshot) delete (applied as Partial<User>).headshot;
-          this.currentUser = applied;
-          this.uiManager.showMainInterface(applied);
-        }
-        // Start from the user already in memory: re-reading it from Gun cost up to 8 s per
-        // missing sub-record before the save even began.
-        const updatedUser = await this.userService.updateProfileFoundation(
-          userId,
-          updates,
-          previousUser?.id === userId ? previousUser : undefined,
-        );
-        if (this.currentUser && this.currentUser.id === userId) {
-          // A name change can finish while this profile save is in flight. Keep the latest
-          // session fields instead of replacing them with the snapshot captured at entry.
-          this.currentUser = {
-            ...this.currentUser,
-            languages: updatedUser.languages,
-            profile: updatedUser.profile,
-            interests: updatedUser.interests,
-            ...(updatedUser.headshot ? { headshot: updatedUser.headshot } : {}),
-          };
-          if (!updatedUser.headshot) delete (this.currentUser as Partial<User>).headshot;
-          this.writeCachedUser(this.currentUser);
-          this.uiManager.showMainInterface(this.currentUser);
-          this.refreshStatusBar();
-        }
-        this.uiManager.showNotification(this.uiManager.formatProfileUpdated(), 'success');
-      } catch (error) {
-        console.error('Failed to update profile foundation:', error);
-        // Not saved: put back what was there, so the screen does not claim a change that failed.
-        if (previousUser && this.currentUser?.id === userId) {
-          this.currentUser = {
-            ...this.currentUser,
-            languages: previousUser.languages,
-            profile: previousUser.profile,
-            interests: previousUser.interests,
-            ...(previousUser.headshot ? { headshot: previousUser.headshot } : {}),
-          };
-          if (!previousUser.headshot) delete (this.currentUser as Partial<User>).headshot;
-          this.uiManager.showMainInterface(this.currentUser);
-        }
-        throw error;
-      }
-    };
 
     // Handle "Send Talk" button click on user - now opens conversation if exists
     this.uiManager.on('sendTalkToUser', async (data: { userId: string }) => {
@@ -8895,171 +8675,31 @@ export class IinPublicApp {
       },
     );
 
-    this.uiManager.on('sendMessage', async (data: { conversationId: string; message: string; onPersisted?: () => void; onError?: () => void }) => {
-      try {
-        console.log('📤 Sending chatroom message');
-
-        // For now, broadcast message to the chatroom
-        const chatroomId = this.chatroomService.getCurrentChatroomId();
-        if (!chatroomId) {
-          this.uiManager.showNotification(this.uiManager.formatNotInChatroom(), 'error');
-          data.onError?.();
-          return;
-        }
-
-        // Create a simple message object
-        const message = {
-          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          text: data.message,
-          senderId: this.currentUser!.id,
-          senderName: this.currentUser!.stageName,
-          timestamp: new Date().toISOString(),
-        };
-
-        const stored = await this.placeChatClient.send(chatroomId, message);
-        data.onPersisted?.();
-        // The next bounded poll dedupes this id; render immediately for responsive sending.
-        this.uiManager.displayChatroomMessage({ ...stored, isOwnMessage: true });
-
-        console.log('✅ Chatroom message sent');
-        this.uiManager.showNotification(this.uiManager.formatMessageSent(), 'success');
-      } catch (error) {
-        data.onError?.();
-        console.error('Failed to send message:', error);
-        this.uiManager.showNotification(
-          this.uiManager.formatMessageSendFailed((error as Error).message),
-          'error',
-        );
-      }
-    });
-
-    // Handle conversation message loading
-    this.uiManager.on('loadConversation', async (data: { conversationId: string }) => {
-      try {
-        console.log('📖 Loading conversation:', data.conversationId);
-        const conversation = this.uiManager.getMyConversations()[data.conversationId] as any;
-        const otherUserId = conversation?.otherUserId ? String(conversation.otherUserId) : undefined;
-        let graphMessages: GraphConversationMessage[] = [];
-        let latestLiveMessages: any[] = [];
-        const displayMergedMessages = () => {
-          const messages = mergeMessagesWithGraph(
-            data.conversationId,
-            latestLiveMessages,
-            graphMessages,
-            this.currentUser?.id || '',
-          );
-          void this.uiManager.displayConversationMessages(data.conversationId, messages);
-          return messages;
-        };
-
-        // The immutable log is the durable history. The live subscription below remains the
-        // delivery/decryption notification source during migration and wins duplicate ids only
-        // for transient fields such as deliveryState.
-        if (this.coreRequest && this.currentUser?.id) {
-          void this.coreRequest({
-            name: 'graph.conversationMessages',
-            conversationId: data.conversationId,
-            limit: 200,
-          }).then((rows) => {
-            graphMessages = rows as GraphConversationMessage[];
-            displayMergedMessages();
-          }).catch((error) => console.warn('[graph] conversation history read failed:', error));
-        }
-
-        // Subscribe to messages for this conversation (pass myUserId for prevSeen DAG tracking)
-        this.conversationService.subscribeToMessages(data.conversationId, (liveMessages) => {
-          console.log('📨 Received conversation messages:', liveMessages);
-          // A conversation this device only knows about via device-sync (see
-          // WebDeviceSyncService's `messages` category) has no live Gun messages at all — the
-          // pair path is keyed by the two ORIGINAL participant ids, not this device's — so its
-          // history lives only in the synced-plaintext cache. Live copies win any id collision.
-          latestLiveMessages = liveMessages;
-          if (otherUserId && data.conversationId.startsWith('conv_support_')) {
-            this.recordConversationMessagesInGraph(data.conversationId, otherUserId, liveMessages);
-          }
-          const messages = displayMergedMessages();
-          for (const message of messages) {
-            const sharePayload = parseAttachmentShareMessageText(String(message.text || ''));
-            if (!sharePayload) continue;
-            if (!message.senderId || message.senderId === this.currentUser?.id) continue;
-            void this.maybeFetchSharedAttachmentBytes(sharePayload, String(message.senderId)).catch((err) => {
-              console.warn('[L5] conversation attachment fetch failed:', err);
-            });
-          }
-          // Reconcile the preview through the durable read cursor. This subscription can replay
-          // an already-read batch after the conversation closes; blindly marking its last message
-          // unread would resurrect a badge that the user just cleared.
-          const currentUserId = this.currentUser?.id;
-          if (currentUserId) {
-            this.uiManager.syncConversationMessageSummary(
-              data.conversationId,
-              messages,
-              currentUserId,
-            );
-          }
-        }, this.currentUser?.id, otherUserId);
-      } catch (error) {
-        console.error('Failed to load conversation:', error);
-        this.uiManager.showNotification(
-          this.uiManager.formatConversationLoadFailed((error as Error).message),
-          'error',
-        );
-      }
-    });
-
-    // Handle sending conversation messages
-    this.uiManager.on(
-      'sendConversationMessage',
-      async (data: { conversationId: string; message: string; talkId?: string; onPersisted?: () => void; onError?: () => void }) => {
-        let conversation: ReturnType<typeof this.uiManager.getMyConversations>[string] | undefined;
-        let otherUserId: string | undefined;
-        const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-        try {
-          console.log('📤 Sending conversation message');
-          conversation = this.uiManager.getMyConversations()[data.conversationId];
-          otherUserId = conversation?.otherUserId
-            ? String(conversation.otherUserId)
-            : undefined;
-
-          await this.conversationService.sendMessage(
-            data.conversationId,
-            this.currentUser!.id,
-            data.message,
-            {
-              messageId,
-              ...(otherUserId ? { otherUserId } : {}),
-              // Per-talk thread scope (redesign §5) — omitted for the DM thread.
-              ...(data.talkId ? { talkId: data.talkId } : {}),
-            },
-          );
-
-        } catch (error) {
-          data.onError?.();
-          console.error('Failed to send conversation message:', error);
-          this.uiManager.showNotification(
-            this.uiManager.formatMessageSendFailed((error as Error).message),
-            'error',
-          );
-          return;
-        }
-
-        data.onPersisted?.();
-        console.log('✅ Conversation message sent');
-        if (conversation?.supportChannel === true || otherUserId === TECHSUPPORT_ROOT_USER_ID) {
-          // The message is already stored. A support-service failure must not tell the
-          // composer the send failed or invite a duplicate retry.
-          void this.handleSupportQuestion(data.conversationId, messageId, data.message)
-            .catch((error) => console.warn('Support follow-up failed after message send:', error));
-        }
-
-        // Phase E: ledger hook — CONVERSATION_MSG
-        this.ledgerEmit(InteractionKind.CONVERSATION_MSG, {
-          conversationId: data.conversationId,
-          messageId,
-          seq: Date.now(),
-        });
+    registerMessagingEventHandlers({
+      ui: this.uiManager,
+      chatrooms: this.chatroomService,
+      placeChat: this.placeChatClient,
+      conversations: this.conversationService,
+      currentUser: () => this.currentUser,
+      graphMessages: async (conversationId) => {
+        if (!this.coreRequest || !this.currentUser?.id) return [];
+        return this.coreRequest({
+          name: 'graph.conversationMessages',
+          conversationId,
+          limit: 200,
+        }) as Promise<GraphConversationMessage[]>;
       },
-    );
+      recordSupportMessages: (conversationId, otherUserId, messages) =>
+        this.recordConversationMessagesInGraph(conversationId, otherUserId, messages),
+      fetchSharedAttachment: (payload, senderId) =>
+        this.maybeFetchSharedAttachmentBytes(payload, senderId),
+      handleSupportQuestion: (conversationId, id, message) =>
+        this.handleSupportQuestion(conversationId, id, message),
+      recordConversationLedger: (conversationId, id) => this.ledgerEmit(
+        InteractionKind.CONVERSATION_MSG,
+        { conversationId, messageId: id, seq: Date.now() },
+      ),
+    });
 
     // docs/TODO.md K5, design note §Item 5 — the TechSupport-inbox answer control (only ever
     // rendered inside a TechSupport-root session, ui-manager.ts's renderSettingsView).
