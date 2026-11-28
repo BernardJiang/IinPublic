@@ -126,8 +126,13 @@ active feature development.
   `core/response-ingest-effects.ts`. The core now owns author/contact gates, response idempotency,
   stale/retraction decisions, exchange ordering, first-match creation and both change-of-mind
   transitions, including attachment sharing after conversation projection. Decryption, graph
-  reads, conversation storage and notifications remain host ports. The coordinator ratchet is now
-  10,079 lines; responder commit/fanout is the remaining half of this boundary.
+  reads, conversation storage and notifications remain host ports.
+  **Ninth no-phone slice, responder half (2026-11-27):** response commit/fanout moved into
+  `core/response-submit-effects.ts`. The core now owns completeness and match evaluation,
+  commit-before-send, retraction gates, change-of-mind fanout, queue-release ordering, exchange and
+  ledger recording, and responder-side conversation projection. Crypto, graph links, persistence
+  and rendering remain host ports. The completed response boundary ratchets the coordinator to
+  9,948 lines.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

@@ -95,7 +95,7 @@ import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-
 import { graphAnswerHistoryTalkIds, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
 import { getFlatAnswerHistory, getTalkContentKey, setAnswerHistoryCore, setFlatAnswerHistory, upsertFlatAnswerHistory } from '../ui/answer-history-storage';
 import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
-import { computeTalkIdFromTalkData, computeResponseId, canonicalSerialize } from '../../shared/cid';
+import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
 import {
@@ -230,6 +230,7 @@ import { chatbotWillAct, decideChatbotReply, type ChatbotReplyDecision } from '.
 import { ChatbotReplyEffects } from '../../core/chatbot-reply-effects';
 import { ConversationProjectionEffects } from '../../core/conversation-projection-effects';
 import { ResponseIngestEffects } from '../../core/response-ingest-effects';
+import { ResponseSubmitEffects } from '../../core/response-submit-effects';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
@@ -238,8 +239,7 @@ import { attachmentShareKeyPayload, attachmentSharePayload, formatAttachmentShar
 import { AttachmentShareEffects, type MailboxAttachmentSharePayload } from '../../core/attachment-share-effects';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
-import { answeredBeforeFor, isDealEligibleTalk, matchScoreParamsFor, talkRevisionPairKey } from '../../core/talk-rules';
-import { isIgnoreAnswerSet, isResponseComplete } from '../../core/response-rules';
+import { answeredBeforeFor, isDealEligibleTalk, talkRevisionPairKey } from '../../core/talk-rules';
 import { conversationReferencesTalk, isDealMutuallyConfirmed, planRetractionReceipt } from '../../core/retraction';
 import { appStorage, settingsStorage } from '../services/core-storage';
 import { MIGRATION_MARKS, migrateWorkerCoreToNode, resolveNativeNode, type CoreRequester, type NativeNode } from '../services/node-core-link';
@@ -451,6 +451,8 @@ export class IinPublicApp {
   private readonly conversationProjectionEffects: ConversationProjectionEffects;
   /** Portable author-side response/match orchestration; UI, graph and transport are host ports. */
   private readonly responseIngestEffects: ResponseIngestEffects;
+  /** Portable responder-side commit/fanout orchestration; crypto, graph and UI are host ports. */
+  private readonly responseSubmitEffects: ResponseSubmitEffects;
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
   private graphTabRefresh: Promise<void> | null = null;
@@ -1257,6 +1259,111 @@ export class IinPublicApp {
           console.debug(`[RESP-INGEST] discarded (${event.reason}) from ${payload.responderId} v=${payload.version ?? 1}`);
         } else {
           console.debug(`[Step9] Version bump from ${payload.responderId}: v${event.priorVersion}→v${event.version}, outcome unchanged`);
+        }
+      },
+    });
+    this.responseSubmitEffects = new ResponseSubmitEffects({
+      currentUser: () => {
+        if (!this.currentUser) return undefined;
+        return {
+          id: this.currentUser.id,
+          stageName: this.currentUser.stageName,
+          ...(this.gunService.getStoredPair()?.epub
+            ? { epub: this.gunService.getStoredPair()!.epub }
+            : {}),
+        };
+      },
+      acceptsAuthor: (authorId) => Boolean(this.currentUser) && talkContactPolicyAllowsPeer(
+        authorId,
+        getTalkIntakeFilters(),
+        this.currentUser!.knownPeople,
+        this.roomTravelerIds,
+      ),
+      resolveSelfTag: (talkData, answers) =>
+        this.resolveResponderSelfTagForAnswers(talkData, answers),
+      shouldSkipDelivery: (params, isMatch) => process.env.DISABLE_HMR === 'true'
+        && params.talkData?.e2eLocalOnlyReject === true
+        && !isMatch,
+      encrypt: (authorId, content, authorEpub) =>
+        this.encryptPairTalkResponsePayload(authorId, content, authorEpub),
+      commit: async (input) => {
+        if (!this.coreRequest) throw new Error('Device graph is unavailable');
+        return this.coreRequest({ name: 'response.commit', input });
+      },
+      ensureGraphLinks: async () => {
+        if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
+      },
+      sendGraphAnswer: async (params) => {
+        if (!this.coreRequest) return { sent: false, reason: 'no device core' };
+        return this.coreRequest({ name: 'graph.answer', ...params });
+      },
+      showExchangeActivity: (authorId) =>
+        this.uiManager.showExchangeActivity('outgoing', [authorId]),
+      recordDelivery: (responseId, authorId) => this.coreDelivery({
+        name: 'delivery.record',
+        input: {
+          objectId: responseId,
+          recipientId: authorId,
+          objectKind: 'talk-response',
+          state: 'sent',
+        },
+      }),
+      isRetracted: async (talkId) => this.coreRequest
+        ? (await this.coreRequest({ name: 'graph.deletedAt', talkId }).catch(() => null)) !== null
+        : false,
+      otherSenders: (talkId, authorId) => this.otherSendersOf(talkId, authorId),
+      refreshExchangeState: () => refreshExchangeState(),
+      recordAnsweredLedger: ({ talkId, responseId, outcome }) => this.ledgerEmit(
+        InteractionKind.TALK_ANSWERED,
+        { talkId, responseId, outcome },
+      ),
+      answeredRow: (talkData) => this.answeredRowFor(talkData),
+      recordExchange: ({ peerId, peerName, talkId, talkData, outcome, meta }) =>
+        this.recordLocalTalkExchange(peerId, peerName, talkId, talkData, outcome, meta),
+      createConversation: (params) => this.conversationService.createConversation({
+        userId1: params.currentUserId,
+        userName1: params.currentUserName,
+        userId2: params.authorId,
+        userName2: params.authorName,
+        talkId: params.talkId,
+        respondedByBotForUser1: false,
+        respondedByBotForUser2: params.respondedByBot,
+        dealEligible: params.dealEligible,
+        ...(params.matchScore !== undefined ? { matchScore: params.matchScore } : {}),
+        ...(params.matchTotal !== undefined ? { matchTotal: params.matchTotal } : {}),
+      }),
+      recordNeed: (conversationId, talkData) =>
+        this.recordConversationNeedKey(conversationId, talkData),
+      resolveResponderSourceTalkId: (talkData, answers) =>
+        this.resolveResponderSourceTalkIdForAnswers(talkData, answers),
+      recordDealTalk: (conversationId, talkId, talkData) =>
+        this.recordMyDealTalkForConversation(conversationId, talkId, talkData),
+      showSafetyToast: () => this.uiManager.maybeShowMatchSafetyToast(),
+      upsertConversation: (view) => this.uiManager.addNewConversation(view as any),
+      transportMode: () => this.conversationService.getTransportMode(),
+      setMemberMatched: (authorId) => this.uiManager.setMemberMatched(authorId),
+      recordMatchLedger: ({ talkId, conversationId, otherUserId }) => this.ledgerEmit(
+        InteractionKind.MATCH_CREATED,
+        { talkId, conversationId, otherUserId },
+      ),
+      onEvent: (event) => {
+        if (event.type === 'incomplete') {
+          console.log('⏸️ Talk response incomplete (survey, not all questions answered) — not submitting:', {
+            talkId: event.talkId,
+            answered: event.answered,
+          });
+        } else if (event.type === 'encryption-failed') {
+          console.warn(`[Step9] Failed to encrypt response for ${event.authorId}:`, event.error);
+        } else if (event.type === 'delivery-failed') {
+          console.warn(`[graph-link] answer to ${event.authorId.slice(0, 8)} failed:`, event.error);
+        } else if (event.type === 'not-sent') {
+          console.warn(`[graph-link] answer to ${event.authorId.slice(0, 8)} not sent: ${event.reason}`);
+        } else if (event.type === 'sent') {
+          console.log(`[RESP-SEND] talk=${event.talkId.slice(-8)} to=${event.authorId.slice(0, 8)} v=${event.version} graph=${event.sent}`);
+        } else if (event.type === 'fanout') {
+          console.log(`[Step9] Change-of-mind fanout to additional sender ${event.authorId}`);
+        } else {
+          console.debug(`[Step10] Skipping response send — talk ${event.talkId} retracted by ${event.authorId}`);
         }
       },
     });
@@ -7070,245 +7177,7 @@ export class IinPublicApp {
     /** Called once my writes are done: the answer queue may start the next answer (OPEN-120). */
     releaseLine?: () => void;
   }): Promise<void> {
-    if (!this.currentUser?.id) return;
-    if (!talkContactPolicyAllowsPeer(
-      params.authorId,
-      getTalkIntakeFilters(),
-      this.currentUser.knownPeople,
-      this.roomTravelerIds,
-    )) return;
-    // docs/TODO.md §W Gap 2 completeness note: a survey response that hasn't answered every
-    // question is not yet "done" on the responder's side — the sender must not receive it and
-    // must go on treating it as not-yet-answered (no ledger write, no mesh send). This is the
-    // structural backstop at the single submission chokepoint (both the real completion path
-    // via handleTalkCompleted and the chatbot-replay path via tryChatbotReply funnel through
-    // here) — talk-response-dialog.ts's per-type flows are the primary fix and should never
-    // actually reach this with a short answer set for survey anymore.
-    if (!isResponseComplete(params.talkData, params.answers)) {
-      console.log('⏸️ Talk response incomplete (survey, not all questions answered) — not submitting:', {
-        talkId: params.talkId,
-        answered: params.answers.length,
-      });
-      return;
-    }
-    // The canonical match decision (both the manual-click path via handleTalkCompleted and
-    // the chatbot's auto-reply path via tryChatbotReply funnel through here) — resolving my
-    // own selfTag here is what makes the preference-set veto authoritative regardless of how
-    // the answers were chosen, not just an optimization the chatbot's findAutoAnswer short-circuits.
-    const isMatch = checkIfMatch(
-      params.talkData,
-      params.answers,
-      await this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
-    );
-    const isIgnore = isIgnoreAnswerSet(params.answers);
-    // R-1: CIDv1 response id — REQ-LEDGER-04/12 (replaces resp_<ts>_<rand> non-deterministic id)
-    const responseContentJson = canonicalSerialize(params.answers);
-    let responseId = await computeResponseId({
-      talkId: params.talkId,
-      responderId: this.currentUser.id,
-      responseContentJson,
-    });
-    const submittedAt = new Date().toISOString();
-
-    // Step 9: monotonic version bump (REQ-LEDGER-04). The core commits each answer against my
-    // last answer to that author's Talk (`response.commit`, `ix/responded`); the primary author's
-    // commit sets these.
-    let isContentChange = false;
-    let newVersion = 1;
-
-    const skipE2eLocalOnlyReject =
-      process.env.DISABLE_HMR === 'true' &&
-      params.talkData?.e2eLocalOnlyReject === true &&
-      !isMatch;
-
-    // Helper: send mesh+mailbox to a single target authorId
-    const deliveries: Promise<void>[] = [];
-    const sendToAuthor = async (
-      targetAuthorId: string,
-      targetAuthorName: string,
-      targetEpub?: string,
-      targetTalkId = params.talkId,
-    ): Promise<void> => {
-      // Change-of-mind fanout can include every prior sender of identical content.
-      // Re-check each target so a historic stranger edge cannot bypass the current
-      // contacts-only preference through that secondary delivery path.
-      if (!talkContactPolicyAllowsPeer(
-        targetAuthorId,
-        getTalkIntakeFilters(),
-        this.currentUser?.knownPeople,
-        this.roomTravelerIds,
-      )) return;
-      const authorEpub = targetEpub ?? firstKeyHint(
-        targetAuthorId === params.authorId ? params.talkData?.authorEpub : undefined,
-        targetAuthorId === params.authorId ? params.talkData?.senderEpub : undefined,
-      );
-      let payloadCiphertext: string;
-      try {
-        payloadCiphertext = await this.encryptPairTalkResponsePayload(targetAuthorId, {
-          responderName: this.currentUser!.stageName,
-          authorName: targetAuthorName,
-          answers: params.answers,
-          isChatbotResponse: params.isChatbotResponse,
-          transportMode: 'mesh-p2p',
-        }, authorEpub);
-      } catch (err) {
-        console.warn(`[Step9] Failed to encrypt response for ${targetAuthorId}:`, err);
-        return;
-      }
-      const committed = await this.coreRequest!({ name: 'response.commit', input: {
-        talkId: targetTalkId, talkData: params.talkData, answers: params.answers,
-        authorId: targetAuthorId, authorName: targetAuthorName, authorEpub,
-        responderId: this.currentUser!.id, responderEpub: this.gunService.getStoredPair()?.epub,
-        payloadCiphertext, submittedAt,
-        selfTag: await this.resolveResponderSelfTagForAnswers(params.talkData, params.answers),
-      } });
-      const meshPayload = committed.payload;
-      const targetResponseId = meshPayload.responseId;
-      const targetVersion = meshPayload.version!;
-      if (targetAuthorId === params.authorId) {
-        responseId = targetResponseId;
-        newVersion = targetVersion;
-        isContentChange = committed.isContentChange;
-      }
-      // The send waits for the link to the author (up to the 10 s WebRTC connect). My own exchange
-      // record does not: it is written once every commit is done, while the sends go on, and the
-      // caller still waits for them below (OPEN-111 c: the answer's 📍 place link showed ~12 s late).
-      deliveries.push((async () => {
-        // OPEN-106: an answer is an answer event in our pair log, read by the author when connected.
-        // There is no response frame or mailbox: a Talk that did not come over a graph link cannot be
-        // answered (every Talk does since the Talk frames were removed).
-        if (!this.graphLinks?.isRunning()) await this.startGraphLinks();
-        // Sent to the core even when the links are not running: the core keeps an answer it could
-        // not send yet in its outbox and sends it once an identity or link arrives (OPEN-96 a).
-        const sent = this.coreRequest
-          ? await this.coreRequest({
-            name: 'graph.answer', talkId: targetTalkId, authorId: targetAuthorId,
-            answers: params.answers.map((a: any) => ({ questionId: String(a.questionId), answerId: String(a.answerId) })),
-            mode: params.isChatbotResponse ? 'chatbot' : 'manual',
-            context: {
-              responderName: this.currentUser!.stageName, isChatbotResponse: params.isChatbotResponse,
-              responseId: targetResponseId, version: targetVersion, submittedAt: meshPayload.submittedAt, respondedAt: meshPayload.respondedAt,
-            },
-          }).then((result) => {
-            if (!result.sent) console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: ${result.reason ?? 'unknown'}`);
-            return result.sent;
-          }).catch((error) => { console.warn('[graph-link] answer failed:', error); return false; })
-          : (console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} not sent: no device core`), false);
-        if (sent) {
-          this.uiManager.showExchangeActivity('outgoing', [targetAuthorId]);
-          await this.coreDelivery({ name: 'delivery.record', input: {
-            objectId: targetResponseId,
-            recipientId: targetAuthorId,
-            objectKind: 'talk-response',
-            state: 'sent',
-          } });
-        }
-        console.log(`[RESP-SEND] talk=${targetTalkId.slice(-8)} to=${targetAuthorId.slice(0, 8)} v=${targetVersion} graph=${sent}`);
-      })().catch((error) => console.warn(`[graph-link] answer to ${targetAuthorId.slice(0, 8)} failed:`, error)));
-    };
-
-    if (!skipE2eLocalOnlyReject) {
-      // Step 10: a Talk its author deleted is not answered (dead inbox).
-      const deleted = async (talkId: string) => this.coreRequest
-        ? (await this.coreRequest({ name: 'graph.deletedAt', talkId }).catch(() => null)) !== null
-        : false;
-      if (await deleted(params.talkId)) {
-        console.debug(`[Step10] Skipping response send — talk ${params.talkId} retracted by ${params.authorId}`);
-      } else {
-        // Send to the primary author
-        await sendToAuthor(params.authorId, params.authorName);
-      }
-
-      // Step 9.1: change-of-mind fanout — a different answer than last time also goes to everyone
-      // else who sent me this content (the other senders on its incoming row).
-      if (isContentChange) {
-        for (const sender of this.otherSendersOf(params.talkId, params.authorId)) {
-          if (await deleted(sender.talkId)) {
-            console.debug(`[Step10] Skipping fanout to retracted-talk sender ${sender.senderId}`);
-            continue;
-          }
-          console.log(`[Step9] Change-of-mind fanout to additional sender ${sender.senderId}`);
-          try {
-            await sendToAuthor(sender.senderId, sender.senderName || 'Unknown', undefined, sender.talkId);
-          } catch (err) {
-            console.warn(`[Step9] Fanout to ${sender.senderId} failed:`, err);
-          }
-        }
-      }
-    }
-    void refreshExchangeState();
-
-    // Step 7: client-side stats POST removed (server route dies in phase B).
-    this.ledgerEmit(InteractionKind.TALK_ANSWERED, {
-      talkId: params.talkId,
-      responseId,
-      outcome: isMatch ? 'match' : isIgnore ? 'ignore' : 'mismatch',
-    });
-
-    this.recordLocalTalkExchange(
-      params.authorId,
-      params.authorName,
-      params.localTalkId ?? this.answeredRowFor(params.talkData) ?? params.talkId,
-      params.talkData,
-      isMatch ? 'match' : 'mismatch',
-      {
-        responseId,
-        version: newVersion,
-        respondedAt: submittedAt,
-        answers: params.answers,
-        direction: 'received',
-      },
-    );
-    // The commits are written: the next answer need not wait for this one's sends (each waits for
-    // the link to the author) or its conversation (OPEN-120: ~10 s an answer on a busy phone).
-    params.releaseLine?.();
-    await Promise.all(deliveries);
-    void refreshExchangeState();
-
-    if (!isMatch) return;
-    const conversationId = await this.conversationService.createConversation({
-      userId1: this.currentUser.id,
-      userName1: this.currentUser.stageName,
-      userId2: params.authorId,
-      userName2: params.authorName,
-      talkId: params.talkId,
-      respondedByBotForUser1: false,
-      respondedByBotForUser2: params.isChatbotResponse,
-      dealEligible: isDealEligibleTalk(params.talkData),
-      ...matchScoreParamsFor(params.talkData, params.answers),
-    });
-    this.recordConversationNeedKey(conversationId, params.talkData);
-    // docs/TODO.md §JJ residual gap: on THIS (responder) side of the match, params.talkData is
-    // the OTHER side's talk, not mine — recordMyDealTalkForConversation needs my own talkId,
-    // resolved from chatbot memory rather than known directly the way the author-side call
-    // sites above already know it from payload.talkId.
-    // Only a deal's match records which listing of mine it came through (the lookup walks every
-    // Talk of mine, so it is not made for the others).
-    const responderSourceTalkId = isDealEligibleTalk(params.talkData)
-      ? await this.resolveResponderSourceTalkIdForAnswers(params.talkData, params.answers)
-      : undefined;
-    if (responderSourceTalkId) {
-      this.recordMyDealTalkForConversation(conversationId, responderSourceTalkId, params.talkData);
-    }
-    this.uiManager.maybeShowMatchSafetyToast();
-    this.uiManager.addNewConversation({
-      conversationId,
-      otherUserId: params.authorId,
-      otherUserName: params.authorName,
-      talkId: params.talkId,
-      respondedByBot: false,
-      transportMode: this.conversationService.getTransportMode(),
-      dealEligible: isDealEligibleTalk(params.talkData),
-      ...matchScoreParamsFor(params.talkData, params.answers),
-    });
-    this.uiManager.setMemberMatched(params.authorId);
-    this.ledgerEmit(InteractionKind.MATCH_CREATED, {
-      talkId: params.talkId,
-      conversationId,
-      otherUserId: params.authorId,
-    });
-    // No auto-withdraw here — a match doesn't close the listing anymore; only a mutually
-    // confirmed Deal does (see the deal-confirmation flow).
+    await this.responseSubmitEffects.submit(params);
   }
 
   /**
